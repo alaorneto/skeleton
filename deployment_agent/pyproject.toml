@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools==82.0.1", "wheel==0.46.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skeleton-deployment-agent"
+version = "0.1.0"
+description = "Independent operator-owned signed-release control plane"
+requires-python = ">=3.12,<3.15"
+dependencies = ["django-skeleton==0.1.0", "packaging==26.3", "cryptography==50.0.2"]
+
+[project.scripts]
+skeleton-deployment-agent = "deployment_agent.__main__:main"
+
+[tool.setuptools]
+packages = ["deployment_agent"]
+package-dir = {deployment_agent = "."}

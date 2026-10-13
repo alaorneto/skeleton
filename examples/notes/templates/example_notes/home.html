@@ -1,0 +1,1 @@
+{% extends 'skeleton/web/base.html' %}{% block content %}<h1>{{ heading }}</h1><p>Registros legíveis: {{ count }}</p><a href="{% url 'web:records' organization_id 'example_notes.note' %}">Abrir anotações</a>{% if can_manage_applications %}<p><a href="{% url 'application-configuration' organization_id 'example_notes' %}">Administrar esta app</a></p>{% endif %}{% endblock %}

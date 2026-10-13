@@ -1,0 +1,1 @@
+{% extends "account/base_entrance.html" %}{% block content %}<h1>Criar conta</h1><p>O cadastro requer convite, salvo quando habilitado pela plataforma.</p><form method="post" action="{% url 'account_signup' %}">{% csrf_token %}{{ form.as_p }}{{ redirect_field }}<button type="submit">Criar conta</button></form>{% endblock %}

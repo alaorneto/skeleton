@@ -1,0 +1,21 @@
+{% extends "account/base_entrance.html" %}
+{% load socialaccount %}
+{% block content %}
+<h1>Entrar</h1>
+<form method="post" action="{% url 'account_login' %}">
+  {% csrf_token %}{{ form.as_p }}{{ redirect_field }}
+  <button type="submit">Entrar</button>
+</form>
+<p><a href="{% url 'account_reset_password' %}">Esqueci minha senha</a></p>
+{% get_providers as socialaccount_providers %}
+{% for provider in socialaccount_providers %}
+<form method="post" action="{% provider_login_url provider process='login' %}">
+  {% csrf_token %}
+  {% if provider.is_govbr %}
+  <button type="submit" class="br-sign-in govbr-sign-in" aria-label="Entrar com GOV.BR">Entrar com <strong>GOV.BR</strong></button>
+  {% else %}
+  <button type="submit">Entrar com {{ provider.name }}</button>
+  {% endif %}
+</form>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,85 @@
+services:
+  postgres:
+    image: postgres:16.15
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-skeleton}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define a private PostgreSQL administrator password}
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: redis:8.8.3
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Define a private Redis password}"]
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define a private Redis password}
+  web:
+    build: .
+    image: ${SKELETON_IMAGE:-django-skeleton:local}
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.production
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Define a private Django secret}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Define explicit hosts}
+      DATABASE_URL: ${DATABASE_URL:?Use skeleton_runtime credentials}
+      CACHE_URL: ${CACHE_URL:?Define authenticated Redis URL}
+      EMAIL_URL: ${EMAIL_URL:?Define SMTP URL}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:?Define sender address}
+      MFA_ENCRYPTION_KEYS: ${MFA_ENCRYPTION_KEYS:?Define independent Fernet keys}
+      SKELETON_REQUIRE_ADMIN_MFA: "true"
+      DJANGO_TRUST_PROXY: ${DJANGO_TRUST_PROXY:-false}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_TRUSTED_PROXY_COUNT: ${DJANGO_TRUSTED_PROXY_COUNT:-0}
+      DJANGO_TRUSTED_CLIENT_IP_HEADER: ${DJANGO_TRUSTED_CLIENT_IP_HEADER:-}
+      DJANGO_HEALTH_HOST: ${DJANGO_HEALTH_HOST:?Define a health host included in DJANGO_ALLOWED_HOSTS}
+      SKELETON_JSON_MAX_BYTES: ${SKELETON_JSON_MAX_BYTES:-1048576}
+      SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
+      SKELETON_MAINTENANCE_MARKER: /run/skeleton/release/maintenance
+      SKELETON_AGENT_SOCKET: ${SKELETON_AGENT_SOCKET:-}
+      SKELETON_AGENT_TOKEN_FILE: ${SKELETON_AGENT_TOKEN_FILE:-}
+      SKELETON_PACKAGE_MAX_BYTES: ${SKELETON_PACKAGE_MAX_BYTES:-134217728}
+    volumes:
+      - ${SKELETON_RELEASE_METADATA_DIR:-./deploy/runtime}:/run/skeleton/release:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request; request=urllib.request.Request('http://127.0.0.1:8000/health/live/', headers={'Host': os.environ['DJANGO_HEALTH_HOST']}); urllib.request.urlopen(request, timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  migrator:
+    image: ${SKELETON_IMAGE:-django-skeleton:local}
+    build: .
+    profiles: ["migration"]
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.migrate
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
+      SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
+    volumes:
+      - ${SKELETON_RELEASE_METADATA_DIR:-./deploy/runtime}:/run/skeleton/release:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    profiles: ["integrations"]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: fixture-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Define disposable Keycloak admin password}
+      KC_HOSTNAME: http://127.0.0.1:8080
+    ports: ["127.0.0.1:8080:8080"]
+    volumes: ["./tests/sso:/opt/keycloak/data/import:ro"]
+volumes:
+  postgres_data:

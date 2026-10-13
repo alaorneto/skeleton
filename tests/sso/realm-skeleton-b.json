@@ -1,0 +1,182 @@
+{
+  "realm": "skeleton-b",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": true,
+  "roles": {
+    "realm": [
+      {
+        "name": "promotion-claim"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "oidc-b",
+      "enabled": true,
+      "email": "oidc-b@example.test",
+      "emailVerified": true,
+      "firstName": "Fixture",
+      "lastName": "B",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fixture-only-password-2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "promotion-claim"
+      ]
+    },
+    {
+      "username": "saml-b",
+      "enabled": true,
+      "email": "saml-b@example.test",
+      "emailVerified": true,
+      "firstName": "Fixture",
+      "lastName": "B",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fixture-only-password-2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "promotion-claim"
+      ]
+    },
+    {
+      "username": "collision-b",
+      "enabled": true,
+      "email": "collision-b@example.test",
+      "emailVerified": true,
+      "firstName": "Fixture",
+      "lastName": "B",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fixture-only-password-2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "promotion-claim"
+      ]
+    },
+    {
+      "username": "unverified-b",
+      "enabled": true,
+      "email": "unverified-b@example.test",
+      "emailVerified": false,
+      "firstName": "Fixture",
+      "lastName": "B",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fixture-only-password-2026!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "promotion-claim"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "oidc-b",
+      "name": "oidc-b",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "fixture-only-oidc-secret-b",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:8000/accounts/oidc/oidc-b/login/callback/"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:8000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles"
+      ],
+      "protocolMappers": [
+        {
+          "name": "promotion-attempt",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "config": {
+            "claim.name": "is_superuser",
+            "claim.value": "true",
+            "jsonType.label": "boolean",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "http://127.0.0.1:8000/accounts/saml/saml-b/metadata/",
+      "name": "saml-b",
+      "enabled": true,
+      "protocol": "saml",
+      "redirectUris": [
+        "http://127.0.0.1:8000/accounts/saml/saml-b/acs/"
+      ],
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://127.0.0.1:8000/accounts/saml/saml-b/acs/",
+        "saml_single_logout_service_url_post": "http://127.0.0.1:8000/accounts/saml/saml-b/sls/",
+        "saml.server.signature": "true",
+        "saml.assertion.signature": "true",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.client.signature": "false",
+        "saml.force.post.binding": "true",
+        "saml_name_id_format": "persistent",
+        "saml.force.name.id.format": "true",
+        "saml.authnstatement": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "email",
+            "attribute.name": "email",
+            "attribute.nameformat": "Basic"
+          }
+        },
+        {
+          "name": "first_name",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "firstName",
+            "attribute.name": "first_name",
+            "attribute.nameformat": "Basic"
+          }
+        },
+        {
+          "name": "last_name",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "lastName",
+            "attribute.name": "last_name",
+            "attribute.nameformat": "Basic"
+          }
+        }
+      ]
+    }
+  ]
+}

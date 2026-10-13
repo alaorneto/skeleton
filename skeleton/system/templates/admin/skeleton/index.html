@@ -1,0 +1,5 @@
+{% extends "admin/index.html" %}
+{% block content %}
+<div class="module"><h2>Deployment</h2><p><a href="{% url 'admin:skeleton_releases' %}">Versões do skeleton, apps, pacotes e atualizações</a></p></div>
+{{ block.super }}
+{% endblock %}

@@ -1,0 +1,17 @@
+{
+  "django_migrations": "Histórico técnico do executor de migrations Django; chave inteira e lifecycle do framework.",
+  "django_content_type": "Registro técnico de tipos de modelo Django; chave inteira do framework.",
+  "auth_permission": "Permissões técnicas Django, não RBAC empresarial; chave inteira do framework.",
+  "auth_group": "Grupos técnicos Django sem relação com User próprio; não expostos como grupos empresariais.",
+  "auth_group_permissions": "Through técnico Django auth.Group/Permission; lifecycle do framework.",
+  "django_admin_log": "Log técnico do admin; payload não auditado genericamente para evitar duplicação e segredos.",
+  "django_session": "Sessões opacas do Django; expiração e invalidação pelo framework, nunca snapshots de payload.",
+  "django_site": "Sites técnicos usados pelas bibliotecas de identidade; chave inteira do framework.",
+  "account_emailaddress": "Endereços e verificação allauth; protocolo e lifecycle da biblioteca, sem soft delete genérico.",
+  "account_emailconfirmation": "Provas técnicas de confirmação allauth; tokens nunca auditados genericamente.",
+  "socialaccount_socialaccount": "Subjects e vínculo de identidade social allauth; claims não recebem snapshots genéricos.",
+  "socialaccount_socialapp": "Configuração técnica allauth; segredos administrados fora do catálogo empresarial.",
+  "socialaccount_socialapp_sites": "Through técnico de aplicação social/site allauth; não vínculo empresarial.",
+  "socialaccount_socialtoken": "Tokens técnicos allauth; armazenamento desabilitado e nunca auditado genericamente.",
+  "mfa_authenticator": "Autenticadores allauth MFA cifrados; lifecycle próprio, nunca snapshots de segredos."
+}

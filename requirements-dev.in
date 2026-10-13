@@ -1,0 +1,8 @@
+-r requirements.in
+pip-tools
+pytest
+pytest-django
+pytest-playwright
+build
+setuptools>=77,<83
+wheel>=0.45,<1

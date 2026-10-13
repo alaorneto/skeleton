@@ -1,0 +1,234 @@
+# Criar um projeto e adicionar negócio
+
+## Copiar o template sem renomear o núcleo
+
+Use a função Git template do seu provedor ou clone/cópia versionada. Não copie .env, .venv, bancos, .private, cookies ou chaves de fixture.
+
+```sh
+git clone "$TEMPLATE_REPO" meu-projeto
+```
+
+Configure identidade visual/nomes do projeto, env privado, hosts/remetente/IdPs e secrets. Preserve módulos `skeleton`, app labels e AUTH_USER_MODEL. Apps próprias entram em `PROJECT_APPS` de `config/settings/project.py`; rotas do projeto em `config/urls_project.py`. Não edite núcleo para cada negócio; núcleo nunca importa applications/examples.
+
+```python
+# config/settings/project.py
+PROJECT_APPS = ["applications.tasks.apps.TasksConfig"]
+```
+
+Crie AppConfig com name=`applications.tasks` e label único (`project_tasks`, por exemplo), não reutilize label do núcleo/exemplo. Registre metadados em ready sem consultas. URLs e jobs chamam serviços autorizados, não managers internos.
+
+### Manifest, ativação e superfícies próprias
+
+Cada app própria carrega seu `manifest.json` canônico com `AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self)` e registra o resultado em `AppConfig.ready()`, separado de seus `TableSpec`. O contrato declara ID estável, versão, publisher, label/package, intervalos de compatibilidade e dependências **por app ID com intervalo de versão**. O runtime serializável fornece configuração escalar, navegação, módulos de URLs/API, política de habilitação e documentação. `ConfigField`/`MenuEntry` continuam as representações de runtime; não mantenha outra string de versão ou manifesto manual paralelo. Registro é metadata pura: sem consulta, instalação ou DDL. Dependências devem estar instaladas, compatíveis e acíclicas.
+
+As rotas declaradas são incluídas antes dos gateways, exclusivamente sob `/o/<org>/apps/<app_label>/` e `/api/v1/o/<org>/apps/<app_label>/`. Views usam `tenant_page`/`TenantAPI` e serviços autorizados; esses prefixes recebem contexto tenant validado. `config.urls_project` também precede os gateways para não capturar rotas do projeto. Não crie rotas organizacionais fora deste contrato.
+
+`/o/<org>/apps/` administra o inventário/ativação/configuração e apresenta a versão declarada. Estado é `AppInstallation`, UUID/OrganizationRecord com infraestrutura de migration e auditoria. Configuração JSON é redigida integralmente; segredos são deployment, não configuração tenant. Ausência de linha usa `default_enabled`, preservando apps instaladas no upgrade. A API de configuração exige `If-Match` (revisão virtual `"0"` na primeira escrita); concorrência/dependências são serializadas por Organization. Só organization_admin configura. Desativação bloqueia endpoints próprios e gateway/policies, remove menu, mas preserva registros, IDs e ACL. Ativar não concede TablePermission. Instalação/atualização/retirada global de código são solicitadas pela plataforma em `/admin/system/releases/` e executadas pelo agente separado; remoção de dados/schema permanece exclusivamente offline revisada.
+
+O site padrão Django agora é `PlatformAdminSite`: registros convencionais `@admin.register` são descobertos no mesmo `/admin/` seguro. Não registre negócio tenant no admin global; use administração tenant autorizada. O exemplo Notes fornece página própria, sumário API, menu e configuração `heading`, além do gateway.
+
+### Documentação obrigatória por app
+
+`documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
+
+### Publicar apps e releases assinados
+
+Os utilitários funcionam tanto por `manage.py package` quanto sem settings/Django inicializado por `.venv/bin/python -m skeleton.system.packages`. O agente externo usa as mesmas funções puras de validação; nunca importa código de um upload antes de verificar assinatura, inventário e hashes. Assinatura controla procedência, **não** transforma Python/migrations em sandbox: aprove somente publishers que podem executar código privilegiado.
+
+Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e no namespace gerenciado `applications.<package_name>`. O `app_config` e os módulos declarados no JSON são sempre gerenciados (`applications.tasks.apps.TasksConfig`, `applications.tasks.urls`); o loader adapta módulos ao AppConfig local e valida identidade. Templates/static ficam em `templates/<app_label>/` e `static/<app_label>/`; a app não escreve em config, settings ou arquivos de outra app. Versione `spec.md` e `adr.md` com as seções obrigatórias acima e mantenha todas as migrations históricas.
+
+```sh
+# Chaves ficam FORA da app e do Git; a privada é criada com modo 0600.
+.venv/bin/python -m skeleton.system.packages keygen \
+  --private-key /private/publisher.pem --public-key /private/publisher.pub.pem
+.venv/bin/python manage.py package init \
+  --output applications/tasks/manifest.json --app-id com.example.tasks \
+  --app-label project_tasks --package-name tasks --publisher example-publisher \
+  --app-config-class TasksConfig --version 0.1.0
+# Edite o JSON canônico: nome/descrição, compatibilidade, runtime e folhas de migrations.
+.venv/bin/python manage.py package validate-manifest applications/tasks/manifest.json
+.venv/bin/python manage.py package build \
+  --app-root applications/tasks --manifest applications/tasks/manifest.json \
+  --output /private/artifacts/tasks-0.1.0.skapp --private-key /private/publisher.pem
+.venv/bin/python manage.py package validate /private/artifacts/tasks-0.1.0.skapp \
+  --trust-store /private/trusted-publishers.json
+.venv/bin/python manage.py package inspect /private/artifacts/tasks-0.1.0.skapp \
+  --trust-store /private/trusted-publishers.json
+.venv/bin/python manage.py package versions --manifest applications/tasks/manifest.json
+```
+
+O trust store é JSON administrado pelo operador, por exemplo `{"example-publisher": "/private/publisher.pub.pem"}`. A chave do mapa é o `publisher` do manifesto; valores aceitam PEM público literal, caminho PEM ou `{"public_key": "/private/publisher.pub.pem", "publisher": "example-publisher"}`. Caminhos relativos do CLI são relativos ao arquivo de configuração. A API também aceita objetos `Ed25519PublicKey`. Chaves públicas trazidas pelo pacote nunca são âncoras de confiança. Revogação/rotação é uma alteração explícita desse arquivo privado. `inspect` sem trust store mostra `"trusted": false`, mesmo quando hashes são íntegros.
+
+Build gera o inventário completo, excluindo somente o próprio manifesto e caches/artefatos de build conhecidos; recusa symlinks, secrets/private keys, output dentro da app, namespaces reservados, docs incompletos e dependências não inventariadas. O ZIP tem exatamente `manifest.json`, `manifest.sig`, `app/` e wheels opcionais. Assinatura Ed25519 cobre os bytes canônicos exatos do manifesto; SHA-256/tamanhos cobrem todos os payloads. Validação recusa membros extras/duplicados, colisões normalizadas, travessia, links/dispositivos, arquivos/diretórios conflitantes e limites de ZIP (512 MiB comprimido, 1 GiB expandido, 256 MiB por arquivo, 4096 membros, expansão máxima 200:1).
+
+Declare dependências Python em `python_dependencies` como `{"name": "distribution", "version": "1.2.3", "wheel": "wheels/distribution-1.2.3-py3-none-any.whl", "sha256": "<SHA256>", "marker": "python_version >= '3.12'"}`; marker é opcional. Forneça cada wheel com `build --wheel /private/wheelhouse/distribution-1.2.3-py3-none-any.whl`. Build recalcula SHA-256; valida identidade/versão do METADATA e namespace de cada wheel. Não aceita sdists, wheels `.data` ou arquivos que se apropriem de core/config/applications. O ambiente novo instala wheels pelo lock final aprovado, nunca dentro do diretório da app.
+
+Versões de componentes exigem major.minor.patch; versões de distribuições Python e markers seguem PEP 440, inclusive duas partes como `8.2`/`python_version="3.14"`. O wheelhouse completo do ambiente tem limite agregado separado de 65536 membros e 1 GiB expandido; não recebe indevidamente o limite de um artefato isolado. Apps `project-local` continuam em `PROJECT_APPS`; manifesto e caminho carregados precisam coincidir com seu inventário, ou o startup falha fechado. Elas não são sobrescritas por um pacote com nome coincidente.
+
+Extração offline exige raiz nova e separada: `package extract ARTIFACT --trust-store TRUST --destination /staging/applications/tasks --wheels-destination /staging/app-wheels`. Não faz merge/overwrite e revalida o artefato antes da cópia. `extract_package(verified, destination, wheels_destination=...)` retorna os roots criados; copia o contrato canônico e assinatura para a app como metadados gerados pelo instalador. Artefatos core têm apenas wheels e usam `destination=None` na API (omita `--destination` no CLI). O core wheel somente pode possuir `skeleton/` e seu `.dist-info`; atualização não substitui arquivos do projeto derivado.
+
+```sh
+# Reassinar app/core existente: inspeção completa antes da nova assinatura,
+# output novo obrigatório; aprovação da procedência é decisão do operador.
+.venv/bin/python manage.py package sign /private/artifacts/tasks-0.1.0.skapp \
+  --output /private/artifacts/tasks-approved.skapp --private-key /private/publisher.pem
+# Publicação estática; geração monotônica e expiração são obrigatórias.
+.venv/bin/python manage.py package index /private/artifacts/tasks-approved.skapp \
+  --output /private/index.json --private-key /private/publisher.pem \
+  --trust-store /private/trusted-publishers.json --publisher example-publisher \
+  --generation 1 --expires-at 2027-01-01T00:00:00Z --channel stable \
+  --artifact-base https://releases.example.test/apps/
+.venv/bin/python manage.py package validate-index /private/index.json \
+  --trust-store /private/trusted-publishers.json --minimum-generation 1 --channel stable
+```
+
+O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON canônico do corpo. Entradas contêm componente, tipo, versão, canal, compatibilidade, referência HTTPS/relativa ao artefato, SHA-256 do ZIP, assinatura do manifesto, publisher, notas e migrations. Índices expirados, adulterados e gerações abaixo da última confirmada são rejeitados; canais são allowlist do operador. O agente só consulta fontes previamente autorizadas, não URLs fornecidas pelo upload. `versions` distingue metadata da distribuição instalada de checkout (`origin: source`) e manifests locais (`project-local`); um arquivo JSON isolado nunca prova release instalado.
+
+O exemplo pode ser publicado de verdade com `package build --app-root examples/notes --manifest examples/notes/manifest.json --output /private/notes.skapp --private-key /private/publisher.pem`; autorize o publisher `skeleton-examples` no trust store correspondente. Ativação/configuração tenant permanece independente da instalação física global.
+
+
+
+## Exemplo completo existente: Note
+
+Ative somente se desejado:
+
+```sh
+export SKELETON_ENABLE_EXAMPLE_APP=true
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py sync_table_catalog
+.venv/bin/python manage.py check_skeleton_schema
+```
+
+O exemplo fica em `examples/notes`, app label `example_notes`; pode permanecer desabilitado num projeto real. Não coloque seu módulo de negócio nesse namespace.
+
+### Modelo
+
+O modelo existente usa herança abstrata; metadata, tenant/access fields são colunas da tabela Note, não tabela-pai:
+
+```python
+from django.core.validators import MaxLengthValidator
+from django.db import models
+from django.db.models import Q
+from skeleton.common.models import SecuredRecord
+
+class Note(SecuredRecord):
+    code = models.CharField(max_length=64)
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, validators=[MaxLengthValidator(10000)])
+
+    class Meta(SecuredRecord.Meta):
+        constraints = SecuredRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "code"),
+                condition=Q(deleted_at__isnull=True),
+                name="example_notes_note_live_code",
+            ),
+        ]
+        ordering = ("created_at", "sysid")
+```
+
+Body pode ser vazio e tem limite de 10000 caracteres. É dado de negócio sensível: pode ser lido por usuário autorizado, mas a auditoria substitui seu conteúdo por `[REDACTED]`, mantendo o indicador de alteração. Tombstone libera o code para novo registro; restore conflitante retorna conflito, não sobrescreve.
+
+### Spec allowlist
+
+`NotesConfig.ready` registra:
+
+```python
+from skeleton.system.registry import TableSpec, register
+from .models import Note
+
+register(TableSpec(
+    model=Note,
+    description="Anotações de demonstração do contrato de registros",
+    label="Anotações",
+    scope="organization",
+    read_fields=("code", "title", "body", "owner", "visibility", "owning_group"),
+    write_fields=("code", "title", "body"),
+    sensitive_fields=("body",),
+    expose_api=True,
+))
+```
+
+A allowlist inclui somente campos concretos; sem eval/nested arbitrary path. Read owner/group é UUID, não perfil/grupo privado serializado. Owner/visibility/owning_group não entram em write_fields: só endpoint/serviço de manage_access. Campos sistêmicos são read-only automáticos. Expose_api não concede permissão; TablePermission continua obrigatória.
+
+### Migration de segurança
+
+`examples/notes/migrations/0001_initial.py` cria o modelo e depois instala infraestrutura no mesmo arquivo; depende de `("sk_audit", "0002_record_infrastructure")`. O gerador Django cria campos herdados/constraints/managers históricos; não omita os constraints da base. Operação relevante:
+
+```python
+from skeleton.common.migration_operations import InstallRecordInfrastructure
+
+InstallRecordInfrastructure(
+    "example_notes", "note",
+    {
+        "scope": "organization",
+        "sensitive_fields": ["body"],
+        "columns": [
+            {"name": "sysid", "type": "UUIDField", "sensitive": False},
+            {"name": "created_at", "type": "DateTimeField", "sensitive": False},
+            {"name": "updated_at", "type": "DateTimeField", "sensitive": False},
+            {"name": "created_by", "type": "UUIDField", "sensitive": False},
+            {"name": "updated_by", "type": "UUIDField", "sensitive": False},
+            {"name": "deleted_by", "type": "UUIDField", "sensitive": False},
+            {"name": "deleted_at", "type": "DateTimeField", "sensitive": False},
+            {"name": "revision", "type": "PositiveBigIntegerField", "sensitive": False},
+            {"name": "organization_id", "type": "UUIDField", "sensitive": False},
+            {"name": "owner_id", "type": "UUIDField", "sensitive": False},
+            {"name": "owning_group_id", "type": "UUIDField", "sensitive": False},
+            {"name": "visibility", "type": "CharField", "sensitive": False},
+            {"name": "code", "type": "CharField", "sensitive": False},
+            {"name": "title", "type": "CharField", "sensitive": False},
+            {"name": "body", "type": "TextField", "sensitive": True},
+        ],
+    },
+)
+```
+
+Para app nova, rode makemigrations, revise o histórico e acrescente operação após CreateModel. Para alteração de coluna/relação auditável, adicione operação após alteração, com spec histórica congelada atualizada. O exemplo completo de migration já existe no caminho acima; a operação isolada não substitui CreateModel. Não use catálogo editável/import de modelo atual em migrations.
+
+## Permissões e fluxo HTML
+
+Bootstrap/sync reconcilia TablePermission de organization_admin para a tabela exposta. Member não recebe grants automaticamente. Em `/o/<org>/access/roles/` crie role e atribua read/create/update/delete/restore e, se desejado, manage_access/audit via table-permissions. Atribua MemberRole ou GroupRole + GroupMember. Tudo exige org admin e, em produção, MFA.
+
+1. Login real em `/accounts/login/`.
+2. Dashboard `/o/<org>/`; catálogo `/o/<org>/catalog/` fornece tabela disponível.
+3. Lista `/o/<org>/tables/example_notes.note/`.
+4. Criar `/o/<org>/tables/example_notes.note/new/` com code/title/body; CSRF, owner=ator, private.
+5. Detalhe `.../<sysid>/`; editar `.../<sysid>/edit/`, form com revision escondida.
+6. Acesso `.../<sysid>/access/`: owner/visibility/grupo só com manage_access + ownership/admin.
+7. Exclusão `.../<sysid>/delete/` e restore `.../<sysid>/restore/` via POST/revisão; GET não apaga. Tombstone não volta à lista viva.
+8. Audit `/o/<org>/audit/`: body redigido; contagem/lista autorizadas.
+
+Só botões permitidos aparecem, mas servidor revalida cada ação. Usuário comum que recebe visibilidade organization pode ler, não ganha escrita. Relacionamentos de novos apps exigem PROTECT + guard same-tenant e FK picker autorizado.
+
+## Fluxo API de ponta a ponta
+
+Use cookie/CSRF de login allauth real como em [api](api.md). Variáveis BASE/ORG/SESSION/CSRF são locais privadas. Exemplo com notas:
+
+```sh
+URL="$BASE/api/v1/o/$ORG/tables/example_notes.note/records"
+curl -i -b "sessionid=$SESSION; csrftoken=$CSRF" "$URL/"
+curl -i -X POST -b "sessionid=$SESSION; csrftoken=$CSRF" \
+  -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" -H 'Content-Type: application/json' \
+  --data '{"code":"tutorial","title":"Exemplo","body":"Não vai para audit"}' "$URL/"
+# NOTE é sysid devolvido; ETAG é o header atual incluindo aspas.
+curl -i -b "sessionid=$SESSION; csrftoken=$CSRF" "$URL/$NOTE/"
+curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
+  -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" -H "If-Match: $ETAG" \
+  -H 'Content-Type: application/json' --data '{"title":"Editado"}' "$URL/$NOTE/"
+# Releia ETAG antes de cada mutação seguinte.
+curl -i -X DELETE -b "sessionid=$SESSION; csrftoken=$CSRF" \
+  -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" -H "If-Match: $ETAG" "$URL/$NOTE/"
+# DELETE não devolve corpo; soft delete incrementa revision. Se ETAG antes era
+# "4", restore precisa "5", não o ETag stale do registro vivo.
+curl -i -X POST -b "sessionid=$SESSION; csrftoken=$CSRF" \
+  -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" -H 'If-Match: "5"' "$URL/$NOTE/restore/"
+```
+
+O `"5"` exemplifica a transição exata 4→5, não revisão fixa para qualquer nota. Grants/access podem também mudar revisão; não adivinhe num fluxo concorrente. Recarregue registro após restore. Alterar organização/owner no PATCH normal retorna erro; table_key físico/desconhecido não abre tabela.
+
+## Novas operações de negócio
+
+Serviço de negócio abre tenant_context, obtém authorized_queryset da ação, aplica validação e save/CAS. Nunca use all_objects/raw SQL para endpoint. Referências org→org precisam de infraestrutura DB e valide alvos vivos/legíveis. Links de negócio são tabelas UUID explícitas, não M2M implícito.
+
+Use o checklist de [AGENTS](../AGENTS.md) e [testing](testing.md). Mantenha testes de API pública, A/B/default deny, auditoria redigida, concorrência, referências e schema checks. Testes por inspeção de strings de source não provam esses contratos.

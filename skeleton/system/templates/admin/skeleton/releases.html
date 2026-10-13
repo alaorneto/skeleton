@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+{% block extrastyle %}{{ block.super }}<style>#content table{width:100%;table-layout:fixed}#content th,#content td,#content code{overflow-wrap:anywhere}</style>{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Administração</a> &rsaquo; Versões e pacotes</div>{% endblock %}
+{% block content %}
+{% if core %}<p>Core: <strong>{{ core.version }}</strong> — origem {{ core.origin }}</p>{% endif %}
+{% if inventory %}
+<p>Geração ativa: <strong>{{ inventory.generation }}</strong>. Core ativo: {{ inventory.core.version }} — origem {{ inventory.core.origin }}, publisher {{ inventory.core.publisher }}.</p>
+<p>Digest do core ativo: <code>{{ inventory.core.digest }}</code>.</p>
+{% if inventory.error %}<p class="errornote">Divergência operacional: {{ inventory.error }}. O inventário não comprova um deployment coerente.</p>{% endif %}
+<table><thead><tr><th>App</th><th>Versão</th><th>Estado</th><th>Digest</th></tr></thead><tbody>
+{% for entry in inventory.apps %}<tr><td>{{ entry.manifest.app_id }}</td><td>{{ entry.manifest.version }}</td><td>{{ entry.state }}</td><td><code>{{ entry.digest }}</code></td></tr>{% empty %}<tr><td colspan="4">Nenhuma app gerenciada.</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% if artifact %}<div class="module"><h2>Pacote verificado</h2><p>{{ artifact.manifest.name }} — {{ artifact.manifest.version }}</p><p>Digest: <code>{{ artifact.digest }}</code></p></div>{% endif %}
+<div class="module"><h2>Novas versões</h2>
+<form method="post" action="{% url 'admin:skeleton_releases' %}">{% csrf_token %}<input type="hidden" name="intent" value="check"><button type="submit">Verificar versões disponíveis</button></form>
+{% if updates %}
+<p>Consulta: {{ updates.checked_at }}</p>
+<ul>{% for source in updates.sources %}<li>{{ source.id }}: {{ source.state }}{% if source.error_code %} — {{ source.error_code }}{% endif %}</li>{% empty %}<li>Nenhuma fonte de releases configurada.</li>{% endfor %}</ul>
+<table><thead><tr><th>Componente</th><th>Versão</th><th>Situação</th><th>Notas</th><th>Ação</th></tr></thead><tbody>
+{% for release in updates.releases %}
+<tr><td>{{ release.component_id }}</td><td>{{ release.version }}</td><td>{{ release.state }}</td><td>{{ release.notes }}</td><td>
+{% if release.state == 'available' %}<form method="post" action="{% url 'admin:skeleton_release_fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ release.component_id }}"><input type="hidden" name="version" value="{{ release.version }}"><input type="hidden" name="source_id" value="{{ release.source_id }}"><button type="submit">Preparar atualização</button></form>{% endif %}
+</td></tr>
+{% empty %}<tr><td colspan="5">Nenhuma versão candidata nas fontes consultadas.</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+</div>
+<div class="module"><h2>Enviar pacote</h2>
+<p>O pacote deve ser assinado por um publisher autorizado. Esta interface não executa migrations; a operação será feita pelo agente separado.</p>
+<form method="post" enctype="multipart/form-data" action="{% url 'admin:skeleton_release_upload' %}">{% csrf_token %}{{ upload_form.as_p }}<button type="submit">Enviar e validar</button></form>
+</div>
+<div class="module"><h2>Preparar plano</h2>
+<form method="post" action="{% url 'admin:skeleton_release_preview' %}">{% csrf_token %}{{ plan_form.as_p }}<button type="submit">Visualizar impacto</button></form>
+<p>Desinstalar remove código e integrações ativas, preservando dados e migrations históricas. Não existe purge pelo admin.</p>
+</div>
+{% if components %}<div class="module"><h2>Inventário confirmado no banco</h2><table><thead><tr><th>Componente</th><th>Versão</th><th>Estado</th><th>Geração</th></tr></thead><tbody>{% for component in components %}<tr><td>{{ component.component_id }}</td><td>{{ component.version }}</td><td>{{ component.get_state_display }}</td><td>{{ component.generation }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<div class="module"><h2>Histórico de operações</h2><table><thead><tr><th>Operação</th><th>Solicitante</th><th>Data</th><th>Estado</th><th>Etapa</th><th>Geração de origem</th><th>Digest do plano</th></tr></thead><tbody>{% for operation in operations %}<tr><td><a href="{% url 'admin:skeleton_release_operation' operation.sysid %}">{{ operation.get_operation_display }}</a></td><td>{{ operation.created_by|default:"Sistema" }}</td><td>{{ operation.created_at }}</td><td>{{ operation.state }}</td><td>{{ operation.stage }}</td><td>{{ operation.expected_generation }}</td><td><code>{{ operation.plan_digest }}</code></td></tr>{% empty %}<tr><td colspan="7">Nenhuma operação registrada.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

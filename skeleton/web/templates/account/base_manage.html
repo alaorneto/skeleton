@@ -1,0 +1,3 @@
+{% extends "skeleton/web/base.html" %}
+{% block title %}{% block head_title %}Minha conta{% endblock %}{% endblock %}
+{% block content %}<nav><a href="{% url 'account_email' %}">Email</a> · <a href="{% url 'account_change_password' %}">Senha</a> · <a href="{% url 'mfa_index' %}">Autenticação em dois fatores</a></nav>{% endblock %}

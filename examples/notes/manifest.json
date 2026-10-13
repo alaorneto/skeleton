@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "kind": "app",
+  "app_id": "org.skeleton.example-notes",
+  "app_label": "example_notes",
+  "package_name": "notes",
+  "app_config": "applications.notes.apps.NotesConfig",
+  "name": "Anotações",
+  "description": "Anotações de demonstração do contrato de extensão",
+  "version": "0.1.0",
+  "publisher": "skeleton-examples",
+  "compatibility": {"skeleton": ">=0.1.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=5.2,<5.3"},
+  "dependencies": {},
+  "conflicts": {},
+  "runtime": {
+    "urls": "applications.notes.urls",
+    "api_urls": "applications.notes.api_urls",
+    "default_enabled": true,
+    "configuration_fields": [{"name": "heading", "type": "str", "default": "Anotações", "max_length": 200}],
+    "navigation": [{"label": "Anotações", "url_name": "example_notes:home", "table_key": "example_notes.note", "action": "read"}],
+    "documentation_root": "docs"
+  },
+  "migrations": {"leaves": ["0001_initial"], "from_versions": ">=0.0.0", "labels": ["example_notes"]},
+  "files": [],
+  "python_dependencies": [],
+  "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},
+  "release_notes": "Primeiro release do exemplo opt-in; dados preservados na retirada do código."
+}

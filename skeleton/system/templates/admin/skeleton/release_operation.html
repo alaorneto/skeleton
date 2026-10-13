@@ -1,0 +1,30 @@
+{% extends "admin/base_site.html" %}
+{% block extrastyle %}{{ block.super }}<style>.release-plan table{width:100%;table-layout:fixed}.release-plan th,.release-plan td{overflow-wrap:anywhere}.release-plan{overflow-x:auto}</style>{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Administração</a> &rsaquo; <a href="{% url 'admin:skeleton_releases' %}">Versões e pacotes</a> &rsaquo; Operação</div>{% endblock %}
+{% block content %}
+<h1>{{ operation.get_operation_display }}</h1>
+<p>ID: <code>{{ operation.sysid }}</code></p>
+<p>Estado: <strong>{{ operation.state }}</strong>; etapa: {{ operation.stage }}. Geração de origem: {{ operation.expected_generation }}.</p>
+<p>Solicitante: {{ operation.created_by|default:"Sistema" }}. Criada em {{ operation.created_at }}; atualizada em {{ operation.updated_at }}.</p>
+{% if operation.error_code %}<p class="errornote">{{ operation.error_code }}</p>{% endif %}
+<div class="module release-plan"><h2>Plano aprovado por digest</h2><p><code>{{ operation.plan_digest }}</code></p>
+<h3>Componentes</h3>
+<table><thead><tr><th>Componente</th><th>Versão de destino</th><th>Publisher</th></tr></thead><tbody>{% for component in operation.plan.components %}<tr><td>{{ component.component_id }}</td><td>{{ component.version }}</td><td>{{ component.publisher }}</td></tr>{% endfor %}</tbody></table>
+<h3>Arquivos e integrações</h3>
+<table><thead><tr><th>Ação</th><th>Proprietário</th><th>Arquivo/recurso</th><th>Hash anterior</th><th>Hash novo</th></tr></thead><tbody>{% for file in operation.plan.files %}<tr><td>{{ file.action }}</td><td>{{ file.owner }}</td><td style="overflow-wrap:anywhere">{{ file.path }}</td><td><code>{{ file.before|default:"—" }}</code></td><td><code>{{ file.after|default:"—" }}</code></td></tr>{% empty %}<tr><td colspan="5">Sem alterações de arquivos.</td></tr>{% endfor %}</tbody></table>
+<h3>Recursos compartilhados</h3>
+<table><thead><tr><th>Ação</th><th>Proprietário</th><th>Recurso</th><th>Antes</th><th>Depois</th></tr></thead><tbody>{% for resource in operation.plan.resources %}<tr><td>{{ resource.action }}</td><td>{{ resource.owner }}</td><td>{{ resource.resource }}</td><td>{{ resource.before|default:"—" }}</td><td>{{ resource.after|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5">Sem alterações de recursos compartilhados.</td></tr>{% endfor %}</tbody></table>
+<h3>Migrations</h3>
+<table><thead><tr><th>App</th><th>Migration</th><th>Atômica</th><th>Operações</th></tr></thead><tbody>{% for migration in operation.plan.migrations %}<tr><td>{{ migration.app_label }}</td><td>{{ migration.name }}</td><td>{{ migration.atomic|yesno:"Sim,Não" }}</td><td>{% for step in migration.operations %}{{ step.type }} (reversível: {{ step.reversible|yesno:"Sim,Não" }}){% if not forloop.last %}; {% endif %}{% endfor %}</td></tr>{% empty %}<tr><td colspan="4">Nenhuma migration pendente.</td></tr>{% endfor %}</tbody></table>
+<h3>Impacto e recuperação</h3>
+<p>Organizações: {{ operation.plan.impact.organizations }}. Configurações existentes: {{ operation.plan.impact.configured_installations }}.</p>
+{% for snapshot in operation.plan.impact.retained_schema %}<p>Retenção: {{ snapshot.records }} registros em {{ snapshot.organizations }} organizações.</p>{% endfor %}
+<p>Recuperação: {{ operation.plan.recovery }}</p>
+<p>Haverá manutenção e reinício. Depois de alterações no banco, voltar apenas os arquivos não garante recuperação. O backup e os checks são executados antes da liberação de tráfego.</p>
+</div>
+{% if operation.state == 'preview' %}<form method="post">{% csrf_token %}{{ confirmation_form.as_p }}<button type="submit">Confirmar este plano e iniciar</button></form>{% endif %}
+{% if operation.state == 'submission_failed' %}<form method="post">{% csrf_token %}{{ confirmation_form.as_p }}<input type="hidden" name="intent" value="retry"><button type="submit">Reenviar solicitação ao agente</button></form>{% endif %}
+{% if status_url %}<p><a href="{{ status_url }}" target="_blank" rel="noopener noreferrer">Abrir canal independente de acompanhamento</a></p><p>Abra o canal antes de confirmar: a manutenção fecha o admin. O link é privado, limitado a esta operação e válido por cinco minutos; atualize esta página para emitir outro enquanto o admin estiver disponível.</p>{% endif %}
+<p><a href="{% url 'admin:skeleton_release_operation' operation.sysid %}">Atualizar estado</a></p>
+{% if operation.result %}<div class="module"><h2>Resultado e journal</h2><p>Release: <code>{{ operation.result.release }}</code></p><p>Backup: <code>{{ operation.result.backup|default:"—" }}</code></p><p>Tráfego liberado: {{ operation.result.traffic_released|yesno:"Sim,Não" }}.</p></div>{% endif %}
+{% endblock %}
