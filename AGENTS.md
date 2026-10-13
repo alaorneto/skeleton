@@ -1,5 +1,7 @@
 # Instruções para agentes e projetos derivados
 
+Este arquivo é o contrato normativo de implementação, tanto para agentes quanto para desenvolvedores humanos. Ele lista obrigações e limites, não um tutorial. Comece pelo `README.md`; use o [guia dos conceitos](docs/concepts.md) para entender o vocabulário e os guias abaixo para os procedimentos. Um exemplo ou comando não dispensa as regras de segurança deste contrato.
+
 ## Ordem de leitura
 
 1. `README.md` e `docs/architecture.md`.

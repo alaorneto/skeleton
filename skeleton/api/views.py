@@ -117,14 +117,15 @@ class DedicatedView(TenantAPI):
         if not sysid or resource in LINKS or resource == "invitations":
             raise BoundaryError("method_not_allowed", "Este recurso não aceita atualização.", 405)
         model, fields = dedicated_model(resource)
-        record = model.objects.select_for_update().filter(pk=sysid).first()
-        if record is None:
-            raise Http404
-        require_revision(request, record)
-        values = dedicated_input(resource, request_fields(request), user=request.user, creating=False)
-        name = {"memberships": "update_membership", "roles": "update_role", "groups": "update_group"}[resource]
-        record = getattr(access_services, name)(record, user=request.user, data=values)
-        return etag(Response(dedicated_data(resource, record)), record.revision)
+        with access_services.organization_lock(request.user):
+            record = model.objects.select_for_update().filter(pk=sysid).first()
+            if record is None:
+                raise Http404
+            require_revision(request, record)
+            values = dedicated_input(resource, request_fields(request), user=request.user, creating=False)
+            name = {"memberships": "update_membership", "roles": "update_role", "groups": "update_group"}[resource]
+            record = getattr(access_services, name)(record, user=request.user, data=values)
+            return etag(Response(dedicated_data(resource, record)), record.revision)
 
     @transaction.atomic
     def delete(self, request, organization_id, resource, sysid=None):
@@ -133,18 +134,19 @@ class DedicatedView(TenantAPI):
         if request_fields(request):
             raise BoundaryError("invalid_request", "Remoção não aceita campos.")
         model, fields = dedicated_model(resource)
-        record = model.objects.select_for_update().filter(pk=sysid).first()
-        if record is None:
-            raise Http404
-        require_revision(request, record)
-        if resource in LINKS:
-            access_services.revoke_link(record, user=request.user)
-        elif resource == "invitations":
-            record.delete()
-        else:
-            name = {"memberships": "delete_membership", "roles": "delete_role", "groups": "delete_group"}[resource]
-            getattr(access_services, name)(record, user=request.user)
-        return Response(status=204)
+        with access_services.organization_lock(request.user):
+            record = model.objects.select_for_update().filter(pk=sysid).first()
+            if record is None:
+                raise Http404
+            require_revision(request, record)
+            if resource in LINKS:
+                access_services.revoke_link(record, user=request.user)
+            elif resource == "invitations":
+                record.delete()
+            else:
+                name = {"memberships": "delete_membership", "roles": "delete_role", "groups": "delete_group"}[resource]
+                getattr(access_services, name)(record, user=request.user)
+            return Response(status=204)
 
 
 class CatalogView(TenantAPI):

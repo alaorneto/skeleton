@@ -1,5 +1,7 @@
 # Criar um projeto e adicionar negócio
 
+Uma app de negócio é um módulo Django do projeto derivado, como tarefas ou anotações; o núcleo fornece identidade, isolamento, autorização e auditoria. Este roteiro separa três responsabilidades: escrever modelos e serviços seguros, declarar como a app se integra e publicar código para instalação. Consulte [apps, pacotes e deployment](concepts.md#apps-pacotes-e-deployment) e [registros e banco de dados](concepts.md#registros-e-banco-de-dados).
+
 ## Copiar o template sem renomear o núcleo
 
 Use a função Git template do seu provedor ou clone/cópia versionada. Não copie .env, .venv, bancos, .private, cookies ou chaves de fixture.
@@ -15,15 +17,21 @@ Configure identidade visual/nomes do projeto, env privado, hosts/remetente/IdPs 
 PROJECT_APPS = ["applications.tasks.apps.TasksConfig"]
 ```
 
-Crie AppConfig com name=`applications.tasks` e label único (`project_tasks`, por exemplo), não reutilize label do núcleo/exemplo. Registre metadados em ready sem consultas. URLs e jobs chamam serviços autorizados, não managers internos.
+Crie um `AppConfig` com `name="applications.tasks"` e um label único, como `project_tasks`; o label identifica a app no Django e nas migrations, por isso não reutilize os labels do núcleo ou do exemplo. Registre metadados em `ready()` sem consultas ao banco. URLs e tarefas de segundo plano devem chamar serviços autorizados, não managers internos que escapem das políticas.
 
 ### Manifest, ativação e superfícies próprias
 
-Cada app própria carrega seu `manifest.json` canônico com `AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self)` e registra o resultado em `AppConfig.ready()`, separado de seus `TableSpec`. O contrato declara ID estável, versão, publisher, label/package, intervalos de compatibilidade e dependências **por app ID com intervalo de versão**. O runtime serializável fornece configuração escalar, navegação, módulos de URLs/API, política de habilitação e documentação. `ConfigField`/`MenuEntry` continuam as representações de runtime; não mantenha outra string de versão ou manifesto manual paralelo. Registro é metadata pura: sem consulta, instalação ou DDL. Dependências devem estar instaladas, compatíveis e acíclicas.
+O manifesto é o contrato versionado da app: identifica o componente e declara o que ele precisa e o que oferece ao projeto. Cada app carrega o `manifest.json` canônico com `AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self)` e registra o resultado em `AppConfig.ready()`, separadamente dos `TableSpec` que descrevem suas tabelas. O contrato declara ID estável, versão, `publisher` (responsável pela publicação), label/package, intervalos de compatibilidade e dependências **por app ID com intervalo de versão**. Dependências de apps não são nomes de distribuições Python.
+
+A seção de runtime descreve configuração escalar, navegação, módulos de URLs/API, política de habilitação e documentação. `ConfigField` e `MenuEntry` continuam sendo as representações de runtime; não mantenha uma segunda versão ou um manifesto manual paralelo. Registrar esse contrato é apenas registrar metadados: não faz consulta, instala código ou executa DDL (criação/alteração de estruturas no banco). As dependências devem estar instaladas, ter versões compatíveis e não formar ciclos.
 
 As rotas declaradas são incluídas antes dos gateways, exclusivamente sob `/o/<org>/apps/<app_label>/` e `/api/v1/o/<org>/apps/<app_label>/`. Views usam `tenant_page`/`TenantAPI` e serviços autorizados; esses prefixes recebem contexto tenant validado. `config.urls_project` também precede os gateways para não capturar rotas do projeto. Não crie rotas organizacionais fora deste contrato.
 
-`/o/<org>/apps/` administra o inventário/ativação/configuração e apresenta a versão declarada. Estado é `AppInstallation`, UUID/OrganizationRecord com infraestrutura de migration e auditoria. Configuração JSON é redigida integralmente; segredos são deployment, não configuração tenant. Ausência de linha usa `default_enabled`, preservando apps instaladas no upgrade. A API de configuração exige `If-Match` (revisão virtual `"0"` na primeira escrita); concorrência/dependências são serializadas por Organization. Só organization_admin configura. Desativação bloqueia endpoints próprios e gateway/policies, remove menu, mas preserva registros, IDs e ACL. Ativar não concede TablePermission. Instalação/atualização/retirada global de código são solicitadas pela plataforma em `/admin/system/releases/` e executadas pelo agente separado; remoção de dados/schema permanece exclusivamente offline revisada.
+**Instalação global e ativação por organização são operações diferentes.** Instalar disponibiliza código e migrations no ambiente compartilhado; ativar autoriza que uma organização use uma app já instalada, sem instalar Python nem criar tabelas. `/o/<org>/apps/` administra ativação/configuração e apresenta a versão declarada. `AppInstallation`, um `OrganizationRecord` com UUID, guarda esse estado com infraestrutura de migration e auditoria.
+
+A configuração JSON é redigida integralmente na auditoria. Segredos pertencem à configuração privada do deployment, nunca à configuração organizacional. Sem linha persistida, vale `default_enabled` do manifesto, preservando o comportamento de apps instaladas no upgrade. A API exige `If-Match`: use a revisão virtual `"0"` na primeira escrita e, depois, a revisão atual. CAS evita sobrescrever configuração concorrente; o bloqueio de Organization serializa também as validações de dependências. Somente `organization_admin` configura.
+
+Desativar bloqueia endpoints próprios, gateway e políticas e remove o menu, mas preserva registros, IDs e ACL (regras de acesso). Reativar não concede `TablePermission`. Instalação, atualização e retirada global do código são solicitadas pela plataforma em `/admin/system/releases/` e executadas por um agente separado; a requisição web não executa instalador nem DDL. Remoção de dados/schema permanece exclusivamente offline e revisada.
 
 O site padrão Django agora é `PlatformAdminSite`: registros convencionais `@admin.register` são descobertos no mesmo `/admin/` seguro. Não registre negócio tenant no admin global; use administração tenant autorizada. O exemplo Notes fornece página própria, sumário API, menu e configuração `heading`, além do gateway.
 
@@ -32,6 +40,8 @@ O site padrão Django agora é `PlatformAdminSite`: registros convencionais `@ad
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
 
 ### Publicar apps e releases assinados
+
+Publicar produz um artefato `.skapp` verificável; não significa instalá-lo nem aprová-lo para produção. O fluxo abaixo cria as chaves do publicador, gera e revisa o manifesto, constrói o pacote e verifica sua integridade e procedência. O operador que instala mantém sua própria lista de publicadores confiáveis. Um hash SHA-256 detecta alteração de bytes; a assinatura demonstra que a chave confiável aprovou aquele manifesto. Hash correto, sozinho, não identifica quem publicou.
 
 Os utilitários funcionam tanto por `manage.py package` quanto sem settings/Django inicializado por `.venv/bin/python -m skeleton.system.packages`. O agente externo usa as mesmas funções puras de validação; nunca importa código de um upload antes de verificar assinatura, inventário e hashes. Assinatura controla procedência, **não** transforma Python/migrations em sandbox: aprove somente publishers que podem executar código privilegiado.
 
@@ -57,11 +67,13 @@ Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e n
 .venv/bin/python manage.py package versions --manifest applications/tasks/manifest.json
 ```
 
-O trust store é JSON administrado pelo operador, por exemplo `{"example-publisher": "/private/publisher.pub.pem"}`. A chave do mapa é o `publisher` do manifesto; valores aceitam PEM público literal, caminho PEM ou `{"public_key": "/private/publisher.pub.pem", "publisher": "example-publisher"}`. Caminhos relativos do CLI são relativos ao arquivo de configuração. A API também aceita objetos `Ed25519PublicKey`. Chaves públicas trazidas pelo pacote nunca são âncoras de confiança. Revogação/rotação é uma alteração explícita desse arquivo privado. `inspect` sem trust store mostra `"trusted": false`, mesmo quando hashes são íntegros.
+O trust store, ou lista de chaves de publicadores confiáveis, é um JSON administrado pelo operador, por exemplo `{"example-publisher": "/private/publisher.pub.pem"}`. A chave do mapa é o `publisher` do manifesto; valores aceitam PEM público literal, caminho PEM ou `{"public_key": "/private/publisher.pub.pem", "publisher": "example-publisher"}`. Caminhos relativos do CLI são relativos ao arquivo de configuração. A API também aceita objetos `Ed25519PublicKey`. A chave pública pode verificar assinaturas; a privada deve ficar somente com quem está autorizado a publicar. Chaves públicas trazidas pelo próprio pacote nunca são âncoras de confiança. Revogação/rotação exige alterar explicitamente esse arquivo privado. `inspect` sem trust store mostra `"trusted": false`, mesmo quando os hashes são íntegros.
 
 Build gera o inventário completo, excluindo somente o próprio manifesto e caches/artefatos de build conhecidos; recusa symlinks, secrets/private keys, output dentro da app, namespaces reservados, docs incompletos e dependências não inventariadas. O ZIP tem exatamente `manifest.json`, `manifest.sig`, `app/` e wheels opcionais. Assinatura Ed25519 cobre os bytes canônicos exatos do manifesto; SHA-256/tamanhos cobrem todos os payloads. Validação recusa membros extras/duplicados, colisões normalizadas, travessia, links/dispositivos, arquivos/diretórios conflitantes e limites de ZIP (512 MiB comprimido, 1 GiB expandido, 256 MiB por arquivo, 4096 membros, expansão máxima 200:1).
 
 Declare dependências Python em `python_dependencies` como `{"name": "distribution", "version": "1.2.3", "wheel": "wheels/distribution-1.2.3-py3-none-any.whl", "sha256": "<SHA256>", "marker": "python_version >= '3.12'"}`; marker é opcional. Forneça cada wheel com `build --wheel /private/wheelhouse/distribution-1.2.3-py3-none-any.whl`. Build recalcula SHA-256; valida identidade/versão do METADATA e namespace de cada wheel. Não aceita sdists, wheels `.data` ou arquivos que se apropriem de core/config/applications. O ambiente novo instala wheels pelo lock final aprovado, nunca dentro do diretório da app.
+
+Um wheel (`.whl`) é uma distribuição Python pronta para instalação, não a ativação de uma app no tenant. No exemplo de dependência, `name` e `version` identificam a distribuição, `wheel` identifica o arquivo inventariado e `sha256` fixa seus bytes. O marcador opcional limita os ambientes em que a dependência se aplica. Incluir esses arquivos no pacote permite preparar o ambiente aprovado sem buscar versões diferentes durante a instalação; isso não transforma uma dependência em código confiável sem revisão.
 
 Versões de componentes exigem major.minor.patch; versões de distribuições Python e markers seguem PEP 440, inclusive duas partes como `8.2`/`python_version="3.14"`. O wheelhouse completo do ambiente tem limite agregado separado de 65536 membros e 1 GiB expandido; não recebe indevidamente o limite de um artefato isolado. Apps `project-local` continuam em `PROJECT_APPS`; manifesto e caminho carregados precisam coincidir com seu inventário, ou o startup falha fechado. Elas não são sobrescritas por um pacote com nome coincidente.
 
@@ -127,7 +139,7 @@ class Note(SecuredRecord):
         ordering = ("created_at", "sysid")
 ```
 
-Body pode ser vazio e tem limite de 10000 caracteres. É dado de negócio sensível: pode ser lido por usuário autorizado, mas a auditoria substitui seu conteúdo por `[REDACTED]`, mantendo o indicador de alteração. Tombstone libera o code para novo registro; restore conflitante retorna conflito, não sobrescreve.
+`body` pode ser vazio e tem limite de 10000 caracteres. É sensível: usuários autorizados podem ler seu conteúdo na nota, mas a auditoria o substitui por `[REDACTED]`, mantendo a evidência de que mudou. Isso não cifra o conteúdo da tabela de negócio. A restrição de unicidade usa `(organization, code)` apenas entre registros vivos: duas organizações podem usar o mesmo código. A exclusão lógica libera o código para uma nova nota; se isso ocorrer, restaurar a nota antiga retorna conflito, sem sobrescrever a nova.
 
 ### Spec allowlist
 
@@ -149,7 +161,7 @@ register(TableSpec(
 ))
 ```
 
-A allowlist inclui somente campos concretos; sem eval/nested arbitrary path. Read owner/group é UUID, não perfil/grupo privado serializado. Owner/visibility/owning_group não entram em write_fields: só endpoint/serviço de manage_access. Campos sistêmicos são read-only automáticos. Expose_api não concede permissão; TablePermission continua obrigatória.
+A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória.
 
 ### Migration de segurança
 
@@ -229,6 +241,8 @@ O `"5"` exemplifica a transição exata 4→5, não revisão fixa para qualquer 
 
 ## Novas operações de negócio
 
-Serviço de negócio abre tenant_context, obtém authorized_queryset da ação, aplica validação e save/CAS. Nunca use all_objects/raw SQL para endpoint. Referências org→org precisam de infraestrutura DB e valide alvos vivos/legíveis. Links de negócio são tabelas UUID explícitas, não M2M implícito.
+Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serviço abre `tenant_context` com organização e ator confiáveis, obtém `authorized_queryset` para a ação pretendida, valida a regra e grava com `save`/CAS. Em uma view, use o contexto validado pela superfície tenant; em um job, abra uma transação independente por organização e materialize os resultados antes de sair do contexto. Nunca use `all_objects` ou SQL direto como atalho em endpoints.
+
+Uma referência a outro registro organizacional precisa apontar para a mesma organização e para um alvo vivo que o ator possa ler. Combine validação no serviço, seleção autorizada de FK e infraestrutura de integridade no banco: apenas comparar UUIDs não assegura isso. Relações entre registros próprios usam `PROTECT`, para impedir remoção com referências vivas, e links de negócio são tabelas UUID explícitas, não M2M implícito. Marque campos sensíveis no `TableSpec` e na especificação congelada de migration antes de persistir dados em auditoria.
 
 Use o checklist de [AGENTS](../AGENTS.md) e [testing](testing.md). Mantenha testes de API pública, A/B/default deny, auditoria redigida, concorrência, referências e schema checks. Testes por inspeção de strings de source não provam esses contratos.

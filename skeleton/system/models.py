@@ -92,6 +92,7 @@ class ComponentInstallation(SystemRecord):
 
 
 class DeploymentOperation(SystemRecord):
+    """Approval and journal mirror; result retains submission identity until ACK."""
     operation = models.CharField(max_length=16, choices=(
         ("install", "Instalação"), ("update", "Atualização"),
         ("uninstall", "Desinstalação"),

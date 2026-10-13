@@ -1,8 +1,14 @@
 # Plano: versões, pacotes de apps, atualização e login gov.br
 
-Status: contratos e lógica implementados. Este documento conserva o plano aprovado e a evidência histórica do planejamento; uso operacional está em [extensão](extending.md), [deployment](deployment.md) e [autenticação](authentication-sso.md). Resultados realmente exercitados e pré-requisitos externos estão em [testing](testing.md).
+**Documento histórico de decisão, não roteiro de execução nem certificado de aprovação.** Os contratos e a lógica foram implementados posteriormente; este texto conserva a base observada, as escolhas e os critérios do plano aprovado. Os verbos no futuro ou no imperativo nas seções 2–10 registram requisitos daquele plano, não uma lista confiável de funcionalidades ainda por implementar.
+
+Para operar o que existe, use [extensão](extending.md), [deployment](deployment.md) e [autenticação](authentication-sso.md). Para saber o que foi realmente exercitado, use [testing](testing.md): a retomada registrou historicamente **279 testes SQLite, 83 PostgreSQL e 25 SSO**, além do ensaio diretório/SQLite. Isso não comprova um smoke completo Compose/restore PostgreSQL pelo agente nem homologação gov.br.
+
+Leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-deployment) e [login e protocolos](concepts.md#login-e-protocolos) para os conceitos. Neste plano, **release** é uma versão identificada de código/dependências; **deployment** é a instalação em execução; **cutover** é a troca para o release preparado. Nenhum deles significa transportar dados automaticamente.
 
 ## 1. Base observada no planejamento, antes da implementação
+
+Os itens desta seção descrevem **somente o ponto de partida**, antes das mudanças. Por exemplo, “não há agente” e “não configura build separado” eram lacunas daquela base; não descrevem o checkout após a implementação. Não use esses itens para escolher comandos ou avaliar o estado atual.
 
 - `pyproject.toml` declara `django-skeleton` na versão `0.1.0`; não configura um build de distribuição do núcleo separado do projeto derivado.
 - `skeleton/system/app_registry.py` já fornece `AppManifest`, dependências, configuração, menus e inclusão de rotas. Não possui versão nem contrato de pacote.
@@ -17,6 +23,8 @@ Referências: [arquitetura](architecture.md), [extensão](extending.md), [deploy
 
 ## 2. Decisões e limites
 
+O problema central é separar três decisões: instalar código globalmente, habilitá-lo por organização e dar acesso a seus registros. Um pacote não concede Membership ou papel; uma assinatura não torna código Python seguro. As decisões abaixo mantêm essas fronteiras.
+
 1. Versão de código é **global por deployment**. Todas as organizações usam o mesmo release de cada app; habilitação e configuração continuam organizacionais. Não carregar versões diferentes de uma app no mesmo processo Django.
 2. Código e migrations de apps são código privilegiado. Manifesto e assinatura controlam procedência e arquivos, mas não transformam Python em sandbox. Só instalar publishers aprovados pela plataforma.
 3. O admin solicita uma operação assíncrona; um agente de deployment independente executa cópia, preparação de ambiente, migrations, troca de release e reinício. Não executar `pip`, DDL ou comandos de sistema dentro da request.
@@ -30,6 +38,8 @@ Referências: [arquitetura](architecture.md), [extensão](extending.md), [deploy
 
 ### 3.1 Identidade e versão
 
+**SemVer** separa versão principal (`major`, quebra de contrato), secundária (`minor`, adição compatível) e corretiva (`patch`). **Digest** é o resumo criptográfico dos bytes de um artefato. **Geração** identifica o estado global do deployment usado na aprovação. São medidas distintas: uma mesma versão com bytes diferentes não autoriza substituição silenciosa, e um plano de geração antiga não deve ser executado.
+
 - Adotar SemVer para o contrato público: major incompatível; minor aditivo; patch corretivo. Usar parser de biblioteca, não comparação lexical.
 - Separar `manifest_version`, `version` do componente, intervalo de compatibilidade do núcleo e estado de migrations. Número de migration não é versão do produto.
 - Núcleo: manter uma única fonte de versão no metadata de build; gerar metadata de release e expor consulta via `importlib.metadata` na instalação distribuída. A versão do projeto derivado é independente.
@@ -39,6 +49,8 @@ Referências: [arquitetura](architecture.md), [extensão](extending.md), [deploy
 - Uma app local entra no mesmo inventário como `project-local`, com manifesto e versão declarados. Atualização administrada exige sua conversão explícita em app empacotada; nunca sobrescrever código local por coincidência de nome.
 
 ### 3.2 Estado persistente
+
+Estado no banco permite à interface consultar solicitações e versões; o inventário descreve os componentes/arquivos do release; o journal registra as etapas do agente fora do banco. Essa separação importa porque restaurar o banco não pode apagar a única evidência necessária para decidir como recuperar uma operação interrompida.
 
 Adicionar no app `sk_system`, sem novo app label do núcleo:
 
@@ -66,6 +78,8 @@ Definir desde já o contrato de um índice de releases JSON assinado: componente
 ## 4. Formato de pacote e manifesto de app
 
 ### 4.1 Artefato
+
+Um artefato é o arquivo distribuído. O `.skapp` reúne manifesto, assinatura e conteúdo inventariado; o manifesto descreve o que pode ser instalado. O **publisher** é seu publicador/assinante, aprovado previamente pela plataforma. O **trust store** é a lista externa de chaves públicas aprovadas: confiar em uma chave incluída no próprio pacote seria permitir que o remetente aprovasse a si mesmo.
 
 Extensão proposta: `.skapp`, um ZIP com layout fechado:
 
@@ -125,6 +139,8 @@ Adicionar comandos para validar manifesto, construir pacote, assinar release, in
 
 ### 5.1 Operação end-to-end
 
+Esta sequência registra o desenho aprovado, não comandos para colar em produção. **Staging** é preparar o novo ambiente separado do ativo; **drain** é impedir novas tarefas e aguardar/parar os escritores existentes. Um marker HTTP não drena jobs externos. As migrations usam owner em processo migrator separado; os checks usam runtime para provar as restrições que os usuários realmente terão.
+
 1. Upload privado pelo admin de plataforma; validação estrutural e criptográfica sem importar o código recebido.
 2. Agente calcula plano: arquivos adicionados/alterados/removidos, integrações, dependências, migrations, organizações afetadas, indisponibilidade e política de recuperação.
 3. Admin confirma **aquele plano**. Solicitação usa revisão, geração atual e digest; alteração entre preview e execução invalida a confirmação.
@@ -163,6 +179,8 @@ Distinguir quatro ações: desativar por organização; desinstalar código glob
 - Dados/schema só podem ser removidos por ferramenta offline separada, com backup, análise de referências, guards e retenção; a interface não oferece purge. Manter evidência de arquivo/integração removidos e schema preservado.
 
 ### 5.4 Falhas e recuperação
+
+Backup é uma cópia consistente; restore repõe essa cópia; rollback retorna ao estado anterior. Uma cópia só é restaurável se incluir os recursos/chaves necessários e tiver sido ensaiada. Depois de novas escritas, restaurá-la pode perder dados: a barreira de manutenção e a decisão explícita de recuperação existem para não esconder esse risco.
 
 - Antes de migrations: descartar staging e manter release ativo intacto.
 - Após mudanças no DB, rollback de arquivos sozinho só é permitido quando compatibilidade com o schema resultante foi comprovada no plano.
@@ -220,6 +238,8 @@ Integrar ao `PlatformAdminSite`, sem um segundo admin ou login paralelo:
 
 ## 8. Login gov.br
 
+O objetivo foi permitir identidade governamental global, sem converter login em afiliação organizacional. Implementar um perfil de protocolo e testar tokens locais demonstra comportamento do código; homologar exige credenciais, callbacks e logout aprovados, além do fluxo real autorizado. As decisões abaixo não registram que essa aprovação ocorreu.
+
 ### 8.1 Protocolo e integração
 
 - Implementar um perfil gov.br explícito usando os pontos de extensão allauth/OIDC existentes; não escrever OAuth/JWT/JWK manualmente.
@@ -253,6 +273,8 @@ Fontes oficiais consultadas:
 
 ## 9. Sequência de implementação e aceites
 
+Esta tabela é a **sequência original de entregas e critérios de aceite**. Não é um quadro atual de tarefas pendentes nem uma declaração de que cada critério foi aprovado. A prova de cada caminho continua vinculada ao backend/protocolo e à rodada descrita em [testing](testing.md); em especial, os aceites Compose e gov.br real não podem ser inferidos dos ensaios locais.
+
 | Etapa | Entrega | Aceite obrigatório |
 |---|---|---|
 | 1. Contratos | Fonte de versão, schemas de manifesto/índice, identidade estável, compatibilidade, modelo global e ADRs | Versões iguais no artefato, registry e inventário; prerelease/faixas corretas; tenant activation não vira instalação global. |
@@ -282,6 +304,8 @@ Atualizar `README.md`, `architecture.md`, `extending.md`, `data-model.md`, `tabl
 
 ## 10. Pré-requisitos e riscos abertos
 
+Lista de riscos e pré-requisitos identificados **na época do plano**. A frase “não existe essa infraestrutura” no primeiro item pertence à base histórica; hoje o agente e os runbooks estão implementados, mas cada instalação ainda precisa provisionar contas, diretórios, secrets, serviços e backups. Credenciamento externo e inventário dos projetos derivados continuam decisões próprias de cada operador.
+
 - Provisionar agente, raízes de releases, armazenamento privado, canal de controle, migrator, supervisor/Compose e backup restaurável. Não existe essa infraestrutura no deployment atual.
 - Definir publishers e chaves confiáveis, política de revogação e origem do índice. Sem isso, upload não pode executar código em produção.
 - Inventariar os projetos derivados reais e suas alterações no núcleo. Este repositório não contém dados que permitam certificar a migração de cada derivado.
@@ -291,6 +315,8 @@ Atualizar `README.md`, `architecture.md`, `extending.md`, `data-model.md`, `tabl
 - Backup não equivale a rollback sem perda; manutenção e corte de escritas são necessários. Reinício e indisponibilidade serão apresentados no preview.
 
 ## 11. Evidência deste planejamento
+
+As observações abaixo são da investigação anterior à implementação. `PackageNotFoundError`, por exemplo, descreve aquele virtualenv, não prova ausência da distribuição no ambiente de um operador hoje. Elas são preservadas como evidência da origem do plano.
 
 Executado sem modificar código de runtime:
 

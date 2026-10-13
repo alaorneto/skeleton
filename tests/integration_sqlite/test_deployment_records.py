@@ -1,4 +1,7 @@
 import pytest
+from copy import deepcopy
+from types import SimpleNamespace
+from uuid import uuid4
 from django.test import Client
 
 from skeleton.accounts.services import bootstrap_identity
@@ -18,6 +21,14 @@ def actor(*, platform=False):
             user.is_superuser = False
             user.save(update_fields={'is_staff', 'is_superuser'})
     return user
+
+
+def agent_status(row, *, state='running', stage='backup_ready', **values):
+    return {
+        'id': str(row.pk), 'operation': row.operation, 'action': row.operation,
+        'expected_generation': row.expected_generation, 'generation': row.expected_generation,
+        'plan_digest': row.plan_digest, 'state': state, 'stage': stage, **values,
+    }
 
 
 def test_deployment_plan_and_result_are_redacted_before_audit_persistence():
@@ -157,8 +168,7 @@ def test_status_ticket_rotation_does_not_rewrite_durable_state():
     with request_context(actor=user, request_id=None, source='test:deployment'):
         row = DeploymentOperation(operation='install', expected_generation=0, plan_digest='d' * 64, plan={'generation': 0})
         row.save()
-        status = {'id': str(row.pk), 'state': 'running', 'stage': 'backup_ready',
-                  'status_url': 'https://status.example.test/?ticket=private-first'}
+        status = agent_status(row, status_url='https://status.example.test/?ticket=private-first')
         reconcile_operation(row, status)
         revision = row.revision
         event_ids = set(AuditEvent.objects.filter(record_sysid=row.pk).values_list('pk', flat=True))
@@ -171,7 +181,6 @@ def test_status_ticket_rotation_does_not_rewrite_durable_state():
 
 
 def test_failed_operation_refresh_shows_offline_recovery(monkeypatch):
-    from types import SimpleNamespace
     from skeleton.system import release_admin
     user = actor(platform=True)
     with request_context(actor=user, request_id=None, source='test:deployment'):
@@ -179,8 +188,8 @@ def test_failed_operation_refresh_shows_offline_recovery(monkeypatch):
                                   expected_generation=0, plan_digest='e' * 64, plan={'generation': 0},
                                   error_code='migration_failed')
         row.save()
-    status = {'id': str(row.pk), 'state': 'restored', 'stage': 'restored',
-              'error': None, 'status_url': 'https://status.example.test/?ticket=private-recovery'}
+    status = agent_status(row, state='restored', stage='restored', error=None,
+                          status_url='https://status.example.test/?ticket=private-recovery')
     monkeypatch.setattr(release_admin, 'agent_client',
                         lambda: SimpleNamespace(operation=lambda operation_id: status))
     client = Client()
@@ -191,3 +200,183 @@ def test_failed_operation_refresh_shows_offline_recovery(monkeypatch):
     assert row.stage == 'restored'
     assert row.error_code == ''
     assert 'status_url' not in row.result
+
+
+@pytest.mark.parametrize('accepted', [False, True])
+def test_lost_submission_ack_retries_original_approval_without_new_execution(monkeypatch, accepted):
+    from skeleton.audit.models import AuditEvent
+    from skeleton.system import releases
+    from skeleton.system.deployment_client import AgentError
+    user = actor(platform=True)
+    approval_id, retry_id = uuid4(), uuid4()
+    attempts, bindings, executions = [], {}, []
+    with request_context(actor=user, request_id=approval_id, source='test:deployment'):
+        row = DeploymentOperation(operation='install', expected_generation=0,
+                                  plan_digest='f' * 64, plan={'id': str(uuid4()), 'generation': 0})
+        row.save()
+
+    def submit(**values):
+        attempts.append(deepcopy(values))
+        if len(attempts) == 1 and not accepted:
+            raise AgentError('agent_unavailable')
+        binding = {key: value for key, value in values.items() if key != 'operation_id'}
+        existing = bindings.get(values['operation_id'])
+        if existing is not None and existing != binding:
+            raise AgentError('idempotency_conflict', 409)
+        if existing is None:
+            bindings[values['operation_id']] = binding
+            executions.append(values['operation_id'])
+        if len(attempts) == 1:
+            raise AgentError('agent_unavailable')  # Accepted, but the ACK never arrived.
+        return agent_status(row, state='succeeded', stage='ready', generation=1)
+
+    client = SimpleNamespace(inventory=lambda: {'generation': 0}, submit=submit)
+    monkeypatch.setattr(releases, 'agent_client', lambda: client)
+    with request_context(actor=user, request_id=approval_id, source='test:deployment'):
+        releases.confirm_operation(user=user, operation_id=row.pk, revision=row.revision)
+        assert attempts == []  # Submission must wait for COMMIT.
+    with request_context(actor=user, request_id=retry_id, source='test:deployment'):
+        row.refresh_from_db()
+        assert row.state == 'submission_failed'
+        assert row.result['submission'] == attempts[0]
+        failed_revision = row.revision
+        # A completed operation can already have advanced inventory. Delivery
+        # retry must neither ask for it nor create a different approval.
+        client.inventory = lambda: pytest.fail('Retry queried live generation.')
+        releases.retry_submission(user=user, operation_id=row.pk, revision=failed_revision)
+    with request_context(actor=user, request_id=None, source='test:deployment'):
+        row.refresh_from_db()
+        assert attempts[1] == attempts[0]
+        assert attempts[1]['request_id'] == str(approval_id)
+        assert len(executions) == 1
+        assert row.state == 'succeeded'
+        assert row.result['generation'] == 1
+        assert 'submission' not in row.result
+        assert row.expected_generation == 0
+        retry_events = AuditEvent.objects.filter(record_sysid=row.pk, record_revision__gt=failed_revision)
+        assert {event.request_id for event in retry_events} == {retry_id}
+        assert all(event.changes.get('result', {}).get('new') in (None, '[REDACTED]')
+                   for event in retry_events)
+        with pytest.raises(ConcurrentUpdate):
+            releases.retry_submission(user=user, operation_id=row.pk, revision=failed_revision)
+        assert len(attempts) == 2
+
+
+def test_submission_retry_preserves_approver_when_another_platform_user_delivers(monkeypatch):
+    from skeleton.system import releases
+    from skeleton.system.deployment_client import AgentError
+    user = actor(platform=True)
+    other, _ = bootstrap_identity(email='other-release@example.test', organization='other-release',
+                                 name='Other release', password=PASSWORD)
+    with system_context(reason='test:platform'):
+        other.is_staff = True
+        other.is_superuser = True
+        other.save(update_fields={'is_staff', 'is_superuser'})
+    attempts = []
+    with request_context(actor=user, request_id=uuid4(), source='test:deployment'):
+        row = DeploymentOperation(operation='update', expected_generation=4,
+                                  plan_digest='a' * 64, plan={'id': str(uuid4()), 'generation': 4})
+        row.save()
+    def submit(**values):
+        attempts.append(values)
+        if len(attempts) == 1:
+            raise AgentError('agent_unavailable')
+        return agent_status(row, state='queued', stage='approved')
+    monkeypatch.setattr(releases, 'agent_client',
+                        lambda: SimpleNamespace(inventory=lambda: {'generation': 4}, submit=submit))
+    with request_context(actor=user, request_id=uuid4(), source='test:deployment'):
+        releases.confirm_operation(user=user, operation_id=row.pk, revision=row.revision)
+    with request_context(actor=other, request_id=uuid4(), source='test:deployment'):
+        row.refresh_from_db()
+        releases.retry_submission(user=other, operation_id=row.pk, revision=row.revision)
+    with request_context(actor=other, request_id=None, source='test:deployment'):
+        row.refresh_from_db()
+        assert attempts[1] == attempts[0]
+        assert attempts[1]['actor_id'] == str(user.pk)
+        assert row.updated_by == other.pk
+        assert row.state == 'queued'
+
+
+def test_submission_retry_without_durable_binding_fails_closed(monkeypatch):
+    from skeleton.system import releases
+    user = actor(platform=True)
+    monkeypatch.setattr(releases, 'agent_client', lambda: pytest.fail('Missing approval was sent.'))
+    with request_context(actor=user, request_id=uuid4(), source='test:deployment'):
+        row = DeploymentOperation(operation='install', state='submission_failed',
+                                  expected_generation=0, plan_digest='a' * 64,
+                                  plan={'id': str(uuid4()), 'generation': 0})
+        row.save()
+        with pytest.raises(releases.DeploymentUnavailable, match='Original approval'):
+            releases.retry_submission(user=user, operation_id=row.pk, revision=row.revision)
+        persisted = DeploymentOperation.objects.get(pk=row.pk)
+        assert persisted.state == 'submission_failed'
+        assert persisted.revision == row.revision
+
+
+@pytest.mark.parametrize('changes', [
+    {'id': str(uuid4())}, {'state': 'preview'}, {'stage': ''},
+    {'generation': True}, {'expected_generation': True},
+    {'expected_generation': 7}, {'plan_digest': 'b' * 64},
+    {'action': 'uninstall'}, {'operation': 'uninstall'}, {'plan': {'generation': 99}},
+])
+def test_invalid_status_cannot_overwrite_approved_operation(changes):
+    from skeleton.system.releases import DeploymentUnavailable, reconcile_operation
+    user = actor(platform=True)
+    with request_context(actor=user, request_id=None, source='test:deployment'):
+        row = DeploymentOperation(operation='install', state='approved', expected_generation=0,
+                                  plan_digest='a' * 64, plan={'generation': 0},
+                                  result={'submission': {'request_id': str(uuid4())}})
+        row.save()
+        original_result = deepcopy(row.result)
+        revision = row.revision
+        with pytest.raises(DeploymentUnavailable):
+            reconcile_operation(row, agent_status(row, **changes))
+        persisted = DeploymentOperation.objects.get(pk=row.pk)
+        assert persisted.revision == revision
+        assert persisted.result == original_result
+        assert persisted.state == 'approved'
+
+
+def test_stale_release_confirmation_returns_conflict_without_delivery(monkeypatch):
+    from skeleton.system import releases
+    user = actor(platform=True)
+    with request_context(actor=user, request_id=None, source='test:deployment'):
+        row = DeploymentOperation(operation='install', expected_generation=0,
+                                  plan_digest='a' * 64, plan={'id': str(uuid4()), 'generation': 0})
+        row.save()
+    monkeypatch.setattr(releases, 'agent_client', lambda: pytest.fail('Stale approval contacted agent.'))
+    client = Client()
+    assert client.post('/accounts/login/', {'login': user.email, 'password': PASSWORD}).status_code == 302
+    response = client.post(f'/admin/system/releases/operations/{row.pk}/', {
+        'revision': row.revision + 1, 'plan_digest': row.plan_digest,
+    })
+    assert response.status_code == 409
+    with request_context(actor=user, request_id=None, source='test:deployment'):
+        row.refresh_from_db()
+        assert row.state == 'preview'
+
+
+def test_invalid_journal_rolls_back_inventory_and_preserves_operation(tmp_path):
+    import json
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    user = actor(platform=True)
+    with request_context(actor=user, request_id=None, source='test:deployment'):
+        row = DeploymentOperation(operation='install', state='approved', expected_generation=0,
+                                  plan_digest='a' * 64, plan={'generation': 0})
+        row.save()
+    inventory_path, journal_path = tmp_path / 'inventory.json', tmp_path / 'operation.json'
+    inventory_path.write_text(json.dumps({
+        'generation': 1, 'apps': [{
+            'app_id': 'pending-component', 'app_label': 'pending_component',
+            'package_name': 'pending_component', 'version': '1.0.0', 'state': 'installed',
+        }],
+    }))
+    journal_path.write_text(json.dumps(agent_status(row, state='preview', stage='preview')))
+    with pytest.raises(CommandError, match='DeploymentUnavailable'):
+        call_command('sync_deployment_state', inventory=inventory_path, operation=journal_path)
+    with request_context(actor=user, request_id=None, source='test:deployment'):
+        persisted = DeploymentOperation.objects.get(pk=row.pk)
+        assert persisted.state == 'approved'
+        assert persisted.revision == row.revision
+        assert not ComponentInstallation.objects.filter(component_id='pending-component').exists()

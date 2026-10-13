@@ -127,18 +127,19 @@ def create_organization(*, owner, slug, name, using='default'):
     from skeleton.access.models import Role
     from skeleton.access.services import provision_membership
     from skeleton.tenancy.context import system_context
-    with system_context(reason='organization:create', using=using):
-        if not owner.is_active or owner.deleted_at:
-            raise ValidationError('Organization owner must be active.')
-        organization = Organization(name=name, slug=slug)
-        organization.save(using=using)
-    with system_context(reason='organization:bootstrap', organization_id=organization.pk, using=using):
-        admin = Role(organization=organization, code='organization_admin', name='Administrador', is_builtin=True)
-        admin.save(using=using)
-        Role(organization=organization, code='member', name='Membro', is_builtin=True).save(using=using)
-        provision_membership(organization=organization, user=owner, role=admin)
     from skeleton.access.services import reconcile_builtin_permissions
-    reconcile_builtin_permissions(organization_id=organization.pk, using=using)
+    with transaction.atomic(using=using):
+        with system_context(reason='organization:create', using=using):
+            if not owner.is_active or owner.deleted_at:
+                raise ValidationError('Organization owner must be active.')
+            organization = Organization(name=name, slug=slug)
+            organization.save(using=using)
+        with system_context(reason='organization:bootstrap', organization_id=organization.pk, using=using):
+            admin = Role(organization=organization, code='organization_admin', name='Administrador', is_builtin=True)
+            admin.save(using=using)
+            Role(organization=organization, code='member', name='Membro', is_builtin=True).save(using=using)
+            provision_membership(organization=organization, user=owner, role=admin)
+        reconcile_builtin_permissions(organization_id=organization.pk, using=using)
     return organization
 
 

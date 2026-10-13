@@ -1,6 +1,8 @@
 # API REST de sessão
 
-Prefixo `/api/v1/`. Autenticação exclusivamente SessionAuthentication + IsAuthenticated; sem Basic, JWT ou endpoint de senha independente. Obtenha sessão pelo login HTML allauth. Requests unsafe precisam cookie de sessão **e** CSRF; sessão anônima recebe 403 DRF. HTML anônimo redireciona login. HTTPS/cookies secure em produção.
+Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. `SessionAuthentication` e `IsAuthenticated` são os únicos mecanismos: não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
+
+Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do cookie de sessão **e** da proteção CSRF. Em clientes como curl, envie o cookie `csrftoken` e o header `X-CSRFToken` correspondente; um cookie de sessão sozinho não basta. Uma requisição anônima à API recebe 403 do DRF, enquanto a página HTML redireciona ao login. Em produção, use HTTPS e cookies seguros; tokens do IdP não substituem essa sessão.
 
 ## Recursos
 
@@ -22,7 +24,7 @@ Prefixo `/api/v1/`. Autenticação exclusivamente SessionAuthentication + IsAuth
 | `o/<org>/invitations/<id>/resend/` | POST | Org admin, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
 | `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Org admin; app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial |
 
-`org`, sysid e IDs de relações são UUID. `table_key` é label_lower, por exemplo `example_notes.note`, resolvido exclusivamente no registry. Modelos não expostos/técnicos nunca entram no gateway.
+`org`, `sysid` e IDs de relações são UUIDs. Primeiro escolha uma organização devolvida por `organizations/` e use seu UUID em `o/<org>/`; não envie a organização ou o ator no corpo para tentar mudar o contexto. `table_key` é o identificador registrado do modelo (`label_lower`), por exemplo `example_notes.note`, e nunca um nome SQL. O registry, a lista explícita de modelos permitidos no código, é a única fonte dessa resolução. Modelos não expostos ou técnicos não entram no gateway.
 
 Instalação física não é recurso do gateway REST. A plataforma usa `/admin/system/releases/` e subrotas `upload/`, `preview/`, `fetch/`, `operations/<uuid>/`: sessão, CSRF, MFA quando exigido e reautenticação recente para mutações. Aprovação vincula revisão, digest e geração ao plano do agente; GET não instala código. `install`, `update`, `uninstall`, `reinstall` e `core_update` são operações globais. Durante manutenção, o admin fica fechado; acompanhamento usa canal independente com ticket privado, por operação, válido por cinco minutos. Remoção de dados/schema não é oferecida por HTTP.
 
@@ -32,11 +34,11 @@ Campos de links: member-roles={membership,role}; group-members={group,membership
 
 GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos first_name,last_name,display_name,timezone,language; atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
 
-ETag `"<user_revision>-<profile_revision>"`; PATCH exige ambas e compara dentro do atomic. Revisão do perfil sozinha não protege o nome da identidade.
+O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a resposta reúne duas linhas: User e Profile. O PATCH exige as duas revisões em `If-Match` e as compara dentro da mesma transação. A revisão do perfil sozinha não protegeria o nome da identidade de uma alteração concorrente.
 
 ## Gateway
 
-Read/write fields explícitos do TableSpec; metadata sistêmica é read-only automática. Unknown fields retornam erro, não são ignorados. `organization`, `sysid`, autoria, revisão e access fields são proibidos no POST/PATCH comum. Criação atribui owner=ator/private. Access PATCH aceita só owner UUID, visibility e owning_group UUID/null, coerentes com Membership/grupo vivos. Leitor comum não pode obter GET access.
+O gateway oferece CRUD genérico (criação, leitura, alteração e exclusão lógica) somente para campos explicitamente declarados em `TableSpec.read_fields` e `write_fields`; os metadados sistêmicos são automaticamente somente leitura. Campos desconhecidos retornam erro em vez de serem ignorados. `organization`, `sysid`, autoria, revisão e campos de acesso são proibidos no POST/PATCH comum: aceitar esses valores do cliente permitiria atribuição indiscriminada de campos protegidos (mass assignment). A criação atribui `owner` ao ator autenticado e visibilidade `private`. Use o recurso separado `access/` para mudar acesso: seu PATCH aceita somente owner UUID, visibility e owning_group UUID/null, coerentes com vínculo e grupo ativos. Ele exige `manage_access` e ser proprietário ou administrador da organização; um leitor comum não pode nem obter GET access.
 
 FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
 
@@ -45,7 +47,7 @@ Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamen
 
 ## Concorrência e erros
 
-GET detalhe retorna ETag forte `"<revision>"`. PATCH, DELETE e restore requerem If-Match; POST criação não. Form HTML usa revisão escondida e stale →409.
+O GET de detalhe retorna um ETag forte `"<revision>"`, o marcador exato da versão lida. Para PATCH, DELETE e restore, copie esse valor **com as aspas** para `If-Match`; criação por POST não exige revisão prévia. O servidor usa CAS (compare-and-swap): só grava se a revisão atual ainda for a que você leu. Assim, duas alterações da mesma versão não sobrescrevem silenciosamente uma à outra. Formulários HTML enviam uma revisão escondida e respondem 409 quando ela está desatualizada; a API usa 412.
 
 | Resultado | HTTP/code |
 |---|---|
@@ -58,6 +60,8 @@ GET detalhe retorna ETag forte `"<revision>"`. PATCH, DELETE e restore requerem 
 | Admin sem enrollment obrigatório | 403 `mfa_required` |
 | Validação/mass assignment | 400 |
 | Unicidade/referência viva/conflito de último admin | 409 |
+
+Use os códigos para decidir a próxima ação, não como motivo para repetir cegamente a escrita. 428 pede a revisão obtida no GET; 412 pede reler o estado e conciliar a alteração com o usuário. 400 exige corrigir o corpo ou formato do header. 409 indica que a operação viola uma regra de integridade e não foi aplicada. 403 exige resolver autenticação, MFA ou permissão conforme o erro; 404 não distingue registro inexistente de registro oculto, evitando revelar dados de outra organização. Em sucesso, 201 indica criação, 200 traz a representação atualizada e 204 confirma exclusão lógica sem corpo.
 
 Erros JSON `{code,detail,fields?}`; X-Request-ID é gerado no servidor, sem traceback/SQL/segredo. Não use UUID do cliente como ator. Revisões são controle de concorrência, não grants.
 
@@ -93,7 +97,7 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
   "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/$NOTE/"
 ```
 
-Repita PATCH com a revisão antiga: esperado 412; não reutilize resposta stale para sobrescrever automaticamente. Access separado:
+Os exemplos pressupõem a app Notes instalada, habilitada nessa organização e as permissões de tabela necessárias. O primeiro GET lista organizações acessíveis; `me` demonstra uma revisão composta; o POST cria uma nota privada; o GET seguinte obtém a revisão da nota para o PATCH. Repetir o PATCH com a revisão antiga deve retornar 412: releia e decida como conciliar, sem sobrescrever automaticamente. Para compartilhar a nota, use a operação de acesso separada:
 
 ```sh
 curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \

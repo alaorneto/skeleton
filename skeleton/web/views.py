@@ -52,6 +52,9 @@ def tenant_page(*, admin=False):
             if is_organization_admin(request.user) and mfa_required(request.user):
                 return redirect("mfa_index")
             try:
+                if admin and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                    with access_services.organization_lock(request.user):
+                        return view(request, *args, **kwargs)
                 return view(request, *args, **kwargs)
             except ValidationError:
                 return render(request, "skeleton/web/error.html", {"detail": "Verifique os campos ou filtros informados."}, status=400)

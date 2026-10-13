@@ -1,8 +1,49 @@
 # Testes, fixtures e evidência
 
+Este documento tem duas funções: registrar **evidências históricas** e explicar como repetir verificações em ambiente descartável. Um resultado antigo não certifica alterações posteriores nem uma instalação de outro projeto. Os comandos abaixo são procedimentos a executar, não resultados novos.
+
+Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é um ensaio curto do fluxo real; uma **assertion** é a condição que o teste exige. Mocks e transportes controlados ajudam a testar respostas adversas, mas não provam que um serviço externo autorizou ou executou o fluxo. Veja [autorização e contexto](concepts.md#autorização-e-contexto) e [apps, pacotes e deployment](concepts.md#apps-pacotes-e-deployment) antes de interpretar os resultados.
+
+## Como escolher e interpretar a prova
+
+| Pergunta | Prova necessária | O que não substitui essa prova |
+|---|---|---|
+| Contratos de registros/serviços funcionam localmente? | Suíte SQLite isolada e seus negativos. | Isso não demonstra RLS PostgreSQL. |
+| Runtime realmente isola organizações no banco? | PostgreSQL real, migrations owner e assertions com role runtime restrita. | Consulta como owner ou teste só no ORM. |
+| Login corporativo percorre o protocolo? | Navegador, IdP real, callback e sessão final; negativos de assinatura/estado. | `force_login`, página de login 200 ou JWT local. |
+| Atualização e recuperação funcionam? | Release/pacotes reais, processos reiniciados, banco e restore no backend escolhido. | Renderizar Compose, ter Dockerfile ou testar somente planejamento. |
+| gov.br está homologado? | Credenciamento e login/logout no ambiente governamental autorizado. | Keycloak ou tokens RS256 locais. |
+
+**Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
+
+## Verificação da revisão de código e documentação
+
+Rodada de 2026-10-13, posterior ao checkpoint inicial `2207ba4`, com Python 3.14.7 e Django 5.2.18. Os resultados históricos das seções seguintes foram mantidos, não substituídos por contagens inferidas.
+
+| Conjunto | Evidência observada |
+|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | 306 passed, um warning do ZIP malicioso |
+| Matriz PostgreSQL: segurança/infraestrutura, deployment, schema retido, gov.br e rollback da criação de organização | 104 casos concluídos com `skeleton_runtime`, em dois lotes |
+| `tests/sso` | 25 passed, Chromium e Keycloak 26.8.0 reais, 94 warnings SAML preservados |
+
+O primeiro comando PostgreSQL coletou 104 casos e atingiu seu limite operacional de 600 segundos depois de 86 casos concluídos. A retomada executou exatamente os 17 casos gov.br restantes e o caso de rollback da organização: **18 passed**. Não houve falha de assertion nessa matriz, mas o timeout não foi apresentado como uma execução única bem-sucedida. Separadamente, os quatro cenários de concorrência administrativa e o rollback da organização passaram juntos (**5 passed**); as dez regressões de journal passaram após remover uma assertion incidental sobre flags de `flock`.
+
+### Reproduções e smokes desta revisão
+
+- **Antes da correção:** criação com objeto de proprietário ainda ativo em memória, mas desativado no banco, deixou uma organização órfã. Depois, a validação continuou recusando o vínculo e a organização não permaneceu.
+- **HTTP real + PostgreSQL runtime + Redis:** duas sessões com cookies/CSRF reais, POST e PATCH concorrentes do mesmo vínculo. Antes, `201/500` com deadlock; depois, `201/412`, vínculo desativado, revisão incrementada uma vez e sem sobrescrita silenciosa. Hooks apenas coordenaram o instante dos locks; não substituíram SQL, views ou respostas.
+- **HTML no Chromium + SQLite isolado:** formulário aberto na revisão 1; mudança concorrente pela API confirmou revisão 2. O envio do formulário antigo retornou 409 e exibiu a orientação de atualizar a página. GET posterior conservou estado e ETag da revisão 2.
+- **Agente real + socket Unix:** a resposta de `/submit` foi descartada depois da persistência do journal. O worker real encontrou drift de arquivo e falhou antes de manutenção. Reenvio com vínculo idêntico recuperou o mesmo resultado; outro request ID recebeu `idempotency_conflict`. Nenhum novo worker, gate ou cutover foi iniciado. Esse negativo prova transporte/idempotência, não atualização ou restauração completas.
+- **Documentação e CLI:** 16 documentos Markdown verificados quanto a links relativos, anchors, fences e headings obrigatórios do exemplo. `manage.py package versions --manifest examples/notes/manifest.json` informou core `0.1.0` instalado e Notes `0.1.0` project-local. `check` passou, `makemigrations --check --dry-run` não encontrou mudanças e `pip check` não encontrou dependências quebradas.
+
+Scripts e bancos desses smokes são descartáveis. Esta revisão não homologa gov.br, não ensaia Compose e não acrescenta prova de backup/restore PostgreSQL pelo agente. A evidência histórica diretório/SQLite abaixo mantém seu escopo original.
+
+
+O smoke `tools/smoke_postgres.py` também passou nesta rodada: runtime sem ownership/superuser/BYPASSRLS, inventário exato de RLS/FORCE, ausência de contexto, isolamento A/B e entre conexões, FK tenant, imutabilidade, recusa de DML/DDL privilegiado, limpeza após COMMIT/ROLLBACK e rollback conjunto de negócio/auditoria quando INSERT do writer é revogado. O schema check runtime confirmou o inventário de segurança.
+
 ## Verificação da retomada: versões, pacotes e gov.br
 
-Python 3.14.7, locks atuais e bancos isolados. Resultados efetivamente observados:
+Registro histórico da retomada, com Python 3.14.7, locks então usados e bancos isolados. Os números abaixo foram efetivamente observados naquela rodada; não são a contagem atual garantida nem resultado desta revisão documental:
 
 | Suíte | Backend/protocolo exercitado | Resultado |
 |---|---|---|
@@ -109,15 +150,21 @@ As regressões de deployment usam `docker compose config --format json`, executa
 
 ## Isolamento da suíte
 
+O isolamento evita que um teste apague dados de outro teste ou de uma instalação real. **Runtime** é a role limitada usada nas verificações de aplicação; **owner** é a role privilegiada usada somente para reconstruir o schema da fixture. Um banco “de teste” não se torna seguro só pelo nome: as URLs, o sufixo e o marcador de reset precisam satisfazer todas as barreiras abaixo.
+
 `tests/conftest.py` oferece fixture `skeleton_db`. pytest-django fornece settings e desbloqueio explícito do ORM; não use criação/flush automático, `django_db`, TransactionTestCase de flush, `--reuse-db` ou pytest-xdist como atalho em schema protegido.
 
-SQLite: uma template DB vazia migrada por sessão, cópia por teste via sqlite backup em tmp_path, reconnect para registrar UDFs, descarte só arquivo temporário. Testes unitários sem DB não ativam fixture.
+No SQLite, a sessão prepara um banco-modelo vazio e migrado. Cada teste recebe uma cópia própria via API de backup SQLite em `tmp_path`; a conexão é reaberta para registrar as funções SQL (UDFs) necessárias aos triggers. Ao terminar, descarta-se somente o arquivo temporário. Testes unitários sem banco não ativam essa fixture.
 
-PostgreSQL: TEST_DATABASE_URL runtime e TEST_MIGRATION_DATABASE_URL owner têm de apontar ao **mesmo** DB descartável, nome terminado `_skeleton_test`, diferente de qualquer DATABASE_URL/MIGRATION_DATABASE_URL normal. `SKELETON_TEST_ALLOW_SCHEMA_RESET=1` é obrigatório. Fixture fecha conexões, recria apenas schema skeleton com owner e migra; todas assertions de aplicação/RLS usam runtime. Não cria DB/roles nem reseta dados externos. DDL/reset serializado. Falta de marcador/DSN não autoriza reset automático.
+No PostgreSQL, `TEST_DATABASE_URL` (runtime) e `TEST_MIGRATION_DATABASE_URL` (owner) devem apontar ao **mesmo banco descartável**, com nome terminado `_skeleton_test`, diferente de qualquer `DATABASE_URL`/`MIGRATION_DATABASE_URL` normal. Também é obrigatório `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`.
+
+A fixture fecha conexões, recria **somente o schema `skeleton`** com owner e aplica migrations. Depois, todas as verificações de aplicação/RLS usam runtime. Ela não cria banco/roles nem reseta dados externos; DDL/reset são serializados. Se DSN, sufixo ou marcador faltar, pare e corrija o ambiente: a ausência não autoriza reset automático nem desabilitar a barreira.
 
 Browser SSO tem fixture de sessão com DB isolado e servidor real, preservando commits até fim do cenário. Não use TestCase com atomic externa como prova de COMMIT/SET LOCAL; os testes transacionais precisam de commits verdadeiros.
 
 ## SQLite
+
+**Pré-requisitos:** virtualenv e locks instalados, exemplo habilitado e ambiente local sem URL de produção. O primeiro comando usa bancos isolados da suíte. Os comandos `manage.py` seguintes, ao contrário, operam no banco escolhido pelos settings/ambiente; só os execute num banco local descartável.
 
 ```sh
 SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts
@@ -126,13 +173,15 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/int
 .venv/bin/python manage.py check_skeleton_schema
 ```
 
+**Resultado esperado:** suíte concluída e checks sem problemas no banco local. **Limite:** sucesso em SQLite demonstra seus contratos, mas não privilégios PostgreSQL ou funcionamento de infraestrutura externa. Uma falha de setup deve ser corrigida, não escondida por fixtures que pulam a proteção.
+
 Bootstrap usa getpass ou secret descartável forte; repita bootstrap/sync e compare UUIDs/ausência de reset de senha. Inicie runserver e faça login real, perfil, dashboard, convite, roles/grupos, Note opt-in e audit. API smoke usa cookie/CSRF dessa sessão, nunca force_login como prova de autenticação. Navegador deve mostrar estado final e fechar tabs.
 
 Testes permanentes: `tests/unit/test_http_revision.py`, `test_security_logging.py`; `tests/integration_sqlite/test_record_contract.py`, `test_security_invariants.py`, `test_http_boundaries.py`. Cobrem comportamentos públicos, não source-string assertions como substituição de prova.
 
 ## PostgreSQL runtime real
 
-Se usar serviços provisionados por operador, forneça URLs/marcador. Na instalação de integração atual:
+**Pré-requisitos:** PostgreSQL iniciado, banco descartável criado e provisionado pelo operador, duas roles/URLs do mesmo banco e marcador de reset. Os comandos seguintes usam arquivos privados da instalação de integração; em outra máquina, provisione equivalentes antes de carregá-los. Não há secrets de produção nesses exemplos.
 
 ```sh
 set -a
@@ -166,6 +215,10 @@ Assertions esperadas: runtime sem super/BYPASS/ownership/SET ROLE privilegiado; 
 
 ## OIDC e SAML reais
 
+**OIDC** e **SAML** são protocolos de login entre a aplicação e um provedor de identidade (IdP). O navegador precisa percorrer os redirecionamentos reais e terminar com sessão Django; receber claims isoladas não prova esse percurso. Consulte [login e protocolos](concepts.md#login-e-protocolos).
+
+**Pré-requisitos:** Keycloak iniciado com ambos os realms importados, endpoints exatos acessíveis, dependências SAML/XML instaladas e banco de fixture isolado. Prepare arquivos privados antes de iniciar Django; só então execute os testes.
+
 Realms `tests/sso/realm-skeleton-a.json` e `realm-skeleton-b.json`: usuários fixture, confidential OIDC PKCE S256 e SAML com response/assertion assinadas. Django no host `http://127.0.0.1:8000`; IdP `http://127.0.0.1:8080/realms/skeleton-a`/b. HTTP só DEBUG local. Não troque por aliases que mudem issuer/callback no browser.
 
 ```sh
@@ -179,7 +232,11 @@ Preparador busca discovery/metadata/cert **públicos** nos realms iniciados; ger
 
 Browser completa redirect/login IdP/callback real e consulta API pela sessão final: org correta, ausência staff/superuser, rerun sem duplicar User/Profile/Membership. Testes negativos manipulam intercâmbios reais da fixture, não substituem o validador: state/replay/issuer/audience/signature/expiry/PKCE OIDC; assinatura/destination/audience/expiry/InResponseTo/unsolicited/replay SAML. Coincidência email não conecta; sem binding/JIT ou email não confiável não concede afiliação. GitHub exige app OAuth/credenciais reais/callback documentado, senão registre não exercitado.
 
+**Resultado esperado:** login retorna à aplicação, cria/reusa a identidade correta e os casos adversos são recusados sem conceder vínculo indevido. **Falha/limite:** serviço ou secret ausente é pré-requisito pendente, não teste aprovado; esta fixture corporativa não habilita GitHub real nem homologação gov.br.
+
 ## Matrix mínima para nova tabela
+
+Esta **matriz** cruza atores, organizações e operações para encontrar vazamentos que um teste de criação feliz não detecta. A/B são duas organizações; Alice/Bob são usuários com acessos distintos; o administrador e o usuário sem `Membership` completam os casos. CAS compara a revisão lida antes de gravar: duas gravações com a mesma revisão devem ter só um vencedor. [Auditoria e concorrência](concepts.md#auditoria-e-concorrência) explica esse contrato.
 
 - Todos próprios UUID/base/spec e físicos catalogados, inclusive technical manifest nominal.
 - A/B/Alice/Bob/admin/sem Membership: list/detail/count/lookup/FK picker/audit/restore não vazam tenant ou privado.

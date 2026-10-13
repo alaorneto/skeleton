@@ -1,5 +1,23 @@
 # Deployment, credenciais e transporte de dados
 
+Este roteiro é para quem coloca a aplicação em funcionamento e precisa recuperá-la sem relaxar a segurança. **Deployment** é a instalação em execução (código, processos e serviços); **release** é um conjunto identificado de código e dependências preparado para essa instalação. Atualizar código não transporta dados nem torna uma migration reversível.
+
+Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-deployment) e [registros e banco de dados](concepts.md#registros-e-banco-de-dados). Aqui os comandos usam caminhos de exemplo: substitua-os pelos caminhos provisionados, mantendo a separação de contas e credenciais.
+
+### Quem executa o quê
+
+| Termo | Significado e uso seguro |
+|---|---|
+| Credencial | Identidade de conexão e seu segredo. Não é a identidade do usuário Django. Nunca a publique em logs, Git ou argumentos de comandos. |
+| DSN | Endereço de conexão, normalmente uma URL com banco, host e role; pode conter senha. `DATABASE_URL` é o DSN runtime; `MIGRATION_DATABASE_URL` é o DSN owner. |
+| Schema | Espaço de nomes dentro do banco, aqui `skeleton`; não é outro banco. Contém tabelas, funções e infraestrutura de proteção. |
+| Runtime | Processo que atende usuários, com `skeleton_runtime`; lê/grava somente o permitido, não modifica schema. |
+| Owner | Role privilegiada `skeleton_owner`, usada offline para criar/alterar infraestrutura e recuperar dados. Não serve requests. |
+| Migrator | Processo temporário que executa migrations com a credencial owner. Não é uma terceira role nem um worker web. |
+| Operador/agente | Conta de sistema que prepara releases e coordena manutenção. Seus privilégios de supervisor/Docker não pertencem ao web. |
+
+**Ordem segura:** provisione serviços e segredos → crie roles/schema → aplique migrations com owner → verifique com runtime → inicie web → confirme saúde e comportamento. Um check feito como owner não demonstra que o web está isolado.
+
 ## Settings e serviços
 
 - `development`: SQLite local se DATABASE_URL ausente; email console, cache LocMem; PostgreSQL opcional.
@@ -26,7 +44,7 @@ Rate limiting de IP usa a topologia explícita `DJANGO_TRUSTED_PROXY_COUNT` (nú
 
 ## Provisionamento PostgreSQL
 
-Operador autorizado cria previamente um banco vazio e aplica bootstrap nele. O SQL não cria DB nem persiste senhas.
+**Pré-requisitos:** operador autorizado, banco novo vazio, cliente `psql` e DSN administrativo privado. O bootstrap prepara roles/schema, mas não cria o banco nem salva senhas. Não o trate como migração de uma instalação existente.
 
 ```sh
 # ADMIN_DSN referencia banco recém-criado; segredo via pgpass/secret store.
@@ -42,7 +60,13 @@ No psql interativo, use `\password skeleton_owner` e `\password skeleton_runtime
 | skeleton_runtime | LOGIN, NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOBYPASSRLS; sem ownership/membership privilegiada/CREATE/TRIGGER/TRUNCATE |
 | skeleton_audit_writer | NOLOGIN/NOBYPASSRLS; dona das funções SECURITY DEFINER e INSERT audit, não escrita de negócio |
 
-Schema `skeleton`, search_path `skeleton,public`; CREATE público revogado. Owner é membro de audit_writer para transferência offline; runtime nunca. A migration concede CREATE schema a audit_writer **transitoriamente**, transfere ownership de função e revoga dentro da mesma migration. Não há grant permanente nem regrant manual antes de migrate. Funções de auditoria têm search_path `pg_catalog,skeleton`, referências qualificadas, EXECUTE público/runtime revogado. A função separada de verificação de lifecycle global admite EXECUTE runtime apenas sob o controle de plataforma descrito em [access-control](access-control.md). Grants são por inventário em migrations: tabelas próprias SELECT/INSERT/UPDATE (AuditEvent só SELECT runtime); DELETE físico não concedido. Técnicas recebem DML necessário ao framework, não blanket DML em toda tabela futura.
+O banco usa schema `skeleton` e `search_path` `skeleton,public` (ordem de busca de nomes SQL). `CREATE` público é revogado. A distribuição de privilégios é deliberadamente restrita:
+
+- Owner é membro de `audit_writer` para transferir funções offline; runtime nunca é membro.
+- A migration concede `CREATE` no schema a `audit_writer` **temporariamente**, transfere a propriedade da função e revoga o privilégio na mesma migration. Não faça grant permanente nem regrant manual antes de `migrate`.
+- Funções de auditoria usam `search_path` `pg_catalog,skeleton`, referências qualificadas e não concedem `EXECUTE` ao público/runtime. A função separada de verificação de lifecycle global permite `EXECUTE` runtime somente sob o controle de plataforma descrito em [controle de acesso](access-control.md).
+- Os grants vêm do inventário congelado em migrations: tabelas próprias recebem `SELECT/INSERT/UPDATE`; `AuditEvent` permite somente `SELECT` runtime. `DELETE` físico não é concedido.
+- Tabelas técnicas recebem só a escrita necessária ao framework. Nenhum grant genérico autoriza automaticamente tabelas futuras.
 
 O inventário técnico está congelado em `sk_system.0002_technical_privileges`: migrations/contenttypes/auth permissions/groups e configuração/tokens sociais são somente SELECT; sessões, endereços/confirmações de email, vínculos sociais e autenticadores recebem o DML de lifecycle necessário; django_admin_log recebe SELECT/INSERT. Sequências acompanham apenas as tabelas mutáveis. Novas tabelas técnicas exigem migration e revisão explícita; o schema check compara também privilégios efetivos herdados e grant options.
 
@@ -57,11 +81,15 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py che
 
 Env dos dois primeiros inclui MIGRATION_DATABASE_URL owner; ambiente web não inclui essa variável/credencial. Execute bootstrap offline com settings.migrate e segredo interativo. Migration owner é privilegiado por definição; check com owner não prova RLS runtime.
 
+**Resultado esperado:** migrations e catálogo concluídos pelo owner; os três checks seguintes passam usando a conexão runtime. **Se falhar:** não inicie web nem troque o check para owner para obter sucesso. Corrija o provisionamento ou a infraestrutura indicada e repita a etapa pertinente; não conceda privilégios adicionais ao runtime.
+
 RLS ENABLE/FORCE e policies exatas isolam tenants; ausência de GUC não vê linhas, Membership discovery tem exceção SELECT própria. Flags Django não bypassam RLS. Credencial runtime/SQL injection arbitrária pode chamar set_config; essa é a fronteira de confiança, não defesa contra invasor com DSN. Confira [access-control](access-control.md).
 
 ## Health, email e operação
 
 `/health/live/` só vivacidade; `/health/ready/` usa SELECT 1/cache, sem secrets/schema/grants. Somente esses paths exatos são atendidos antes de sessão/autenticação/contexto transacional; DB parado mantém live=200 e ready=503 JSON. Host continua validado; outros paths não recebem bypass. Health não substitui check de infraestrutura ou teste de isolamento. Proteja interfaces de operação na rede/proxy.
+
+Leia as respostas como sinais diferentes: `live=200` significa que o processo responde; `ready=200` significa que banco/cache responderam ao probe. Nenhuma delas prova isolamento entre organizações, SMTP, login ou versão correta do código. Para releases gerenciados, confira também `/health/release/` e os checks descritos abaixo.
 
 Redis compartilhado é necessário a rate limits entre workers; configure autenticação e rede privada. O probe usa REDISCLI_AUTH com expansão de ambiente, não senha literal/argv. SMTP entrega após commit de mensagens já materializadas e pré-validadas. Falha real é registrada por classe/UUID sem segredo e não vira 500 enganoso após dados confirmados: API recebe `X-Email-Delivery: failed`, HTML recebe aviso, e permanece um caminho explícito de reenvio. Convite reenviado revoga o antigo por tombstone e emite UUID/token novos na mesma transação, com revisão obrigatória; convite consumido não pode ser reenviado. Não há retry/outbox nem promessa de entrega distribuída/transacional.
 
@@ -74,6 +102,8 @@ Backups PostgreSQL devem incluir entidades, audit e estado de migrations; protej
 **Trocar DATABASE_URL não migra dados.** O procedimento é manutenção explícita, primeiro ensaiado em cópia descartável. Não aponta a produção existente, não sobrescreve automaticamente tabelas. Não existe conversor automático do produto. Mantenha rollback SQLite intacto até aceite.
 
 ### 1. Congelar e inventariar
+
+Objetivo desta etapa: obter uma fonte que não mudará durante a comparação e a carga. Sem parar **todos** os escritores (web, jobs e integrações), contagens e export podem descrever momentos diferentes. A cópia congelada é o ponto de retorno; não a reabra enquanto o destino estiver recebendo escritas.
 
 Pare web/jobs/escritas; faça backup consistente do SQLite e dos arquivos privados/chaves. Registre commit, locks, apps habilitados, schema check, UUIDs/contagens por tabela própria (incluindo tombstones), relações e revision. Use o mesmo enable-example/PROJECT_APPS nos dois lados. Proteja export com `umask 077`.
 
@@ -138,6 +168,8 @@ Há uma janela offline privilegiada sem guards/auditoria; mantenha destino inace
 
 ### 3. Reconciliar, verificar e cortar
 
+**Cutover** é o momento de trocar o destino usado pelos processos e liberar tráfego. Até esse momento, o PostgreSQL deve permanecer inacessível aos escritores normais. Execute primeiro a reconciliação com owner e depois a verificação com runtime; os ambientes são distintos mesmo quando os comandos aparecem no mesmo bloco.
+
 ```sh
 DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py sync_table_catalog
 DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py check_skeleton_schema
@@ -157,6 +189,8 @@ Os entrypoints de `config/settings` importam `skeleton.conf.base` e aplicam os p
 
 ### Construir e publicar
 
+**Pré-requisitos:** versão definida em `pyproject.toml`, dependências fixadas, manifesto revisado e chave privada de um publicador aprovado. **Publisher** é quem assina o artefato; aprovação da chave é decisão do operador, não algo que o próprio pacote possa conceder. A assinatura demonstra procedência e integridade, não ausência de código malicioso.
+
 ```sh
 # Ambiente de build com requirements-dev.txt atualizado e hashes:
 .venv/bin/python -m build --wheel --no-isolation
@@ -172,13 +206,21 @@ skeleton-core build --wheel dist/django_skeleton-0.1.0-py3-none-any.whl \
   --output /caminho/privado/core-0.1.0.skapp
 ```
 
-O manifesto core usa `manifest_version=1`, `kind="core"`, `component_id="django-skeleton"`, nome/descrição/versão/publisher, intervalos explícitos de compatibilidade `skeleton/python/django`, dependências, conflitos opcionais, migrations (`leaves`, `from_versions`, labels opcionais), `files=[]`, `python_dependencies` e lifecycle (`data_retention="retain"`, `maintenance=true`, `backup=true`). Declare o wheel principal em `python_dependencies` com `name="django-skeleton"`, versão, `wheel="wheels/<nome>.whl"` e `sha256`; o builder recalcula o hash e gera o inventário completo antes de assinar. `release_notes` e `build` identificam instruções/notas e procedência. Wheels adicionais são declarados e fornecidos por `--dependency-wheel`; nunca sdist. A versão no wheel precisa ser equivalente à versão do manifesto. A assinatura usa exatamente o mesmo contrato e trust store dos pacotes de apps, sem uma segunda chave de confiança trazida pelo pacote.
+O manifesto core identifica o artefato e limita como instalá-lo:
+
+- Use `manifest_version=1`, `kind="core"` e `component_id="django-skeleton"`, com nome, descrição, versão e publisher.
+- Declare intervalos explícitos de compatibilidade `skeleton/python/django`, dependências, conflitos opcionais e migrations (`leaves`, `from_versions`, labels opcionais).
+- O arquivo de entrada usa `files=[]`, `python_dependencies` e lifecycle com `data_retention="retain"`, `maintenance=true`, `backup=true`.
+- Declare o wheel principal em `python_dependencies`: `name="django-skeleton"`, versão, `wheel="wheels/<nome>.whl"` e `sha256`. O builder recalcula o hash e gera o inventário completo antes de assinar; a versão do wheel deve equivaler à do manifesto.
+- `release_notes` e `build` registram instruções/notas e procedência. Declare wheels adicionais e forneça-os por `--dependency-wheel`; nunca use sdist (distribuição de fontes que exige build na instalação).
+
+A assinatura segue o mesmo contrato e trust store dos pacotes de apps. O pacote não pode trazer uma segunda chave para autorizar a si mesmo.
 
 O projeto derivado instala o wheel fixado em ambiente isolado e mantém um lock final com hashes para core, apps e dependências. O Dockerfile do template constrói esse wheel em stage separado, instala dependências dos locks com `--require-hashes`, instala o wheel já produzido sem resolver dependências e copia apenas os arquivos de projeto para o runtime. Não sobra uma cópia `skeleton/` em `/app` ocultando a distribuição instalada. A imagem do agente para releases gerenciados usa o lock final offline e wheels aprovados do release.
 
 ### Cutover de uma cópia do core
 
-Faça backup e ensaie em clone offline antes de qualquer cutover. Identifique um release base **assinado e conhecido**; não use o HEAD corrente como evidência de equivalência de um projeto histórico. O trust store é JSON privado `publisher-key-id -> caminho PEM público` aprovado pelo operador.
+Faça backup e ensaie em clone offline antes de qualquer cutover. Identifique um release base **assinado e conhecido**; não use o HEAD corrente como evidência de equivalência de um projeto histórico. O **trust store** (lista de chaves confiáveis) é um JSON privado `publisher-key-id -> caminho PEM público` aprovado pelo operador. Ele contém referências a chaves públicas, não a chave privada de assinatura; uma chave fornecida pelo pacote não estabelece confiança.
 
 ```sh
 skeleton-core adoption-plan --project-root /srv/projeto \
@@ -191,9 +233,23 @@ skeleton-core adopt --project-root /srv/projeto \
   --trust-store /srv/privado/publishers.json --backup-root /srv/backups/core-adoption
 ```
 
-`adoption-plan` compara cada arquivo da cópia com o inventário real do wheel contido no release verificado, listando adicionados/removidos/alterados. Qualquer diferença classifica `fork` e impede overwrite/remoção. Sem base conhecida a ferramenta não anuncia upgrade automático. `adopt` requer uma distribuição instalada externa com versão **e todos os hashes** idênticos; só então move a cópia inteira de `skeleton` para backup externo por rename. Preserva migrations históricas no backup e nunca escreve em `applications`, `config`, `manage.py`, dados ou arquivos retidos. Exige origem e backup no mesmo filesystem para esse cutover atômico. O comando Django `adopt_core_distribution` produz o plano por padrão; somente `--apply --backup-root ...` aplica o corte. Execute de forma offline, com workers/jobs parados; reinicie o processo no ambiente novo após o corte. Checks/migrations/smokes em clone com os mesmos IDs e dados continuam sendo requisitos de aceite, não efeitos implícitos do comando.
+**Resultado do plano:** `adoption-plan` compara cada arquivo da cópia com o inventário real do wheel no release verificado e lista adicionados/removidos/alterados. Qualquer diferença classifica a cópia como `fork` (derivação local modificada) e bloqueia sobrescrita/remoção. Sem base conhecida, não há promessa de upgrade automático.
+
+**Condições para aplicar:** `adopt` exige uma distribuição instalada externa com versão **e todos os hashes** idênticos. Origem e backup devem estar no mesmo filesystem para mover a cópia inteira de `skeleton` por rename atômico. O backup conserva migrations históricas; `applications`, `config`, `manage.py`, dados e arquivos retidos não são alterados.
+
+O comando Django `adopt_core_distribution` só produz o plano por padrão; o corte exige `--apply --backup-root ...`. Execute offline, com workers/jobs parados, e reinicie o processo no ambiente novo. Checks, migrations e smokes em clone com os mesmos IDs/dados continuam sendo critérios de aceite; não são efeitos implícitos de `adopt`.
 
 ### Inventário, manutenção e confirmação
+
+Estes três registros respondem a perguntas distintas:
+
+| Registro | Pergunta respondida | Limite |
+|---|---|---|
+| Geração | “Qual estado global este plano espera substituir?” É o número de estado do deployment, não a versão SemVer da app. | Uma geração antiga invalida o plano, mesmo que a versão pareça compatível. |
+| Inventário | “Quais componentes, arquivos e históricos pertencem a este release?” É o JSON privado que orienta o startup. | Editá-lo não instala código nem prova que os workers carregaram os bytes declarados. |
+| Journal | “O que a operação tentou, confirmou e precisa recuperar?” É o registro durável externo ao banco da aplicação. | Sobrevive ao restore do banco; não recria escritas de negócio perdidas. |
+
+**Staging** é a preparação isolada de um novo release antes de ativá-lo. O release ativo permanece congelado; pacotes aprovados reconstituem o novo ambiente, em vez de mesclar código antigo e novo. Os detalhes a seguir explicam como o inventário determina o startup e como os probes confirmam o código realmente carregado.
 
 `SKELETON_DEPLOYMENT_INVENTORY` aponta para o JSON privado gerado pelo agente antes do startup. Ele declara geração, core, apps installed/project-local/schema_retained, snapshots de schema e arquivos históricos de migrations. Settings não consultam banco para decidir `INSTALLED_APPS`: só apps `installed` são agregadas ao overlay; apps locais continuam em `PROJECT_APPS` e precisam ter manifesto/caminho coerentes com o inventário. Apps `schema_retained` não têm modelos, registry, menus ou URLs ativos. Os snapshots retidos ficam em `SKELETON_RETAINED_SCHEMA_PATHS`, preferencialmente com `path` e SHA-256.
 
@@ -371,6 +427,8 @@ Esses campos são adicionados ao JSON principal. O proxy encaminha **somente** `
 
 ### Upload, plano aprovado e execução
 
+**Pré-requisitos:** agente inicializado e ativo, pacote assinado por chave aprovada, geração conhecida e armazenamento privado para respostas. **Procedimento:** enviar artefato → examinar o plano → aprovar o vínculo exato de ID/digest/geração → acompanhar a operação. O digest é o resumo criptográfico que identifica bytes; copiar só a versão ou o nome do arquivo não identifica o pacote.
+
 Com o daemon `serve` ativo, os demais comandos online usam sua API autenticada. Salve as respostas em diretório privado externo ao release; não edite um plano aprovado:
 
 ```sh
@@ -389,7 +447,11 @@ CONFIG=/srv/skeleton/private/agent.json
 "$AGENT" --config "$CONFIG" journal
 ```
 
-`submit` é assíncrono; confirme `state=succeeded`, `stage=ready` e geração/core reais em `/health/release/`, não somente exit code/estado queued. Repetir exatamente o mesmo UUID e binding retorna a mesma operação; mudar o binding conflita. Um plano/generation antigo é rejeitado. Preview monta o ambiente isolado e carrega o grafo Django real antes de aprovação; não executa migrations. Todos os hashes e o estado de migrations são revalidados ao executar e após drain.
+`submit` apenas entrega uma solicitação assíncrona. **Sucesso final** exige `state=succeeded`, `stage=ready` e geração/core reais em `/health/release/`; exit code de envio ou estado `queued` não bastam.
+
+O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação.
+
+Um plano/geração antigo é rejeitado para uma nova submissão. O preview prepara ambiente isolado e carrega o grafo Django real, mas não aplica migrations. Hashes e estado das migrations são novamente conferidos na execução e após drenar os escritores.
 
 ```sh
 "$AGENT" --config "$CONFIG" preview update --artifact "$NEW_APP_DIGEST"
@@ -437,6 +499,10 @@ curl --unix-socket /srv/skeleton/control/agent.sock \
 
 ### Backend Compose
 
+O backend **diretório** prepara um virtualenv por release, troca o ponteiro `current` e usa o supervisor configurado. O backend **Compose** prepara uma imagem por release, roda um container migrator separado e recria o serviço web. São duas formas de executar o mesmo contrato, não duas evidências equivalentes: um ensaio bem-sucedido em diretório não valida Docker, permissões de volumes ou recuperação Compose.
+
+**Pré-requisitos adicionais:** Docker acessível pela conta do agente, Compose e imagem base provisionados, serviços/volumes privados e endpoints de backup acessíveis no host. A configuração abaixo é um exemplo a adaptar; não é prova de que a stack foi executada.
+
 Troque `backend` para `compose` e adicione ao mesmo JSON:
 
 ```json
@@ -475,6 +541,20 @@ O Compose base deve montar secrets runtime/SSO/smoke e socket de controle read-o
 O backend já faz `stop web` no drain e `up --detach --no-deps --no-build --force-recreate web` no restart. Configure hooks fixos reais para drenar/parar/reabrir jobs/proxy externos; se só há web, hooks podem operar o gate do proxy. Não use hooks de systemd do exemplo diretório para serviços inexistentes nem comandos fictícios/no-op. O agente precisa de acesso Docker delimitado operacionalmente (socket Docker equivale a privilégios elevados); isso nunca é concedido ao web.
 
 ### Backup, crash e recuperação
+
+**Backup** é a cópia consistente de banco e recursos necessários; **restore** é a reposição dessa cópia; **rollback** é retornar a um estado anterior. Só trocar arquivos ou o ponteiro de release não desfaz migrations ou escritas. A indisponibilidade planejada começa quando o tráfego é bloqueado e os escritores são drenados, e termina somente após verificar banco, release e workers.
+
+Antes de escolher recuperação, identifique no journal a primeira migration e a intenção de reabrir tráfego:
+
+| Momento da falha | Ação segura e limite |
+|---|---|
+| Antes de iniciar migrations | `abort` pode verificar e reiniciar o release anterior. Não executar os outros caminhos em sequência. |
+| Depois de iniciar migrations, ainda sem novas escritas | `restore` requer backup íntegro; alternativamente `complete` conclui somente o plano aprovado. Voltar só o código não basta. |
+| Após intenção de liberar tráfego | Trate novas escritas como possíveis, mesmo sem confirmação de sucesso. Restore pode perdê-las; aprove antes um plano explícito de perda/reconciliação. |
+
+**Resultado esperado:** recuperação confirmada por checks runtime e saúde do release, seguida da liberação controlada de tráfego. **Se falhar:** mantenha manutenção e evidências; não remova o marker manualmente, não habilite runtime privilegiado e não invente nós de migration.
+
+**Barreira antes de recuperar:** confirme que o release/geração ativos ainda correspondem à origem ou ao destino da aprovação escolhida. Uma operação antiga não pode desfazer um deployment posterior: `operation_superseded` recusa esse caso antes de manutenção, drain ou restore. Se existir outra operação `queued`, `running` ou `interrupted`, resolva seu estado primeiro; `recovery_or_operation_pending` impede recuperar em paralelo. Não contorne essas recusas alterando inventário/journal nem escolhendo outra operação sem examinar seu vínculo.
 
 Adicione `recovery_paths`, por exemplo `["/srv/skeleton/uploads","/srv/skeleton/private/mfa-keys.json"]`, para recursos mutáveis/chaves que precisam acompanhar o DB. Eles devem existir, ser externos a releases e não conter symlinks. Pare todos os escritores antes do snapshot. Não inclua diretório de estado/journal do agente, o marker ou o próprio backup em `recovery_paths`.
 

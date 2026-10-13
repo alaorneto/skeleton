@@ -1,37 +1,43 @@
 # Autenticação, convites, SSO e MFA
 
+Autenticação responde **quem entrou**; autorização decide **o que essa pessoa pode fazer em cada organização**. SSO (login único por um provedor externo) substitui a prova de identidade, não as permissões locais. Consulte [identidade e organizações](concepts.md#identidade-e-organizações) e [login e protocolos](concepts.md#login-e-protocolos) para a visão geral.
+
 ## Identidade e admissão
 
-Login é allauth por email, via único backend `SkeletonAuthenticationBackend`. Sessão vive no banco. User.email normalizado é único inclusive tombstones. Deleted/inactive não autentica nem é reprovisionado por SSO. `auth_version` na sessão é comparado a cada request: mudança de senha/MFA, desativação e revogação global invalidam sessões antigas. Permissões Django globais são vazias para usuários comuns; só superuser ativo/não deletado acessa admin global. RBAC tenant não usa auth.Group.
+O login por email é gerenciado pelo django-allauth, através do único backend `SkeletonAuthenticationBackend`. Após autenticar, o servidor mantém uma sessão no banco; o navegador envia um cookie com seu identificador, não a senha a cada acesso. `User.email` é normalizado e único, inclusive para contas com marca de exclusão lógica (tombstone). Contas excluídas ou inativas não autenticam nem são recriadas por SSO. A versão `auth_version` guardada na sessão é comparada a cada requisição: mudança de senha/MFA, desativação e revogação global invalidam sessões antigas. Permissões Django globais são vazias para usuários comuns; só superuser ativo/não deletado acessa o admin global. RBAC, a autorização por papéis na organização, não usa `auth.Group`.
 
 Troca efetiva de email primário verificado incrementa auth_version mesmo que o allauth já tenha sincronizado User.email antes do signal. A sessão que realiza a troca conserva a nova versão; todas as demais são revogadas. User restore incrementa a versão no mesmo CAS que remove o tombstone e conserva is_active=False. UserManager.create_user/create_superuser e o comando createsuperuser criam UserProfile na mesma transação.
 
 O formulário de User no admin inclui revisão original escondida. Alterações de nomes/flags e revogação são persistidas numa instância bloqueada coerente, sem forjar revision; formulário stale e tentativa de remover último admin retornam 409. Language da API exige string e opção configurada: lista/objeto é validação 400 sem escrita.
 
 
-Cadastro é fechado por padrão. Público opt-in exige confirmação de email e cria somente User/Profile; não organiza tenant nem Membership. Email verification é mandatory para local/social. Logout, confirmação de email e início social não são ações por GET. Reset não faz login automático; operações sensíveis exigem reautenticação.
+Cadastro é fechado por padrão. Quando habilitado explicitamente, o cadastro público exige confirmação de email e cria somente User/Profile: não cria organização nem Membership (vínculo organizacional). A confirmação de email é obrigatória tanto no cadastro local como no social. Logout, confirmação de email e início social não são ações por GET. As ações de formulário usam POST com proteção CSRF: o token comprova que a requisição veio de uma página autorizada, evitando que outro site use o cookie da vítima para executar ações. CSRF não substitui login nem autorização. Reset de senha não faz login automático; operações sensíveis exigem reautenticação, uma nova prova recente de identidade.
 
 ### Convite
 
-Org admin emite convite: token urlsafe de 32 bytes, digest SHA256 persistido, validade sete dias e email/role/org fixos. Mensagem contém `/invite/<org_uuid>/<token>/`; plaintext só na mensagem, nunca audit/log ou callback SSO. GET valida e guarda referência server-side sem consumir. POST CSRF revalida token/expiry/email/tenant e consome atomicamente com CAS accepted_at IS NULL. Só um vencedor em corrida/replay.
+O administrador da organização emite um convite com email, papel e organização fixos. O serviço gera um token URL-safe de 32 bytes, guarda apenas seu resumo SHA-256 (digest) e limita a validade a sete dias. A mensagem contém `/invite/<org_uuid>/<token>/`; o token em texto original aparece somente nessa mensagem, nunca em auditoria, logs ou callback SSO. GET valida o convite e guarda uma referência no servidor, mas não o consome. POST com CSRF revalida token, validade, email e organização e o consome atomicamente com CAS e `accepted_at IS NULL`: duas tentativas concorrentes ou a repetição do mesmo convite têm somente um vencedor.
 
-Conta nova usa signup allauth com email fixado. Posse validada do convite pode ser prova desse email; conhecer token não autentica conta existente. Conta existente exige login/reautenticação e email verificado igual. Reconvidar reativa Membership existente. Invalid/expired/consumed usa página neutra/API `invalid_invitation`, sem expor existência de conta.
+Conta nova usa o cadastro allauth com email fixado. A posse de um convite validado pode servir de prova de acesso àquele email; não serve de prova da senha ou da identidade de uma conta existente. Para uma conta existente, são necessários login/reautenticação e email verificado igual ao convidado. Reconvidar reativa a Membership existente, sem duplicar o vínculo. Convite inválido, expirado ou consumido apresenta uma página neutra ou o código de API `invalid_invitation`, sem revelar se a conta existe.
 
-A sessão armazena apenas UUIDs de organização/convite e o digest, nunca o token plaintext. Na criação, a prova de email validada continua disponível somente no request corrente depois do consumo, permitindo a configuração de EmailAddress pelo allauth; ela não pode autenticar uma conta existente nem ser reutilizada em outro request.
+A sessão armazena apenas UUIDs de organização/convite e o digest, nunca o token original. Na criação, a prova de email validada continua disponível somente na requisição corrente depois do consumo, para configurar `EmailAddress` no allauth. Ela não pode autenticar uma conta existente nem ser reutilizada em outra requisição.
 
 ### Senhas, emails e conexão
 
-SSO cria senha inutilizável e `local_password_allowed=False`; local/convite usa True. A política é da identidade global, inclusive se pertence a várias orgs. Reset mantém resposta neutra mas não entrega mensagem a SSO-only/inativo/deletado. Set/change/reset completion revalidam a política mesmo com token antigo. Não há endpoint paralelo de senha na API.
+Uma identidade criada por SSO recebe senha inutilizável e `local_password_allowed=False`; contas locais ou criadas por convite usam True. Essa política pertence à identidade global, mesmo quando a pessoa participa de várias organizações. “SSO-only” significa que o login local por senha está proibido, não que a pessoa tem permissão em algum tenant. Reset mantém uma resposta pública neutra, mas não envia mensagem para contas SSO-only, inativas ou excluídas. Definir/trocar senha e concluir reset revalidam a política, mesmo com token antigo. Não há endpoint paralelo de senha na API.
 
 `ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS=False` impede a mensagem genérica que o allauth enviaria depois de filtrar uma identidade sem direito a senha local. A resposta pública continua neutra; não enviar email a conta desconhecida, inativa ou SSO-only não autoriza expor sua existência.
 
-Email social coincidente **não** conecta automaticamente: SOCIALACCOUNT_EMAIL_AUTHENTICATION/AUTO_CONNECT=False e can_authenticate_by_email=False. Faça login local + conexão explícita após reauth. User.email/EmailAddress só sincronizam após confirmação e não reutilizam tombstones. `SOCIALACCOUNT_STORE_TOKENS=False` sozinho não protege signup pendente: após validação protocolar, o adapter remove tokens e conserva somente process/next/headless necessários na sessão. Extra_data retém apenas binding e, durante admissão inicial não confirmada, o email pendente. Tokens/claims completos não são serializados nesse fluxo.
+Um email informado pelo provedor e coincidente com uma conta local **não** conecta as contas automaticamente: `SOCIALACCOUNT_EMAIL_AUTHENTICATION/AUTO_CONNECT=False` e `can_authenticate_by_email=False`. Entre na conta existente e faça conexão explícita após reautenticação. `User.email` e `EmailAddress` só sincronizam após confirmação e não reutilizam emails de contas excluídas.
+
+`SOCIALACCOUNT_STORE_TOKENS=False` sozinho não protege o cadastro social ainda pendente. Após validar o protocolo, o adapter remove tokens e conserva na sessão somente `process`, `next` e `headless` necessários ao fluxo. `extra_data` retém apenas o binding e, durante a admissão inicial ainda não confirmada, o email pendente. Tokens e claims (atributos declarados pelo provedor) completos não são serializados nesse fluxo.
 
 ## JSON privado de provedores
 
-`SSO_PROVIDER_CONFIG_PATH` aponta para arquivo fora do Git, com único objeto `providers`. IDs são únicos/URL-safe. Protocolos: oidc/saml/github/govbr; OIDC/SAML corporativos exigem organization_slug, enquanto govbr é identidade global e rejeita configuração de tenant/JIT/papel. Parsing de settings valida tipos/URLs/secrets sem DB. Services/check pós-migração resolvem org/role ativos e binding estável.
+`SSO_PROVIDER_CONFIG_PATH` aponta para um arquivo privado fora do Git, cujo objeto raiz contém `providers`. Cada `provider_id` deve ser único e seguro para uso em URL. Os protocolos aceitos são `oidc`, `saml`, `github` e `govbr`. OIDC/SAML corporativos exigem `organization_slug`, pois podem admitir membros em uma organização específica. Gov.br representa identidade global e rejeita configuração de organização, papel ou JIT (criação de vínculo no primeiro login). Ao carregar settings, o parser valida tipos, URLs e referências de segredos sem consultar o banco; após migrations, os serviços e checks verificam organização/papel ativos e a estabilidade do binding.
 
-Settings materializam `SKELETON_PROVIDER_CONFIGURATION` uma vez no startup; bindings e configuração allauth usam esse mesmo snapshot. Mudanças no arquivo/env exigem reinício controlado. Não há releitura por request. `verified_email`, scopes configurados e auth_params arbitrários são rejeitados; email verificado exige evidência do protocolo e trust explícito. Query scope/auth_params não amplia consentimento nem altera client_id/redirect_uri/state/nonce. OIDC usa openid/profile/email e preserva prompt de reautenticação; govbr usa openid/email/profile; GitHub somente user:email. Todos os fluxos OIDC exigem ID token assinado e nonce aleatório vinculado ao estado allauth de uso único e ao provider ID; back-channel TLS não dispensa assinatura.
+Settings carregam `SKELETON_PROVIDER_CONFIGURATION` uma única vez no início do processo; bindings e allauth usam essa mesma configuração, sem reler o arquivo a cada requisição. Mudanças no arquivo ou ambiente exigem reinício controlado.
+
+Não é permitido declarar `verified_email`, scopes configurados ou `auth_params` arbitrários para forjar prova ou ampliar permissões. Scopes são os conjuntos de dados solicitados ao provedor: OIDC usa `openid/profile/email` e preserva a solicitação de reautenticação; gov.br usa `openid/email/profile`; GitHub solicita somente `user:email`. Parâmetros de query `scope/auth_params` não ampliam consentimento nem alteram `client_id`, `redirect_uri`, `state` ou `nonce`. Considerar email verificado exige evidência do protocolo e confiança explícita configurada. Todos os fluxos OIDC exigem ID token assinado e nonce aleatório ligado ao estado allauth de uso único e ao provider ID; uma conexão TLS entre servidores não dispensa assinatura.
 
 As classes de extensão de segurança OIDC/SAML/GitHub são registradas mesmo quando não há credenciais nem apps configuradas. O registry allauth conserva essas classes desde o primeiro carregamento; adicionar um perfil não pode reutilizar inadvertidamente a classe upstream sem minimização/nonce. Isso não habilita login sem um binding autorizado. O adapter seleciona endpoints gov.br pelo perfil global do snapshot de configuração, não por descoberta ou settings editáveis de SocialApp.
 
@@ -41,7 +47,7 @@ Depois de migrate/catalog/schema check, rode com os settings **runtime** que car
 DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py validate_provider_bindings --database default
 ```
 
-O preflight valida org/role vivos e todos os fingerprints históricos sem login nem alteração de subjects. Erro bloqueia deployment. O fingerprint v2 inclui protocolo, issuer/entity, client_id, tenant e entidade SP configurada: também a atualização do contrato exige revisar bindings existentes. Não há atualização automática de fingerprints. Mudança de domínio de identidade exige provider_id novo e migração administrativa revisada.
+Esse comando é a verificação prévia (preflight): valida organizações/papéis vivos e todos os fingerprints históricos, sem fazer login nem alterar subjects. Fingerprint é o resumo da configuração que fixa o domínio de identidade de um binding; a versão v2 inclui protocolo, issuer/entity, `client_id`, organização e entidade SP configurada. Qualquer erro bloqueia o deployment. Atualizar esse contrato também exige revisar bindings existentes, pois seus fingerprints não são atualizados automaticamente. Para mudar o domínio de identidade, crie outro `provider_id` e faça uma migração administrativa revisada; reutilizar o ID poderia ligar uma pessoa do novo emissor à conta de outra pessoa.
 
 
 ```json
@@ -76,10 +82,16 @@ JIT default False; default role member, nunca role/tenant de claim/query/body. M
 
 Sem email atestado pelo protocolo, exige-se confirmação local. Essa confirmação só completa uma admissão inicial pendente explicitamente para o email/binding de origem, e nunca reativa Membership existente suspensa/removida. Confirmar email adicional não desfaz offboarding. Convite autorizado continua sendo o caminho de readmissão. Após confirmar cadastro social que ainda não iniciou sessão, inicie novamente o SSO; a confirmação não é login automático.
 
-A admissão pendente é estado de servidor conservado entre novos callbacks antes da confirmação; não vem de claims extras nem se perde nos lookup writes allauth. A decisão inicial de Membership é serializada pelo lock da organização, o mesmo usado pelo offboarding. Completar essa admissão não é autorização para reativar vínculo existente.
+A admissão pendente é um estado do servidor: ele conserva a decisão inicial entre novos callbacks até a confirmação e não aceita claims extras como substituto. As escritas de consulta/identificação do allauth também não apagam esse estado. A criação inicial de Membership usa o mesmo bloqueio da organização que a revogação de vínculo (offboarding), impedindo corrida entre admissão e remoção. Concluir essa admissão não autoriza reativar um vínculo existente.
 
 
 ## Protocolos e callbacks
+
+O **IdP** (provedor de identidade) autentica a pessoa; o serviço local é o cliente OIDC ou **SP** (prestador de serviço) SAML. **Issuer** é o identificador do emissor OIDC; **subject**, normalmente `sub`, identifica a pessoa dentro desse emissor. O par emissor/subject, e não o email mutável, define a identidade externa. Em SAML, `entity_id` identifica a entidade e o UID escolhido deve ser imutável. Um binding é o vínculo administrado entre essa configuração externa e a identidade/organização local.
+
+OIDC (OpenID Connect) usa OAuth para obter uma prova de identidade, o ID token assinado; um access token OAuth isolado não é essa prova. SAML transporta declarações de identidade em XML assinado. O perfil gov.br é OIDC com endpoints oficiais e credenciamento específico, não um protocolo próprio. GitHub usa seu fluxo OAuth integrado pela biblioteca.
+
+No retorno ao callback, `state` liga a resposta ao fluxo iniciado e é consumido uma única vez; `nonce` liga o ID token àquela tentativa e impede aceitar um token de outra tentativa; PKCE S256 exige a prova secreta gerada no início para trocar o código por tokens, reduzindo o risco de interceptação do código. Essas proteções são complementares à assinatura, à validação de issuer/audience e ao HTTPS. Não acrescente parâmetros de URL para desativá-las.
 
 | Protocolo | Callback/endpoints | Identidade e requisitos |
 |---|---|---|
@@ -157,7 +169,7 @@ Após provisionar, reinicie os processos e rode `validate_provider_bindings` com
 
 ## MFA cifrado e obrigatório
 
-Tipos: TOTP e recovery_codes; email verificado obrigatório; recovery codes mostram uma vez; trusted browser desligado. Produção exige MFA para plataforma e organization_admin antes de superfícies privilegiadas; HTML vai ao `mfa_index`, API retorna 403 `mfa_required`. MFA/profile/logout seguem acessíveis para concluir enrollment. Claim IdP `amr` não pula essa política. Dev default False permite bootstrap; enrollment requer chaves.
+MFA (autenticação multifator) exige uma prova adicional além do método de login. São suportados TOTP, códigos temporários gerados por um aplicativo autenticador, e `recovery_codes`, códigos de recuperação para perda desse aplicativo. Email verificado é obrigatório; códigos de recuperação são mostrados uma única vez e o recurso de navegador confiável fica desligado. Em produção, administradores da plataforma e `organization_admin` precisam cadastrar MFA antes de usar superfícies privilegiadas. HTML redireciona para `mfa_index`; a API retorna 403 `mfa_required`. MFA, perfil e logout continuam acessíveis para permitir concluir o cadastro. A claim `amr` do IdP não dispensa essa política. Em desenvolvimento, o padrão False permite a configuração inicial; cadastrar MFA ainda requer chaves de cifragem.
 
 Gere chave Fernet privadamente:
 

@@ -112,3 +112,23 @@ def test_sbr12_manager_created_identity_has_persisted_profile_and_me(method):
     response = login(user).get('/api/v1/me/')
     assert response.status_code == 200
     assert response.json()['profile']['sysid'] == str(user.profile.pk)
+
+
+def test_organization_creation_rolls_back_when_owner_becomes_inactive():
+    from uuid import uuid4
+    from django.core.exceptions import ValidationError
+    from skeleton.accounts.services import create_organization
+    from skeleton.tenancy.context import request_context
+    from skeleton.tenancy.models import Organization
+
+    admin, _ = bootstrap_identity(email='org-platform@example.test', organization='org-platform',
+                                  name='Platform', password=PASSWORD)
+    stale_owner = identity('org-owner@example.test')
+    with request_context(actor=admin, request_id=uuid4(), source='test:org-owner-offboarding'):
+        deactivate_user(User.objects.get(pk=stale_owner.pk))
+    assert stale_owner.is_active
+
+    with pytest.raises(ValidationError):
+        create_organization(owner=stale_owner, slug='must-not-remain', name='Must not remain')
+
+    assert not Organization.all_objects.filter(slug='must-not-remain').exists()

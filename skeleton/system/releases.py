@@ -1,6 +1,6 @@
 """Platform control plane. Privileged deployment work belongs to the agent."""
 from copy import deepcopy
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -58,28 +58,38 @@ def confirm_operation(*, user, operation_id, revision):
     inventory = agent_client().inventory()
     if inventory['generation'] != operation.expected_generation:
         raise ConcurrentUpdate('Deployment generation changed; create a new preview.')
-    operation.state = 'approved'
-    operation.stage = 'awaiting_agent'
-    operation.save(update_fields={'state', 'stage'})
     ctx = current_context()
     values = dict(
         plan_id=operation.plan['id'], plan_digest=operation.plan_digest,
         generation=operation.expected_generation, operation_id=str(operation.pk),
-        actor_id=str(user.pk), request_id=str(ctx.request_id) if ctx.request_id else None,
+        actor_id=str(user.pk), request_id=str(ctx.request_id or uuid4()),
     )
+    operation.state = 'approved'
+    operation.stage = 'awaiting_agent'
+    # Keep approval identity until the journal acknowledges delivery. HTTP retries
+    # have their own audit IDs, but must resend this exact logical request.
+    operation.result = {'submission': values}
+    operation.save(update_fields={'state', 'stage', 'result'})
+    _schedule_submission(user=user, values=values)
+    return operation
+
+
+def _schedule_submission(*, user, values):
+    values = deepcopy(values)
+    request_id = current_context().request_id
 
     def submit():
         # Values are materialized; never inherit a tenant query after commit.
         try:
             status = agent_client().submit(**values)
             from skeleton.tenancy.context import request_context
-            with request_context(actor=user, request_id=values['request_id'], source='deployment:submit'):
+            with request_context(actor=user, request_id=request_id, source='deployment:submit'):
                 row = DeploymentOperation.objects.select_for_update().get(pk=values['operation_id'])
                 reconcile_operation(row, status)
         except Exception as exc:
             from skeleton.tenancy.context import request_context
-            with request_context(actor=user, request_id=values['request_id'], source='deployment:submit'):
-                row = DeploymentOperation.objects.get(pk=values['operation_id'])
+            with request_context(actor=user, request_id=request_id, source='deployment:submit'):
+                row = DeploymentOperation.objects.select_for_update().get(pk=values['operation_id'])
                 if row.state == 'approved':
                     row.state = 'submission_failed'
                     row.stage = 'awaiting_agent'
@@ -87,7 +97,6 @@ def confirm_operation(*, user, operation_id, revision):
                     row.save(update_fields={'state', 'stage', 'error_code'})
 
     transaction.on_commit(submit)
-    return operation
 
 
 def retry_submission(*, user, operation_id, revision):
@@ -96,16 +105,48 @@ def retry_submission(*, user, operation_id, revision):
     row = DeploymentOperation.objects.select_for_update().get(pk=operation_id)
     if row.revision != revision or row.state != 'submission_failed':
         raise ConcurrentUpdate('Deployment submission changed.')
-    # Restore approval, not a new operation or a new generation/plan.
-    row.state = 'preview'
+    values = row.result.get('submission') if isinstance(row.result, dict) else None
+    expected = {
+        'plan_id': row.plan['id'], 'plan_digest': row.plan_digest,
+        'generation': row.expected_generation, 'operation_id': str(row.pk),
+    }
+    if (not isinstance(values, dict) or set(values) != {*expected, 'actor_id', 'request_id'}
+            or any(values.get(name) != value for name, value in expected.items())):
+        raise DeploymentUnavailable('Original approval is unavailable; reconcile the agent journal.')
+    try:
+        UUID(values['actor_id'])
+        UUID(values['request_id'])
+    except (ValueError, TypeError, AttributeError):
+        raise DeploymentUnavailable('Invalid original approval identity.') from None
+    # Delivery is not a fresh approval: the agent checks the original generation
+    # for a new operation and returns an existing UUID before checking live state.
+    row.state = 'approved'
+    row.stage = 'awaiting_agent'
     row.error_code = ''
-    row.save(update_fields={'state', 'error_code'})
-    return confirm_operation(user=user, operation_id=row.pk, revision=row.revision)
+    row.save(update_fields={'state', 'stage', 'error_code'})
+    _schedule_submission(user=user, values=values)
+    return row
 
 
 def reconcile_operation(row, status):
-    if UUID(str(status['id'])) != row.pk:
-        raise DeploymentUnavailable('Agent operation identity mismatch.')
+    try:
+        operation_id = UUID(str(status['id']))
+        state = status['state']
+        stage = status['stage']
+        if (state not in {'queued', 'running', 'succeeded', 'failed', 'interrupted', 'restored', 'cancelled'}
+                or not isinstance(stage, str) or not 0 < len(stage) <= 64
+                or type(status['generation']) is not int or status['generation'] < 0
+                or type(status['expected_generation']) is not int):
+            raise ValueError
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise DeploymentUnavailable('Invalid agent operation response.') from None
+    if (operation_id != row.pk
+            or status['expected_generation'] != row.expected_generation
+            or status.get('plan_digest') != row.plan_digest
+            or status.get('operation') != row.operation
+            or status.get('action') != row.operation
+            or 'plan' in status and status['plan'] != row.plan):
+        raise DeploymentUnavailable('Agent operation approval mismatch.')
     result = deepcopy(status)
     # Status tickets are short-lived credentials, not durable operation evidence.
     result.pop('status_url', None)

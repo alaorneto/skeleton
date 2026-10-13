@@ -5,7 +5,7 @@ from uuid import UUID
 from django.core.management.base import BaseCommand, CommandError
 
 from skeleton.system.models import AppInstallation, DeploymentOperation
-from skeleton.system.releases import reconcile_operation, synchronize_inventory
+from skeleton.system.releases import DeploymentUnavailable, reconcile_operation, synchronize_inventory
 from skeleton.tenancy.context import system_context
 from skeleton.tenancy.models import Organization
 
@@ -44,6 +44,6 @@ class Command(BaseCommand):
                 # A separate transaction per organization, including when runtime RLS is enabled.
                 with system_context(reason='deployment:deactivate', organization_id=organization_id, using=using):
                     AppInstallation.all_objects.using(using).filter(organization_id=organization_id, app_label__in=disabled, enabled=True).update(enabled=False)
-        except (ValueError, OSError, KeyError, TypeError) as exc:
+        except (DeploymentUnavailable, ValueError, OSError, KeyError, TypeError) as exc:
             raise CommandError(f'Deployment reconciliation failed: {type(exc).__name__}') from None
         self.stdout.write(self.style.SUCCESS('Deployment inventory reconciled.'))

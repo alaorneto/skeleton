@@ -16,6 +16,7 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 
+from skeleton.common.exceptions import ConcurrentUpdate
 from .models import ComponentInstallation, DeploymentOperation
 from .releases import (
     agent_client, confirm_operation, create_preview, reconcile_operation,
@@ -176,16 +177,21 @@ def preview(request):
 @reauthentication_required(allow_get=True)
 def operation(request, operation_id):
     require_platform(request.user)
-    row = get_object_or_404(DeploymentOperation.objects, pk=operation_id)
+    row = get_object_or_404(DeploymentOperation.objects.select_for_update(), pk=operation_id)
     if request.method == 'POST':
         _recent_authentication(request)
         form = ConfirmationForm(request.POST)
         if not form.is_valid() or form.cleaned_data['plan_digest'] != row.plan_digest:
             return HttpResponse('Confirmação do plano inválida.', status=400)
-        if request.POST.get('intent') == 'retry':
-            retry_submission(user=request.user, operation_id=row.pk, revision=form.cleaned_data['revision'])
-        else:
-            confirm_operation(user=request.user, operation_id=row.pk, revision=form.cleaned_data['revision'])
+        try:
+            if request.POST.get('intent') == 'retry':
+                retry_submission(user=request.user, operation_id=row.pk, revision=form.cleaned_data['revision'])
+            else:
+                confirm_operation(user=request.user, operation_id=row.pk, revision=form.cleaned_data['revision'])
+        except ConcurrentUpdate:
+            return HttpResponse('A operação mudou; atualize o estado antes de confirmar.', status=409)
+        except (ValueError, RuntimeError, OSError) as exc:
+            _error(request, exc)
         return redirect('admin:skeleton_release_operation', operation_id=row.pk)
     status_url = None
     try:
@@ -193,9 +199,9 @@ def operation(request, operation_id):
             status_url = agent_client().status_ticket(str(row.pk)).get('status_url')
         else:
             status = agent_client().operation(str(row.pk))
-            status_url = status.get('status_url')
             reconcile_operation(row, status)
-    except (ValueError, RuntimeError, OSError) as exc:
+            status_url = status.get('status_url')
+    except (ConcurrentUpdate, ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
     return render(request, 'admin/skeleton/release_operation.html', _context(
         request, operation=row,

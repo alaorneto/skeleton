@@ -18,7 +18,8 @@ def require_organization_admin(user):
 
 
 @contextmanager
-def _locked(user=None):
+def organization_lock(user=None):
+    """Lock the organization before its records; HTTP callers must pass the actor."""
     from skeleton.tenancy.models import Organization
     context = current_context()
     if context.organization_id is None:
@@ -56,7 +57,7 @@ def _tenant_relation(obj):
 def _create(model, *, user, data, fields):
     if set(data) - set(fields):
         raise ValidationError("Unsupported fields.")
-    with _locked(user) as organization:
+    with organization_lock(user) as organization:
         for value in data.values():
             if hasattr(value, "_meta"):
                 _tenant_relation(value)
@@ -68,7 +69,7 @@ def _create(model, *, user, data, fields):
 def _update(record, *, user, data, fields):
     if set(data) - set(fields):
         raise ValidationError("Unsupported fields.")
-    with _locked(user):
+    with organization_lock(user):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False) and "code" in data and data["code"] != record.code:
             raise ValidationError("Builtin role codes are immutable.")
@@ -80,7 +81,7 @@ def _update(record, *, user, data, fields):
 
 
 def _delete(record, *, user):
-    with _locked(user):
+    with organization_lock(user):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False):
             raise ValidationError("Builtin roles cannot be removed.")
@@ -97,7 +98,7 @@ def provision_membership(*, organization, user, role):
     _tenant_relation(role)
     if user.deleted_at is not None or not user.is_active:
         raise ValidationError("Identity is unavailable.")
-    with _locked():
+    with organization_lock():
         membership = Membership.all_objects.filter(organization=organization, user=user).first()
         if membership is None:
             membership = Membership(organization=organization, user=user, is_active=True)
@@ -118,7 +119,7 @@ def create_membership(*, user, data):
     from skeleton.tenancy.models import Membership
     if set(data) - {"user", "is_active"}:
         raise ValidationError("Unsupported fields.")
-    with _locked(user) as organization:
+    with organization_lock(user) as organization:
         identity = data["user"]
         if identity.deleted_at is not None or not identity.is_active:
             raise ValidationError("Identity unavailable.")
@@ -145,7 +146,7 @@ def _revoke_membership_links(record):
 def update_membership(record, *, user, data):
     if set(data) - {"is_active"}:
         raise ValidationError("Membership identity is immutable.")
-    with _locked(user):
+    with organization_lock(user):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
             raise ValidationError("Membership unavailable.")
         if data.get("is_active") is False:
@@ -157,7 +158,7 @@ def update_membership(record, *, user, data):
 
 
 def delete_membership(record, *, user):
-    with _locked(user):
+    with organization_lock(user):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
             raise ValidationError("Membership unavailable.")
         _revoke_membership_links(record)

@@ -1,5 +1,17 @@
 # Controle de acesso e contexto organizacional
 
+Uma organização é a fronteira de dados que o código chama de **tenant**. Autenticar responde “quem é a pessoa?”; autorizar responde “ela pode executar esta ação neste registro desta organização?”. Alice pode ter acesso em Alfa e Beta sem que uma permissão de Alfa valha em Beta. Veja [autorização e contexto](concepts.md#autorização-e-contexto) e [identidade e organizações](concepts.md#identidade-e-organizações).
+
+## Papel, grupo, permissão e concessão
+
+- **Papel (`Role`)**: conjunto de capacidades organizacionais, como leitor ou administrador. A associação direta é `MemberRole`.
+- **Grupo (`AccessGroup`)**: reúne vínculos de pessoas (`GroupMember`), por exemplo a equipe Financeiro. Pode receber papéis por `GroupRole`; não é `auth.Group` do Django.
+- **Permissão de tabela (`TablePermission`)**: permite uma ação, como `read` ou `update`, sobre um tipo de registro. Sem ela, a ação é negada, mesmo ao proprietário.
+- **Concessão de registro (`RecordGrant`, ou grant)**: compartilha uma ação sobre uma linha com um vínculo, grupo ou papel. Não substitui a permissão de tabela, o vínculo ativo nem o isolamento organizacional.
+- **Visibilidade**: decide quem pode ler uma linha: proprietário (`private`), membros do grupo indicado (`group`) ou membros da organização (`organization`). Não é autorização para editar.
+
+Esse controle por papéis é chamado RBAC. As regras de visibilidade e concessões acrescentam autorização por registro. O resultado depende de todas as camadas, não da simples existência de um papel ou UUID.
+
 ## Entradas públicas
 
 ```python
@@ -16,36 +28,49 @@ with tenant_context(organization_id=org_uuid, actor=user, source="job:export"):
 
 ## Algoritmo
 
-1. Organização ativa + usuário ativo/não deletado + Membership ativa/viva.
-2. Roles efetivos: MemberRole vivos e GroupRole vivos dos grupos com GroupMember vivo. Sem cache de autorização entre requests.
-3. TablePermission da ação é obrigatória. Grant não a substitui. Default deny; `member` não ganha permissões automaticamente.
-4. Para leitura: owner=ator **ou** visibility=organization **ou** visibility=group e membro do owning_group **ou** RecordGrant read para membership/grupo/role efetivo.
-5. Para update/delete: owner=ator **ou** RecordGrant específico da ação. Visibilidade pública na org/grupo não dá escrita.
-6. Restore: permissão restore e ownership/admin; leitura de tombstone somente conforme autorização de restore.
-7. Organization_admin builtin tem concessões reconciliadas para tabelas elegíveis e override explícito de visibilidade **só na própria organização**. Superuser global não pula Membership/role nas rotas tenant.
+As verificações seguem esta ordem; falhar em uma camada não pode ser compensado por outra:
 
-Exemplos: Alice com table.read vê sua nota privada; Bob com table.read não a vê. `visibility=organization` permite Bob ler, não editar. Um grant update de Bob sem table.update continua negado. Membro de grupo com role não ganha poderes em outro tenant. Revogar MemberRole/GroupMember/grant perde efeito na próxima request.
+1. Organização ativa, usuário ativo/não excluído e `Membership` ativa/viva nessa organização.
+2. Papéis efetivos: `MemberRole` vivos e `GroupRole` vivos dos grupos com `GroupMember` vivo. Não há cache de autorização entre requisições.
+3. `TablePermission` da ação obrigatória. Uma concessão de registro não a substitui. O padrão é negar (`default deny`); `member` não recebe permissões automaticamente.
+4. Leitura: proprietário é o ator **ou** `visibility=organization` **ou** `visibility=group` e ator pertence ao `owning_group` **ou** existe `RecordGrant read` para seu vínculo/grupo/papel efetivo.
+5. Atualização/exclusão: proprietário é o ator **ou** existe `RecordGrant` específico da ação. Compartilhar leitura com organização/grupo não compartilha escrita.
+6. Restauração: permissão `restore` e condição de proprietário/administrador. Ler uma marca de exclusão (tombstone) também exige autorização de restauração.
+7. O papel interno `organization_admin` tem concessões reconciliadas para tabelas elegíveis e exceção explícita à visibilidade **só na própria organização**. `is_superuser` global não pula vínculo/papel nas rotas organizacionais.
 
-Criar requer table.create; owner inicial é ator e visibility private. Owner/visibility/owning_group e ACL exigem manage_access; nunca aceitos pelo PATCH comum. Gestão do acesso exige ainda ownership ou org admin. O servidor valida owner ativo e grupo vivo da mesma organização.
+### Exemplo com Alfa e Beta
+
+Alice e Bob têm vínculo ativo e `table.read` em Alfa. Alice cria uma nota privada: ela consegue ler; Bob não. Ao mudar a visibilidade para `organization`, Bob passa a ler, mas não a editar. Mesmo um `RecordGrant update` para Bob não permite editar sem `table.update`.
+
+Em Beta, Alice pode ter outro papel e Bob pode nem ter vínculo. Nada do que foi concedido em Alfa abre a nota em Beta. Um grupo Financeiro em cada organização também são dois grupos distintos. Revogar `MemberRole`, `GroupMember` ou uma concessão retira seu efeito na próxima requisição.
+
+Criar exige `table.create`; o proprietário inicial é o ator e a visibilidade é `private`. Alterar `owner`, `visibility`, `owning_group` ou a lista de concessões (ACL, lista de controle de acesso) exige `manage_access` **e** condição de proprietário ou administrador da organização. Esses campos nunca são aceitos pelo PATCH comum. O servidor valida proprietário ativo e grupo vivo da mesma organização.
 
 ## Administração de acesso
 
-Serviços em `skeleton.access.services` administram Membership, roles, grupos, links, table permissions e record grants exclusivamente por org admin. TablePermission só aponta a tabela empresarial exposta/ação suportada, não identidade global/técnica. RecordGrant resolve alvo SecuredRecord vivo, mesma organização e sujeito ativo; UUID do cliente não basta.
+Os serviços em `skeleton.access.services` administram vínculos, papéis, grupos, associações, permissões de tabela e concessões de registro exclusivamente por administrador organizacional. `TablePermission` só aponta a tabela de negócio exposta e ação suportada, nunca identidade global ou tabela técnica. `RecordGrant` resolve um alvo `SecuredRecord` vivo, da mesma organização, com destinatário ativo; o UUID enviado pelo cliente não basta.
 
-Mudanças que podem remover último administrador travam Organization dentro de atomic: desativação/remoção de Membership, MemberRole, GroupRole e relações de grupo. Conflito deixa tudo inalterado. Remover Membership revoga MemberRole, GroupMember e RecordGrant do vínculo antes do tombstone. Papéis/grupos com referências vivas exigem revogação explícita prévia; os builtins são protegidos.
+Mudanças que podem remover o último administrador bloqueiam `Organization` dentro de `atomic`: desativação/remoção de `Membership`, `MemberRole`, `GroupRole` e relações de grupo. Assim, operações concorrentes não aprovam duas remoções com base no mesmo estado antigo. Conflito deixa tudo inalterado. Remover `Membership` revoga `MemberRole`, `GroupMember` e `RecordGrant` do vínculo antes da marca de exclusão. Papéis/grupos com referências vivas exigem revogação explícita prévia; papéis internos são protegidos.
 
-POST de Membership existente usa a mesma transição de desativação que PATCH: revoga MemberRole/GroupMember/RecordGrant e conserva o guard de último admin. Reativar não ressuscita esses links. Restore persiste is_active escolhido pelo serviço no único CAS de restauração. Um vínculo inativo vivo pode ser removido pelo lifecycle normal; tenant/ACL/último admin continuam validados.
+POST de `Membership` existente usa a mesma transição de desativação que PATCH: revoga `MemberRole`/`GroupMember`/`RecordGrant` e conserva a proteção do último administrador. Reativar não ressuscita essas associações. Restore persiste `is_active` escolhido pelo serviço no único CAS de restauração. Um vínculo inativo, mas não excluído, pode ser removido pelo ciclo de vida normal; organização, ACL e último administrador continuam validados.
 
+Desativar ou excluir logicamente o `User` global verifica **todas** as organizações onde ele é membro ativo, não apenas a atual. No PostgreSQL, `skeleton.assert_user_deactivation(uuid)` é uma função `SECURITY DEFINER` restrita: pertence ao migrator (credencial de migrations), executa com privilégios do proprietário e só verifica administradores/mantém bloqueios nas organizações. Não escreve negócio nem concede contexto organizacional geral.
 
-Desativar ou excluir logicamente User global também verifica todas as organizações em que ele é membro ativo, não apenas o tenant atual. No PostgreSQL, `skeleton.assert_user_deactivation(uuid)` é uma função SECURITY DEFINER restrita, de ownership do migrator: só verifica administradores e mantém locks nas organizações; não escreve negócio nem concede um contexto tenant geral. EXECUTE público é revogado; runtime exige o plano de plataforma autenticado, e operações offline usam owner. `system_context(reason=...)` com uma conexão runtime comum não transforma essa credencial em owner. A violação de integridade é traduzida para `LastAdministrator`; o admin global responde 409 com rollback, não erro SQL/500.
+O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano de plataforma autenticado; operações offline usam owner. `system_context(reason=...)` numa conexão runtime comum não transforma a credencial em owner. Violação de integridade vira `LastAdministrator`; o admin global responde 409 com rollback, não erro SQL/500.
 
-A confirmação de exclusão de User no Django Admin descreve somente a identidade: não usa o collector físico do Django. Perfis, Memberships e subjects permanecem históricos, e o lifecycle invalida login/sessões. Não habilite ações de hard delete ou exclusão física de dependentes.
+A confirmação de exclusão de User no Django Admin descreve somente a identidade: não usa o collector de exclusão física do Django. Perfis, Memberships e identificadores de identidade externa (`subjects`) permanecem históricos; o ciclo de vida invalida login/sessões. Não habilite ações de exclusão física da identidade nem de seus dependentes.
 
 ## Contrato de contextos
 
-`request_context(*, actor, request_id, source, using='default')` abre transação externa. `tenant_context(*, organization_id, actor, source, using='default')` valida vínculo/tenant ativos. `system_context(*, reason, organization_id=None, using='default')` exige motivo e é só infraestrutura/CLI.
+O contexto informa à execução **quem está agindo, em qual organização e em qual transação**. Ele não é uma permissão adicional. Use as entradas abaixo em vez de preencher variáveis de sessão SQL manualmente:
 
-Um request global pode entrar num tenant validado e voltar a global. Não pode selecionar tenant diferente na mesma transação. Blocos aninhados reutilizam identidade/tenant por savepoints; ator só muda no hook de login/logout após estágios allauth completos. Trabalho multitenant abre transações independentes por org. Reset em finally; somente `SET LOCAL`; contexto não sobrevive COMMIT/ROLLBACK.
+| Entrada | Uso e contrato |
+|---|---|
+| `request_context(*, actor, request_id, source, using='default')` | Abre a transação externa da requisição |
+| `tenant_context(*, organization_id, actor, source, using='default')` | Valida vínculo e organização ativos |
+| `system_context(*, reason, organization_id=None, using='default')` | Exige motivo; somente infraestrutura/CLI, nunca opção de body/header HTTP |
+
+Uma requisição global pode entrar em uma organização validada e voltar ao contexto global. Não pode trocar de Alfa para Beta na mesma transação. Blocos aninhados reutilizam identidade/organização usando savepoints (pontos de retorno dentro da transação); o ator só muda no hook de login/logout depois dos estágios allauth completos. Trabalho com várias organizações abre transações independentes por organização. O contexto é restaurado em `finally`; usa somente `SET LOCAL` e não sobrevive a COMMIT/ROLLBACK.
 
 ```python
 for org_id in materialized_organization_ids:
@@ -54,20 +79,29 @@ for org_id in materialized_organization_ids:
         reconcile_one(org_id)
 ```
 
-O exemplo acima ilustra o padrão de contexto, não concede permissão HTTP nem BYPASSRLS. Não envolva todo o loop numa atomic externa. `on_commit` recebe dados materializados; consultas posteriores precisam de novo contexto. Não retorne queryset lazy para avaliação fora do bloco.
+O exemplo acima ilustra o contexto, não concede permissão HTTP nem `BYPASSRLS`. Não envolva todo o laço em uma `atomic` externa. `on_commit` recebe dados já materializados; consultas posteriores precisam de novo contexto. Um queryset Django é avaliado sob demanda: converta-o em dados dentro do bloco, não o devolva para consultar depois.
+
+### Ordem dos bloqueios administrativos
+
+Um bloqueio de linha (`SELECT ... FOR UPDATE`) impede outra transação de modificar aquela linha até o fim da transação atual. Para alterações administrativas, adquira primeiro o bloqueio de `Organization` com `skeleton.access.services.organization_lock(user)` e só depois carregue/bloqueie o vínculo, papel, grupo ou link a alterar. HTTP sempre passa o ator autenticado; a ausência de ator é reservada ao provisionamento interno.
+
+A API dedicada e os POSTs administrativos HTML seguem essa ordem. Os serviços reutilizam o mesmo bloqueio, e a revisão é comparada **depois** de adquirir os locks. Inverter a ordem — uma requisição segurando o vínculo e esperando a organização, outra segurando a organização e esperando o vínculo — causa deadlock. O banco abortar uma transação não é uma solução de concorrência; não há retry automático para esconder esse erro.
+
 
 ## RLS PostgreSQL
 
-GUCs locais: `skeleton.user_id`, `skeleton.tenant_id`, `skeleton.request_id`, `skeleton.source`, `skeleton.platform_admin`. Ator vem da sessão e request UUID do servidor. Tenant vem da URL validada, não header/body. Valores vazios não veem linhas; UUID inválido gera erro, não fallback.
+**Row-Level Security (RLS), ou segurança por linha**, é uma proteção do banco que restringe quais linhas a conexão pode ler ou escrever. Aqui ela verifica a organização; os serviços Django continuam responsáveis por papéis, visibilidade, ações e exclusão lógica.
 
-Tabelas organizacionais usam ENABLE + FORCE ROW LEVEL SECURITY e policy runtime `USING T / WITH CHECK T`, onde T é organização igual ao tenant da GUC. RLS não filtra deleted_at nem papéis/visibilidade.
+O contexto instala parâmetros locais da sessão PostgreSQL, chamados **GUCs**: `skeleton.user_id`, `skeleton.tenant_id`, `skeleton.request_id`, `skeleton.source`, `skeleton.platform_admin`. O ator vem da sessão autenticada e o UUID da requisição é gerado pelo servidor. A organização vem da URL validada, não de header/body. Valores vazios não veem linhas; UUID inválido gera erro, não um valor alternativo permissivo.
 
-**Membership discovery deliberada:** SELECT permite `(T OR U)` sendo U=user_id da GUC. INSERT/UPDATE/DELETE só T. `memberships_for_user(user)` filtra explicitamente usuário e projeta IDs/status/nome das organizações correspondentes; manager normal segue tenant-scoped. Isso permite listar os próprios vínculos antes de selecionar org sem abrir escrita cross-tenant nem policy recursiva.
+Tabelas organizacionais usam `ENABLE` + `FORCE ROW LEVEL SECURITY` e policy da conexão runtime (processo da aplicação) `USING T / WITH CHECK T`, onde T significa “organização da linha igual ao tenant da GUC”. `USING` limita linhas existentes; `WITH CHECK` verifica a organização da linha escrita. RLS **não** filtra `deleted_at`, papéis ou visibilidade: uma nota privada de Alfa não se torna legível a Bob apenas porque ambos estão em Alfa.
 
-AuditEvent SELECT runtime limita ao tenant; eventos globais só quando platform_admin=on. INSERT é da role de trigger; UPDATE/DELETE são proibidos. Global User/Profile/Organization/catálogo não têm RLS tenant e nunca são listas genéricas para membros.
+**Descoberta deliberada de Membership:** SELECT permite `(T OR U)`, onde U significa “user_id igual ao usuário da GUC”. INSERT/UPDATE/DELETE só permitem T. `memberships_for_user(user)` filtra explicitamente o usuário e projeta IDs/status/nome das organizações correspondentes; o manager normal permanece restrito ao tenant. Alice pode assim descobrir seus vínculos em Alfa e Beta antes de escolher uma organização, sem receber escrita entre organizações nem usar uma policy recursiva.
 
-**Threat boundary:** `set_config` é permitido a uma conexão que conhece a credencial runtime. RLS protege filtro tenant esquecido e fluxos não autorizados da aplicação; não protege contra credencial runtime maliciosa ou SQL injection arbitrária que altere GUCs. DBA/superuser/BYPASSRLS ignora FORCE. `is_superuser` Django não transforma conexão em owner. Proteja DSNs, SQL parametrizado e superfícies HTTP. SQLite não tem RLS.
+SELECT de AuditEvent pela conexão runtime limita-se ao tenant; eventos globais só quando `platform_admin=on`. INSERT é da role SQL do trigger; UPDATE/DELETE são proibidos. User/Profile/Organization/catálogo globais não têm RLS tenant e nunca são listas genéricas para membros. Uma role SQL é uma credencial/privilégio do banco; não é o modelo empresarial `Role`.
+
+**Limite da proteção:** `set_config` é permitido a quem possui a credencial runtime. RLS protege contra filtro organizacional esquecido e fluxos não autorizados da aplicação; não contra credencial runtime maliciosa ou injeção SQL arbitrária que altere GUCs. DBA/superuser SQL/`BYPASSRLS` ignora FORCE. `is_superuser` Django não transforma a conexão em owner do banco. Proteja DSNs (endereços/credenciais de conexão), use SQL parametrizado e proteja as superfícies HTTP. SQLite não tem RLS.
 
 ## Auditoria autorizada
 
-Org admin vê audit do próprio tenant. Outros precisam table.audit e leitura autorizada do registro atual; tombstone exige autorização para restore. Filtre **antes** de paginar/contar. Registro removido offline sem objeto atual só é visível a org admin/plataforma, nunca reconstruindo ACL pelo payload histórico. Inventário técnico e eventos globais são só da plataforma.
+Administradores organizacionais veem auditoria da própria organização. Outros precisam de `table.audit` e leitura autorizada do registro atual; uma marca de exclusão exige autorização para `restore`. Filtre **antes** de paginar/contar. Se o registro foi removido offline e não há objeto atual, só administrador organizacional/plataforma pode ver os eventos: nunca reconstrua a ACL a partir do conteúdo histórico. Inventário técnico e eventos globais pertencem somente à plataforma.

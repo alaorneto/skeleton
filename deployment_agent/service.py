@@ -250,8 +250,16 @@ class DeploymentService:
         if type(generation) is not int or generation < 0:
             raise AgentError("invalid_generation")
         binding = {"plan_id": plan_id, "plan_digest": plan_digest, "generation": generation, "actor_id": actor_id, "request_id": request_id}
+        # Atomic journal replacement makes an existing binding safe to read while
+        # execution owns the lock. Lost ACKs must not turn into deployment_busy.
+        path = self.store.path("operations", operation_id)
+        if path.exists():
+            operation = load_json(path)
+            if operation["binding"] != binding:
+                raise AgentError("idempotency_conflict", 409)
+            return self.public_operation(operation)
         with deployment_lock(self.store.root):
-            path = self.store.path("operations", operation_id)
+            # Recheck after locking: another submit may have journaled this UUID.
             if path.exists():
                 operation = load_json(path)
                 if operation["binding"] != binding:
@@ -291,9 +299,11 @@ class DeploymentService:
         atomic_json(self.config["maintenance_marker"], {"operation": operation["id"], "stage": operation["stage"]}, 0o644)
 
     def execute(self, operation_id):
-        operation = self.store.get("operations", operation_id)
-        try:
-            with deployment_lock(self.store.root):
+        with deployment_lock(self.store.root, blocking=True):
+            operation = self.store.get("operations", operation_id)
+            if operation["state"] != "queued":
+                return
+            try:
                 record = self.store.get("plans", operation["binding"]["plan_id"])
                 plan = record["plan"]
                 state = self.state()
@@ -322,10 +332,10 @@ class DeploymentService:
                     raise AgentError("migration_plan_changed", 409)
                 self.stage(operation, "migration_started")
                 self.finish(operation, record)
-        except Exception as error:
-            code = error.code if isinstance(error, AgentError) else type(error).__name__
-            self.stage(operation, "failed", state="failed", error=code)
-            # Once the gate exists, no failure clears it or silently rolls files back across a schema change.
+            except Exception as error:
+                code = error.code if isinstance(error, AgentError) else type(error).__name__
+                self.stage(operation, "failed", state="failed", error=code)
+                # Once the gate exists, no failure clears it or silently rolls files back across a schema change.
 
     def finish(self, operation, record):
         release = Path(operation["release"])
@@ -401,9 +411,19 @@ class DeploymentService:
                 raise AgentError("invalid_recovery_action")
             if operation["state"] not in ("failed", "interrupted"):
                 raise AgentError("operation_not_recoverable", 409)
+            record = self.store.get("plans", operation["binding"]["plan_id"])
+            state = self.state()
+            allowed_states = {
+                record["previous_release"]: record["plan"]["generation"],
+                operation["release"]: record["inventory"]["generation"],
+            }
+            if state["inventory"]["generation"] != allowed_states.get(state["release"]):
+                raise AgentError("operation_superseded", 409)
+            if any(row["id"] != operation["id"] and row["state"] in ("queued", "running", "interrupted")
+                   for row in self.store.operations()):
+                raise AgentError("recovery_or_operation_pending", 409)
             self.maintain(operation)
             self.backend.drain(self.backend.active(), operation["id"])
-            record = self.store.get("plans", operation["binding"]["plan_id"])
             try:
                 if action == "complete":
                     check_drift(operation["release"], record["owned_files"])

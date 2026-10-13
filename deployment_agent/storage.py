@@ -101,13 +101,13 @@ def inventory_files(root):
 
 
 @contextmanager
-def deployment_lock(root):
+def deployment_lock(root, *, blocking=False):
     path = Path(root) / "deployment.lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.open("a+b") as stream:
         os.chmod(path, 0o600)
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(stream, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
         except BlockingIOError:
             raise AgentError("deployment_busy", 409) from None
         try:
