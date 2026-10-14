@@ -16,7 +16,7 @@ Pense em um exemplo: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela t
 
 ### Plataforma e administração da organização
 
-A **plataforma** é a instalação inteira do sistema. Seu administrador gerencia identidades globais e operações de software em `/admin/`. No skeleton, esse acesso exige as flags Django de plataforma, atividade da conta e MFA quando configurado.
+A **plataforma** é a instalação inteira do sistema. Seu administrador usa `/admin/` somente para configurações, parametrizações e operações de software. Identidades e outros registros globais ficam em `/platform/records/`, fora desse painel; o viewer de negócio fica no catálogo/tabelas de `/o/<org>/`. Acesso de plataforma exige flags Django, conta ativa e MFA quando configurado, sem conceder automaticamente vínculo/autorização tenant.
 
 O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
 

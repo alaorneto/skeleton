@@ -18,6 +18,17 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 
 **Ordem segura:** provisione serviços e segredos → crie roles/schema → aplique migrations com owner → verifique com runtime → inicie web → confirme saúde e comportamento. Um check feito como owner não demonstra que o web está isolado.
 
+### Core/agente 0.3.0 e contratos de apresentação
+
+Atualize primeiro o agente independente para 0.3.0 e prepare core >=0.3.0 antes de publicar/consumir dimensões de campos. O core distribui `django-crispy-forms==2.7` e o pack SSR próprio `skeleton_crud`; inclua a dependência no lock/wheelhouse aprovado do release, sem download pelo web ou fallback ao renderer antigo. Novas publicações usam `manifest_version=2`, com compatibilidade inicial `>=0.3.0,<1.0.0`. O piso histórico v2 sem dimensões permanece 0.2.0: qualquer presença de `col_span` ou `rows` no campo, inclusive `null`, exige piso 0.3.0 na fonte. Pacotes v1/v2 históricos assinados continuam verificáveis sem normalizar JSON ou alterar bytes/digest/inventário. O [contrato de interfaces](application-admin-ui-plan.md) descreve grade de 12 unidades, dimensões e defaults e separa `/admin/` de configurações, `/platform/records/` global e viewer tenant fora do admin; nenhum layout concede acesso ou modifica autorização/CAS/persistência.
+
+Preview e aprovação incluem `presentation_changes`: grupos/seções/telas, layouts e campos de configuração. Alterar somente span/rows gera `model_layout/change`, sem incompatibilidade de configuração, e integra o digest do plano. Alterações incompatíveis ficam explícitas. Reordenação/rótulos não apagam configuração; remoção/renomeação/tipo/limite precisam de migration histórica que conserve o estado válido. Após migrations e antes de liberar tráfego, o agente executa `check_application_configuration` sob runtime, além dos checks existentes. O comando percorre organizações em transações independentes, não imprime valores/segredos e recusa estado persistido incompatível. Falha conserva manutenção e journal para recuperação; não há coerção ou descarte escolhido por HTTP. Mudança de `default_enabled` continua recusada para não ativar tenants silenciosamente.
+
+```sh
+# Depois de migrations owner, no ambiente com somente DATABASE_URL runtime:
+DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py check_application_configuration
+```
+
 ## Settings e serviços
 
 - `development`: SQLite local se DATABASE_URL ausente; email console, cache LocMem; PostgreSQL opcional.
@@ -195,20 +206,20 @@ Os entrypoints de `config/settings` importam `skeleton.conf.base` e aplicam os p
 # Ambiente de build com requirements-dev.txt atualizado e hashes:
 .venv/bin/python -m build --wheel --no-isolation
 .venv/bin/python manage.py build_core_package \
-  --wheel dist/django_skeleton-0.1.0-py3-none-any.whl \
+  --wheel dist/django_skeleton-0.2.0-py3-none-any.whl \
   --manifest /caminho/privado/core-manifest.json \
   --private-key /caminho/privado/publisher.pem \
-  --output /caminho/privado/core-0.1.0.skapp
+  --output /caminho/privado/core-0.2.0.skapp
 # Equivalente independente de settings/Django startup:
-skeleton-core build --wheel dist/django_skeleton-0.1.0-py3-none-any.whl \
+skeleton-core build --wheel dist/django_skeleton-0.2.0-py3-none-any.whl \
   --manifest /caminho/privado/core-manifest.json \
   --private-key /caminho/privado/publisher.pem \
-  --output /caminho/privado/core-0.1.0.skapp
+  --output /caminho/privado/core-0.2.0.skapp
 ```
 
 O manifesto core identifica o artefato e limita como instalá-lo:
 
-- Use `manifest_version=1`, `kind="core"` e `component_id="django-skeleton"`, com nome, descrição, versão e publisher.
+- Use `manifest_version=2`, `kind="core"` e `component_id="django-skeleton"`, com nome, descrição, versão e publisher. Formato 1 continua aceito para verificação de artefatos existentes, sem reescrever sua assinatura.
 - Declare intervalos explícitos de compatibilidade `skeleton/python/django`, dependências, conflitos opcionais e migrations (`leaves`, `from_versions`, labels opcionais).
 - O arquivo de entrada usa `files=[]`, `python_dependencies` e lifecycle com `data_retention="retain"`, `maintenance=true`, `backup=true`.
 - Declare o wheel principal em `python_dependencies`: `name="django-skeleton"`, versão, `wheel="wheels/<nome>.whl"` e `sha256`. O builder recalcula o hash e gera o inventário completo antes de assinar; a versão do wheel deve equivaler à do manifesto.

@@ -17,7 +17,7 @@ from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicate
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.tenancy.context import memberships_for_user
-from skeleton.web.services import change_record_access, create_record, exposed_spec, readable_specs, record_data, record_queryset, require_access_management, update_record
+from skeleton.web.services import change_record_access, create_record, delete_record, exposed_spec, readable_specs, record_data, records_data, record_queryset, require_access_management, restore_record, update_record
 
 
 class SessionAPI(APIView):
@@ -41,8 +41,7 @@ class TenantAPI(SessionAPI):
             raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403)
 
 
-def page(queryset, request, serialize):
-    allowed = {"page", "page_size"}
+def page(queryset, request, serialize=None, *, serialize_many=None):
     try:
         number = int(request.query_params.get("page", "1"))
         size = int(request.query_params.get("page_size", "25"))
@@ -52,7 +51,9 @@ def page(queryset, request, serialize):
         raise BoundaryError("invalid_pagination", "Página ou tamanho inválido.") from None
     offset = (number - 1) * size
     count = queryset.count()
-    return Response({"count": count, "page": number, "page_size": size, "results": [serialize(item) for item in queryset[offset:offset + size]]})
+    items = queryset[offset:offset + size]
+    results = serialize_many(items) if serialize_many is not None else [serialize(item) for item in items]
+    return Response({"count": count, "page": number, "page_size": size, "results": results})
 
 
 def etag(response, *revisions):
@@ -190,7 +191,7 @@ class RecordsView(TenantAPI):
             queryset = filter_records(queryset, spec, request.query_params)
         except ValidationError:
             raise BoundaryError("invalid_filter", "Filtro não permitido ou inválido.") from None
-        return page(queryset, request, lambda row: record_data(row, spec.read_fields, user=request.user))
+        return page(queryset, request, serialize_many=lambda rows: records_data(rows, spec.read_fields, user=request.user))
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid=None):
@@ -223,8 +224,7 @@ class RecordsView(TenantAPI):
         if record is None:
             raise Http404
         require_revision(request, record)
-        require_record_action(record, user=request.user, action="delete")
-        record.delete()
+        delete_record(record, user=request.user)
         return Response(status=204)
 
 
@@ -238,8 +238,7 @@ class RestoreView(TenantAPI):
         if record is None:
             raise Http404
         require_revision(request, record)
-        require_record_action(record, user=request.user, action="restore")
-        record.restore()
+        restore_record(record, user=request.user)
         return etag(Response(record_data(record, spec.read_fields, user=request.user)), record.revision)
 
 
@@ -267,3 +266,10 @@ class RecordAccessView(TenantAPI):
         return etag(Response(record_data(record, ("owner", "visibility", "owning_group"))), record.revision)
 
 
+
+class ReferenceView(TenantAPI):
+    def get(self, request, organization_id, table_key, field_name):
+        from skeleton.web.references import reference_request
+        spec = exposed_spec(table_key)
+        result, _, _ = reference_request(spec, field_name, user=request.user, params=request.query_params)
+        return Response(result)

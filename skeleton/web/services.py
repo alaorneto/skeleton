@@ -56,16 +56,9 @@ def coerce_fields(model, data, *, user):
                 value = field.target_field.to_python(value)
             except (ValidationError, ValueError, TypeError):
                 raise ValidationError({name: "Referência inválida."}) from None
-            if issubclass(related, SecuredRecord):
-                queryset = authorized_queryset(related, user=user)
-            elif related._meta.label_lower == "sk_accounts.user":
-                membership = apps.get_model("sk_tenancy", "Membership")
-                active = membership.objects.filter(user_id=value, is_active=True).exists()
-                if not active:
-                    raise ValidationError({name: "Usuário não é membro ativo desta organização."})
-                queryset = related.objects.filter(is_active=True)
-            else:
-                queryset = related.objects.all()
+            from skeleton.web.references import target_queryset
+            queryset = target_queryset(field, user=user, source_model=model,
+                                       access=name in ACCESS_FIELDS)
             try:
                 values[name] = queryset.get(pk=field.target_field.to_python(value))
             except (related.DoesNotExist, ValidationError, ValueError, TypeError):
@@ -74,7 +67,7 @@ def coerce_fields(model, data, *, user):
             try:
                 if isinstance(field, (models.CharField, models.TextField)) and not isinstance(value, str):
                     raise ValidationError("Use um valor textual.")
-                if isinstance(field, models.BooleanField) and not isinstance(value, bool):
+                if isinstance(field, models.BooleanField) and not isinstance(value, bool) and not (value is None and field.null):
                     raise ValidationError("Use true ou false.")
                 values[name] = field.clean(value, None)
             except (ValidationError, ValueError, TypeError) as exc:
@@ -83,31 +76,56 @@ def coerce_fields(model, data, *, user):
 
 
 def record_data(record, fields, *, user=None):
+    if user is not None:
+        return records_data([record], fields, user=user)[0]
     result = {}
     for name in dict.fromkeys((*SYSTEM_FIELDS, *fields)):
         field = record._meta.get_field(name)
         value = getattr(record, field.attname)
-        if field.is_relation and value is not None and user is not None:
-            related = field.remote_field.model
-            if issubclass(related, SecuredRecord):
-                try:
-                    visible = authorized_queryset(related, user=user).filter(pk=value).exists()
-                except PermissionDenied:
-                    visible = False
-                if not visible:
-                    value = None
-            elif hasattr(related, "deleted_at") and related._meta.label_lower != "sk_accounts.user":
-                if not related.objects.filter(pk=value).exists():
-                    value = None
         result[name] = value
     return result
 
 
+def records_data(records, fields, *, user):
+    """Project a page with one visibility query per target policy, never per row."""
+    items = list(records)
+    if not items:
+        return []
+    names = tuple(dict.fromkeys((*SYSTEM_FIELDS, *fields)))
+    result = [record_data(record, names) for record in items]
+    from skeleton.web.references import target_queryset
+    model = type(items[0])
+    relations = {}
+    for name in names:
+        field = model._meta.get_field(name)
+        if field.is_relation:
+            key = (field.remote_field.model, name in ACCESS_FIELDS)
+            relations.setdefault(key, []).append(field)
+    for (_, access), group in relations.items():
+        ids = {row[field.name] for row in result for field in group
+               if row[field.name] is not None}
+        if not ids:
+            continue
+        try:
+            visible = set(target_queryset(group[0], user=user, source_model=model, access=access)
+                          .filter(pk__in=ids).values_list("pk", flat=True))
+        except PermissionDenied:
+            visible = set()
+        for row in result:
+            for field in group:
+                if row[field.name] not in visible:
+                    row[field.name] = None
+    return result
+
+
 def record_queryset(spec, *, user, action="read", include_deleted=False):
+    if action in {"create", "update", "delete", "restore"}:
+        from skeleton.system.record_operations import require_operation
+        require_operation(spec, action)
     return authorized_queryset(spec.model, user=user, action=action, include_deleted=include_deleted)
 
 
-def filter_records(queryset, spec, params):
+def filter_records(queryset, spec, params, *, ignore_empty=False):
     scalar = {name for name in spec.read_fields
               if not spec.model._meta.get_field(name).is_relation
               and not isinstance(spec.model._meta.get_field(name), models.JSONField)}
@@ -115,6 +133,8 @@ def filter_records(queryset, spec, params):
     if set(params) - allowed:
         raise ValidationError("Filtro não permitido.")
     for name in set(params) - {"page", "page_size"}:
+        if ignore_empty and params[name] == "":
+            continue
         field = spec.model._meta.get_field(name)
         try:
             value = field.target_field.to_python(params[name]) if field.is_relation else field.to_python(params[name])
@@ -128,8 +148,16 @@ def filter_records(queryset, spec, params):
 def create_record(spec, *, user, data):
     assert_fields(data, spec.write_fields)
     record_queryset(spec, user=user, action="create")
-    record = spec.model(organization_id=current_context().organization_id, owner=user, visibility="private", **coerce_fields(spec.model, data, user=user))
-    record.save()
+    values = coerce_fields(spec.model, data, user=user)
+    record = spec.model(organization_id=current_context().organization_id, owner=user, visibility="private", **values)
+    from skeleton.system.record_operations import require_operation
+    service = require_operation(spec, "create")
+    if service is None:
+        record.save()
+    else:
+        service(record, user=user, values=values)
+        if record._state.adding:
+            raise ValidationError("Business creation service did not persist its record.")
     return record
 
 
@@ -137,10 +165,15 @@ def create_record(spec, *, user, data):
 def update_record(record, spec, *, user, data):
     assert_fields(data, spec.write_fields)
     require_record_action(record, user=user, action="update")
+    from skeleton.system.record_operations import require_operation
+    service = require_operation(spec, "update")
     values = coerce_fields(spec.model, data, user=user)
-    for name, value in values.items():
-        setattr(record, name, value)
-    record.save(update_fields=set(values))
+    if service is None:
+        for name, value in values.items():
+            setattr(record, name, value)
+        record.save(update_fields=set(values))
+    else:
+        service(record, user=user, values=values)
     return record
 
 
@@ -158,4 +191,26 @@ def change_record_access(record, *, user, data):
     for name, value in values.items():
         setattr(record, name, value)
     record.save(update_fields=set(values))
+    return record
+
+
+@transaction.atomic
+def delete_record(record, *, user):
+    return _record_lifecycle(record, user=user, action="delete")
+
+
+@transaction.atomic
+def restore_record(record, *, user):
+    return _record_lifecycle(record, user=user, action="restore")
+
+
+def _record_lifecycle(record, *, user, action):
+    spec = exposed_spec(record._meta.label_lower)
+    require_record_action(record, user=user, action=action)
+    from skeleton.system.record_operations import require_operation
+    service = require_operation(spec, action)
+    if service is None:
+        getattr(record, action)()
+    else:
+        service(record, user=user)
     return record

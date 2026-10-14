@@ -1,0 +1,6 @@
+<section class="record-section" id="section-{{ section.id }}"{% if section.tab_id %} data-tab-section="{{ section.tab_id }}"{% endif %} aria-labelledby="heading-{{ section.id }}">
+<h2 id="heading-{{ section.id }}">{{ section.label }}</h2>
+{% if mode == 'read' %}<dl class="section-fields">{% else %}<div class="section-fields">{% endif %}
+{{ fields_output }}
+{% if mode == 'read' %}</dl>{% else %}</div>{% endif %}
+</section>

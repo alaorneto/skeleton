@@ -1,0 +1,4 @@
+<div class="field field-span-{{ entry.col_span }}">
+{% if mode == 'read' %}<dt>{{ entry.label }}</dt><dd>{{ entry.value }}</dd>{% else %}<p class="read-only-label"><strong>{{ entry.label }}</strong></p><p class="read-only-value">{{ entry.value }}</p>{% endif %}
+{% if entry.help_text %}<p class="help">{{ entry.help_text }}</p>{% endif %}
+</div>

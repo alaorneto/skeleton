@@ -1,1 +1,13 @@
-{% extends 'skeleton/web/base.html' %}{% block content %}<h1>{{ title }}</h1><dl>{% for name,value in values.items %}<dt>{{ name }}</dt><dd>{{ value|default_if_none:'—' }}</dd>{% endfor %}</dl><nav class="cards" aria-label="Ações do registro">{% if permissions.update %}<a href="{% url 'web:record-edit' organization_id table_key record.sysid %}">Editar</a>{% endif %}{% if permissions.delete %}<a href="{% url 'web:record-delete' organization_id table_key record.sysid %}">Remover</a>{% endif %}{% if permissions.manage_access %}<a href="{% url 'web:record-access' organization_id table_key record.sysid %}">Gerenciar acesso</a>{% endif %}</nav>{% endblock %}
+{% extends 'skeleton/web/base.html' %}
+{% load crud_forms %}
+{% block title %}{{ title }} · Skeleton{% endblock %}
+{% block content %}
+{% include 'skeleton/web/components/breadcrumbs.html' %}
+<h1>{{ title }}</h1>
+{% if description %}<p>{{ description }}</p>{% endif %}
+{% include 'skeleton/web/components/toolbar.html' %}
+<div class="record-detail">
+{% include 'skeleton/web/components/tabs.html' %}
+{% crud_detail_fields sections %}
+</div>
+{% endblock %}

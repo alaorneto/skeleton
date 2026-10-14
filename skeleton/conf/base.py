@@ -13,11 +13,14 @@ INSTALLED_APPS = [
     "django.contrib.sessions", "django.contrib.messages", "django.contrib.staticfiles",
     "allauth", "allauth.account", "allauth.socialaccount", "allauth.mfa",
     "allauth.socialaccount.providers.openid_connect", "allauth.socialaccount.providers.github",
-    "allauth.socialaccount.providers.saml", "rest_framework",
+    "allauth.socialaccount.providers.saml", "rest_framework", "crispy_forms",
     "skeleton.accounts.apps.AccountsConfig", "skeleton.tenancy.apps.TenancyConfig",
     "skeleton.system.apps.SystemConfig", "skeleton.access.apps.AccessConfig",
     "skeleton.audit.apps.AuditConfig", "skeleton.web", "skeleton.api",
 ]
+CRISPY_TEMPLATE_PACK = "skeleton_crud"
+CRISPY_ALLOWED_TEMPLATE_PACKS = ("skeleton_crud",)
+CRISPY_FAIL_SILENTLY = False
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware", "whitenoise.middleware.WhiteNoiseMiddleware",
     "skeleton.common.http_logging.RequestCompletionMiddleware",

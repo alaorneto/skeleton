@@ -1,0 +1,9 @@
+{% load crispy_forms_field %}
+<div class="field field-span-{{ entry.col_span }}">
+  {% if entry.change_bound %}<div class="change-control">{{ entry.change_bound }}<label for="{{ entry.change_bound.id_for_label }}">{{ entry.change_bound.label }}</label><p class="help" id="{{ entry.change_bound.auto_id }}_helptext">{{ entry.change_bound.help_text }}</p>{% if entry.change_bound.errors %}<ul class="errorlist" id="{{ entry.change_bound.auto_id }}_error">{% for error in entry.change_bound.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}</div>{% endif %}
+  <label for="{{ field.id_for_label }}">{{ entry.label }}{% if field.field.required %}<span class="required" aria-hidden="true"> *</span>{% endif %}</label>
+  {% crispy_field field %}
+  {% if field.errors %}<ul class="errorlist" id="{{ field.auto_id }}_error">{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+  {% if entry.help_text %}<p class="help" id="{{ field.auto_id }}_helptext">{{ entry.help_text }}</p>{% endif %}
+  {% if entry.picker_url %}<a href="{{ entry.picker_url }}" data-reference-picker data-table-key="{{ entry.table_key }}" data-field-name="{{ field.name }}" data-record="{{ entry.record_id }}" data-input-id="{{ field.id_for_label }}">Selecionar referência</a><p class="help">Use o seletor ou informe o UUID autorizado.</p>{% endif %}
+</div>

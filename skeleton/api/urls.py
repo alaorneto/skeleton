@@ -10,6 +10,7 @@ urlpatterns = [
     path("o/<uuid:organization_id>/catalog/", views.CatalogView.as_view(), name="catalog"),
     path("o/<uuid:organization_id>/audit/", views.AuditView.as_view(), name="audit"),
     path("o/<uuid:organization_id>/audit/<uuid:sysid>/", views.AuditView.as_view(), name="audit-detail"),
+    path("o/<uuid:organization_id>/tables/<str:table_key>/references/<str:field_name>/", views.ReferenceView.as_view(), name="reference-picker"),
     path("o/<uuid:organization_id>/tables/<str:table_key>/records/", views.RecordsView.as_view(), name="records"),
     path("o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/", views.RecordsView.as_view(), name="record"),
     path("o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/restore/", views.RestoreView.as_view(), name="restore"),

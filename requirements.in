@@ -1,5 +1,6 @@
 Django==5.2.18
 django-allauth[socialaccount,mfa,saml]==65.19.7
+django-crispy-forms==2.7
 djangorestframework==3.18.3
 django-environ==0.14.0
 psycopg[binary]>=3.2,<4

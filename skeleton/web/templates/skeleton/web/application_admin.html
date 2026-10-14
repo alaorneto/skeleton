@@ -1,0 +1,10 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}{{ application.label }} · Skeleton{% endblock %}
+{% block content %}
+<nav aria-label="Localização"><a href="{% url 'application-list' organization_id %}">Apps</a> › {{ application.label }}</nav>
+<h1>{{ application.label }}</h1><p>{{ application.description }}</p>
+<dl><dt>Identidade</dt><dd>{{ application.app_id }}</dd><dt>Versão</dt><dd>{{ application.version }}</dd><dt>Origem</dt><dd>{{ application.origin }}</dd><dt>Estado</dt><dd>{% if state.enabled %}Ativa{% else %}Desativada — os dados são preservados; a configuração continua disponível para reativação.{% endif %}</dd></dl>
+<section class="panel"><h2>Configuração</h2><p><a href="{% url 'application-configuration' organization_id application.app_label %}">Configurar e ativar aplicativo</a></p></section>
+{% if application.dependencies %}<section><h2>Dependências</h2><ul>{% for dependency in application.dependencies %}<li>{{ dependency }}</li>{% endfor %}</ul></section>{% endif %}
+{% for section in sections %}<section class="panel"><h2>{{ section.label }}</h2><ul>{% for screen in section.screens %}<li><a href="{{ screen.url }}">{{ screen.label }}</a></li>{% endfor %}</ul></section>{% endfor %}
+{% endblock %}

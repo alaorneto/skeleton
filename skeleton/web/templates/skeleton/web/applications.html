@@ -4,7 +4,7 @@
 <p>A ativação não instala software nem altera o schema. Desativar preserva os registros e a auditoria. Instalação e atualização global pertencem à administração da plataforma.</p>
 <ul>
 {% for app in applications %}
-<li><a href="{% url 'application-configuration' organization_id app.app_label %}">{{ app.label }}</a> — versão {{ app.version }} — {% if app.enabled %}Ativa{% else %}Desativada{% endif %}<p>{{ app.description }}</p></li>
+<li><a href="{% url 'application-admin' organization_id app.app_label %}">{{ app.label }}</a> — versão {{ app.version }} — {% if app.enabled %}Ativa{% else %}Desativada{% endif %}<p>{{ app.description }}</p></li>
 {% empty %}<li>Nenhuma extensão instalada.</li>{% endfor %}
 </ul>
 {% endblock %}

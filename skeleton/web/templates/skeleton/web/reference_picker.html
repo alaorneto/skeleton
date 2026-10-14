@@ -1,0 +1,15 @@
+{% extends 'skeleton/web/base.html' %}
+{% load static %}
+{% block title %}{{ title }} · Skeleton{% endblock %}
+{% block content %}
+<header class="page-header"><h1>{{ title }}</h1><p>Selecione um registro legível. Sem JavaScript, copie o UUID e cole no campo do formulário aberto; voltar não salva suas alterações.</p><a href="{{ back_url }}">Voltar ao formulário</a></header>
+<p>{{ count }} referência{{ count|pluralize:",s" }} disponível{{ count|pluralize:",is" }}.</p>
+<div class="table-scroll"><table><thead><tr><th scope="col">Registro</th><th scope="col">UUID</th><th scope="col">Seleção</th></tr></thead><tbody>
+{% for option in options %}<tr><td>{{ option.label }}</td><td><code>{{ option.sysid }}</code></td><td><button type="button" data-reference-choice="{{ option.sysid }}" hidden>Usar referência</button></td></tr>
+{% empty %}<tr><td colspan="3">Nenhuma referência disponível.</td></tr>{% endfor %}
+</tbody></table></div>
+<nav aria-label="Paginação de referências">{% if previous_url %}<a href="{{ previous_url }}">Anterior</a>{% endif %}{% if next_url %}<a href="{{ next_url }}">Próxima</a>{% endif %}</nav>
+<p id="reference-picker-status" role="status" aria-live="polite"></p>
+{{ picker_context|json_script:'reference-picker-context' }}
+<script src="{% static 'skeleton/web/reference_picker.js' %}" defer></script>
+{% endblock %}

@@ -176,6 +176,53 @@ def test_malicious_archives_fail_before_copy(signed_app, tmp_path, attack):
     assert not destination.exists()
 
 
+@pytest.mark.parametrize('manifest_version', [1, 2])
+def test_published_history_keeps_signed_bytes_inventory_and_digest(signed_app, tmp_path, manifest_version):
+    with zipfile.ZipFile(signed_app['package']) as archive:
+        manifest = json.loads(archive.read('manifest.json'))
+        contents = {item['path']: archive.read(item['path']) for item in manifest['files']}
+    manifest['manifest_version'] = manifest_version
+    manifest['compatibility']['skeleton'] = f'<1.0.0,>=0.{manifest_version}.0'
+    if manifest_version == 1:
+        manifest['runtime'].pop('administration')
+        manifest['runtime'].pop('model_ui')
+    else:
+        manifest['runtime']['model_ui'] = dimension_layout()
+    historical = write_signed_archive(manifest, contents, tmp_path / 'published-v1.skapp', signed_app['private'])
+    original = historical.read_bytes()
+    with zipfile.ZipFile(historical) as archive:
+        signed_bytes = archive.read('manifest.json')
+    verified = validate_package(historical, signed_app['trust'])
+    assert verified.manifest['manifest_version'] == manifest_version
+    assert canonical_json(verified.manifest) == signed_bytes
+    assert verified.manifest['files'] == json.loads(signed_bytes)['files']
+    assert verified.digest == hashlib.sha256(original).hexdigest()
+    extract_package(verified, tmp_path / 'restored-v1')
+    assert (tmp_path / 'restored-v1/manifest.json').read_bytes() == signed_bytes
+    assert historical.read_bytes() == original
+    resigned = sign_package(historical, tmp_path / 'resigned.skapp', signed_app['private'])
+    with zipfile.ZipFile(resigned) as archive:
+        assert archive.read('manifest.json') == signed_bytes
+    assert validate_package(resigned, signed_app['trust']).manifest == verified.manifest
+    assert historical.read_bytes() == original
+
+
+def test_new_build_upgrades_v1_source_without_rewriting_it(signed_app, tmp_path):
+    source = load_manifest(signed_app['manifest'])
+    source['manifest_version'] = 1
+    source['compatibility']['skeleton'] = '<1.0.0,>=0.1.0'
+    source['runtime'].pop('administration')
+    source['runtime'].pop('model_ui')
+    original = canonical_json(source)
+    signed_app['manifest'].write_bytes(original)
+    artifact = build_package(signed_app['root'], signed_app['manifest'], tmp_path / 'new-v2.skapp', signed_app['private'])
+    new = validate_package(artifact, signed_app['trust']).manifest
+    assert new['manifest_version'] == 2
+    assert version_satisfies('0.2.0', new['compatibility']['skeleton'])
+    assert not version_satisfies('0.1.0', new['compatibility']['skeleton'])
+    assert signed_app['manifest'].read_bytes() == original
+
+
 def test_unknown_publisher_and_key_mismatch(signed_app, tmp_path):
     _, public = initialize_keys(tmp_path / 'other-private.pem', tmp_path / 'other-public.pem')
     for trust in ({}, {'test-publisher': public}):
@@ -220,7 +267,7 @@ def test_dependency_versions_cycles_and_namespace_collisions(signed_app):
     first = load_manifest(signed_app['manifest'])
     second = manifest_template(app_id='org.test.second', app_label='project_second', package_name='second', publisher='test-publisher')
     second['dependencies'] = {first['app_id']: '>=0.1.0,<0.2.0'}
-    kwargs = {'core': '0.1.0', 'python': '3.14.0', 'django': '5.2.18'}
+    kwargs = {'core': '0.3.0', 'python': '3.14.0', 'django': '5.2.18'}
     assert validate_dependency_graph([second, first], **kwargs) == [first['app_id'], second['app_id']]
     with pytest.raises(PackageError):
         validate_dependency_graph([second], **kwargs)
@@ -347,7 +394,8 @@ def test_source_metadata_never_claims_an_unrelated_installed_distribution(monkey
         def locate_file(self, path):
             return Path("/unrelated/site-packages") / path
     monkeypatch.setattr(versioning.metadata, "distribution", lambda _: UnrelatedDistribution())
-    assert versioning.core_version() == {"version": "0.1.0", "origin": "source"}
+    assert versioning.core_version()["origin"] == "source"
+    assert versioning.core_version()["version"] != "9.9.9"
 
 
 @pytest.mark.parametrize('launcher', ['python', 'python3.14', 'Python.exe', 'pip3.14', 'activate_this.py', 'gunicorn', 'skeleton-core', 'skeleton-deployment-agent'])
@@ -433,7 +481,8 @@ def test_core_manifest_version_binds_early_to_wheel(signed_app, tmp_path):
 def test_dependency_graph_validates_complete_core_contract(signed_app, failure):
     app = load_manifest(signed_app['manifest'])
     core = core_manifest(signed_app)
-    kwargs = {'core': '0.1.0', 'python': '3.14.0', 'django': '5.2.18'}
+    core['version'] = '0.3.0'
+    kwargs = {'core': '0.3.0', 'python': '3.14.0', 'django': '5.2.18'}
     core['dependencies'] = {app['app_id']: '>=0.1.0,<0.2.0'}
     assert validate_dependency_graph([core, app], **kwargs) == [app['app_id']]
     if failure in ('python', 'django', 'skeleton'):
@@ -447,7 +496,7 @@ def test_dependency_graph_validates_complete_core_contract(signed_app, failure):
     elif failure == 'cycle':
         app['dependencies'] = {'django-skeleton': '>=0.1.0'}
     else:
-        kwargs['core'] = '0.2.0'
+        kwargs['core'] = '0.4.0'
     with pytest.raises(PackageError):
         validate_dependency_graph([core, app], **kwargs)
 
@@ -458,7 +507,7 @@ def test_dependency_graph_compares_only_target_active_wheel_pins(signed_app, tar
     second = manifest_template(app_id='org.test.second', app_label='project_second', package_name='second', publisher='test-publisher')
     declare_dependency(first, 'dependency', '1.0.0', 'a' * 64, 'sys_platform == "win32"')
     declare_dependency(second, 'dependency', '2.0.0', 'b' * 64, 'sys_platform == "linux"')
-    kwargs = {'core': '0.1.0', 'python': '3.14.0', 'django': '5.2.18', 'target_environment': {'sys_platform': target}}
+    kwargs = {'core': '0.3.0', 'python': '3.14.0', 'django': '5.2.18', 'target_environment': {'sys_platform': target}}
     assert set(validate_dependency_graph([first, second], **kwargs)) == {first['app_id'], second['app_id']}
     first['python_dependencies'][0]['marker'] = f'sys_platform == "{target}"'
     second['python_dependencies'][0]['marker'] = f'sys_platform == "{target}"'
@@ -472,9 +521,9 @@ def test_target_python_markers_and_metadata_requirements_agree(signed_app, tmp_p
     declare_dependency(first, 'dependency', '1.0.0', 'a' * 64, 'python_version < "3.13"')
     declare_dependency(second, 'dependency', '2.0.0', 'b' * 64, 'python_version >= "3.13"')
     for version in ('3.12.10', '3.14.0'):
-        assert len(validate_dependency_graph([first, second], core='0.1.0', django='5.2.18', target_environment={'python_full_version': version})) == 2
+        assert len(validate_dependency_graph([first, second], core='0.3.0', django='5.2.18', target_environment={'python_full_version': version})) == 2
     with pytest.raises(PackageError, match='disagree'):
-        validate_dependency_graph([first], core='0.1.0', django='5.2.18', python='3.14.0', target_environment={'python_full_version': '3.12.10'})
+        validate_dependency_graph([first], core='0.3.0', django='5.2.18', python='3.14.0', target_environment={'python_full_version': '3.12.10'})
     consumer = wheel_file(tmp_path, 'consumer', metadata='Requires-Python: >=3.12,<3.15\nRequires-Dist: absent>=2; sys_platform == "win32"\nRequires-Dist: helper>=1; python_version >= "3.14"\n')
     assert validate_wheel_set([consumer], {'sys_platform': 'linux', 'python_full_version': '3.12.10'})
     for environment in ({'sys_platform': 'linux', 'python_full_version': '3.14.0'},
@@ -564,3 +613,82 @@ def test_runtime_wheelhouse_can_exceed_one_artifact_member_limit(tmp_path, monke
     monkeypatch.setattr(packages, 'MAX_WHEELHOUSE_MEMBERS', 6003)
     with pytest.raises(PackageError):
         validate_wheel_set([first, second])
+
+
+def dimension_layout(**dimensions):
+    return [{'table_key': 'project_demo.item', 'form': {'sections': [
+        {'id': 'content', 'label': 'Content', 'fields': [
+            {'name': 'body', 'widget': 'textarea', **dimensions}]}]}}]
+
+
+@pytest.mark.parametrize('dimensions', [{'col_span': 4}, {'rows': 8}, {'col_span': None}, {'rows': None}])
+@pytest.mark.parametrize('bound', ['>=0.3.0,<1.0.0', '>0.3.0,<1.0.0', '==0.3.0', '~=0.3.0'])
+def test_dimensions_require_explicit_new_floor(signed_app, dimensions, bound):
+    manifest = load_manifest(signed_app['manifest'])
+    manifest['runtime']['model_ui'] = dimension_layout(**dimensions)
+    manifest['compatibility']['skeleton'] = '>=0.2.0,<1.0.0'
+    with pytest.raises(PackageError, match=r'^Field dimensions require a core minimum of 0\.3\.0\.$'):
+        validate_manifest(manifest)
+    manifest['compatibility']['skeleton'] = bound
+    assert validate_manifest(manifest)['runtime']['model_ui'] == dimension_layout(**dimensions)
+
+
+@pytest.mark.parametrize('dimensions', [{'col_span': 4, 'rows': 8}, {'rows': None}])
+def test_dimension_source_requires_floor_but_artifact_adds_it_without_mutation(signed_app, tmp_path, dimensions):
+    manifest = load_manifest(signed_app['manifest'])
+    manifest['runtime']['model_ui'] = dimension_layout(**dimensions)
+    manifest['compatibility']['skeleton'] = '>=0.2.0,<1.0.0'
+    original = canonical_json(manifest)
+    signed_app['manifest'].write_bytes(original)
+    with pytest.raises(PackageError, match='Field dimensions require a core minimum'):
+        build_package(signed_app['root'], signed_app['manifest'], tmp_path / 'rejected.skapp', signed_app['private'])
+    assert signed_app['manifest'].read_bytes() == original
+    with zipfile.ZipFile(signed_app['package']) as archive:
+        payloads = {}
+        for index, item in enumerate(json.loads(archive.read('manifest.json'))['files']):
+            source = tmp_path / f'payload-{index}'
+            source.write_bytes(archive.read(item['path']))
+            payloads[item['path']] = source
+    artifact = build_artifact(manifest, payloads, tmp_path / 'dimensions.skapp', signed_app['private'])
+    assert canonical_json(manifest) == original
+    published = validate_package(artifact, signed_app['trust']).manifest
+    assert published['runtime']['model_ui'] == dimension_layout(**dimensions)
+    assert version_satisfies('0.3.0', published['compatibility']['skeleton'])
+    assert not version_satisfies('0.2.0', published['compatibility']['skeleton'])
+    def tamper(entries):
+        changed = []
+        for info, data in entries:
+            if info.filename == 'manifest.json':
+                value = json.loads(data)
+                value['runtime']['model_ui'][0]['form']['sections'][0]['fields'][0]['col_span'] = 12
+                data = canonical_json(value)
+            changed.append((info, data))
+        return changed
+    altered = rewrite(artifact, tmp_path / 'altered.skapp', tamper)
+    with pytest.raises(PackageError):
+        validate_package(altered, signed_app['trust'])
+
+
+def test_artifact_validates_dimensions_before_detection(signed_app, tmp_path):
+    manifest = load_manifest(signed_app['manifest'])
+    manifest['runtime']['model_ui'] = dimension_layout(rows=True)
+    with pytest.raises(PackageError):
+        build_artifact(manifest, {}, tmp_path / 'invalid.skapp', signed_app['private'])
+    assert not (tmp_path / 'invalid.skapp').exists()
+
+
+def test_new_manifest_template_requires_current_presentation_core(signed_app):
+    manifest = load_manifest(signed_app['manifest'])
+    assert version_satisfies('0.3.0', manifest['compatibility']['skeleton'])
+    assert not version_satisfies('0.2.0', manifest['compatibility']['skeleton'])
+
+
+def test_dimension_source_with_new_floor_builds_and_verifies(signed_app, tmp_path):
+    manifest = load_manifest(signed_app['manifest'])
+    manifest['runtime']['model_ui'] = dimension_layout(col_span=12, rows=8)
+    original = canonical_json(manifest)
+    signed_app['manifest'].write_bytes(original)
+    artifact = build_package(signed_app['root'], signed_app['manifest'], tmp_path / 'source-dimensions.skapp', signed_app['private'])
+    verified = validate_package(artifact, signed_app['trust'])
+    assert verified.manifest['runtime']['model_ui'] == dimension_layout(col_span=12, rows=8)
+    assert signed_app['manifest'].read_bytes() == original

@@ -1,1 +1,7 @@
-{% extends 'skeleton/web/base.html' %}{% block content %}<h1>Catálogo de tabelas</h1>{% for spec in specs %}<section class="card"><h2>{{ spec.label }}</h2><p>{{ spec.description }}</p><a href="{% url 'web:records' organization_id spec.table_key %}">Consultar registros</a><h3>Campos de leitura</h3><ul>{% for field in spec.read_fields %}<li>{{ field }}</li>{% endfor %}</ul></section>{% empty %}<p>Nenhuma tabela autorizada.</p>{% endfor %}{% endblock %}
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Catálogo de tabelas · Skeleton{% endblock %}
+{% block content %}
+{% include 'skeleton/web/components/breadcrumbs.html' %}
+<h1>Catálogo de tabelas</h1>
+{% include 'skeleton/web/components/model-groups.html' %}
+{% endblock %}

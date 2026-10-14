@@ -1,0 +1,1 @@
+{% if tabs %}<nav class="record-tabs" data-tabs data-active-tab="{{ active_tab }}" aria-label="Seções do registro" hidden>{% for tab in tabs %}<button type="button" id="tab-{{ tab.id }}" data-tab="{{ tab.id }}">{{ tab.label }}</button>{% endfor %}</nav>{% endif %}

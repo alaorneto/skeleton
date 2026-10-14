@@ -1,0 +1,17 @@
+{% extends "skeleton/web/platform_records/base.html" %}
+
+{% block content %}
+<p>Identidades, organizações, catálogo e histórico global. Configurações e parametrizações ficam em uma área separada.</p>
+<div class="cards">
+{% for app in app_list %}
+<section class="card" aria-labelledby="record-app-{{ app.app_label }}">
+<h2 id="record-app-{{ app.app_label }}"><a href="{{ app.app_url }}">{{ app.name }}</a></h2>
+<ul>
+{% for model in app.models %}
+<li>{% if model.admin_url %}<a href="{{ model.admin_url }}">{{ model.name }}</a>{% else %}{{ model.name }}{% endif %}{% if model.add_url %} — <a href="{{ model.add_url }}">Criar</a>{% endif %}</li>
+{% endfor %}
+</ul>
+</section>
+{% empty %}<p>Nenhum registro global disponível.</p>{% endfor %}
+</div>
+{% endblock %}

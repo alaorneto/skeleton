@@ -21,6 +21,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `.../records/<sysid>/` | GET, PATCH, DELETE | Um registro autorizado; ETag/revisão |
 | `.../records/<sysid>/restore/` | POST | Restore autorizado com If-Match |
 | `.../records/<sysid>/access/` | GET, PATCH | Manage_access + ownership/org admin; If-Match no PATCH |
+| `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | Org admin, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
 | `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Org admin; app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial |
 
@@ -41,6 +42,10 @@ O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a 
 O gateway oferece CRUD genérico (criação, leitura, alteração e exclusão lógica) somente para campos explicitamente declarados em `TableSpec.read_fields` e `write_fields`; os metadados sistêmicos são automaticamente somente leitura. Campos desconhecidos retornam erro em vez de serem ignorados. `organization`, `sysid`, autoria, revisão e campos de acesso são proibidos no POST/PATCH comum: aceitar esses valores do cliente permitiria atribuição indiscriminada de campos protegidos (mass assignment). A criação atribui `owner` ao ator autenticado e visibilidade `private`. Use o recurso separado `access/` para mudar acesso: seu PATCH aceita somente owner UUID, visibility e owning_group UUID/null, coerentes com vínculo e grupo ativos. Ele exige `manage_access` e ser proprietário ou administrador da organização; um leitor comum não pode nem obter GET access.
 
 FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
+
+Referências invisíveis são representadas como null, sem UUID/label e sem `__str__` de negócio. A projeção da lista autoriza alvos em lote por política/modelo. O recurso `references/<field>/` aceita somente `record`, `access=0/1`, `page` e `page_size`, sem duplicatas. Sem `record`, exige create na origem; com registro, update; com access, manage_access. Retorna `{count,page,page_size,results}` de UUID/label autorizados; máximo 100. Referências de identidade/acesso usam vínculos ativos/resolvedores dedicados, nunca enumeração global. HTML tem seletor equivalente fora do admin e fallback para copiar UUID; toda escrita revalida FK.
+
+Apps podem registrar `RecordOperations` em código para impor serviços próprios nas mesmas operações HTML/API. Core valida autorização/allowlists/coerção antes do serviço; se um adaptador não declara uma operação, ela é negada sem fallback. Metadados de apresentação não mudam o contrato JSON ou grants. Nullable boolean mantém null quando o modelo o permite; write-only nunca é acrescentado à leitura pela presença de um widget.
 
 Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamente lidos antes da decodificação (default 1048576), inclusive stream sem Content-Length confiável; excesso é 413 `request_too_large`, sem escrita parcial. Alinhe um limite de corpo igual ou menor no proxy. Paginação HTML preserva filtros já validados ao trocar page, com URL encoding.
 

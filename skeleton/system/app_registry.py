@@ -5,6 +5,11 @@ import re
 
 from django.core.exceptions import ValidationError
 
+from .presentation import (
+    AdministrationSpec, ModelUISpec, presentation_from_runtime,
+    register_presentation, unregister_presentation,
+)
+
 
 @dataclass(frozen=True)
 class ConfigField:
@@ -12,6 +17,9 @@ class ConfigField:
     value_type: type
     default: object
     max_length: int = 200
+    label: str | None = None
+    help_text: str = ''
+    section_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,6 +48,8 @@ class AppManifest:
     origin: str = "project-local"
     dependency_versions: tuple[tuple[str, str], ...] = ()
     canonical: dict | None = None
+    administration: AdministrationSpec = AdministrationSpec()
+    model_ui: tuple[ModelUISpec, ...] = ()
 
     @classmethod
     def from_json(cls, path, *, app_config):
@@ -72,12 +82,14 @@ class AppManifest:
                 origin = entry["state"]
                 if origin == "installed" and entry.get("activation_policy") == "explicit":
                     default_enabled = False
+        administration, model_ui = presentation_from_runtime(runtime)
         return cls(
             app_label=contract["app_label"], label=contract["name"],
             description=contract["description"],
             configuration_fields=tuple(
                 ConfigField(field["name"], {"str": str, "int": int, "bool": bool}[field["type"]],
-                            field["default"], field.get("max_length", 200))
+                            field["default"], field.get("max_length", 200),
+                            field.get("label"), field.get("help_text", ''), field.get("section_id"))
                 for field in runtime["configuration_fields"]),
             navigation=tuple(MenuEntry(**entry) for entry in runtime["navigation"]),
             urls=module(runtime.get("urls")), api_urls=module(runtime.get("api_urls")),
@@ -85,6 +97,7 @@ class AppManifest:
             app_id=contract["app_id"], version=contract["version"],
             package_name=contract["package_name"], origin=origin,
             dependency_versions=tuple(contract["dependencies"].items()), canonical=contract,
+            administration=administration, model_ui=model_ui,
         )
 
 
@@ -105,6 +118,10 @@ def register_app(manifest):
             raise ValidationError('Application configuration supports named scalar fields only.')
         if any(part in field.name.lower() for part in ('secret', 'password', 'token', 'private_key')):
             raise ValidationError('Application secrets belong in deployment configuration.')
+        if field.name in {'enabled', 'revision', 'csrfmiddlewaretoken'}:
+            raise ValidationError('Reserved application configuration control name.')
+        if type(field.default) is not field.value_type or type(field.max_length) is not int or not 1 <= field.max_length <= 10000 or (isinstance(field.default, str) and len(field.default) > field.max_length):
+            raise ValidationError('Invalid scalar configuration default/limit.')
     from skeleton.versioning import normalize_version
     try:
         normalize_version(manifest.version)
@@ -118,6 +135,7 @@ def register_app(manifest):
             raise ValidationError("Duplicate application identity or package namespace.")
     if manifest.app_label in _manifests and _manifests[manifest.app_label] != manifest:
         raise ValidationError('Duplicate application manifest.')
+    register_presentation(manifest)
     _manifests[manifest.app_label] = manifest
     return manifest
 
@@ -125,6 +143,7 @@ def register_app(manifest):
 def unregister_app(app_label):
     """Remove registry metadata only; never drops tables or tenant state."""
     _manifests.pop(app_label, None)
+    unregister_presentation(app_label)
 
 
 def get_app(app_label):
@@ -194,7 +213,12 @@ def application_urlpatterns():
     result = []
     for manifest in all_apps():
         if manifest.urls:
-            result.append(path(f'o/<uuid:organization_id>/apps/{manifest.app_label}/', include(manifest.urls)))
+            from .administration import guard_application_urls
+            module, app_name, namespace = include(manifest.urls)
+            patterns = module.urlpatterns if hasattr(module, 'urlpatterns') else module
+            guarded = guard_application_urls(patterns, manifest)
+            result.append(path(f'o/<uuid:organization_id>/apps/{manifest.app_label}/',
+                               include((guarded, app_name), namespace=namespace)))
         if manifest.api_urls:
             result.append(path(f'api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/', include(manifest.api_urls)))
     return result

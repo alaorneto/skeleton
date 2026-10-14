@@ -6,6 +6,7 @@ from django.db import connections, models
 
 from .registry import all_specs
 from .app_registry import CORE_APP_LABELS, all_apps, validate_dependencies, validate_documentation
+from .presentation import validate_presentation
 from .synchronization import physical_tables, technical_manifest
 from skeleton.common.migration_operations import infrastructure_names, InstallRecordInfrastructure
 from skeleton.common.technical_operations import GrantTechnicalTablePrivileges
@@ -58,6 +59,10 @@ def record_contract_checks(app_configs=None, **kwargs):
             validate_documentation(manifest)
         except ValidationError:
             errors.append(Error(f"{manifest.app_label}: missing application spec/ADR contract.", id="skeleton.E012"))
+        try:
+            validate_presentation(manifest)
+        except ValidationError as exc:
+            errors.append(Error(f"{manifest.app_label}: {'; '.join(exc.messages)}", id="skeleton.E013"))
     tenant = "skeleton.tenancy.middleware.TenantContextMiddleware"
     auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
     account = "allauth.account.middleware.AccountMiddleware"

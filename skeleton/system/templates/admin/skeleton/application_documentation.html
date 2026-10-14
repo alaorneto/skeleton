@@ -1,0 +1,6 @@
+{% extends 'admin/base_site.html' %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Início</a> › <a href="{% url 'admin:skeleton_app_group' application.app_label %}">{{ application.label }}</a> › Documentação</div>{% endblock %}
+{% block content %}<h1>{{ application.label }} — documentação {{ application.version }}</h1>
+<p>Conteúdo textual do código ativo. HTML e scripts do pacote não são executados.</p>
+{% for document in documents %}<section class="module"><h2>{{ document.name }}</h2><pre style="white-space: pre-wrap; overflow-wrap: anywhere">{{ document.text }}</pre></section>{% endfor %}
+{% endblock %}

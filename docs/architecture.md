@@ -93,7 +93,9 @@ Uma app possui `manifest.json` canônico, carregado como `AppManifest`, separado
 
 O core é o wheel `django-skeleton`; `config` e `applications` pertencem ao derivado. O inventário privado determina as apps gerenciadas no startup; apps locais continuam em `PROJECT_APPS`. Retirar uma app gerenciada conserva schema e migrations históricas sem carregar seus modelos/rotas de negócio.
 
-O admin padrão, com autodiscover Django, é a única instância segura de plataforma. `/admin/system/releases/` valida o ator e solicita uma operação ao agente independente. O agente guarda um journal privado, valida assinatura/conteúdo, prepara release separado, faz backup, migrations, checks runtime e reinício. A request web nunca executa pip/DDL nem recebe a credencial owner.
+Há um único `PlatformAdminSite`, com autodiscover Django e uma única política de plataforma. `/admin/` contém somente configuração/parametrização e releases; listas/formulários de registros globais ficam em `/platform/records/`, com shell web separado. O viewer de negócio fica em `/o/<org>/catalog/` e `/o/<org>/tables/<table_key>/`, nunca dentro desses painéis de parâmetros. Manifesto v2 registra apresentação imutável na memória; `TableSpec` e serviços continuam a autoridade de segurança.
+
+`/admin/system/releases/` valida o ator e solicita uma operação ao agente independente. O agente guarda journal privado, valida assinatura/conteúdo, prepara release separado, faz backup, migrations, checks runtime/configuração persistida e reinício. A request web nunca executa pip/DDL nem recebe a credencial owner.
 
 Uma resposta de entrega perdida não autoriza refazer o plano como uma nova operação. O reenvio explícito conserva o vínculo da aprovação original; a nova tentativa de HTTP continua auditada com seu próprio ID. Só um status coerente do journal confirma o resultado. Veja [provisionamento e recuperação](deployment.md#agente-independente-de-deployment).
 

@@ -18,7 +18,7 @@ from packaging.version import Version
 from skeleton.system.packages import PackageError, validate_catalog, validate_manifest, validate_package
 
 from .backends import backend_for
-from .releases import check_drift, create_release, file_diff, freeze, owned_snapshot, verified, wheel_files
+from .releases import check_drift, create_release, file_diff, freeze, owned_snapshot, presentation_diff, verified, wheel_files
 from .storage import AgentError, Store, artifact_id, atomic_bytes, atomic_json, canonical, deployment_lock, digest, file_hash, identifier, inventory_files, load_json, now
 
 
@@ -224,6 +224,7 @@ class DeploymentService:
                 components += [{"component_id": entry["manifest"]["app_id"], "version": entry["manifest"]["version"], "digest": entry.get("digest"), "state": entry["state"], "publisher": entry["manifest"]["publisher"]} for entry in target["apps"]]
                 retained_impact = [load_json(reference["path"]).get("impact", {}) for reference in target["retained_schema_paths"]]
                 plan = {"id": plan_id, "generation": inventory["generation"], "action": action, "components": components, "files": file_diff(state["owned_files"], owned), "migrations": graph["migrations"], "applied_migrations": graph["applied"], "migration_targets": graph["targets"], "impact": {**graph["impact"], "retained_schema": retained_impact}, "maintenance": True, "backup_required": True, "recovery": "restore_database_and_previous_release_before_new_writes; operator_repair_to_complete", "release": str(release), "release_digest": digest(owned), "artifacts": artifacts, "app_ids": app_ids, "created_at": now(), "backend": self.config["backend"]}
+                plan["presentation_changes"] = presentation_diff(inventory, target)
                 plan["resources"] = [{"resource": self.config["active_link"], "owner": "deployment", "action": "replace_symlink", "before": str(source), "after": str(release)}, {"resource": "database", "owner": "deployment", "action": "migrate", "before": digest(graph["applied"]), "after": digest(graph["targets"])}, {"resource": "maintenance", "owner": "deployment", "action": "gate_and_drain"}]
                 if self.config["backend"] == "compose":
                     plan["resources"].append({"resource": "compose_image", "owner": "deployment", "action": "replace", "before": self.backend.image(source), "after": self.backend.image(release)})
@@ -343,6 +344,8 @@ class DeploymentService:
         self.stage(operation, "migrated")
         self.backend.manage(release, ["sync_table_catalog"], "migration", code="catalogue_sync_failed")
         self.backend.manage(release, ["check_skeleton_schema"], "runtime", code="runtime_schema_failed")
+        if Version(record["inventory"]["core"]["version"]) >= Version("0.2.0"):
+            self.backend.manage(release, ["check_application_configuration"], "runtime", code="application_configuration_invalid")
         self.backend.manage(release, ["validate_provider_bindings", "--database", "default"], "runtime", code="provider_bindings_failed")
         self.backend.manage(release, ["check", "--deploy"], "runtime", code="deployment_checks_failed")
         self.stage(operation, "runtime_checked")

@@ -27,6 +27,10 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 from skeleton.versioning import core_version, normalize_version, validate_specifier, version_satisfies
+from skeleton.system.presentation import (
+    FIELD_DIMENSIONS_CORE_MINIMUM, MANIFEST_V2_CORE_MINIMUM,
+    required_presentation_core, validate_runtime_presentation,
+)
 
 
 class PackageError(ValueError):
@@ -135,7 +139,7 @@ def _validate_manifest(value):
     required = {'manifest_version', 'kind', 'name', 'description', 'version', 'publisher', 'compatibility', 'dependencies', 'migrations', 'files', 'python_dependencies', 'lifecycle'}
     _object(value, fields, required)
     m = json.loads(canonical_json(value))
-    if type(m['manifest_version']) is not int or m['manifest_version'] != 1 or m['kind'] not in ('app', 'core'):
+    if type(m['manifest_version']) is not int or m['manifest_version'] not in (1, 2) or m['kind'] not in ('app', 'core'):
         _fail('Unsupported manifest format.')
     _string(m['name'], 200)
     _string(m['description'])
@@ -152,7 +156,15 @@ def _validate_manifest(value):
         prefix = f'applications.{package}.'
         if not isinstance(m['app_config'], str) or not re.fullmatch(re.escape(prefix) + r'apps\.[A-Za-z][A-Za-z0-9_]*', m['app_config']):
             _fail('AppConfig must belong to the managed application namespace.')
-        r = _object(m['runtime'], ('urls', 'api_urls', 'default_enabled', 'configuration_fields', 'navigation', 'documentation_root'), ('default_enabled', 'configuration_fields', 'navigation', 'documentation_root'))
+        runtime_fields = ('urls', 'api_urls', 'default_enabled', 'configuration_fields', 'navigation', 'documentation_root')
+        if m['manifest_version'] == 2:
+            runtime_fields += ('administration', 'model_ui')
+            from packaging.specifiers import SpecifierSet
+            minimum = Version(MANIFEST_V2_CORE_MINIMUM)
+            bounds = SpecifierSet(m['compatibility']['skeleton'])
+            if not any(item.operator in ('>=', '>', '==', '~=') and Version(item.version.removesuffix('.*')) >= minimum for item in bounds):
+                _fail('Manifest v2 requires a core minimum of ' + MANIFEST_V2_CORE_MINIMUM + '.')
+        r = _object(m['runtime'], runtime_fields, ('default_enabled', 'configuration_fields', 'navigation', 'documentation_root'))
         if type(r['default_enabled']) is not bool:
             _fail('default_enabled must be boolean.')
         for key in ('urls', 'api_urls'):
@@ -163,8 +175,13 @@ def _validate_manifest(value):
             _fail('Runtime fields and navigation require lists.')
         names = set()
         for config in r['configuration_fields']:
-            _object(config, ('name', 'type', 'default', 'max_length'), ('name', 'type', 'default'))
+            config_fields = ('name', 'type', 'default', 'max_length')
+            if m['manifest_version'] == 2:
+                config_fields += ('label', 'help_text', 'section_id')
+            _object(config, config_fields, ('name', 'type', 'default'))
             name = _identifier(config['name'])
+            if m['manifest_version'] == 2 and name in {'enabled', 'revision', 'csrfmiddlewaretoken'}:
+                _fail('Reserved application configuration control name.')
             if name in names or any(s in name for s in ('secret', 'password', 'token', 'private_key')):
                 _fail('Duplicate or secret application configuration.')
             names.add(name)
@@ -178,6 +195,12 @@ def _validate_manifest(value):
             _string(entry['url_name'], 200)
             if not isinstance(entry['table_key'], str) or not re.fullmatch(re.escape(label) + r'\.[a-z][a-z0-9_]*', entry['table_key']) or entry.get('action', 'read') not in ('read', 'create', 'update', 'delete', 'restore', 'manage_access', 'audit'):
                 _fail('Invalid navigation ownership/action.')
+        if m['manifest_version'] == 2:
+            validate_runtime_presentation(r, label, error_class=PackageError)
+            if required_presentation_core(r) == FIELD_DIMENSIONS_CORE_MINIMUM:
+                minimum = Version(FIELD_DIMENSIONS_CORE_MINIMUM)
+                if not any(item.operator in ('>=', '>', '==', '~=') and Version(item.version.removesuffix('.*')) >= minimum for item in bounds):
+                    _fail('Field dimensions require a core minimum of 0.3.0.')
     else:
         if m.get('component_id') != 'django-skeleton' or any(k in m for k in ('app_id', 'app_label', 'package_name', 'app_config', 'runtime')):
             _fail('Invalid core component identity.')
@@ -713,6 +736,15 @@ def _role(path):
 def build_artifact(manifest, payloads, output_path, private_key_path):
     """Build app/core from a complete mapping of archive path -> regular local file."""
     m = json.loads(canonical_json(manifest))
+    if type(m.get('manifest_version')) is not int or m['manifest_version'] not in (1, 2):
+        _fail('Unsupported manifest format.')
+    # Building a new artifact is a new publication, unlike reading/resigning a
+    # historical artifact whose canonical bytes must remain unchanged.
+    m['manifest_version'] = 2
+    if m.get('kind') == 'app':
+        validate_runtime_presentation(m['runtime'], m['app_label'], error_class=PackageError)
+        minimum = required_presentation_core(m['runtime'])
+        m['compatibility']['skeleton'] = _specifier(m['compatibility']['skeleton'] + ',>=' + minimum)
     m['files'] = []
     contents = {}
     for name, source in sorted(payloads.items()):
@@ -926,7 +958,24 @@ def initialize_keys(private_path, public_path):
 
 
 def manifest_template(*, app_id, app_label, package_name, publisher, version='0.1.0', app_config_class='AppConfig'):
-    return validate_manifest({'manifest_version': 1, 'kind': 'app', 'app_id': app_id, 'app_label': app_label, 'package_name': package_name, 'app_config': f'applications.{package_name}.apps.{app_config_class}', 'name': app_label, 'description': 'Application release contract', 'version': version, 'publisher': publisher, 'compatibility': {'skeleton': '>=0.1.0,<1.0.0', 'python': '>=3.12,<3.15', 'django': '>=5.2,<5.3'}, 'dependencies': {}, 'conflicts': {}, 'runtime': {'urls': None, 'api_urls': None, 'default_enabled': False, 'configuration_fields': [], 'navigation': [], 'documentation_root': 'docs'}, 'migrations': {'leaves': [], 'from_versions': '>=0.0.0', 'labels': [app_label]}, 'files': [], 'python_dependencies': [], 'lifecycle': {'data_retention': 'retain', 'maintenance': True, 'backup': True}})
+    return validate_manifest({
+        'manifest_version': 2, 'kind': 'app', 'app_id': app_id,
+        'app_label': app_label, 'package_name': package_name,
+        'app_config': f'applications.{package_name}.apps.{app_config_class}',
+        'name': app_label, 'description': 'Application release contract',
+        'version': version, 'publisher': publisher,
+        'compatibility': {'skeleton': f'>={FIELD_DIMENSIONS_CORE_MINIMUM},<1.0.0',
+                          'python': '>=3.12,<3.15', 'django': '>=5.2,<5.3'},
+        'dependencies': {}, 'conflicts': {},
+        'runtime': {'urls': None, 'api_urls': None, 'default_enabled': False,
+                    'configuration_fields': [], 'navigation': [],
+                    'documentation_root': 'docs',
+                    'administration': {'configuration_sections': [], 'sections': [], 'screens': []},
+                    'model_ui': []},
+        'migrations': {'leaves': [], 'from_versions': '>=0.0.0', 'labels': [app_label]},
+        'files': [], 'python_dependencies': [],
+        'lifecycle': {'data_retention': 'retain', 'maintenance': True, 'backup': True},
+    })
 
 
 def sign_package(path, output_path, private_key_path, *, publisher=None):

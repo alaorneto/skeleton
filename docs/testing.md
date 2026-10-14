@@ -16,6 +16,62 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 **Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
 
+## Integração do renderer CRUD — core/agente 0.3.0
+
+Rodada de 2026-10-14 com Python 3.14.7, Django 5.2.18 e django-crispy-forms 2.7. Locks runtime/dev regenerados por `pip-compile --generate-hashes` e instalados com `--require-hashes`; `pip check` e `manage.py check` concluíram sem problemas.
+
+| Conjunto executado | Backend | Resultado observado |
+|---|---|---|
+| Nove arquivos do conjunto específico abaixo | SQLite isolado, wheel instalado externamente | 280 passed |
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 499 passed |
+| `tests/integration_postgres` e cinco arquivos HTTP/UI compartilhados abaixo | PostgreSQL 16.15; assertions com `skeleton_runtime` NOSUPERUSER/NOBYPASSRLS | 88 passed |
+
+Os dois conjuntos SQLite conservaram um warning do ZIP malicioso com membro duplicado; a execução PostgreSQL não reportou warnings. O par privado de DSNs passou pelas barreiras de `disposable_database_pair()`: mesmo banco terminado `_skeleton_test`, diferente dos bancos normais, reset explicitamente autorizado, migrations com `skeleton_owner` e verificações com runtime. Não se usou owner para provar isolamento/UI.
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.test TEST_DATABASE_URL=sqlite:///:memory: \
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit/test_presentation.py tests/unit/test_packages.py \
+  tests/unit/test_presentation_release_changes.py tests/unit/test_core_distribution.py \
+  tests/integration_sqlite/test_record_presentation.py \
+  tests/integration_sqlite/test_reference_picker.py \
+  tests/integration_sqlite/test_http_boundaries.py \
+  tests/integration_sqlite/test_application_administration.py \
+  tests/integration_sqlite/test_admin_configuration_boundary.py -q
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit tests/integration_sqlite tests/accounts -q
+# Ambiente privado já provisionado; não imprimir DSNs:
+set -a
+. .private/runtime/services.env
+set +a
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/integration_postgres \
+  tests/integration_sqlite/test_record_presentation.py \
+  tests/integration_sqlite/test_reference_picker.py \
+  tests/integration_sqlite/test_http_boundaries.py \
+  tests/integration_sqlite/test_application_administration.py \
+  tests/integration_sqlite/test_admin_configuration_boundary.py -q
+```
+
+### Smoke do manifesto ao Chromium
+
+Projeto/SQLite/venv Python 3.14 descartáveis **fora do checkout**: wheel `django_skeleton-0.3.0-py3-none-any.whl` construído com `pip wheel --no-deps --no-build-isolation`, dependências runtime instaladas por hashes e wheel instalado com `--no-deps`. Copiados somente overlays `config`/`manage.py`; nenhum diretório `skeleton` foi copiado ao projeto.
+
+A app temporária registrou `Folder` e `Item` como `SecuredRecord`, specs explícitas e manifesto canônico v2. `Folder` não declarou `model_ui`; `Item` declarou code 4/title 8/target 12, body 12/rows 8 e UUID readonly na aba Conteúdo. Body era sensível e write-only desde o startup. Migrations reais instalaram infraestrutura congelada; `migrate`, `sync_table_catalog`, `check_skeleton_schema` e `bootstrap_skeleton` concluíram antes de iniciar runserver em loopback.
+
+Observações com login allauth real, sessão/CSRF e Chromium:
+
+- Catálogo fora do admin abriu ambos os modelos. Desktop 1280px: code/title na mesma linha, razão de larguras corrigida pelo gap ≈2, tanto no form como no detalhe. Mobile 390px: campos em uma coluna e `scrollWidth=390`. Textarea declarou rows 8; detalhe não tinha inputs editáveis.
+- Criação com FK escolhida pelo popup e edição concordaram com API e consulta em contexto autorizado. Body não apareceu em GET edit/detail/API; edição sem opt-in preservou o segredo. Opt-in vazio limpou o valor, inclusive com JavaScript desabilitado; auditoria conservou `[REDACTED]`.
+- POST de body com 10001 caracteres, opt-in marcado e aba inicialmente oculta respondeu 400; título retido, aba Conteúdo ativa, erro/ARIA associado e link do resumo focou `id_body`. ArrowRight/Home/End e seções sem JavaScript foram exercitados.
+- FK de B e FK cuja leitura foi revogada entre GET/POST responderam 400, sem revisão/eventos de escrita residuais. Duas revisões iguais produziram um vencedor: formulário stale 409, API stale 412 e apenas um evento da edição vencedora.
+- GET/Cancelar de delete conservou revisão/audit. Confirmação tinha apenas CSRF/revisão; soft delete/restore conservaram UUID e acrescentaram eventos próprios. Ator delete-sem-read não recebeu título/campos/segredo e seu Cancelar apontou à lista.
+- Desativação bloqueou com 403 o POST de formulário já aberto. A configuração dedicada continuou disponível e reativou a app. Perfil, gestão de acesso e configuração salvaram pelo renderer comum; modelo sem UI usou spans 12 automáticos.
+- `/admin/` mostrou somente configuração/parametrização, sem listas/forms de Item/Folder. CSS/JS do renderer vieram da própria origem, sem CDN. A regressão do wheel também renderizou form/detail nos cinco profiles, com valores/erros escapados e media uma vez.
+
+Tabs, servidor, PostgreSQL iniciado para a fixture e arquivos temporários do smoke foram encerrados/removidos. Os arquivos privados PostgreSQL preexistentes foram preservados. Esta prova é de renderer/CRUD/autorização nos backends indicados; não homologa SSO externo, Compose ou backup/restore pelo agente.
+
+
 ## Verificação da revisão de código e documentação
 
 Rodada de 2026-10-13, posterior ao checkpoint inicial `2207ba4`, com Python 3.14.7 e Django 5.2.18. Os resultados históricos das seções seguintes foram mantidos, não substituídos por contagens inferidas.
@@ -253,3 +309,47 @@ Esta **matriz** cruza atores, organizações e operações para encontrar vazame
 - Conta: convite expired/replay/wrong email/corrida, público sem Membership, reset normal e tokens inválidos/SSO-only/inativo/deletado, auth_version, MFA/recovery single-use/cipher/rotação preservando máscara, admin sem bypass/enrollment sem deadlock.
 
 A aprovação exige evidência dos backends/protocolos relevantes; uma suíte limitada não autoriza alegar matrix completa.
+
+## Administração/configuração e viewer — core 0.2.0
+
+Rodada desta implementação, com Notes opt-in, Python 3.14 e Django 5.2.18:
+
+| Execução observada | Resultado |
+|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | 402 passed; 1 warning esperado de ZIP com membro duplicado no negativo de arquivo malicioso |
+| PostgreSQL 16.15, role runtime restrita: `tests/integration_postgres` + administração, apresentação, picker, fronteira de admin e extensões | 76 passed |
+| Login real e HTTP do projeto gerado com dois modelos expostos e um não exposto | CAS 200/412/409; FK revogada recusada; A/B, mass assignment e filtro desconhecido negados; boolean null; delete/restore com mesmo UUID; write-only preservado/limpo |
+| Chromium real, desktop/390px/sem JavaScript | Admin só parâmetros; viewer e registros globais externos; abas por teclado; erro focável na aba correta; sem disclosure write-only; popup seleciona UUID autorizado; largura do documento 390px |
+| Agente independente, backend directory, SQLite e Gunicorn com dois workers | Core update e install → update → uninstall → reinstall confirmados; negativo de staging e restore de migration falhada confirmados |
+
+Comandos das duas matrizes:
+
+```sh
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit tests/integration_sqlite tests/accounts -q
+
+# Ambiente privado de DB descartável, runtime/owner separados como descrito acima:
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/integration_postgres \
+  tests/integration_sqlite/test_application_administration.py \
+  tests/integration_sqlite/test_record_presentation.py \
+  tests/integration_sqlite/test_reference_picker.py \
+  tests/integration_sqlite/test_admin_configuration_boundary.py \
+  tests/integration_sqlite/test_app_extensions.py -q
+```
+
+Os testes de fronteira percorrem login allauth/CSRF, flags/MFA, namespace único, rotas antigas 404, shell/media e CAS dos registros globais. Os testes de apresentação/picker cobrem projeção, orçamento de queries independente de linhas, relações negadas, cobertura/widget/allowlists e serviços próprios comuns a HTML/API. V1 assinado, rejeições do schema v2 e diffs/compatibilidade de configuração fazem parte dos unitários. A rodada completa antecedeu apenas a adição do clearfix no shell; essa correção foi confirmada no navegador com rodapé abaixo do formulário e mesmas mídias.
+
+### Smoke de lifecycle observado
+
+Fixture de publicador/app própria assinada, trust store privado, ambientes offline por hashes, DB externo ao release, supervisor real e canal independente:
+
+- Core 0.2.0 novo ativado na geração 1; instalação do app 0.1.0 na geração 2 mostrou exatamente um grupo, sem links/modelos de negócio no admin. Configuração tenant começou na revisão virtual 0 e foi persistida pela tela real.
+- Update 0.2.0 na geração 3 exibiu `presentation_changes` para campo/label, tela removida/adicionada e colunas. Grupo não duplicou; tela velha saiu, tela nova apareceu; UUIDs de configuração e registro, e valor configurado, permaneceram.
+- Coluna write-only numa lista de um pacote assinado foi recusada no staging com `static_checks_failed`, sem formulário de aprovação e sem cutover.
+- Uninstall na geração 4 mostrou retenção de dois registros em uma organização e removeu o grupo. Reinstall na geração 5 conservou registro/configuração/valor e voltou desativado; negócio retornou 403 até reativação explícita. Formulário aberto antes de desativar também recebeu 403 no POST, enquanto parâmetros permitiram reativar.
+- Update com `RunPython` histórica deliberadamente falhada terminou `failed/migration_failed`, geração 5, backup registrado e sem workers servindo o destino. Com daemon parado, `recover <operation> restore` confirmou `restored`. Depois de checks/saúde e reinício, browser/API observaram app 0.2.0, tela anterior válida, mesmos UUIDs e configuração anterior; nenhuma publicação parcial.
+
+Os scripts/chaves/DBs eram descartáveis e não são fixtures distribuídas. Essa rodada **não ensaiou lifecycle/backup/restore PostgreSQL ou backend Compose**, nem repetiu SSO/Keycloak/gov.br. Os 76 testes PostgreSQL demonstram contratos de runtime/RLS e das superfícies, não essas operações de deployment. Resultado SQLite não substitui esses ensaios produtivos.
+
+Fechamento: o negativo/positivo de fronteira administrativa passou novamente (**5 passed**) após o clearfix; `manage.py check` não encontrou problemas e `makemigrations --check --dry-run` não detectou mudanças. Verificador descartável confirmou links locais de 16 documentos e validou o exemplo JSON do contrato pelo schema fechado de apresentação.

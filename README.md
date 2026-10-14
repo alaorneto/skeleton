@@ -23,7 +23,9 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/accounts/login/` | Pessoa com admissão autorizada | Entrar usando senha, SSO ou MFA conforme a política |
 | `/o/<org>/` | Pessoa com vínculo ativo na organização indicada | Acessar dados e funcionalidades daquele tenant |
 | `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
-| `/admin/` | Administrador da plataforma | Gerenciar identidade global, catálogo e operações da instalação |
+| `/admin/` | Administrador da plataforma | Somente configurações, parametrizações e operações da instalação |
+| `/platform/records/` | Administrador da plataforma | Registros globais de identidade, organizações, catálogo e auditoria, fora do painel de configurações |
+| `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
 | `/admin/system/releases/` | Administrador da plataforma, com agente provisionado | Ver versões, aprovar instalação/atualização e acompanhar operações |
 | `/api/v1/` | Cliente com sessão Django válida | Operar recursos autorizados; não existe login independente por token |
 
@@ -60,6 +62,8 @@ No desenvolvimento, o email é impresso no console: isso ajuda a testar, mas nã
 ### Exemplo de negócio
 
 O exemplo Notes é uma app de negócio fora do núcleo. Defina `SKELETON_ENABLE_EXAMPLE_APP=true`, repita `migrate`, `sync_table_catalog` e `check_skeleton_schema`. Sua chave registrada `example_notes.note` passa a existir no gateway; apenas pessoas com as permissões correspondentes podem usá-la. [Extensão](docs/extending.md) explica modelo, manifesto, especificação, migration, página e API do exemplo.
+
+O core/agente 0.3.0 integra `django-crispy-forms==2.7` com pack SSR próprio `skeleton_crud`, distribuído no wheel: apresentação apenas, sem mudar autorização, CAS ou persistência. O manifesto canônico `runtime.model_ui` define labels/abas/ordem e grade responsiva de 12 unidades, sem editor no admin ou arquivo UI paralelo. Notes 0.2.0 demonstra Código 4/Título 8/Texto 12, textarea com 8 linhas; apps elegíveis sem layout recebem defaults. [Contrato de dimensões e exemplos](docs/application-admin-ui-plan.md#5-formulário-e-detalhe-padronizados): `col_span` inteiro exato 1..12, `rows` 1..40 em textarea editável, omissão/`null` conserva defaults; `columns:1/2` define padrão 12/6 e mobile usa largura inteira. Atualize agente/core antes de dimensões: presença de suas chaves, inclusive `null`, exige piso >=0.3.0; v1/v2 históricos sem dimensões conservam compatibilidade e JSON assinado.
 
 ### Ferramentas LSP de desenvolvimento
 
@@ -133,5 +137,6 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md) e [testes/evidências](docs/testing.md).
+- [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.
 
 Os resultados observados da integração e os comandos para reproduzi-los estão em [testing](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; SQLite ou mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.

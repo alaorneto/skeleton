@@ -1,0 +1,15 @@
+{% extends 'admin/base_site.html' %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Início</a> › Aplicativos › {{ application.label }}</div>{% endblock %}
+{% block content %}
+<h1>{{ application.label }}</h1>
+<p>{{ application.description }}</p>
+<div class="module"><h2>Visão geral</h2>
+<dl><dt>Identidade</dt><dd>{{ application.app_id }}</dd><dt>Namespace</dt><dd>{{ application.app_label }}</dd><dt>Versão do código ativo</dt><dd>{{ application.version }}</dd><dt>Origem</dt><dd>{{ application.origin }}</dd><dt>Disponibilidade</dt><dd>Código instalado; ativação e permissões são específicas de cada organização.</dd></dl>
+<h3>Compatibilidade</h3><dl>{% for name, requirement in application.compatibility.items %}<dt>{{ name }}</dt><dd>{{ requirement }}</dd>{% empty %}<dd>Contrato local validado pelo projeto.</dd>{% endfor %}</dl>
+{% if application.dependencies %}<h3>Dependências</h3><ul>{% for dependency in application.dependencies %}<li>{{ dependency }}</li>{% endfor %}</ul>{% endif %}
+<p><a href="{% url 'admin:skeleton_releases' %}">Operações de versões e pacotes</a> · <a href="{% url 'admin:skeleton_app_documentation' application.app_label %}">Documentação versionada</a></p>
+</div>
+<div class="module"><h2>Configuração por organização</h2><p><a href="{% url 'admin:skeleton_app_organizations' application.app_label %}">Selecionar uma organização</a></p><p>Acesso de plataforma não concede vínculo, administração nem acesso a dados tenant.</p></div>
+{% for section in sections %}<div class="module"><h2>{{ section.label }}</h2><ul>{% for screen in section.screens %}<li><a href="{{ screen.url }}">{{ screen.label }}</a></li>{% endfor %}</ul></div>{% endfor %}
+{% if tenant_screens %}<div class="module"><h2>Parâmetros organizacionais</h2><ul>{% for screen in tenant_screens %}<li><a href="{% url 'admin:skeleton_app_organizations' application.app_label %}?screen={{ screen.id|urlencode }}">{{ screen.label }} — selecionar organização</a></li>{% endfor %}</ul></div>{% endif %}
+{% endblock %}

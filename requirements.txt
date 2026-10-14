@@ -360,10 +360,15 @@ django==5.2.18 \
     # via
     #   -r requirements.in
     #   django-allauth
+    #   django-crispy-forms
     #   djangorestframework
 django-allauth[mfa,saml,socialaccount]==65.19.7 \
     --hash=sha256:8899377f38afabf10445c9ee2f808a730304ca8aecc540657d51a8b3928283d6 \
     --hash=sha256:c7749551b659ca954e483f6f634cd0c262d65dd8144f5219b3a31cba0426e981
+    # via -r requirements.in
+django-crispy-forms==2.7 \
+    --hash=sha256:42a7ecb05ac3fd050d006dfe7aeceb7f318c30e5b5124ff619e2be252f36f096 \
+    --hash=sha256:4c59bed60417375cba26cebb2c67ab350b655934670270b1c89dbcd7e60f1b4c
     # via -r requirements.in
 django-environ==0.14.0 \
     --hash=sha256:8dbe8a57f0a540ab8abd6f54f230de5e99e3a2c9d797cb9caecb037bca3d47d8 \

@@ -13,6 +13,8 @@ As páginas próprias ficam sob `/o/<org>/apps/example_notes/`; o sumário está
 
 A configuração `heading` é um texto de até 200 caracteres para apresentação, sem segredos. Somente `organization_admin` administra ativação/configuração, com CAS: compara a revisão lida antes de gravar, evitando perda de uma alteração concorrente. Sem estado persistido, vale `default_enabled` do manifesto; a primeira escrita usa revisão virtual `"0"`. O JSON da configuração é integralmente redigido na auditoria. Não há administração global dos registros organizacionais.
 
+Notes 0.2.0 usa manifesto v2 com compatibilidade `>=0.3.0,<1.0.0`, pois declara dimensões em `runtime.model_ui` do arquivo canônico. A app recebe automaticamente grupo de parâmetros no admin, com seção de configuração `general`. Esse painel não lista/edita notas: o viewer está em `/o/<org>/tables/example_notes.note/`, descoberto pelo catálogo mesmo sem o menu próprio. Sua lista declara código/título/atualização e filtro por código; leitura/criação/edição usam abas Identificação/Conteúdo e labels Código/Título/Texto. Na grade de 12 unidades, `code` ocupa 4, `title` 8 e `body` 12 com textarea de 8 linhas e ajuda “Conteúdo da anotação.”; mobile usa largura inteira e conserva a ordem. O pack SSR `skeleton_crud` de django-crispy-forms 2.7 renderiza os Django Forms existentes, sem ampliar allowlists, acesso ou campos auditáveis nem mudar CAS/persistência.
+
 ## Acceptance
 Os critérios abaixo descrevem comportamentos observáveis, não resultados de testes já executados:
 

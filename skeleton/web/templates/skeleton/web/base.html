@@ -1,4 +1,17 @@
 {% load static %}<!doctype html>
-<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% block title %}Skeleton{% endblock %}</title><link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}"></head>
-<body><header><a class="brand" href="{% url 'web:home' %}">Skeleton</a><nav aria-label="Principal">{% if user.is_authenticated %}<a href="{% url 'web:home' %}">Organizações</a><a href="{% url 'web:profile' %}">Meu perfil</a><a href="{% url 'mfa_index' %}">Segurança</a>{% if user.is_superuser %}<a href="{% url 'web:platform-catalog' %}">Inventário</a><a href="{% url 'admin:index' %}">Plataforma</a>{% endif %}<a href="{% url 'account_logout' %}">Sair</a>{% else %}<a href="{% url 'account_login' %}">Entrar</a>{% endif %}</nav></header>
-<main>{% if organization_id %}<p><a href="{% url 'web:dashboard' organization_id %}">← Organização</a></p><nav aria-label="Apps">{% for entry in application_navigation %}<a href="{{ entry.url }}">{{ entry.label }}</a>{% endfor %}{% if can_manage_applications %}<a href="{% url 'application-list' organization_id %}">Gerenciar apps</a>{% endif %}</nav>{% endif %}{% for message in messages %}<div role="status" class="message {{ message.tags }}">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main><footer>Identidade, organizações e registros protegidos.</footer></body></html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Skeleton{% endblock %}</title>
+{% block extrahead %}{% endblock %}
+<link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
+<script src="{% static 'skeleton/web/site.js' %}" defer></script>
+</head>
+<body {% block body_attributes %}{% endblock %}>
+<header><a class="brand" href="{% url 'web:home' %}">Skeleton</a><nav aria-label="Principal">{% if user.is_authenticated %}<a href="{% url 'web:home' %}">Organizações</a><a href="{% url 'web:profile' %}">Meu perfil</a><a href="{% url 'mfa_index' %}">Segurança</a>{% if user.is_superuser %}<a href="{% url 'web:platform-catalog' %}">Inventário</a><a href="{% url 'admin:records_index' %}">Registros globais</a><a href="{% url 'admin:index' %}">Configurações</a>{% endif %}<a href="{% url 'account_logout' %}">Sair</a>{% else %}<a href="{% url 'account_login' %}">Entrar</a>{% endif %}</nav></header>
+{% block main %}
+<main>{% if organization_id %}<p><a href="{% url 'web:dashboard' organization_id %}">← Organização</a></p>{% if not parameter_panel %}<nav aria-label="Apps">{% for entry in application_navigation %}<a href="{{ entry.url }}">{{ entry.label }}</a>{% endfor %}{% if can_manage_applications %}<a href="{% url 'application-list' organization_id %}">Gerenciar apps</a>{% endif %}</nav>{% endif %}{% endif %}{% for message in messages %}<div role="status" class="message {{ message.tags }}">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main>
+{% endblock %}
+<footer>Identidade, organizações e registros protegidos.</footer>
+{% block extrabody %}{% endblock %}
+</body></html>

@@ -1,0 +1,6 @@
+{% extends 'admin/base_site.html' %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Início</a> › <a href="{% url 'admin:skeleton_app_group' application.app_label %}">{{ application.label }}</a> › Organização</div>{% endblock %}
+{% block content %}<h1>{{ application.label }} — selecionar organização</h1>
+<p>Somente seus vínculos ativos são apresentados. A página de destino revalida as permissões da organização; administrar a plataforma não concede acesso tenant.</p>
+<ul>{% for organization in organizations %}<li><a href="{{ organization.url }}">{{ organization.name }}</a></li>{% empty %}<li>Você não possui vínculo ativo em uma organização. Nenhum dado tenant está disponível por esta console.</li>{% endfor %}</ul>
+{% endblock %}

@@ -1,1 +1,21 @@
-{% extends 'skeleton/web/base.html' %}{% block content %}<h1>{{ organization.name }}</h1><nav class="cards" aria-label="Organização"><a href="{% url 'web:catalog' organization_id %}">Catálogo</a><a href="{% url 'web:audit' organization_id %}">Auditoria</a>{% if is_org_admin %}<a href="{% url 'web:access-list' organization_id 'memberships' %}">Membros</a><a href="{% url 'web:access-list' organization_id 'roles' %}">Papéis</a><a href="{% url 'web:access-list' organization_id 'groups' %}">Grupos</a><a href="{% url 'web:access-list' organization_id 'invitations' %}">Convites</a><a href="{% url 'web:access-list' organization_id 'member-roles' %}">Papéis de membros</a><a href="{% url 'web:access-list' organization_id 'group-members' %}">Membros de grupos</a><a href="{% url 'web:access-list' organization_id 'group-roles' %}">Papéis de grupos</a><a href="{% url 'web:access-list' organization_id 'table-permissions' %}">Permissões de tabelas</a><a href="{% url 'web:access-list' organization_id 'record-grants' %}">Concessões de registros</a>{% endif %}</nav><h2>Tabelas disponíveis</h2><div class="grid">{% for spec in specs %}<section class="card"><h3>{{ spec.label }}</h3><p>{{ spec.description }}</p><a href="{% url 'web:records' organization_id spec.table_key %}">Abrir registros</a></section>{% empty %}<p>Nenhuma tabela empresarial liberada.</p>{% endfor %}</div>{% endblock %}
+{% extends 'skeleton/web/base.html' %}
+{% block content %}
+<h1>{{ organization.name }}</h1>
+<nav class="cards" aria-label="Organização">
+<a href="{% url 'web:catalog' organization_id %}">Catálogo</a>
+<a href="{% url 'web:audit' organization_id %}">Auditoria</a>
+{% if is_org_admin %}
+<a href="{% url 'web:access-list' organization_id 'memberships' %}">Membros</a>
+<a href="{% url 'web:access-list' organization_id 'roles' %}">Papéis</a>
+<a href="{% url 'web:access-list' organization_id 'groups' %}">Grupos</a>
+<a href="{% url 'web:access-list' organization_id 'invitations' %}">Convites</a>
+<a href="{% url 'web:access-list' organization_id 'member-roles' %}">Papéis de membros</a>
+<a href="{% url 'web:access-list' organization_id 'group-members' %}">Membros de grupos</a>
+<a href="{% url 'web:access-list' organization_id 'group-roles' %}">Papéis de grupos</a>
+<a href="{% url 'web:access-list' organization_id 'table-permissions' %}">Permissões de tabelas</a>
+<a href="{% url 'web:access-list' organization_id 'record-grants' %}">Concessões de registros</a>
+{% endif %}
+</nav>
+<h2>Tabelas disponíveis</h2>
+{% include 'skeleton/web/components/model-groups.html' %}
+{% endblock %}

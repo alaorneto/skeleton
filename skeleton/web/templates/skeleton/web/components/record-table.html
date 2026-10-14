@@ -1,0 +1,4 @@
+<div class="table-scroll" tabindex="0" role="region" aria-label="Registros de {{ title }}"><table><thead><tr>{% for heading in headings %}<th scope="col">{{ heading }}</th>{% endfor %}</tr></thead><tbody>
+{% for row in record_rows %}<tr>{% for cell in row.cells %}<td>{% if forloop.first %}{% if deleted %}<a href="{% url 'web:record-restore' organization_id table_key row.sysid %}" aria-label="Restaurar {{ row.label }}">{{ cell }}</a>{% else %}<a href="{% url 'web:record' organization_id table_key row.sysid %}" aria-label="Abrir {{ row.label }}">{{ cell }}</a>{% endif %}{% else %}{{ cell }}{% endif %}</td>{% endfor %}</tr>
+{% empty %}<tr><td colspan="{{ headings|length }}" class="empty-state">Nenhum registro encontrado.</td></tr>{% endfor %}
+</tbody></table></div>

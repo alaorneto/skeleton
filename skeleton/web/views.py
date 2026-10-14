@@ -8,6 +8,8 @@ from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
+from django.urls import reverse
+from django.utils import timezone
 
 from skeleton.access import services as access_services
 from skeleton.access.policies import authorized_audit_queryset, is_organization_admin, require_record_action
@@ -19,8 +21,9 @@ from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.tenancy.context import memberships_for_user
-from skeleton.web.forms import ProfileForm, dedicated_form, explicit_form, wire_values
-from skeleton.web.services import ACCESS_FIELDS, change_record_access, create_record, exposed_spec, readable_specs, record_queryset, require_access_management, update_record
+from skeleton.web.forms import ProfileForm, dedicated_form, explicit_form, record_form, wire_values
+from skeleton.web.services import ACCESS_FIELDS, change_record_access, create_record, delete_record, exposed_spec, readable_specs, record_queryset, require_access_management, restore_record, update_record
+from skeleton.web.presentation import detail_sections, form_sections, grouped_specs, list_context, list_fields, safe_record_label
 
 def presented_specs(user):
     return [{"table_key": spec.model._meta.label_lower,
@@ -28,16 +31,20 @@ def presented_specs(user):
              "description": spec.description, "read_fields": spec.read_fields}
             for spec in readable_specs(user)]
 
-
-def record_label(record, spec):
-    # Never invoke business __str__: it may expose fields outside the registry allowlist.
-    for name in ("title", "name", "code"):
-        if name in spec.read_fields and not spec.model._meta.get_field(name).is_relation:
-            value = getattr(record, name)
-            if isinstance(value, str):
-                return value
-    return str(record.sysid)
-
+def record_breadcrumbs(spec, organization_id):
+    from skeleton.system.app_registry import get_app
+    try:
+        manifest = get_app(spec.model._meta.app_label)
+        app_label = manifest.label
+    except KeyError:
+        app_label = spec.model._meta.app_label
+    key = spec.model._meta.label_lower
+    return [
+        {"label": "Organização", "url": reverse("web:dashboard", kwargs={"organization_id": organization_id})},
+        {"label": app_label, "url": reverse("web:catalog", kwargs={"organization_id": organization_id}) + "#app_" + spec.model._meta.app_label},
+        {"label": spec.label or spec.model._meta.verbose_name_plural,
+         "url": reverse("web:records", kwargs={"organization_id": organization_id, "table_key": key})},
+    ]
 
 
 def tenant_page(*, admin=False):
@@ -52,10 +59,11 @@ def tenant_page(*, admin=False):
             if is_organization_admin(request.user) and mfa_required(request.user):
                 return redirect("mfa_index")
             try:
-                if admin and request.method not in {"GET", "HEAD", "OPTIONS"}:
-                    with access_services.organization_lock(request.user):
-                        return view(request, *args, **kwargs)
-                return view(request, *args, **kwargs)
+                with timezone.override(request.user.profile.timezone):
+                    if admin and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                        with access_services.organization_lock(request.user):
+                            return view(request, *args, **kwargs)
+                    return view(request, *args, **kwargs)
             except ValidationError:
                 return render(request, "skeleton/web/error.html", {"detail": "Verifique os campos ou filtros informados."}, status=400)
             except IntegrityError:
@@ -146,7 +154,8 @@ def profile(request):
 @tenant_page()
 def dashboard(request, organization_id):
     organization = apps.get_model("sk_tenancy", "Organization").objects.get(pk=organization_id)
-    return render(request, "skeleton/web/dashboard.html", {"organization": organization, "specs": presented_specs(request.user), "organization_id": organization_id, "is_org_admin": is_organization_admin(request.user)})
+    specs = presented_specs(request.user)
+    return render(request, "skeleton/web/dashboard.html", {"organization": organization, "specs": specs, "app_groups": grouped_specs(specs), "organization_id": organization_id, "is_org_admin": is_organization_admin(request.user)})
 
 
 @tenant_page(admin=True)
@@ -239,7 +248,8 @@ def access_delete(request, organization_id, resource, sysid):
 
 @tenant_page()
 def catalog(request, organization_id):
-    return render(request, "skeleton/web/catalog.html", {"title": "Catálogo", "specs": presented_specs(request.user), "organization_id": organization_id})
+    specs = presented_specs(request.user)
+    return render(request, "skeleton/web/catalog.html", {"title": "Catálogo", "specs": specs, "app_groups": grouped_specs(specs), "organization_id": organization_id})
 
 
 @tenant_page()
@@ -263,10 +273,19 @@ def records(request, organization_id, table_key, deleted=False):
     if deleted:
         queryset = queryset.filter(deleted_at__isnull=False)
     from skeleton.web.services import filter_records
-    queryset = filter_records(queryset, spec, request.GET)
-    rows = pagination(request, queryset, validated_filters=request.GET.dict())
-    rows.object_list = [{"sysid": item.sysid, "updated_at": item.updated_at, "label": record_label(item, spec)} for item in rows]
-    return render(request, "skeleton/web/records.html", {"title": spec.label or spec.model._meta.verbose_name_plural, "rows": rows, "organization_id": organization_id, "table_key": table_key, "can_create": not deleted and can_action(spec, request.user, "create"), "can_restore": can_action(spec, request.user, "restore"), "deleted": deleted})
+    queryset = filter_records(queryset, spec, request.GET, ignore_empty=True)
+    filters = {name: value for name, value in request.GET.items() if value != ""}
+    queryset = queryset.only(*list_fields(spec))
+    rows = pagination(request, queryset, validated_filters=filters)
+    presentation = list_context(spec, rows.object_list, user=request.user, params=filters)
+    return render(request, "skeleton/web/records.html", {
+        "title": spec.label or spec.model._meta.verbose_name_plural, "description": spec.description,
+        "rows": rows, "organization_id": organization_id, "table_key": table_key,
+        "can_create": not deleted and can_action(spec, request.user, "create"),
+        "can_restore": can_action(spec, request.user, "restore"), "deleted": deleted,
+        "breadcrumbs": record_breadcrumbs(spec, organization_id),
+        **presentation,
+    })
 
 
 def can_action(spec, user, action):
@@ -286,6 +305,7 @@ def record_detail(request, organization_id, table_key, sysid):
     permissions = {}
     for action in ("update", "delete"):
         try:
+            record_queryset(spec, user=request.user, action=action)
             require_record_action(item, user=request.user, action=action)
             permissions[action] = True
         except PermissionDenied:
@@ -295,9 +315,16 @@ def record_detail(request, organization_id, table_key, sysid):
         permissions["manage_access"] = True
     except PermissionDenied:
         permissions["manage_access"] = False
-    from skeleton.web.services import record_data
-    values = record_data(item, spec.read_fields, user=request.user)
-    return render(request, "skeleton/web/detail.html", {"record": {"sysid": item.sysid}, "title": record_label(item, spec), "values": values, "permissions": permissions, "organization_id": organization_id, "table_key": table_key})
+    names = {"update": ("web:record-edit", "Editar"), "delete": ("web:record-delete", "Remover"),
+             "manage_access": ("web:record-access", "Gerenciar acesso")}
+    actions = [{"url": reverse(route, kwargs={"organization_id": organization_id, "table_key": table_key, "sysid": item.pk}),
+                "label": label} for action, (route, label) in names.items() if permissions[action]]
+    return render(request, "skeleton/web/detail.html", {
+        "record": {"sysid": item.sysid}, "title": safe_record_label(item, spec),
+        "actions": actions, "organization_id": organization_id,
+        "breadcrumbs": record_breadcrumbs(spec, organization_id),
+        "table_key": table_key, **detail_sections(item, spec, user=request.user),
+    })
 
 
 @tenant_page()
@@ -316,7 +343,10 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
     else:
         record_queryset(spec, user=request.user, action="create")
     names = ACCESS_FIELDS if operation == "access" else (() if operation in ("delete", "restore") else spec.write_fields)
-    form = explicit_form(spec.model, names, user=request.user, data=request.POST if request.method == "POST" else None, instance=item, revision=item is not None)
+    if operation == "edit":
+        form = record_form(spec, user=request.user, data=request.POST if request.method == "POST" else None, instance=item)
+    else:
+        form = explicit_form(spec.model, names, user=request.user, data=request.POST if request.method == "POST" else None, instance=item, revision=item is not None)
     status = 200
     if request.method == "POST":
         if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
@@ -332,9 +362,7 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
                 elif operation == "access":
                     change_record_access(item, user=request.user, data=values)
                 elif operation in ("delete", "restore"):
-                    require_record_action(item, user=request.user, action=action)
-                    with transaction.atomic():
-                        getattr(item, operation)()
+                    (delete_record if operation == "delete" else restore_record)(item, user=request.user)
                 else:
                     update_record(item, spec, user=request.user, data=values)
                 if operation == "delete":
@@ -344,7 +372,27 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
                 status = form_error(form, exc)
         else:
             status = 400
-    return render(request, "skeleton/web/form.html", {"title": {"edit": "Editar" if item else "Criar", "delete": "Remover", "restore": "Restaurar", "access": "Gerenciar acesso"}[operation], "form": form, "organization_id": organization_id}, status=status)
+    cancel_kwargs = {"organization_id": organization_id, "table_key": table_key}
+    cancel_route = "web:deleted-records" if operation == "restore" else "web:records"
+    if item is not None and operation != "restore":
+        try:
+            require_record_action(item, user=request.user, action="read")
+        except PermissionDenied:
+            pass
+        else:
+            cancel_route = "web:record"
+            cancel_kwargs["sysid"] = item.pk
+    return render(request, "skeleton/web/form.html", {
+        "title": {"edit": "Editar" if item else "Criar", "delete": "Remover", "restore": "Restaurar", "access": "Gerenciar acesso"}[operation],
+        "form": form, "organization_id": organization_id, "table_key": table_key,
+        "cancel_url": reverse(cancel_route, kwargs=cancel_kwargs),
+        "record": {"sysid": item.sysid} if item else None, "operation": operation,
+        "submit_label": {"edit": "Salvar", "delete": "Remover", "restore": "Restaurar", "access": "Salvar acesso"}[operation],
+        "confirmation": (f"Confirmar {'remoção lógica' if operation == 'delete' else 'restauração'} do registro {item.pk}."
+                         if operation in {"delete", "restore"} else None),
+        "breadcrumbs": record_breadcrumbs(spec, organization_id),
+        **form_sections(form, spec, instance=item, user=request.user, operation=operation),
+    }, status=status)
 
 
 @login_required
@@ -368,3 +416,29 @@ def platform_audit(request):
     rows = pagination(request, events)
     rows.object_list = [audit_data(event) for event in rows]
     return render(request, "skeleton/web/audit.html", {"title": "Auditoria global", "rows": rows})
+
+
+@tenant_page()
+@require_http_methods(["GET"])
+def reference_picker(request, organization_id, table_key, field_name):
+    from urllib.parse import urlencode
+    from django.urls import reverse
+    from skeleton.web.references import reference_request
+    spec = exposed_spec(table_key)
+    data, item, access = reference_request(spec, field_name, user=request.user, params=request.GET)
+    if item is None:
+        back_url = reverse("web:record-create", kwargs={"organization_id": organization_id, "table_key": table_key})
+    else:
+        back_url = reverse("web:record-access" if access else "web:record-edit",
+                           kwargs={"organization_id": organization_id, "table_key": table_key, "sysid": item.pk})
+    params = request.GET.dict()
+    def page_url(number):
+        return "?" + urlencode({**params, "page": number})
+    return render(request, "skeleton/web/reference_picker.html", {
+        "title": "Selecionar referência", "organization_id": organization_id,
+        "options": data["results"], "count": data["count"], "back_url": back_url,
+        "previous_url": page_url(data["page"] - 1) if data["page"] > 1 else None,
+        "next_url": page_url(data["page"] + 1) if data["page"] * data["page_size"] < data["count"] else None,
+        "picker_context": {"table_key": table_key, "field_name": field_name,
+                           "record": str(item.pk) if item else None},
+    })

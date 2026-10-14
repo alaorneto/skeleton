@@ -233,8 +233,8 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             if not _supports_source(manifest, old["version"]):
                 raise AgentError("unsupported_app_upgrade", 409)
             compare_history(old, manifest)
-            if any(old["runtime"][key] != manifest["runtime"][key] for key in ("default_enabled", "configuration_fields")):
-                raise AgentError("configuration_upgrade_requires_review", 409)
+            if old["runtime"]["default_enabled"] != manifest["runtime"]["default_enabled"]:
+                raise AgentError("activation_default_upgrade_requires_review", 409)
         entry = {"manifest": manifest, "digest": artifact, "state": "installed", "origin": "installed"}
         if previous and (previous.get("activation_policy") == "explicit" or previous["state"] == "schema_retained"):
             entry["activation_policy"] = "explicit"
@@ -341,3 +341,44 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
 def _supports_source(manifest, source):
     from packaging.specifiers import SpecifierSet
     return Version(source) in SpecifierSet(manifest["migrations"]["from_versions"])
+
+
+def presentation_diff(before, after):
+    """Describe code-owned UI/configuration changes without altering signed manifests."""
+    def active(inventory):
+        return {entry["manifest"]["app_id"]: entry["manifest"]
+                for entry in inventory.get("apps", [])
+                if entry["state"] in {"installed", "project-local"}}
+    previous, current = active(before), active(after)
+    changes = []
+    for app_id in sorted(previous.keys() | current.keys()):
+        old, new = previous.get(app_id), current.get(app_id)
+        manifest = new or old
+        base = {"app_id": app_id, "app_label": manifest["app_label"]}
+        if old is None or new is None:
+            changes.append({**base, "resource": "group", "id": app_id,
+                            "action": "add" if new else "remove", "incompatible": False})
+        resources = []
+        for item in (old, new):
+            runtime = item.get("runtime", {}) if item else {}
+            administration = runtime.get("administration", {})
+            resources.append({
+                "configuration": {field["name"]: field for field in runtime.get("configuration_fields", [])},
+                "configuration_section": {section["id"]: section for section in administration.get("configuration_sections", [])},
+                "section": {section["id"]: section for section in administration.get("sections", [])},
+                "screen": {screen["id"]: screen for screen in administration.get("screens", [])},
+                "model_layout": {spec["table_key"]: spec for spec in runtime.get("model_ui", [])},
+            })
+        for kind in resources[0]:
+            left, right = resources[0][kind], resources[1][kind]
+            for key in sorted(left.keys() | right.keys()):
+                first, second = left.get(key), right.get(key)
+                if first == second:
+                    continue
+                incompatible = bool(kind == "configuration" and old and new and first
+                                    and (second is None or first["type"] != second["type"]
+                                         or first.get("max_length", 200) > second.get("max_length", 200)))
+                changes.append({**base, "resource": kind, "id": key,
+                                "action": "add" if first is None else "remove" if second is None else "change",
+                                "before": first, "after": second, "incompatible": incompatible})
+    return changes

@@ -1,0 +1,48 @@
+{% extends "skeleton/web/base.html" %}
+{% load i18n static admin_urls %}
+
+{% block title %}{{ title }} | Registros globais | Skeleton{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="stylesheet" href="{% block stylesheet %}{% static 'admin/css/base.css' %}{% endblock %}">
+{% block dark-mode-vars %}
+<link rel="stylesheet" href="{% static 'admin/css/dark_mode.css' %}">
+<script src="{% static 'admin/js/theme.js' %}"></script>
+{% endblock %}
+{% block extrastyle %}{% endblock %}
+{% get_current_language_bidi as LANGUAGE_BIDI %}
+{% if LANGUAGE_BIDI %}<link rel="stylesheet" href="{% block stylesheet_rtl %}{% static 'admin/css/rtl.css' %}{% endblock %}">{% endif %}
+{% block responsive %}
+<link rel="stylesheet" href="{% static 'admin/css/responsive.css' %}">
+{% if LANGUAGE_BIDI %}<link rel="stylesheet" href="{% static 'admin/css/responsive_rtl.css' %}">{% endif %}
+{% endblock %}
+{% block blockbots %}<meta name="robots" content="NONE,NOARCHIVE">{% endblock %}
+{% endblock %}
+
+{% block body_attributes %}class="platform-records {% if is_popup %}popup {% endif %}{% block bodyclass %}{% endblock %}" data-admin-utc-offset="{% now 'Z' %}"{% endblock %}
+
+{% block main %}
+<main id="content-start" tabindex="-1">
+{% if not is_popup %}
+{% block nav-breadcrumbs %}
+<nav class="breadcrumbs" aria-label="Registros globais">
+<a href="{% url 'admin:records_index' %}">Registros globais</a>
+{% if opts %}
+<span>›</span><a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+<span>›</span><a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+{% elif app_label %}<span>›</span><span>{{ title }}</span>{% endif %}
+</nav>
+{% endblock %}
+{% endif %}
+{% block messages %}{% for message in messages %}<div role="status" class="message {{ message.tags }}">{{ message }}</div>{% endfor %}{% endblock %}
+<div id="content" class="{% block coltype %}colM{% endblock %}">
+{% block pretitle %}{% endblock %}
+{% block content_title %}{% if title %}<h1>{{ title }}</h1>{% endif %}{% endblock %}
+{% block content_subtitle %}{% if subtitle %}<h2>{{ subtitle }}</h2>{% endif %}{% endblock %}
+{% block content %}{% block object-tools %}{% endblock %}{{ content }}{% endblock %}
+{% block sidebar %}{% endblock %}
+<br class="clear">
+</div>
+</main>
+{% endblock %}

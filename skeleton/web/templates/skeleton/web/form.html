@@ -1,1 +1,19 @@
-{% extends 'skeleton/web/base.html' %}{% block title %}{{ title }} · Skeleton{% endblock %}{% block content %}<h1>{{ title }}</h1><form method="post">{% csrf_token %}{{ form.non_field_errors }}{% for hidden in form.hidden_fields %}{{ hidden }}{{ hidden.errors }}{% endfor %}{% for field in form.visible_fields %}<div class="field">{{ field.label_tag }}{{ field }}{{ field.errors }}{% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}</div>{% endfor %}<button type="submit">Salvar</button></form>{% endblock %}
+{% extends 'skeleton/web/base.html' %}
+{% load crud_forms %}
+{% block title %}{{ title }} · Skeleton{% endblock %}
+{% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
+{% block content %}
+{% include 'skeleton/web/components/breadcrumbs.html' %}
+<h1>{{ title }}</h1>
+{% if description %}<p>{{ description }}</p>{% endif %}
+{% include 'skeleton/web/components/toolbar.html' %}
+<form method="post" class="record-form" data-record-form>
+{% csrf_token %}
+{% include 'skeleton/web/components/form-errors.html' %}
+{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+{% if confirmation %}<p class="confirmation">{{ confirmation }}</p>{% endif %}
+{% include 'skeleton/web/components/tabs.html' %}
+{% crud_form_fields form %}
+<div class="toolbar"><button type="submit">{{ submit_label|default:'Salvar' }}</button>{% if cancel_url %}<a href="{{ cancel_url }}">Cancelar</a>{% endif %}</div>
+</form>
+{% endblock %}

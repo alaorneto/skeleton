@@ -10,6 +10,8 @@ Uma app Django instalada passa a existir no ambiente compartilhado, mas isso nã
 
 Se ainda não há uma linha de estado, vale o `default_enabled` declarado: isso preserva o comportamento das apps já instaladas durante uma atualização. Desativar é reversível e não remove notas nem suas regras de acesso. Operações globais de software são solicitadas pelo administrador da plataforma e executadas pelo agente separado; a requisição web não instala código nem executa migrations. Remover dados ou schema exige manutenção offline revisada.
 
+O manifesto v2 canônico declara apresentação imutável junto ao código, sem DDL ou consultas em `ready()`. Notes 0.2.0 exige core >=0.3.0 para spans code 4/title 8/body 12 e rows 8; o core usa django-crispy-forms 2.7 com pack SSR próprio, somente como renderer dos formulários existentes. O admin é reservado a parâmetros; listas/formulários de notas usam o viewer tenant fora dele. Abas, seções, labels e dimensões não concedem campos ou acesso além de `TableSpec`. Um modelo sem metadados de UI continua usando o shell/defaults do core, evitando exigir uma segunda implementação de formulário ou arquivo UI paralelo.
+
 ## Consequences
 Ativação não concede `TablePermission`; mesmo com menu visível, o servidor revalida a ação e o registro. Essa separação evita tratar a presença de software como autorização. O exemplo demonstra HTML, API, configuração e administração organizacional sem registrar tabelas de negócio no admin global.
 

@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-skeleton"
-version = "0.1.0"
+version = "0.3.0"
 description = "Núcleo Django reutilizável com identidade e autorização por registros"
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "Django==5.2.18",
     "django-allauth[socialaccount,mfa,saml]==65.19.7",
+    "django-crispy-forms==2.7",
     "djangorestframework==3.18.3",
     "django-environ==0.14.0",
     "psycopg[binary]>=3.2,<4",

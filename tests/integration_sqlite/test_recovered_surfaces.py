@@ -50,7 +50,7 @@ def test_ea02_conventional_extension_admin_registration_is_routed():
             return False
 
     try:
-        # Autodiscovered extension registrations must use the site exposed by /admin/.
+        # Conventional global record editors remain protected, outside configuration admin.
         from config import urls
         importlib.reload(urls)
         clear_url_caches()
@@ -60,9 +60,12 @@ def test_ea02_conventional_extension_admin_registration_is_routed():
             owner.is_staff = owner.is_superuser = True
             owner.save(update_fields=["is_staff", "is_superuser"])
         client = login(owner)
-        response = client.get(reverse("admin:sk_accounts_extensionidentity_changelist"))
+        url = reverse("admin:sk_accounts_extensionidentity_changelist")
+        assert url.startswith("/platform/records/")
+        response = client.get(url)
         assert response.status_code == 200
         assert owner.email.encode() in response.content
+        assert client.get("/admin/sk_accounts/extensionidentity/").status_code == 404
         from skeleton.accounts.services import create_identity
         from allauth.account.models import EmailAddress
         with system_context(reason="test:ordinary-extension-user"):

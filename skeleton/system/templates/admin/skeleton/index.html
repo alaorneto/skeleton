@@ -1,5 +1,8 @@
 {% extends "admin/index.html" %}
 {% block content %}
 <div class="module"><h2>Deployment</h2><p><a href="{% url 'admin:skeleton_releases' %}">Versões do skeleton, apps, pacotes e atualizações</a></p></div>
+<div class="module"><h2>Aplicativos</h2><p>Os grupos abaixo contêm apenas configurações e parametrizações dos aplicativos ativos no código da plataforma.</p></div>
 {{ block.super }}
 {% endblock %}
+{% block coltype %}colM{% endblock %}
+{% block sidebar %}{% endblock %}

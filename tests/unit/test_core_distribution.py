@@ -1,4 +1,4 @@
-"""Build/install a real core-only wheel and exercise signed-base source adoption."""
+"""Exercise installed core rendering and signed-base source adoption with a real wheel."""
 import hashlib
 import json
 import os
@@ -97,7 +97,108 @@ assert apps.get_app_config('sk_accounts').name == 'skeleton.accounts'
 assert core_version()['origin'] == 'installed'
 from django.template.loader import get_template
 get_template('account/login.html')
+from contextlib import ExitStack
+from django import forms
+from django.core.exceptions import ValidationError
+from django.db import connections
+from django.template.loader import render_to_string
+from django.utils.html import escape
+from skeleton.web.presentation import _accessible
+
+literal = '{{ user.email }} <script>alert("wheel")</script>'
+
+class WheelForm(forms.Form):
+    revision = forms.IntegerField(widget=forms.HiddenInput)
+    title = forms.CharField(label='Title ' + literal, help_text='Help ' + literal)
+    body = forms.CharField(
+        label='Body ' + literal,
+        widget=forms.Textarea(attrs={'rows': 8, 'data-crud-rows': 8}),
+    )
+
+    class Media:
+        css = {'all': ('admin/css/forms.css',)}
+        js = ('admin/js/core.js',)
+
+    def clean_title(self):
+        raise ValidationError('Invalid ' + literal)
+
+form = WheelForm({'revision': '7', 'title': literal, 'body': literal})
+assert not form.is_valid()
+entries = []
+for name, span in (('title', 4), ('body', 8)):
+    bound = form[name]
+    _accessible(bound)
+    entries.append({
+        'bound': bound, 'label': bound.label, 'help_text': bound.help_text,
+        'read_only': False, 'col_span': span,
+    })
+section = {
+    'id': 'installed', 'label': 'Section ' + literal, 'columns': 2,
+    'tab_id': None, 'fields': entries,
+}
+readonly_section = {
+    **section,
+    'fields': [
+        {'label': 'Title ' + literal, 'value': literal, 'help_text': 'Help ' + literal,
+         'read_only': True, 'col_span': 4},
+        {'label': 'Body ' + literal, 'value': 'Readonly ' + literal,
+         'help_text': '', 'read_only': True, 'col_span': 8},
+    ],
+}
+
+def forbid_database(execute, sql, params, many, context):
+    raise AssertionError('Wheel presentation must not access the database')
+
+with ExitStack() as stack:
+    for connection in connections.all():
+        stack.enter_context(connection.execute_wrapper(forbid_database))
+    html = render_to_string('skeleton/web/form.html', {
+        'form': form, 'sections': [section], 'title': 'Installed form',
+        'csrf_token': 'wheel-csrf', 'user': {'email': 'MUST-NOT-INTERPOLATE'},
+    })
+    detail = render_to_string('skeleton/web/detail.html', {
+        'sections': [readonly_section], 'title': 'Installed detail',
+        'user': {'email': 'MUST-NOT-INTERPOLATE'},
+    })
+    # Profile-style forms have no declared business sections but retain media.
+    profile = render_to_string('skeleton/web/form.html', {
+        'form': WheelForm(), 'title': 'Installed profile', 'csrf_token': 'wheel-csrf',
+    })
+
+for rendered in (html, detail, profile):
+    assert str(escape('Title ' + literal)) in rendered
+    assert str(escape('Help ' + literal)) in rendered
+    assert '<script>alert(' not in rendered
+    assert 'MUST-NOT-INTERPOLATE' not in rendered
+    assert '{{ user.email }}' in rendered
+for rendered in (html, detail):
+    assert 'field-span-4' in rendered and 'field-span-8' in rendered
+    assert str(escape('Section ' + literal)) in rendered
+    assert rendered.index('Title ' + str(escape(literal))) < rendered.index('Body ' + str(escape(literal)))
+assert html.count('name="title"') == 1
+assert html.count('name="body"') == 1
+assert html.count('name="revision"') == 1
+assert html.count('name="csrfmiddlewaretoken"') == 1
+assert 'rows="8"' in html and 'data-crud-rows="8"' in html
+assert 'aria-invalid="true"' in html
+assert 'id_title_helptext' in html and 'id_title_error' in html
+assert str(escape('Invalid ' + literal)) in html
+assert str(escape(literal)) in html
+assert '<dl' in detail and '<dt' in detail and '<dd' in detail
+assert str(escape('Readonly ' + literal)) in detail
+assert '<input' not in detail and '<textarea' not in detail and '<form' not in detail
+assert profile.count('name="title"') == 1
+assert profile.count('name="body"') == 1
+assert 'field-span-12' in profile
+for rendered in (html, profile):
+    assert rendered.count('admin/css/forms') == 1
+    assert rendered.count('admin/js/core') == 1
 """.replace("TARGET", repr(str(target))).replace("PROJECT", repr(str(project)))
+    env["DJANGO_SETTINGS_MODULE"] = "config.settings.build"
+    subprocess.run([sys.executable, "-c",
+                    "import django; django.setup(); from django.core.management import call_command; "
+                    "call_command('collectstatic', interactive=False, verbosity=0)"],
+                   cwd=project, env=env, check=True, capture_output=True, text=True)
     for profile in ("development", "test", "build", "migrate", "production"):
         env["DJANGO_SETTINGS_MODULE"] = "config.settings." + profile
         result = subprocess.run([sys.executable, "-c", code], cwd=project, env=env, capture_output=True, text=True)

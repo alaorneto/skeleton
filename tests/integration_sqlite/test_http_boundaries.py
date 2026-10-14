@@ -154,20 +154,153 @@ def test_html_create_edit_revision_and_escaping(http_identity):
     require_notes()
     client, user, organization = http_identity
     kwargs = {"organization_id": organization.pk, "table_key": "example_notes.note"}
+    records = reverse("web:records", kwargs=kwargs)
     create = reverse("web:record-create", kwargs=kwargs)
-    assert client.get(create).status_code == 200
+    page = client.get(create)
+    assert page.status_code == 200
+    assert page.context["cancel_url"] == records
+    assert client.get(page.context["cancel_url"]).status_code == 200
     response = client.post(create, {"code": "html-note", "title": "<script>alert(1)</script>", "body": "Local HTML", "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
     assert response.status_code == 302
-    detail = client.get(response["Location"])
+    detail_url = response["Location"]
+    detail = client.get(detail_url)
     assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in detail.content
     assert b"<script>alert(1)</script>" not in detail.content
     data = client.get(notes_url(organization)).json()["results"][0]
-    edit = reverse("web:record-edit", kwargs={**kwargs, "sysid": data["sysid"]})
+    sysid = data["sysid"]
+    record_kwargs = {**kwargs, "sysid": sysid}
+    edit = reverse("web:record-edit", kwargs=record_kwargs)
+    audit_url = reverse("api:audit", kwargs={"organization_id": organization.pk})
+
+    def snapshot():
+        return client.get(notes_url(organization, sysid)).json(), client.get(audit_url, {"record_sysid": sysid}).json()
+
+    before = snapshot()
+    for route in ("web:record-edit", "web:record-access", "web:record-delete"):
+        page = client.get(reverse(route, kwargs=record_kwargs))
+        assert page.status_code == 200
+        assert page.context["cancel_url"] == detail_url
+        assert page.content.count(b'name="csrfmiddlewaretoken"') == 1
+        assert page.content.count(b'name="revision"') == 1
+        assert client.get(page.context["cancel_url"]).status_code == 200
+    assert snapshot() == before
     post = {"code": "html-note", "title": "Winner", "body": "Updated", "revision": data["revision"], "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
     assert client.post(edit, post).status_code == 302
     post["title"] = "Loser"
     assert client.post(edit, post).status_code == 409
-    assert client.get(notes_url(organization, data["sysid"])).json()["title"] == "Winner"
+    current, events = snapshot()
+    assert current["title"] == "Winner"
+    assert current["sysid"] == sysid
+    assert [event["operation"] for event in events["results"]].count("update") == 1
+    delete = reverse("web:record-delete", kwargs=record_kwargs)
+    page = client.get(delete)
+    assert page.status_code == 200
+    assert page.context["confirmation"]
+    assert set(page.context["form"].fields) == {"revision"}
+    for name in ("code", "title", "body"):
+        assert f'name="{name}"'.encode() not in page.content
+    confirmation = {"revision": current["revision"], "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    assert client.post(delete, {**confirmation, "title": "Injected"}).status_code == 400
+    assert snapshot() == (current, events)
+    assert client.post(delete, {"revision": current["revision"]}).status_code == 403
+    assert snapshot() == (current, events)
+    deleted = client.post(delete, confirmation)
+    assert deleted.status_code == 302
+    assert deleted["Location"] == records
+    assert client.get(detail_url).status_code == 404
+    restore = reverse("web:record-restore", kwargs=record_kwargs)
+    page = client.get(restore)
+    assert page.status_code == 200
+    assert page.context["cancel_url"] == reverse("web:deleted-records", kwargs=kwargs)
+    assert set(page.context["form"].fields) == {"revision"}
+    assert page.content.count(b'name="csrfmiddlewaretoken"') == 1
+    assert page.content.count(b'name="revision"') == 1
+    from examples.notes.models import Note
+    from skeleton.audit.models import AuditEvent
+    from tools.security_fixtures import actor_tenant
+    with actor_tenant(user, organization):
+        tombstone = Note.objects.with_deleted().get(pk=sysid)
+        assert tombstone.deleted_at is not None
+        assert tombstone.revision == current["revision"] + 1
+        deleted_revision = tombstone.revision
+        deleted_events = list(AuditEvent.objects.filter(record_sysid=sysid).values_list("pk", flat=True))
+    assert client.get(page.context["cancel_url"]).status_code == 200
+    assert client.post(restore, {"revision": deleted_revision, "title": "Injected", "csrfmiddlewaretoken": client.cookies["csrftoken"].value}).status_code == 400
+    with actor_tenant(user, organization):
+        assert Note.objects.with_deleted().get(pk=sysid).revision == deleted_revision
+        assert list(AuditEvent.objects.filter(record_sysid=sysid).values_list("pk", flat=True)) == deleted_events
+    restored = client.post(restore, {"revision": deleted_revision, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    assert restored.status_code == 302
+    assert restored["Location"] == detail_url
+    current, events = snapshot()
+    assert current["sysid"] == sysid
+    assert current["title"] == "Winner"
+    assert current["revision"] == deleted_revision + 1
+    with actor_tenant(user, organization):
+        assert Note.objects.get(pk=sysid).deleted_at is None
+    operations = [event["operation"] for event in events["results"]]
+    assert sorted(operations) == sorted(["create", "update", "soft_delete", "restore"])
+    assert "Local HTML" not in json.dumps(events)
+    assert "Updated" not in json.dumps(events)
+
+
+def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
+    require_notes()
+    admin_client, admin, organization = http_identity
+    from allauth.account.models import EmailAddress
+    from skeleton.accounts.services import create_identity
+    from skeleton.access.services import create_role, create_record_grant, grant_table_permission, provision_membership
+    from skeleton.system.models import TableDefinition
+    from skeleton.tenancy.context import system_context
+    from tools.security_fixtures import actor_tenant
+
+    created = send(admin_client, "post", notes_url(organization), {"code": "unreadable-code", "title": "Undisclosed title", "body": "Undisclosed body"})
+    assert created.status_code == 201
+    data = created.json()
+    with system_context(reason="test:http-restricted-identity"):
+        actor = create_identity(email="http-delete-only@example.test", password=PASSWORD)
+        EmailAddress.objects.create(user=actor, email=actor.email, verified=True, primary=True)
+    with actor_tenant(admin, organization):
+        role = create_role(user=admin, data={"code": "unreadable-editor", "name": "Unreadable editor"})
+    with system_context(reason="test:http-restricted-membership", organization_id=organization.pk):
+        membership = provision_membership(organization=organization, user=actor, role=role)
+    with actor_tenant(admin, organization):
+        table = TableDefinition.objects.get(model_label="example_notes.note")
+        for action in ("update", "delete"):
+            grant_table_permission(user=admin, data={"role": role, "table": table, "action": action})
+            create_record_grant(user=admin, data={"table": table, "record_sysid": data["sysid"], "membership": membership, "action": action})
+    client = Client(enforce_csrf_checks=True)
+    assert client.get(reverse("account_login")).status_code == 200
+    assert client.post(reverse("account_login"), {"login": actor.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value}).status_code == 302
+    kwargs = {"organization_id": organization.pk, "table_key": "example_notes.note", "sysid": data["sysid"]}
+    assert client.get(reverse("web:record", kwargs=kwargs)).status_code == 403
+    records = reverse("web:records", kwargs={"organization_id": organization.pk, "table_key": "example_notes.note"})
+    audit_url = reverse("api:audit", kwargs={"organization_id": organization.pk})
+    before_events = admin_client.get(audit_url, {"record_sysid": data["sysid"]}).json()
+    for route in ("web:record-edit", "web:record-delete"):
+        page = client.get(reverse(route, kwargs=kwargs))
+        assert page.status_code == 200
+        assert page.context["cancel_url"] == records
+        assert page.content.count(b'name="csrfmiddlewaretoken"') == 1
+        assert page.content.count(b'name="revision"') == 1
+        if route == "web:record-delete":
+            assert set(page.context["form"].fields) == {"revision"}
+            for secret in ("unreadable-code", "Undisclosed title", "Undisclosed body"):
+                assert secret.encode() not in page.content
+            for name in ("code", "title", "body"):
+                assert f'name="{name}"'.encode() not in page.content
+        client.get(page.context["cancel_url"])
+    assert admin_client.get(notes_url(organization, data["sysid"])).json() == data
+    assert admin_client.get(audit_url, {"record_sysid": data["sysid"]}).json() == before_events
+    delete = reverse("web:record-delete", kwargs=kwargs)
+    confirmation = {"revision": data["revision"], "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    assert client.post(delete, {**confirmation, "owner": str(actor.pk)}).status_code == 400
+    assert admin_client.get(notes_url(organization, data["sysid"])).json() == data
+    assert admin_client.get(audit_url, {"record_sysid": data["sysid"]}).json() == before_events
+    assert client.post(delete, confirmation).status_code == 302
+    assert admin_client.get(notes_url(organization, data["sysid"])).status_code == 404
+    events = admin_client.get(audit_url, {"record_sysid": data["sysid"]}).json()
+    assert sorted(event["operation"] for event in events["results"]) == ["create", "soft_delete"]
 
 
 def test_mfa_enforcement_preserves_profile_escape_route(http_identity):
