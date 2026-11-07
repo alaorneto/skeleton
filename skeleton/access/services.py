@@ -1,10 +1,12 @@
 """All enterprise access changes are serialized on their organization row."""
+
 from contextlib import contextmanager
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from skeleton.tenancy.context import current_context
+
 from .policies import is_organization_admin
 
 
@@ -21,6 +23,7 @@ def require_organization_admin(user):
 def organization_lock(user=None):
     """Lock the organization before its records; HTTP callers must pass the actor."""
     from skeleton.tenancy.models import Organization
+
     context = current_context()
     if context.organization_id is None:
         raise PermissionDenied("Organization required.")
@@ -35,20 +38,32 @@ def organization_lock(user=None):
 
 def ensure_last_admin():
     from skeleton.tenancy.models import Membership
-    from .models import MemberRole, GroupMember, GroupRole
-    direct = MemberRole.objects.filter(role__code="organization_admin", role__is_builtin=True,
-                                      role__deleted_at__isnull=True).values_list("membership_id", flat=True)
-    groups = GroupRole.objects.filter(role__code="organization_admin", role__is_builtin=True,
-                                     role__deleted_at__isnull=True, group__deleted_at__isnull=True).values_list("group_id", flat=True)
+
+    from .models import GroupMember, GroupRole, MemberRole
+
+    direct = MemberRole.objects.filter(
+        role__code="organization_admin", role__is_builtin=True, role__deleted_at__isnull=True
+    ).values_list("membership_id", flat=True)
+    groups = GroupRole.objects.filter(
+        role__code="organization_admin",
+        role__is_builtin=True,
+        role__deleted_at__isnull=True,
+        group__deleted_at__isnull=True,
+    ).values_list("group_id", flat=True)
     indirect = GroupMember.objects.filter(group_id__in=groups).values_list("membership_id", flat=True)
     from django.db.models import Q
-    if not Membership.objects.filter(Q(pk__in=direct) | Q(pk__in=indirect), is_active=True,
-                                       user__is_active=True, user__deleted_at__isnull=True).exists():
+
+    if not Membership.objects.filter(
+        Q(pk__in=direct) | Q(pk__in=indirect), is_active=True, user__is_active=True, user__deleted_at__isnull=True
+    ).exists():
         raise LastAdministrator("An organization must retain an active administrator.")
 
 
 def _tenant_relation(obj):
-    if getattr(obj, "organization_id", current_context().organization_id) != current_context().organization_id or obj.deleted_at is not None:
+    if (
+        getattr(obj, "organization_id", current_context().organization_id) != current_context().organization_id
+        or obj.deleted_at is not None
+    ):
         raise ValidationError("Relation must be live and belong to the current organization.")
     if hasattr(obj, "is_active") and not obj.is_active:
         raise ValidationError("Relation must be active.")
@@ -91,7 +106,9 @@ def _delete(record, *, user):
 
 def provision_membership(*, organization, user, role):
     from skeleton.tenancy.models import Membership
+
     from .models import MemberRole
+
     context = current_context()
     if not context.system or context.organization_id != organization.pk:
         raise PermissionDenied("Provisioning requires a validated system tenant context.")
@@ -117,6 +134,7 @@ def provision_membership(*, organization, user, role):
 
 def create_membership(*, user, data):
     from skeleton.tenancy.models import Membership
+
     if set(data) - {"user", "is_active"}:
         raise ValidationError("Unsupported fields.")
     with organization_lock(user) as organization:
@@ -138,7 +156,8 @@ def create_membership(*, user, data):
 
 
 def _revoke_membership_links(record):
-    from .models import MemberRole, GroupMember, RecordGrant
+    from .models import GroupMember, MemberRole, RecordGrant
+
     for model in (MemberRole, GroupMember, RecordGrant):
         model.objects.filter(membership=record).delete()
 
@@ -170,6 +189,7 @@ def delete_membership(record, *, user):
 
 def create_role(*, user, data):
     from .models import Role
+
     if data.get("code") in {"organization_admin", "member"}:
         raise ValidationError("Builtin codes are reserved.")
     return _create(Role, user=user, data=data, fields=("code", "name", "description"))
@@ -185,6 +205,7 @@ def delete_role(record, *, user):
 
 def create_group(*, user, data):
     from .models import AccessGroup
+
     return _create(AccessGroup, user=user, data=data, fields=("code", "name", "description"))
 
 
@@ -198,23 +219,28 @@ def delete_group(record, *, user):
 
 def assign_member_role(*, user, data):
     from .models import MemberRole
+
     return _create(MemberRole, user=user, data=data, fields=("membership", "role"))
 
 
 def add_group_member(*, user, data):
     from .models import GroupMember
+
     return _create(GroupMember, user=user, data=data, fields=("group", "membership"))
 
 
 def assign_group_role(*, user, data):
     from .models import GroupRole
+
     return _create(GroupRole, user=user, data=data, fields=("group", "role"))
 
 
 def _eligible_table(table, action):
     from skeleton.common.models import SecuredRecord
     from skeleton.system.registry import get_spec
+
     from .policies import ACTIONS
+
     try:
         spec = get_spec(table.model_label)
     except KeyError:
@@ -226,20 +252,28 @@ def _eligible_table(table, action):
 
 def grant_table_permission(*, user, data):
     from .models import TablePermission
+
     _eligible_table(data["table"], data["action"])
     return _create(TablePermission, user=user, data=data, fields=("role", "table", "action"))
 
 
 def create_record_grant(*, user, data):
     from .models import RecordGrant
+
     spec = _eligible_table(data["table"], data["action"])
-    if data["action"] not in {"read", "update", "delete"} or sum(data.get(name) is not None for name in ("membership", "group", "role")) != 1:
+    if (
+        data["action"] not in {"read", "update", "delete"}
+        or sum(data.get(name) is not None for name in ("membership", "group", "role")) != 1
+    ):
         raise ValidationError("A record grant requires exactly one subject and a supported action.")
     # Resolve actual live record with authorized table/tenant visibility, never UUID-only trust.
     from .policies import authorized_queryset
+
     if not authorized_queryset(spec.model, user=user).filter(pk=data["record_sysid"]).exists():
         raise ValidationError("Record is unavailable.")
-    return _create(RecordGrant, user=user, data=data, fields=("table", "record_sysid", "membership", "group", "role", "action"))
+    return _create(
+        RecordGrant, user=user, data=data, fields=("table", "record_sysid", "membership", "group", "role", "action")
+    )
 
 
 def revoke_link(record, *, user):
@@ -247,11 +281,13 @@ def revoke_link(record, *, user):
 
 
 def reconcile_builtin_permissions(*, organization_id, using="default"):
-    from skeleton.tenancy.context import system_context
-    from .models import Role, TablePermission
     from skeleton.system.models import TableDefinition
     from skeleton.system.registry import all_specs
+    from skeleton.tenancy.context import system_context
+
+    from .models import Role, TablePermission
     from .policies import ACTIONS
+
     with system_context(reason="builtin-permissions", organization_id=organization_id, using=using):
         role = Role.objects.filter(code="organization_admin", is_builtin=True).first()
         if role is None:
@@ -259,19 +295,28 @@ def reconcile_builtin_permissions(*, organization_id, using="default"):
         for spec in all_specs():
             if not spec.expose_api:
                 continue
-            table = TableDefinition.objects.using(using).filter(model_label=spec.model._meta.label_lower, available=True).first()
+            table = (
+                TableDefinition.objects.using(using)
+                .filter(model_label=spec.model._meta.label_lower, available=True)
+                .first()
+            )
             if table:
                 for action in sorted(ACTIONS):
                     if not TablePermission.objects.using(using).filter(role=role, table=table, action=action).exists():
-                        TablePermission(organization_id=organization_id, role=role, table=table, action=action).save(using=using)
+                        TablePermission(organization_id=organization_id, role=role, table=table, action=action).save(
+                            using=using
+                        )
 
 
 def assert_user_deactivation(user, *, using="default"):
     """Narrow global identity guard, retaining organization locks until caller commit."""
     from django.db import IntegrityError, connections
     from django.db.models import Q
+
     from skeleton.tenancy.models import Membership, Organization
-    from .models import MemberRole, GroupMember, GroupRole
+
+    from .models import GroupMember, GroupRole, MemberRole
+
     context = current_context()
     connection = connections[using]
     if context.organization_id is not None or not (context.platform_admin or context.system):
@@ -289,20 +334,61 @@ def assert_user_deactivation(user, *, using="default"):
         return
     if connection.vendor != "sqlite":
         raise NotImplementedError("Identity lifecycle requires SQLite or PostgreSQL.")
-    ids = Membership.all_objects.using(using).filter(user=user, is_active=True, deleted_at__isnull=True).values_list("organization_id", flat=True)
-    organizations = Organization.all_objects.using(using).filter(pk__in=ids, is_active=True, deleted_at__isnull=True).order_by("sysid").select_for_update()
+    ids = (
+        Membership.all_objects.using(using)
+        .filter(user=user, is_active=True, deleted_at__isnull=True)
+        .values_list("organization_id", flat=True)
+    )
+    organizations = (
+        Organization.all_objects.using(using)
+        .filter(pk__in=ids, is_active=True, deleted_at__isnull=True)
+        .order_by("sysid")
+        .select_for_update()
+    )
     for organization in organizations:
         org_id = organization.pk
-        direct = MemberRole.all_objects.using(using).filter(organization_id=org_id, deleted_at__isnull=True,
-            role__organization_id=org_id, role__code="organization_admin", role__is_builtin=True,
-            role__deleted_at__isnull=True).values_list("membership_id", flat=True)
-        groups = GroupRole.all_objects.using(using).filter(organization_id=org_id, deleted_at__isnull=True,
-            role__organization_id=org_id, role__code="organization_admin", role__is_builtin=True,
-            role__deleted_at__isnull=True, group__organization_id=org_id,
-            group__deleted_at__isnull=True).values_list("group_id", flat=True)
-        indirect = GroupMember.all_objects.using(using).filter(organization_id=org_id,
-            deleted_at__isnull=True, group_id__in=groups).values_list("membership_id", flat=True)
-        if not Membership.all_objects.using(using).filter(Q(pk__in=direct) | Q(pk__in=indirect),
-                organization_id=org_id, is_active=True, deleted_at__isnull=True,
-                user__is_active=True, user__deleted_at__isnull=True).exclude(user=user).exists():
+        direct = (
+            MemberRole.all_objects.using(using)
+            .filter(
+                organization_id=org_id,
+                deleted_at__isnull=True,
+                role__organization_id=org_id,
+                role__code="organization_admin",
+                role__is_builtin=True,
+                role__deleted_at__isnull=True,
+            )
+            .values_list("membership_id", flat=True)
+        )
+        groups = (
+            GroupRole.all_objects.using(using)
+            .filter(
+                organization_id=org_id,
+                deleted_at__isnull=True,
+                role__organization_id=org_id,
+                role__code="organization_admin",
+                role__is_builtin=True,
+                role__deleted_at__isnull=True,
+                group__organization_id=org_id,
+                group__deleted_at__isnull=True,
+            )
+            .values_list("group_id", flat=True)
+        )
+        indirect = (
+            GroupMember.all_objects.using(using)
+            .filter(organization_id=org_id, deleted_at__isnull=True, group_id__in=groups)
+            .values_list("membership_id", flat=True)
+        )
+        if (
+            not Membership.all_objects.using(using)
+            .filter(
+                Q(pk__in=direct) | Q(pk__in=indirect),
+                organization_id=org_id,
+                is_active=True,
+                deleted_at__isnull=True,
+                user__is_active=True,
+                user__deleted_at__isnull=True,
+            )
+            .exclude(user=user)
+            .exists()
+        ):
             raise LastAdministrator("An organization must retain an active administrator.")

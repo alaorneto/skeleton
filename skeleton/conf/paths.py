@@ -1,4 +1,5 @@
 """Resolve the derived project's root independently of the installed core wheel."""
+
 import importlib.util
 import os
 from pathlib import Path

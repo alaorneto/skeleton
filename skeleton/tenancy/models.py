@@ -15,7 +15,9 @@ class Organization(SystemRecord):
 
     class Meta(SystemRecord.Meta):
         constraints = SystemRecord.Meta.constraints + [
-            models.CheckConstraint(condition=Q(deleted_at__isnull=True) | Q(is_active=False), name="sk_tenancy_org_deleted_inactive"),
+            models.CheckConstraint(
+                condition=Q(deleted_at__isnull=True) | Q(is_active=False), name="sk_tenancy_org_deleted_inactive"
+            ),
         ]
 
     def clean(self):
@@ -36,13 +38,17 @@ class Organization(SystemRecord):
 
 
 class Membership(OrganizationRecord):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="organization_memberships")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="organization_memberships"
+    )
     is_active = models.BooleanField(default=True)
     immutable_fields = ("user_id",)
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
-            models.UniqueConstraint(fields=("organization", "user"), name="sk_tenancy_membership_org_user", violation_error_code='unique'),
+            models.UniqueConstraint(
+                fields=("organization", "user"), name="sk_tenancy_membership_org_user", violation_error_code="unique"
+            ),
         ]
 
     def __str__(self):
@@ -54,9 +60,19 @@ class Membership(OrganizationRecord):
             from skeleton.accounts.models import User
 
             using = self._state.db or "default"
-            if self.user_id and not User.all_objects.using(using).filter(pk=self.user_id, is_active=True, deleted_at__isnull=True).exists():
+            if (
+                self.user_id
+                and not User.all_objects.using(using)
+                .filter(pk=self.user_id, is_active=True, deleted_at__isnull=True)
+                .exists()
+            ):
                 raise ValidationError({"user": "Membership requires an active identity."})
-            if self.organization_id and not Organization.all_objects.using(using).filter(pk=self.organization_id, is_active=True, deleted_at__isnull=True).exists():
+            if (
+                self.organization_id
+                and not Organization.all_objects.using(using)
+                .filter(pk=self.organization_id, is_active=True, deleted_at__isnull=True)
+                .exists()
+            ):
                 raise ValidationError({"organization": "Membership requires an active organization."})
 
     def _prepare_restore(self):
@@ -75,7 +91,13 @@ class Invitation(OrganizationRecord):
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
-            models.CheckConstraint(condition=(Q(accepted_at__isnull=True, accepted_by__isnull=True) | Q(accepted_at__isnull=False, accepted_by__isnull=False)), name="sk_tenancy_invitation_acceptance"),
+            models.CheckConstraint(
+                condition=(
+                    Q(accepted_at__isnull=True, accepted_by__isnull=True)
+                    | Q(accepted_at__isnull=False, accepted_by__isnull=False)
+                ),
+                name="sk_tenancy_invitation_acceptance",
+            ),
         ]
 
     def clean_fields(self, exclude=None):

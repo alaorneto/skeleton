@@ -1,9 +1,10 @@
 """Private, operator-generated deployment metadata; no ORM or code hot loading."""
-from dataclasses import dataclass
+
 import json
-from pathlib import Path
 import re
 import sys
+from dataclasses import dataclass
+from pathlib import Path
 
 from django.apps import AppConfig
 from django.core.exceptions import ImproperlyConfigured
@@ -55,8 +56,9 @@ def load_deployment_inventory(path):
                 raise ValueError("core file digest")
             if type(info.get("size")) is not int or info["size"] < 0:
                 raise ValueError("core file size")
-        if core.get("version") is not None and (not isinstance(core.get("digest"), str)
-                                                or not re.fullmatch(r"[a-f0-9]{64}", core["digest"])):
+        if core.get("version") is not None and (
+            not isinstance(core.get("digest"), str) or not re.fullmatch(r"[a-f0-9]{64}", core["digest"])
+        ):
             raise ValueError("core digest")
         apps = data["apps"]
         if not isinstance(apps, list):
@@ -64,6 +66,7 @@ def load_deployment_inventory(path):
         labels, packages, ids = set(), set(), set()
         normalized = []
         from skeleton.system.packages import validate_manifest
+
         for item in apps:
             if not isinstance(item, dict) or item.get("state") not in {"installed", "project-local", "schema_retained"}:
                 raise ValueError("state")
@@ -73,7 +76,9 @@ def load_deployment_inventory(path):
             label, package, app_id = manifest["app_label"], manifest["package_name"], manifest["app_id"]
             if label in labels or package in packages or app_id in ids:
                 raise ValueError("duplicate identity")
-            labels.add(label); packages.add(package); ids.add(app_id)
+            labels.add(label)
+            packages.add(package)
+            ids.add(app_id)
             digest = item.get("digest")
             if item["state"] != "project-local" or digest is not None:
                 if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
@@ -90,7 +95,12 @@ def load_deployment_inventory(path):
             module = archive["migrations_module"]
             if not _IDENTIFIER.fullmatch(label) or not _IDENTIFIER.fullmatch(package):
                 raise ValueError("archive identity")
-            if not isinstance(module, str) or label in archive_labels or not module.endswith(".migrations") or not all(_IDENTIFIER.fullmatch(p) for p in module.split(".")):
+            if (
+                not isinstance(module, str)
+                or label in archive_labels
+                or not module.endswith(".migrations")
+                or not all(_IDENTIFIER.fullmatch(p) for p in module.split("."))
+            ):
                 raise ValueError("archive module")
             if not any(a["state"] == "schema_retained" and a["manifest"]["app_label"] == label for a in normalized):
                 raise ValueError("archive without retained app")
@@ -108,17 +118,23 @@ def load_deployment_inventory(path):
                 clean_retained.append(_private_path(entry, source.parent))
         frozen = data.get("frozen_infrastructure")
         if frozen is not None:
-            if not isinstance(frozen, dict) or set(frozen) != {"path", "sha256"} or not re.fullmatch(r"[a-f0-9]{64}", frozen["sha256"]):
+            if (
+                not isinstance(frozen, dict)
+                or set(frozen) != {"path", "sha256"}
+                or not re.fullmatch(r"[a-f0-9]{64}", frozen["sha256"])
+            ):
                 raise ValueError("frozen infrastructure reference")
             frozen = {**frozen, "path": _private_path(frozen["path"], source.parent)}
-        return DeploymentInventory(data["generation"], core, tuple(normalized),
-                                   tuple(clean_retained), tuple(clean_archives), frozen)
+        return DeploymentInventory(
+            data["generation"], core, tuple(normalized), tuple(clean_retained), tuple(clean_archives), frozen
+        )
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise ImproperlyConfigured("Invalid private deployment inventory.") from exc
 
 
 class MigrationArchiveConfig(AppConfig):
     """Original label and genuine migrations, without business model/ready hooks."""
+
     def import_models(self):
         self.models = self.apps.all_models[self.label]
         self.models_module = None
@@ -135,11 +151,16 @@ def migration_archive_configs(inventory):
         if name != path.name or not name.startswith("archive_") or not path.is_dir():
             raise ImproperlyConfigured("Migration archive is not an isolated package.")
         import ast
+
         try:
             for entrypoint in (path / "__init__.py", path / "migrations" / "__init__.py"):
                 body = ast.parse(entrypoint.read_text(encoding="utf-8")).body
-                if body and not (len(body) == 1 and isinstance(body[0], ast.Expr)
-                                 and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)):
+                if body and not (
+                    len(body) == 1
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)
+                ):
                     raise ValueError("archive entrypoint")
             if (path / "models.py").exists() or (path / "apps.py").exists():
                 raise ValueError("business entrypoint")
@@ -150,6 +171,7 @@ def migration_archive_configs(inventory):
         if str(path.parent) not in sys.path:
             sys.path.insert(0, str(path.parent))
         import importlib
+
         module = importlib.import_module(name)
         if Path(module.__file__).resolve() != (path / "__init__.py").resolve():
             raise ImproperlyConfigured("Migration archive import resolved outside its approved path.")
@@ -164,16 +186,22 @@ def migration_archive_configs(inventory):
 def confirm_core(inventory):
     """Prove the loaded release's bytes and origin, not an inventory claim."""
     from skeleton.versioning import core_version
+
     actual = core_version()
     expected = inventory.core.get("version")
     if not expected:
         return actual, True
     files = inventory.core.get("files", {})
     expected_origin = inventory.core.get("origin", "installed")
-    if (expected_origin not in {"installed", "source"} or expected != actual["version"]
-            or actual["origin"] != expected_origin or not files):
+    if (
+        expected_origin not in {"installed", "source"}
+        or expected != actual["version"]
+        or actual["origin"] != expected_origin
+        or not files
+    ):
         return actual, False
     import hashlib
+
     root = Path(__file__).resolve().parent.parent
     try:
         for name, info in files.items():
@@ -190,14 +218,20 @@ def confirm_core(inventory):
 def release_response(request, confirmation=None):
     from django.conf import settings
     from django.http import HttpResponseNotAllowed, JsonResponse
+
     request.get_host()
     if request.method not in {"GET", "HEAD"}:
         return HttpResponseNotAllowed(["GET", "HEAD"])
     inventory = settings.SKELETON_DEPLOYMENT_STATE
     actual, confirmed = confirmation if confirmation is not None else confirm_core(inventory)
-    response = JsonResponse({"status": "ok" if confirmed else "release_mismatch", "generation": inventory.generation,
-                             "core": {"version": actual["version"], "origin": actual["origin"],
-                                      "digest": inventory.core.get("digest")}}, status=200 if confirmed else 503)
+    response = JsonResponse(
+        {
+            "status": "ok" if confirmed else "release_mismatch",
+            "generation": inventory.generation,
+            "core": {"version": actual["version"], "origin": actual["origin"], "digest": inventory.core.get("digest")},
+        },
+        status=200 if confirmed else 503,
+    )
     response["Cache-Control"] = "no-store"
     if request.method == "HEAD":
         response.content = b""
@@ -210,8 +244,10 @@ class MaintenanceMiddleware:
     Application/admin requests are closed, including status views backed by the DB.
     The separate authenticated deployment agent remains the operation control plane.
     """
+
     def __init__(self, get_response):
         from django.conf import settings
+
         self.get_response = get_response
         self.marker = settings.SKELETON_MAINTENANCE_MARKER
         self.smoke_paths = frozenset(getattr(settings, "SKELETON_DEPLOYMENT_SMOKE_PATHS", ()))
@@ -223,10 +259,15 @@ class MaintenanceMiddleware:
 
     def _private_smoke(self, request):
         import secrets
+
         header = request.headers.get("X-Skeleton-Deployment-Smoke", "")
-        return bool(self.smoke_token and request.method in {"GET", "HEAD"}
-                    and request.path_info in self.smoke_paths
-                    and header.isascii() and secrets.compare_digest(header, self.smoke_token))
+        return bool(
+            self.smoke_token
+            and request.method in {"GET", "HEAD"}
+            and request.path_info in self.smoke_paths
+            and header.isascii()
+            and secrets.compare_digest(header, self.smoke_token)
+        )
 
     def __call__(self, request):
         if request.path_info == "/health/release/":
@@ -234,6 +275,7 @@ class MaintenanceMiddleware:
         if self.marker and Path(self.marker).exists() and not self._private_smoke(request):
             request.get_host()
             from django.http import JsonResponse
+
             response = JsonResponse({"status": "maintenance"}, status=503)
             response["Cache-Control"] = "no-store"
             response["Retry-After"] = "60"

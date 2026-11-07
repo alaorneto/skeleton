@@ -1,11 +1,11 @@
 """Verified artifact composition, hash-locked environments and exact ownership diffs."""
 
-from email.parser import BytesParser
 import hashlib
 import os
-from pathlib import Path
 import re
 import shutil
+from email.parser import BytesParser
+from pathlib import Path
 from zipfile import ZipFile
 
 from packaging.markers import default_environment
@@ -13,7 +13,13 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from skeleton.system.packages import PackageError, extract_package, validate_dependency_graph, validate_package, validate_wheel_set
+from skeleton.system.packages import (
+    PackageError,
+    extract_package,
+    validate_dependency_graph,
+    validate_package,
+    validate_wheel_set,
+)
 
 from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
 
@@ -27,11 +33,19 @@ def verified(store, config, artifact):
 
 def wheel_files(path):
     with ZipFile(path) as archive:
-        return {name: {"sha256": hashlib.sha256(archive.read(name)).hexdigest(), "size": len(archive.read(name))} for name in archive.namelist() if name.startswith("skeleton/") and not name.endswith("/")}
+        return {
+            name: {"sha256": hashlib.sha256(archive.read(name)).hexdigest(), "size": len(archive.read(name))}
+            for name in archive.namelist()
+            if name.startswith("skeleton/") and not name.endswith("/")
+        }
 
 
 def migrations(manifest):
-    return {entry["path"]: entry["sha256"] for entry in manifest["files"] if entry["path"].startswith("app/migrations/") and entry["path"].endswith(".py")}
+    return {
+        entry["path"]: entry["sha256"]
+        for entry in manifest["files"]
+        if entry["path"].startswith("app/migrations/") and entry["path"].endswith(".py")
+    }
 
 
 def compare_history(old, new):
@@ -86,13 +100,16 @@ def build_lock(config, release, manifests, target_environment=None):
             marker = dependency.get("marker")
             if marker:
                 from packaging.markers import Marker
+
                 if not Marker(marker).evaluate(target_environment):
                     continue
             name = canonicalize_name(dependency["name"])
             version = dependency["version"]
             if name in selections and Version(selections[name]["version"]) != Version(version):
                 raise AgentError("dependency_version_conflict", 409)
-            record = selections.setdefault(name, {"version": version, "hashes": set(), "extras": rows.get(name, {}).get("extras", set())})
+            record = selections.setdefault(
+                name, {"version": version, "hashes": set(), "extras": rows.get(name, {}).get("extras", set())}
+            )
             record["hashes"].add(dependency["sha256"])
     rows.update(selections)
     if "django-skeleton" not in rows or "django" not in rows:
@@ -124,7 +141,10 @@ def build_lock(config, release, manifests, target_environment=None):
     lines = []
     for name, row in sorted(rows.items()):
         extras = f"[{','.join(sorted(row['extras']))}]" if row["extras"] else ""
-        lines.append(f"{name}{extras}=={row['version']} " + " ".join(f"--hash=sha256:{value}" for value in sorted(available[name])))
+        lines.append(
+            f"{name}{extras}=={row['version']} "
+            + " ".join(f"--hash=sha256:{value}" for value in sorted(available[name]))
+        )
     atomic_bytes(release / "requirements.lock", ("\n".join(lines) + "\n").encode(), 0o644)
     return rows
 
@@ -132,11 +152,13 @@ def build_lock(config, release, manifests, target_environment=None):
 def copy_project(config, source, release, *, managed_packages):
     source = Path(source)
     ignored = shutil.ignore_patterns("__pycache__", "*.pyc", ".env", ".private", ".venv", "*.sqlite3", "node_modules")
+
     def ignore(directory, names):
         excluded = set(ignored(directory, names))
         if Path(directory) == source / "applications":
             excluded.update(managed_packages)
         return excluded
+
     for relative in config["project_paths"]:
         origin = Path(source) / relative
         if not origin.exists() or origin.is_symlink():
@@ -168,7 +190,10 @@ def owned_snapshot(release):
             row["owner"] = "app:" + path.split("/")[1]
         elif path.startswith(".venv/"):
             row["owner"] = "environment"
-        elif path.startswith(("staticfiles/", "archives/", "retained/", "wheels/")) or path in ("inventory.json", "requirements.lock"):
+        elif path.startswith(("staticfiles/", "archives/", "retained/", "wheels/")) or path in (
+            "inventory.json",
+            "requirements.lock",
+        ):
             row["owner"] = "deployment"
         else:
             row["owner"] = "project"
@@ -187,7 +212,15 @@ def file_diff(before, after):
         old, new = before.get(path), after.get(path)
         if old == new:
             continue
-        result.append({"path": path, "owner": (new or old).get("owner", "deployment"), "action": "add" if old is None else "remove" if new is None else "change", "before": old.get("sha256") if old else None, "after": new.get("sha256") if new else None})
+        result.append(
+            {
+                "path": path,
+                "owner": (new or old).get("owner", "deployment"),
+                "action": "add" if old is None else "remove" if new is None else "change",
+                "before": old.get("sha256") if old else None,
+                "after": new.get("sha256") if new else None,
+            }
+        )
     return result
 
 
@@ -203,8 +236,11 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
     source = backend.active()
     release.mkdir(parents=True, exist_ok=False)
     old_entries = {entry["manifest"]["app_id"]: entry for entry in inventory.get("apps", [])}
-    managed_packages = {entry["manifest"]["package_name"] for entry in old_entries.values()
-                        if entry["state"] != "project-local" and entry.get("origin") != "project-local"}
+    managed_packages = {
+        entry["manifest"]["package_name"]
+        for entry in old_entries.values()
+        if entry["state"] != "project-local" and entry.get("origin") != "project-local"
+    }
     copy_project(config, source, release, managed_packages=managed_packages)
     entries = {key: dict(entry) for key, entry in old_entries.items()}
     core = dict(inventory.get("core", {}))
@@ -217,7 +253,13 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
                 raise AgentError("unsupported_core_upgrade", 409)
             if core.get("version") and Version(manifest["version"]) < Version(core["version"]):
                 raise AgentError("downgrade_forbidden", 409)
-            core = {"manifest": manifest, "version": manifest["version"], "origin": "installed", "digest": artifact, "publisher": manifest["publisher"]}
+            core = {
+                "manifest": manifest,
+                "version": manifest["version"],
+                "origin": "installed",
+                "digest": artifact,
+                "publisher": manifest["publisher"],
+            }
             changed.add("django-skeleton")
             continue
         app_id = manifest["app_id"]
@@ -256,14 +298,22 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
     for path in (release / "core-wheels").iterdir():
         shutil.move(str(path), release / "wheels" / path.name)
     (release / "core-wheels").rmdir()
-    core_wheels = [release / dependency["wheel"] for dependency in core["manifest"]["python_dependencies"] if canonicalize_name(dependency["name"]) == "django-skeleton"]
+    core_wheels = [
+        release / dependency["wheel"]
+        for dependency in core["manifest"]["python_dependencies"]
+        if canonicalize_name(dependency["name"]) == "django-skeleton"
+    ]
     if len(core_wheels) != 1:
         raise AgentError("missing_core_wheel")
     core["files"] = wheel_files(core_wheels[0])
     core["origin"] = "installed"
     if "django-skeleton" in changed and inventory.get("core", {}).get("files"):
         old_core = inventory["core"]["files"]
-        if any(core["files"].get(path, {}).get("sha256") != row["sha256"] for path, row in old_core.items() if "/migrations/" in path and path.endswith(".py")):
+        if any(
+            core["files"].get(path, {}).get("sha256") != row["sha256"]
+            for path, row in old_core.items()
+            if "/migrations/" in path and path.endswith(".py")
+        ):
             raise AgentError("core_migration_history_modified", 409)
     retained = []
     archives = []
@@ -310,7 +360,15 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             reference = {"path": str(snapshot), "sha256": file_hash(snapshot)}
             entry["retained_schema"] = reference
             retained.append(reference)
-            archives.append({"app_label": manifest["app_label"], "package_name": package_name, "path": str(archive), "migrations_module": f"{archive_name}.migrations", "digest": entry["digest"]})
+            archives.append(
+                {
+                    "app_label": manifest["app_label"],
+                    "package_name": package_name,
+                    "path": str(archive),
+                    "migrations_module": f"{archive_name}.migrations",
+                    "digest": entry["digest"],
+                }
+            )
             entry["path"] = str(archive)
         else:
             extraction = release / f"wheels-{package_name}"
@@ -327,10 +385,23 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             entry["path"] = str(target)
     lock = build_lock(config, release, [core["manifest"], *manifests], environment)
     try:
-        validate_dependency_graph([core["manifest"], *manifests], core=core["version"], python=environment["python_full_version"], django=lock["django"]["version"], target_environment=environment)
+        validate_dependency_graph(
+            [core["manifest"], *manifests],
+            core=core["version"],
+            python=environment["python_full_version"],
+            django=lock["django"]["version"],
+            target_environment=environment,
+        )
     except PackageError:
         raise AgentError("target_runtime_incompatible", 409) from None
-    result = {"generation": inventory["generation"] + 1, "core": core, "apps": list(entries.values()), "retained_schema_paths": retained, "migration_archives": archives, "environment": environment}
+    result = {
+        "generation": inventory["generation"] + 1,
+        "core": core,
+        "apps": list(entries.values()),
+        "retained_schema_paths": retained,
+        "migration_archives": archives,
+        "environment": environment,
+    }
     atomic_json(release / "inventory.json", result, 0o644)
     backend.prepare(release)
     backend.manage(release, ["check"], "build", code="static_checks_failed")
@@ -340,15 +411,20 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
 
 def _supports_source(manifest, source):
     from packaging.specifiers import SpecifierSet
+
     return Version(source) in SpecifierSet(manifest["migrations"]["from_versions"])
 
 
 def presentation_diff(before, after):
     """Describe code-owned UI/configuration changes without altering signed manifests."""
+
     def active(inventory):
-        return {entry["manifest"]["app_id"]: entry["manifest"]
-                for entry in inventory.get("apps", [])
-                if entry["state"] in {"installed", "project-local"}}
+        return {
+            entry["manifest"]["app_id"]: entry["manifest"]
+            for entry in inventory.get("apps", [])
+            if entry["state"] in {"installed", "project-local"}
+        }
+
     previous, current = active(before), active(after)
     changes = []
     for app_id in sorted(previous.keys() | current.keys()):
@@ -356,29 +432,50 @@ def presentation_diff(before, after):
         manifest = new or old
         base = {"app_id": app_id, "app_label": manifest["app_label"]}
         if old is None or new is None:
-            changes.append({**base, "resource": "group", "id": app_id,
-                            "action": "add" if new else "remove", "incompatible": False})
+            changes.append(
+                {**base, "resource": "group", "id": app_id, "action": "add" if new else "remove", "incompatible": False}
+            )
         resources = []
         for item in (old, new):
             runtime = item.get("runtime", {}) if item else {}
             administration = runtime.get("administration", {})
-            resources.append({
-                "configuration": {field["name"]: field for field in runtime.get("configuration_fields", [])},
-                "configuration_section": {section["id"]: section for section in administration.get("configuration_sections", [])},
-                "section": {section["id"]: section for section in administration.get("sections", [])},
-                "screen": {screen["id"]: screen for screen in administration.get("screens", [])},
-                "model_layout": {spec["table_key"]: spec for spec in runtime.get("model_ui", [])},
-            })
+            resources.append(
+                {
+                    "configuration": {field["name"]: field for field in runtime.get("configuration_fields", [])},
+                    "configuration_section": {
+                        section["id"]: section for section in administration.get("configuration_sections", [])
+                    },
+                    "section": {section["id"]: section for section in administration.get("sections", [])},
+                    "screen": {screen["id"]: screen for screen in administration.get("screens", [])},
+                    "model_layout": {spec["table_key"]: spec for spec in runtime.get("model_ui", [])},
+                }
+            )
         for kind in resources[0]:
             left, right = resources[0][kind], resources[1][kind]
             for key in sorted(left.keys() | right.keys()):
                 first, second = left.get(key), right.get(key)
                 if first == second:
                     continue
-                incompatible = bool(kind == "configuration" and old and new and first
-                                    and (second is None or first["type"] != second["type"]
-                                         or first.get("max_length", 200) > second.get("max_length", 200)))
-                changes.append({**base, "resource": kind, "id": key,
-                                "action": "add" if first is None else "remove" if second is None else "change",
-                                "before": first, "after": second, "incompatible": incompatible})
+                incompatible = bool(
+                    kind == "configuration"
+                    and old
+                    and new
+                    and first
+                    and (
+                        second is None
+                        or first["type"] != second["type"]
+                        or first.get("max_length", 200) > second.get("max_length", 200)
+                    )
+                )
+                changes.append(
+                    {
+                        **base,
+                        "resource": kind,
+                        "id": key,
+                        "action": "add" if first is None else "remove" if second is None else "change",
+                        "before": first,
+                        "after": second,
+                        "incompatible": incompatible,
+                    }
+                )
     return changes

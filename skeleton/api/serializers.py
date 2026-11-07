@@ -20,6 +20,7 @@ LINKS = frozenset({"member-roles", "group-members", "group-roles", "table-permis
 def dedicated_model(resource):
     if resource not in DEDICATED:
         from django.http import Http404
+
         raise Http404
     label, fields = DEDICATED[resource]
     return apps.get_model(label), fields
@@ -31,7 +32,12 @@ def dedicated_input(resource, data, *, user, creating=True):
         fields = ("is_active",)
     assert_fields(data, fields)
     if creating:
-        required = {"memberships": ("user",), "roles": ("code", "name"), "groups": ("code", "name"), "invitations": ("email", "role")}.get(resource, tuple(name for name in fields if not model._meta.get_field(name).null))
+        required = {
+            "memberships": ("user",),
+            "roles": ("code", "name"),
+            "groups": ("code", "name"),
+            "invitations": ("email", "role"),
+        }.get(resource, tuple(name for name in fields if not model._meta.get_field(name).null))
         missing = [name for name in required if name not in data]
         if missing:
             raise ValidationError({name: "Campo obrigatório." for name in missing})
@@ -56,19 +62,41 @@ def dedicated_data(resource, record):
 
 def profile_data(user, profile):
     return {
-        "sysid": user.sysid, "email": user.email, "first_name": user.first_name,
-        "last_name": user.last_name, "revision": user.revision,
-        "profile": {"sysid": profile.sysid, "revision": profile.revision,
-                    "display_name": profile.display_name, "timezone": profile.timezone, "language": profile.language},
+        "sysid": user.sysid,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "revision": user.revision,
+        "profile": {
+            "sysid": profile.sysid,
+            "revision": profile.revision,
+            "display_name": profile.display_name,
+            "timezone": profile.timezone,
+            "language": profile.language,
+        },
     }
 
 
 def audit_data(event):
     # Audit identities are deliberately historical, never dereferenced to private objects.
     from skeleton.audit.presentation import visible_audit_changes
-    data = {name: getattr(event, name) for name in (
-        "sysid", "created_at", "organization_id", "table_name", "model_label", "record_sysid",
-        "record_revision", "operation", "actor_sysid", "request_id", "source", "db_principal",
-    )}
+
+    data = {
+        name: getattr(event, name)
+        for name in (
+            "sysid",
+            "created_at",
+            "organization_id",
+            "table_name",
+            "model_label",
+            "record_sysid",
+            "record_revision",
+            "operation",
+            "actor_sysid",
+            "request_id",
+            "source",
+            "db_principal",
+        )
+    }
     data["changes"] = visible_audit_changes(event)
     return data

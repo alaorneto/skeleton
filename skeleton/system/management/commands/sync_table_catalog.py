@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+
 from skeleton.system.synchronization import sync_table_catalog
 
 

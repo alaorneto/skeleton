@@ -1,7 +1,7 @@
 import json
 import logging
 import traceback
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import PurePath
 from uuid import UUID
 
@@ -21,8 +21,19 @@ def sanitized_stack(tb, *, limit=STACK_FRAME_LIMIT):
 class SecurityJSONFormatter(logging.Formatter):
     """Only enumerated structured values reach logs; messages/tracebacks may contain secrets."""
 
-    extra_fields = frozenset({"status", "count", "operation", "model_label", "record_sysid", "reason_code",
-                             "error_class", "outcome", "target_sysid"})
+    extra_fields = frozenset(
+        {
+            "status",
+            "count",
+            "operation",
+            "model_label",
+            "record_sysid",
+            "reason_code",
+            "error_class",
+            "outcome",
+            "target_sysid",
+        }
+    )
 
     def format(self, record):
         from skeleton.tenancy.context import current_context
@@ -59,9 +70,19 @@ class SecurityJSONFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def security_event(event, *, level=logging.INFO, context_snapshot=None, request_id=None, source=None,
-                   exc_info=None, **fields):
+def security_event(
+    event, *, level=logging.INFO, context_snapshot=None, request_id=None, source=None, exc_info=None, **fields
+):
     allowed = {key: value for key, value in fields.items() if key in SecurityJSONFormatter.extra_fields}
-    logging.getLogger("skeleton.security").log(level, "", exc_info=exc_info, extra={
-        "event": event, "security_context": context_snapshot, "request_id": request_id, "source": source, **allowed,
-    })
+    logging.getLogger("skeleton.security").log(
+        level,
+        "",
+        exc_info=exc_info,
+        extra={
+            "event": event,
+            "security_context": context_snapshot,
+            "request_id": request_id,
+            "source": source,
+            **allowed,
+        },
+    )

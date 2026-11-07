@@ -8,7 +8,7 @@ def test_strong_single_revision(value):
     assert parse_revision(value) == int(value.strip('"'))
 
 
-@pytest.mark.parametrize("value", ['1', '"0"', '"-1"', 'W/"1"', '*', '"1", "2"', '"01"', '', '"1-2"'])
+@pytest.mark.parametrize("value", ["1", '"0"', '"-1"', 'W/"1"', "*", '"1", "2"', '"01"', "", '"1-2"'])
 def test_invalid_single_revision(value):
     with pytest.raises(BoundaryError) as caught:
         parse_revision(value)
@@ -31,6 +31,7 @@ def test_profile_revision_is_composite():
 
 def test_uniqueness_validation_is_conflict_not_bad_input():
     from django.core.exceptions import ValidationError
+
     from skeleton.api.errors import validation_conflict
 
     assert validation_conflict(ValidationError({"code": ValidationError("Duplicate", code="unique")}))

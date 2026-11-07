@@ -75,12 +75,17 @@ BasedPyright usa `.venv/bin/python` para resolver Django e as demais dependênci
 
 ### Lint, pre-commit e CI
 
-As regras do Ruff ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`.
+As regras do Ruff (lint, ordem de imports e formatter) ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`. mypy, django-stubs e pytest-cov ficam no lock de desenvolvimento, porque precisam do Django instalado no mesmo ambiente.
 
 ```sh
 uvx ruff@0.17.4 check
+uvx ruff@0.17.4 format
 uvx pre-commit install
+.venv/bin/python -m mypy
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts --cov
 ```
+
+A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
 
 O workflow `.github/workflows/ci.yml` roda o lint, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
 
@@ -90,7 +95,7 @@ O workflow `.github/workflows/ci.yml` roda o lint, a suíte SQLite (Python 3.12 
 ```sh
 .venv/bin/python -m pip install pip-tools
 .venv/bin/pip-compile --generate-hashes requirements.in
-.venv/bin/pip-compile --generate-hashes --allow-unsafe requirements-dev.in
+uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements-dev.in -o requirements-dev.txt
 .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
 ```
 

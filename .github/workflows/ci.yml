@@ -26,6 +26,10 @@ jobs:
         with:
           version: "0.17.4"
           args: check --output-format github
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.17.4"
+          args: format --check --diff
 
   sqlite:
     name: SQLite (Python ${{ matrix.python }})

@@ -1,14 +1,14 @@
 """Durable filesystem journal; deliberately independent of the application DB."""
 
-from contextlib import contextmanager
-from datetime import datetime, UTC
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import stat
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid4
 
 
@@ -148,4 +148,8 @@ class Store:
         return load_json(path)
 
     def operations(self):
-        return sorted((load_json(path) for path in (self.root / "operations").glob("*.json")), key=lambda row: row["created_at"], reverse=True)
+        return sorted(
+            (load_json(path) for path in (self.root / "operations").glob("*.json")),
+            key=lambda row: row["created_at"],
+            reverse=True,
+        )

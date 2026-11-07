@@ -24,8 +24,11 @@ class Command(BaseCommand):
         try:
             trust = json.loads(Path(options["trust_store"]).read_text(encoding="utf-8"))
             base = validate_package(options["base_release"], trust)
-            result = (adopt_source_core(options["project_root"], base, options["backup_root"]) if options["apply"]
-                      else source_adoption_plan(options["project_root"], base))
+            result = (
+                adopt_source_core(options["project_root"], base, options["backup_root"])
+                if options["apply"]
+                else source_adoption_plan(options["project_root"], base)
+            )
         except (OSError, ValueError, PackageError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(json.dumps({key: value for key, value in result.items() if key != "files"}, sort_keys=True))

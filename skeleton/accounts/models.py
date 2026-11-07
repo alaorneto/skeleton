@@ -1,8 +1,8 @@
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
-from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth import password_validation
+from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.models import PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -31,7 +31,9 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
 
     class Meta(SystemRecord.Meta):
         constraints = SystemRecord.Meta.constraints + [
-            models.CheckConstraint(condition=Q(deleted_at__isnull=True) | Q(is_active=False), name="sk_accounts_user_deleted_inactive"),
+            models.CheckConstraint(
+                condition=Q(deleted_at__isnull=True) | Q(is_active=False), name="sk_accounts_user_deleted_inactive"
+            ),
             models.CheckConstraint(condition=Q(auth_version__gte=1), name="sk_accounts_user_auth_version_positive"),
         ]
 

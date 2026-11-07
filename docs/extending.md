@@ -129,6 +129,7 @@ from django.db import models
 from django.db.models import Q
 from skeleton.common.models import SecuredRecord
 
+
 class Note(SecuredRecord):
     code = models.CharField(max_length=64)
     title = models.CharField(max_length=200)
@@ -155,16 +156,18 @@ class Note(SecuredRecord):
 from skeleton.system.registry import TableSpec, register
 from .models import Note
 
-register(TableSpec(
-    model=Note,
-    description="Anotações de demonstração do contrato de registros",
-    label="Anotações",
-    scope="organization",
-    read_fields=("code", "title", "body", "owner", "visibility", "owning_group"),
-    write_fields=("code", "title", "body"),
-    sensitive_fields=("body",),
-    expose_api=True,
-))
+register(
+    TableSpec(
+        model=Note,
+        description="Anotações de demonstração do contrato de registros",
+        label="Anotações",
+        scope="organization",
+        read_fields=("code", "title", "body", "owner", "visibility", "owning_group"),
+        write_fields=("code", "title", "body"),
+        sensitive_fields=("body",),
+        expose_api=True,
+    )
+)
 ```
 
 A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória.
@@ -177,7 +180,8 @@ A allowlist é a lista explícita dos campos permitidos. Ela contém somente cam
 from skeleton.common.migration_operations import InstallRecordInfrastructure
 
 InstallRecordInfrastructure(
-    "example_notes", "note",
+    "example_notes",
+    "note",
     {
         "scope": "organization",
         "sensitive_fields": ["body"],

@@ -14,7 +14,9 @@ def main():
     parser.add_argument("--config", required=True, help="Private operator-owned JSON configuration")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve")
-    initialize = commands.add_parser("initialize", help="Adopt an explicitly inventoried signed base, refusing modified/unknown forks")
+    initialize = commands.add_parser(
+        "initialize", help="Adopt an explicitly inventoried signed base, refusing modified/unknown forks"
+    )
     initialize.add_argument("--inventory", required=True)
     initialize.add_argument("--core-package", required=True)
     initialize.add_argument("--app-package", action="append", default=[])
@@ -43,7 +45,11 @@ def main():
     recovery = commands.add_parser("recover", help="Offline exclusive recovery; stop the agent daemon first")
     recovery.add_argument("operation_id")
     recovery.add_argument("action", choices=("restore", "complete", "abort"))
-    recovery.add_argument("--acknowledge-new-writes", action="store_true", help="Operator reviewed loss/reconciliation of writes after cutover")
+    recovery.add_argument(
+        "--acknowledge-new-writes",
+        action="store_true",
+        help="Operator reviewed loss/reconciliation of writes after cutover",
+    )
     commands.add_parser("revoke-status-tickets")
     options = parser.parse_args()
     try:
@@ -53,9 +59,13 @@ def main():
             serve(service)
             return 0
         if options.command == "initialize":
-            result = service.initialize(options.inventory, core_package=options.core_package, app_packages=options.app_package)
+            result = service.initialize(
+                options.inventory, core_package=options.core_package, app_packages=options.app_package
+            )
         elif options.command == "recover":
-            result = service.recover(options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes)
+            result = service.recover(
+                options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes
+            )
         elif options.command == "journal":
             result = {"operations": [service.public_operation(row) for row in service.store.operations()]}
         elif options.command == "revoke-status-tickets":
@@ -64,7 +74,10 @@ def main():
         else:
             # Online commands go through the same bounded authenticated interface as the platform admin.
             from skeleton.system.deployment_client import AgentClient
-            client = AgentClient(config["socket_path"], config["token_file"], timeout=config.get("command_timeout", 1800))
+
+            client = AgentClient(
+                config["socket_path"], config["token_file"], timeout=config.get("command_timeout", 1800)
+            )
             if options.command == "inventory":
                 result = client.inventory()
             elif options.command == "operation":
@@ -74,7 +87,14 @@ def main():
             elif options.command == "preview":
                 result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
             elif options.command == "submit":
-                result = client.submit(options.plan_id, options.plan_digest, options.generation, options.operation_id, options.actor_id, options.request_id)
+                result = client.submit(
+                    options.plan_id,
+                    options.plan_digest,
+                    options.generation,
+                    options.operation_id,
+                    options.actor_id,
+                    options.request_id,
+                )
             elif options.command == "check-updates":
                 result = client.check_updates()
             elif options.command == "fetch-release":

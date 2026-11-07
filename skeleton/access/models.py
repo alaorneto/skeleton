@@ -17,7 +17,9 @@ class Action(models.TextChoices):
 
 
 def live_unique(fields, name):
-    return models.UniqueConstraint(fields=fields, condition=Q(deleted_at__isnull=True), name=name, violation_error_code='unique')
+    return models.UniqueConstraint(
+        fields=fields, condition=Q(deleted_at__isnull=True), name=name, violation_error_code="unique"
+    )
 
 
 class Role(OrganizationRecord):
@@ -27,7 +29,9 @@ class Role(OrganizationRecord):
     is_builtin = models.BooleanField(default=False, editable=False)
 
     class Meta(OrganizationRecord.Meta):
-        constraints = OrganizationRecord.Meta.constraints + [live_unique(("organization", "code"), "sk_access_role_live_code")]
+        constraints = OrganizationRecord.Meta.constraints + [
+            live_unique(("organization", "code"), "sk_access_role_live_code")
+        ]
 
     def clean(self):
         super().clean()
@@ -55,7 +59,9 @@ class MemberRole(OrganizationRecord):
     immutable_fields = ("membership_id", "role_id")
 
     class Meta(OrganizationRecord.Meta):
-        constraints = OrganizationRecord.Meta.constraints + [live_unique(("membership", "role"), "sk_access_memberrole_live_pair")]
+        constraints = OrganizationRecord.Meta.constraints + [
+            live_unique(("membership", "role"), "sk_access_memberrole_live_pair")
+        ]
 
     def clean(self):
         super().clean()
@@ -68,7 +74,9 @@ class AccessGroup(OrganizationRecord):
     description = models.TextField(blank=True)
 
     class Meta(OrganizationRecord.Meta):
-        constraints = OrganizationRecord.Meta.constraints + [live_unique(("organization", "code"), "sk_access_accessgroup_live_code")]
+        constraints = OrganizationRecord.Meta.constraints + [
+            live_unique(("organization", "code"), "sk_access_accessgroup_live_code")
+        ]
 
     def __str__(self):
         return self.name
@@ -80,7 +88,9 @@ class GroupMember(OrganizationRecord):
     immutable_fields = ("group_id", "membership_id")
 
     class Meta(OrganizationRecord.Meta):
-        constraints = OrganizationRecord.Meta.constraints + [live_unique(("group", "membership"), "sk_access_groupmember_live_pair")]
+        constraints = OrganizationRecord.Meta.constraints + [
+            live_unique(("group", "membership"), "sk_access_groupmember_live_pair")
+        ]
 
     def clean(self):
         super().clean()
@@ -93,7 +103,9 @@ class GroupRole(OrganizationRecord):
     immutable_fields = ("group_id", "role_id")
 
     class Meta(OrganizationRecord.Meta):
-        constraints = OrganizationRecord.Meta.constraints + [live_unique(("group", "role"), "sk_access_grouprole_live_pair")]
+        constraints = OrganizationRecord.Meta.constraints + [
+            live_unique(("group", "role"), "sk_access_grouprole_live_pair")
+        ]
 
 
 class TablePermission(OrganizationRecord):
@@ -112,18 +124,37 @@ class TablePermission(OrganizationRecord):
 class RecordGrant(OrganizationRecord):
     table = models.ForeignKey("sk_system.TableDefinition", on_delete=models.PROTECT, related_name="record_grants")
     record_sysid = models.UUIDField()
-    membership = models.ForeignKey("sk_tenancy.Membership", on_delete=models.PROTECT, null=True, blank=True, related_name="record_grants")
-    group = models.ForeignKey(AccessGroup, on_delete=models.PROTECT, null=True, blank=True, related_name="record_grants")
+    membership = models.ForeignKey(
+        "sk_tenancy.Membership", on_delete=models.PROTECT, null=True, blank=True, related_name="record_grants"
+    )
+    group = models.ForeignKey(
+        AccessGroup, on_delete=models.PROTECT, null=True, blank=True, related_name="record_grants"
+    )
     role = models.ForeignKey(Role, on_delete=models.PROTECT, null=True, blank=True, related_name="record_grants")
-    action = models.CharField(max_length=16, choices=[(action.value, action.label) for action in (Action.READ, Action.UPDATE, Action.DELETE)])
+    action = models.CharField(
+        max_length=16, choices=[(action.value, action.label) for action in (Action.READ, Action.UPDATE, Action.DELETE)]
+    )
     immutable_fields = ("table_id", "record_sysid", "membership_id", "group_id", "role_id", "action")
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
-            models.CheckConstraint(condition=(Q(membership__isnull=False, group__isnull=True, role__isnull=True) | Q(membership__isnull=True, group__isnull=False, role__isnull=True) | Q(membership__isnull=True, group__isnull=True, role__isnull=False)), name="sk_access_recordgrant_one_subject"),
-            models.CheckConstraint(condition=Q(action__in=("read", "update", "delete")), name="sk_access_recordgrant_action"),
-            live_unique(("organization", "table", "record_sysid", "membership", "action"), "sk_access_recordgrant_live_member"),
-            live_unique(("organization", "table", "record_sysid", "group", "action"), "sk_access_recordgrant_live_group"),
+            models.CheckConstraint(
+                condition=(
+                    Q(membership__isnull=False, group__isnull=True, role__isnull=True)
+                    | Q(membership__isnull=True, group__isnull=False, role__isnull=True)
+                    | Q(membership__isnull=True, group__isnull=True, role__isnull=False)
+                ),
+                name="sk_access_recordgrant_one_subject",
+            ),
+            models.CheckConstraint(
+                condition=Q(action__in=("read", "update", "delete")), name="sk_access_recordgrant_action"
+            ),
+            live_unique(
+                ("organization", "table", "record_sysid", "membership", "action"), "sk_access_recordgrant_live_member"
+            ),
+            live_unique(
+                ("organization", "table", "record_sysid", "group", "action"), "sk_access_recordgrant_live_group"
+            ),
             live_unique(("organization", "table", "record_sysid", "role", "action"), "sk_access_recordgrant_live_role"),
         ]
 
@@ -137,5 +168,14 @@ def validate_active_membership(record):
         return
     from skeleton.tenancy.models import Membership
 
-    if not Membership.all_objects.filter(pk=record.membership_id, organization_id=record.organization_id, deleted_at__isnull=True, is_active=True, user__is_active=True, user__deleted_at__isnull=True, organization__is_active=True, organization__deleted_at__isnull=True).exists():
+    if not Membership.all_objects.filter(
+        pk=record.membership_id,
+        organization_id=record.organization_id,
+        deleted_at__isnull=True,
+        is_active=True,
+        user__is_active=True,
+        user__deleted_at__isnull=True,
+        organization__is_active=True,
+        organization__deleted_at__isnull=True,
+    ).exists():
         raise ValidationError({"membership": "An active membership in this organization is required."})

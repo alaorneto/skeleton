@@ -11,4 +11,6 @@ class AuditConfig(AppConfig):
     def ready(self):
         from .sqlite import register_sqlite_functions
 
-        connection_created.connect(register_sqlite_functions, dispatch_uid="skeleton.audit.context_functions", weak=False)
+        connection_created.connect(
+            register_sqlite_functions, dispatch_uid="skeleton.audit.context_functions", weak=False
+        )

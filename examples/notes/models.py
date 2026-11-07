@@ -12,7 +12,12 @@ class Note(SecuredRecord):
 
     class Meta(SecuredRecord.Meta):
         constraints = SecuredRecord.Meta.constraints + [
-            models.UniqueConstraint(fields=("organization", "code"), condition=Q(deleted_at__isnull=True), name="example_notes_note_live_code", violation_error_code='unique'),
+            models.UniqueConstraint(
+                fields=("organization", "code"),
+                condition=Q(deleted_at__isnull=True),
+                name="example_notes_note_live_code",
+                violation_error_code="unique",
+            ),
         ]
         ordering = ("created_at", "sysid")
 

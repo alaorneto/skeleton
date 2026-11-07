@@ -1,4 +1,5 @@
 """Isolated real databases without Django flush/TRUNCATE of protected records."""
+
 import os
 import sqlite3
 
@@ -53,6 +54,7 @@ def skeleton_db(request, tmp_path, django_db_blocker):
     with django_db_blocker.unblock():
         if runtime_url.startswith(("postgres://", "postgresql://")):
             from tools.integration_database import disposable_database_pair, reset_schema
+
             try:
                 pair = disposable_database_pair()
             except RuntimeError as exc:
@@ -74,10 +76,14 @@ def skeleton_db(request, tmp_path, django_db_blocker):
             _configure({"ENGINE": "django.db.backends.sqlite3", "NAME": str(target)})
         try:
             # Do not clear a configured external cache or share rate limits across tests.
-            with override_settings(CACHES={"default": {
-                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-                    "LOCATION": str(tmp_path),
-            }}):
+            with override_settings(
+                CACHES={
+                    "default": {
+                        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                        "LOCATION": str(tmp_path),
+                    }
+                }
+            ):
                 yield
         finally:
             connections.close_all()

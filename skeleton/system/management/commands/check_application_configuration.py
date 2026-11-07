@@ -1,5 +1,5 @@
-from django.core.management.base import BaseCommand, CommandError
 from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 
 from skeleton.system.app_registry import all_apps, validate_configuration
 from skeleton.system.models import AppInstallation

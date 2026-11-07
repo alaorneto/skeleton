@@ -60,9 +60,9 @@ line-length = 120
 extend-exclude = [".private", "staticfiles"]
 
 [tool.ruff.lint]
-# Linha de base aplicada a todo o repositório. E501, I e PLC0415 ficam para a
-# adoção gradual do formatter, que exige uma reformatação dedicada.
-select = ["F", "E9", "B", "UP", "DJ"]
+# Linha de base aplicada a todo o repositório. E501 (strings SQL/HTML longas que o
+# formatter não quebra) e PLC0415 (imports tardios contra ciclos de apps) ficam fora.
+select = ["F", "E9", "B", "UP", "DJ", "I"]
 ignore = [
     "DJ012",  # ordem de membros em modelos abstratos é estilística
 ]
@@ -70,6 +70,13 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "config/settings/*.py" = ["F403", "F405"]  # overlays herdam os defaults por star import
 "tests/**" = ["DJ008"]
+"**/migrations/**" = ["I"]  # migrations históricas não são reescritas
+
+[tool.ruff.lint.isort]
+known-first-party = ["applications", "config", "deployment_agent", "examples", "skeleton", "tests", "tools"]
+
+[tool.ruff.format]
+exclude = ["**/migrations/**"]
 
 [tool.mypy]
 python_version = "3.12"

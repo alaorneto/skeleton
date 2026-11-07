@@ -1,4 +1,5 @@
 from django.db import models
+
 from skeleton.common.models import OrganizationRecord, SystemRecord
 
 
@@ -19,7 +20,11 @@ class TableDefinition(SystemRecord):
     available = models.BooleanField(default=True)
 
     class Meta(SystemRecord.Meta):
-        constraints = SystemRecord.Meta.constraints + [models.UniqueConstraint(fields=("database_alias", "schema_name", "db_table"), name="sk_system_table_physical_unique")]
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("database_alias", "schema_name", "db_table"), name="sk_system_table_physical_unique"
+            )
+        ]
 
     def __str__(self):
         return self.label
@@ -39,7 +44,9 @@ class FieldDefinition(SystemRecord):
     available = models.BooleanField(default=True)
 
     class Meta(SystemRecord.Meta):
-        constraints = SystemRecord.Meta.constraints + [models.UniqueConstraint(fields=("table", "column"), name="sk_system_field_column_unique")]
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(fields=("table", "column"), name="sk_system_field_column_unique")
+        ]
 
 
 class AppInstallation(OrganizationRecord):
@@ -55,15 +62,21 @@ class AppInstallation(OrganizationRecord):
 
     def clean(self):
         super().clean()
-        from .app_registry import get_app, validate_configuration
         from django.core.exceptions import ValidationError
+
+        from .app_registry import get_app, validate_configuration
+
         try:
             manifest = get_app(self.app_label)
         except KeyError:
             loaded = getattr(self, "_loaded_values", {})
             retained = ComponentInstallation.objects.filter(app_label=self.app_label, state="schema_retained").exists()
-            if (retained and not self._state.adding and not self.enabled
-                    and self.configuration == loaded.get("configuration")):
+            if (
+                retained
+                and not self._state.adding
+                and not self.enabled
+                and self.configuration == loaded.get("configuration")
+            ):
                 # Retention can disable existing state, never edit or reactivate it.
                 return
             raise ValidationError({"app_label": "Application is not installed."}) from None
@@ -72,6 +85,7 @@ class AppInstallation(OrganizationRecord):
 
 class ComponentInstallation(SystemRecord):
     """Global deployment state; unrelated to an organization's activation."""
+
     component_id = models.CharField(max_length=100, unique=True)
     kind = models.CharField(max_length=8, choices=(("core", "Core"), ("app", "App")))
     app_label = models.CharField(max_length=100, blank=True)
@@ -80,10 +94,14 @@ class ComponentInstallation(SystemRecord):
     digest = models.CharField(max_length=64, blank=True)
     publisher = models.CharField(max_length=100, blank=True)
     generation = models.PositiveBigIntegerField(default=0)
-    state = models.CharField(max_length=24, choices=(
-        ("installed", "Instalado"), ("project-local", "Local"),
-        ("schema_retained", "Dados preservados"),
-    ))
+    state = models.CharField(
+        max_length=24,
+        choices=(
+            ("installed", "Instalado"),
+            ("project-local", "Local"),
+            ("schema_retained", "Dados preservados"),
+        ),
+    )
     inventory_reference = models.CharField(max_length=200, blank=True)
     immutable_fields = ("component_id", "kind", "app_label", "package_name")
 
@@ -93,11 +111,17 @@ class ComponentInstallation(SystemRecord):
 
 class DeploymentOperation(SystemRecord):
     """Approval and journal mirror; result retains submission identity until ACK."""
-    operation = models.CharField(max_length=16, choices=(
-        ("install", "Instalação"), ("update", "Atualização"),
-        ("uninstall", "Desinstalação"),
-        ("reinstall", "Reinstalação"), ("core_update", "Atualização do núcleo"),
-    ))
+
+    operation = models.CharField(
+        max_length=16,
+        choices=(
+            ("install", "Instalação"),
+            ("update", "Atualização"),
+            ("uninstall", "Desinstalação"),
+            ("reinstall", "Reinstalação"),
+            ("core_update", "Atualização do núcleo"),
+        ),
+    )
     state = models.CharField(max_length=24, default="preview")
     stage = models.CharField(max_length=64, default="preview")
     expected_generation = models.PositiveBigIntegerField()

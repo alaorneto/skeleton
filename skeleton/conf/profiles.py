@@ -1,11 +1,13 @@
 """Apply environment profiles to a project overlay without copying defaults."""
 
+
 def development_settings(base):
     env = base["env"]
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
     DEBUG = True
     from skeleton.accounts.providers import load_provider_config
+
     SKELETON_PROVIDER_CONFIGURATION = load_provider_config(env("SSO_PROVIDER_CONFIG_PATH", default=None), debug=DEBUG)
     SOCIALACCOUNT_PROVIDERS = SKELETON_PROVIDER_CONFIGURATION.settings
     result = {key: value for key, value in locals().items() if key.isupper()}
@@ -17,6 +19,7 @@ def production_settings(base):
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
     from django.core.exceptions import ImproperlyConfigured
+
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
     DATABASES = {"default": env.db("DATABASE_URL")}
@@ -47,14 +50,18 @@ def production_settings(base):
     X_FRAME_OPTIONS = "DENY"
     CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
     from django.http.request import validate_host
+
     SKELETON_HEALTH_HOST = env("DJANGO_HEALTH_HOST", default=ALLOWED_HOSTS[0].lstrip("."))
     if not validate_host(SKELETON_HEALTH_HOST, ALLOWED_HOSTS):
         raise ImproperlyConfigured("Health Host must be an explicitly allowed host.")
-    STORAGES = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-                "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"}}
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    }
     if env.bool("DJANGO_TRUST_PROXY", default=False):
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     from skeleton.accounts.providers import load_provider_config
+
     SKELETON_PROVIDER_CONFIGURATION = load_provider_config(env("SSO_PROVIDER_CONFIG_PATH", default=None), debug=DEBUG)
     SOCIALACCOUNT_PROVIDERS = SKELETON_PROVIDER_CONFIGURATION.settings
     result = {key: value for key, value in locals().items() if key.isupper()}
@@ -72,8 +79,9 @@ def migrate_settings(base):
         DATABASES["default"].setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
     # Migrations do not authenticate or contact IdPs; runtime settings own provider configuration.
     SOCIALACCOUNT_PROVIDERS = {}
-    
+
     from skeleton.deployment import migration_archive_configs
+
     archive_configs, archive_modules = migration_archive_configs(base["SKELETON_DEPLOYMENT_STATE"])
     MIGRATION_MODULES = {**base.get("MIGRATION_MODULES", {}), **archive_modules}
     INSTALLED_APPS = [*base["INSTALLED_APPS"], *archive_configs]
@@ -92,6 +100,7 @@ def test_settings(base):
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.PBKDF2PasswordHasher"]
     from skeleton.accounts.providers import load_provider_config
+
     SKELETON_PROVIDER_CONFIGURATION = load_provider_config(env("SSO_PROVIDER_CONFIG_PATH", default=None), debug=DEBUG)
     SOCIALACCOUNT_PROVIDERS = SKELETON_PROVIDER_CONFIGURATION.settings
     result = {key: value for key, value in locals().items() if key.isupper()}

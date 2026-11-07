@@ -2,8 +2,8 @@
 
 import http.client
 import json
-from pathlib import Path
 import socket
+from pathlib import Path
 from uuid import UUID
 
 
@@ -27,7 +27,12 @@ class UnixConnection(http.client.HTTPConnection):
 
 class AgentClient:
     def __init__(self, socket_path, token_file, *, timeout=1800, max_upload_bytes=128 * 1024 * 1024):
-        if not socket_path or not token_file or not Path(socket_path).is_absolute() or not Path(token_file).is_absolute():
+        if (
+            not socket_path
+            or not token_file
+            or not Path(socket_path).is_absolute()
+            or not Path(token_file).is_absolute()
+        ):
             raise AgentError("agent_not_configured")
         self.socket_path = str(socket_path)
         self.token_file = Path(token_file)
@@ -88,10 +93,23 @@ class AgentClient:
         return self._request("GET", "/inventory")
 
     def preview(self, action, artifacts=None, app_ids=None):
-        return self._request("POST", "/preview", {"action": action, "artifacts": artifacts or [], "app_ids": app_ids or []})
+        return self._request(
+            "POST", "/preview", {"action": action, "artifacts": artifacts or [], "app_ids": app_ids or []}
+        )
 
     def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
-        return self._request("POST", "/submit", {"plan_id": str(plan_id), "plan_digest": plan_digest, "generation": generation, "operation_id": str(operation_id), "actor_id": str(actor_id), "request_id": str(request_id)})
+        return self._request(
+            "POST",
+            "/submit",
+            {
+                "plan_id": str(plan_id),
+                "plan_digest": plan_digest,
+                "generation": generation,
+                "operation_id": str(operation_id),
+                "actor_id": str(actor_id),
+                "request_id": str(request_id),
+            },
+        )
 
     def operation(self, operation_id):
         try:
@@ -107,4 +125,6 @@ class AgentClient:
         return self._request("POST", "/catalog/check")
 
     def fetch_release(self, component_id, version, source_id):
-        return self._request("POST", "/catalog/fetch", {"component_id": component_id, "version": version, "source_id": source_id})
+        return self._request(
+            "POST", "/catalog/fetch", {"component_id": component_id, "version": version, "source_id": source_id}
+        )

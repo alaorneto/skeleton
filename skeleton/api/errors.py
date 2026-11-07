@@ -31,13 +31,17 @@ def require_revision(request, record):
 
 
 def validation_conflict(error):
-    errors = [item for values in error.error_dict.values() for item in values] if hasattr(error, "error_dict") else error.error_list
+    errors = (
+        [item for values in error.error_dict.values() for item in values]
+        if hasattr(error, "error_dict")
+        else error.error_list
+    )
     return any(item.code in {"unique", "unique_together"} for item in errors)
 
 
 def exception_handler(exc, context):
-    from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
     from skeleton.access.services import LastAdministrator
+    from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
 
     if isinstance(exc, ConcurrentUpdate):
         exc = BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412)
@@ -48,11 +52,25 @@ def exception_handler(exc, context):
     elif isinstance(exc, ValidationError):
         fields = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
         conflict = validation_conflict(exc)
-        exc = BoundaryError("integrity_conflict" if conflict else "validation_error", "Verifique os campos informados.", 409 if conflict else 400, fields)
+        exc = BoundaryError(
+            "integrity_conflict" if conflict else "validation_error",
+            "Verifique os campos informados.",
+            409 if conflict else 400,
+            fields,
+        )
     elif isinstance(exc, IntegrityError):
         exc = BoundaryError("integrity_conflict", "A operação conflita com os dados existentes.", 409)
     response = drf_exception_handler(exc, context)
     if response is not None and not isinstance(exc, BoundaryError):
-        codes = {400: "invalid_request", 403: "permission_denied", 404: "not_found", 405: "method_not_allowed", 429: "rate_limited"}
-        response.data = {"code": codes.get(response.status_code, "request_failed"), "detail": response.data.get("detail", "A operação não pôde ser concluída.")}
+        codes = {
+            400: "invalid_request",
+            403: "permission_denied",
+            404: "not_found",
+            405: "method_not_allowed",
+            429: "rate_limited",
+        }
+        response.data = {
+            "code": codes.get(response.status_code, "request_failed"),
+            "detail": response.data.get("detail", "A operação não pôde ser concluída."),
+        }
     return response

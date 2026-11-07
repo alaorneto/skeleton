@@ -1,4 +1,5 @@
 """Explicit synchronous transaction contexts; never derive identity from request input."""
+
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -8,6 +9,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
+
 from skeleton.common.exceptions import MissingTenantContext
 
 
@@ -53,11 +55,18 @@ def _uuid(value: IdentityRef) -> UUID | None:
 def _apply(context: Context) -> None:
     connection = connections[context.using]
     if connection.vendor == "postgresql":
-        values = (context.actor, context.organization_id, context.request_id, context.source,
-                  "on" if context.platform_admin else "off")
+        values = (
+            context.actor,
+            context.organization_id,
+            context.request_id,
+            context.source,
+            "on" if context.platform_admin else "off",
+        )
         with connection.cursor() as cursor:
             for name, value in zip(_GUCS, values, strict=True):
-                cursor.execute("SELECT set_config(%s, %s, true)", ["skeleton." + name, str(value) if value is not None else ""])
+                cursor.execute(
+                    "SELECT set_config(%s, %s, true)", ["skeleton." + name, str(value) if value is not None else ""]
+                )
 
 
 @contextmanager
@@ -82,14 +91,20 @@ def _enter(context: Context) -> Iterator[Context]:
 
 
 @contextmanager
-def request_context(*, actor: IdentityRef, request_id: IdentityRef, source: str,
-                    using: str = "default") -> Iterator[Context]:
+def request_context(
+    *, actor: IdentityRef, request_id: IdentityRef, source: str, using: str = "default"
+) -> Iterator[Context]:
     if _context.get() is not None:
         raise InvalidContext("Requests cannot nest.")
     selected_token = _selected.set(None)
     actor_id = _uuid(actor)
-    context = Context(actor=actor_id, request_id=_uuid(request_id), source=source,
-                      platform_admin=bool(getattr(actor, "is_superuser", False) and getattr(actor, "is_active", False)), using=using)
+    context = Context(
+        actor=actor_id,
+        request_id=_uuid(request_id),
+        source=source,
+        platform_admin=bool(getattr(actor, "is_superuser", False) and getattr(actor, "is_active", False)),
+        using=using,
+    )
     try:
         with _enter(context) as active:
             yield active
@@ -99,17 +114,29 @@ def request_context(*, actor: IdentityRef, request_id: IdentityRef, source: str,
 
 def _validate_membership(organization_id: UUID, actor_id: UUID | None, using: str) -> None:
     from skeleton.tenancy.models import Membership
-    if actor_id is None or not Membership.all_objects.using(using).filter(
-        organization_id=organization_id, user_id=actor_id, is_active=True, deleted_at__isnull=True,
-        organization__is_active=True, organization__deleted_at__isnull=True,
-        user__is_active=True, user__deleted_at__isnull=True,
-    ).exists():
+
+    if (
+        actor_id is None
+        or not Membership.all_objects.using(using)
+        .filter(
+            organization_id=organization_id,
+            user_id=actor_id,
+            is_active=True,
+            deleted_at__isnull=True,
+            organization__is_active=True,
+            organization__deleted_at__isnull=True,
+            user__is_active=True,
+            user__deleted_at__isnull=True,
+        )
+        .exists()
+    ):
         raise PermissionDenied("Organization is unavailable.")
 
 
 @contextmanager
-def tenant_context(*, organization_id: IdentityRef, actor: IdentityRef, source: str,
-                   using: str = "default") -> Iterator[Context]:
+def tenant_context(
+    *, organization_id: IdentityRef, actor: IdentityRef, source: str, using: str = "default"
+) -> Iterator[Context]:
     tenant_id, actor_id = _uuid(organization_id), _uuid(actor)
     prior = _context.get()
     if prior is None:
@@ -138,14 +165,17 @@ def tenant_context(*, organization_id: IdentityRef, actor: IdentityRef, source: 
 
 
 @contextmanager
-def system_context(*, reason: str, organization_id: IdentityRef = None,
-                   using: str = "default") -> Iterator[Context]:
+def system_context(*, reason: str, organization_id: IdentityRef = None, using: str = "default") -> Iterator[Context]:
     if not isinstance(reason, str) or not reason.strip():
         raise InvalidContext("A system context requires a reason.")
     tenant_id = _uuid(organization_id)
     prior = _context.get()
     # These are private, narrow identity admission paths, never request-selectable flags.
-    admitted = reason in {"invitation:validated", "sso:validated"} or bool(prior and prior.platform_admin and reason in {"organization:create", "organization:bootstrap", "builtin-permissions"})
+    admitted = reason in {"invitation:validated", "sso:validated"} or bool(
+        prior
+        and prior.platform_admin
+        and reason in {"organization:create", "organization:bootstrap", "builtin-permissions"}
+    )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")
     if prior and prior.organization_id not in (None, tenant_id):
@@ -154,8 +184,9 @@ def system_context(*, reason: str, organization_id: IdentityRef = None,
         if _selected.get() not in (None, tenant_id):
             raise InvalidContext("A request may select only one tenant.")
         _selected.set(tenant_id)
-    context = replace(prior or Context(using=using), organization_id=tenant_id,
-                      source="system:" + reason.strip(), system=True)
+    context = replace(
+        prior or Context(using=using), organization_id=tenant_id, source="system:" + reason.strip(), system=True
+    )
     with _enter(context) as active:
         yield active
 
@@ -167,18 +198,36 @@ def refresh_authenticated_actor(user: Any) -> None:
         return
     if prior.organization_id is not None:
         raise InvalidContext("Authentication cannot change within a tenant transaction.")
-    context = replace(prior, actor=_uuid(user) if getattr(user, "is_authenticated", False) else None,
-                      platform_admin=bool(getattr(user, "is_superuser", False) and getattr(user, "is_active", False)))
+    context = replace(
+        prior,
+        actor=_uuid(user) if getattr(user, "is_authenticated", False) else None,
+        platform_admin=bool(getattr(user, "is_superuser", False) and getattr(user, "is_active", False)),
+    )
     _context.set(context)
     _apply(context)
 
 
 def memberships_for_user(user: Any, *, using: str = "default") -> list[dict[str, Any]]:
     from skeleton.tenancy.models import Membership
+
     if not getattr(user, "is_authenticated", False):
         return []
     from django.db.models import F
-    return list(Membership.all_objects.using(using).filter(user_id=user.pk, is_active=True,
-        deleted_at__isnull=True, organization__is_active=True, organization__deleted_at__isnull=True
-    ).values("sysid", "organization_id", "is_active",
-             organization_name=F("organization__name"), organization_slug=F("organization__slug")))
+
+    return list(
+        Membership.all_objects.using(using)
+        .filter(
+            user_id=user.pk,
+            is_active=True,
+            deleted_at__isnull=True,
+            organization__is_active=True,
+            organization__deleted_at__isnull=True,
+        )
+        .values(
+            "sysid",
+            "organization_id",
+            "is_active",
+            organization_name=F("organization__name"),
+            organization_slug=F("organization__slug"),
+        )
+    )

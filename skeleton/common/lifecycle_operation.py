@@ -1,6 +1,5 @@
 from django.db.migrations.operations.base import Operation
 
-
 USER_LIFECYCLE_SQL = """
 CREATE OR REPLACE FUNCTION skeleton.assert_user_deactivation(target_user uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,skeleton AS $lifecycle$
@@ -50,7 +49,9 @@ class InstallUserLifecycleGuard(Operation):
             schema_editor.execute(USER_LIFECYCLE_SQL)
             schema_editor.execute("ALTER FUNCTION skeleton.assert_user_deactivation(uuid) OWNER TO skeleton_owner")
             schema_editor.execute("REVOKE ALL ON FUNCTION skeleton.assert_user_deactivation(uuid) FROM PUBLIC")
-            schema_editor.execute("GRANT EXECUTE ON FUNCTION skeleton.assert_user_deactivation(uuid) TO skeleton_runtime")
+            schema_editor.execute(
+                "GRANT EXECUTE ON FUNCTION skeleton.assert_user_deactivation(uuid) TO skeleton_runtime"
+            )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
         if schema_editor.connection.vendor == "postgresql":

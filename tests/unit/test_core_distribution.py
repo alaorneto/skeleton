@@ -1,12 +1,13 @@
 """Exercise installed core rendering and signed-base source adoption with a real wheel."""
+
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import zipfile
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -22,8 +23,23 @@ pytestmark = pytest.mark.posix
 @pytest.fixture(scope="module")
 def core_wheel(tmp_path_factory):
     output = tmp_path_factory.mktemp("core-wheel")
-    subprocess.run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "--wheel-dir", str(output), str(ROOT)],
-                   cwd=output, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "--wheel-dir",
+            str(output),
+            str(ROOT),
+        ],
+        cwd=output,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     wheels = list(output.glob("*.whl"))
     assert len(wheels) == 1
     return wheels[0]
@@ -34,14 +50,31 @@ def signed_core(core_wheel, tmp_path):
     base = wheel_inventory(core_wheel)
     key = Ed25519PrivateKey.generate()
     private = tmp_path / "publisher.pem"
-    private.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
-    manifest = {"manifest_version": 1, "kind": "core", "component_id": "django-skeleton", "name": "Skeleton",
-                "description": "Test core release", "version": base["version"], "publisher": "fixture-publisher",
-                "compatibility": {"skeleton": ">=0.1.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=5.2,<5.3"},
-                "dependencies": {}, "migrations": {"leaves": [], "from_versions": ">=0.1.0"}, "files": [],
-                "python_dependencies": [{"name": "django-skeleton", "version": base["version"],
-                                         "wheel": "wheels/" + core_wheel.name, "sha256": "0" * 64}],
-                "lifecycle": {"data_retention": "retain", "maintenance": True, "backup": True}}
+    private.write_bytes(
+        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    )
+    manifest = {
+        "manifest_version": 1,
+        "kind": "core",
+        "component_id": "django-skeleton",
+        "name": "Skeleton",
+        "description": "Test core release",
+        "version": base["version"],
+        "publisher": "fixture-publisher",
+        "compatibility": {"skeleton": ">=0.1.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=5.2,<5.3"},
+        "dependencies": {},
+        "migrations": {"leaves": [], "from_versions": ">=0.1.0"},
+        "files": [],
+        "python_dependencies": [
+            {
+                "name": "django-skeleton",
+                "version": base["version"],
+                "wheel": "wheels/" + core_wheel.name,
+                "sha256": "0" * 64,
+            }
+        ],
+        "lifecycle": {"data_retention": "retain", "maintenance": True, "backup": True},
+    }
     source = tmp_path / "manifest.json"
     source.write_text(json.dumps(manifest))
     release = build_core_release(core_wheel, source, tmp_path / "core.skapp", private)
@@ -69,18 +102,31 @@ def test_real_wheel_contains_only_core_and_preserves_historical_resources(core_w
 
 def test_wheel_installs_outside_checkout_and_all_project_profiles_start(core_wheel, tmp_path):
     target = tmp_path / "installed"
-    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(target), str(core_wheel)],
-                   cwd=tmp_path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(target), str(core_wheel)],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     project = tmp_path / "project"
     project.mkdir()
     shutil.copytree(ROOT / "config", project / "config", ignore=shutil.ignore_patterns("__pycache__"))
     (project / "applications").mkdir()
     (project / "applications/__init__.py").write_text("")
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(project), str(target)]), "SKELETON_PROJECT_ROOT": str(project),
-           "SKELETON_ENABLE_EXAMPLE_APP": "false", "DJANGO_SECRET_KEY": "fixture-only", "DJANGO_ALLOWED_HOSTS": "testserver",
-           "DATABASE_URL": "postgres://skeleton_runtime:fixture@127.0.0.1:5433/skeleton_test", "CACHE_URL": "rediscache://127.0.0.1:6380/0",
-           "EMAIL_URL": "smtp://127.0.0.1:2525", "DEFAULT_FROM_EMAIL": "fixture@example.test",
-           "MFA_ENCRYPTION_KEYS": "dV6nwLEp9c3A8-yiLskMRFbJaUMoXXJ-_SNkrulBj8I="}
+    env = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(project), str(target)]),
+        "SKELETON_PROJECT_ROOT": str(project),
+        "SKELETON_ENABLE_EXAMPLE_APP": "false",
+        "DJANGO_SECRET_KEY": "fixture-only",
+        "DJANGO_ALLOWED_HOSTS": "testserver",
+        "DATABASE_URL": "postgres://skeleton_runtime:fixture@127.0.0.1:5433/skeleton_test",
+        "CACHE_URL": "rediscache://127.0.0.1:6380/0",
+        "EMAIL_URL": "smtp://127.0.0.1:2525",
+        "DEFAULT_FROM_EMAIL": "fixture@example.test",
+        "MFA_ENCRYPTION_KEYS": "dV6nwLEp9c3A8-yiLskMRFbJaUMoXXJ-_SNkrulBj8I=",
+    }
     for key in ("SSO_PROVIDER_CONFIG_PATH", "SKELETON_DEPLOYMENT_INVENTORY", "SKELETON_MAINTENANCE_MARKER"):
         env.pop(key, None)
     code = """
@@ -196,10 +242,19 @@ for rendered in (html, profile):
     assert rendered.count('admin/js/core') == 1
 """.replace("TARGET", repr(str(target))).replace("PROJECT", repr(str(project)))
     env["DJANGO_SETTINGS_MODULE"] = "config.settings.build"
-    subprocess.run([sys.executable, "-c",
-                    "import django; django.setup(); from django.core.management import call_command; "
-                    "call_command('collectstatic', interactive=False, verbosity=0)"],
-                   cwd=project, env=env, check=True, capture_output=True, text=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import django; django.setup(); from django.core.management import call_command; "
+            "call_command('collectstatic', interactive=False, verbosity=0)",
+        ],
+        cwd=project,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     for profile in ("development", "test", "build", "migrate", "production"):
         env["DJANGO_SETTINGS_MODULE"] = "config.settings." + profile
         result = subprocess.run([sys.executable, "-c", code], cwd=project, env=env, capture_output=True, text=True)
@@ -224,15 +279,22 @@ def test_adoption_removes_only_equivalent_source_and_retains_migrations(core_whe
     project, external = tmp_path / "project", tmp_path / "site-packages"
     unpack_core(core_wheel, project)
     unpack_core(core_wheel, external)
-    preserved = {"applications/business.py": b"business", "config/settings/project.py": b"project overlay", "manage.py": b"entrypoint"}
+    preserved = {
+        "applications/business.py": b"business",
+        "config/settings/project.py": b"project overlay",
+        "manage.py": b"entrypoint",
+    }
     for name, content in preserved.items():
         path = project / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+
     class Installed:
         version = wheel_inventory(core_wheel)["version"]
+
         def locate_file(self, path):
             return external / path
+
     monkeypatch.setattr("skeleton.distribution.importlib.metadata.distribution", lambda name: Installed())
     result = adopt_source_core(project, signed_core, tmp_path / "backups")
     assert not (project / "skeleton").exists()
@@ -241,8 +303,9 @@ def test_adoption_removes_only_equivalent_source_and_retains_migrations(core_whe
 
 
 def test_worker_confirmation_checks_actual_loaded_core_bytes(monkeypatch):
-    from skeleton.deployment import DeploymentInventory, confirm_core
     import skeleton.deployment
+    from skeleton.deployment import DeploymentInventory, confirm_core
+
     source = Path(skeleton.deployment.__file__)
     payload = source.read_bytes()
     files = {"skeleton/deployment.py": {"sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)}}

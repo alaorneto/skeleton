@@ -3,6 +3,7 @@ from django.db.migrations.operations.base import Operation
 
 class GrantTechnicalTablePrivileges(Operation):
     """Frozen per-table framework privileges; no blanket future-table grants."""
+
     reversible = True
     reduces_to_sql = True
 
@@ -30,7 +31,10 @@ class GrantTechnicalTablePrivileges(Operation):
                 editor.execute(f"REVOKE ALL ON TABLE skeleton.{q(table)} FROM PUBLIC, skeleton_runtime")
                 if grant:
                     editor.execute(f"GRANT {','.join(privileges)} ON TABLE skeleton.{q(table)} TO skeleton_runtime")
-                cursor.execute("SELECT a.attname,pg_get_serial_sequence(%s,a.attname) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='skeleton' AND c.relname=%s AND a.attnum>0 AND NOT a.attisdropped", ["skeleton." + table, table])
+                cursor.execute(
+                    "SELECT a.attname,pg_get_serial_sequence(%s,a.attname) FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='skeleton' AND c.relname=%s AND a.attnum>0 AND NOT a.attisdropped",
+                    ["skeleton." + table, table],
+                )
                 for _column, sequence in cursor.fetchall():
                     if sequence:
                         editor.execute(f"REVOKE ALL ON SEQUENCE {sequence} FROM PUBLIC, skeleton_runtime")

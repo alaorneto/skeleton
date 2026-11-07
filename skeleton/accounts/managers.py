@@ -19,6 +19,7 @@ class UserManager(RecordManager, BaseUserManager):
         user = self.model(email=self.normalize_email(email), **extra_fields)
         user.set_password(password)
         from skeleton.accounts.services import ensure_profile
+
         with transaction.atomic(using=self.db):
             user.save(using=self.db)
             ensure_profile(user, using=self.db)

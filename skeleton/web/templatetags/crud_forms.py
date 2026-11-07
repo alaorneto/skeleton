@@ -10,8 +10,7 @@ register = template.Library()
 
 @register.simple_tag(takes_context=True)
 def crud_form_fields(context, form):
-    html = render_crispy_form(form, helper=build_crud_helper(form, context.get("sections")),
-                             context=context.flatten())
+    html = render_crispy_form(form, helper=build_crud_helper(form, context.get("sections")), context=context.flatten())
     # Only fixed, autoescaped core templates produce this HTML.
     return mark_safe(html)
 

@@ -1,5 +1,6 @@
-from django.apps import apps
 from collections.abc import Mapping
+
+from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
@@ -14,10 +15,21 @@ from skeleton.accounts.mfa import mfa_required
 from skeleton.accounts.services import update_profile
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
 from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model, profile_data
-from skeleton.tenancy.context import current_context
+from skeleton.tenancy.context import current_context, memberships_for_user
 from skeleton.tenancy.invitations import issue_invitation
-from skeleton.tenancy.context import memberships_for_user
-from skeleton.web.services import change_record_access, create_record, delete_record, exposed_spec, readable_specs, record_data, records_data, record_queryset, require_access_management, restore_record, update_record
+from skeleton.web.services import (
+    change_record_access,
+    create_record,
+    delete_record,
+    exposed_spec,
+    readable_specs,
+    record_data,
+    record_queryset,
+    records_data,
+    require_access_management,
+    restore_record,
+    update_record,
+)
 
 
 class SessionAPI(APIView):
@@ -51,7 +63,7 @@ def page(queryset, request, serialize=None, *, serialize_many=None):
         raise BoundaryError("invalid_pagination", "Página ou tamanho inválido.") from None
     offset = (number - 1) * size
     count = queryset.count()
-    items = queryset[offset:offset + size]
+    items = queryset[offset : offset + size]
     results = serialize_many(items) if serialize_many is not None else [serialize(item) for item in items]
     return Response({"count": count, "page": number, "page_size": size, "results": results})
 
@@ -75,7 +87,9 @@ class MeView(SessionAPI):
     @transaction.atomic
     def patch(self, request):
         revisions = parse_revision(request.headers.get("If-Match"), composite=True)
-        user, profile = update_profile(user=request.user, data=request_fields(request), user_revision=revisions[0], profile_revision=revisions[1])
+        user, profile = update_profile(
+            user=request.user, data=request_fields(request), user_revision=revisions[0], profile_revision=revisions[1]
+        )
         return etag(Response(profile_data(user, profile)), user.revision, profile.revision)
 
 
@@ -109,7 +123,16 @@ class DedicatedView(TenantAPI):
         if resource == "invitations":
             record = issue_invitation(user=request.user, request=request, **values)
         else:
-            names = {"memberships": "create_membership", "roles": "create_role", "groups": "create_group", "member-roles": "assign_member_role", "group-members": "add_group_member", "group-roles": "assign_group_role", "table-permissions": "grant_table_permission", "record-grants": "create_record_grant"}
+            names = {
+                "memberships": "create_membership",
+                "roles": "create_role",
+                "groups": "create_group",
+                "member-roles": "assign_member_role",
+                "group-members": "add_group_member",
+                "group-roles": "assign_group_role",
+                "table-permissions": "grant_table_permission",
+                "record-grants": "create_record_grant",
+            }
             record = getattr(access_services, names[resource])(user=request.user, data=values)
         return etag(Response(dedicated_data(resource, record), status=201), record.revision)
 
@@ -155,7 +178,17 @@ class CatalogView(TenantAPI):
         tables = apps.get_model("sk_system", "TableDefinition").objects
         keys = [spec.model._meta.label_lower for spec in readable_specs(request.user)]
         queryset = tables.filter(model_label__in=keys, available=True).order_by("model_label")
-        return page(queryset, request, lambda row: {"sysid": row.sysid, "table_key": row.model_label, "label": row.label, "description": row.description, "scope": row.scope})
+        return page(
+            queryset,
+            request,
+            lambda row: {
+                "sysid": row.sysid,
+                "table_key": row.model_label,
+                "label": row.label,
+                "description": row.description,
+                "scope": row.scope,
+            },
+        )
 
 
 class AuditView(TenantAPI):
@@ -187,11 +220,14 @@ class RecordsView(TenantAPI):
                 raise Http404
             return etag(Response(record_data(record, spec.read_fields, user=request.user)), record.revision)
         from skeleton.web.services import filter_records
+
         try:
             queryset = filter_records(queryset, spec, request.query_params)
         except ValidationError:
             raise BoundaryError("invalid_filter", "Filtro não permitido ou inválido.") from None
-        return page(queryset, request, serialize_many=lambda rows: records_data(rows, spec.read_fields, user=request.user))
+        return page(
+            queryset, request, serialize_many=lambda rows: records_data(rows, spec.read_fields, user=request.user)
+        )
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid=None):
@@ -234,7 +270,12 @@ class RestoreView(TenantAPI):
         spec = exposed_spec(table_key)
         if request_fields(request):
             raise BoundaryError("invalid_request", "Restauração não aceita campos.")
-        record = record_queryset(spec, user=request.user, action="restore", include_deleted=True).select_for_update().filter(pk=sysid).first()
+        record = (
+            record_queryset(spec, user=request.user, action="restore", include_deleted=True)
+            .select_for_update()
+            .filter(pk=sysid)
+            .first()
+        )
         if record is None:
             raise Http404
         require_revision(request, record)
@@ -266,10 +307,10 @@ class RecordAccessView(TenantAPI):
         return etag(Response(record_data(record, ("owner", "visibility", "owning_group"))), record.revision)
 
 
-
 class ReferenceView(TenantAPI):
     def get(self, request, organization_id, table_key, field_name):
         from skeleton.web.references import reference_request
+
         spec = exposed_spec(table_key)
         result, _, _ = reference_request(spec, field_name, user=request.user, params=request.query_params)
         return Response(result)

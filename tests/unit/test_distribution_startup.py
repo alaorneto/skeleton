@@ -1,4 +1,5 @@
 """Startup metadata and maintenance must never require a database connection."""
+
 import json
 from pathlib import Path
 
@@ -8,8 +9,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse
 from django.test import RequestFactory, override_settings
 
-from skeleton.deployment import (DeploymentInventory, MaintenanceMiddleware, load_deployment_inventory,
-                                 migration_archive_configs, release_response)
+from skeleton.deployment import (
+    DeploymentInventory,
+    MaintenanceMiddleware,
+    load_deployment_inventory,
+    migration_archive_configs,
+    release_response,
+)
 from skeleton.system.packages import manifest_template
 
 
@@ -19,12 +25,28 @@ def manifest(label="sample_notes", package="sample_notes"):
 
 def test_private_inventory_runtime_excludes_retained_and_preserves_hashes(tmp_path):
     current, removed = manifest(), manifest("removed_notes", "removed_notes")
-    data = {"generation": 7, "core": {}, "apps": [
-        {"manifest": current, "digest": "a" * 64, "state": "installed", "path": "applications/sample_notes"},
-        {"manifest": removed, "digest": "b" * 64, "state": "schema_retained", "path": "archives/archive_removed_notes"}],
+    data = {
+        "generation": 7,
+        "core": {},
+        "apps": [
+            {"manifest": current, "digest": "a" * 64, "state": "installed", "path": "applications/sample_notes"},
+            {
+                "manifest": removed,
+                "digest": "b" * 64,
+                "state": "schema_retained",
+                "path": "archives/archive_removed_notes",
+            },
+        ],
         "retained_schema_paths": [{"path": "retained/removed.json", "sha256": "c" * 64}],
-        "migration_archives": [{"app_label": "removed_notes", "package_name": "removed_notes",
-                                "path": "archives/archive_removed_notes", "migrations_module": "archive_removed_notes.migrations"}]}
+        "migration_archives": [
+            {
+                "app_label": "removed_notes",
+                "package_name": "removed_notes",
+                "path": "archives/archive_removed_notes",
+                "migrations_module": "archive_removed_notes.migrations",
+            }
+        ],
+    }
     inventory_file = tmp_path / "inventory.json"
     inventory_file.write_text(json.dumps(data))
     state = load_deployment_inventory(inventory_file)
@@ -44,9 +66,14 @@ def test_migrator_loads_genuine_archive_with_original_label_no_models_or_ready(t
     (archive / "__init__.py").write_text("")
     (archive / "migrations/__init__.py").write_text("")
     (archive / "migrations/0001_initial.py").write_text(
-        "from django.db import migrations\nclass Migration(migrations.Migration):\n initial=True\n dependencies=[]\n operations=[]\n")
-    item = {"app_label": "removed_notes", "package_name": "removed_notes", "path": str(archive),
-            "migrations_module": "archive_removed_notes.migrations"}
+        "from django.db import migrations\nclass Migration(migrations.Migration):\n initial=True\n dependencies=[]\n operations=[]\n"
+    )
+    item = {
+        "app_label": "removed_notes",
+        "package_name": "removed_notes",
+        "path": str(archive),
+        "migrations_module": "archive_removed_notes.migrations",
+    }
     state = DeploymentInventory(1, {}, (), (), (item,))
     monkeypatch.syspath_prepend(str(tmp_path))
     configs, modules = migration_archive_configs(state)
@@ -55,6 +82,7 @@ def test_migrator_loads_genuine_archive_with_original_label_no_models_or_ready(t
     assert config.models_module is None
     assert list(registry.get_models()) == []
     from django.db.migrations.loader import MigrationLoader
+
     with override_settings(INSTALLED_APPS=configs, MIGRATION_MODULES=modules):
         loader = MigrationLoader(None)
     assert ("removed_notes", "0001_initial") in loader.graph.nodes
@@ -86,29 +114,35 @@ def test_maintenance_stops_all_application_requests_before_session_or_db(tmp_pat
 def test_release_confirmation_refuses_unmatched_build_and_requires_safe_methods():
     state = DeploymentInventory(9, {"version": "0.1.0", "digest": "a" * 64}, (), (), ())
     with override_settings(SKELETON_DEPLOYMENT_STATE=state):
-        response = release_response(RequestFactory().get("/health/release/"), ({"version": "0.1.0", "origin": "installed"}, False))
+        response = release_response(
+            RequestFactory().get("/health/release/"), ({"version": "0.1.0", "origin": "installed"}, False)
+        )
         assert response.status_code == 503
         assert json.loads(response.content)["status"] == "release_mismatch"
         assert release_response(RequestFactory().post("/health/release/")).status_code == 405
-        response = release_response(RequestFactory().head("/health/release/"), ({"version": "0.1.0", "origin": "installed"}, True))
+        response = release_response(
+            RequestFactory().head("/health/release/"), ({"version": "0.1.0", "origin": "installed"}, True)
+        )
         assert response.status_code == 200
         assert response.content == b""
 
 
-@pytest.mark.parametrize('mismatch', ['version', 'path'])
+@pytest.mark.parametrize("mismatch", ["version", "path"])
 def test_local_release_inventory_cannot_disagree_with_loaded_app(mismatch, tmp_path):
     from importlib import import_module
+
     from examples.notes.apps import NotesConfig
     from skeleton.system.app_registry import AppManifest
     from skeleton.system.packages import PackageError, load_manifest
-    config = NotesConfig('examples.notes', import_module('examples.notes'))
-    source = Path(config.path) / 'manifest.json'
+
+    config = NotesConfig("examples.notes", import_module("examples.notes"))
+    source = Path(config.path) / "manifest.json"
     declared = load_manifest(source)
-    entry = {'manifest': declared, 'state': 'project-local', 'path': config.path}
-    if mismatch == 'version':
-        entry['manifest'] = {**declared, 'version': '9.9.9'}
+    entry = {"manifest": declared, "state": "project-local", "path": config.path}
+    if mismatch == "version":
+        entry["manifest"] = {**declared, "version": "9.9.9"}
     else:
-        entry['path'] = str(tmp_path / 'different-app')
+        entry["path"] = str(tmp_path / "different-app")
     inventory = DeploymentInventory(0, {}, (entry,), (), ())
     with override_settings(SKELETON_DEPLOYMENT_STATE=inventory):
         with pytest.raises(PackageError):
