@@ -1,0 +1,3 @@
+# Reformatação mecânica pelo ruff format; ative com:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+ec1cd76964d897bf1180135d8860cfa30fd4f96a
