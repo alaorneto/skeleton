@@ -22,8 +22,9 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 | Job | O que prova | O que não prova |
 |---|---|---|
-| `lint` | Ruff 0.17.4 com as regras de `pyproject.toml`. | Formatação; E501, I e PLC0415 ainda não fazem parte da linha de base. |
-| `sqlite` | Lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e `tests/unit tests/integration_sqlite tests/accounts`, em Python 3.12 e 3.14. | RLS PostgreSQL. |
+| `lint` | Ruff 0.17.4 com as regras de `pyproject.toml` e `ruff format --check`. | E501 e PLC0415, que seguem fora da linha de base. |
+| `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
+| `sqlite` | Lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e `tests/unit tests/integration_sqlite tests/accounts` com cobertura (`coverage.xml` publicado como artefato), em Python 3.12 e 3.14. | RLS PostgreSQL. Cobertura mede linhas executadas, não a qualidade das assertions. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
 | `postgres` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; migrations como `skeleton_owner`, assertions como `skeleton_runtime` e `tools/smoke_postgres.py`. | Um PostgreSQL de produção ou um backup/restore. |
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |

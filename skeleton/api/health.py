@@ -1,7 +1,11 @@
+import logging
 from uuid import uuid4
+
 from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse, HttpResponseNotAllowed
+
+from skeleton.common.logging import security_event
 
 
 def probe_response(request):
@@ -11,11 +15,13 @@ def probe_response(request):
     ready = request.path_info == '/health/ready/'
     status = 'ok'
     if ready:
+        dependency = 'database'
         try:
             with connection.cursor() as cursor:
                 cursor.execute('SELECT 1')
                 if cursor.fetchone() != (1,):
                     raise RuntimeError('Database probe failed.')
+            dependency = 'cache'
             key = 'skeleton-health-' + str(uuid4())
             try:
                 cache.set(key, 'ok', timeout=10)
@@ -25,6 +31,9 @@ def probe_response(request):
                 cache.delete(key)
         except Exception:
             status = 'unavailable'
+            # The probe answers 503 without detail; operators get the failing dependency and code position.
+            security_event('health.probe_failed', level=logging.WARNING, status=503, outcome='server_error',
+                           reason_code=dependency + '_unavailable', source='health', exc_info=True)
     response = JsonResponse({'status': status}, status=200 if status == 'ok' else 503)
     response['Cache-Control'] = 'no-store'
     if request.method == 'HEAD':

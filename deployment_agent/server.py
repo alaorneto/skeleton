@@ -1,20 +1,38 @@
 """Bounded Unix-socket HTTP control API and independent scoped read-only status UI."""
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import html
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePath
 import secrets
 import socket
 from socketserver import ThreadingMixIn, UnixStreamServer
+import sys
 import threading
 import time
+import traceback
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .storage import AgentError, atomic_bytes, canonical, identifier, private_file
+
+
+def log_internal_error(error, stream=None):
+    """Emit one JSON line locating the failure; never the message, request, token or subprocess output."""
+    frames = traceback.extract_tb(error.__traceback__)[-25:]
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "level": "ERROR",
+        "event": "agent.internal_error",
+        "error_class": type(error).__name__,
+        "error_stack": [f"{PurePath(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames],
+    }
+    stream = stream or sys.stderr
+    stream.write(json.dumps(record, sort_keys=True) + "\n")
+    stream.flush()
 
 
 class StatusTickets:
@@ -167,7 +185,8 @@ class ControlHandler(QuietHandler):
             self.send_json({"error": error.code}, error.status)
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
-        except Exception:
+        except Exception as error:
+            log_internal_error(error)
             self.send_json({"error": "agent_internal_error"}, 500)
         finally:
             self.close_connection = True

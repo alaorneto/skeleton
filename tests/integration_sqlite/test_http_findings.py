@@ -46,6 +46,24 @@ def test_sbr07_exact_health_probes_survive_database_unavailability(monkeypatch, 
     assert client.get('/health/live/business/').status_code != 200
 
 
+def test_failed_readiness_logs_dependency_and_stack_without_message(monkeypatch, caplog):
+    connection.close()
+    def offline():
+        raise OperationalError('Database offline secret-sentinel')
+    monkeypatch.setattr(connection, 'ensure_connection', offline)
+    with caplog.at_level(logging.WARNING, logger='skeleton.security'):
+        assert Client(raise_request_exception=False).get('/health/ready/').status_code == 503
+    records = [record for record in caplog.records if getattr(record, 'event', None) == 'health.probe_failed']
+    assert len(records) == 1
+    output = SecurityJSONFormatter().format(records[0])
+    data = json.loads(output)
+    assert data['reason_code'] == 'database_unavailable'
+    assert data['error_class'] == 'OperationalError'
+    assert data['error_stack'] and all(frame.count(':') == 2 for frame in data['error_stack'])
+    assert any(frame.endswith(':offline') for frame in data['error_stack'])
+    assert 'secret-sentinel' not in output
+
+
 def test_rd10_oversized_json_returns_413_without_partial_profile_write():
     client, actor, organization = logged_client()
     before = client.get('/api/v1/me/')

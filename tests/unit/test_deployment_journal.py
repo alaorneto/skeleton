@@ -263,3 +263,23 @@ def test_current_release_abort_is_explicit_and_cannot_be_replayed(approved_deplo
     assert calls == first_calls
     assert len(pending) == 1
     assert service.store.get('operations', values['operation_id']) == journal
+
+
+def test_internal_error_log_locates_failure_without_message():
+    import io
+    import json
+    from deployment_agent.server import log_internal_error
+
+    def failing_command(token):
+        raise RuntimeError(f'subprocess output with {token}')
+    try:
+        failing_command('control-token-sentinel')
+    except RuntimeError as error:
+        stream = io.StringIO()
+        log_internal_error(error, stream)
+    output = stream.getvalue()
+    record = json.loads(output)
+    assert record['event'] == 'agent.internal_error'
+    assert record['error_class'] == 'RuntimeError'
+    assert record['error_stack'][-1].endswith(':failing_command')
+    assert 'control-token-sentinel' not in output

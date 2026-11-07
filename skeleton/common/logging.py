@@ -1,7 +1,21 @@
 import json
 import logging
+import traceback
 from datetime import datetime, UTC
+from pathlib import PurePath
 from uuid import UUID
+
+STACK_FRAME_LIMIT = 25
+
+
+def sanitized_stack(tb, *, limit=STACK_FRAME_LIMIT):
+    """Locate a failure by code position only: file name, line and function, innermost last.
+
+    Exception messages, source lines and local values are deliberately excluded because they
+    may carry request data or secrets.
+    """
+    frames = traceback.extract_tb(tb)[-limit:]
+    return [f"{PurePath(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames]
 
 
 class SecurityJSONFormatter(logging.Formatter):
@@ -30,6 +44,7 @@ class SecurityJSONFormatter(logging.Formatter):
         }
         if record.exc_info and record.exc_info[0]:
             payload["error_class"] = record.exc_info[0].__name__
+            payload["error_stack"] = sanitized_stack(record.exc_info[2])
         for key in self.extra_fields:
             value = getattr(record, key, None)
             if value is not None and isinstance(value, (str, int, bool)):
@@ -44,8 +59,9 @@ class SecurityJSONFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def security_event(event, *, level=logging.INFO, context_snapshot=None, request_id=None, source=None, **fields):
+def security_event(event, *, level=logging.INFO, context_snapshot=None, request_id=None, source=None,
+                   exc_info=None, **fields):
     allowed = {key: value for key, value in fields.items() if key in SecurityJSONFormatter.extra_fields}
-    logging.getLogger("skeleton.security").log(level, "", extra={
+    logging.getLogger("skeleton.security").log(level, "", exc_info=exc_info, extra={
         "event": event, "security_context": context_snapshot, "request_id": request_id, "source": source, **allowed,
     })

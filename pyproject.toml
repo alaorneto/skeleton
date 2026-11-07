@@ -30,6 +30,7 @@ exclude = ["config*", "applications*", "examples*", "deployment_agent*", "tests*
 
 [tool.setuptools.package-data]
 "*" = ["templates/**/*", "static/**/*", "*.json", "*.sql", "docs/**/*"]
+"skeleton" = ["py.typed"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
@@ -37,6 +38,20 @@ testpaths = ["tests"]
 addopts = "-ra"
 markers = [
     "posix: exige APIs de sistema de arquivos POSIX (os.O_NOFOLLOW, fcntl); pulado em outras plataformas",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["skeleton", "deployment_agent"]
+omit = ["*/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    '^\s*\.\.\.$',
 ]
 
 [tool.ruff]
@@ -55,3 +70,33 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "config/settings/*.py" = ["F403", "F405"]  # overlays herdam os defaults por star import
 "tests/**" = ["DJ008"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+# Adoção gradual: estes módulos são checados em modo estrito; os demais são
+# importados em silêncio até ganharem anotações próprias.
+files = [
+    "skeleton/tenancy/context.py",
+    "skeleton/access/policies.py",
+    "skeleton/common/models.py",
+]
+follow_imports = "silent"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+strict_equality = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "skeleton.tenancy.context",
+    "skeleton.access.policies",
+    "skeleton.common.models",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_any_generics = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
