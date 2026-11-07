@@ -7,6 +7,8 @@ from uuid import uuid4
 
 import pytest
 
+pytest.importorskip("fcntl", reason="O agente de deployment exige fcntl (Linux ou macOS).")
+
 from deployment_agent import service as service_module
 from deployment_agent import storage
 from deployment_agent.server import ControlHandler, UnixHTTPServer

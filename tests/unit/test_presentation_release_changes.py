@@ -2,6 +2,8 @@ from copy import deepcopy
 
 import pytest
 
+pytest.importorskip("fcntl", reason="O agente de deployment exige fcntl (Linux ou macOS).")
+
 from deployment_agent.releases import presentation_diff
 from deployment_agent.storage import digest
 

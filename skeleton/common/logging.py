@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from uuid import UUID
 
 
@@ -18,7 +18,7 @@ class SecurityJSONFormatter(logging.Formatter):
         if not isinstance(event, str) or not event.replace("_", "").replace(".", "").isalnum():
             event = "application_event"
         payload = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "event": event,
             "request_id": str(context.request_id) if context.request_id else getattr(record, "request_id", None),

@@ -1,6 +1,6 @@
 from django.apps import apps
 from collections.abc import Mapping
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
 from rest_framework.authentication import SessionAuthentication
@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from skeleton.access import services as access_services
-from skeleton.access.policies import authorized_audit_queryset, is_organization_admin, require_record_action
+from skeleton.access.policies import authorized_audit_queryset, is_organization_admin
 from skeleton.accounts.mfa import mfa_required
 from skeleton.accounts.services import update_profile
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision

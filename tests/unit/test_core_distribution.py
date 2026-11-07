@@ -16,6 +16,7 @@ from skeleton.distribution import adopt_source_core, build_core_release, source_
 from skeleton.system.packages import PackageError, validate_package
 
 ROOT = Path(__file__).resolve().parents[2]
+pytestmark = pytest.mark.posix
 
 
 @pytest.fixture(scope="module")

@@ -1,15 +1,13 @@
 """Admission decisions live in adapters, not race-prone social signals."""
-from copy import deepcopy
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.mfa.adapter import DefaultMFAAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpResponseForbidden
-from django.utils.translation import gettext_lazy as _
 
 from skeleton.accounts.mfa import cipher
 from skeleton.accounts.providers import binding_for_sociallogin

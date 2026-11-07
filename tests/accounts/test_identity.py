@@ -2,7 +2,7 @@ from datetime import timedelta
 from hashlib import sha256
 import secrets
 
-from cryptography.fernet import Fernet, MultiFernet
+from cryptography.fernet import Fernet
 from django.contrib.auth import authenticate
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
@@ -10,10 +10,10 @@ from django.test import Client, RequestFactory, override_settings
 from django.utils import timezone
 import pytest
 
-from skeleton.accounts.adapters import AccountAdapter, EncryptedMFAAdapter
+from skeleton.accounts.adapters import EncryptedMFAAdapter
 from skeleton.accounts.forms import PolicyResetPasswordKeyForm
 from skeleton.accounts.services import bootstrap_identity, create_identity, set_local_password, update_profile
-from skeleton.tenancy.context import system_context, tenant_context
+from skeleton.tenancy.context import system_context
 from skeleton.tenancy.invitations import InvalidInvitation, accept_invitation, pending_invitation, validate_invitation
 
 PASSWORD = 'Discardable-Identity-Test-Password!493'
@@ -125,7 +125,6 @@ def test_expired_invitation_rejects_previously_valid_session_proof(identity, mon
 
 
 def test_mfa_cipher_and_rotation_preserve_consumed_codes(identity):
-    from allauth.mfa.models import Authenticator
     from allauth.mfa.recovery_codes.internal.auth import RecoveryCodes
     from allauth.mfa.totp.internal.auth import TOTP
     old, new = Fernet.generate_key(), Fernet.generate_key()

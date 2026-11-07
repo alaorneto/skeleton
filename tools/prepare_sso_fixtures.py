@@ -4,7 +4,7 @@ Import tests/sso/realm-skeleton-{a,b}.json into Keycloak 26.8.0 first.
 This does not provision users in Django, modify a trust store or copy IdP keys.
 """
 import argparse
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 import json
 import os
 from pathlib import Path
@@ -55,7 +55,7 @@ def prepare(output):
         saml = f'saml-{suffix}'
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f'Skeleton fixture {saml}')])
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
             .serial_number(x509.random_serial_number()).not_valid_before(now-timedelta(minutes=1))
             .not_valid_after(now+timedelta(days=30)).sign(key, hashes.SHA256()))

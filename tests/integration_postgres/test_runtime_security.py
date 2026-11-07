@@ -63,7 +63,7 @@ def test_concurrent_invitation_acceptance_has_exactly_one_winner(skeleton_db):
     from django.urls import resolve
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.invitations import InvalidInvitation, accept_invitation, issue_invitation, validate_invitation
-    from skeleton.tenancy.models import Invitation, Membership
+    from skeleton.tenancy.models import Membership
     disposable_database_pair()
     assert connection.vendor == 'postgresql'
     fixture = build_security_fixture()

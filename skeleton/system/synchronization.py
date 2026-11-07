@@ -3,7 +3,6 @@ from pathlib import Path
 
 from django.apps import apps
 from django.db import connections, router, transaction
-from django.db import models
 
 from skeleton.tenancy.context import system_context
 from .registry import all_specs

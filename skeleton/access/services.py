@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from skeleton.tenancy.context import current_context
-from .policies import active_membership, is_organization_admin, effective_roles
+from .policies import is_organization_admin
 
 
 class LastAdministrator(ValidationError):
@@ -218,7 +218,7 @@ def _eligible_table(table, action):
     try:
         spec = get_spec(table.model_label)
     except KeyError:
-        raise ValidationError("Unknown business table.")
+        raise ValidationError("Unknown business table.") from None
     if not table.available or not spec.expose_api or not issubclass(spec.model, SecuredRecord) or action not in ACTIONS:
         raise ValidationError("Table or action is not eligible for enterprise permissions.")
     return spec

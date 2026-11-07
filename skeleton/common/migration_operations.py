@@ -2,7 +2,6 @@
 
 Only historical migration models and the frozen specification determine DDL.
 """
-import re
 from django.db.migrations.operations.base import Operation
 
 MECHANICAL = {"sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_by", "revision"}
@@ -167,7 +166,6 @@ class InstallRecordInfrastructure(Operation):
 
     def _postgres(self, editor, model):
         q, table = editor.quote_name, model._meta.db_table
-        relation_guards = []
         for field in self._org_refs(model):
             constraint = q(table + "_sk_org_" + field.column)
             target = q(field.related_model._meta.db_table)

@@ -45,7 +45,7 @@ def _apply(context):
         values = (context.actor, context.organization_id, context.request_id, context.source,
                   "on" if context.platform_admin else "off")
         with connection.cursor() as cursor:
-            for name, value in zip(_GUCS, values):
+            for name, value in zip(_GUCS, values, strict=True):
                 cursor.execute("SELECT set_config(%s, %s, true)", ["skeleton." + name, str(value) if value is not None else ""])
 
 

@@ -2,7 +2,6 @@ from allauth.account.views import LogoutView
 from allauth.account.internal.decorators import login_not_required
 from django.utils.decorators import method_decorator
 from django.utils.http import urlencode
-from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods

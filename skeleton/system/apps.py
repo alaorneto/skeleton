@@ -11,6 +11,6 @@ class SystemConfig(AppConfig):
     def ready(self):
         from .registry import register_core_specs
         register_core_specs()
-        from . import checks
+        from . import checks  # noqa: F401 - registra os system checks
         from .synchronization import post_migrate_catalog
         post_migrate.connect(post_migrate_catalog, sender=self, dispatch_uid="skeleton.sync.catalog")

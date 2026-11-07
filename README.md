@@ -73,6 +73,17 @@ Os executáveis ficam em ambientes isolados do usuário: BasedPyright/Ruff via `
 
 BasedPyright usa `.venv/bin/python` para resolver Django e as demais dependências. HTML oferece análise estrutural, não validação semântica das tags de template Django. `.omp/postgres-language-server.json` desabilita conexões ao banco: a análise SQL não recebe DSNs/segredos nem substitui verificações de schema com a role runtime.
 
+### Lint, pre-commit e CI
+
+As regras do Ruff ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`.
+
+```sh
+uvx ruff@0.17.4 check
+uvx pre-commit install
+```
+
+O workflow `.github/workflows/ci.yml` roda o lint, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
+
 
 ### Atualizar locks (manutenção, não todo startup)
 

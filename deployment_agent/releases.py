@@ -15,7 +15,7 @@ from packaging.version import Version
 
 from skeleton.system.packages import PackageError, extract_package, validate_dependency_graph, validate_package, validate_wheel_set
 
-from .storage import AgentError, atomic_bytes, atomic_json, digest, file_hash, inventory_files, load_json
+from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
 
 
 def verified(store, config, artifact):

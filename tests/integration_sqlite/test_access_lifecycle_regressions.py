@@ -140,7 +140,7 @@ def test_sbr01_reinvitation_restores_same_membership_and_consumes_once(access):
 
 
 def test_sbr04_inactive_membership_can_be_deleted_without_cross_tenant_bypass(access):
-    from skeleton.access.services import delete_membership, update_membership
+    from skeleton.access.services import delete_membership
     from skeleton.tenancy.models import Membership
     with actor_tenant(access.bob, access.b):
         foreign = Membership.objects.get(user=access.alice)

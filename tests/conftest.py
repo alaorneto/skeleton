@@ -20,6 +20,17 @@ def _configure(config):
     return normalized
 
 
+POSIX_FILESYSTEM = hasattr(os, "O_NOFOLLOW")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Production artifact handling is POSIX-only; report it as a skip, never as an error."""
+    if POSIX_FILESYSTEM:
+        return
+    skip = pytest.mark.skip(reason="Requer os.O_NOFOLLOW/fcntl; execute em Linux ou macOS.")
+    for item in items:
+        if item.get_closest_marker("posix"):
+            item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")

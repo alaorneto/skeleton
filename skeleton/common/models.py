@@ -38,7 +38,7 @@ class SystemRecord(models.Model):
     @classmethod
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
-        instance._loaded_values = dict(zip(field_names, values))
+        instance._loaded_values = dict(zip(field_names, values, strict=True))
         return instance
 
     def refresh_from_db(self, using=None, fields=None, from_queryset=None):

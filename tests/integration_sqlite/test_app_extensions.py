@@ -1,6 +1,6 @@
 """Behavioral acceptance for EA01, EA03–EA09."""
 import pytest
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.test import Client
 from django.urls import resolve
 
@@ -68,7 +68,7 @@ def test_ea05_navigation_hides_disabled_or_unauthorized_apps(app_actor):
 
 
 def test_ea06_manifest_dependency_and_configuration_contract(app_actor):
-    from skeleton.system.app_registry import AppManifest, ConfigField, register_app, unregister_app
+    from skeleton.system.app_registry import AppManifest, register_app, unregister_app
     from skeleton.system.applications import configure_application, application_state
     actor, organization, client = app_actor
     register_app(AppManifest(app_label='dependent_fixture', label='Dependent', description='Fixture', dependencies=('example_notes',), configuration_fields=()))
@@ -78,7 +78,7 @@ def test_ea06_manifest_dependency_and_configuration_contract(app_actor):
                 configure_application('example_notes', user=actor, enabled=False, configuration={}, revision=0)
             with pytest.raises(ValidationError):
                 configure_application('example_notes', user=actor, enabled=True, configuration={'unknown': 'secret'}, revision=0)
-            state = configure_application('example_notes', user=actor, enabled=True, configuration={'heading': 'Team notes'}, revision=0)
+            configure_application('example_notes', user=actor, enabled=True, configuration={'heading': 'Team notes'}, revision=0)
             assert application_state('example_notes')['configuration']['heading'] == 'Team notes'
     finally:
         unregister_app('dependent_fixture')

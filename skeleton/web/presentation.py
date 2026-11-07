@@ -77,7 +77,7 @@ def list_context(spec, records, *, user, params=None):
     records = list(records)
     projected = records_data(records, list_fields(spec), user=user)
     rows = []
-    for record, values in zip(records, projected):
+    for record, values in zip(records, projected, strict=True):
         rows.append({"sysid": str(record.sysid), "label": safe_record_label(record, spec),
                      "cells": [safe_record_label(record, spec) if name == "__label__" else
                                _value(spec.model._meta.get_field(name), values.get(name))

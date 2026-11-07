@@ -7,7 +7,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import tempfile
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 

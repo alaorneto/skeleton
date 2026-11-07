@@ -1,4 +1,3 @@
-from django.apps import apps
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
 from django.http import Http404

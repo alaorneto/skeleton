@@ -1,5 +1,5 @@
 import pytest
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, connection, transaction
 from uuid import uuid4
 

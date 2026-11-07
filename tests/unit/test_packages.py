@@ -1,6 +1,6 @@
 """Real signed artifacts, closed ownership, offline trust and release rollback tests."""
 from base64 import b64encode
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 import hashlib
 import importlib
 import io
@@ -22,6 +22,8 @@ from skeleton.system.packages import (
     validate_manifest, validate_package, validate_wheel_set,
 )
 from skeleton.versioning import normalize_version, version_satisfies
+
+pytestmark = pytest.mark.posix
 
 
 @pytest.fixture
@@ -293,7 +295,7 @@ def test_manifest_disallows_unknown_fields_reserved_names_and_runtime_escape(sig
 def test_signed_catalog_expiration_channel_filter_and_rollback(signed_app, tmp_path):
     package = validate_package(signed_app['package'], signed_app['trust'])
     entry = catalog_entry(package, artifact='demo.skapp')
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     index = build_catalog([entry], tmp_path / 'index.json', signed_app['private'], publisher='test-publisher', generation=7, expires_at=(now + timedelta(days=1)).isoformat())
     assert validate_catalog(index, signed_app['trust'], minimum_generation=7)['entries'] == [entry]
     assert validate_catalog(index, signed_app['trust'], channels=['beta'])['entries'] == []

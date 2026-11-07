@@ -6,7 +6,7 @@ class TableDefinition(SystemRecord):
     database_alias = models.CharField(max_length=64)
     schema_name = models.CharField(max_length=64)
     db_table = models.CharField(max_length=128)
-    model_label = models.CharField(max_length=128, null=True, blank=True)
+    model_label = models.CharField(max_length=128, null=True, blank=True)  # noqa: DJ001 - semântica NULL já persistida; mudar exige migration
     label = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     origin = models.CharField(max_length=24)
@@ -34,7 +34,7 @@ class FieldDefinition(SystemRecord):
     type_name = models.CharField(max_length=128)
     nullable = models.BooleanField(default=False)
     primary_key = models.BooleanField(default=False)
-    relation_target = models.CharField(max_length=128, null=True, blank=True)
+    relation_target = models.CharField(max_length=128, null=True, blank=True)  # noqa: DJ001 - semântica NULL já persistida; mudar exige migration
     sensitive = models.BooleanField(default=False)
     available = models.BooleanField(default=True)
 

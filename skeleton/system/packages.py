@@ -7,7 +7,7 @@ An artifact cannot supply its own trust anchor. Python payload remains privilege
 from configparser import ConfigParser, Error as ConfigParserError
 from base64 import b64decode, b64encode
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import hashlib
 import io
 import json
@@ -1075,7 +1075,7 @@ def _catalog(value):
 
 def build_catalog(entries, output_path, private_key_path, *, publisher, generation, expires_at):
     catalog = _catalog({'catalog_version': 1, 'publisher': publisher, 'generation': generation, 'expires_at': expires_at, 'entries': entries})
-    if _timestamp(expires_at) <= datetime.now(timezone.utc):
+    if _timestamp(expires_at) <= datetime.now(UTC):
         _fail('Cannot publish an already expired catalog.')
     signature = b64encode(_private_key(private_key_path).sign(canonical_json(catalog))).decode('ascii')
     output = Path(output_path)
@@ -1095,7 +1095,7 @@ def validate_catalog(path_or_dict, trust_store, *, minimum_generation=0, channel
     _object(envelope, ('catalog', 'signature'), ('catalog', 'signature'))
     catalog = _catalog(envelope['catalog'])
     _verify(_trusted_key(catalog['publisher'], trust_store), envelope['signature'], canonical_json(catalog))
-    if _timestamp(catalog['expires_at']) <= (now or datetime.now(timezone.utc)):
+    if _timestamp(catalog['expires_at']) <= (now or datetime.now(UTC)):
         _fail('Release catalog is expired.')
     if catalog['generation'] < minimum_generation:
         _fail('Release catalog generation rollback.')

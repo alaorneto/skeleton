@@ -1,0 +1,167 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  # Bibliotecas nativas exigidas pelos wheels SAML travados (mesmas do Dockerfile).
+  SYSTEM_PACKAGES: libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
+        with:
+          version: "0.17.4"
+          args: check --output-format github
+
+  sqlite:
+    name: SQLite (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      TEST_DATABASE_URL: "sqlite:///:memory:"
+      SKELETON_ENABLE_EXAMPLE_APP: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Instalar dependências do sistema
+        # redis-server alimenta o teste do healthcheck renderizado pelo Compose.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES redis-server
+      - name: Instalar lock com hashes
+        # Os testes de Compose invocam .venv/bin/python, então o venv fica na raiz.
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+          .venv/bin/python -m pip check
+      - name: Django checks
+        run: |
+          .venv/bin/python manage.py check --fail-level WARNING
+          .venv/bin/python manage.py makemigrations --check --dry-run
+      - name: Testes
+        run: .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts -q
+
+  deploy-check:
+    name: Settings de produção (check --deploy)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - run: python -m pip install --require-hashes -r requirements.txt
+      - name: manage.py check --deploy
+        # Valores descartáveis: o check não conecta ao banco, cache ou SMTP.
+        run: |
+          export DJANGO_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(50))')"
+          export MFA_ENCRYPTION_KEYS="$(python -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+          python manage.py check --deploy --fail-level WARNING
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.production
+          DJANGO_ALLOWED_HOSTS: ci.example.test
+          DATABASE_URL: postgres://skeleton_runtime:unused@127.0.0.1:1/unused
+          CACHE_URL: rediscache://127.0.0.1:1/0
+          EMAIL_URL: smtp://127.0.0.1:1
+          DEFAULT_FROM_EMAIL: ci@example.test
+
+  postgres:
+    name: PostgreSQL (role runtime)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_PASSWORD: ci-superuser-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      SKELETON_ENABLE_EXAMPLE_APP: "true"
+      SKELETON_TEST_ALLOW_SCHEMA_RESET: "1"
+      # As assertions usam skeleton_runtime (NOSUPERUSER, NOBYPASSRLS); o owner só migra.
+      TEST_DATABASE_URL: postgres://skeleton_runtime:ci-runtime@127.0.0.1:5432/ci_skeleton_test
+      TEST_MIGRATION_DATABASE_URL: postgres://skeleton_owner:ci-owner@127.0.0.1:5432/ci_skeleton_test
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGPASSWORD: ci-superuser-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES postgresql-client
+      - name: Provisionar banco descartável e roles
+        run: |
+          createdb ci_skeleton_test
+          psql -v ON_ERROR_STOP=1 -d ci_skeleton_test -f deploy/postgres/bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -d ci_skeleton_test \
+            -c "ALTER ROLE skeleton_owner PASSWORD 'ci-owner'" \
+            -c "ALTER ROLE skeleton_runtime PASSWORD 'ci-runtime'" \
+            -c "GRANT CREATE ON DATABASE ci_skeleton_test TO skeleton_owner"
+          # O GRANT permite que reset_schema() recrie o schema skeleton como owner.
+      - name: Instalar lock com hashes
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Testes PostgreSQL
+        run: |
+          .venv/bin/python -m pytest -q \
+            tests/integration_postgres \
+            tests/integration_sqlite/test_record_presentation.py \
+            tests/integration_sqlite/test_reference_picker.py \
+            tests/integration_sqlite/test_http_boundaries.py \
+            tests/integration_sqlite/test_application_administration.py \
+            tests/integration_sqlite/test_admin_configuration_boundary.py \
+            tests/integration_sqlite/test_app_extensions.py \
+            tests/integration_sqlite/test_access_lifecycle_regressions.py \
+            tests/integration_sqlite/test_audit_findings.py \
+            tests/accounts/test_lifecycle_findings.py \
+            tests/accounts/test_social_hardening.py
+      - name: Smoke de segurança do runtime
+        run: .venv/bin/python tools/smoke_postgres.py
+
+  build:
+    name: Wheel, auditoria e imagem
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Construir wheel do núcleo
+        run: |
+          python -m pip install --require-hashes -r requirements-dev.txt
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
+      - name: Auditar dependências travadas
+        run: |
+          python -m pip install "pip-audit==2.9.0"
+          pip-audit --strict --require-hashes --disable-pip -r requirements.txt
+          pip-audit --strict --require-hashes --disable-pip -r requirements-dev.txt
+      - name: Construir imagem
+        run: docker build --tag django-skeleton:ci .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-wheel
+          path: dist/*.whl

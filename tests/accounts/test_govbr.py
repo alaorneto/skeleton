@@ -13,7 +13,7 @@ import jwt
 import pytest
 import requests
 from allauth.core import context
-from allauth.socialaccount.models import SocialAccount, SocialApp, SocialToken
+from allauth.socialaccount.models import SocialAccount, SocialApp
 from cryptography.hazmat.primitives.asymmetric import rsa
 from django.core.exceptions import ImproperlyConfigured
 from django.test import Client, override_settings

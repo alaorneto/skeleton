@@ -3,7 +3,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import socket
 import subprocess
 from threading import Thread
 import time
@@ -18,6 +17,8 @@ PYTHON = str(ROOT / '.venv/bin/python')
 
 @pytest.fixture
 def composition():
+    if shutil.which("docker") is None:
+        pytest.skip("Renderizar o Compose exige o CLI do Docker.")
     env = dict(os.environ, POSTGRES_PASSWORD='disposable-pg-password', REDIS_PASSWORD='disposable-redis-password',
                DJANGO_SECRET_KEY='disposable-settings-secret', DJANGO_ALLOWED_HOSTS='production.example.test',
                DATABASE_URL='postgres://skeleton_runtime:fixture@127.0.0.1:5433/disposable',

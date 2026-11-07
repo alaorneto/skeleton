@@ -5,13 +5,12 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
-import sys
 import zipfile
 
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from skeleton.system.packages import PackageError, build_artifact, validate_manifest, validate_package
+from skeleton.system.packages import PackageError, build_artifact, validate_package
 
 
 def _digest(data):

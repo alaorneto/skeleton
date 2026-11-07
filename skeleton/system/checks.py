@@ -216,7 +216,6 @@ def expected_policies(model):
 
 def check_deployed_schema(*, using="default"):
     from .models import TableDefinition
-    from skeleton.common.models import OrganizationRecord
     connection = connections[using]
     if connection.vendor not in ("sqlite", "postgresql"):
         return ["Unsupported backend: only SQLite/PostgreSQL have record infrastructure."]
