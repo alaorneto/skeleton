@@ -20,7 +20,7 @@ jobs:
     if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Conferir Closes/Refs e label de tipo das issues
         # O corpo entra por variável de ambiente, nunca interpolado no script.
         env:
