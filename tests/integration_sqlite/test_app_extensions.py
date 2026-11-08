@@ -170,3 +170,46 @@ def test_ea09_manifest_requires_spec_and_decision_documents(tmp_path):
         "# Decision\n\n## Context\nExtension.\n\n## Decision\nUse secured records.\n\n## Consequences\nDefault deny.\n"
     )
     validate_documentation(manifest)
+
+
+def test_activation_follows_transitive_dependencies_and_names_blockers(app_actor):
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.system.app_registry import AppManifest, register_app, unregister_app
+    from skeleton.system.applications import configure_application, require_application_enabled
+
+    actor, organization, client = app_actor
+    for label, dependencies in (("middle_fixture", ("example_notes",)), ("top_fixture", ("middle_fixture",))):
+        register_app(
+            AppManifest(app_label=label, label=label.title(), description="Fixture", dependencies=dependencies)
+        )
+    try:
+        with tenant_context(organization_id=organization.pk, actor=actor, source="test:transitive"):
+            with pytest.raises(ValidationError, match="Middle_Fixture, Top_Fixture"):
+                configure_application("example_notes", user=actor, enabled=False, configuration={}, revision=0)
+            configure_application("top_fixture", user=actor, enabled=False, configuration={}, revision=0)
+            configure_application("middle_fixture", user=actor, enabled=False, configuration={}, revision=0)
+            configure_application("example_notes", user=actor, enabled=False, configuration={}, revision=0)
+            with pytest.raises(ValidationError, match="Enable required applications first: Anotações, Middle_Fixture"):
+                configure_application("top_fixture", user=actor, enabled=True, configuration={}, revision=1)
+            with pytest.raises(PermissionDenied):
+                require_application_enabled("top_fixture")
+    finally:
+        unregister_app("top_fixture")
+        unregister_app("middle_fixture")
+
+
+def test_dependency_check_reports_each_missing_and_cyclic_application():
+    from skeleton.system.app_registry import AppManifest, register_app, unregister_app
+    from skeleton.system.checks import record_contract_checks
+
+    fixtures = {"loop_a": ("loop_b",), "loop_b": ("loop_a",), "orphan_fixture": ("absent_fixture",)}
+    for label, dependencies in fixtures.items():
+        register_app(AppManifest(app_label=label, label=label, description="Fixture", dependencies=dependencies))
+    try:
+        messages = [error.msg for error in record_contract_checks() if error.id == "skeleton.E011"]
+        assert any("missing_dependency: orphan_fixture -> absent_fixture" in message for message in messages)
+        assert sum("dependency_cycle" in message for message in messages) == 1
+    finally:
+        for label in fixtures:
+            unregister_app(label)

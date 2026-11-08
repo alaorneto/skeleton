@@ -13,9 +13,12 @@ from uuid import UUID, uuid4
 
 
 class AgentError(ValueError):
-    def __init__(self, code, status=400):
+    """A stable public code; details carry only identities, ranges and versions."""
+
+    def __init__(self, code, status=400, details=None):
         self.code = code
         self.status = status
+        self.details = details
         super().__init__(code)
 
 

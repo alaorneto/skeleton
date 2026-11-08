@@ -110,6 +110,50 @@ def _error(request, exc):
     messages.error(request, f"Operação indisponível: {getattr(exc, 'code', type(exc).__name__)}.")
 
 
+PROBLEM_TEXT = {
+    "missing_dependency": "{component} exige {dependency} {required}, que não está instalada nem incluída no plano.",
+    "incompatible_dependency_version": "{component} exige {dependency} {required}; a versão resultante seria {found}.",
+    "dependency_cycle": "Dependência circular: {path}.",
+    "conflicting_release": "{component} declara conflito com {dependency} {required}; a versão resultante seria {found}.",
+    "incompatible_platform": "{component} exige {dependency} {required}; o ambiente-alvo tem {found}.",
+    "identity_collision": "{component} aparece mais de uma vez no plano.",
+    "namespace_collision": "{component} usa um label ou pacote Python já ocupado por outra app.",
+    "wheel_pin_conflict": "{component} fixa {dependency} {required}, em conflito com {found} fixado por outro componente.",
+    "installed_dependents": "{component} depende de {dependency}: retire as duas no mesmo plano ou mantenha {dependency}.",
+}
+
+
+class _Missing(dict):
+    def __missing__(self, key):
+        return "—"
+
+
+def describe_problems(details):
+    """Operator-facing text for the agent's closed problem shape; values stay autoescaped."""
+    problems = []
+    for detail in details:
+        values = _Missing(detail)
+        values["path"] = " → ".join(detail.get("path", ())) or "—"
+        text = PROBLEM_TEXT.get(detail["code"], "Problema de dependência: {code} em {component}.")
+        problems.append(
+            {
+                "text": text.format_map(values),
+                "suggestions": detail.get("suggestions", ()),
+                # An out-of-range installed dependency is replaced by an update, not installed.
+                "upgrade": detail["code"] == "incompatible_dependency_version",
+            }
+        )
+    return problems
+
+
+def _installed_components():
+    inventory = agent_client().inventory()
+    installed = {
+        entry["manifest"]["app_id"] for entry in inventory.get("apps", []) if entry.get("state") != "schema_retained"
+    }
+    return installed
+
+
 def index(request):
     require_platform(request.user)
     from skeleton.versioning import core_version
@@ -206,7 +250,7 @@ def preview(request):
             row = create_preview(user=request.user, **form.cleaned_data)
             return redirect("admin:skeleton_release_operation", operation_id=row.pk)
         except (ValueError, RuntimeError, OSError) as exc:
-            _error(request, exc)
+            return _preview_failure(request, form, exc)
     return render(
         request,
         "admin/skeleton/releases.html",
@@ -218,6 +262,50 @@ def preview(request):
         ),
         status=400,
     )
+
+
+def _preview_failure(request, form, exc):
+    _error(request, exc)
+    cleaned = getattr(form, "cleaned_data", {}) or {}
+    return render(
+        request,
+        "admin/skeleton/releases.html",
+        _context(
+            request,
+            upload_form=UploadForm(),
+            plan_form=form,
+            inventory=None,
+            problems=describe_problems(getattr(exc, "details", ())),
+            plan_action=cleaned.get("action", ""),
+            plan_artifacts=" ".join(cleaned.get("artifacts", ())),
+        ),
+        status=409 if getattr(exc, "details", ()) else 400,
+    )
+
+
+@reauthentication_required(allow_get=True)
+def add_dependency(request):
+    """Fetch an operator-chosen catalogue suggestion and preview the plan again with it."""
+    require_platform(request.user)
+    if request.method != "POST":
+        return redirect("admin:skeleton_releases")
+    _recent_authentication(request)
+    identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
+    if any(not value or len(value) > 128 for value in identifiers.values()):
+        return HttpResponse("Identificação de release inválida.", status=400)
+    form = PlanForm({"action": request.POST.get("action", ""), "artifacts": request.POST.get("artifacts", "")})
+    if not form.is_valid() or form.cleaned_data["action"] in {"uninstall", "reinstall"}:
+        return HttpResponse("Plano de origem inválido.", status=400)
+    try:
+        artifact = agent_client().fetch_release(**identifiers)
+        action = "update" if request.POST.get("upgrade") == "1" else form.cleaned_data["action"]
+        artifacts = list(dict.fromkeys([*form.cleaned_data["artifacts"], artifact["digest"]]))
+        form = PlanForm({"action": action, "artifacts": " ".join(artifacts)})
+        form.is_valid()
+        row = create_preview(user=request.user, action=action, artifacts=artifacts)
+        return redirect("admin:skeleton_release_operation", operation_id=row.pk)
+    except (ValueError, RuntimeError, OSError) as exc:
+        return _preview_failure(request, form, exc)
 
 
 @reauthentication_required(allow_get=True)
@@ -272,6 +360,10 @@ def fetch_release(request):
         if any(not value or len(value) > 128 for value in identifiers.values()):
             return HttpResponse("Identificação de release inválida.", status=400)
         artifact = agent_client().fetch_release(**identifiers)
+        if identifiers["component_id"] == "django-skeleton":
+            action = "core_update"
+        else:
+            action = "update" if identifiers["component_id"] in _installed_components() else "install"
         return render(
             request,
             "admin/skeleton/releases.html",
@@ -280,7 +372,7 @@ def fetch_release(request):
                 upload_form=UploadForm(),
                 inventory=None,
                 artifact=artifact,
-                plan_form=PlanForm(initial={"action": "update", "artifacts": artifact["digest"]}),
+                plan_form=PlanForm(initial={"action": action, "artifacts": artifact["digest"]}),
             ),
         )
     except (ValueError, RuntimeError, OSError) as exc:
@@ -294,6 +386,11 @@ def urlpatterns(site):
         path("system/releases/upload/", site.admin_view(upload), name="skeleton_release_upload"),
         path("system/releases/preview/", site.admin_view(preview), name="skeleton_release_preview"),
         path("system/releases/fetch/", site.admin_view(fetch_release), name="skeleton_release_fetch"),
+        path(
+            "system/releases/add-dependency/",
+            site.admin_view(add_dependency),
+            name="skeleton_release_add_dependency",
+        ),
         path(
             "system/releases/operations/<uuid:operation_id>/",
             site.admin_view(operation),

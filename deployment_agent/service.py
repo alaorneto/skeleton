@@ -15,10 +15,20 @@ from zipfile import ZipFile
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
+from skeleton.system.dependencies import catalog_candidates
 from skeleton.system.packages import PackageError, validate_catalog, validate_manifest, validate_package
 
 from .backends import backend_for
-from .releases import check_drift, create_release, file_diff, freeze, owned_snapshot, presentation_diff, verified
+from .releases import (
+    check_drift,
+    check_plan_dependencies,
+    create_release,
+    file_diff,
+    freeze,
+    owned_snapshot,
+    presentation_diff,
+    verified,
+)
 from .storage import (
     AgentError,
     Store,
@@ -264,8 +274,10 @@ class DeploymentService:
             inventory = state["inventory"]
             old_apps = {entry["manifest"]["app_id"]: entry for entry in inventory["apps"]}
             kinds = []
+            manifests = []
             for value in artifacts:
                 manifest = verified(self.store, self.config, value).manifest
+                manifests.append(manifest)
                 kind = manifest["kind"]
                 component = manifest.get("app_id", "django-skeleton")
                 kinds.append(component)
@@ -278,6 +290,13 @@ class DeploymentService:
                     raise AgentError("explicit_reinstall_required", 409)
             if len(kinds) != len(set(kinds)) or action == "core_update" and "django-skeleton" not in kinds:
                 raise AgentError("duplicate_component_or_missing_core")
+            # An update may bring new dependencies along, but must update something installed.
+            if action == "update" and not any(component in old_apps for component in kinds):
+                raise AgentError("not_installed_use_install", 409)
+            # Resolve the resulting component set before any copy, extraction or lock work.
+            check_plan_dependencies(
+                self.config, self.backend, inventory, manifests, app_ids, suggest=self.catalogue_suggestions
+            )
             self.backend.manage(source, ["check_skeleton_schema"], "runtime", code="current_schema_invalid")
             required = self.config.get("minimum_free_bytes", 512 * 1024 * 1024)
             if shutil.disk_usage(self.config["releases_root"]).free < required:
@@ -761,6 +780,37 @@ class DeploymentService:
                 )
                 raise
 
+    def catalogue_suggestions(self, dependency, required, target, *, limit=3):
+        """Compatible releases from already verified catalogue caches; never downloads anything."""
+        suggestions = []
+        for source in self.catalogue_sources():
+            cache = self.store.root / "catalogues" / f"{hashlib.sha256(source['id'].encode()).hexdigest()}.json"
+            if not cache.exists():
+                continue
+            try:
+                saved = load_json(cache)
+                body = validate_catalog(
+                    saved["envelope"],
+                    self.config["approved_publishers"],
+                    minimum_generation=saved["generation"],
+                    channels=source.get("channels", ["stable"]),
+                )
+            except (PackageError, KeyError, OSError, ValueError):
+                continue
+            for entry in catalog_candidates(body["entries"], dependency, required, target, limit=limit):
+                suggestions.append(
+                    {
+                        "source_id": source["id"],
+                        "component_id": entry["component_id"],
+                        "version": entry["version"],
+                        "digest": entry["digest"],
+                        # None marks a v1 catalogue: ranges unknown until the artifact is verified.
+                        "dependencies": entry.get("dependencies"),
+                    }
+                )
+        suggestions.sort(key=lambda item: Version(item["version"]), reverse=True)
+        return suggestions[:limit]
+
     def catalogue_sources(self):
         sources = self.config.get("catalogue_sources", [])
         if not isinstance(sources, list) or any(
@@ -835,13 +885,16 @@ class DeploymentService:
                 )
                 import platform
 
-                django_version = self.config.get("django_version", "5.2.18")
+                # Prefer the target runtime recorded by the active release over the agent's own.
+                runtime = inventory.get("runtime") or {}
+                python_version = runtime.get("python") or platform.python_version()
+                django_version = runtime.get("django") or self.config.get("django_version", "5.2.18")
                 for release in body["entries"]:
                     compatible = all(
                         Version(value) in SpecifierSet(release["compatibility"][key])
                         for key, value in (
                             ("skeleton", inventory["core"]["version"]),
-                            ("python", platform.python_version()),
+                            ("python", python_version),
                             ("django", django_version),
                         )
                     )

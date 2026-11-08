@@ -7,7 +7,14 @@ from django.urls import reverse
 from skeleton.common.exceptions import ConcurrentUpdate, MissingTenantContext
 from skeleton.tenancy.context import current_context
 
-from .app_registry import all_apps, get_app, validate_configuration, validate_dependencies
+from .app_registry import (
+    all_apps,
+    dependent_labels,
+    get_app,
+    required_labels,
+    validate_configuration,
+    validate_dependencies,
+)
 
 
 def application_state(app_label):
@@ -37,7 +44,8 @@ def require_application_enabled(app_label):
         return  # The core has no optional tenant activation contract.
     if not application_state(manifest.app_label)["enabled"]:
         raise PermissionDenied("Application is disabled in this organization.")
-    for dependency in manifest.dependencies:
+    # Transitive: a dependency's own disabled dependency also closes this application.
+    for dependency in required_labels(manifest.app_label):
         if not application_state(dependency)["enabled"]:
             raise PermissionDenied("Application dependency is disabled.")
 
@@ -62,13 +70,15 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     if type(revision) is not int or revision != expected:
         raise ConcurrentUpdate("Application configuration changed.")
     if enabled:
-        for dependency in manifest.dependencies:
-            if not application_state(dependency)["enabled"]:
-                raise ValidationError({"enabled": "Enable required applications first."})
+        pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
+        if pending:
+            names = ", ".join(get_app(label).label for label in pending)
+            raise ValidationError({"enabled": f"Enable required applications first: {names}."})
     else:
-        for other in all_apps():
-            if app_label in other.dependencies and application_state(other.app_label)["enabled"]:
-                raise ValidationError({"enabled": "Disable dependent applications first."})
+        blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
+        if blocking:
+            names = ", ".join(get_app(label).label for label in blocking)
+            raise ValidationError({"enabled": f"Disable dependent applications first: {names}."})
     if record is None:
         record = AppInstallation(
             organization_id=current_context().organization_id,

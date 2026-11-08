@@ -475,7 +475,24 @@ Um plano/geração antigo é rejeitado para uma nova submissão. O preview prepa
 "$AGENT" --config "$CONFIG" fetch-release notes 1.1.0 platform-stable
 ```
 
-IDs de app são os `app_id` dos manifests, não labels Django. Retirada não usa `migrate zero`: preserva schema, AppInstallation/configuração, ACLs/auditoria e o pacote assinado. As migrations históricas são copiadas byte-exact para archives sem modelos/rotas/hooks; apenas migrator carrega os labels. Preview rejeita imports de negócio retirado, histórico alterado e qualquer migration histórica retida ainda não aplicada. Reinstalação confere identidade/histórico/schema e deixa reativação organizacional explícita. Downgrade é recusado.
+IDs de app são os `app_id` dos manifests, não labels Django.
+
+**Dependências entre apps.** Antes de copiar o projeto ou extrair qualquer pacote, a prévia resolve o conjunto resultante: inventário atual, mais os pacotes do plano, menos as apps em retirada. As falhas têm códigos próprios e vêm com detalhes (`details`: app, dependência, faixa exigida, versão encontrada), que o admin mostra em linguagem do operador:
+
+| Código | Quando | O que fazer |
+|---|---|---|
+| `dependency_unsatisfied` | Falta uma dependência, a versão ficou fora da faixa de uma app instalada, há ciclo ou conflito. | Incluir a dependência no plano, escolher outra versão ou ajustar o manifesto. |
+| `installed_dependents` | A retirada deixaria apps instaladas sem uma dependência. | Retirar os dependentes no mesmo plano ou manter a app. |
+| `not_installed_use_install` | Um `update` não atualiza nenhuma app instalada. | Usar `install`. |
+| `target_runtime_incompatible` | `compatibility` não aceita o core, o Python ou o Django do alvo. | Publicar um release compatível. |
+
+Um `update` pode trazer apps novas junto, desde que atualize ao menos uma app instalada. É assim que uma dependência nova entra num plano de atualização.
+
+Para uma dependência faltante ou fora da faixa, a prévia sugere releases compatíveis dos catálogos já verificados por `check-updates`: a faixa exigida e o ambiente-alvo filtram as entradas, e as mais novas vêm primeiro. Nada é baixado sem escolha do operador. No admin, "Adicionar ao plano" baixa a release sugerida pelo mesmo caminho de `fetch-release` e refaz a prévia com ela; uma dependência instalada fora da faixa vira "Atualizar no plano", que troca a ação para `update`. O plano resultante passa pela confirmação normal.
+
+O inventário grava as apps em ordem de dependência e registra em `runtime` as versões de Python e Django do alvo. `check-updates` usa essas versões, e não as do processo do agente, para marcar releases como `incompatible`.
+
+Retirada não usa `migrate zero`: preserva schema, AppInstallation/configuração, ACLs/auditoria e o pacote assinado. As migrations históricas são copiadas byte-exact para archives sem modelos/rotas/hooks; apenas migrator carrega os labels. Preview rejeita imports de negócio retirado, histórico alterado e qualquer migration histórica retida ainda não aplicada. Reinstalação confere identidade/histórico/schema e deixa reativação organizacional explícita. Downgrade é recusado.
 
 Atualização/reinstalação não transforma configuração de tenants: mudança de `runtime.configuration_fields` ou `runtime.default_enabled` é bloqueada com `configuration_upgrade_requires_review`. Publique um release com contrato compatível ou realize primeiro procedimento de evolução versionada revisado; o agente não substitui configuração persistida por defaults novos nem ativa organizações silenciosamente.
 

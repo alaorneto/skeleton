@@ -147,3 +147,27 @@ def test_local_release_inventory_cannot_disagree_with_loaded_app(mismatch, tmp_p
     with override_settings(SKELETON_DEPLOYMENT_STATE=inventory):
         with pytest.raises(PackageError):
             AppManifest.from_json(source, app_config=config)
+
+
+def _inventory_with(tmp_path, apps):
+    data = {"generation": 1, "core": {}, "apps": apps, "retained_schema_paths": [], "migration_archives": []}
+    path = tmp_path / "inventory.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+def _entry(manifest_value):
+    package = manifest_value["package_name"]
+    return {"manifest": manifest_value, "digest": "a" * 64, "state": "installed", "path": f"applications/{package}"}
+
+
+def test_inventory_lists_apps_dependency_first_and_rejects_broken_graphs(tmp_path):
+    base, consumer = manifest("base_notes", "base_notes"), manifest("consumer_notes", "consumer_notes")
+    consumer["dependencies"] = {"base_notes": ">=0.1.0"}
+    state = load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer), _entry(base)]))
+    assert state.installed_apps == (base["app_config"], consumer["app_config"])
+    with pytest.raises(ImproperlyConfigured):
+        load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer)]))
+    consumer["dependencies"] = {"base_notes": ">=2.0.0"}
+    with pytest.raises(ImproperlyConfigured):
+        load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer), _entry(base)]))

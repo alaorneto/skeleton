@@ -169,7 +169,7 @@ Sem import dinâmico no processo web antigo, DDL em `ready()`, migrations em cad
 
 Distinguir quatro ações: desativar por organização; desinstalar código globalmente; reinstalar; remover dados offline.
 
-- O preview de desinstalação mostra impacto em **todas** as organizações, dependentes e referências de dados. Dependentes instalados bloqueiam retirada isolada; remoção conjunta precisa de plano explícito.
+- O preview de desinstalação mostra impacto em **todas** as organizações, dependentes e referências de dados. Dependentes instalados bloqueiam retirada isolada com `installed_dependents`, que lista cada dependente; remoção conjunta precisa de plano explícito com todos eles. Detalhes dos códigos em [deployment](deployment.md#agente-independente-de-deployment).
 - Na retirada, bloquear superfícies da app, remover menus/rotas/registro ativo e código possuído do novo release, e recalcular dependências Python/static e integrações compartilhadas.
 - Não aplicar automaticamente `migrate <app> zero`: pode perder dados e reverter migrations de apps dependentes.
 - Preservar tabelas, histórico de migrations, `AppInstallation`, ACLs, audit e artefato assinado do último release. A ausência de código não autoriza exportar ou reativar dados.

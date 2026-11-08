@@ -8,15 +8,15 @@ from email.parser import BytesParser
 from pathlib import Path
 from zipfile import ZipFile
 
-from packaging.markers import default_environment
+from packaging.markers import Marker, default_environment
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
+from skeleton.system.dependencies import dependents_of, resolve_dependencies
 from skeleton.system.packages import (
     PackageError,
     extract_package,
-    validate_dependency_graph,
     validate_package,
     validate_wheel_set,
 )
@@ -232,6 +232,102 @@ def freeze(release):
     os.chmod(release, 0o555)
 
 
+# Problems an operator fixes by changing the plan, as opposed to the target runtime.
+DEPENDENCY_CODES = frozenset(
+    {"missing_dependency", "incompatible_dependency_version", "dependency_cycle", "conflicting_release"}
+)
+SUGGESTIBLE_CODES = frozenset({"missing_dependency", "incompatible_dependency_version"})
+MAX_PROBLEM_DETAILS = 64
+
+
+def target_django_version(config, manifests, environment):
+    """The Django version build_lock will select: the locked pin, overridden by active manifest pins."""
+    version = parse_lock(config["requirements_lock"], environment).get("django", {}).get("version")
+    for manifest in manifests:
+        for dependency in manifest["python_dependencies"]:
+            marker = dependency.get("marker")
+            if marker and not Marker(marker).evaluate(environment):
+                continue
+            if canonicalize_name(dependency["name"]) == "django":
+                version = dependency["version"]
+    if version is None:
+        raise AgentError("missing_core_dependencies", 409)
+    return version
+
+
+def dependency_error(resolution, suggest=None):
+    details = [problem.as_dict() for problem in resolution.problems[:MAX_PROBLEM_DETAILS]]
+    if suggest is not None:
+        for detail in details:
+            if detail["code"] in SUGGESTIBLE_CODES:
+                detail["suggestions"] = suggest(detail["dependency"], detail["required"])
+    if any(problem.code in DEPENDENCY_CODES for problem in resolution.problems):
+        return AgentError("dependency_unsatisfied", 409, details=details)
+    return AgentError("target_runtime_incompatible", 409, details=details)
+
+
+def resolve_target(manifests, *, core, environment, django):
+    try:
+        return resolve_dependencies(
+            manifests,
+            core=core,
+            python=environment["python_full_version"],
+            django=django,
+            target_environment=environment,
+        )
+    except PackageError:
+        raise AgentError("target_runtime_incompatible", 409) from None
+
+
+def check_plan_dependencies(config, backend, inventory, artifact_manifests, removals, suggest=None):
+    """Resolve the resulting component set before any copy, extraction or lock work.
+
+    suggest(dependency, required, target) returns catalogue releases for a missing or
+    out-of-range dependency; the operator decides whether to add them to the plan.
+    """
+    core = (inventory.get("core") or {}).get("manifest")
+    apps = {
+        entry["manifest"]["app_id"]: entry["manifest"]
+        for entry in inventory.get("apps", [])
+        if entry["state"] != "schema_retained"
+    }
+    for manifest in artifact_manifests:
+        if manifest["kind"] == "core":
+            core = manifest
+        else:
+            apps[manifest["app_id"]] = manifest
+    removed = set(removals)
+    blocked = [
+        {"code": "installed_dependents", "component": dependent, "dependency": app_id}
+        for app_id in sorted(removed & set(apps))
+        for dependent in dependents_of(apps.values(), [app_id])
+        if dependent not in removed
+    ]
+    if blocked:
+        raise AgentError("installed_dependents", 409, details=blocked[:MAX_PROBLEM_DETAILS])
+    if core is None:
+        return None  # create_release reports the unidentified core base.
+    remaining = [manifest for app_id, manifest in apps.items() if app_id not in removed]
+    environment = backend.target_environment()
+    django = target_django_version(config, [core, *remaining], environment)
+    resolution = resolve_target([core, *remaining], core=core["version"], environment=environment, django=django)
+    if not resolution.ok:
+        target = {"skeleton": core["version"], "python": environment["python_full_version"], "django": django}
+        raise dependency_error(
+            resolution, suggest and (lambda dependency, required: suggest(dependency, required, target))
+        )
+    return resolution
+
+
+def ordered_entries(entries, order):
+    """Inventory apps dependency-first, so INSTALLED_APPS and ready() follow the graph."""
+    rank = {app_id: index for index, app_id in enumerate(order)}
+    return [
+        entry
+        for _, entry in sorted(entries.items(), key=lambda item: (item[0] not in rank, rank.get(item[0], 0), item[0]))
+    ]
+
+
 def create_release(config, store, backend, inventory, artifacts, removals, release):
     source = backend.active()
     release.mkdir(parents=True, exist_ok=False)
@@ -384,23 +480,19 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             entry.pop("retained_schema", None)
             entry["path"] = str(target)
     lock = build_lock(config, release, [core["manifest"], *manifests], environment)
-    try:
-        validate_dependency_graph(
-            [core["manifest"], *manifests],
-            core=core["version"],
-            python=environment["python_full_version"],
-            django=lock["django"]["version"],
-            target_environment=environment,
-        )
-    except PackageError:
-        raise AgentError("target_runtime_incompatible", 409) from None
+    resolution = resolve_target(
+        [core["manifest"], *manifests], core=core["version"], environment=environment, django=lock["django"]["version"]
+    )
+    if not resolution.ok:
+        raise dependency_error(resolution)
     result = {
         "generation": inventory["generation"] + 1,
         "core": core,
-        "apps": list(entries.values()),
+        "apps": ordered_entries(entries, resolution.order),
         "retained_schema_paths": retained,
         "migration_archives": archives,
         "environment": environment,
+        "runtime": {"python": environment["python_full_version"], "django": lock["django"]["version"]},
     }
     atomic_json(release / "inventory.json", result, 0o644)
     backend.prepare(release)

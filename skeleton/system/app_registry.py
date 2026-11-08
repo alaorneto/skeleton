@@ -206,26 +206,64 @@ def validate_configuration(manifest, values):
     return result
 
 
-def validate_dependencies():
-    from skeleton.system.packages import PackageError, validate_dependency_graph
+def dependency_problems():
+    """Every dependency problem among registered apps, as one-line summaries."""
+    from skeleton.system.dependencies import resolve_dependencies
+    from skeleton.system.packages import PackageError
 
+    problems = []
     canonical = [item.canonical for item in _manifests.values() if item.canonical is not None]
     if canonical:
         try:
-            validate_dependency_graph(canonical)
+            problems.extend(problem.summary for problem in resolve_dependencies(canonical).problems)
         except PackageError as exc:
-            raise ValidationError(str(exc)) from exc
+            problems.append(f"invalid_manifest: {exc}")
+    reported = set()
 
-    def visit(label, ancestors):
-        if label in ancestors:
-            raise ValidationError("Cyclic application dependency.")
-        if label not in _manifests:
-            raise ValidationError("Application dependency is not installed.")
+    def visit(label, stack):
+        if label in stack:
+            cycle = (*stack[stack.index(label) :], label)
+            if frozenset(cycle) not in reported:
+                reported.add(frozenset(cycle))
+                problems.append("dependency_cycle: " + " -> ".join(cycle))
+            return
         for dependency in get_app(label).dependencies:
-            visit(dependency, ancestors | {label})
+            if dependency not in _manifests:
+                if (label, dependency) not in reported:
+                    reported.add((label, dependency))
+                    problems.append(f"missing_dependency: {label} -> {dependency}")
+                continue
+            visit(dependency, (*stack, label))
 
     for manifest in all_apps():
-        visit(manifest.app_label, set())
+        visit(manifest.app_label, ())
+    return list(dict.fromkeys(problems))
+
+
+def validate_dependencies():
+    problems = dependency_problems()
+    if problems:
+        raise ValidationError(problems)
+
+
+def required_labels(app_label):
+    """Registered apps app_label transitively requires, dependency-first."""
+    order, seen = [], {app_label}
+
+    def visit(label):
+        for dependency in get_app(label).dependencies if label in _manifests else ():
+            if dependency not in seen:
+                seen.add(dependency)
+                visit(dependency)
+                order.append(dependency)
+
+    visit(app_label)
+    return order
+
+
+def dependent_labels(app_label):
+    """Registered apps that transitively require app_label."""
+    return [other for other in sorted(_manifests) if other != app_label and app_label in required_labels(other)]
 
 
 def validate_documentation(manifest):

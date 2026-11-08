@@ -22,6 +22,32 @@ def infrastructure_names(table, vendor):
     return tuple(table + "_sk_" + suffix for suffix in suffixes)
 
 
+def build_infrastructure_specification(model, spec):
+    """Return the frozen specification to paste into a new migration.
+
+    Authoring aid only: the result is written once into a migration and never
+    recomputed from current models or the editable catalog when DDL runs.
+    Column order follows ``concrete_fields``; relations report the target type.
+    """
+    sensitive = set(spec.sensitive_fields)
+    columns = []
+    for field in model._meta.concrete_fields:
+        kind = field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
+        columns.append(
+            {
+                "name": field.column,
+                "type": kind,
+                "sensitive": field.name in sensitive or field.column in sensitive,
+            }
+        )
+    specification = {"scope": spec.scope, "sensitive_fields": list(spec.sensitive_fields)}
+    immutable = tuple(getattr(model, "immutable_fields", ()))
+    if immutable:
+        specification["immutable_fields"] = list(immutable)
+    specification["columns"] = columns
+    return specification
+
+
 class InstallRecordInfrastructure(Operation):
     reversible = True
     reduces_to_sql = True

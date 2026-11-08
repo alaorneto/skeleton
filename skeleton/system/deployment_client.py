@@ -8,10 +8,41 @@ from uuid import UUID
 
 
 class AgentError(ValueError):
-    def __init__(self, code, status=None):
+    def __init__(self, code, status=None, details=()):
         self.code = code
         self.status = status
+        self.details = tuple(details)
         super().__init__(code)
+
+
+_DETAIL_FIELDS = ("code", "component", "dependency", "required", "found")
+_SUGGESTION_FIELDS = ("source_id", "component_id", "version", "digest")
+
+
+def _bounded_text(value, maximum=200):
+    return value if isinstance(value, str) and 0 < len(value) <= maximum and value.isprintable() else None
+
+
+def sanitize_details(raw):
+    """Keep only the closed problem shape the agent emits; drop anything else."""
+    if not isinstance(raw, list):
+        return ()
+    details = []
+    for item in raw[:64]:
+        if not isinstance(item, dict) or _bounded_text(item.get("code"), 100) is None:
+            continue
+        detail = {key: item[key] for key in _DETAIL_FIELDS if _bounded_text(item.get(key)) is not None}
+        path = item.get("path")
+        if isinstance(path, list) and all(_bounded_text(step) for step in path[:32]):
+            detail["path"] = path[:32]
+        suggestions = []
+        for suggestion in item.get("suggestions", [])[:8] if isinstance(item.get("suggestions"), list) else []:
+            if isinstance(suggestion, dict) and all(_bounded_text(suggestion.get(key)) for key in _SUGGESTION_FIELDS):
+                suggestions.append({key: suggestion[key] for key in _SUGGESTION_FIELDS})
+        if suggestions:
+            detail["suggestions"] = suggestions
+        details.append(detail)
+    return tuple(details)
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -68,7 +99,7 @@ class AgentClient:
                     code = result.get("error", "agent_request_failed")
                     if not isinstance(code, str) or not code.replace("_", "").isalnum() or len(code) > 100:
                         code = "agent_request_failed"
-                    raise AgentError(code, response.status)
+                    raise AgentError(code, response.status, sanitize_details(result.get("details")))
                 return result
             finally:
                 connection.close()

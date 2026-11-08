@@ -5,6 +5,7 @@ Trust store: publisher/key-id -> Ed25519PublicKey, public PEM text/path, or
 An artifact cannot supply its own trust anchor. Python payload remains privileged.
 """
 
+import ast
 import hashlib
 import io
 import json
@@ -63,6 +64,8 @@ INTERPRETER_LAUNCHER = re.compile(r"(?:pythonw?|pypy|pip|easy_install)(?:\d+(?:\
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_]*\Z")
 STABLE_ID = re.compile(r"[a-z][a-z0-9._-]{1,127}\Z")
 SHA256 = re.compile(r"[a-f0-9]{64}\Z")
+# v1 entries lack dependency ranges; the verified artifact manifest stays authoritative.
+CATALOG_VERSIONS = (1, 2)
 
 
 @dataclass(frozen=True)
@@ -300,6 +303,8 @@ def _validate_manifest(value):
         _stable_id(dependency)
         if dependency == identity:
             _fail("Self dependency.")
+        if m["kind"] == "app" and dependency == "django-skeleton":
+            _fail("Applications declare the core range in compatibility.skeleton, not dependencies.")
         _specifier(spec)
     conflicts = m.get("conflicts", {})
     if not isinstance(conflicts, dict):
@@ -784,10 +789,7 @@ def validate_wheel_set(paths, target_environment=None):
 
 def _documentation(manifest, contents):
     root = "app/" + manifest["runtime"]["documentation_root"]
-    for filename, headings in {
-        "spec.md": ("## Contract", "## Acceptance"),
-        "adr.md": ("## Context", "## Decision", "## Consequences"),
-    }.items():
+    for filename, headings in DOCUMENT_HEADINGS.items():
         try:
             text = contents[root + "/" + filename].decode("utf-8")
         except (KeyError, UnicodeError) as exc:
@@ -972,38 +974,219 @@ def build_artifact(manifest, payloads, output_path, private_key_path):
     return output
 
 
-def build_package(app_root, manifest_path, output_path, private_key_path, wheels=()):
-    root = Path(app_root).resolve()
-    manifest = load_manifest(manifest_path)
-    if manifest["kind"] != "app":
-        _fail("build_package requires an application manifest.")
-    output = Path(output_path).resolve()
-    if output.is_relative_to(root):
-        _fail("Build output must be outside the application root.")
-    payloads = {}
-    excluded = {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", "build", "dist", ".venv"}
-    manifest_source = Path(manifest_path).resolve()
+def _literal_dependencies(tree):
+    """Same-file Migration.dependencies as (label, name) pairs; None when not a plain literal."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Migration":
+            for statement in node.body:
+                if isinstance(statement, ast.Assign) and any(
+                    isinstance(target, ast.Name) and target.id == "dependencies" for target in statement.targets
+                ):
+                    if not isinstance(statement.value, (ast.List, ast.Tuple)):
+                        return None
+                    pairs = []
+                    for element in statement.value.elts:
+                        if (
+                            isinstance(element, ast.Tuple)
+                            and len(element.elts) == 2
+                            and all(
+                                isinstance(item, ast.Constant) and isinstance(item.value, str) for item in element.elts
+                            )
+                        ):
+                            pairs.append((element.elts[0].value, element.elts[1].value))
+                        # Calls such as swappable_dependency() never name this app's own migrations.
+                    return pairs
+            return []
+    return None
+
+
+def static_migration_leaves(migrations_dir, app_label):
+    """Leaf migration names from source, without importing code; None when undeterminable."""
+    directory = Path(migrations_dir)
+    if not directory.is_dir():
+        return set()
+    names, referenced = set(), set()
+    for path in sorted(directory.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
+        except (SyntaxError, UnicodeDecodeError, ValueError):
+            return None
+        dependencies = _literal_dependencies(tree)
+        if dependencies is None:
+            return None
+        names.add(path.stem)
+        referenced.update(name for label, name in dependencies if label == app_label)
+    return names - referenced
+
+
+def check_migration_leaves(app_root, manifest):
+    """Message describing a leaves mismatch, or None when they agree or cannot be determined."""
+    actual = static_migration_leaves(Path(app_root) / "migrations", manifest["app_label"])
+    declared = set(manifest["migrations"]["leaves"])
+    if actual is None or actual == declared:
+        return None
+    return f"Manifest migrations.leaves {sorted(declared)} differ from the migration files {sorted(actual)}."
+
+
+BUILD_EXCLUDED_DIRECTORIES = frozenset(
+    {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", "build", "dist", ".venv"}
+)
+DOCUMENT_HEADINGS = {
+    "spec.md": ("## Contract", "## Acceptance"),
+    "adr.md": ("## Context", "## Decision", "## Consequences"),
+}
+SUGGESTIBLE_PROBLEM_CODES = ("missing_dependency", "incompatible_dependency_version")
+
+
+def _scan_application_root(root, manifest_source):
+    """Archive payloads plus (code, message, path) violations the build rejects, in walk order."""
+    payloads, violations = {}, []
     for current, directories, filenames in os.walk(root, followlinks=False):
         for name in list(directories):
             candidate = Path(current) / name
             if candidate.is_symlink():
-                _fail("Application root contains a symlink.")
-            if name in excluded:
+                relative = candidate.relative_to(root).as_posix()
+                violations.append(("symlink", "Application root contains a symlink.", relative))
+            if name in BUILD_EXCLUDED_DIRECTORIES:
                 directories.remove(name)
         for name in filenames:
             source = Path(current) / name
+            relative = source.relative_to(root).as_posix()
             if source.is_symlink():
-                _fail("Application root contains a symlink.")
+                violations.append(("symlink", "Application root contains a symlink.", relative))
+                continue
             if name.endswith((".pyc", ".pyo")) or source.resolve() == manifest_source:
                 continue
-            relative = source.relative_to(root).as_posix()
             if (
                 any(part.startswith(".") for part in source.relative_to(root).parts)
                 or name in (".env", "db.sqlite3")
                 or name.endswith((".pem", ".key"))
             ):
-                _fail("Private files must not be packaged.")
+                violations.append(("private_file", "Private files must not be packaged.", relative))
+                continue
             payloads["app/" + relative] = source
+    return payloads, violations
+
+
+def _doctor_dependencies(manifest, inventory, entries, report):
+    from skeleton.system.dependencies import catalog_candidates, resolve_dependencies
+
+    core = inventory.get("core") or {}
+    runtime = inventory.get("runtime") or {}
+    installed = [
+        entry["manifest"]
+        for entry in inventory.get("apps", [])
+        if entry.get("state") != "schema_retained" and entry["manifest"].get("app_id") != manifest["app_id"]
+    ]
+    candidates = [*([core["manifest"]] if core.get("manifest") else []), *installed, manifest]
+    try:
+        resolution = resolve_dependencies(
+            candidates, core=core.get("version"), python=runtime.get("python"), django=runtime.get("django")
+        )
+    except PackageError as exc:
+        report("inventory_invalid", str(exc))
+        return
+    target = {
+        key: value
+        for key, value in (
+            ("skeleton", core.get("version")),
+            ("python", runtime.get("python")),
+            ("django", runtime.get("django")),
+        )
+        if value
+    }
+    for problem in resolution.problems:
+        detail = problem.as_dict()
+        code = detail.pop("code")
+        if code in SUGGESTIBLE_PROBLEM_CODES and entries:
+            detail["suggestions"] = [
+                {"component_id": entry["component_id"], "version": entry["version"], "digest": entry["digest"]}
+                for entry in catalog_candidates(entries, problem.dependency, problem.required, target)
+            ]
+        report(code, problem.summary, **detail)
+
+
+def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_store=None):
+    """Report every packaging, documentation, migration and dependency problem of an app source.
+
+    inventory is a target deployment inventory dict; catalog a signed catalogue envelope
+    verified with trust_store. Nothing is imported, built or written.
+    """
+    from skeleton.system.dependencies import catalog_candidates
+
+    root = Path(app_root).resolve()
+    manifest_file = Path(manifest_path).resolve() if manifest_path else root / "manifest.json"
+    problems = []
+
+    def report(code, message, **values):
+        problems.append({"code": code, "message": message, **values})
+
+    try:
+        manifest = load_manifest(manifest_file)
+    except (PackageError, OSError) as exc:
+        report("manifest_invalid", str(exc))
+        return {"ok": False, "problems": problems}
+    if manifest["kind"] != "app":
+        report("manifest_invalid", "doctor requires an application manifest.")
+        return {"ok": False, "problems": problems}
+    for code, message, path in _scan_application_root(root, manifest_file)[1]:
+        report(code, message, path=path)
+    if not (root / "apps.py").is_file():
+        report("entrypoint_missing", "Application root requires apps.py.")
+    documentation = root / manifest["runtime"]["documentation_root"]
+    for filename, headings in DOCUMENT_HEADINGS.items():
+        path = documentation / filename
+        if not path.is_file():
+            report("documentation_missing", f"Required app documentation {filename} is missing.", path=filename)
+            continue
+        missing = [heading for heading in headings if heading not in path.read_text(encoding="utf-8")]
+        if missing:
+            report("documentation_sections", f"{filename} lacks sections {missing}.", path=filename)
+    actual = static_migration_leaves(root / "migrations", manifest["app_label"])
+    declared = sorted(manifest["migrations"]["leaves"])
+    if actual is None:
+        report("migration_leaves_unverified", "Migration dependencies are not plain literals; check leaves manually.")
+    elif actual != set(declared):
+        report(
+            "migration_leaves_mismatch",
+            f"Manifest migrations.leaves {declared} differ from the migration files {sorted(actual)}.",
+        )
+    entries = []
+    if catalog is not None:
+        try:
+            entries = validate_catalog(catalog, trust_store or {})["entries"]
+        except PackageError as exc:
+            report("catalog_invalid", str(exc))
+    if inventory is not None:
+        _doctor_dependencies(manifest, inventory, entries, report)
+    elif entries:
+        for dependency, required in sorted(manifest["dependencies"].items()):
+            if not catalog_candidates(entries, dependency, required, {}):
+                report(
+                    "dependency_not_in_catalog",
+                    f"No catalogue release of {dependency} satisfies {required}.",
+                    dependency=dependency,
+                    required=required,
+                )
+    return {"ok": not problems, "app_id": manifest["app_id"], "problems": problems}
+
+
+def build_package(app_root, manifest_path, output_path, private_key_path, wheels=()):
+    root = Path(app_root).resolve()
+    manifest = load_manifest(manifest_path)
+    if manifest["kind"] != "app":
+        _fail("build_package requires an application manifest.")
+    leaves_problem = check_migration_leaves(root, manifest)
+    if leaves_problem:
+        _fail(leaves_problem)
+    output = Path(output_path).resolve()
+    if output.is_relative_to(root):
+        _fail("Build output must be outside the application root.")
+    payloads, violations = _scan_application_root(root, Path(manifest_path).resolve())
+    if violations:
+        _fail(violations[0][1])
     for wheel in wheels:
         wheel = Path(wheel)
         name = "wheels/" + wheel.name
@@ -1077,73 +1260,16 @@ def validate_dependency_graph(manifests, *, core=None, python=None, django=None,
 
     Wheel pins are compared only when their markers apply to target_environment,
     which accepts the string mapping from packaging.markers.default_environment().
+    Raises the first problem; use skeleton.system.dependencies.resolve_dependencies
+    for the complete structured report.
     """
-    from importlib.metadata import version as distribution_version
+    from skeleton.system.dependencies import resolve_dependencies
 
-    inventory = [validate_manifest(value) for value in manifests]
-    selected_core = [m for m in inventory if m["kind"] == "core"]
-    if len(selected_core) > 1:
-        _fail("Core component identity collision.")
-    core = core or (selected_core[0]["version"] if selected_core else core_version()["version"])
-    environment = _target_environment(target_environment)
-    python = python or environment["python_full_version"]
-    if (
-        target_environment
-        and "python_full_version" in target_environment
-        and Version(python) != Version(environment["python_full_version"])
-    ):
-        _fail("Target Python version and marker environment disagree.")
-    environment["python_full_version"] = python
-    environment["python_version"] = ".".join(str(part) for part in Version(python).release[:2])
-    django = django or distribution_version("Django")
-    if selected_core and Version(selected_core[0]["version"]) != Version(core):
-        _fail("Core manifest version differs from the selected core.")
-    components, labels, packages = {}, set(), set()
-    python_distributions = {}
-    for m in inventory:
-        for dependency in m["python_dependencies"]:
-            if not _marker_active(dependency.get("marker"), environment):
-                continue
-            name = canonicalize_name(dependency["name"])
-            pin = (dependency["version"], dependency["sha256"])
-            if name in python_distributions and python_distributions[name] != pin:
-                _fail("Conflicting fixed Python dependency versions or builds.")
-            python_distributions[name] = pin
-        identity = m.get("app_id", m.get("component_id"))
-        if identity in components:
-            _fail("Component identity collision.")
-        if m["kind"] == "app":
-            if m["app_label"] in labels or m["package_name"] in packages:
-                _fail("Application identity/namespace collision.")
-            labels.add(m["app_label"])
-            packages.add(m["package_name"])
-        components[identity] = m
-        for target, version in {"skeleton": core, "python": python, "django": django}.items():
-            if version is None or not version_satisfies(version, m["compatibility"][target]):
-                _fail(f"Incompatible {target} version for {identity}.")
-    order, visiting, visited = [], set(), set()
-
-    def visit(identity):
-        if identity in visiting:
-            _fail("Cyclic component dependency.")
-        if identity in visited:
-            return
-        visiting.add(identity)
-        for dependency, spec in components[identity]["dependencies"].items():
-            if dependency not in components or not version_satisfies(components[dependency]["version"], spec):
-                _fail("Missing or incompatible application dependency.")
-            visit(dependency)
-        for conflict, spec in components[identity].get("conflicts", {}).items():
-            if conflict in components and version_satisfies(components[conflict]["version"], spec):
-                _fail("Conflicting application releases.")
-        visiting.remove(identity)
-        visited.add(identity)
-        if components[identity]["kind"] == "app":
-            order.append(identity)
-
-    for identity in sorted(components):
-        visit(identity)
-    return order
+    resolution = resolve_dependencies(
+        manifests, core=core, python=python, django=django, target_environment=target_environment
+    )
+    resolution.raise_for_problems()
+    return list(resolution.order)
 
 
 def initialize_keys(private_path, public_path):
@@ -1254,7 +1380,7 @@ def _catalog(value):
     )
     if (
         type(value["catalog_version"]) is not int
-        or value["catalog_version"] != 1
+        or value["catalog_version"] not in CATALOG_VERSIONS
         or type(value["generation"]) is not int
         or value["generation"] < 1
     ):
@@ -1278,7 +1404,17 @@ def _catalog(value):
             "notes",
             "migrations",
         )
+        if value["catalog_version"] >= 2:
+            # v2 entries carry the dependency contract so previews can suggest releases.
+            fields = (*fields, "dependencies", "conflicts")
         _object(entry, fields, fields)
+        for relation in ("dependencies", "conflicts"):
+            ranges = entry.get(relation, {})
+            if not isinstance(ranges, dict):
+                _fail("Invalid catalog dependency ranges.")
+            for dependency, spec in ranges.items():
+                _stable_id(dependency)
+                _specifier(spec)
         _stable_id(entry["component_id"])
         _stable_id(entry["publisher"])
         _stable_id(entry["channel"])
@@ -1330,7 +1466,7 @@ def _catalog(value):
 def build_catalog(entries, output_path, private_key_path, *, publisher, generation, expires_at):
     catalog = _catalog(
         {
-            "catalog_version": 1,
+            "catalog_version": CATALOG_VERSIONS[-1],
             "publisher": publisher,
             "generation": generation,
             "expires_at": expires_at,
@@ -1385,6 +1521,8 @@ def catalog_entry(package, *, artifact, channel="stable", notes=""):
         "publisher": m["publisher"],
         "notes": notes or m.get("release_notes", ""),
         "migrations": m["migrations"],
+        "dependencies": m["dependencies"],
+        "conflicts": m.get("conflicts", {}),
     }
 
 
@@ -1432,6 +1570,14 @@ def configure_parser(parser):
     validate_index.add_argument("--trust-store", required=True)
     validate_index.add_argument("--minimum-generation", type=int, default=0)
     validate_index.add_argument("--channel", action="append", default=[])
+    diagnose = commands.add_parser(
+        "doctor", help="Report every packaging, docs, migration and dependency problem of an app source."
+    )
+    diagnose.add_argument("app_root")
+    diagnose.add_argument("--manifest")
+    diagnose.add_argument("--inventory", help="Target deployment inventory.json to resolve dependencies against.")
+    diagnose.add_argument("--catalog", help="Signed release catalogue to look up dependency releases.")
+    diagnose.add_argument("--trust-store", help="Trust store verifying --catalog.")
     versions = commands.add_parser("versions", help="Report core provenance and declared local app versions.")
     versions.add_argument("--manifest", action="append", default=[])
     return parser
@@ -1519,6 +1665,25 @@ def run_command(options):
             minimum_generation=options["minimum_generation"],
             channels=options["channel"] or ("stable",),
         )
+    if operation == "doctor":
+
+        def document(name):
+            path = options.get(name)
+            if not path:
+                return None
+            if Path(path).stat().st_size > 4 * 1024 * 1024:
+                _fail(f"{name} is too large.")
+            return _json(Path(path).read_bytes())
+
+        if options.get("catalog") and not options.get("trust_store"):
+            _fail("--catalog requires --trust-store.")
+        return doctor(
+            options["app_root"],
+            options.get("manifest"),
+            inventory=document("inventory"),
+            catalog=document("catalog"),
+            trust_store=trust() if options.get("trust_store") else None,
+        )
     if operation == "versions":
         return {
             "core": core_version(),
@@ -1542,6 +1707,8 @@ def main(argv=None):
     except (PackageError, OSError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    if options["operation"] == "doctor" and not result["ok"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

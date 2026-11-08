@@ -19,6 +19,37 @@ PROJECT_APPS = ["applications.tasks.apps.TasksConfig"]
 
 Crie um `AppConfig` com `name="applications.tasks"` e um label único, como `project_tasks`; o label identifica a app no Django e nas migrations, por isso não reutilize os labels do núcleo ou do exemplo. Registre metadados em `ready()` sem consultas ao banco. URLs e tarefas de segundo plano devem chamar serviços autorizados, não managers internos que escapem das políticas.
 
+## Começar uma app com `skeleton_startapp`
+
+O ponto de partida recomendado para uma app nova é o gerador do núcleo, em vez de copiar `examples/notes` ou escrever os arquivos à mão:
+
+```bash
+python manage.py skeleton_startapp project_tasks --app-id com.example.tasks --publisher example-publisher --model Task
+```
+
+Ele cria `applications/<package>/` (por padrão o package é o label; mude com `--package-name`, e o diretório-pai com `--directory`) com:
+
+- `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos;
+- `models.py`: um modelo `SecuredRecord` mínimo (`code` único entre registros vivos da organização e `title`);
+- `views.py`, `urls.py` e `api_urls.py`: uma página `tenant_page` e um sumário `TenantAPI`, ambos sobre `authorized_queryset`;
+- `templates/<app_label>/home.html`, `migrations/__init__.py`;
+- `docs/spec.md` e `docs/adr.md` com as seções exigidas pela check E012 (texto inicial a substituir);
+- `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls` e uma entrada de navegação apontando para os módulos gerados. `default_enabled` começa `false`.
+
+O comando valida label, package, IDs e nome do modelo com os mesmos validadores de `skeleton.system.packages`. Ele recusa namespaces reservados (`sk_*`, `skeleton`, `config`…) e diretório existente. Também não edita settings. Os modelos de código ficam em `skeleton/system/app_template/` e são distribuídos no wheel do core. Ao final, o comando imprime os próximos passos:
+
+1. adicionar `applications.<package>.apps.<Package>Config` a `PROJECT_APPS` em `config/settings/project.py`;
+2. `python manage.py makemigrations <app_label>`;
+3. `python manage.py record_infrastructure <app_label> --write` (migration de infraestrutura, veja [Migration de segurança](#migration-de-segurança));
+4. `python manage.py migrate`;
+5. `python manage.py sync_table_catalog`;
+6. `python manage.py check_skeleton_schema`;
+7. atualizar `migrations.leaves` no manifesto e revisar spec/ADR;
+8. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
+9. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
+
+O código gerado é um começo, não uma app aprovada: revise allowlists e `sensitive_fields` a cada campo novo e escreva os testes de isolamento, autorização e concorrência do checklist do `AGENTS.md`.
+
 ### Manifest, ativação e superfícies próprias
 
 O manifesto é o contrato versionado da app: identifica o componente e declara o que ele precisa e o que oferece ao projeto. Cada app carrega o `manifest.json` canônico com `AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self)` e registra o resultado em `AppConfig.ready()`, separadamente dos `TableSpec` que descrevem suas tabelas. O contrato declara ID estável, versão, `publisher` (responsável pela publicação), label/package, intervalos de compatibilidade e dependências **por app ID com intervalo de versão**. Dependências de apps não são nomes de distribuições Python.
@@ -41,9 +72,60 @@ O core 0.3.0 distribui `django-crispy-forms==2.7` e o pack SSR `skeleton_crud` n
 
 Modelos elegíveis sem `model_ui` recebem defaults sem Form/template próprios. O renderer conserva CSRF, media, validação, CAS e persistência dos formulários existentes, incluindo perfil, acesso e configuração. O viewer genérico exige `SecuredRecord` exposto por `TableSpec.expose_api=True`; `SystemRecord`/`OrganizationRecord` globais ou técnicos continuam com serviços/superfícies dedicados, não ganham CRUD por declarar layout.
 
+### Dependências entre apps
+
+`dependencies` mapeia o app ID de cada app exigida para uma faixa de versão, como `{"com.example.customers": ">=1.2,<2.0"}`. `conflicts` usa o mesmo formato para versões que não podem coexistir. O core não entra em `dependencies`: a faixa do núcleo é `compatibility.skeleton`, e o manifesto que tentar declarar `django-skeleton` como dependência é recusado. Não há dependências opcionais; uma integração que só funciona com outra app presente precisa declará-la.
+
+O mesmo resolvedor (`skeleton.system.dependencies.resolve_dependencies`) roda em quatro momentos e relata todos os problemas de uma vez, cada um com um código estável:
+
+| Momento | O que acontece com um problema |
+|---|---|
+| `package doctor --inventory` | Listado antes de empacotar, junto com sugestões do catálogo, se houver. |
+| Prévia no agente | Recusa o plano antes de copiar o projeto ou extrair pacotes. |
+| Carga do inventário no startup | Dependência faltante, fora da faixa, ciclo ou conflito falha fechado. |
+| `manage.py check` (E011) | Um erro por problema, incluindo incompatibilidade de plataforma. |
+
+| Código | Significado |
+|---|---|
+| `missing_dependency` | A app exigida não está instalada nem incluída no plano. |
+| `incompatible_dependency_version` | A app exigida existe, mas a versão resultante está fora da faixa. |
+| `dependency_cycle` | As dependências formam um ciclo; o detalhe traz o caminho. |
+| `conflicting_release` | Uma app declarada em `conflicts` está presente numa versão da faixa. |
+| `incompatible_platform` | `compatibility` não aceita o core, o Python ou o Django do alvo. |
+| `identity_collision`, `namespace_collision` | Duas apps com o mesmo ID, label ou pacote Python. |
+| `wheel_pin_conflict` | Duas apps fixam versões ou builds diferentes da mesma distribuição Python. |
+
+A ordem resolvida vale para o inventário e para `INSTALLED_APPS`: uma app sempre vem depois das que ela exige, então o `ready()` dela encontra as dependências já registradas.
+
+A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
+
+Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:
+
+| Check | Regra |
+|---|---|
+| E014 | Uma migration da app depende de migration de outra app registrada que não está em `dependencies`. |
+| E015 | Um modelo da app tem FK para modelo de outra app registrada que não está em `dependencies`. |
+| E016 | `sensitive_fields` do `TableSpec` difere da especificação congelada em `InstallRecordInfrastructure`; crie uma migration nova com `record_infrastructure --write`. |
+| W017 | `migrations.leaves` do manifesto difere das folhas reais do grafo de migrations da app. É aviso, e não erro, porque o manifesto é atualizado depois do `makemigrations`; o `build`, o `doctor` e a prévia do agente recusam a divergência. |
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
+
+### Diagnosticar antes de empacotar
+
+`package doctor` revisa a fonte de uma app e lista todos os problemas que o `build`, a instalação ou as checks encontrariam, sem importar código, construir pacote nem escrever arquivos. Ele roda com ou sem Django:
+
+```sh
+.venv/bin/python -m skeleton.system.packages doctor applications/tasks
+.venv/bin/python manage.py package doctor applications/tasks \
+  --inventory /private/target/inventory.json \
+  --catalog /private/index.json --trust-store /private/trusted-publishers.json
+```
+
+Sem opções, ele confere o manifesto, os arquivos que o `build` recusaria, `apps.py`, as seções de `spec.md` e `adr.md` e `migrations.leaves` contra os arquivos de `migrations/`. Com `--inventory`, resolve as dependências contra a instalação de destino; com `--catalog`, também sugere releases compatíveis para cada dependência faltante. A saída é JSON com `ok` e `problems` (cada um com `code` e `message`), e o processo termina com status 1 quando há problema.
+
+As folhas são calculadas lendo `dependencies` de cada migration como literal. Se uma migration calcular as dependências em código, o `doctor` reporta `migration_leaves_unverified` e o `build` não consegue conferir; nesse caso confira as folhas à mão. Quando as folhas são determináveis e divergem do manifesto, o `build` recusa o pacote.
 
 ### Publicar apps e releases assinados
 
@@ -100,7 +182,7 @@ Extração offline exige raiz nova e separada: `package extract ARTIFACT --trust
   --trust-store /private/trusted-publishers.json --minimum-generation 1 --channel stable
 ```
 
-O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON canônico do corpo. Entradas contêm componente, tipo, versão, canal, compatibilidade, referência HTTPS/relativa ao artefato, SHA-256 do ZIP, assinatura do manifesto, publisher, notas e migrations. Índices expirados, adulterados e gerações abaixo da última confirmada são rejeitados; canais são allowlist do operador. O agente só consulta fontes previamente autorizadas, não URLs fornecidas pelo upload. `versions` distingue metadata da distribuição instalada de checkout (`origin: source`) e manifests locais (`project-local`); um arquivo JSON isolado nunca prova release instalado.
+O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON canônico do corpo. Entradas contêm componente, tipo, versão, canal, compatibilidade, referência HTTPS/relativa ao artefato, SHA-256 do ZIP, assinatura do manifesto, publisher, notas e migrations. O formato 2 (`catalog_version: 2`, gerado por `package index`) acrescenta `dependencies` e `conflicts`, que permitem à prévia sugerir dependências; índices no formato 1 continuam válidos, e em ambos o manifesto do artefato baixado é a fonte que vale. Índices expirados, adulterados e gerações abaixo da última confirmada são rejeitados; canais são allowlist do operador. O agente só consulta fontes previamente autorizadas, não URLs fornecidas pelo upload. `versions` distingue metadata da distribuição instalada de checkout (`origin: source`) e manifests locais (`project-local`); um arquivo JSON isolado nunca prova release instalado.
 
 O exemplo pode ser publicado de verdade com `package build --app-root examples/notes --manifest examples/notes/manifest.json --output /private/notes.skapp --private-key /private/publisher.pem`; autorize o publisher `skeleton-examples` no trust store correspondente. Ativação/configuração tenant permanece independente da instalação física global.
 
@@ -196,8 +278,8 @@ InstallRecordInfrastructure(
             {"name": "revision", "type": "PositiveBigIntegerField", "sensitive": False},
             {"name": "organization_id", "type": "UUIDField", "sensitive": False},
             {"name": "owner_id", "type": "UUIDField", "sensitive": False},
-            {"name": "owning_group_id", "type": "UUIDField", "sensitive": False},
             {"name": "visibility", "type": "CharField", "sensitive": False},
+            {"name": "owning_group_id", "type": "UUIDField", "sensitive": False},
             {"name": "code", "type": "CharField", "sensitive": False},
             {"name": "title", "type": "CharField", "sensitive": False},
             {"name": "body", "type": "TextField", "sensitive": True},
@@ -206,7 +288,18 @@ InstallRecordInfrastructure(
 )
 ```
 
-Para app nova, rode makemigrations, revise o histórico e acrescente operação após CreateModel. Para alteração de coluna/relação auditável, adicione operação após alteração, com spec histórica congelada atualizada. O exemplo completo de migration já existe no caminho acima; a operação isolada não substitui CreateModel. Não use catálogo editável/import de modelo atual em migrations.
+Não escreva essa especificação à mão. Depois de `makemigrations` e da revisão do histórico, use o comando do autor:
+
+```bash
+python manage.py record_infrastructure <app_label>          # só lista
+python manage.py record_infrastructure <app_label> --write  # cria a migration
+```
+
+Sem `--write`, o comando compara cada `TableSpec` da app com a última `InstallRecordInfrastructure` encontrada nas migrations em disco (sem consultar o banco) e lista os modelos com `missing` ou com a divergência encontrada (`columns`, `sensitive`, `scope`, `immutable_fields`, `append_only`). Com `--write`, ele cria uma migration **nova** (`NNNN_record_infrastructure.py`) que depende da folha atual da app e de `("sk_audit", "0002_record_infrastructure")` e contém só as operações pendentes. A especificação é gerada por `build_infrastructure_specification(model, spec)` a partir do modelo e do `TableSpec` no momento da autoria e fica congelada no arquivo; ao migrar, o DDL continua usando só essa especificação e o modelo histórico.
+
+O comando nunca altera migrations existentes e não cria arquivo quando nada falta. Ele recusa a escrita se a app tiver mais de uma folha, se ainda não houver migration para o modelo ou se as colunas do modelo histórico na folha forem diferentes das do modelo atual (rode `makemigrations` antes). Também recusa escrever nas apps do núcleo. Revise o arquivo gerado, sobretudo `sensitive`, antes do commit.
+
+Isso vale tanto para app nova quanto para alteração de coluna ou relação auditável: a operação nova vai depois da alteração, com a especificação atualizada. Ela não substitui `CreateModel`. Não use o catálogo editável nem imports do modelo atual em migrations.
 
 ## Permissões e fluxo HTML
 

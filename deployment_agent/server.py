@@ -192,7 +192,10 @@ class ControlHandler(QuietHandler):
         try:
             self.send_json(self.dispatch())
         except AgentError as error:
-            self.send_json({"error": error.code}, error.status)
+            body = {"error": error.code}
+            if error.details:
+                body["details"] = error.details
+            self.send_json(body, error.status)
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
         except Exception as error:

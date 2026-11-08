@@ -31,6 +31,7 @@ exclude = ["config*", "applications*", "examples*", "deployment_agent*", "tests*
 [tool.setuptools.package-data]
 "*" = ["templates/**/*", "static/**/*", "*.json", "*.sql", "docs/**/*"]
 "skeleton" = ["py.typed"]
+"skeleton.system" = ["app_template/*"]  # modelos do skeleton_startapp (*.py-tpl não são módulos)
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"
@@ -87,6 +88,7 @@ files = [
     "skeleton/tenancy/context.py",
     "skeleton/access/policies.py",
     "skeleton/common/models.py",
+    "skeleton/system/dependencies.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -100,6 +102,7 @@ module = [
     "skeleton.tenancy.context",
     "skeleton.access.policies",
     "skeleton.common.models",
+    "skeleton.system.dependencies",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

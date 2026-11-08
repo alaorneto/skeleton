@@ -33,6 +33,28 @@ def _private_path(value, base):
     return str(path.resolve() if path.is_absolute() else (base / path).resolve())
 
 
+_STRUCTURAL_PROBLEMS = frozenset(
+    {"missing_dependency", "incompatible_dependency_version", "dependency_cycle", "conflicting_release"}
+)
+
+
+def _dependency_ordered(entries, core_version):
+    """Fail closed on a broken graph and list apps dependency-first for INSTALLED_APPS.
+
+    Platform compatibility stays with system check E011, which reports it with context.
+    """
+    from skeleton.system.dependencies import resolve_dependencies
+
+    active = [entry["manifest"] for entry in entries if entry["state"] != "schema_retained"]
+    resolution = resolve_dependencies(active, core=core_version)
+    if any(problem.code in _STRUCTURAL_PROBLEMS for problem in resolution.problems):
+        raise ValueError("dependencies")
+    rank = {app_id: index for index, app_id in enumerate(resolution.order)}
+    return sorted(
+        entries, key=lambda entry: (entry["manifest"]["app_id"] not in rank, rank.get(entry["manifest"]["app_id"], 0))
+    )
+
+
 def load_deployment_inventory(path):
     if not path:
         return DeploymentInventory(0, {}, (), (), ())
@@ -84,6 +106,7 @@ def load_deployment_inventory(path):
                 if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
                     raise ValueError("digest")
             normalized.append({**item, "manifest": manifest, "path": _private_path(item["path"], source.parent)})
+        normalized = _dependency_ordered(normalized, core.get("version"))
         retained = data.get("retained_schema_paths", [])
         archives = data.get("migration_archives", [])
         if not isinstance(retained, list) or not isinstance(archives, list):
