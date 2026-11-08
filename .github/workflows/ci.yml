@@ -172,7 +172,7 @@ jobs:
             tests/integration_sqlite/test_reference_picker.py \
             tests/integration_sqlite/test_http_boundaries.py \
             tests/integration_sqlite/test_application_administration.py \
-            tests/integration_sqlite/test_admin_configuration_boundary.py \
+            tests/integration_sqlite/test_platform_boundary.py \
             tests/integration_sqlite/test_app_extensions.py \
             tests/integration_sqlite/test_access_lifecycle_regressions.py \
             tests/integration_sqlite/test_audit_findings.py \
