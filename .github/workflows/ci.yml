@@ -62,7 +62,7 @@ jobs:
       SKELETON_ENABLE_EXAMPLE_APP: "true"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
       - name: Instalar dependências do sistema
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
@@ -147,7 +147,7 @@ jobs:
       PGPASSWORD: ci-superuser-only
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES postgresql-client
@@ -186,7 +186,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
