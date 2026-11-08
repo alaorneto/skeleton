@@ -1,14 +1,21 @@
 """Application groups share authorization with their executable routes."""
 
 import re
+import sys
+import types
 from dataclasses import replace
+from importlib import import_module
 
 import pytest
+from django.conf import settings
 from django.http import HttpResponse
 from django.test import Client, override_settings
 from django.urls import include, path, resolve, reverse
+from django.urls.resolvers import URLResolver
+from rest_framework.response import Response
 
 from skeleton.accounts.services import bootstrap_identity
+from skeleton.api.views import TenantAPI
 from skeleton.system import app_registry, presentation
 from skeleton.system.applications import application_state, configure_application
 from skeleton.system.presentation import AdministrationSpec, AdminScreenSpec, AdminSectionSpec
@@ -378,3 +385,108 @@ def test_api_namespace_wrapper_uses_owning_app_activation(actor, app_screens, mo
         monkeypatch.delitem(app_registry._manifests, "example_notes")
         with pytest.raises(Http404):
             request.resolver_match.func(request, organization_id=organization.pk)
+
+
+class BareAPI(TenantAPI):
+    """An app endpoint that never calls ``authorized_queryset``: only the URL guard closes it."""
+
+    def get(self, request, organization_id):
+        return Response({"ok": True})
+
+
+def bare_api_urlconf(monkeypatch):
+    original = app_registry.get_app("example_notes")
+    nested = [path("bare/", BareAPI.as_view(), name="bare")]
+    changed = replace(original, api_urls=([path("v/", include(nested))], "example_notes_api"))
+    monkeypatch.setitem(app_registry._manifests, original.app_label, changed)
+    urlconf = types.ModuleType("tests_application_api_guard_urlconf")
+    urlconf.urlpatterns = [*app_registry.application_urlpatterns(), *import_module(settings.ROOT_URLCONF).urlpatterns]
+    monkeypatch.setitem(sys.modules, urlconf.__name__, urlconf)
+    return urlconf.__name__
+
+
+@pytest.fixture
+def api_guard(monkeypatch):
+    user, organization = bootstrap_identity(
+        email="api-guard@example.test", organization="api-guard", name="API guard", password=PASSWORD
+    )
+    _, other = bootstrap_identity(email=user.email, organization="api-guard-other", name="API guard other")
+    client = Client()
+    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
+    with override_settings(ROOT_URLCONF=bare_api_urlconf(monkeypatch)):
+        yield user, organization, other, client
+
+
+def bare_url(organization):
+    return reverse("example_notes_api:bare", kwargs={"organization_id": organization.pk})
+
+
+def test_disabled_app_closes_api_routes_that_skip_authorized_queryset(api_guard):
+    user, organization, other, client = api_guard
+    url = bare_url(organization)
+    assert url == f"/api/v1/o/{organization.pk}/apps/example_notes/v/bare/"
+    assert client.get(url).json() == {"ok": True}
+    with tenant_context(organization_id=other.pk, actor=user, source="test:api-guard-other"):
+        configure_application("example_notes", user=user, enabled=False, configuration={}, revision=0)
+    # Tenant B disabled the app: B is closed, A keeps answering.
+    closed = client.get(bare_url(other))
+    assert closed.status_code == 404
+    assert closed.json() == {"code": "not_found", "detail": "Not found."}
+    assert client.get(url).status_code == 200
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:api-guard-disable"):
+        configure_application("example_notes", user=user, enabled=False, configuration={}, revision=0)
+    response = client.get(url)
+    assert response.status_code == 404
+    assert response.json() == {"code": "not_found", "detail": "Not found."}
+    assert response["X-Request-ID"]
+    # Core configuration stays reachable so the administrator can re-enable the app.
+    configuration = client.get(f"/api/v1/o/{organization.pk}/apps/example_notes/configuration/")
+    assert configuration.status_code == 200
+    assert Client().get(url).status_code == 403
+
+
+def test_disabled_transitive_dependency_closes_app_api(api_guard, monkeypatch):
+    from skeleton.system import applications
+
+    _, organization, _, client = api_guard
+    url = bare_url(organization)
+    assert client.get(url).status_code == 200
+    real_state = applications.application_state
+    monkeypatch.setattr(
+        applications, "required_labels", lambda label: ("example_dependency",) if label == "example_notes" else ()
+    )
+    monkeypatch.setattr(
+        applications,
+        "application_state",
+        lambda label: {"enabled": False} if label == "example_dependency" else real_state(label),
+    )
+    response = client.get(url)
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
+
+
+def test_removed_app_api_route_answers_not_found(api_guard, monkeypatch):
+    _, organization, _, client = api_guard
+    url = bare_url(organization)
+    monkeypatch.delitem(app_registry._manifests, "example_notes")
+    assert client.get(url).status_code == 404
+
+
+def test_api_guard_clones_nested_patterns_and_keeps_view_attributes(app_screens):
+    from skeleton.system.administration import guard_application_api_urls
+
+    view = BareAPI.as_view()
+    nested = [path("bare/", view, name="bare")]
+    guarded = guard_application_api_urls([path("v/", include((nested, "inner"), namespace="inner"))], app_screens)
+    resolver = guarded[0]
+    assert isinstance(resolver, URLResolver)
+    assert (resolver.app_name, resolver.namespace) == ("inner", "inner")
+    pattern = resolver.url_patterns[0]
+    assert pattern.name == "bare"
+    assert pattern.callback is not view
+    assert nested[0].callback is view
+    assert pattern.callback.csrf_exempt is True
+    assert pattern.callback.cls is BareAPI
+    assert pattern.callback.initkwargs == view.initkwargs
+    with pytest.raises(TypeError):
+        guard_application_api_urls([object()], app_screens)
