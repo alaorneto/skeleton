@@ -44,7 +44,7 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 4. `python manage.py migrate`;
 5. `python manage.py sync_table_catalog`;
 6. `python manage.py check_skeleton_schema`;
-7. atualizar `migrations.leaves` no manifesto e revisar spec/ADR;
+7. atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
 8. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
 9. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
@@ -108,9 +108,25 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E016 | `sensitive_fields` do `TableSpec` difere da especificação congelada em `InstallRecordInfrastructure`; crie uma migration nova com `record_infrastructure --write`. |
 | W017 | `migrations.leaves` do manifesto difere das folhas reais do grafo de migrations da app. É aviso, e não erro, porque o manifesto é atualizado depois do `makemigrations`; o `build`, o `doctor` e a prévia do agente recusam a divergência. |
 
+Dependência declarada não autoriza importar qualquer módulo da outra app. O único ponto de consumo é a API de serviços dela (próxima seção).
+
+### API de serviços da app
+
+Toda app publica as operações que outras apps podem chamar num módulo `service_api.py`, com classes de serviço em processo. O contrato completo está em [API de serviços entre apps](service-api.md), e o procedimento no skill `service-api`. Em resumo:
+
+- métodos públicos são keyword-only, recebem `actor` e devolvem DTOs imutáveis ou `Page` de DTOs, nunca modelos ou querysets;
+- a autorização acontece dentro do serviço (`authorized_queryset`, `require_record_action`, capacidades), e a app provedora precisa estar ativa na organização;
+- o serviço participa da transação do chamador e deixa efeitos externos para jobs, eventos ou `on_commit`;
+- outras apps importam só `<app>.service_api` e declaram a dependência acima;
+- views e endpoints da própria app também chamam o `service_api`, para haver um único caminho de regra.
+
+A base `ServiceAPI`, os erros, o campo `runtime.service_api` do manifesto, os checks E018/E019 e a adoção pelo gerador e pelo exemplo Notes estão em implementação (epic [#112](https://github.com/alaorneto/skeleton/issues/112)). Até lá, a obrigação vale por revisão.
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
+
+O mesmo diretório tem `service-api.md` com a referência da API de serviços da app: serviços, métodos (Autorização, Erros, Efeitos), DTOs, eventos e histórico de versões. O modelo está no skill `service-api`; a check E012 passa a exigir o arquivo com [#98](https://github.com/alaorneto/skeleton/issues/98).
 
 ### Diagnosticar antes de empacotar
 
@@ -344,7 +360,7 @@ O `"5"` exemplifica a transição exata 4→5, não revisão fixa para qualquer 
 
 ## Novas operações de negócio
 
-Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serviço abre `tenant_context` com organização e ator confiáveis, obtém `authorized_queryset` para a ação pretendida, valida a regra e grava com `save`/CAS. Em uma view, use o contexto validado pela superfície tenant; em um job, abra uma transação independente por organização e materialize os resultados antes de sair do contexto. Nunca use `all_objects` ou SQL direto como atalho em endpoints.
+Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serviço roda dentro de um contexto já aberto com organização e ator confiáveis, obtém `authorized_queryset` para a ação pretendida, valida a regra e grava com `save`/CAS. Em uma view, o contexto é o validado pela superfície tenant; em um job, quem abre o `tenant_context` (uma transação independente por organização) é o job, e os resultados são materializados antes de sair do contexto. Nunca use `all_objects` ou SQL direto como atalho em endpoints. Se a operação interessa a outras apps, publique-a na [API de serviços](#api-de-serviços-da-app) em vez de deixar outra app importar o serviço interno.
 
 Uma referência a outro registro organizacional precisa apontar para a mesma organização e para um alvo vivo que o ator possa ler. Combine validação no serviço, seleção autorizada de FK e infraestrutura de integridade no banco: apenas comparar UUIDs não assegura isso. Relações entre registros próprios usam `PROTECT`, para impedir remoção com referências vivas, e links de negócio são tabelas UUID explícitas, não M2M implícito. Marque campos sensíveis no `TableSpec` e na especificação congelada de migration antes de persistir dados em auditoria.
 

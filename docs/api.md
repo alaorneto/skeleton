@@ -2,6 +2,8 @@
 
 Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. `SessionAuthentication` e `IsAuthenticated` são os únicos mecanismos: não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
 
+Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
+
 Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do cookie de sessão **e** da proteção CSRF. Em clientes como curl, envie o cookie `csrftoken` e o header `X-CSRFToken` correspondente; um cookie de sessão sozinho não basta. Uma requisição anônima à API recebe 403 do DRF, enquanto a página HTML redireciona ao login. Em produção, use HTTPS e cookies seguros; tokens do IdP não substituem essa sessão.
 
 ## Recursos
