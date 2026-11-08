@@ -1,13 +1,17 @@
 """Code-owned extension contracts. Registration never queries the database or runs DDL."""
+
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 
 from django.core.exceptions import ValidationError
 
 from .presentation import (
-    AdministrationSpec, ModelUISpec, presentation_from_runtime,
-    register_presentation, unregister_presentation,
+    AdministrationSpec,
+    ModelUISpec,
+    presentation_from_runtime,
+    register_presentation,
+    unregister_presentation,
 )
 
 
@@ -18,7 +22,7 @@ class ConfigField:
     default: object
     max_length: int = 200
     label: str | None = None
-    help_text: str = ''
+    help_text: str = ""
     section_id: str | None = None
 
 
@@ -27,7 +31,7 @@ class MenuEntry:
     label: str
     url_name: str
     table_key: str
-    action: str = 'read'
+    action: str = "read"
 
 
 @dataclass(frozen=True)
@@ -54,14 +58,15 @@ class AppManifest:
     @classmethod
     def from_json(cls, path, *, app_config):
         """Load one canonical contract, resolving runtime modules relative to AppConfig."""
-        from skeleton.system.packages import load_manifest, PackageError
+        from skeleton.system.packages import PackageError, load_manifest
+
         contract = load_manifest(path)
         if contract["kind"] != "app":
             raise PackageError("AppManifest requires an application contract.")
         expected = contract["app_config"].rsplit(".", 1)[1]
         if app_config.label != contract["app_label"] or app_config.__class__.__name__ != expected:
             raise PackageError("AppConfig identity differs from its canonical manifest.")
-        managed = f'applications.{contract["package_name"]}'
+        managed = f"applications.{contract['package_name']}"
         if app_config.name.startswith("applications.") and app_config.name != managed:
             raise PackageError("Managed application package identity mismatch.")
         runtime = contract["runtime"]
@@ -69,10 +74,13 @@ class AppManifest:
         documentation = (root / runtime["documentation_root"]).resolve()
         if not documentation.is_relative_to(root):
             raise PackageError("Application documentation escapes its root.")
+
         def module(name):
-            return app_config.name + name[len(managed):] if name else None
+            return app_config.name + name[len(managed) :] if name else None
+
         origin, default_enabled = "project-local", runtime["default_enabled"]
         from django.conf import settings
+
         inventory = getattr(settings, "SKELETON_DEPLOYMENT_STATE", None)
         for entry in getattr(inventory, "apps", ()):
             data = entry.get("manifest", {})
@@ -84,45 +92,65 @@ class AppManifest:
                     default_enabled = False
         administration, model_ui = presentation_from_runtime(runtime)
         return cls(
-            app_label=contract["app_label"], label=contract["name"],
+            app_label=contract["app_label"],
+            label=contract["name"],
             description=contract["description"],
             configuration_fields=tuple(
-                ConfigField(field["name"], {"str": str, "int": int, "bool": bool}[field["type"]],
-                            field["default"], field.get("max_length", 200),
-                            field.get("label"), field.get("help_text", ''), field.get("section_id"))
-                for field in runtime["configuration_fields"]),
+                ConfigField(
+                    field["name"],
+                    {"str": str, "int": int, "bool": bool}[field["type"]],
+                    field["default"],
+                    field.get("max_length", 200),
+                    field.get("label"),
+                    field.get("help_text", ""),
+                    field.get("section_id"),
+                )
+                for field in runtime["configuration_fields"]
+            ),
             navigation=tuple(MenuEntry(**entry) for entry in runtime["navigation"]),
-            urls=module(runtime.get("urls")), api_urls=module(runtime.get("api_urls")),
-            default_enabled=default_enabled, documentation_root=str(documentation),
-            app_id=contract["app_id"], version=contract["version"],
-            package_name=contract["package_name"], origin=origin,
-            dependency_versions=tuple(contract["dependencies"].items()), canonical=contract,
-            administration=administration, model_ui=model_ui,
+            urls=module(runtime.get("urls")),
+            api_urls=module(runtime.get("api_urls")),
+            default_enabled=default_enabled,
+            documentation_root=str(documentation),
+            app_id=contract["app_id"],
+            version=contract["version"],
+            package_name=contract["package_name"],
+            origin=origin,
+            dependency_versions=tuple(contract["dependencies"].items()),
+            canonical=contract,
+            administration=administration,
+            model_ui=model_ui,
         )
 
 
 _manifests = {}
-CORE_APP_LABELS = frozenset({'sk_accounts', 'sk_tenancy', 'sk_access', 'sk_system', 'sk_audit'})
+CORE_APP_LABELS = frozenset({"sk_accounts", "sk_tenancy", "sk_access", "sk_system", "sk_audit"})
 
 
 def register_app(manifest):
-    if not isinstance(manifest, AppManifest) or not re.fullmatch(r'[a-z][a-z0-9_]*', manifest.app_label):
-        raise ValidationError('Application requires a stable app label.')
+    if not isinstance(manifest, AppManifest) or not re.fullmatch(r"[a-z][a-z0-9_]*", manifest.app_label):
+        raise ValidationError("Application requires a stable app label.")
     if len(set(manifest.dependencies)) != len(manifest.dependencies) or manifest.app_label in manifest.dependencies:
-        raise ValidationError('Application dependencies must be unique and nonrecursive.')
+        raise ValidationError("Application dependencies must be unique and nonrecursive.")
     names = [field.name for field in manifest.configuration_fields]
     if len(names) != len(set(names)):
-        raise ValidationError('Duplicate application configuration field.')
+        raise ValidationError("Duplicate application configuration field.")
     for field in manifest.configuration_fields:
-        if not re.fullmatch(r'[a-z][a-z0-9_]*', field.name) or field.value_type not in (str, bool, int):
-            raise ValidationError('Application configuration supports named scalar fields only.')
-        if any(part in field.name.lower() for part in ('secret', 'password', 'token', 'private_key')):
-            raise ValidationError('Application secrets belong in deployment configuration.')
-        if field.name in {'enabled', 'revision', 'csrfmiddlewaretoken'}:
-            raise ValidationError('Reserved application configuration control name.')
-        if type(field.default) is not field.value_type or type(field.max_length) is not int or not 1 <= field.max_length <= 10000 or (isinstance(field.default, str) and len(field.default) > field.max_length):
-            raise ValidationError('Invalid scalar configuration default/limit.')
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", field.name) or field.value_type not in (str, bool, int):
+            raise ValidationError("Application configuration supports named scalar fields only.")
+        if any(part in field.name.lower() for part in ("secret", "password", "token", "private_key")):
+            raise ValidationError("Application secrets belong in deployment configuration.")
+        if field.name in {"enabled", "revision", "csrfmiddlewaretoken"}:
+            raise ValidationError("Reserved application configuration control name.")
+        if (
+            type(field.default) is not field.value_type
+            or type(field.max_length) is not int
+            or not 1 <= field.max_length <= 10000
+            or (isinstance(field.default, str) and len(field.default) > field.max_length)
+        ):
+            raise ValidationError("Invalid scalar configuration default/limit.")
     from skeleton.versioning import normalize_version
+
     try:
         normalize_version(manifest.version)
     except ValueError as exc:
@@ -130,11 +158,12 @@ def register_app(manifest):
     identity = manifest.app_id or manifest.app_label
     for existing in _manifests.values():
         if existing.app_label != manifest.app_label and (
-                (existing.app_id or existing.app_label) == identity
-                or (manifest.package_name and existing.package_name == manifest.package_name)):
+            (existing.app_id or existing.app_label) == identity
+            or (manifest.package_name and existing.package_name == manifest.package_name)
+        ):
             raise ValidationError("Duplicate application identity or package namespace.")
     if manifest.app_label in _manifests and _manifests[manifest.app_label] != manifest:
-        raise ValidationError('Duplicate application manifest.')
+        raise ValidationError("Duplicate application manifest.")
     register_presentation(manifest)
     _manifests[manifest.app_label] = manifest
     return manifest
@@ -150,8 +179,11 @@ def get_app(app_label):
     manifest = _manifests[app_label]
     if manifest.dependency_versions:
         from dataclasses import replace
+
         by_id = {item.app_id or item.app_label: item.app_label for item in _manifests.values()}
-        return replace(manifest, dependencies=tuple(by_id.get(identity, identity) for identity, _ in manifest.dependency_versions))
+        return replace(
+            manifest, dependencies=tuple(by_id.get(identity, identity) for identity, _ in manifest.dependency_versions)
+        )
     return manifest
 
 
@@ -161,64 +193,115 @@ def all_apps():
 
 def validate_configuration(manifest, values):
     if not isinstance(values, dict):
-        raise ValidationError({'configuration': 'Use an object of declared fields.'})
+        raise ValidationError({"configuration": "Use an object of declared fields."})
     fields = {field.name: field for field in manifest.configuration_fields}
     if set(values) - fields.keys():
-        raise ValidationError({'configuration': 'Unknown application configuration field.'})
+        raise ValidationError({"configuration": "Unknown application configuration field."})
     result = {}
     for name, field in fields.items():
         value = values.get(name, field.default)
         if type(value) is not field.value_type or (isinstance(value, str) and len(value) > field.max_length):
-            raise ValidationError({'configuration': f'Invalid value for {name}.'})
+            raise ValidationError({"configuration": f"Invalid value for {name}."})
         result[name] = value
     return result
 
 
-def validate_dependencies():
-    from skeleton.system.packages import validate_dependency_graph, PackageError
+def dependency_problems():
+    """Every dependency problem among registered apps, as one-line summaries."""
+    from skeleton.system.dependencies import resolve_dependencies
+    from skeleton.system.packages import PackageError
+
+    problems = []
     canonical = [item.canonical for item in _manifests.values() if item.canonical is not None]
     if canonical:
         try:
-            validate_dependency_graph(canonical)
+            problems.extend(problem.summary for problem in resolve_dependencies(canonical).problems)
         except PackageError as exc:
-            raise ValidationError(str(exc)) from exc
-    def visit(label, ancestors):
-        if label in ancestors:
-            raise ValidationError('Cyclic application dependency.')
-        if label not in _manifests:
-            raise ValidationError('Application dependency is not installed.')
+            problems.append(f"invalid_manifest: {exc}")
+    reported = set()
+
+    def visit(label, stack):
+        if label in stack:
+            cycle = (*stack[stack.index(label) :], label)
+            if frozenset(cycle) not in reported:
+                reported.add(frozenset(cycle))
+                problems.append("dependency_cycle: " + " -> ".join(cycle))
+            return
         for dependency in get_app(label).dependencies:
-            visit(dependency, ancestors | {label})
+            if dependency not in _manifests:
+                if (label, dependency) not in reported:
+                    reported.add((label, dependency))
+                    problems.append(f"missing_dependency: {label} -> {dependency}")
+                continue
+            visit(dependency, (*stack, label))
+
     for manifest in all_apps():
-        visit(manifest.app_label, set())
+        visit(manifest.app_label, ())
+    return list(dict.fromkeys(problems))
+
+
+def validate_dependencies():
+    problems = dependency_problems()
+    if problems:
+        raise ValidationError(problems)
+
+
+def required_labels(app_label):
+    """Registered apps app_label transitively requires, dependency-first."""
+    order, seen = [], {app_label}
+
+    def visit(label):
+        for dependency in get_app(label).dependencies if label in _manifests else ():
+            if dependency not in seen:
+                seen.add(dependency)
+                visit(dependency)
+                order.append(dependency)
+
+    visit(app_label)
+    return order
+
+
+def dependent_labels(app_label):
+    """Registered apps that transitively require app_label."""
+    return [other for other in sorted(_manifests) if other != app_label and app_label in required_labels(other)]
 
 
 def validate_documentation(manifest):
     if not manifest.documentation_root:
-        raise ValidationError('Application requires a documentation root.')
+        raise ValidationError("Application requires a documentation root.")
     root = Path(manifest.documentation_root)
-    requirements = {'spec.md': ('## Contract', '## Acceptance'),
-                    'adr.md': ('## Context', '## Decision', '## Consequences')}
+    requirements = {
+        "spec.md": ("## Contract", "## Acceptance"),
+        "adr.md": ("## Context", "## Decision", "## Consequences"),
+    }
     for filename, headings in requirements.items():
         path = root / filename
         if not path.is_file():
-            raise ValidationError(f'Application requires {filename}.')
-        text = path.read_text(encoding='utf-8')
+            raise ValidationError(f"Application requires {filename}.")
+        text = path.read_text(encoding="utf-8")
         if any(heading not in text for heading in headings):
-            raise ValidationError(f'Application {filename} is missing required sections.')
+            raise ValidationError(f"Application {filename} is missing required sections.")
 
 
 def application_urlpatterns():
     from django.urls import include, path
+
     result = []
     for manifest in all_apps():
         if manifest.urls:
             from .administration import guard_application_urls
+
             module, app_name, namespace = include(manifest.urls)
-            patterns = module.urlpatterns if hasattr(module, 'urlpatterns') else module
+            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
             guarded = guard_application_urls(patterns, manifest)
-            result.append(path(f'o/<uuid:organization_id>/apps/{manifest.app_label}/',
-                               include((guarded, app_name), namespace=namespace)))
+            result.append(
+                path(
+                    f"o/<uuid:organization_id>/apps/{manifest.app_label}/",
+                    include((guarded, app_name), namespace=namespace),
+                )
+            )
         if manifest.api_urls:
-            result.append(path(f'api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/', include(manifest.api_urls)))
+            result.append(
+                path(f"api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/", include(manifest.api_urls))
+            )
     return result

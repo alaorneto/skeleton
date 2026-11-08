@@ -1,21 +1,38 @@
 """Bounded Unix-socket HTTP control API and independent scoped read-only status UI."""
 
-from base64 import urlsafe_b64decode, urlsafe_b64encode
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import hashlib
 import hmac
 import html
 import json
 import os
-from pathlib import Path
 import secrets
 import socket
-from socketserver import ThreadingMixIn, UnixStreamServer
+import sys
 import threading
 import time
+import traceback
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path, PurePath
+from socketserver import ThreadingMixIn, UnixStreamServer
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .storage import AgentError, atomic_bytes, canonical, identifier, private_file
+
+
+def log_internal_error(error, stream=None):
+    """Emit one JSON line locating the failure; never the message, request, token or subprocess output."""
+    frames = traceback.extract_tb(error.__traceback__)[-25:]
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "level": "ERROR",
+        "event": "agent.internal_error",
+        "error_class": type(error).__name__,
+        "error_stack": [f"{PurePath(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames],
+    }
+    stream = stream or sys.stderr
+    stream.write(json.dumps(record, sort_keys=True) + "\n")
+    stream.flush()
 
 
 class StatusTickets:
@@ -33,7 +50,12 @@ class StatusTickets:
         status = self.service.config.get("status_http")
         if not status:
             return None
-        body = {"operation": identifier(operation_id), "expires": int(time.time()) + 300, "epoch": int(self.epoch_path.read_text()), "nonce": secrets.token_hex(12)}
+        body = {
+            "operation": identifier(operation_id),
+            "expires": int(time.time()) + 300,
+            "epoch": int(self.epoch_path.read_text()),
+            "nonce": secrets.token_hex(12),
+        }
         payload = urlsafe_b64encode(canonical(body)).rstrip(b"=")
         signature = urlsafe_b64encode(hmac.digest(self.key, payload, "sha256")).rstrip(b"=")
         ticket = (payload + b"." + signature).decode("ascii")
@@ -48,7 +70,12 @@ class StatusTickets:
             if not hmac.compare_digest(supplied, hmac.digest(self.key, payload, "sha256")):
                 raise ValueError
             body = json.loads(urlsafe_b64decode(payload + b"=" * (-len(payload) % 4)))
-            if body["operation"] != identifier(operation_id) or type(body["expires"]) is not int or not int(time.time()) < body["expires"] <= int(time.time()) + 300 or body["epoch"] != int(self.epoch_path.read_text()):
+            if (
+                body["operation"] != identifier(operation_id)
+                or type(body["expires"]) is not int
+                or not int(time.time()) < body["expires"] <= int(time.time()) + 300
+                or body["epoch"] != int(self.epoch_path.read_text())
+            ):
                 raise ValueError
         except (ValueError, TypeError, KeyError, UnicodeError, AgentError):
             raise AgentError("invalid_status_ticket", 403) from None
@@ -165,10 +192,14 @@ class ControlHandler(QuietHandler):
         try:
             self.send_json(self.dispatch())
         except AgentError as error:
-            self.send_json({"error": error.code}, error.status)
+            body = {"error": error.code}
+            if error.details:
+                body["details"] = error.details
+            self.send_json(body, error.status)
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
-        except Exception:
+        except Exception as error:
+            log_internal_error(error)
             self.send_json({"error": "agent_internal_error"}, 500)
         finally:
             self.close_connection = True
@@ -185,7 +216,7 @@ class StatusHandler(QuietHandler):
             prefix = base + "/"
             if not path.path.startswith(prefix):
                 raise AgentError("not_found", 404)
-            operation_id = identifier(path.path[len(prefix):].strip("/"))
+            operation_id = identifier(path.path[len(prefix) :].strip("/"))
             query = parse_qs(path.query, strict_parsing=True)
             if set(query) - {"ticket", "format"} or len(query.get("ticket", [])) != 1:
                 raise AgentError("invalid_status_ticket", 403)
@@ -201,15 +232,31 @@ class StatusHandler(QuietHandler):
             if query.get("format") == ["json"]:
                 self.send_json(summary)
                 return
-            rows = "".join(f"<tr><th>{html.escape(key)}</th><td>{html.escape(str(value or '—'))}</td></tr>" for key, value in summary.items())
+            rows = "".join(
+                f"<tr><th>{html.escape(key)}</th><td>{html.escape(str(value or '—'))}</td></tr>"
+                for key, value in summary.items()
+            )
             body = f'<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="3"><title>Operação de deployment</title><h1>Operação de deployment</h1><p>Canal independente, somente leitura. Atualização a cada 3 segundos; autorização expira em cinco minutos.</p><table>{rows}</table></html>'.encode()
             self.send_response(200)
-            for key, value in (("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(body))), ("Cache-Control", "no-store"), ("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"), ("Referrer-Policy", "no-referrer"), ("X-Content-Type-Options", "nosniff")):
+            for key, value in (
+                ("Content-Type", "text/html; charset=utf-8"),
+                ("Content-Length", str(len(body))),
+                ("Cache-Control", "no-store"),
+                (
+                    "Content-Security-Policy",
+                    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+                ),
+                ("Referrer-Policy", "no-referrer"),
+                ("X-Content-Type-Options", "nosniff"),
+            ):
                 self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
         except (AgentError, ValueError) as error:
-            self.send_json({"error": error.code if isinstance(error, AgentError) else "invalid_request"}, error.status if isinstance(error, AgentError) else 400)
+            self.send_json(
+                {"error": error.code if isinstance(error, AgentError) else "invalid_request"},
+                error.status if isinstance(error, AgentError) else 400,
+            )
         finally:
             self.close_connection = True
 
@@ -243,7 +290,9 @@ def serve(service):
     status_server = None
     if service.config.get("status_http"):
         options = service.config["status_http"]
-        if options.get("host", "127.0.0.1") not in ("127.0.0.1", "::1") or urlsplit(options.get("public_url", "")).scheme not in ("https", "http"):
+        if options.get("host", "127.0.0.1") not in ("127.0.0.1", "::1") or urlsplit(
+            options.get("public_url", "")
+        ).scheme not in ("https", "http"):
             raise AgentError("insecure_status_listener")
         status_server = ThreadingHTTPServer((options.get("host", "127.0.0.1"), options["port"]), StatusHandler)
         status_server.service = service

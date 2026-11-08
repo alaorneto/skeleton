@@ -1,0 +1,12 @@
+# ${verbose_name}: decisões iniciais
+
+Registro de decisão gerado por `skeleton_startapp`. Revise-o e acrescente as decisões próprias da app; veja [a especificação](spec.md).
+
+## Context
+A app precisa armazenar `${model}` por organização sem inserir regras de negócio no núcleo e sem contornar isolamento tenant, autorização e auditoria.
+
+## Decision
+`${model}` deriva de `SecuredRecord` e é registrado com um `TableSpec` de allowlists explícitas. A infraestrutura de banco (guards, FK tenant, RLS e triggers de auditoria) é instalada por migration gerada com `record_infrastructure`, a partir de modelos históricos. Rotas próprias ficam sob o prefixo tenant da app e consultam somente `authorized_queryset`.
+
+## Consequences
+O viewer genérico do núcleo oferece CRUD sem formulários próprios; telas específicas, se surgirem, continuam limitadas pelo `TableSpec`. Toda nova coluna exige revisar allowlists, sensibilidade e a infraestrutura da migration correspondente.

@@ -7,6 +7,10 @@ class AuthVersionMiddleware:
 
     def __call__(self, request):
         user = request.user
-        if user.is_authenticated and (not user.is_active or user.deleted_at is not None or request.session.get('skeleton_auth_version') != user.auth_version):
+        if user.is_authenticated and (
+            not user.is_active
+            or user.deleted_at is not None
+            or request.session.get("skeleton_auth_version") != user.auth_version
+        ):
             logout(request)
         return self.get_response(request)

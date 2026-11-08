@@ -1,0 +1,5 @@
+{% with input_type=field.field.widget.input_type %}<div class="form-field{% if input_type == 'checkbox' or input_type == 'radio' %} form-field-check{% endif %}">
+{% if input_type == 'checkbox' %}{{ field }}<label for="{{ field.id_for_label }}">{{ field.label }}</label>{% else %}<label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required and show_required %}<span class="required" aria-hidden="true"> *</span>{% endif %}</label>{{ field }}{% endif %}
+{% if field.help_text %}<div class="helptext" id="{{ field.auto_id }}_helptext">{{ field.help_text|safe }}</div>{% endif %}
+{{ field.errors }}
+</div>{% endwith %}

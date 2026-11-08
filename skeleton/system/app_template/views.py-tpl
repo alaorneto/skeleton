@@ -1,0 +1,24 @@
+from django.shortcuts import render
+from rest_framework.response import Response
+
+from skeleton.access.policies import authorized_queryset
+from skeleton.api.views import TenantAPI
+from skeleton.web.views import tenant_page
+
+from .models import ${model}
+
+
+@tenant_page()
+def home(request, organization_id):
+    rows = authorized_queryset(${model}, user=request.user)
+    return render(
+        request,
+        "${app_label}/home.html",
+        {"heading": "${verbose_name}", "count": rows.count(), "organization_id": organization_id},
+    )
+
+
+class SummaryView(TenantAPI):
+    def get(self, request, organization_id):
+        rows = authorized_queryset(${model}, user=request.user)
+        return Response({"count": rows.count()})

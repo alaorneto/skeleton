@@ -4,5 +4,9 @@ pytest
 pytest-django
 pytest-playwright
 build
-setuptools>=77,<83
+setuptools>=84.1,<85
 wheel>=0.45,<1
+pytest-cov
+mypy==1.19.1
+django-stubs[compatible-mypy]==5.2.9
+djangorestframework-stubs==3.16.9

@@ -1,11 +1,14 @@
 """Django wrapper for the same standalone, settings-free package utilities."""
+
 import json
+
 from django.core.management.base import BaseCommand, CommandError
+
 from skeleton.system.packages import PackageError, configure_parser, run_command
 
 
 class Command(BaseCommand):
-    help = 'Initialize, build, validate, inspect and sign app/core artifacts and release indexes.'
+    help = "Initialize, build, validate, inspect and sign app/core artifacts and release indexes."
     requires_system_checks = []
 
     def add_arguments(self, parser):

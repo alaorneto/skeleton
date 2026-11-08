@@ -6,13 +6,13 @@
 
 | Superfície | Responsabilidade | Não faz |
 |---|---|---|
-| `/admin/` | Configurações/parametrizações da plataforma, grupos de apps e controle de releases | Não lista tabelas nem apresenta formulários de edição de registros |
-| `/platform/records/` | Registros globais autorizados: identidade, organizações, catálogo e auditoria | Não é o painel de configurações; não abre negócio tenant |
+| `/platform/` | Administração da plataforma em views próprias: identidades, organizações, aplicativos instalados (visão, documentação e telas de escopo plataforma), catálogo de tabelas e auditoria global | Não abre negócio tenant nem seleciona organizações; não há editor genérico de modelos |
+| `/platform/updates/` | Versões e atualizações em etapas: instaladas, novas versões, envio de pacote, plano com prévia e operações | Não executa pip/DDL; só pede prévia e aprovação ao agente |
 | `/o/<org>/apps/` e `apps/<app_label>/admin/` | Configuração, ativação e parâmetros organizacionais das apps | Não apresentam tabelas, CRUD ou atalhos de modelos |
 | `/o/<org>/catalog/` e `tables/<table_key>/` | Descoberta e viewer padronizado de negócio: lista, detalhe e formulário | Não instalam software nem administram configuração de plataforma |
 | `/api/v1/o/<org>/tables/<table_key>/` | Recursos de negócio e seleção autorizada de referências | Não aceitam classe Python, nome SQL ou bypass de autorização |
 
-Há **um único `PlatformAdminSite` e um namespace `admin`**, não duas instâncias com políticas divergentes. As rotas de registros convencionais desse site foram movidas para `/platform/records/`, com shell web próprio e sem sidebar de configurações. Seus nomes `admin:<app>_<model>_*` continuam resolvendo, agora fora do painel. As antigas URLs de tabelas em `/admin/<app>/<model>/` retornam 404, sem aliases. `admin:index` resolve `/admin/`; `admin:records_index` resolve `/platform/records/`.
+A administração da plataforma usa **views explícitas** em `skeleton/web/platform` (namespace `platform`), guardadas por `platform_page`: anônimo vai ao login, quem não é staff+superuser ativo recebe 403, MFA pendente vai ao cadastro de 2FA e o contexto precisa ser global. Identidades e organizações mudam somente pelos serviços de lifecycle (`update_platform_user`, `create_identity`, `deactivate_user`, `create_organization`, `update_organization`), com CAS por revisão; o catálogo só edita rótulo e descrição. Nenhum modelo é registrado no Django admin e nenhum changelist genérico é roteado: `/platform/records/`, `/admin/<app>/<model>/` e o antigo seletor "configuração por organização" retornam 404, sem aliases. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.
 
 O namespace de uma rota é uma identidade de integração Django, não o painel em que ela aparece. A separação efetiva é a URL, o conteúdo e o layout. Os serviços de identidade, CAS, desativação, último administrador, MFA e CSRF continuam protegendo os registros globais.
 
@@ -88,7 +88,7 @@ Esse fragmento pertence ao `runtime` do `applications/<package>/manifest.json` c
 
 Antes de importar código, o pacote valida schema fechado, tipos, ownership, namespaces, limites e assinatura/inventário. Há limites de 100 entradas por lista de seções/telas/abas, 200 modelos de apresentação, 200 entradas de campo por layout, labels de 200 e help text de 2000 caracteres.
 
-Com Django no staging, `skeleton.E013` verifica modelos expostos da própria app, campos concretos/allowlists, cobertura de formulário, widgets, título escalar, rotas próprias HTML/API, handlers e colisões com `admin/`. Declaração inválida falha antes do cutover; não ganha fallback silencioso.
+Com Django no staging, `skeleton.E013` verifica modelos expostos da própria app, campos concretos/allowlists, cobertura de formulário, widgets, título escalar, rotas próprias HTML/API, handlers e colisões com as raízes reservadas `platform/` e `admin/`. Declaração inválida falha antes do cutover; não ganha fallback silencioso.
 
 ## 4. Viewer de negócio fora do admin
 
@@ -110,7 +110,7 @@ Tenant, ativação, permissão de tabela e visibilidade precedem filtro/count/pa
 
 ## 5. Formulário e detalhe padronizados
 
-Criação, edição e leitura usam Django Forms renderizados no servidor por **django-crispy-forms==2.7** e pelo pack próprio `skeleton_crud`, distribuído no wheel do core 0.3.0. Crispy é somente o motor de apresentação: o core compila o envelope seguro em layout, sem substituir autorização, validação, CAS, serviços ou persistência. Não há pack externo, CDN ou frontend adicional. Sem JavaScript, as seções ficam sequenciais. Erros selecionam a aba correta, conservam valores enviados e oferecem resumo focável e links para campos.
+Criação, edição e leitura usam Django Forms renderizados no servidor por **django-crispy-forms==2.7** e pelo pack próprio `skeleton_crud`, distribuído no wheel do core 0.3.0. Crispy é somente o motor de apresentação: o core compila o envelope seguro em layout, sem substituir autorização, validação, CAS, serviços ou persistência. Não há pack crispy externo, CDN ou framework JavaScript; o visual vem do CSS compilado e versionado do núcleo (Tailwind/Flowbite, ver [interface e design](ui-design.md)). Sem JavaScript, as seções ficam sequenciais. Erros selecionam a aba correta, conservam valores enviados e oferecem resumo focável e links para campos.
 
 | Dimensão | Contrato |
 |---|---|
@@ -153,7 +153,7 @@ Atualize o agente independente para 0.3.0 e o core do release para >=0.3.0 antes
 | Subsistema | Arquivos principais |
 |---|---|
 | Contratos e checks | `system/packages.py`, `app_registry.py`, `presentation.py`, `checks.py` |
-| Configuração/admin | `accounts/admin_site.py`, `system/administration.py`, `application_views.py`, `application_urls.py`, `conf/urls.py` |
+| Administração | `web/platform/` (plataforma), `system/administration.py`, `application_views.py`, `application_urls.py`, `conf/urls.py` |
 | Viewer/forms | `web/views.py`, `forms.py`, `presentation.py`, `form_engine.py`, `templatetags/crud_forms.py`, `references.py`, `services.py`, pack `templates/skeleton_crud` e static |
 | API/picker/dispatch | `api/views.py`, `api/urls.py`, `system/record_operations.py` |
 | Release/config check | `deployment_agent/releases.py`, `service.py`, `check_application_configuration`, preview do release |

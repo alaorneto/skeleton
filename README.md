@@ -23,10 +23,9 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/accounts/login/` | Pessoa com admissão autorizada | Entrar usando senha, SSO ou MFA conforme a política |
 | `/o/<org>/` | Pessoa com vínculo ativo na organização indicada | Acessar dados e funcionalidades daquele tenant |
 | `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
-| `/admin/` | Administrador da plataforma | Somente configurações, parametrizações e operações da instalação |
-| `/platform/records/` | Administrador da plataforma | Registros globais de identidade, organizações, catálogo e auditoria, fora do painel de configurações |
+| `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
-| `/admin/system/releases/` | Administrador da plataforma, com agente provisionado | Ver versões, aprovar instalação/atualização e acompanhar operações |
+| `/platform/updates/` | Administrador da plataforma, com agente provisionado | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
 | `/api/v1/` | Cliente com sessão Django válida | Operar recursos autorizados; não existe login independente por token |
 
 No caminho `/o/<org>/`, substitua `<org>` pelo UUID da organização. O servidor valida o vínculo: conhecer o UUID não concede acesso.
@@ -65,6 +64,16 @@ O exemplo Notes é uma app de negócio fora do núcleo. Defina `SKELETON_ENABLE_
 
 O core/agente 0.3.0 integra `django-crispy-forms==2.7` com pack SSR próprio `skeleton_crud`, distribuído no wheel: apresentação apenas, sem mudar autorização, CAS ou persistência. O manifesto canônico `runtime.model_ui` define labels/abas/ordem e grade responsiva de 12 unidades, sem editor no admin ou arquivo UI paralelo. Notes 0.2.0 demonstra Código 4/Título 8/Texto 12, textarea com 8 linhas; apps elegíveis sem layout recebem defaults. [Contrato de dimensões e exemplos](docs/application-admin-ui-plan.md#5-formulário-e-detalhe-padronizados): `col_span` inteiro exato 1..12, `rows` 1..40 em textarea editável, omissão/`null` conserva defaults; `columns:1/2` define padrão 12/6 e mobile usa largura inteira. Atualize agente/core antes de dimensões: presença de suas chaves, inclusive `null`, exige piso >=0.3.0; v1/v2 históricos sem dimensões conservam compatibilidade e JSON assinado.
 
+### Interface e CSS
+
+A interface SSR usa Tailwind CSS 4 e Flowbite 4 com a paleta "Cobalto e Ardósia" e a fonte Inter, servidas da própria origem. O CSS compilado (`skeleton/web/static/skeleton/web/site.css`) e os assets vendorizados são versionados: o wheel não depende de Node. Depois de alterar `frontend/src/` ou templates, recompile e versione o resultado:
+
+```sh
+cd frontend && npm ci --ignore-scripts && npm run build
+```
+
+O job `assets` do CI roda `npm run check` e falha se o CSS estiver desatualizado. Tokens, componentes e regras: [interface e design](docs/ui-design.md).
+
 ### Ferramentas LSP de desenvolvimento
 
 A configuração local em `.omp/lsp.json` integra BasedPyright e Ruff para Python, os servidores VS Code para HTML/CSS/JSON, YAML Language Server, Taplo para TOML, Dockerfile Language Server, Marksman para Markdown e Postgres Language Server para SQL.
@@ -73,13 +82,29 @@ Os executáveis ficam em ambientes isolados do usuário: BasedPyright/Ruff via `
 
 BasedPyright usa `.venv/bin/python` para resolver Django e as demais dependências. HTML oferece análise estrutural, não validação semântica das tags de template Django. `.omp/postgres-language-server.json` desabilita conexões ao banco: a análise SQL não recebe DSNs/segredos nem substitui verificações de schema com a role runtime.
 
+### Lint, pre-commit e CI
+
+As regras do Ruff (lint, ordem de imports e formatter) ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`. mypy, django-stubs e pytest-cov ficam no lock de desenvolvimento, porque precisam do Django instalado no mesmo ambiente.
+
+```sh
+uvx ruff@0.17.4 check
+uvx ruff@0.17.4 format
+uvx pre-commit install
+.venv/bin/python -m mypy
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts --cov
+```
+
+A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
+
+O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compilado, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
+
 
 ### Atualizar locks (manutenção, não todo startup)
 
 ```sh
 .venv/bin/python -m pip install pip-tools
 .venv/bin/pip-compile --generate-hashes requirements.in
-.venv/bin/pip-compile --generate-hashes --allow-unsafe requirements-dev.in
+uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements-dev.in -o requirements-dev.txt
 .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
@@ -117,7 +142,7 @@ Após configuração/migrations de SSO, rode `validate_provider_bindings --datab
 
 O núcleo é distribuído como wheel `django-skeleton`, separado de `config` e `applications`. Sua versão tem uma fonte de build em `pyproject.toml`; quando instalado, o código consulta os metadados da distribuição. Uma app usa `manifest.json` para declarar identidade, versão, compatibilidade, arquivos e migrations.
 
-A plataforma envia um pacote assinado `.skapp` e aprova um plano em `/admin/system/releases/`. Um agente independente prepara outro release, cria backup, executa migrations/checks e reinicia os workers. O processo web não recebe credencial de migration nem executa pip/DDL. Antes de usar a interface, o operador precisa provisionar esse agente, suas raízes privadas e os publicadores confiáveis.
+A plataforma envia um pacote assinado `.skapp` e aprova um plano em `/platform/updates/`. Um agente independente prepara outro release, cria backup, executa migrations/checks e reinicia os workers. O processo web não recebe credencial de migration nem executa pip/DDL. Antes de usar a interface, o operador precisa provisionar esse agente, suas raízes privadas e os publicadores confiáveis.
 
 ```sh
 .venv/bin/python manage.py package versions --manifest examples/notes/manifest.json
@@ -137,6 +162,7 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md) e [testes/evidências](docs/testing.md).
+- [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro, tema do admin e build do CSS.
 - [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.
 
 Os resultados observados da integração e os comandos para reproduzi-los estão em [testing](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; SQLite ou mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.

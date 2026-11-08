@@ -1,7 +1,8 @@
 """Optional owned business services; a declared missing operation always denies."""
+
+from collections.abc import Callable
 from dataclasses import dataclass
 from inspect import signature
-from collections.abc import Callable
 
 from django.apps import apps
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -24,6 +25,7 @@ _operations = {}
 def register_record_operations(table_key, operations):
     """Services accept (record, *, user, values) or (record, *, user) for lifecycle."""
     from skeleton.system.app_registry import get_app
+
     try:
         spec = get_spec(table_key)
         get_app(spec.model._meta.app_label)

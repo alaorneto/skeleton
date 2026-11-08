@@ -1,17 +1,17 @@
 """Offline core publication and explicit source-copy adoption utilities."""
+
 import argparse
 import hashlib
 import importlib.metadata
 import json
 import os
-from pathlib import Path
-import sys
 import zipfile
+from pathlib import Path
 
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from skeleton.system.packages import PackageError, build_artifact, validate_manifest, validate_package
+from skeleton.system.packages import PackageError, build_artifact, validate_package
 
 
 def _digest(data):
@@ -39,6 +39,7 @@ def wheel_inventory(wheel):
                 raise PackageError("Core wheel contains project-owned files.")
             if name.endswith(".dist-info/METADATA"):
                 from email.parser import BytesParser
+
                 metadata.append(BytesParser().parsebytes(archive.read(info)))
         if len(metadata) != 1 or canonicalize_name(metadata[0]["Name"]) != "django-skeleton":
             raise PackageError("Expected a django-skeleton core wheel.")
@@ -70,6 +71,7 @@ def _release_wheel(verified, destination):
             path = item["path"]
             if path.startswith("wheels/") and path.endswith(".whl"):
                 from packaging.utils import parse_wheel_filename
+
                 distribution, _, _, _ = parse_wheel_filename(Path(path).name)
                 if canonicalize_name(distribution) == "django-skeleton":
                     core_candidates.append(path)
@@ -85,6 +87,7 @@ def source_adoption_plan(project_root, verified):
     if verified.manifest["kind"] != "core":
         raise PackageError("Adoption requires a signed core release base.")
     import tempfile
+
     with tempfile.TemporaryDirectory(prefix="skeleton-base-") as tmp:
         base = wheel_inventory(_release_wheel(verified, Path(tmp)))
     project = Path(project_root).resolve()
@@ -104,9 +107,15 @@ def source_adoption_plan(project_root, verified):
     added = sorted(set(actual) - set(expected))
     removed = sorted(set(expected) - set(actual))
     changed = sorted(path for path in set(expected) & set(actual) if actual[path] != expected[path]["sha256"])
-    return {"base_version": base["version"], "base_digest": verified.digest,
-            "classification": "equivalent" if not (added or removed or changed) else "fork",
-            "added": added, "removed": removed, "changed": changed, "files": expected}
+    return {
+        "base_version": base["version"],
+        "base_digest": verified.digest,
+        "classification": "equivalent" if not (added or removed or changed) else "fork",
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "files": expected,
+    }
 
 
 def adopt_source_core(project_root, verified, backup_root):
@@ -127,7 +136,11 @@ def adopt_source_core(project_root, verified, backup_root):
         raise PackageError("Installed core does not match the identified release base.")
     for relative, info in plan["files"].items():
         installed = Path(distribution.locate_file(relative)).resolve()
-        if installed.is_relative_to(project / "skeleton") or not installed.is_file() or _digest(installed.read_bytes()) != info["sha256"]:
+        if (
+            installed.is_relative_to(project / "skeleton")
+            or not installed.is_file()
+            or _digest(installed.read_bytes()) != info["sha256"]
+        ):
             raise PackageError("Installed distribution must match all base files outside the source copy.")
     backup = Path(backup_root).resolve()
     if backup.is_relative_to(project) or project.is_relative_to(backup):
@@ -140,7 +153,9 @@ def adopt_source_core(project_root, verified, backup_root):
     os.rename(project / "skeleton", target)
     record = {key: value for key, value in plan.items() if key != "files"}
     record["backup"] = str(target)
-    (backup / ("adoption-" + verified.digest + ".json")).write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
+    (backup / ("adoption-" + verified.digest + ".json")).write_text(
+        json.dumps(record, sort_keys=True), encoding="utf-8"
+    )
     return record
 
 
@@ -163,12 +178,19 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "build":
-            print(build_core_release(args.wheel, args.manifest, args.output, args.private_key, wheels=args.dependency_wheel))
+            print(
+                build_core_release(
+                    args.wheel, args.manifest, args.output, args.private_key, wheels=args.dependency_wheel
+                )
+            )
         else:
             trust = json.loads(Path(args.trust_store).read_text(encoding="utf-8"))
             verified = validate_package(args.base_release, trust)
-            result = (adopt_source_core(args.project_root, verified, args.backup_root) if args.command == "adopt"
-                      else source_adoption_plan(args.project_root, verified))
+            result = (
+                adopt_source_core(args.project_root, verified, args.backup_root)
+                if args.command == "adopt"
+                else source_adoption_plan(args.project_root, verified)
+            )
             print(json.dumps({key: value for key, value in result.items() if key != "files"}, sort_keys=True))
     except (PackageError, OSError, ValueError) as exc:
         parser.exit(1, f"Core distribution operation failed: {exc}\n")

@@ -2,12 +2,18 @@
 {% load crud_forms %}
 {% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
-{% include 'skeleton/web/components/breadcrumbs.html' %}
-<h1>{{ title }}</h1>
-{% if description %}<p>{{ description }}</p>{% endif %}
-{% include 'skeleton/web/components/toolbar.html' %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    {% include 'skeleton/web/components/breadcrumbs.html' %}
+    <h1>{{ title }}</h1>
+    {% if description %}<p class="page-description">{{ description }}</p>{% endif %}
+  </div>
+  {% include 'skeleton/web/components/toolbar.html' %}
+</div>
 <div class="record-detail">
 {% include 'skeleton/web/components/tabs.html' %}
 {% crud_detail_fields sections %}
+</div>
 </div>
 {% endblock %}

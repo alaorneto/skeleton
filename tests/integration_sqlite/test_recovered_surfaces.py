@@ -1,4 +1,5 @@
 """Regressions for recovered extension, delivery and pagination findings."""
+
 import importlib
 import json
 import re
@@ -9,8 +10,8 @@ import pytest
 from django.contrib import admin
 from django.core.mail import EmailMultiAlternatives
 from django.test import Client
-from django.urls import clear_url_caches, reverse
 from django.test.utils import isolate_apps
+from django.urls import NoReverseMatch, clear_url_caches, reverse
 
 from skeleton.accounts.models import User
 from skeleton.accounts.services import bootstrap_identity
@@ -23,10 +24,17 @@ PASSWORD = "Recovered-Surface-Password!42"
 def login(user, *, suppress_errors=False):
     client = Client(enforce_csrf_checks=True, raise_request_exception=not suppress_errors)
     assert client.get(reverse("account_login")).status_code == 200
-    assert client.post(reverse("account_login"), {
-        "login": user.email, "password": PASSWORD,
-        "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
-    }).status_code == 302
+    assert (
+        client.post(
+            reverse("account_login"),
+            {
+                "login": user.email,
+                "password": PASSWORD,
+                "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+            },
+        ).status_code
+        == 302
+    )
     return client
 
 
@@ -38,7 +46,9 @@ def api_post(client, url, values, revision=None):
 
 
 @isolate_apps()
-def test_ea02_conventional_extension_admin_registration_is_routed():
+def test_ea02_extension_admin_registration_is_never_routed():
+    """Generic ModelAdmin editors would bypass lifecycle services: registrations stay unrouted."""
+
     class ExtensionIdentity(User):
         class Meta:
             proxy = True
@@ -50,47 +60,54 @@ def test_ea02_conventional_extension_admin_registration_is_routed():
             return False
 
     try:
-        # Conventional global record editors remain protected, outside configuration admin.
         from config import urls
+
         importlib.reload(urls)
         clear_url_caches()
-        owner, _ = bootstrap_identity(email="extension-admin@example.test", organization="extension-admin", name="Extension", password=PASSWORD)
+        owner, _ = bootstrap_identity(
+            email="extension-admin@example.test", organization="extension-admin", name="Extension", password=PASSWORD
+        )
         from skeleton.tenancy.context import system_context
+
         with system_context(reason="test:platform-admin"):
             owner.is_staff = owner.is_superuser = True
             owner.save(update_fields=["is_staff", "is_superuser"])
         client = login(owner)
-        url = reverse("admin:sk_accounts_extensionidentity_changelist")
-        assert url.startswith("/platform/records/")
-        response = client.get(url)
-        assert response.status_code == 200
-        assert owner.email.encode() in response.content
-        assert client.get("/admin/sk_accounts/extensionidentity/").status_code == 404
-        from skeleton.accounts.services import create_identity
-        from allauth.account.models import EmailAddress
-        with system_context(reason="test:ordinary-extension-user"):
-            ordinary = create_identity(email="ordinary-admin@example.test", password=PASSWORD)
-            EmailAddress.objects.create(user=ordinary, email=ordinary.email, verified=True, primary=True)
-        assert login(ordinary).get(reverse("admin:sk_accounts_extensionidentity_changelist")).status_code == 403
+        with pytest.raises(NoReverseMatch):
+            reverse("admin:sk_accounts_extensionidentity_changelist")
+        for path in (
+            "/platform/records/sk_accounts/extensionidentity/",
+            "/admin/sk_accounts/extensionidentity/",
+            "/platform/records/",
+        ):
+            assert client.get(path).status_code == 404
     finally:
         admin.site.unregister(ExtensionIdentity)
         from config import urls
+
         importlib.reload(urls)
         clear_url_caches()
 
 
-@pytest.mark.parametrize("resource", ["socialaccount/socialtoken", "socialaccount/socialapp", "mfa/authenticator", "auth/group"])
+@pytest.mark.parametrize(
+    "resource", ["socialaccount/socialtoken", "socialaccount/socialapp", "mfa/authenticator", "auth/group"]
+)
 def test_ea02_technical_secret_admins_remain_unrouted(resource):
-    owner, _ = bootstrap_identity(email="restricted-admin@example.test", organization="restricted-admin", name="Restricted", password=PASSWORD)
+    owner, _ = bootstrap_identity(
+        email="restricted-admin@example.test", organization="restricted-admin", name="Restricted", password=PASSWORD
+    )
     response = login(owner).get(f"/admin/{resource}/")
     assert response.status_code == 404
 
 
 def test_sbr08_smtp_failure_preserves_invitation_and_reports_delivery(caplog, monkeypatch):
-    owner, organization = bootstrap_identity(email="delivery-owner@example.test", organization="delivery", name="Delivery", password=PASSWORD)
+    owner, organization = bootstrap_identity(
+        email="delivery-owner@example.test", organization="delivery", name="Delivery", password=PASSWORD
+    )
     client = login(owner, suppress_errors=True)
     from skeleton.access.models import Role
     from skeleton.tenancy.models import Invitation
+
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:delivery"):
         role = Role.objects.get(code="member")
 
@@ -113,11 +130,14 @@ def test_sbr08_smtp_failure_preserves_invitation_and_reports_delivery(caplog, mo
 
 
 def test_sbr08_invitation_resend_replaces_token_and_rejects_old_link(mailoutbox):
-    owner, organization = bootstrap_identity(email="resend-owner@example.test", organization="resend", name="Resend\nOrganization", password=PASSWORD)
+    owner, organization = bootstrap_identity(
+        email="resend-owner@example.test", organization="resend", name="Resend\nOrganization", password=PASSWORD
+    )
     client = login(owner, suppress_errors=True)
     from skeleton.access.models import Role
-    from skeleton.tenancy.models import Invitation
     from skeleton.tenancy.invitations import InvalidInvitation, validate_invitation
+    from skeleton.tenancy.models import Invitation
+
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:resend"):
         role = Role.objects.get(code="member")
     collection = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
@@ -145,14 +165,20 @@ def test_sbr08_invitation_resend_replaces_token_and_rejects_old_link(mailoutbox)
 
 def test_sbr14_pagination_retains_validated_filter_and_results():
     from examples.notes.models import Note
-    owner, organization = bootstrap_identity(email="pages-owner@example.test", organization="pages", name="Pages", password=PASSWORD)
+
+    owner, organization = bootstrap_identity(
+        email="pages-owner@example.test", organization="pages", name="Pages", password=PASSWORD
+    )
     client = login(owner)
     title = "Filtered & escaped <title>"
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:pagination"):
-        Note.objects.bulk_create([
-            Note(organization=organization, owner=owner, code=f"filtered-{number}", title=title)
-            for number in range(26)
-        ] + [Note(organization=organization, owner=owner, code="excluded", title="Excluded result")])
+        Note.objects.bulk_create(
+            [
+                Note(organization=organization, owner=owner, code=f"filtered-{number}", title=title)
+                for number in range(26)
+            ]
+            + [Note(organization=organization, owner=owner, code="excluded", title="Excluded result")]
+        )
     collection = reverse("web:records", kwargs={"organization_id": organization.pk, "table_key": "example_notes.note"})
     first = client.get(collection, {"title": title})
     assert first.status_code == 200

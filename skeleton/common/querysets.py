@@ -49,7 +49,12 @@ class RecordQuerySet(models.QuerySet):
                 for name, value in kwargs.items():
                     resolved = value
                     if hasattr(value, "resolve_expression"):
-                        resolved = self.filter(pk=record.pk).annotate(_sk_update_value=value).values_list("_sk_update_value", flat=True).get()
+                        resolved = (
+                            self.filter(pk=record.pk)
+                            .annotate(_sk_update_value=value)
+                            .values_list("_sk_update_value", flat=True)
+                            .get()
+                        )
                     setattr(record, name, resolved)
                 record.full_clean()
                 for name, value in tuple(kwargs.items()):
@@ -60,7 +65,15 @@ class RecordQuerySet(models.QuerySet):
             kwargs["revision"] = F("revision") + 1
             return models.QuerySet.update(self, **kwargs)
 
-    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False, update_conflicts=False, update_fields=None, unique_fields=None):
+    def bulk_create(
+        self,
+        objs,
+        batch_size=None,
+        ignore_conflicts=False,
+        update_conflicts=False,
+        update_fields=None,
+        unique_fields=None,
+    ):
         if ignore_conflicts or update_conflicts:
             raise UnsafeBulkMutation("Conflict-skipping bulk inserts are not supported.")
         objs = list(objs)

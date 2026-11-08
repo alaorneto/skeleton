@@ -8,6 +8,7 @@ class SkeletonAuthenticationBackend(AuthenticationBackend):
     def get_user(self, user_id):
         # SSO-only identities may retain a session on this backend, but never authenticate by password.
         from django.contrib.auth import get_user_model
+
         try:
             user = get_user_model().objects.get(pk=user_id)
         except get_user_model().DoesNotExist:

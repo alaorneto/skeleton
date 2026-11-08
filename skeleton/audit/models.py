@@ -28,11 +28,20 @@ class AuditEvent(SystemRecord):
 
     class Meta(SystemRecord.Meta):
         ordering = ("-created_at", "sysid")
-        indexes = [models.Index(fields=("organization_id", "created_at"), name="sk_audit_org_created"), models.Index(fields=("table_name", "record_sysid", "record_revision"), name="sk_audit_record_revision")]
+        indexes = [
+            models.Index(fields=("organization_id", "created_at"), name="sk_audit_org_created"),
+            models.Index(fields=("table_name", "record_sysid", "record_revision"), name="sk_audit_record_revision"),
+        ]
         constraints = SystemRecord.Meta.constraints + [
-            models.CheckConstraint(condition=Q(deleted_at__isnull=True, deleted_by__isnull=True, revision=1), name="sk_audit_event_append_only_metadata"),
+            models.CheckConstraint(
+                condition=Q(deleted_at__isnull=True, deleted_by__isnull=True, revision=1),
+                name="sk_audit_event_append_only_metadata",
+            ),
             models.CheckConstraint(condition=Q(record_revision__gte=1), name="sk_audit_record_revision_positive"),
-            models.CheckConstraint(condition=Q(operation__in=("create", "update", "soft_delete", "restore", "hard_delete")), name="sk_audit_event_operation"),
+            models.CheckConstraint(
+                condition=Q(operation__in=("create", "update", "soft_delete", "restore", "hard_delete")),
+                name="sk_audit_event_operation",
+            ),
         ]
 
     def clean(self):

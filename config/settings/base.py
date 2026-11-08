@@ -1,5 +1,7 @@
 """Project-owned overlay; reusable core defaults live in the installed wheel."""
+
 from skeleton.conf.base import *
+
 from .project import PROJECT_APPS
 
 INSTALLED_APPS = [*INSTALLED_APPS, *PROJECT_APPS]

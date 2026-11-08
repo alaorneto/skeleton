@@ -19,6 +19,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
+- `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
 - `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
 - `examples/notes`: exemplo didático opt-in, não dependência do núcleo.
 

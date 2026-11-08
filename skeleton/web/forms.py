@@ -17,8 +17,7 @@ class ProfileForm(forms.Form):
 def _model_form_field(field):
     """Keep Django's constraints without ever constructing a relation select."""
     if field.is_relation:
-        return forms.UUIDField(required=not field.blank, label=field.verbose_name,
-                               help_text=field.help_text)
+        return forms.UUIDField(required=not field.blank, label=field.verbose_name, help_text=field.help_text)
     form_field = field.formfield()
     if form_field is None or isinstance(field, models.FileField):
         raise ValueError(f"Unsupported form field: {field.name}")
@@ -33,6 +32,7 @@ def explicit_form(model, names, *, user, data=None, instance=None, revision=Fals
     initial = {}
     if instance is not None:
         from skeleton.web.services import records_data
+
         projected = records_data([instance], names, user=user)[0]
         initial.update({name: projected.get(name) for name in names})
     if revision:
@@ -68,11 +68,14 @@ class RecordForm(forms.Form):
             self.fields[name].widget.use_required_attribute = _optional_change_required
             control = CHANGE_PREFIX + name
             self.fields[control] = forms.BooleanField(
-                required=False, label=f"Alterar {self.fields[name].label}",
-                help_text="Desmarcado mantém o valor atual. Marque para substituir ou limpar.")
+                required=False,
+                label=f"Alterar {self.fields[name].label}",
+                help_text="Desmarcado mantém o valor atual. Marque para substituir ou limpar.",
+            )
             widget = self.fields[control].widget
             changing = self.is_bound and forms.BooleanField(required=False).clean(
-                widget.value_from_datadict(self.data, self.files, control))
+                widget.value_from_datadict(self.data, self.files, control)
+            )
             if not changing:
                 self.unchanged.add(name)
                 self.fields[name].required = False
@@ -88,7 +91,6 @@ class RecordForm(forms.Form):
             super()._clean_fields()
         finally:
             self.fields = fields
-
 
     def clean(self):
         cleaned = super().clean()
@@ -111,8 +113,9 @@ def record_form(spec, *, user, data=None, instance=None, operation="edit"):
     initial = {}
     readable = set(spec.read_fields)
     if instance is not None:
-        projected = records_data([instance], tuple(name for name in spec.write_fields if name in readable),
-                                 user=user)[0]
+        projected = records_data([instance], tuple(name for name in spec.write_fields if name in readable), user=user)[
+            0
+        ]
         initial.update({name: projected.get(name) for name in spec.write_fields if name in readable})
     for name in spec.write_fields:
         model_field = spec.model._meta.get_field(name)
@@ -124,10 +127,15 @@ def record_form(spec, *, user, data=None, instance=None, operation="edit"):
             if item.help_text is not None:
                 field.help_text = item.help_text
             widgets = {
-                "text": forms.TextInput, "textarea": forms.Textarea,
-                "number": forms.NumberInput, "checkbox": forms.CheckboxInput,
-                "date": forms.DateInput, "datetime": forms.DateTimeInput, "time": forms.TimeInput,
-                "uuid": forms.TextInput, "json": forms.Textarea,
+                "text": forms.TextInput,
+                "textarea": forms.Textarea,
+                "number": forms.NumberInput,
+                "checkbox": forms.CheckboxInput,
+                "date": forms.DateInput,
+                "datetime": forms.DateTimeInput,
+                "time": forms.TimeInput,
+                "uuid": forms.TextInput,
+                "json": forms.Textarea,
                 "reference": forms.TextInput,
             }
             if item.widget == "select":
@@ -161,6 +169,8 @@ def record_form(spec, *, user, data=None, instance=None, operation="edit"):
 
 def wire_values(cleaned):
     """Omit revision and change controls; unchanged write-only values are absent."""
-    return {name: str(value.pk) if hasattr(value, "_meta") else value
-            for name, value in cleaned.items()
-            if name != "revision" and not name.startswith(CHANGE_PREFIX)}
+    return {
+        name: str(value.pk) if hasattr(value, "_meta") else value
+        for name, value in cleaned.items()
+        if name != "revision" and not name.startswith(CHANGE_PREFIX)
+    }

@@ -1,4 +1,3 @@
-from django.apps import apps
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
 from django.http import Http404
@@ -8,7 +7,16 @@ from skeleton.common.models import SecuredRecord
 from skeleton.system.registry import all_specs, get_spec
 from skeleton.tenancy.context import current_context
 
-SYSTEM_FIELDS = ("sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_at", "deleted_by", "revision")
+SYSTEM_FIELDS = (
+    "sysid",
+    "created_at",
+    "updated_at",
+    "created_by",
+    "updated_by",
+    "deleted_at",
+    "deleted_by",
+    "revision",
+)
 ACCESS_FIELDS = ("owner", "visibility", "owning_group")
 
 
@@ -57,8 +65,8 @@ def coerce_fields(model, data, *, user):
             except (ValidationError, ValueError, TypeError):
                 raise ValidationError({name: "Referência inválida."}) from None
             from skeleton.web.references import target_queryset
-            queryset = target_queryset(field, user=user, source_model=model,
-                                       access=name in ACCESS_FIELDS)
+
+            queryset = target_queryset(field, user=user, source_model=model, access=name in ACCESS_FIELDS)
             try:
                 values[name] = queryset.get(pk=field.target_field.to_python(value))
             except (related.DoesNotExist, ValidationError, ValueError, TypeError):
@@ -67,7 +75,11 @@ def coerce_fields(model, data, *, user):
             try:
                 if isinstance(field, (models.CharField, models.TextField)) and not isinstance(value, str):
                     raise ValidationError("Use um valor textual.")
-                if isinstance(field, models.BooleanField) and not isinstance(value, bool) and not (value is None and field.null):
+                if (
+                    isinstance(field, models.BooleanField)
+                    and not isinstance(value, bool)
+                    and not (value is None and field.null)
+                ):
                     raise ValidationError("Use true ou false.")
                 values[name] = field.clean(value, None)
             except (ValidationError, ValueError, TypeError) as exc:
@@ -94,6 +106,7 @@ def records_data(records, fields, *, user):
     names = tuple(dict.fromkeys((*SYSTEM_FIELDS, *fields)))
     result = [record_data(record, names) for record in items]
     from skeleton.web.references import target_queryset
+
     model = type(items[0])
     relations = {}
     for name in names:
@@ -102,13 +115,15 @@ def records_data(records, fields, *, user):
             key = (field.remote_field.model, name in ACCESS_FIELDS)
             relations.setdefault(key, []).append(field)
     for (_, access), group in relations.items():
-        ids = {row[field.name] for row in result for field in group
-               if row[field.name] is not None}
+        ids = {row[field.name] for row in result for field in group if row[field.name] is not None}
         if not ids:
             continue
         try:
-            visible = set(target_queryset(group[0], user=user, source_model=model, access=access)
-                          .filter(pk__in=ids).values_list("pk", flat=True))
+            visible = set(
+                target_queryset(group[0], user=user, source_model=model, access=access)
+                .filter(pk__in=ids)
+                .values_list("pk", flat=True)
+            )
         except PermissionDenied:
             visible = set()
         for row in result:
@@ -121,14 +136,18 @@ def records_data(records, fields, *, user):
 def record_queryset(spec, *, user, action="read", include_deleted=False):
     if action in {"create", "update", "delete", "restore"}:
         from skeleton.system.record_operations import require_operation
+
         require_operation(spec, action)
     return authorized_queryset(spec.model, user=user, action=action, include_deleted=include_deleted)
 
 
 def filter_records(queryset, spec, params, *, ignore_empty=False):
-    scalar = {name for name in spec.read_fields
-              if not spec.model._meta.get_field(name).is_relation
-              and not isinstance(spec.model._meta.get_field(name), models.JSONField)}
+    scalar = {
+        name
+        for name in spec.read_fields
+        if not spec.model._meta.get_field(name).is_relation
+        and not isinstance(spec.model._meta.get_field(name), models.JSONField)
+    }
     allowed = scalar | {"sysid", "owner", "visibility", "page", "page_size"}
     if set(params) - allowed:
         raise ValidationError("Filtro não permitido.")
@@ -151,6 +170,7 @@ def create_record(spec, *, user, data):
     values = coerce_fields(spec.model, data, user=user)
     record = spec.model(organization_id=current_context().organization_id, owner=user, visibility="private", **values)
     from skeleton.system.record_operations import require_operation
+
     service = require_operation(spec, "create")
     if service is None:
         record.save()
@@ -166,6 +186,7 @@ def update_record(record, spec, *, user, data):
     assert_fields(data, spec.write_fields)
     require_record_action(record, user=user, action="update")
     from skeleton.system.record_operations import require_operation
+
     service = require_operation(spec, "update")
     values = coerce_fields(spec.model, data, user=user)
     if service is None:
@@ -208,6 +229,7 @@ def _record_lifecycle(record, *, user, action):
     spec = exposed_spec(record._meta.label_lower)
     require_record_action(record, user=user, action=action)
     from skeleton.system.record_operations import require_operation
+
     service = require_operation(spec, action)
     if service is None:
         getattr(record, action)()

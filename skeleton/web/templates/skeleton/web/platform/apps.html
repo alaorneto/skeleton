@@ -1,0 +1,13 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}Aplicativos instalados{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="min-w-0"><p class="page-eyebrow">Aplicativos</p><h1>Aplicativos instalados</h1><p class="page-description">Código ativo na plataforma. Cada organização ativa e configura as apps na sua própria área; instalar e atualizar é feito em Versões e atualizações.</p></div>
+  <nav class="toolbar" aria-label="Ações"><a class="btn btn-secondary" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></nav>
+</div>
+<ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+{% for app in applications %}
+<li><a class="link-card h-full" href="{% url 'platform:app' app.app_label %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ app.label }}</span><span class="link-card-text">{{ app.description }}</span><span class="mt-2 flex flex-wrap gap-1.5"><span class="badge">versão {{ app.version }}</span><span class="badge">{{ app.origin }}</span></span></span></a></li>
+{% empty %}<li class="card empty-state sm:col-span-2 xl:col-span-3">Nenhum aplicativo instalado.</li>{% endfor %}
+</ul>
+{% endblock %}

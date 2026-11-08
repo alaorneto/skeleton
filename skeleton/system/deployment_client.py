@@ -2,16 +2,47 @@
 
 import http.client
 import json
-from pathlib import Path
 import socket
+from pathlib import Path
 from uuid import UUID
 
 
 class AgentError(ValueError):
-    def __init__(self, code, status=None):
+    def __init__(self, code, status=None, details=()):
         self.code = code
         self.status = status
+        self.details = tuple(details)
         super().__init__(code)
+
+
+_DETAIL_FIELDS = ("code", "component", "dependency", "required", "found")
+_SUGGESTION_FIELDS = ("source_id", "component_id", "version", "digest")
+
+
+def _bounded_text(value, maximum=200):
+    return value if isinstance(value, str) and 0 < len(value) <= maximum and value.isprintable() else None
+
+
+def sanitize_details(raw):
+    """Keep only the closed problem shape the agent emits; drop anything else."""
+    if not isinstance(raw, list):
+        return ()
+    details = []
+    for item in raw[:64]:
+        if not isinstance(item, dict) or _bounded_text(item.get("code"), 100) is None:
+            continue
+        detail = {key: item[key] for key in _DETAIL_FIELDS if _bounded_text(item.get(key)) is not None}
+        path = item.get("path")
+        if isinstance(path, list) and all(_bounded_text(step) for step in path[:32]):
+            detail["path"] = path[:32]
+        suggestions = []
+        for suggestion in item.get("suggestions", [])[:8] if isinstance(item.get("suggestions"), list) else []:
+            if isinstance(suggestion, dict) and all(_bounded_text(suggestion.get(key)) for key in _SUGGESTION_FIELDS):
+                suggestions.append({key: suggestion[key] for key in _SUGGESTION_FIELDS})
+        if suggestions:
+            detail["suggestions"] = suggestions
+        details.append(detail)
+    return tuple(details)
 
 
 class UnixConnection(http.client.HTTPConnection):
@@ -27,7 +58,12 @@ class UnixConnection(http.client.HTTPConnection):
 
 class AgentClient:
     def __init__(self, socket_path, token_file, *, timeout=1800, max_upload_bytes=128 * 1024 * 1024):
-        if not socket_path or not token_file or not Path(socket_path).is_absolute() or not Path(token_file).is_absolute():
+        if (
+            not socket_path
+            or not token_file
+            or not Path(socket_path).is_absolute()
+            or not Path(token_file).is_absolute()
+        ):
             raise AgentError("agent_not_configured")
         self.socket_path = str(socket_path)
         self.token_file = Path(token_file)
@@ -63,7 +99,7 @@ class AgentClient:
                     code = result.get("error", "agent_request_failed")
                     if not isinstance(code, str) or not code.replace("_", "").isalnum() or len(code) > 100:
                         code = "agent_request_failed"
-                    raise AgentError(code, response.status)
+                    raise AgentError(code, response.status, sanitize_details(result.get("details")))
                 return result
             finally:
                 connection.close()
@@ -88,10 +124,23 @@ class AgentClient:
         return self._request("GET", "/inventory")
 
     def preview(self, action, artifacts=None, app_ids=None):
-        return self._request("POST", "/preview", {"action": action, "artifacts": artifacts or [], "app_ids": app_ids or []})
+        return self._request(
+            "POST", "/preview", {"action": action, "artifacts": artifacts or [], "app_ids": app_ids or []}
+        )
 
     def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
-        return self._request("POST", "/submit", {"plan_id": str(plan_id), "plan_digest": plan_digest, "generation": generation, "operation_id": str(operation_id), "actor_id": str(actor_id), "request_id": str(request_id)})
+        return self._request(
+            "POST",
+            "/submit",
+            {
+                "plan_id": str(plan_id),
+                "plan_digest": plan_digest,
+                "generation": generation,
+                "operation_id": str(operation_id),
+                "actor_id": str(actor_id),
+                "request_id": str(request_id),
+            },
+        )
 
     def operation(self, operation_id):
         try:
@@ -107,4 +156,6 @@ class AgentClient:
         return self._request("POST", "/catalog/check")
 
     def fetch_release(self, component_id, version, source_id):
-        return self._request("POST", "/catalog/fetch", {"component_id": component_id, "version": version, "source_id": source_id})
+        return self._request(
+            "POST", "/catalog/fetch", {"component_id": component_id, "version": version, "source_id": source_id}
+        )

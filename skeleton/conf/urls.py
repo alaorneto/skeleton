@@ -1,5 +1,5 @@
 """Core routing, with project-owned routes supplied by the entrypoint."""
-from django.contrib import admin
+
 from django.urls import include, path
 
 from skeleton.accounts import oidc
@@ -8,18 +8,22 @@ from skeleton.system.app_registry import application_urlpatterns
 
 
 def application_urls(project_urls=()):
-    routes = [path("", include("skeleton.system.application_urls")), *application_urlpatterns(),
+    routes = [
+        path("", include("skeleton.system.application_urls")),
+        *application_urlpatterns(),
         path("accounts/oidc/<str:provider_id>/login/", oidc.login, name="openid_connect_login"),
         path("accounts/oidc/<str:provider_id>/login/callback/", oidc.callback, name="openid_connect_callback"),
         path("accounts/logout/", logout, name="account_logout"),
         path("accounts/", include("allauth.urls")),
-        path("", admin.site.urls),
+        path("platform/", include("skeleton.web.platform.urls")),
         path("invite/<uuid:organization_id>/<str:token>/", invitation_view, name="invitation"),
     ]
     if project_urls:
         routes.append(path("", include(project_urls)))
-    routes.extend([
-        path("api/v1/", include("skeleton.api.urls")),
-        path("", include("skeleton.web.urls")),
-    ])
+    routes.extend(
+        [
+            path("api/v1/", include("skeleton.api.urls")),
+            path("", include("skeleton.web.urls")),
+        ]
+    )
     return routes

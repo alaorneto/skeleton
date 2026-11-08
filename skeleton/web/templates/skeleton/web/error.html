@@ -1,1 +1,9 @@
-{% extends 'skeleton/web/base.html' %}{% block content %}<h1>Não foi possível concluir</h1><p role="alert">{{ detail }}</p><p><a href="{% url 'web:home' %}">Voltar às organizações</a></p>{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% block title %}Não foi possível concluir · Skeleton{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-xl py-8 text-center sm:py-12">
+  <span class="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-danger-soft text-fg-danger ring-1 ring-danger-subtle">{% include "skeleton/web/components/icon.html" with name="error" class="size-6" %}</span>
+  <h1>Não foi possível concluir</h1>
+  <p role="alert" class="mt-2 text-body">{{ detail }}</p>
+  <p class="mt-6"><a class="btn btn-secondary" href="{% url 'web:home' %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}Voltar às organizações</a></p>
+</div>
+{% endblock %}

@@ -14,11 +14,16 @@ PASSWORD = "Disposable-integration-password-47!"
 
 @pytest.fixture
 def http_identity():
-    user, organization = bootstrap_identity(email="http-admin@example.test", organization="http-a", name="HTTP A", password=PASSWORD)
+    user, organization = bootstrap_identity(
+        email="http-admin@example.test", organization="http-a", name="HTTP A", password=PASSWORD
+    )
     client = Client(enforce_csrf_checks=True)
     login = client.get(reverse("account_login"))
     assert login.status_code == 200
-    response = client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    response = client.post(
+        reverse("account_login"),
+        {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
+    )
     assert response.status_code == 302
     assert "sessionid" in client.cookies
     return client, user, organization
@@ -30,7 +35,9 @@ def send(client, method, url, data=None, revision=None, csrf=True):
         headers["HTTP_X_CSRFTOKEN"] = client.cookies["csrftoken"].value
     if revision is not None:
         headers["HTTP_IF_MATCH"] = revision
-    return getattr(client, method)(url, data=json.dumps(data if data is not None else {}), content_type="application/json", **headers)
+    return getattr(client, method)(
+        url, data=json.dumps(data if data is not None else {}), content_type="application/json", **headers
+    )
 
 
 def notes_url(organization, sysid=None):
@@ -94,13 +101,17 @@ def test_note_crud_etag_soft_delete_restore(http_identity):
     assert send(client, "delete", detail, revision=updated["ETag"]).status_code == 204
     assert client.get(detail).status_code == 404
     assert client.get(url).json()["count"] == 0
-    restore = reverse("api:restore", kwargs={"organization_id": organization.pk, "table_key": "example_notes.note", "sysid": sysid})
+    restore = reverse(
+        "api:restore", kwargs={"organization_id": organization.pk, "table_key": "example_notes.note", "sysid": sysid}
+    )
     revision = int(updated["ETag"].strip('"')) + 1
     restored = send(client, "post", restore, revision=f'"{revision}"')
     assert restored.status_code == 200
     assert restored.json()["sysid"] == sysid
     assert restored.json()["title"] == "Changed"
-    events = client.get(reverse("api:audit", kwargs={"organization_id": organization.pk}), {"record_sysid": sysid}).json()
+    events = client.get(
+        reverse("api:audit", kwargs={"organization_id": organization.pk}), {"record_sysid": sysid}
+    ).json()
     assert "private audit body" not in json.dumps(events)
     assert {item["operation"] for item in events["results"]} >= {"create", "update", "soft_delete", "restore"}
 
@@ -109,7 +120,10 @@ def test_gateway_rejects_technical_keys_filters_and_hidden_access(http_identity)
     require_notes()
     client, user, organization = http_identity
     url = notes_url(organization)
-    assert send(client, "post", url, {"code": "mass", "title": "Denied", "body": "", "owner": str(user.pk)}).status_code == 400
+    assert (
+        send(client, "post", url, {"code": "mass", "title": "Denied", "body": "", "owner": str(user.pk)}).status_code
+        == 400
+    )
     assert send(client, "post", url, []).status_code == 400
     assert client.get(url, {"title__contains": "secret"}).status_code == 400
     assert client.get(url, {"page_size": 101}).status_code == 400
@@ -126,23 +140,37 @@ def test_cross_tenant_detail_and_access_do_not_resolve(http_identity):
     assert made.status_code == 201
     sysid = made.json()["sysid"]
     assert client.get(notes_url(other, sysid)).status_code == 404
-    access = reverse("api:record-access", kwargs={"organization_id": other.pk, "table_key": "example_notes.note", "sysid": sysid})
+    access = reverse(
+        "api:record-access", kwargs={"organization_id": other.pk, "table_key": "example_notes.note", "sysid": sysid}
+    )
     assert client.get(access).status_code == 404
     assert send(client, "patch", access, {"visibility": "organization"}, made["ETag"]).status_code == 404
 
 
 def test_dedicated_role_group_crud_and_revision(http_identity):
     client, user, organization = http_identity
+
     def collection(resource):
         return reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": resource})
+
     role = send(client, "post", collection("roles"), {"code": "editor", "name": "Editor", "description": "HTTP role"})
-    group = send(client, "post", collection("groups"), {"code": "review", "name": "Review", "description": "HTTP group"})
+    group = send(
+        client, "post", collection("groups"), {"code": "review", "name": "Review", "description": "HTTP group"}
+    )
     assert role.status_code == group.status_code == 201
-    link = send(client, "post", collection("group-roles"), {"group": group.json()["sysid"], "role": role.json()["sysid"]})
+    link = send(
+        client, "post", collection("group-roles"), {"group": group.json()["sysid"], "role": role.json()["sysid"]}
+    )
     assert link.status_code == 201
-    link_url = reverse("api:access-detail", kwargs={"organization_id": organization.pk, "resource": "group-roles", "sysid": link.json()["sysid"]})
+    link_url = reverse(
+        "api:access-detail",
+        kwargs={"organization_id": organization.pk, "resource": "group-roles", "sysid": link.json()["sysid"]},
+    )
     assert send(client, "delete", link_url, revision=link["ETag"]).status_code == 204
-    role_url = reverse("api:access-detail", kwargs={"organization_id": organization.pk, "resource": "roles", "sysid": role.json()["sysid"]})
+    role_url = reverse(
+        "api:access-detail",
+        kwargs={"organization_id": organization.pk, "resource": "roles", "sysid": role.json()["sysid"]},
+    )
     assert send(client, "patch", role_url, {"is_builtin": True}, role["ETag"]).status_code == 400
     edit = send(client, "patch", role_url, {"name": "New editor"}, role["ETag"])
     assert edit.status_code == 200
@@ -160,7 +188,15 @@ def test_html_create_edit_revision_and_escaping(http_identity):
     assert page.status_code == 200
     assert page.context["cancel_url"] == records
     assert client.get(page.context["cancel_url"]).status_code == 200
-    response = client.post(create, {"code": "html-note", "title": "<script>alert(1)</script>", "body": "Local HTML", "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    response = client.post(
+        create,
+        {
+            "code": "html-note",
+            "title": "<script>alert(1)</script>",
+            "body": "Local HTML",
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
     assert response.status_code == 302
     detail_url = response["Location"]
     detail = client.get(detail_url)
@@ -184,7 +220,13 @@ def test_html_create_edit_revision_and_escaping(http_identity):
         assert page.content.count(b'name="revision"') == 1
         assert client.get(page.context["cancel_url"]).status_code == 200
     assert snapshot() == before
-    post = {"code": "html-note", "title": "Winner", "body": "Updated", "revision": data["revision"], "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    post = {
+        "code": "html-note",
+        "title": "Winner",
+        "body": "Updated",
+        "revision": data["revision"],
+        "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+    }
     assert client.post(edit, post).status_code == 302
     post["title"] = "Loser"
     assert client.post(edit, post).status_code == 409
@@ -218,6 +260,7 @@ def test_html_create_edit_revision_and_escaping(http_identity):
     from examples.notes.models import Note
     from skeleton.audit.models import AuditEvent
     from tools.security_fixtures import actor_tenant
+
     with actor_tenant(user, organization):
         tombstone = Note.objects.with_deleted().get(pk=sysid)
         assert tombstone.deleted_at is not None
@@ -225,11 +268,23 @@ def test_html_create_edit_revision_and_escaping(http_identity):
         deleted_revision = tombstone.revision
         deleted_events = list(AuditEvent.objects.filter(record_sysid=sysid).values_list("pk", flat=True))
     assert client.get(page.context["cancel_url"]).status_code == 200
-    assert client.post(restore, {"revision": deleted_revision, "title": "Injected", "csrfmiddlewaretoken": client.cookies["csrftoken"].value}).status_code == 400
+    assert (
+        client.post(
+            restore,
+            {
+                "revision": deleted_revision,
+                "title": "Injected",
+                "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+            },
+        ).status_code
+        == 400
+    )
     with actor_tenant(user, organization):
         assert Note.objects.with_deleted().get(pk=sysid).revision == deleted_revision
         assert list(AuditEvent.objects.filter(record_sysid=sysid).values_list("pk", flat=True)) == deleted_events
-    restored = client.post(restore, {"revision": deleted_revision, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    restored = client.post(
+        restore, {"revision": deleted_revision, "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    )
     assert restored.status_code == 302
     assert restored["Location"] == detail_url
     current, events = snapshot()
@@ -248,13 +303,19 @@ def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
     require_notes()
     admin_client, admin, organization = http_identity
     from allauth.account.models import EmailAddress
+
+    from skeleton.access.services import create_record_grant, create_role, grant_table_permission, provision_membership
     from skeleton.accounts.services import create_identity
-    from skeleton.access.services import create_role, create_record_grant, grant_table_permission, provision_membership
     from skeleton.system.models import TableDefinition
     from skeleton.tenancy.context import system_context
     from tools.security_fixtures import actor_tenant
 
-    created = send(admin_client, "post", notes_url(organization), {"code": "unreadable-code", "title": "Undisclosed title", "body": "Undisclosed body"})
+    created = send(
+        admin_client,
+        "post",
+        notes_url(organization),
+        {"code": "unreadable-code", "title": "Undisclosed title", "body": "Undisclosed body"},
+    )
     assert created.status_code == 201
     data = created.json()
     with system_context(reason="test:http-restricted-identity"):
@@ -268,10 +329,19 @@ def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
         table = TableDefinition.objects.get(model_label="example_notes.note")
         for action in ("update", "delete"):
             grant_table_permission(user=admin, data={"role": role, "table": table, "action": action})
-            create_record_grant(user=admin, data={"table": table, "record_sysid": data["sysid"], "membership": membership, "action": action})
+            create_record_grant(
+                user=admin,
+                data={"table": table, "record_sysid": data["sysid"], "membership": membership, "action": action},
+            )
     client = Client(enforce_csrf_checks=True)
     assert client.get(reverse("account_login")).status_code == 200
-    assert client.post(reverse("account_login"), {"login": actor.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value}).status_code == 302
+    assert (
+        client.post(
+            reverse("account_login"),
+            {"login": actor.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
+        ).status_code
+        == 302
+    )
     kwargs = {"organization_id": organization.pk, "table_key": "example_notes.note", "sysid": data["sysid"]}
     assert client.get(reverse("web:record", kwargs=kwargs)).status_code == 403
     records = reverse("web:records", kwargs={"organization_id": organization.pk, "table_key": "example_notes.note"})
@@ -306,7 +376,9 @@ def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
 def test_mfa_enforcement_preserves_profile_escape_route(http_identity):
     client, user, organization = http_identity
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):
-        denied = client.get(reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"}))
+        denied = client.get(
+            reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"})
+        )
         assert denied.status_code == 403
         assert denied.json()["code"] == "mfa_required"
         assert client.get(reverse("web:profile")).status_code == 200
@@ -320,7 +392,10 @@ def test_access_management_is_separate_and_revision_protected(http_identity):
     sysid = created.json()["sysid"]
     detail = notes_url(organization, sysid)
     assert send(client, "patch", detail, {"visibility": "organization"}, created["ETag"]).status_code == 400
-    access = reverse("api:record-access", kwargs={"organization_id": organization.pk, "table_key": "example_notes.note", "sysid": sysid})
+    access = reverse(
+        "api:record-access",
+        kwargs={"organization_id": organization.pk, "table_key": "example_notes.note", "sysid": sysid},
+    )
     assert client.get(access).status_code == 200
     assert send(client, "patch", access, {"owner": str(uuid4())}, created["ETag"]).status_code == 400
     changed = send(client, "patch", access, {"visibility": "organization", "owning_group": None}, created["ETag"])
@@ -340,7 +415,10 @@ def test_duplicate_live_code_and_last_admin_return_conflict(http_identity):
     url = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "memberships"})
     memberships = client.get(url).json()["results"]
     own = next(row for row in memberships if row["user"] == str(user.pk))
-    detail = reverse("api:access-detail", kwargs={"organization_id": organization.pk, "resource": "memberships", "sysid": own["sysid"]})
+    detail = reverse(
+        "api:access-detail",
+        kwargs={"organization_id": organization.pk, "resource": "memberships", "sysid": own["sysid"]},
+    )
     denied = send(client, "delete", detail, revision=f'"{own["revision"]}"')
     assert denied.status_code == 409
     assert denied.json()["code"] == "last_administrator"

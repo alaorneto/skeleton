@@ -8,6 +8,8 @@ __pycache__/
 staticfiles/
 .coverage
 htmlcov/
+coverage.xml
+.mypy_cache/
 .private/
 *.pem
 *.key
@@ -15,3 +17,4 @@ build/
 dist/
 *.egg-info/
 .omp/
+frontend/node_modules/

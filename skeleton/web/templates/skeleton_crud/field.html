@@ -5,5 +5,5 @@
   {% crispy_field field %}
   {% if field.errors %}<ul class="errorlist" id="{{ field.auto_id }}_error">{% for error in field.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
   {% if entry.help_text %}<p class="help" id="{{ field.auto_id }}_helptext">{{ entry.help_text }}</p>{% endif %}
-  {% if entry.picker_url %}<a href="{{ entry.picker_url }}" data-reference-picker data-table-key="{{ entry.table_key }}" data-field-name="{{ field.name }}" data-record="{{ entry.record_id }}" data-input-id="{{ field.id_for_label }}">Selecionar referência</a><p class="help">Use o seletor ou informe o UUID autorizado.</p>{% endif %}
+  {% if entry.picker_url %}<a class="field-picker" href="{{ entry.picker_url }}" data-reference-picker data-table-key="{{ entry.table_key }}" data-field-name="{{ field.name }}" data-record="{{ entry.record_id }}" data-input-id="{{ field.id_for_label }}">{% include "skeleton/web/components/icon.html" with name="search" %}Selecionar referência</a><p class="help">Use o seletor ou informe o UUID autorizado.</p>{% endif %}
 </div>

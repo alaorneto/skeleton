@@ -1,0 +1,32 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}{{ application.label }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:apps' %}">Aplicativos instalados</a></li><li><span aria-current="page">{{ application.label }}</span></li></ol></nav>
+    <h1>{{ application.label }}</h1>
+    <p class="page-description">{{ application.description }}</p>
+  </div>
+  {% if has_documentation %}<nav class="toolbar" aria-label="Ações"><a class="btn btn-secondary" href="{% url 'platform:app-documentation' application.app_label %}">{% include "skeleton/web/components/icon.html" with name="document" %}Documentação</a></nav>{% endif %}
+</div>
+<div class="grid gap-5 lg:grid-cols-3">
+  <section class="card lg:col-span-2" aria-labelledby="app-overview">
+    <h2 id="app-overview" class="mb-4">Visão geral</h2>
+    <dl class="meta-list">
+      <div><dt>Identidade</dt><dd>{{ application.app_id }}</dd></div>
+      <div><dt>Namespace</dt><dd>{{ application.app_label }}</dd></div>
+      <div><dt>Versão do código ativo</dt><dd>{{ application.version }}</dd></div>
+      <div><dt>Origem</dt><dd>{{ application.origin }}</dd></div>
+    </dl>
+    <h3 class="mt-6 mb-2 text-sm">Compatibilidade</h3>
+    <dl class="meta-list">{% for name, requirement in application.compatibility.items %}<div><dt>{{ name }}</dt><dd>{{ requirement }}</dd></div>{% empty %}<div><dd>Contrato local validado pelo projeto.</dd></div>{% endfor %}</dl>
+    {% if application.dependencies %}<h3 class="mt-6 mb-2 text-sm">Dependências</h3><ul>{% for dependency in application.dependencies %}<li><code>{{ dependency }}</code></li>{% endfor %}</ul>{% endif %}
+  </section>
+  <section class="card" aria-labelledby="app-organizations">
+    <h2 id="app-organizations" class="mb-2">Nas organizações</h2>
+    <p class="text-sm/6 text-body">Ativação e parâmetros são definidos por quem administra cada organização, em Administração › Aplicativos. Acesso de plataforma não concede vínculo nem acesso a dados de organizações.</p>
+    {% if tenant_screens %}<p class="mt-4 text-xs font-semibold tracking-wide text-body-subtle uppercase">Telas na organização</p><ul class="mt-2">{% for screen in tenant_screens %}<li class="text-sm">{{ screen.label }}</li>{% endfor %}</ul>{% endif %}
+  </section>
+</div>
+{% for section in sections %}<section class="mt-8" aria-labelledby="platform-section-{{ section.id }}"><h2 id="platform-section-{{ section.id }}" class="section-heading">{{ section.label }}</h2><ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{% for screen in section.screens %}<li><a class="link-card items-center" href="{{ screen.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="link-card-title">{{ screen.label }}</span></a></li>{% endfor %}</ul></section>{% endfor %}
+{% endblock %}

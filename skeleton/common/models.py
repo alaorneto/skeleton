@@ -1,4 +1,6 @@
 import uuid
+from collections.abc import Collection, Iterable
+from typing import Any, ClassVar, Self
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -22,9 +24,10 @@ class SystemRecord(models.Model):
 
     objects = RecordManager()
     all_objects = InfrastructureManager()
-    immutable_fields = ()
-    soft_delete_reference_policy = "protect"
-    append_only = False
+    immutable_fields: ClassVar[tuple[str, ...]] = ()
+    soft_delete_reference_policy: ClassVar[str] = "protect"
+    append_only: ClassVar[bool] = False
+    _loaded_values: dict[str, Any]
 
     class Meta:
         abstract = True
@@ -32,16 +35,24 @@ class SystemRecord(models.Model):
         default_manager_name = "objects"
         constraints = [
             models.CheckConstraint(condition=Q(revision__gte=1), name="%(app_label)s_%(class)s_revision_positive"),
-            models.CheckConstraint(condition=Q(deleted_by__isnull=True) | Q(deleted_at__isnull=False), name="%(app_label)s_%(class)s_deleted_actor"),
+            models.CheckConstraint(
+                condition=Q(deleted_by__isnull=True) | Q(deleted_at__isnull=False),
+                name="%(app_label)s_%(class)s_deleted_actor",
+            ),
         ]
 
     @classmethod
-    def from_db(cls, db, field_names, values):
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any]) -> Self:
         instance = super().from_db(db, field_names, values)
-        instance._loaded_values = dict(zip(field_names, values))
+        instance._loaded_values = dict(zip(field_names, values, strict=True))
         return instance
 
-    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
+    def refresh_from_db(
+        self,
+        using: str | None = None,
+        fields: Iterable[str] | None = None,
+        from_queryset: models.QuerySet[Self] | None = None,
+    ) -> None:
         super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
         loaded = getattr(self, "_loaded_values", {}).copy()
         for field in self._meta.concrete_fields:
@@ -49,20 +60,22 @@ class SystemRecord(models.Model):
                 loaded[field.attname] = self.__dict__[field.attname]
         self._loaded_values = loaded
 
-    def _ensure_snapshot(self, using):
+    def _ensure_snapshot(self, using: str) -> dict[str, Any]:
         tracked = {"sysid", "revision", "created_at", "created_by", *self.immutable_fields}
         if hasattr(self, "organization_id"):
             tracked.add("organization_id")
         loaded = getattr(self, "_loaded_values", {})
         if not tracked.issubset(loaded):
-            persisted = type(self).all_objects.using(using).filter(pk=loaded.get("sysid", self.pk)).values(*tracked).first()
+            persisted = (
+                type(self).all_objects.using(using).filter(pk=loaded.get("sysid", self.pk)).values(*tracked).first()
+            )
             if persisted is None:
                 raise ConcurrentUpdate("The record no longer exists.")
             loaded = {**persisted, **loaded}
             self._loaded_values = loaded
         return loaded
 
-    def _prepare_create(self):
+    def _prepare_create(self) -> None:
         now = timezone.now()
         self.created_at = now
         self.updated_at = now
@@ -71,7 +84,7 @@ class SystemRecord(models.Model):
         self.revision = 1
         self._validate_context()
 
-    def _validate_context(self):
+    def _validate_context(self) -> None:
         if hasattr(self, "organization_id"):
             tenant = context().organization_id
             if tenant is None:
@@ -79,7 +92,7 @@ class SystemRecord(models.Model):
             if self.organization_id != tenant:
                 raise ValidationError({"organization": "Organization does not match the current tenant."})
 
-    def clean(self):
+    def clean(self) -> None:
         super().clean()
         self._validate_context()
         if self.deleted_at is not None and not self._state.adding:
@@ -90,18 +103,34 @@ class SystemRecord(models.Model):
             for field in self._meta.concrete_fields:
                 if not field.is_relation or not getattr(self, field.attname, None):
                     continue
-                target = field.remote_field.model
-                if not issubclass(target, SystemRecord):
+                target = field.remote_field.model if field.remote_field is not None else None
+                if not isinstance(target, type) or not issubclass(target, SystemRecord):
                     continue
-                related = target.all_objects.using(self._state.db or "default").filter(pk=getattr(self, field.attname)).first()
+                related = (
+                    target.all_objects.using(self._state.db or "default")
+                    .filter(pk=getattr(self, field.attname))
+                    .first()
+                )
                 if related is None:
                     continue  # The FK field validator supplies the missing-target error.
                 if related.deleted_at is not None and target.soft_delete_reference_policy != "retain":
                     raise ValidationError({field.name: "The referenced record is deleted."})
-                if hasattr(self, "organization_id") and hasattr(related, "organization_id") and self.organization_id != related.organization_id:
+                if (
+                    hasattr(self, "organization_id")
+                    and hasattr(related, "organization_id")
+                    and self.organization_id != related.organization_id
+                ):
                     raise ValidationError({field.name: "The referenced record belongs to another organization."})
 
-    def save(self, *args, force_insert=False, force_update=False, using=None, update_fields=None):
+    def save(  # type: ignore[override]
+        self,
+        *args: Any,
+        force_insert: bool = False,
+        force_update: bool = False,
+        using: str | None = None,
+        update_fields: Iterable[str] | None = None,
+    ) -> None:
+        # *args is accepted only to reject positional save() arguments explicitly below.
         if args:
             raise TypeError("Use keyword arguments for record save().")
         if self.append_only:
@@ -112,7 +141,12 @@ class SystemRecord(models.Model):
             update_fields = set(update_fields)
             if not update_fields:
                 return
-            valid_fields = {name for field in self._meta.concrete_fields if not field.primary_key for name in (field.name, field.attname)}
+            valid_fields = {
+                name
+                for field in self._meta.concrete_fields
+                if not field.primary_key
+                for name in (field.name, field.attname)
+            }
             if update_fields - valid_fields:
                 raise ValueError("update_fields must contain existing non-primary-key concrete fields.")
         with transaction.atomic(using=using):
@@ -126,7 +160,11 @@ class SystemRecord(models.Model):
                 if force_insert:
                     raise ValueError("An existing record cannot be force-inserted.")
                 original = self._ensure_snapshot(using)
-                for field in ("sysid", *self.immutable_fields, *(("organization_id",) if hasattr(self, "organization_id") else ())):
+                for field in (
+                    "sysid",
+                    *self.immutable_fields,
+                    *(("organization_id",) if hasattr(self, "organization_id") else ()),
+                ):
                     if getattr(self, field) != original[field]:
                         raise ImmutableRecord(f"{field} cannot be changed.")
                 expected_revision = original["revision"]
@@ -149,22 +187,26 @@ class SystemRecord(models.Model):
                     raise ConcurrentUpdate("Another writer changed this record.")
             self._loaded_values = {field.attname: getattr(self, field.attname) for field in self._meta.concrete_fields}
 
-    def _check_live_references(self, using):
+    def _check_live_references(self, using: str) -> None:
         if self.soft_delete_reference_policy == "retain":
             return
         for relation in self._meta.related_objects:
             target = relation.related_model
-            if issubclass(target, SystemRecord):
-                if target.all_objects.using(using).filter(**{relation.field.attname: self.pk}, deleted_at__isnull=True).exists():
+            if isinstance(target, type) and issubclass(target, SystemRecord):
+                if (
+                    target.all_objects.using(using)
+                    .filter(**{relation.field.attname: self.pk}, deleted_at__isnull=True)
+                    .exists()
+                ):
                     raise LiveReferencesExist(f"Live {target._meta.label} records still reference this record.")
 
-    def _prepare_soft_delete(self):
+    def _prepare_soft_delete(self) -> set[str]:
         return set()
 
-    def _prepare_restore(self):
+    def _prepare_restore(self) -> set[str]:
         return set()
 
-    def delete(self, using=None, keep_parents=False):
+    def delete(self, using: Any = None, keep_parents: bool = False) -> tuple[int, dict[str, int]]:
         if self.append_only:
             raise UnsafeBulkMutation("Append-only records cannot be deleted.")
         if self._state.adding:
@@ -180,7 +222,7 @@ class SystemRecord(models.Model):
             self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
         return 1, {self._meta.label: 1}
 
-    def restore(self, using=None):
+    def restore(self, using: str | None = None) -> Self:
         if self.append_only:
             raise UnsafeBulkMutation("Append-only records cannot be restored.")
         if self._state.adding:
@@ -197,12 +239,18 @@ class SystemRecord(models.Model):
 
 
 class OrganizationRecord(SystemRecord):
-    organization = models.ForeignKey("sk_tenancy.Organization", on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_records")
+    organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_records"
+    )
 
     class Meta(SystemRecord.Meta):
         abstract = True
         constraints = SystemRecord.Meta.constraints + [
-            models.UniqueConstraint(fields=("organization", "sysid"), name="%(app_label)s_%(class)s_org_sysid", violation_error_code='unique'),
+            models.UniqueConstraint(
+                fields=("organization", "sysid"),
+                name="%(app_label)s_%(class)s_org_sysid",
+                violation_error_code="unique",
+            ),
         ]
 
 
@@ -212,20 +260,45 @@ class SecuredRecord(OrganizationRecord):
         GROUP = "group", "Grupo"
         ORGANIZATION = "organization", "Organização"
 
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_owned")
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_owned"
+    )
     visibility = models.CharField(max_length=16, choices=Visibility.choices, default=Visibility.PRIVATE)
-    owning_group = models.ForeignKey("sk_access.AccessGroup", on_delete=models.PROTECT, null=True, blank=True, related_name="%(app_label)s_%(class)s_owned")
+    owning_group = models.ForeignKey(
+        "sk_access.AccessGroup",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="%(app_label)s_%(class)s_owned",
+    )
+    owner_id: uuid.UUID
+    owning_group_id: uuid.UUID | None
 
     class Meta(OrganizationRecord.Meta):
         abstract = True
         constraints = OrganizationRecord.Meta.constraints + [
-            models.CheckConstraint(condition=(Q(visibility="group", owning_group__isnull=False) | Q(visibility__in=("private", "organization"), owning_group__isnull=True)), name="%(app_label)s_%(class)s_visibility_group"),
+            models.CheckConstraint(
+                condition=(
+                    Q(visibility="group", owning_group__isnull=False)
+                    | Q(visibility__in=("private", "organization"), owning_group__isnull=True)
+                ),
+                name="%(app_label)s_%(class)s_visibility_group",
+            ),
         ]
 
-    def clean(self):
+    def clean(self) -> None:
         super().clean()
         if self.deleted_at is None and self.owner_id and self.organization_id:
             from skeleton.tenancy.models import Membership
 
-            if not Membership.all_objects.filter(organization_id=self.organization_id, user_id=self.owner_id, is_active=True, deleted_at__isnull=True, user__is_active=True, user__deleted_at__isnull=True, organization__is_active=True, organization__deleted_at__isnull=True).exists():
+            if not Membership.all_objects.filter(
+                organization_id=self.organization_id,
+                user_id=self.owner_id,
+                is_active=True,
+                deleted_at__isnull=True,
+                user__is_active=True,
+                user__deleted_at__isnull=True,
+                organization__is_active=True,
+                organization__deleted_at__isnull=True,
+            ).exists():
                 raise ValidationError({"owner": "The owner must have an active organization membership."})

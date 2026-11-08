@@ -1,1 +1,2 @@
-{% extends "account/base_entrance.html" %}{% block content %}<h1>Convite indisponível</h1><p>Este convite não pode ser utilizado. Solicite um novo convite ao administrador da organização.</p>{% endblock %}
+{% extends "account/base_entrance.html" %}{% block head_title %}Convite indisponível{% endblock %}
+{% block content %}<span class="mb-4 grid size-11 place-items-center rounded-full bg-warning-soft text-fg-warning ring-1 ring-warning-subtle">{% include "skeleton/web/components/icon.html" with name="warning" %}</span><h1>Convite indisponível</h1><p class="mt-1.5 text-sm/6 text-body">Este convite não pode ser utilizado. Solicite um novo convite ao administrador da organização.</p>{% endblock %}

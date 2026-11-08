@@ -1,0 +1,6 @@
+from django.urls import path
+
+from .views import SummaryView
+
+app_name = "${app_label}_api"
+urlpatterns = [path("summary/", SummaryView.as_view(), name="summary")]

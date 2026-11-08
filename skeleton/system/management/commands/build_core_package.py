@@ -17,8 +17,13 @@ class Command(BaseCommand):
 
     def handle(self, **options):
         try:
-            output = build_core_release(options["wheel"], options["manifest"], options["output"],
-                                        options["private_key"], wheels=options["dependency_wheel"])
+            output = build_core_release(
+                options["wheel"],
+                options["manifest"],
+                options["output"],
+                options["private_key"],
+                wheels=options["dependency_wheel"],
+            )
         except (OSError, ValueError, PackageError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(str(output))

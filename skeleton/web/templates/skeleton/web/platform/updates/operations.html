@@ -1,0 +1,8 @@
+{% extends "skeleton/web/platform/updates/base.html" %}
+{% block step_title %}Operações{% endblock %}
+{% block step %}
+<div class="table-scroll"><table><thead><tr><th scope="col">Operação</th><th scope="col">Estado / etapa</th><th scope="col">Solicitante</th><th scope="col">Data</th><th scope="col">Geração de origem</th><th scope="col">Digest do plano</th></tr></thead><tbody>
+{% for operation in operations %}<tr><td><a href="{% url 'platform:updates-operation' operation.sysid %}">{{ operation.get_operation_display }}</a></td><td>{% include "skeleton/web/platform/updates/state.html" %} <span class="text-body-subtle">{{ operation.stage }}</span></td><td>{{ operation.created_by|default:"Sistema" }}</td><td class="whitespace-nowrap!">{{ operation.created_at }}</td><td>{{ operation.expected_generation }}</td><td><code class="uuid">{{ operation.plan_digest }}</code></td></tr>
+{% empty %}<tr><td colspan="6" class="empty-state">Nenhuma operação registrada.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}
