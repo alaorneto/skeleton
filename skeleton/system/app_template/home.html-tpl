@@ -1,7 +1,15 @@
 {% extends 'skeleton/web/base.html' %}
+{% block title %}{{ heading }} · Skeleton{% endblock %}
 {% block content %}
-<h1>{{ heading }}</h1>
-<p>Registros legíveis: {{ count }}</p>
-<a href="{% url 'web:records' organization_id '${table_key}' %}">Abrir registros</a>
-{% if can_manage_applications %}<p><a href="{% url 'application-configuration' organization_id '${app_label}' %}">Administrar esta app</a></p>{% endif %}
+<div class="page-header">
+  <div class="min-w-0"><h1>{{ heading }}</h1></div>
+  {% if can_manage_applications %}<div class="toolbar"><a class="btn btn-secondary" href="{% url 'application-configuration' organization_id '${app_label}' %}">{% include "skeleton/web/components/icon.html" with name="settings" %}Administrar esta app</a></div>{% endif %}
+</div>
+<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <section class="card flex flex-col">
+    <p class="text-sm font-medium text-body-subtle">Registros legíveis</p>
+    <p class="mt-1 text-3xl font-semibold tracking-tight text-heading tabular-nums">{{ count }}</p>
+    <a class="button mt-5 self-start" href="{% url 'web:records' organization_id '${table_key}' %}">Abrir registros{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
+  </section>
+</div>
 {% endblock %}

@@ -65,6 +65,16 @@ O exemplo Notes é uma app de negócio fora do núcleo. Defina `SKELETON_ENABLE_
 
 O core/agente 0.3.0 integra `django-crispy-forms==2.7` com pack SSR próprio `skeleton_crud`, distribuído no wheel: apresentação apenas, sem mudar autorização, CAS ou persistência. O manifesto canônico `runtime.model_ui` define labels/abas/ordem e grade responsiva de 12 unidades, sem editor no admin ou arquivo UI paralelo. Notes 0.2.0 demonstra Código 4/Título 8/Texto 12, textarea com 8 linhas; apps elegíveis sem layout recebem defaults. [Contrato de dimensões e exemplos](docs/application-admin-ui-plan.md#5-formulário-e-detalhe-padronizados): `col_span` inteiro exato 1..12, `rows` 1..40 em textarea editável, omissão/`null` conserva defaults; `columns:1/2` define padrão 12/6 e mobile usa largura inteira. Atualize agente/core antes de dimensões: presença de suas chaves, inclusive `null`, exige piso >=0.3.0; v1/v2 históricos sem dimensões conservam compatibilidade e JSON assinado.
 
+### Interface e CSS
+
+A interface SSR usa Tailwind CSS 4 e Flowbite 4 com a paleta "Cobalto e Ardósia" e a fonte Inter, servidas da própria origem. O CSS compilado (`skeleton/web/static/skeleton/web/site.css` e `admin.css`) e os assets vendorizados são versionados: o wheel não depende de Node. Depois de alterar `frontend/src/` ou templates, recompile e versione o resultado:
+
+```sh
+cd frontend && npm ci --ignore-scripts && npm run build
+```
+
+O job `assets` do CI roda `npm run check` e falha se o CSS estiver desatualizado. Tokens, componentes e regras: [interface e design](docs/ui-design.md).
+
 ### Ferramentas LSP de desenvolvimento
 
 A configuração local em `.omp/lsp.json` integra BasedPyright e Ruff para Python, os servidores VS Code para HTML/CSS/JSON, YAML Language Server, Taplo para TOML, Dockerfile Language Server, Marksman para Markdown e Postgres Language Server para SQL.
@@ -87,7 +97,7 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/int
 
 A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
 
-O workflow `.github/workflows/ci.yml` roda o lint, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
+O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compilado, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
 
 
 ### Atualizar locks (manutenção, não todo startup)
@@ -153,6 +163,7 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md) e [testes/evidências](docs/testing.md).
+- [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro, tema do admin e build do CSS.
 - [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.
 
 Os resultados observados da integração e os comandos para reproduzi-los estão em [testing](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; SQLite ou mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.

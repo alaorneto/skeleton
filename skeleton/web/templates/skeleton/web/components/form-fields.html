@@ -1,0 +1,2 @@
+{% comment %}Renderização de formulários Django simples (allauth, admin de acesso): mesma
+semântica de as_p (ids, help text, erros e aria-describedby do widget), sem sufixo ":".{% endcomment %}{{ form.non_field_errors }}{% for hidden in form.hidden_fields %}{{ hidden }}{% for error in hidden.errors %}<p class="errorlist nonfield">{{ error }}</p>{% endfor %}{% endfor %}<div class="form-stack">{% for field in form.visible_fields %}{% include "skeleton/web/components/form-field.html" %}{% endfor %}</div>

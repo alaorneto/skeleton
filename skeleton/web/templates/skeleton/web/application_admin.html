@@ -1,10 +1,16 @@
 {% extends 'skeleton/web/base.html' %}
 {% block title %}{{ application.label }} · Skeleton{% endblock %}
 {% block content %}
-<nav aria-label="Localização"><a href="{% url 'application-list' organization_id %}">Apps</a> › {{ application.label }}</nav>
-<h1>{{ application.label }}</h1><p>{{ application.description }}</p>
-<dl><dt>Identidade</dt><dd>{{ application.app_id }}</dd><dt>Versão</dt><dd>{{ application.version }}</dd><dt>Origem</dt><dd>{{ application.origin }}</dd><dt>Estado</dt><dd>{% if state.enabled %}Ativa{% else %}Desativada — os dados são preservados; a configuração continua disponível para reativação.{% endif %}</dd></dl>
-<section class="panel"><h2>Configuração</h2><p><a href="{% url 'application-configuration' organization_id application.app_label %}">Configurar e ativar aplicativo</a></p></section>
-{% if application.dependencies %}<section><h2>Dependências</h2><ul>{% for dependency in application.dependencies %}<li>{{ dependency }}</li>{% endfor %}</ul></section>{% endif %}
-{% for section in sections %}<section class="panel"><h2>{{ section.label }}</h2><ul>{% for screen in section.screens %}<li><a href="{{ screen.url }}">{{ screen.label }}</a></li>{% endfor %}</ul></section>{% endfor %}
+<div class="page-header"><div class="min-w-0">
+<nav aria-label="Localização" class="breadcrumbs"><ol><li><a href="{% url 'application-list' organization_id %}">Apps</a></li><li><span aria-current="page">{{ application.label }}</span></li></ol></nav>
+<h1>{{ application.label }}</h1><p class="page-description">{{ application.description }}</p></div></div>
+<div class="grid gap-5 lg:grid-cols-3">
+<section class="card lg:col-span-2" aria-labelledby="app-overview"><h2 id="app-overview" class="mb-4">Visão geral</h2>
+<dl class="meta-list"><div><dt>Identidade</dt><dd>{{ application.app_id }}</dd></div><div><dt>Versão</dt><dd>{{ application.version }}</dd></div><div><dt>Origem</dt><dd>{{ application.origin }}</dd></div><div><dt>Estado</dt><dd>{% if state.enabled %}Ativa{% else %}Desativada — os dados são preservados; a configuração continua disponível para reativação.{% endif %}</dd></div></dl></section>
+<div class="space-y-5">
+<section class="panel card"><h2 class="mb-2">Configuração</h2><p class="mb-4 text-sm/6 text-body">Parâmetros e ativação desta app na organização.</p><a class="button" href="{% url 'application-configuration' organization_id application.app_label %}">{% include "skeleton/web/components/icon.html" with name="settings" %}Configurar e ativar aplicativo</a></section>
+{% if application.dependencies %}<section class="card"><h2 class="mb-2">Dependências</h2><ul>{% for dependency in application.dependencies %}<li><code>{{ dependency }}</code></li>{% endfor %}</ul></section>{% endif %}
+</div>
+</div>
+{% for section in sections %}<section class="panel mt-8"><h2 class="section-heading">{{ section.label }}</h2><ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for screen in section.screens %}<li><a class="link-card items-center" href="{{ screen.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="link-card-title">{{ screen.label }}</span></a></li>{% endfor %}</ul></section>{% endfor %}
 {% endblock %}

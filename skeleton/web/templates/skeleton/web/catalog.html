@@ -1,7 +1,12 @@
 {% extends 'skeleton/web/base.html' %}
 {% block title %}Catálogo de tabelas · Skeleton{% endblock %}
 {% block content %}
-{% include 'skeleton/web/components/breadcrumbs.html' %}
-<h1>Catálogo de tabelas</h1>
+<div class="page-header">
+  <div class="min-w-0">
+    {% include 'skeleton/web/components/breadcrumbs.html' %}
+    <h1>Catálogo de tabelas</h1>
+    <p class="page-description">Tabelas que você pode consultar nesta organização, agrupadas por app.</p>
+  </div>
+</div>
 {% include 'skeleton/web/components/model-groups.html' %}
 {% endblock %}

@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% block extrastyle %}{{ block.super }}<style>.release-plan table{width:100%;table-layout:fixed}.release-plan th,.release-plan td{overflow-wrap:anywhere}.release-plan{overflow-x:auto}</style>{% endblock %}
+{% block bodyclass %}{{ block.super }} skeleton-release-operation{% endblock %}
 {% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Administração</a> &rsaquo; <a href="{% url 'admin:skeleton_releases' %}">Versões e pacotes</a> &rsaquo; Operação</div>{% endblock %}
 {% block content %}
 <h1>{{ operation.get_operation_display }}</h1>
@@ -11,7 +11,7 @@
 <h3>Componentes</h3>
 <table><thead><tr><th>Componente</th><th>Versão de destino</th><th>Publisher</th></tr></thead><tbody>{% for component in operation.plan.components %}<tr><td>{{ component.component_id }}</td><td>{{ component.version }}</td><td>{{ component.publisher }}</td></tr>{% endfor %}</tbody></table>
 <h3>Arquivos e integrações</h3>
-<table><thead><tr><th>Ação</th><th>Proprietário</th><th>Arquivo/recurso</th><th>Hash anterior</th><th>Hash novo</th></tr></thead><tbody>{% for file in operation.plan.files %}<tr><td>{{ file.action }}</td><td>{{ file.owner }}</td><td style="overflow-wrap:anywhere">{{ file.path }}</td><td><code>{{ file.before|default:"—" }}</code></td><td><code>{{ file.after|default:"—" }}</code></td></tr>{% empty %}<tr><td colspan="5">Sem alterações de arquivos.</td></tr>{% endfor %}</tbody></table>
+<table><thead><tr><th>Ação</th><th>Proprietário</th><th>Arquivo/recurso</th><th>Hash anterior</th><th>Hash novo</th></tr></thead><tbody>{% for file in operation.plan.files %}<tr><td>{{ file.action }}</td><td>{{ file.owner }}</td><td>{{ file.path }}</td><td><code>{{ file.before|default:"—" }}</code></td><td><code>{{ file.after|default:"—" }}</code></td></tr>{% empty %}<tr><td colspan="5">Sem alterações de arquivos.</td></tr>{% endfor %}</tbody></table>
 <h3>Recursos compartilhados</h3>
 <table><thead><tr><th>Ação</th><th>Proprietário</th><th>Recurso</th><th>Antes</th><th>Depois</th></tr></thead><tbody>{% for resource in operation.plan.resources %}<tr><td>{{ resource.action }}</td><td>{{ resource.owner }}</td><td>{{ resource.resource }}</td><td>{{ resource.before|default:"—" }}</td><td>{{ resource.after|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5">Sem alterações de recursos compartilhados.</td></tr>{% endfor %}</tbody></table>
 <h3>Administração, layouts e configuração</h3>

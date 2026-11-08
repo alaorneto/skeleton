@@ -1,3 +1,23 @@
 {% extends "skeleton/web/base.html" %}
-{% block title %}{% block head_title %}Minha conta{% endblock %}{% endblock %}
-{% block content %}<nav><a href="{% url 'account_email' %}">Email</a> · <a href="{% url 'account_change_password' %}">Senha</a> · <a href="{% url 'mfa_index' %}">Autenticação em dois fatores</a></nav>{% endblock %}
+{% block title %}{% block head_title %}Minha conta{% endblock %} · Skeleton{% endblock %}
+{% block main %}
+{% url 'account_email' as email_url %}{% url 'account_change_password' as password_url %}{% url 'mfa_index' as mfa_url %}
+<main id="conteudo" tabindex="-1" class="app-main mx-auto w-full max-w-7xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8">
+  <div class="grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10">
+    <aside class="min-w-0">
+      <p class="page-eyebrow mb-3">Minha conta</p>
+      <nav aria-label="Minha conta">
+        <ul class="flex gap-1 overflow-x-auto [&_a]:whitespace-nowrap md:flex-col md:[&_a]:whitespace-normal">
+          <li><a class="nav-link" href="{{ email_url }}"{% if request.path == email_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" %}Email</a></li>
+          <li><a class="nav-link" href="{{ password_url }}"{% if request.path == password_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}Senha</a></li>
+          <li><a class="nav-link" href="{{ mfa_url }}"{% if request.path == mfa_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}Autenticação em dois fatores</a></li>
+        </ul>
+      </nav>
+    </aside>
+    <div class="min-w-0 max-w-3xl">
+      {% include "skeleton/web/components/messages.html" %}
+      <div class="card">{% block content %}{% endblock %}</div>
+    </div>
+  </div>
+</main>
+{% endblock %}

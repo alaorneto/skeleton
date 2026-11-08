@@ -1,0 +1,5 @@
+# Assets gerados por frontend/ (npm run build); conferidos pelo job "assets" do CI.
+skeleton/web/static/skeleton/web/site.css text eol=lf linguist-generated
+skeleton/web/static/skeleton/web/admin.css text eol=lf linguist-generated
+skeleton/web/static/skeleton/web/vendor/** linguist-vendored
+*.woff2 binary

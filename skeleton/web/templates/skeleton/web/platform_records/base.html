@@ -18,28 +18,41 @@
 {% if LANGUAGE_BIDI %}<link rel="stylesheet" href="{% static 'admin/css/responsive_rtl.css' %}">{% endif %}
 {% endblock %}
 {% block blockbots %}<meta name="robots" content="NONE,NOARCHIVE">{% endblock %}
+{% include "skeleton/web/components/admin-theme.html" %}
 {% endblock %}
 
 {% block body_attributes %}class="platform-records {% if is_popup %}popup {% endif %}{% block bodyclass %}{% endblock %}" data-admin-utc-offset="{% now 'Z' %}"{% endblock %}
 
+{% block skip_target %}content-start{% endblock %}
+
 {% block main %}
-<main id="content-start" tabindex="-1">
+{% comment %}
+Os blocos .sk-scope usam o CSS do site; #content fica só com o CSS do admin
+(changelists, formulários). Ver "Registros globais" em frontend/src/admin.css.
+{% endcomment %}
+<main id="content-start" tabindex="-1" class="app-main mx-auto w-full max-w-7xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8">
+<div class="sk-scope">
+{% block messages %}{% include "skeleton/web/components/messages.html" %}{% endblock %}
+<div class="page-header">
+<div class="min-w-0">
 {% if not is_popup %}
 {% block nav-breadcrumbs %}
-<nav class="breadcrumbs" aria-label="Registros globais">
-<a href="{% url 'admin:records_index' %}">Registros globais</a>
+<nav class="breadcrumbs" aria-label="Registros globais"><ol>
+<li><a href="{% url 'admin:records_index' %}">Registros globais</a></li>
 {% if opts %}
-<span>›</span><a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
-<span>›</span><a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
-{% elif app_label %}<span>›</span><span>{{ title }}</span>{% endif %}
-</nav>
+<li><a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a></li>
+<li><a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a></li>
+{% elif app_label %}<li><span aria-current="page">{{ title }}</span></li>{% endif %}
+</ol></nav>
 {% endblock %}
 {% endif %}
-{% block messages %}{% for message in messages %}<div role="status" class="message {{ message.tags }}">{{ message }}</div>{% endfor %}{% endblock %}
-<div id="content" class="{% block coltype %}colM{% endblock %}">
 {% block pretitle %}{% endblock %}
 {% block content_title %}{% if title %}<h1>{{ title }}</h1>{% endif %}{% endblock %}
-{% block content_subtitle %}{% if subtitle %}<h2>{{ subtitle }}</h2>{% endif %}{% endblock %}
+{% block content_subtitle %}{% if subtitle %}<p class="page-description">{{ subtitle }}</p>{% endif %}{% endblock %}
+</div>
+</div>
+</div>
+<div id="content" class="{% block coltype %}colM{% endblock %}">
 {% block content %}{% block object-tools %}{% endblock %}{{ content }}{% endblock %}
 {% block sidebar %}{% endblock %}
 <br class="clear">

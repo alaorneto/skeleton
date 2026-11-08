@@ -1,17 +1,20 @@
 {% extends "skeleton/web/platform_records/base.html" %}
 
+{% block content_subtitle %}<p class="page-description">Identidades, organizações, catálogo e histórico global. Configurações e parametrizações ficam em uma área separada.</p>{% endblock %}
+
 {% block content %}
-<p>Identidades, organizações, catálogo e histórico global. Configurações e parametrizações ficam em uma área separada.</p>
-<div class="cards">
+<div class="sk-scope">
+<div class="cards grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 {% for app in app_list %}
-<section class="card" aria-labelledby="record-app-{{ app.app_label }}">
-<h2 id="record-app-{{ app.app_label }}"><a href="{{ app.app_url }}">{{ app.name }}</a></h2>
-<ul>
+<section class="card flex flex-col gap-3 p-5" aria-labelledby="record-app-{{ app.app_label }}">
+<div class="flex items-center gap-3"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="database" %}</span><h2 id="record-app-{{ app.app_label }}" class="text-base"><a class="text-heading no-underline hover:text-fg-brand hover:underline" href="{{ app.app_url }}">{{ app.name }}</a></h2></div>
+<ul class="divide-y divide-default-subtle border-t border-default-subtle">
 {% for model in app.models %}
-<li>{% if model.admin_url %}<a href="{{ model.admin_url }}">{{ model.name }}</a>{% else %}{{ model.name }}{% endif %}{% if model.add_url %} — <a href="{{ model.add_url }}">Criar</a>{% endif %}</li>
+<li class="flex items-center justify-between gap-3 py-2 text-sm">{% if model.admin_url %}<a href="{{ model.admin_url }}">{{ model.name }}</a>{% else %}<span class="text-heading">{{ model.name }}</span>{% endif %}{% if model.add_url %}<a class="btn btn-ghost btn-sm" href="{{ model.add_url }}">{% include "skeleton/web/components/icon.html" with name="plus" %}Criar</a>{% endif %}</li>
 {% endfor %}
 </ul>
 </section>
-{% empty %}<p>Nenhum registro global disponível.</p>{% endfor %}
+{% empty %}<p class="card empty-state sm:col-span-2 lg:col-span-3">Nenhum registro global disponível.</p>{% endfor %}
+</div>
 </div>
 {% endblock %}

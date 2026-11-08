@@ -110,7 +110,7 @@ Tenant, ativação, permissão de tabela e visibilidade precedem filtro/count/pa
 
 ## 5. Formulário e detalhe padronizados
 
-Criação, edição e leitura usam Django Forms renderizados no servidor por **django-crispy-forms==2.7** e pelo pack próprio `skeleton_crud`, distribuído no wheel do core 0.3.0. Crispy é somente o motor de apresentação: o core compila o envelope seguro em layout, sem substituir autorização, validação, CAS, serviços ou persistência. Não há pack externo, CDN ou frontend adicional. Sem JavaScript, as seções ficam sequenciais. Erros selecionam a aba correta, conservam valores enviados e oferecem resumo focável e links para campos.
+Criação, edição e leitura usam Django Forms renderizados no servidor por **django-crispy-forms==2.7** e pelo pack próprio `skeleton_crud`, distribuído no wheel do core 0.3.0. Crispy é somente o motor de apresentação: o core compila o envelope seguro em layout, sem substituir autorização, validação, CAS, serviços ou persistência. Não há pack crispy externo, CDN ou framework JavaScript; o visual vem do CSS compilado e versionado do núcleo (Tailwind/Flowbite, ver [interface e design](ui-design.md)). Sem JavaScript, as seções ficam sequenciais. Erros selecionam a aba correta, conservam valores enviados e oferecem resumo focável e links para campos.
 
 | Dimensão | Contrato |
 |---|---|

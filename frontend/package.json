@@ -1,0 +1,24 @@
+{
+  "name": "skeleton-frontend",
+  "private": true,
+  "description": "Build reprodutível do CSS (Tailwind + Flowbite) e dos assets vendorizados do pacote skeleton.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check"
+  },
+  "devDependencies": {
+    "@fontsource-variable/inter": "5.2.8",
+    "@tailwindcss/cli": "4.3.3",
+    "flowbite": "4.0.2",
+    "tailwindcss": "4.3.3"
+  },
+  "overrides": {
+    "@tailwindcss/postcss": "4.3.3",
+    "tailwindcss": "4.3.3"
+  }
+}

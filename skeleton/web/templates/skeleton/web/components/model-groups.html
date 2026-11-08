@@ -1,1 +1,6 @@
-{% for group in app_groups %}<section class="application-models" aria-labelledby="app-{{ group.app_label }}"><h2 id="app-{{ group.app_label }}">{{ group.label }}</h2><div class="grid">{% for spec in group.models %}<section class="card"><h3>{{ spec.label }}</h3>{% if spec.description %}<p>{{ spec.description }}</p>{% endif %}<a href="{% url 'web:records' organization_id spec.table_key %}">Consultar registros</a></section>{% endfor %}</div></section>{% empty %}<p class="empty-state">Nenhuma tabela autorizada.</p>{% endfor %}
+<div class="space-y-8">{% for group in app_groups %}<section class="application-models min-w-0" aria-labelledby="app-{{ group.app_label }}">
+<h2 id="app-{{ group.app_label }}" class="mb-3 text-base font-semibold">{{ group.label }}</h2>
+<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for spec in group.models %}<section class="card flex flex-col gap-3 p-5">
+<div class="flex items-start gap-3"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="table" %}</span><div class="min-w-0"><h3>{{ spec.label }}</h3>{% if spec.description %}<p class="mt-0.5 text-sm/6 text-body-subtle">{{ spec.description }}</p>{% endif %}</div></div>
+<a class="btn btn-secondary btn-sm mt-auto self-start" href="{% url 'web:records' organization_id spec.table_key %}">Consultar registros{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
+</section>{% endfor %}</div></section>{% empty %}<p class="empty-state card">Nenhuma tabela autorizada.</p>{% endfor %}</div>

@@ -1,1 +1,8 @@
-<nav aria-label="Paginação">{% if rows.has_previous %}<a href="{{ rows.previous_url }}">Anterior</a>{% endif %} <span>Página {{ rows.number }} de {{ rows.paginator.num_pages }}</span> {% if rows.has_next %}<a href="{{ rows.next_url }}">Próxima</a>{% endif %}</nav>
+<nav class="pagination" aria-label="Paginação">
+  <p class="pagination-summary">{% if rows.paginator.count %}Mostrando <strong>{{ rows.start_index }}–{{ rows.end_index }}</strong> de <strong>{{ rows.paginator.count }}</strong>{% else %}Nenhum registro{% endif %}</p>
+  <div class="pagination-links">
+    {% if rows.has_previous %}<a class="pagination-prev" rel="prev" href="{{ rows.previous_url }}">Anterior</a>{% else %}<span class="pagination-prev pagination-disabled" aria-disabled="true">Anterior</span>{% endif %}
+    <span class="pagination-current" aria-current="page">Página {{ rows.number }} de {{ rows.paginator.num_pages }}</span>
+    {% if rows.has_next %}<a class="pagination-next" rel="next" href="{{ rows.next_url }}">Próxima</a>{% else %}<span class="pagination-next pagination-disabled" aria-disabled="true">Próxima</span>{% endif %}
+  </div>
+</nav>

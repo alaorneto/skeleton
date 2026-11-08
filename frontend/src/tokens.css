@@ -1,0 +1,219 @@
+/*
+ * Tokens compartilhados por site.css e admin.css: fontes, escalas de cor,
+ * mapeamento semântico do Flowbite 4 e valores do modo escuro.
+ * Documentação: docs/ui-design.md.
+ */
+/* Modo escuro: segue o sistema (prefers-color-scheme), sem script nem flash.
+ * O admin Django pode forçar claro/escuro com html[data-theme]; o mesmo
+ * seletor vale aqui para que admin e site nunca fiquem em temas diferentes. */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:not([data-theme="light"], [data-theme="light"] *)) {
+      @slot;
+    }
+  }
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("vendor/inter-5.2.8/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("vendor/inter-5.2.8/inter-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tokens. Escalas primitivas + mapeamento semântico do Flowbite 4.     */
+/* ------------------------------------------------------------------ */
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-body: var(--font-sans);
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Cobalto: marca. Matiz 268 (entre azul e índigo), croma alto nos tons médios. */
+  --color-cobalt-50: oklch(0.97 0.014 268);
+  --color-cobalt-100: oklch(0.933 0.033 268);
+  --color-cobalt-200: oklch(0.882 0.06 268);
+  --color-cobalt-300: oklch(0.808 0.105 268);
+  --color-cobalt-400: oklch(0.707 0.163 268);
+  --color-cobalt-500: oklch(0.618 0.205 268);
+  --color-cobalt-600: oklch(0.535 0.225 268);
+  --color-cobalt-700: oklch(0.477 0.21 268);
+  --color-cobalt-800: oklch(0.414 0.175 268);
+  --color-cobalt-900: oklch(0.36 0.135 268);
+  --color-cobalt-950: oklch(0.262 0.09 268);
+
+  /* Ardósia: neutros frios, levemente tingidos pela marca. */
+  --color-slate-25: oklch(0.987 0.003 268);
+  --color-ink-950: oklch(0.155 0.014 268);
+  --color-ink-900: oklch(0.192 0.016 268);
+  --color-ink-850: oklch(0.218 0.017 268);
+  --color-ink-800: oklch(0.245 0.019 268);
+  --color-ink-750: oklch(0.275 0.02 268);
+  --color-ink-700: oklch(0.31 0.021 268);
+  --color-ink-600: oklch(0.38 0.022 268);
+  --color-ink-500: oklch(0.47 0.022 268);
+
+  /* Superfícies e texto (claro). */
+  --color-canvas: var(--color-slate-25);
+  --color-body: var(--color-slate-600);
+  --color-body-subtle: var(--color-slate-500);
+  --color-heading: var(--color-slate-900);
+  --color-focus: var(--color-cobalt-600);
+
+  --color-fg-brand-subtle: var(--color-cobalt-200);
+  --color-fg-brand: var(--color-cobalt-700);
+  --color-fg-brand-strong: var(--color-cobalt-800);
+  --color-fg-success: var(--color-emerald-700);
+  --color-fg-success-strong: var(--color-emerald-800);
+  --color-fg-danger: var(--color-rose-700);
+  --color-fg-danger-strong: var(--color-rose-800);
+  --color-fg-warning-subtle: var(--color-amber-600);
+  --color-fg-warning: var(--color-amber-800);
+  --color-fg-disabled: var(--color-slate-400);
+
+  --color-neutral-primary-soft: var(--color-white);
+  --color-neutral-primary: var(--color-white);
+  --color-neutral-primary-medium: var(--color-white);
+  --color-neutral-primary-strong: var(--color-white);
+  --color-neutral-secondary-soft: var(--color-slate-50);
+  --color-neutral-secondary: var(--color-slate-50);
+  --color-neutral-secondary-medium: var(--color-white);
+  --color-neutral-secondary-strong: var(--color-slate-50);
+  --color-neutral-secondary-strongest: var(--color-slate-100);
+  --color-neutral-tertiary-soft: var(--color-slate-50);
+  --color-neutral-tertiary: var(--color-slate-100);
+  --color-neutral-tertiary-medium: var(--color-slate-100);
+  --color-neutral-quaternary: var(--color-slate-200);
+  --color-neutral-quaternary-medium: var(--color-slate-200);
+
+  --color-brand-softer: var(--color-cobalt-50);
+  --color-brand-soft: var(--color-cobalt-100);
+  --color-brand: var(--color-cobalt-600);
+  --color-brand-medium: var(--color-cobalt-200);
+  --color-brand-strong: var(--color-cobalt-700);
+  --color-brand-subtle: var(--color-cobalt-200);
+  --color-brand-light: var(--color-cobalt-500);
+
+  --color-success-soft: var(--color-emerald-50);
+  --color-success: var(--color-emerald-600);
+  --color-success-medium: var(--color-emerald-100);
+  --color-success-strong: var(--color-emerald-700);
+  --color-success-subtle: var(--color-emerald-200);
+  --color-danger-soft: var(--color-rose-50);
+  --color-danger: var(--color-rose-600);
+  --color-danger-medium: var(--color-rose-100);
+  --color-danger-strong: var(--color-rose-700);
+  --color-danger-subtle: var(--color-rose-200);
+  --color-warning-soft: var(--color-amber-50);
+  --color-warning: var(--color-amber-500);
+  --color-warning-medium: var(--color-amber-100);
+  --color-warning-strong: var(--color-amber-700);
+  --color-warning-subtle: var(--color-amber-200);
+  --color-disabled: var(--color-slate-100);
+  --color-dark-backdrop: var(--color-slate-950);
+
+  --color-muted: var(--color-slate-50);
+  --color-light-subtle: var(--color-slate-100);
+  --color-light: var(--color-slate-100);
+  --color-light-medium: var(--color-slate-100);
+  --color-default-subtle: var(--color-slate-100);
+  --color-default: var(--color-slate-200);
+  --color-default-medium: var(--color-slate-300);
+  --color-default-strong: var(--color-slate-400);
+
+  /* Raios: controles 8px, cartões 12px. */
+  --radius-base: 0.5rem;
+  --radius-card: 0.75rem;
+
+  --shadow-xs: 0 1px 2px 0 oklch(0.3 0.03 268 / 0.06);
+  --shadow-card: 0 1px 2px 0 oklch(0.3 0.03 268 / 0.05), 0 1px 3px 0 oklch(0.3 0.03 268 / 0.04);
+  --shadow-pop: 0 10px 30px -8px oklch(0.25 0.04 268 / 0.22), 0 2px 6px -2px oklch(0.25 0.04 268 / 0.1);
+}
+
+/* Superfícies e texto (escuro). Mesmos nomes, valores trocados. */
+:root {
+  @variant dark {
+    --color-canvas: var(--color-ink-950);
+    --color-body: var(--color-slate-300);
+    --color-body-subtle: var(--color-slate-400);
+    --color-heading: var(--color-slate-50);
+    --color-focus: var(--color-cobalt-400);
+
+    --color-fg-brand-subtle: var(--color-cobalt-800);
+    --color-fg-brand: var(--color-cobalt-300);
+    --color-fg-brand-strong: var(--color-cobalt-200);
+    --color-fg-success: var(--color-emerald-400);
+    --color-fg-success-strong: var(--color-emerald-300);
+    --color-fg-danger: var(--color-rose-400);
+    --color-fg-danger-strong: var(--color-rose-300);
+    --color-fg-warning-subtle: var(--color-amber-400);
+    --color-fg-warning: var(--color-amber-300);
+    --color-fg-disabled: var(--color-slate-500);
+
+    --color-neutral-primary-soft: var(--color-ink-900);
+    --color-neutral-primary: var(--color-ink-950);
+    --color-neutral-primary-medium: var(--color-ink-850);
+    --color-neutral-primary-strong: var(--color-ink-800);
+    --color-neutral-secondary-soft: var(--color-ink-850);
+    --color-neutral-secondary: var(--color-ink-900);
+    --color-neutral-secondary-medium: var(--color-ink-850);
+    --color-neutral-secondary-strong: var(--color-ink-800);
+    --color-neutral-secondary-strongest: var(--color-ink-750);
+    --color-neutral-tertiary-soft: var(--color-ink-850);
+    --color-neutral-tertiary: var(--color-ink-800);
+    --color-neutral-tertiary-medium: var(--color-ink-750);
+    --color-neutral-quaternary: var(--color-ink-750);
+    --color-neutral-quaternary-medium: var(--color-ink-700);
+
+    --color-brand-softer: oklch(0.25 0.06 268);
+    --color-brand-soft: oklch(0.3 0.085 268);
+    --color-brand: var(--color-cobalt-600);
+    --color-brand-medium: oklch(0.4 0.12 268);
+    --color-brand-strong: var(--color-cobalt-700);
+    --color-brand-subtle: oklch(0.38 0.1 268);
+    --color-brand-light: var(--color-cobalt-400);
+
+    --color-success-soft: oklch(0.24 0.045 165);
+    --color-success: var(--color-emerald-600);
+    --color-success-strong: var(--color-emerald-500);
+    --color-success-subtle: oklch(0.36 0.07 165);
+    --color-danger-soft: oklch(0.24 0.05 15);
+    --color-danger: var(--color-rose-600);
+    --color-danger-strong: var(--color-rose-500);
+    --color-danger-subtle: oklch(0.38 0.09 15);
+    --color-warning-soft: oklch(0.25 0.045 75);
+    --color-warning: var(--color-amber-500);
+    --color-warning-strong: var(--color-amber-400);
+    --color-warning-subtle: oklch(0.4 0.08 75);
+    --color-disabled: var(--color-ink-800);
+
+    --color-muted: var(--color-ink-900);
+    --color-light-subtle: var(--color-ink-850);
+    --color-light: var(--color-ink-800);
+    --color-light-medium: var(--color-ink-750);
+    --color-default-subtle: var(--color-ink-800);
+    --color-default: var(--color-ink-750);
+    --color-default-medium: var(--color-ink-700);
+    --color-default-strong: var(--color-ink-600);
+
+    --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.3);
+    --shadow-card: 0 1px 2px 0 oklch(0 0 0 / 0.35);
+    --shadow-pop: 0 12px 32px -8px oklch(0 0 0 / 0.6), 0 2px 6px -2px oklch(0 0 0 / 0.4);
+  }
+}

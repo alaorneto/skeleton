@@ -31,6 +31,24 @@ jobs:
           version: "0.17.4"
           args: format --check --diff
 
+  assets:
+    name: CSS compilado e assets vendorizados
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Instalar lock do frontend (sem scripts de instalação)
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Conferir que static/ corresponde às fontes (Tailwind, Flowbite, Inter)
+        # Falha se site.css/admin.css ou os arquivos de vendor/ estiverem desatualizados.
+        working-directory: frontend
+        run: npm run check
+
   sqlite:
     name: SQLite (Python ${{ matrix.python }})
     runs-on: ubuntu-24.04

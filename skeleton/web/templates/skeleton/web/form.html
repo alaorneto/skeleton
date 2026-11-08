@@ -3,10 +3,15 @@
 {% block title %}{{ title }} · Skeleton{% endblock %}
 {% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
 {% block content %}
-{% include 'skeleton/web/components/breadcrumbs.html' %}
-<h1>{{ title }}</h1>
-{% if description %}<p>{{ description }}</p>{% endif %}
-{% include 'skeleton/web/components/toolbar.html' %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    {% include 'skeleton/web/components/breadcrumbs.html' %}
+    <h1>{{ title }}</h1>
+    {% if description %}<p class="page-description">{{ description }}</p>{% endif %}
+  </div>
+  {% include 'skeleton/web/components/toolbar.html' %}
+</div>
 <form method="post" class="record-form" data-record-form>
 {% csrf_token %}
 {% include 'skeleton/web/components/form-errors.html' %}
@@ -14,6 +19,7 @@
 {% if confirmation %}<p class="confirmation">{{ confirmation }}</p>{% endif %}
 {% include 'skeleton/web/components/tabs.html' %}
 {% crud_form_fields form %}
-<div class="toolbar"><button type="submit">{{ submit_label|default:'Salvar' }}</button>{% if cancel_url %}<a href="{{ cancel_url }}">Cancelar</a>{% endif %}</div>
+<div class="form-actions"><button type="submit" class="btn {% if operation == 'delete' %}btn-danger{% else %}btn-primary{% endif %}">{{ submit_label|default:'Salvar' }}</button>{% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Cancelar</a>{% endif %}</div>
 </form>
+</div>
 {% endblock %}

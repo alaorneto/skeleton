@@ -2,14 +2,14 @@
 {% load static %}
 {% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
-<header class="page-header"><h1>{{ title }}</h1><p>Selecione um registro legível. Sem JavaScript, copie o UUID e cole no campo do formulário aberto; voltar não salva suas alterações.</p><a href="{{ back_url }}">Voltar ao formulário</a></header>
-<p>{{ count }} referência{{ count|pluralize:",s" }} disponível{{ count|pluralize:",is" }}.</p>
+<header class="page-header"><div class="min-w-0"><h1>{{ title }}</h1><p class="page-description">Selecione um registro legível. Sem JavaScript, copie o UUID e cole no campo do formulário aberto; voltar não salva suas alterações.</p></div><div class="toolbar"><a class="btn btn-secondary" href="{{ back_url }}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}Voltar ao formulário</a></div></header>
+<p class="mb-3 text-sm text-body-subtle">{{ count }} referência{{ count|pluralize:",s" }} disponível{{ count|pluralize:",is" }}.</p>
 <div class="table-scroll"><table><thead><tr><th scope="col">Registro</th><th scope="col">UUID</th><th scope="col">Seleção</th></tr></thead><tbody>
-{% for option in options %}<tr><td>{{ option.label }}</td><td><code>{{ option.sysid }}</code></td><td><button type="button" data-reference-choice="{{ option.sysid }}" hidden>Usar referência</button></td></tr>
-{% empty %}<tr><td colspan="3">Nenhuma referência disponível.</td></tr>{% endfor %}
+{% for option in options %}<tr><td class="font-medium text-heading">{{ option.label }}</td><td><code class="uuid select-all">{{ option.sysid }}</code></td><td><button type="button" class="btn btn-secondary btn-sm" data-reference-choice="{{ option.sysid }}" hidden>Usar referência</button></td></tr>
+{% empty %}<tr><td colspan="3" class="empty-state">Nenhuma referência disponível.</td></tr>{% endfor %}
 </tbody></table></div>
-<nav aria-label="Paginação de referências">{% if previous_url %}<a href="{{ previous_url }}">Anterior</a>{% endif %}{% if next_url %}<a href="{{ next_url }}">Próxima</a>{% endif %}</nav>
-<p id="reference-picker-status" role="status" aria-live="polite"></p>
+<nav class="pagination" aria-label="Paginação de referências"><span class="pagination-summary"></span><div class="pagination-links">{% if previous_url %}<a class="pagination-prev" rel="prev" href="{{ previous_url }}">Anterior</a>{% else %}<span class="pagination-prev pagination-disabled" aria-disabled="true">Anterior</span>{% endif %}{% if next_url %}<a class="pagination-next" rel="next" href="{{ next_url }}">Próxima</a>{% else %}<span class="pagination-next pagination-disabled" aria-disabled="true">Próxima</span>{% endif %}</div></nav>
+<p id="reference-picker-status" role="status" aria-live="polite" class="mt-4 text-sm font-medium text-fg-success"></p>
 {{ picker_context|json_script:'reference-picker-context' }}
 <script src="{% static 'skeleton/web/reference_picker.js' %}" defer></script>
 {% endblock %}

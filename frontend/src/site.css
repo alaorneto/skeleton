@@ -1,0 +1,639 @@
+/*
+ * Fonte do CSS da interface SSR do skeleton (Tailwind CSS 4 + Flowbite 4).
+ * O arquivo compilado fica em skeleton/web/static/skeleton/web/site.css e é
+ * versionado: o wheel não depende de Node. Gere com `npm run build` em
+ * frontend/ e confira com `npm run check` (o CI falha se estiver desatualizado).
+ * Tokens e regras de uso: docs/ui-design.md.
+ */
+@import "tailwindcss" source(none);
+@import "flowbite/src/themes/default.css";
+@import "./tokens.css";
+@plugin "flowbite/plugin" {
+  charts: false;
+  datatables: false;
+  forms: false;
+  wysiwyg: false;
+}
+
+/* Fontes de classes: somente templates e JS do próprio projeto. */
+@source "../../skeleton/web/templates";
+@source "../../skeleton/web/static/skeleton/web/*.js";
+@source "../../skeleton/system/app_template/*.html-tpl";
+@source "../../examples/notes/templates";
+
+
+/* ------------------------------------------------------------------ */
+/* Base: elementos sem classe continuam legíveis (allauth, apps         */
+/* derivadas, conteúdo legado). Fica no layer base: utilitários vencem. */
+/* ------------------------------------------------------------------ */
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply flex min-h-dvh flex-col bg-canvas font-sans text-base/6 text-body antialiased;
+    font-feature-settings: "cv05" 1, "cv08" 1;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background-color: var(--color-brand-soft);
+    color: var(--color-heading);
+  }
+  h1 {
+    @apply text-2xl/8 font-semibold tracking-tight text-heading sm:text-[1.75rem]/9;
+  }
+  h2 {
+    @apply text-lg/7 font-semibold text-heading;
+  }
+  h3 {
+    @apply text-base/6 font-semibold text-heading;
+  }
+  strong, b, dt {
+    @apply font-semibold text-heading;
+  }
+  a:not([class]) {
+    @apply rounded-xs text-fg-brand underline decoration-fg-brand/35 underline-offset-[0.2em] transition-colors hover:text-fg-brand-strong hover:decoration-current;
+  }
+  code, kbd, samp, pre {
+    @apply font-mono text-[0.8125rem];
+  }
+  code, pre {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  code:not([class]) {
+    @apply rounded-xs bg-neutral-tertiary px-1 py-0.5 text-heading;
+  }
+  pre:not([class]) {
+    @apply rounded-base border border-default bg-neutral-secondary-soft p-3 text-heading;
+  }
+  details > summary {
+    @apply cursor-pointer rounded-xs font-medium text-fg-brand;
+  }
+  hr {
+    @apply border-default;
+  }
+  ul:not([class]) {
+    @apply list-disc space-y-1 ps-5 marker:text-body-subtle;
+  }
+  ol:not([class]) {
+    @apply list-decimal space-y-1 ps-5 marker:text-body-subtle;
+  }
+
+  /* Controles de formulário. */
+  label {
+    @apply text-sm/5 font-medium text-heading;
+  }
+  input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="file"], [type="range"], [type="color"], [type="submit"], [type="button"], [type="reset"], [type="image"]),
+  select,
+  textarea {
+    @apply block w-full min-w-0 rounded-base border border-default-medium bg-neutral-secondary-medium px-3 py-2.5 text-base/6 text-heading shadow-xs transition-[border-color,box-shadow] placeholder:text-body-subtle sm:text-sm/5;
+  }
+  :is(input, select, textarea):hover:not(:disabled, :focus) {
+    border-color: var(--color-default-strong);
+  }
+  :is(input, select, textarea):focus-visible {
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-brand) 22%, transparent);
+    outline: 2px solid transparent;
+  }
+  :is(input, select, textarea):disabled {
+    @apply cursor-not-allowed border-default bg-disabled text-fg-disabled shadow-none;
+  }
+  :is(input, select, textarea)[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
+  :is(input, select, textarea)[aria-invalid="true"]:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 22%, transparent);
+  }
+  select:not([multiple], [size]) {
+    @apply appearance-none bg-[length:1rem] bg-[right_0.65rem_center] bg-no-repeat pe-9;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+  }
+  textarea {
+    @apply min-h-32 resize-y;
+  }
+  input[type="checkbox"], input[type="radio"] {
+    @apply size-4 shrink-0 cursor-pointer align-middle;
+    accent-color: var(--color-brand);
+  }
+  input[type="file"] {
+    @apply block w-full rounded-base border border-default-medium bg-neutral-secondary-medium text-sm text-body file:me-3 file:cursor-pointer file:border-0 file:border-e file:border-default-medium file:bg-neutral-tertiary file:px-3 file:py-2.5 file:font-medium file:text-heading;
+  }
+  button:not([class], [data-tab]), input[type="submit"]:not([class]) {
+    @apply btn btn-primary;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Componentes reutilizados pelos templates do núcleo e das apps.       */
+/* ------------------------------------------------------------------ */
+@utility btn {
+  @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-base border px-4 py-2.5 text-center text-sm/5 font-medium whitespace-nowrap no-underline shadow-xs transition-colors select-none disabled:cursor-not-allowed disabled:opacity-55 aria-disabled:pointer-events-none aria-disabled:opacity-55;
+  & svg {
+    @apply size-4 shrink-0;
+  }
+}
+@utility btn-primary {
+  @apply border-transparent bg-brand text-white hover:bg-brand-strong active:bg-cobalt-800;
+}
+@utility btn-secondary {
+  @apply border-default-medium bg-neutral-primary-soft text-heading hover:border-default-strong hover:bg-neutral-tertiary-soft;
+}
+@utility btn-danger {
+  @apply border-transparent bg-danger text-white hover:bg-danger-strong;
+}
+@utility btn-ghost {
+  @apply border-transparent bg-transparent text-fg-brand shadow-none hover:bg-brand-softer;
+}
+@utility btn-sm {
+  @apply gap-1.5 px-3 py-1.5 text-xs/5;
+}
+
+@layer components {
+  /* Legado: `.button` era o botão primário único. */
+  .button {
+    @apply btn btn-primary;
+  }
+
+  /* Shell */
+  .app-header {
+    @apply sticky top-0 z-30 border-b border-default bg-neutral-primary-soft/90 backdrop-blur supports-[backdrop-filter]:bg-neutral-primary-soft/80;
+  }
+  .nav-link {
+    @apply flex items-center gap-2 rounded-base px-3 py-2 text-sm/5 font-medium text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading;
+    & svg {
+      @apply size-4 shrink-0 text-body-subtle;
+    }
+  }
+  .nav-link[aria-current="page"] {
+    @apply bg-brand-softer text-fg-brand;
+  }
+  .context-link {
+    @apply inline-flex items-center gap-1.5 border-b-2 border-transparent px-1 py-3 text-sm/5 font-medium whitespace-nowrap text-body no-underline transition-colors hover:border-default-strong hover:text-heading;
+    & svg {
+      @apply size-4 shrink-0;
+    }
+  }
+  .context-link[aria-current="page"] {
+    @apply border-brand text-fg-brand;
+  }
+
+  /* Página. Todo cabeçalho de tela segue o mesmo ritmo:
+   * [breadcrumb|eyebrow] → h1 → descrição → 32px (24px no celular) até o conteúdo. */
+  .page-header {
+    @apply mb-6 flex flex-col gap-4 sm:mb-8 md:flex-row md:items-end md:justify-between;
+  }
+  .page-header > .toolbar {
+    @apply shrink-0;
+  }
+  .page-header .breadcrumbs ol {
+    @apply mb-2;
+  }
+  .page-eyebrow {
+    @apply mb-1 text-xs/5 font-semibold tracking-wide text-fg-brand uppercase;
+  }
+  .page-description {
+    @apply mt-1.5 max-w-3xl text-sm/6 text-body sm:text-base/7;
+  }
+  /* Telas de apps derivadas que ainda usam h1/p soltos recebem o mesmo ritmo. */
+  .app-main > :where(h1) {
+    @apply mb-6 sm:mb-8;
+  }
+  .app-main > :where(h1):has(+ :where(p)) {
+    @apply mb-0;
+  }
+  .app-main > :where(h1) + :where(p) {
+    @apply mt-1.5 mb-6 max-w-3xl text-sm/6 sm:mb-8 sm:text-base/7;
+  }
+  .app-main > :where(p, ul, ol, dl, form, details, .table-scroll, .card) + :where(p, ul, ol, dl, form, details, .table-scroll, .card, a) {
+    @apply mt-4;
+  }
+  .app-main > :where(h2) {
+    @apply mt-8 mb-3;
+  }
+  .section-heading {
+    @apply mb-3 text-sm/6 font-semibold tracking-wide text-body-subtle uppercase;
+  }
+
+  /* Cartões */
+  .card {
+    @apply min-w-0 rounded-card border border-default bg-neutral-primary-soft p-5 shadow-card [overflow-wrap:anywhere] sm:p-6;
+  }
+  .link-card {
+    @apply flex min-w-0 items-start gap-3 rounded-card border border-default bg-neutral-primary-soft p-4 text-body no-underline shadow-card transition-[border-color,box-shadow,background-color] hover:border-brand-subtle hover:shadow-pop focus-visible:border-brand-subtle;
+  }
+  .link-card-icon {
+    @apply grid size-9 shrink-0 place-items-center rounded-base bg-brand-softer text-fg-brand ring-1 ring-brand-subtle/60 transition-colors;
+    & svg {
+      @apply size-[1.125rem];
+    }
+  }
+  .link-card:hover .link-card-icon {
+    @apply bg-brand text-white ring-brand;
+  }
+  .link-card-title {
+    @apply block text-sm/5 font-semibold text-heading;
+  }
+  .link-card-text {
+    @apply mt-0.5 block text-sm/5 text-body-subtle;
+  }
+
+  /* Breadcrumb (Flowbite) */
+  .breadcrumbs ol {
+    @apply m-0 mb-3 flex list-none flex-wrap p-0 items-center gap-x-1.5 gap-y-1 text-sm/5;
+  }
+  .breadcrumbs li {
+    @apply inline-flex min-w-0 items-center gap-1.5 text-body-subtle;
+  }
+  .breadcrumbs li + li::before {
+    content: "";
+    @apply inline-block size-3.5 shrink-0 bg-current opacity-60;
+    mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.8' d='m8 5 5 5-5 5'/%3e%3c/svg%3e")
+      center / contain no-repeat;
+  }
+  .breadcrumbs a {
+    @apply rounded-xs font-medium text-body no-underline hover:text-fg-brand;
+  }
+  .breadcrumbs [aria-current="page"] {
+    @apply truncate font-medium text-heading;
+  }
+
+  /* Barra de ações */
+  .toolbar {
+    @apply flex flex-wrap items-center gap-2 sm:gap-3;
+  }
+  .toolbar > * {
+    @apply max-w-full;
+    overflow-wrap: anywhere;
+  }
+  .toolbar > a:not([class]) {
+    @apply btn btn-secondary;
+  }
+
+  /* Alertas e mensagens (Flowbite alert) */
+  .alert,
+  .message {
+    @apply flex items-start gap-3 rounded-base border border-brand-subtle bg-brand-softer p-4 text-sm/6 text-fg-brand-strong;
+    & > svg {
+      @apply mt-0.5 size-4 shrink-0;
+    }
+  }
+  .message.success,
+  .alert-success {
+    @apply border-success-subtle bg-success-soft text-fg-success-strong;
+  }
+  .message.warning,
+  .alert-warning {
+    @apply border-warning-subtle bg-warning-soft text-fg-warning;
+  }
+  .message.error,
+  .alert-danger {
+    @apply border-danger-subtle bg-danger-soft text-fg-danger-strong;
+  }
+  .error-summary {
+    @apply rounded-base border border-danger-subtle bg-danger-soft p-4 text-sm/6 text-fg-danger-strong;
+    & h2 {
+      @apply flex items-center gap-2 text-sm/6 font-semibold text-fg-danger-strong;
+    }
+    & ul {
+      @apply mt-1 list-disc space-y-0.5 ps-6;
+    }
+    & a {
+      @apply font-medium text-inherit underline underline-offset-2;
+    }
+  }
+  .error-summary:focus-visible {
+    outline-color: var(--color-danger);
+  }
+  .confirmation {
+    @apply rounded-base border border-warning-subtle border-s-4 border-s-warning bg-warning-soft p-4 text-sm/6 text-fg-warning;
+  }
+
+  /* Formulários */
+  /* .form-stack também acomoda `form.as_p` legado (p > label + input). */
+  .form-stack > * + * {
+    @apply mt-5;
+  }
+  .form-stack :where(.form-field, p) > label {
+    @apply mb-1.5 block;
+  }
+  .form-stack :where(.form-field-check, p:has(> input[type="checkbox"])) {
+    @apply flex flex-wrap items-center gap-x-2.5;
+  }
+  .form-stack :where(.form-field-check, p:has(> input[type="checkbox"])) > label {
+    @apply mb-0 inline font-normal text-body;
+  }
+  .form-stack :where(.form-field-check) > :where(.helptext, .errorlist) {
+    @apply basis-full ps-6.5;
+  }
+  .helptext,
+  .help {
+    @apply mt-1.5 block text-xs/5 text-body-subtle sm:text-[0.8125rem]/5;
+  }
+  .helptext ul {
+    @apply mt-1 list-disc space-y-0.5 ps-5;
+  }
+  .helptext a {
+    @apply font-medium text-fg-brand underline decoration-fg-brand/35 underline-offset-2 hover:decoration-current;
+  }
+  .errorlist {
+    @apply mt-1.5 space-y-0.5 text-sm/5 font-medium text-fg-danger;
+  }
+  .errorlist.nonfield {
+    @apply mb-4 rounded-base border border-danger-subtle bg-danger-soft p-3 text-fg-danger-strong;
+  }
+  .required {
+    @apply text-fg-danger;
+  }
+  .form-actions {
+    @apply mt-6 flex flex-wrap items-center gap-3 border-t border-default pt-5;
+  }
+  .record-form > .form-actions {
+    @apply border-0 pt-0;
+  }
+  .form-actions > a:not([class]) {
+    @apply btn btn-secondary;
+  }
+  .divider {
+    @apply my-6 flex items-center gap-3 text-xs font-medium tracking-wide text-body-subtle uppercase before:h-px before:flex-1 before:bg-default after:h-px after:flex-1 after:bg-default;
+  }
+
+  /* Pack crispy skeleton_crud */
+  .record-section {
+    @apply my-5 min-w-0 rounded-card border border-default bg-neutral-primary-soft shadow-card;
+  }
+  .record-section > h2 {
+    @apply border-b border-default px-5 py-3.5 text-base/6 font-semibold sm:px-6;
+  }
+  .section-fields {
+    @apply grid grid-cols-12 gap-x-6 gap-y-5 p-5 sm:p-6;
+  }
+  .section-fields > .field {
+    @apply min-w-0;
+  }
+  .field > label {
+    @apply mb-1.5 block;
+  }
+  .field dt {
+    @apply text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+  }
+  .field dd {
+    @apply mt-1 text-sm/6 break-words whitespace-pre-wrap text-heading [overflow-wrap:anywhere] sm:text-base/7;
+  }
+  .read-only-label {
+    @apply text-sm/5 font-medium text-heading;
+  }
+  .read-only-value {
+    @apply mt-1.5 rounded-base border border-dashed border-default-medium bg-neutral-secondary-soft px-3 py-2.5 text-sm/5 break-words whitespace-pre-wrap text-heading [overflow-wrap:anywhere];
+  }
+  .record-form textarea[data-crud-rows] {
+    min-height: 0;
+  }
+  .change-control {
+    @apply mb-3 grid grid-cols-[auto_1fr] items-start gap-x-2.5 rounded-base border border-default bg-neutral-secondary-soft px-3 py-2.5;
+    & input {
+      @apply mt-0.5;
+    }
+    & label {
+      @apply text-sm/5 font-medium text-heading;
+    }
+    & .help,
+    & .errorlist {
+      @apply col-start-2 mt-0.5;
+    }
+  }
+  .field-picker {
+    @apply mt-2 inline-flex items-center gap-1.5 text-sm/5 font-medium text-fg-brand no-underline hover:underline;
+    & svg {
+      @apply size-4;
+    }
+  }
+
+  /* Abas (Flowbite tabs, variante sublinhada) */
+  .record-tabs {
+    @apply my-6 flex flex-wrap gap-x-2 border-b border-default;
+  }
+  .record-tabs button {
+    @apply -mb-px cursor-pointer rounded-none rounded-t-base border-0 border-b-2 border-transparent bg-transparent shadow-none px-3 py-2.5 text-sm/5 font-medium text-body transition-colors hover:border-default-strong hover:text-heading;
+  }
+  .record-tabs button[aria-selected="true"] {
+    @apply border-brand text-fg-brand;
+  }
+  [role="tabpanel"]:focus-visible {
+    outline-offset: 4px;
+  }
+
+  /* Filtros */
+  .filter-panel {
+    @apply mb-5 rounded-card border border-default bg-neutral-primary-soft shadow-card;
+    & > summary {
+      @apply flex list-none items-center gap-2 px-5 py-3.5 text-sm/6 font-semibold text-heading [&::-webkit-details-marker]:hidden;
+    }
+    & > summary svg {
+      @apply size-4 text-body-subtle transition-transform;
+    }
+    &[open] > summary svg.chevron {
+      @apply rotate-180;
+    }
+    & .section-fields {
+      @apply border-t border-default;
+    }
+    & .toolbar {
+      @apply border-t border-default px-5 py-3.5 sm:px-6;
+    }
+  }
+
+  /* Tabelas (Flowbite table) */
+  .table-scroll {
+    @apply relative max-w-full overflow-x-auto rounded-card border border-default bg-neutral-primary-soft shadow-card;
+  }
+  .table-scroll table {
+    @apply w-full min-w-[32rem] text-left text-sm/5 text-body tabular-nums;
+  }
+  .table-scroll thead {
+    @apply border-b border-default bg-neutral-secondary-soft text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+  }
+  .table-scroll th {
+    @apply px-4 py-3 font-medium whitespace-nowrap sm:px-5;
+  }
+  .table-scroll td {
+    @apply px-4 py-3.5 align-top break-words whitespace-pre-wrap [overflow-wrap:anywhere] sm:px-5;
+  }
+  .table-scroll tbody tr {
+    @apply border-b border-default-subtle last:border-b-0;
+  }
+  .table-scroll tbody tr:has(> td a, > td button) {
+    @apply transition-colors hover:bg-neutral-secondary-soft;
+  }
+  .table-scroll td:first-child > a:not([class]) {
+    @apply font-medium text-heading no-underline hover:text-fg-brand hover:underline;
+  }
+  .table-scroll td dl {
+    @apply grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5;
+  }
+  .table-scroll td dt {
+    @apply text-xs/5 font-medium text-body-subtle;
+  }
+  .table-scroll td dd {
+    @apply text-heading;
+  }
+  .empty-state {
+    @apply px-5 py-10 text-center text-sm/6 text-body-subtle;
+  }
+  .uuid {
+    @apply font-mono text-xs/5 text-body-subtle;
+  }
+
+  /* Paginação (Flowbite pagination) */
+  .pagination {
+    @apply mt-4 flex flex-col gap-3 text-sm/5 text-body-subtle sm:flex-row sm:items-center sm:justify-between;
+  }
+  .pagination-summary strong {
+    @apply font-semibold text-heading tabular-nums;
+  }
+  .pagination-links {
+    @apply inline-flex self-start rounded-base shadow-xs sm:self-auto;
+  }
+  .pagination-links > * {
+    @apply -ms-px inline-flex h-9 items-center gap-1.5 border border-default-medium bg-neutral-primary-soft px-3 text-sm/5 font-medium whitespace-nowrap text-heading no-underline first:ms-0 first:rounded-s-base last:rounded-e-base;
+  }
+  .pagination-links > a {
+    @apply transition-colors hover:bg-neutral-tertiary-soft hover:text-fg-brand;
+  }
+  .pagination-links > a:focus-visible {
+    @apply relative z-10;
+  }
+  .pagination-current {
+    @apply bg-neutral-secondary-soft! font-normal text-body tabular-nums;
+  }
+  .pagination-disabled {
+    @apply cursor-not-allowed text-fg-disabled!;
+  }
+  .pagination-prev::before,
+  .pagination-next::after {
+    content: "";
+    @apply inline-block size-4 shrink-0 bg-current;
+    mask: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.8' d='m12 5-5 5 5 5'/%3e%3c/svg%3e")
+      center / contain no-repeat;
+  }
+  .pagination-next::after {
+    @apply rotate-180;
+  }
+  @media (max-width: 380px) {
+    .pagination-current {
+      @apply hidden;
+    }
+  }
+
+  /* Distintivos (Flowbite badge) */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-sm border border-default bg-neutral-tertiary px-1.5 py-0.5 text-xs/4 font-medium whitespace-nowrap text-heading;
+  }
+  .badge-brand {
+    @apply border-brand-subtle bg-brand-softer text-fg-brand-strong;
+  }
+  .badge-success {
+    @apply border-success-subtle bg-success-soft text-fg-success-strong;
+  }
+  .badge-warning {
+    @apply border-warning-subtle bg-warning-soft text-fg-warning;
+  }
+  .badge-dot::before {
+    content: "";
+    @apply size-1.5 rounded-full bg-current;
+  }
+
+  /* Listas de definição soltas (metadados) */
+  .meta-list {
+    @apply grid gap-x-6 gap-y-4 sm:grid-cols-2;
+    & dt {
+      @apply text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+    }
+    & dd {
+      @apply mt-0.5 text-sm/6 break-words whitespace-pre-wrap text-heading [overflow-wrap:anywhere];
+    }
+  }
+
+  /* Botão oficial "Entrar com gov.br" (padrão visual do Design System gov.br). */
+  .govbr-sign-in {
+    @apply inline-flex min-h-10 w-full cursor-pointer items-center justify-center gap-[0.35em] rounded-full border border-[#1351b4]/25 bg-white px-6 font-sans text-base font-medium text-[#1351b4] transition-colors hover:bg-[#dbe8fb] hover:text-[#0c326f];
+    & strong {
+      @apply font-bold text-inherit;
+    }
+  }
+  .govbr-sign-in:focus-visible {
+    outline: 3px solid #c2850c;
+    outline-offset: 3px;
+  }
+}
+
+/* Grade de 12 colunas do renderer (`col_span`). Gerada fora do scanner do
+ * Tailwind porque o nome vem do manifesto: field-span-{1..12}. */
+@layer components {
+  .field-span-1 { grid-column: span 1 / span 1; }
+  .field-span-2 { grid-column: span 2 / span 2; }
+  .field-span-3 { grid-column: span 3 / span 3; }
+  .field-span-4 { grid-column: span 4 / span 4; }
+  .field-span-5 { grid-column: span 5 / span 5; }
+  .field-span-6 { grid-column: span 6 / span 6; }
+  .field-span-7 { grid-column: span 7 / span 7; }
+  .field-span-8 { grid-column: span 8 / span 8; }
+  .field-span-9 { grid-column: span 9 / span 9; }
+  .field-span-10 { grid-column: span 10 / span 10; }
+  .field-span-11 { grid-column: span 11 / span 11; }
+  .field-span-12 { grid-column: span 12 / span 12; }
+
+  /* Até 600px tudo vira uma coluna, sem rolagem horizontal da página. */
+  @media (max-width: 600px) {
+    .section-fields {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .section-fields > .field {
+      grid-column: 1 / -1;
+    }
+    .toolbar {
+      align-items: stretch;
+    }
+    .toolbar > .btn,
+    .toolbar > .button,
+    .toolbar > button,
+    .toolbar > a {
+      flex: 1 1 auto;
+    }
+    .record-tabs button {
+      flex: 1 1 auto;
+    }
+  }
+}
+
+/* Sem JavaScript, menus recolhíveis (Flowbite collapse/dropdown) ficam abertos. */
+@media (scripting: none) {
+  [data-nojs-open] {
+    display: block !important;
+  }
+  [data-nojs-hide] {
+    display: none !important;
+  }
+}
+
+@media print {
+  .app-header,
+  .app-footer,
+  .context-bar {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}

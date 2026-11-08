@@ -1,11 +1,29 @@
 {% extends admin_base_template|default:"admin/base.html" %}
-{% load i18n %}
+{% load i18n static %}
 
 {% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"Skeleton" }}{% endblock %}
+
+{% comment %}
+O tema vem por último (blockbots fica depois de responsive.css) para alinhar o admin aos tokens do site.
+Nos Registros globais a base do shell (admin_base_template) já o inclui.
+{% endcomment %}
+{% block blockbots %}{{ block.super }}{% if not admin_base_template %}
+{% include "skeleton/web/components/admin-theme.html" %}{% endif %}{% endblock %}
 
 {% block branding %}
 <div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header }}</a></div>
 {% if user.is_anonymous %}{% include "admin/color_theme_toggle.html" %}{% endif %}
 {% endblock %}
 
-{% block nav-global %}<a href="{% url 'admin:records_index' %}">Registros globais</a>{% endblock %}
+{% block nav-global %}{% if user.is_authenticated %}<nav class="admin-nav" aria-label="Principal">
+<a href="{% url 'web:home' %}">Organizações</a>
+{% if user.is_superuser %}<a href="{% url 'web:platform-catalog' %}">Inventário</a>{% endif %}
+<a href="{% url 'admin:records_index' %}">Registros globais</a>
+<a href="{% url 'admin:index' %}" aria-current="page">Configurações</a>
+</nav>{% endif %}{% endblock %}
+
+{% block welcome-msg %}<span class="admin-user" title="{% firstof user.get_short_name user.get_username %}">{% firstof user.get_short_name user.get_username %}</span>{% endblock %}
+{% comment %}"Ver o site" já está na navegação principal (Organizações).{% endcomment %}
+{% block userlinks %}{% if user.has_usable_password %}<a href="{% url 'admin:password_change' %}">{% translate 'Change password' %}</a> /{% endif %}
+<form id="logout-form" method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button type="submit">{% translate 'Log out' %}</button></form>
+{% include "admin/color_theme_toggle.html" %}{% endblock %}

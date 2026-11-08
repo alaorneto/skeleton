@@ -23,6 +23,7 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | Job | O que prova | O que não prova |
 |---|---|---|
 | `lint` | Ruff 0.17.4 com as regras de `pyproject.toml` e `ruff format --check`. | E501 e PLC0415, que seguem fora da linha de base. |
+| `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css`, `admin.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
 | `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
 | `sqlite` | Lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e `tests/unit tests/integration_sqlite tests/accounts` com cobertura (`coverage.xml` publicado como artefato), em Python 3.12 e 3.14. | RLS PostgreSQL. Cobertura mede linhas executadas, não a qualidade das assertions. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
