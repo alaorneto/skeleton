@@ -65,7 +65,7 @@ def test_rd06_restore_user_persists_version_with_one_cas():
         assert restored.auth_version == persisted.auth_version
 
 
-def test_sbr02_admin_deactivation_preserves_form_changes_and_revokes_sessions():
+def test_sbr02_platform_deactivation_preserves_form_changes_and_revokes_sessions():
     admin, _ = bootstrap_identity(
         email="platform-owner@example.test", organization="platform", name="Platform", password=PASSWORD
     )
@@ -74,13 +74,11 @@ def test_sbr02_admin_deactivation_preserves_form_changes_and_revokes_sessions():
     platform = login(admin, raise_request_exception=False)
     user.refresh_from_db()  # allauth login persisted last_login before the form was opened.
     response = platform.post(
-        reverse("admin:sk_accounts_user_change", args=[user.pk]),
+        reverse("platform:user", args=[user.pk]),
         {
-            "email": user.email,
             "first_name": "Saved during offboarding",
             "last_name": "",
             "expected_revision": user.revision,
-            "_save": "Save",
         },
     )
     assert response.status_code == 302
@@ -90,7 +88,7 @@ def test_sbr02_admin_deactivation_preserves_form_changes_and_revokes_sessions():
     assert old_session.get("/api/v1/me/").status_code == 403
 
 
-def test_sbr02_admin_stale_form_conflicts_without_losing_newer_changes():
+def test_sbr02_platform_stale_form_conflicts_without_losing_newer_changes():
     admin, _ = bootstrap_identity(
         email="platform-owner@example.test", organization="platform", name="Platform", password=PASSWORD
     )
@@ -101,13 +99,11 @@ def test_sbr02_admin_stale_form_conflicts_without_losing_newer_changes():
         user.save(update_fields=["first_name"])
     platform = login(admin, raise_request_exception=False)
     response = platform.post(
-        reverse("admin:sk_accounts_user_change", args=[user.pk]),
+        reverse("platform:user", args=[user.pk]),
         {
-            "email": user.email,
             "first_name": "Stale loser",
             "last_name": "",
             "expected_revision": revision,
-            "_save": "Save",
         },
     )
     assert response.status_code == 409

@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}{% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Histórico</p><h1>{{ title }}</h1><p class="page-description">Eventos gravados na mesma transação da alteração. Somente os eventos autorizados para você aparecem.</p></div></div>
-<div class="table-scroll"><table><thead><tr><th scope="col">Data</th><th scope="col">Tabela / registro</th><th scope="col">Operação / revisão</th><th scope="col">Ator</th><th scope="col">Alterações</th></tr></thead><tbody>{% for row in rows %}<tr><td class="whitespace-nowrap!">{{ row.created_at }}</td><td><span class="font-medium text-heading">{{ row.model_label }}</span><br><code class="uuid">{{ row.record_sysid }}</code></td><td><span class="badge badge-brand">{{ row.operation }}</span> <span class="text-body-subtle">/ {{ row.record_revision }}</span></td><td><code class="uuid">{{ row.actor_sysid|default_if_none:'Sistema' }}</code></td><td><details><summary>Ver alterações</summary><pre class="mt-2 max-h-80 overflow-auto rounded-base border border-default bg-neutral-secondary-soft p-3 text-heading">{{ row.changes }}</pre></details></td></tr>{% empty %}<tr><td colspan="5" class="empty-state">Nenhum evento autorizado.</td></tr>{% endfor %}</tbody></table></div>
+{% include "skeleton/web/components/audit-table.html" %}
 {% include 'skeleton/web/pagination.html' %}
 {% endblock %}

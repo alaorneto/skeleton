@@ -1,0 +1,15 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header">
+  <div class="min-w-0">{% if eyebrow %}<p class="page-eyebrow">{{ eyebrow }}</p>{% endif %}<h1>{{ title }}</h1>{% if description %}<p class="page-description">{{ description }}</p>{% endif %}</div>
+</div>
+<form method="post" class="card">
+  {% csrf_token %}
+  {% include "skeleton/web/components/form-errors.html" %}
+  {% include "skeleton/web/components/form-fields.html" %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{{ submit_label|default:"Salvar" }}</button>{% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Cancelar</a>{% endif %}</div>
+</form>
+</div>
+{% endblock %}

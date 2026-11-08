@@ -23,23 +23,9 @@ JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
   </div>
 </div>
 <div class="header-end">
-  {% if user.is_superuser %}
-  {% url 'web:platform-catalog' as catalog_url %}{% url 'web:platform-audit' as platform_audit_url %}
-  <div class="header-menu">
-    <button type="button" id="platform-menu-button" class="header-trigger" data-dropdown-toggle="platform-menu" data-dropdown-placement="bottom-end" aria-expanded="false" aria-controls="platform-menu">
-      {% include "skeleton/web/components/icon.html" with name="server" class="size-4 text-body-subtle" %}<span>Plataforma</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 text-body-subtle" %}
-    </button>
-    <div id="platform-menu" class="dropdown-panel hidden md:w-72">
-      <p class="dropdown-heading">Administração da plataforma</p>
-      <ul class="dropdown-list">
-        <li><a class="nav-link" href="{% url 'admin:records_index' %}">{% include "skeleton/web/components/icon.html" with name="users" %}Usuários e organizações</a></li>
-        <li><a class="nav-link" href="{{ catalog_url }}"{% if request.path == catalog_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Catálogo de tabelas</a></li>
-        <li><a class="nav-link" href="{{ platform_audit_url }}"{% if request.path == platform_audit_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>
-        <li><a class="nav-link" href="{% url 'admin:index' %}">{% include "skeleton/web/components/icon.html" with name="cube" %}Aplicativos instalados</a></li>
-        <li><a class="nav-link" href="{% url 'admin:skeleton_releases' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>
-      </ul>
-    </div>
-  </div>
+  {% if user.is_superuser and user.is_staff %}
+  {% url 'platform:overview' as platform_url %}
+  <a class="header-link" href="{{ platform_url }}"{% if request.path|slice:":10" == "/platform/" or request.path|slice:":7" == "/admin/" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" class="size-4" %}<span>Plataforma</span></a>
   {% endif %}
   {% url 'web:profile' as profile_url %}
   <div class="header-menu">

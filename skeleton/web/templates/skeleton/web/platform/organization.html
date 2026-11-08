@@ -1,0 +1,34 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}{{ subject.name }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:organizations' %}">Organizações</a></li><li><span aria-current="page">{{ subject.name }}</span></li></ol></nav>
+    <h1>{{ subject.name }}</h1>
+    <p class="mt-2">{% if subject.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}</p>
+  </div>
+</div>
+<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+  <section class="card" aria-labelledby="organization-edit">
+    <h2 id="organization-edit">Dados da organização</h2>
+    <form method="post" class="mt-5">
+      {% csrf_token %}
+      {% include "skeleton/web/components/form-errors.html" %}
+      {% include "skeleton/web/components/form-fields.html" %}
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button><a class="btn btn-secondary" href="{% url 'platform:organizations' %}">Cancelar</a></div>
+    </form>
+  </section>
+  <section class="card" aria-labelledby="organization-meta">
+    <h2 id="organization-meta" class="mb-4">Registro</h2>
+    <dl class="meta-list sm:grid-cols-1!">
+      <div><dt>Identificador</dt><dd><code class="uuid">{{ subject.slug }}</code></dd></div>
+      <div><dt>UUID</dt><dd><code class="uuid">{{ subject.pk }}</code></dd></div>
+      <div><dt>Criada em</dt><dd>{{ subject.created_at }}</dd></div>
+      <div><dt>Revisão</dt><dd>{{ subject.revision }}</dd></div>
+    </dl>
+    <p class="mt-4 text-sm/6 text-body-subtle">Para administrar membros e dados, entre na organização com um vínculo de administrador.</p>
+  </section>
+</div>
+</div>
+{% endblock %}

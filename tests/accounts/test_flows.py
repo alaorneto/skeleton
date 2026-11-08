@@ -207,31 +207,19 @@ def test_platform_admin_lifecycle_conflicts_and_logical_delete(local_user):
     )
     client = Client()
     assert client.post("/accounts/login/", {"login": admin.email, "password": PASSWORD}).status_code == 302
-    revision = (
-        client.get(reverse("admin:sk_accounts_user_change", args=[admin.pk]))
-        .context["adminform"]
-        .form["expected_revision"]
-        .value()
-    )
+    revision = client.get(reverse("platform:user", args=[admin.pk])).context["form"]["expected_revision"].value()
+    # Omitting is_active deactivates the only administrator of its organization: refused.
     changed = client.post(
-        reverse("admin:sk_accounts_user_change", args=[admin.pk]),
-        {
-            "email": admin.email,
-            "first_name": "",
-            "last_name": "",
-            "is_staff": "on",
-            "is_superuser": "on",
-            "_save": "Save",
-            "expected_revision": revision,
-        },
+        reverse("platform:user", args=[admin.pk]),
+        {"first_name": "", "last_name": "", "is_staff": "on", "is_superuser": "on", "expected_revision": revision},
     )
     assert changed.status_code == 409
-    removed = client.post(reverse("admin:sk_accounts_user_delete", args=[admin.pk]), {"post": "yes"})
+    removed = client.post(reverse("platform:user-delete", args=[admin.pk]))
     assert removed.status_code == 409
     admin.refresh_from_db()
     assert admin.is_active and admin.deleted_at is None
     profile_id = local_user.profile.pk
-    removed = client.post(reverse("admin:sk_accounts_user_delete", args=[local_user.pk]), {"post": "yes"})
+    removed = client.post(reverse("platform:user-delete", args=[local_user.pk]))
     assert removed.status_code == 302
     retained = User.all_objects.get(pk=local_user.pk)
     assert not retained.is_active and retained.deleted_at is not None

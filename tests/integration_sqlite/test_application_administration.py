@@ -180,25 +180,28 @@ def test_configuration_post_keeps_compare_and_swap_and_csrf(actor, app_screens):
         assert application_state("example_notes")["configuration"]["heading"] == "First"
 
 
-def test_platform_groups_are_unique_and_removed_with_registry(actor, app_screens, monkeypatch):
+def test_platform_apps_are_unique_and_removed_with_registry(actor, app_screens, monkeypatch):
     user, organization, client = actor
     platform(user)
-    index = client.get(reverse("admin:index"))
+    index = client.get(reverse("platform:apps"))
     assert index.status_code == 200
-    groups = [group for group in index.context["app_list"] if group.get("app_id") == app_screens.app_id]
-    assert len(groups) == 1
+    assert [app["app_id"] for app in index.context["applications"]].count(app_screens.app_id) == 1
     assert app_registry.get_app("example_notes").label.encode() in index.content
-    group = client.get(reverse("admin:skeleton_app_group", kwargs={"app_label": app_screens.app_label}))
+    group = client.get(reverse("platform:app", kwargs={"app_label": app_screens.app_label}))
     assert group.status_code == 200
     assert "models" not in group.context
     assert [screen.id for screen in group.context["tenant_screens"]] == ["configuration"]
-    assert not any("/tables/" in url for url in re.findall(r'href="([^"]+)"', group.content.decode()))
+    links = re.findall(r'href="([^"]+)"', group.content.decode())
+    assert not any("/tables/" in url for url in links)
+    # The header switcher lists the user's own memberships; the page body never routes into tenants.
+    main = re.search(r"<main.*?</main>", group.content.decode(), re.S).group()
+    assert not any(url.startswith("/o/") for url in re.findall(r'href="([^"]+)"', main))
     monkeypatch.delitem(app_registry._manifests, "example_notes")
-    assert client.get("/admin/system/apps/example_notes/").status_code == 404
-    assert client.get("/admin/system/apps/example_notes/screens/platform/").status_code == 404
+    assert client.get("/platform/apps/example_notes/").status_code == 404
+    assert client.get("/platform/apps/example_notes/screens/platform/").status_code == 404
     assert client.get(f"/o/{organization.pk}/apps/example_notes/").status_code == 404
-    refreshed = client.get(reverse("admin:index"))
-    assert not any(group.get("app_id") == app_screens.app_id for group in refreshed.context["app_list"])
+    refreshed = client.get(reverse("platform:apps"))
+    assert not any(app["app_id"] == app_screens.app_id for app in refreshed.context["applications"])
 
 
 def test_table_read_permission_does_not_grant_parameter_panel(actor, app_screens, member_actor):
@@ -263,7 +266,7 @@ def test_custom_parameter_wrapper_guards_direct_route_without_activation_gate(
     assert client.get(f"/o/{organization.pk}/apps/example_notes/").status_code == 403
 
 
-def test_platform_membership_selection_does_not_grant_foreign_tenant(actor, app_screens):
+def test_platform_app_page_never_routes_into_tenants(actor, app_screens):
     user, organization, client = actor
     _, foreign = bootstrap_identity(
         email="foreign-administration@example.test",
@@ -272,13 +275,15 @@ def test_platform_membership_selection_does_not_grant_foreign_tenant(actor, app_
         password=PASSWORD,
     )
     platform(user)
-    selection = client.get("/admin/system/apps/example_notes/organizations/")
-    assert selection.status_code == 200
-    assert str(organization.pk).encode() in selection.content
-    assert str(foreign.pk).encode() not in selection.content
+    page = client.get(reverse("platform:app", kwargs={"app_label": "example_notes"}))
+    assert page.status_code == 200
+    main = re.search(r"<main.*?</main>", page.content.decode(), re.S).group()
+    assert str(organization.pk) not in main
+    assert str(foreign.pk).encode() not in page.content
+    # The former "configuration per organization" selector is gone; tenants configure apps themselves.
+    assert client.get("/admin/system/apps/example_notes/organizations/").status_code == 404
     assert client.get(f"/o/{foreign.pk}/apps/example_notes/admin/").status_code == 404
     assert client.get(f"/o/{foreign.pk}/apps/example_notes/configuration/").status_code == 404
-    assert client.get("/admin/system/apps/example_notes/organizations/?screen=https://example.test").status_code == 404
 
 
 def test_documentation_is_escaped_and_not_client_selected(actor, app_screens, tmp_path, monkeypatch):
@@ -289,13 +294,13 @@ def test_documentation_is_escaped_and_not_client_selected(actor, app_screens, tm
     monkeypatch.setitem(
         app_registry._manifests, "example_notes", replace(app_screens, documentation_root=str(tmp_path))
     )
-    response = client.get("/admin/system/apps/example_notes/documentation/", {"path": "/etc/passwd"})
+    response = client.get("/platform/apps/example_notes/documentation/", {"path": "/etc/passwd"})
     assert response.status_code == 200
     assert b"&lt;script&gt;" in response.content and b"<script>alert(" not in response.content
     assert b"root:x:" not in response.content
 
 
-def test_platform_handler_has_admin_mfa_csrf_and_sensitive_reauth(actor, app_screens, monkeypatch):
+def test_platform_handler_has_platform_guard_mfa_csrf_and_sensitive_reauth(actor, app_screens, monkeypatch):
     from django.apps import apps
 
     user, _, client = actor
@@ -308,7 +313,7 @@ def test_platform_handler_has_admin_mfa_csrf_and_sensitive_reauth(actor, app_scr
     handler.__module__ = apps.get_app_config("example_notes").name + ".admin_handlers"
     monkeypatch.setattr(presentation, "_handlers", dict(presentation._handlers))
     presentation.register_admin_handler("example_notes", "test_handler", handler)
-    url = "/admin/system/apps/example_notes/screens/platform/"
+    url = "/platform/apps/example_notes/screens/platform/"
     assert client.get(url).status_code == 403
     platform(user)
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):

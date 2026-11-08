@@ -6,13 +6,13 @@
 
 | Superfície | Responsabilidade | Não faz |
 |---|---|---|
-| `/admin/` | Configurações/parametrizações da plataforma, grupos de apps e controle de releases | Não lista tabelas nem apresenta formulários de edição de registros |
-| `/platform/records/` | Registros globais autorizados: identidade, organizações, catálogo e auditoria | Não é o painel de configurações; não abre negócio tenant |
+| `/platform/` | Administração da plataforma em views próprias: identidades, organizações, aplicativos instalados (visão, documentação e telas de escopo plataforma), catálogo de tabelas e auditoria global | Não abre negócio tenant nem seleciona organizações; não há editor genérico de modelos |
+| `/admin/system/releases/` | Controle de releases (transitório até migrar para `/platform/`) | Não lista modelos; `/admin/` redireciona para `/platform/` |
 | `/o/<org>/apps/` e `apps/<app_label>/admin/` | Configuração, ativação e parâmetros organizacionais das apps | Não apresentam tabelas, CRUD ou atalhos de modelos |
 | `/o/<org>/catalog/` e `tables/<table_key>/` | Descoberta e viewer padronizado de negócio: lista, detalhe e formulário | Não instalam software nem administram configuração de plataforma |
 | `/api/v1/o/<org>/tables/<table_key>/` | Recursos de negócio e seleção autorizada de referências | Não aceitam classe Python, nome SQL ou bypass de autorização |
 
-Há **um único `PlatformAdminSite` e um namespace `admin`**, não duas instâncias com políticas divergentes. As rotas de registros convencionais desse site foram movidas para `/platform/records/`, com shell web próprio e sem sidebar de configurações. Seus nomes `admin:<app>_<model>_*` continuam resolvendo, agora fora do painel. As antigas URLs de tabelas em `/admin/<app>/<model>/` retornam 404, sem aliases. `admin:index` resolve `/admin/`; `admin:records_index` resolve `/platform/records/`.
+A administração da plataforma usa **views explícitas** em `skeleton/web/platform` (namespace `platform`), guardadas por `platform_page`: anônimo vai ao login, quem não é staff+superuser ativo recebe 403, MFA pendente vai ao cadastro de 2FA e o contexto precisa ser global. Identidades e organizações mudam somente pelos serviços de lifecycle (`update_platform_user`, `create_identity`, `deactivate_user`, `create_organization`, `update_organization`), com CAS por revisão; o catálogo só edita rótulo e descrição. Nenhum modelo é registrado no Django admin e nenhum changelist genérico é roteado: `/platform/records/`, `/admin/<app>/<model>/` e o antigo seletor "configuração por organização" retornam 404, sem aliases. O `PlatformAdminSite` restante hospeda apenas login e as telas de releases até sua migração; `admin:index` redireciona para `platform:overview`.
 
 O namespace de uma rota é uma identidade de integração Django, não o painel em que ela aparece. A separação efetiva é a URL, o conteúdo e o layout. Os serviços de identidade, CAS, desativação, último administrador, MFA e CSRF continuam protegendo os registros globais.
 

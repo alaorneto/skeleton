@@ -11,7 +11,7 @@ from django.contrib import admin
 from django.core.mail import EmailMultiAlternatives
 from django.test import Client
 from django.test.utils import isolate_apps
-from django.urls import clear_url_caches, reverse
+from django.urls import NoReverseMatch, clear_url_caches, reverse
 
 from skeleton.accounts.models import User
 from skeleton.accounts.services import bootstrap_identity
@@ -46,7 +46,9 @@ def api_post(client, url, values, revision=None):
 
 
 @isolate_apps()
-def test_ea02_conventional_extension_admin_registration_is_routed():
+def test_ea02_extension_admin_registration_is_never_routed():
+    """Generic ModelAdmin editors would bypass lifecycle services: registrations stay unrouted."""
+
     class ExtensionIdentity(User):
         class Meta:
             proxy = True
@@ -58,7 +60,6 @@ def test_ea02_conventional_extension_admin_registration_is_routed():
             return False
 
     try:
-        # Conventional global record editors remain protected, outside configuration admin.
         from config import urls
 
         importlib.reload(urls)
@@ -72,20 +73,14 @@ def test_ea02_conventional_extension_admin_registration_is_routed():
             owner.is_staff = owner.is_superuser = True
             owner.save(update_fields=["is_staff", "is_superuser"])
         client = login(owner)
-        url = reverse("admin:sk_accounts_extensionidentity_changelist")
-        assert url.startswith("/platform/records/")
-        response = client.get(url)
-        assert response.status_code == 200
-        assert owner.email.encode() in response.content
-        assert client.get("/admin/sk_accounts/extensionidentity/").status_code == 404
-        from allauth.account.models import EmailAddress
-
-        from skeleton.accounts.services import create_identity
-
-        with system_context(reason="test:ordinary-extension-user"):
-            ordinary = create_identity(email="ordinary-admin@example.test", password=PASSWORD)
-            EmailAddress.objects.create(user=ordinary, email=ordinary.email, verified=True, primary=True)
-        assert login(ordinary).get(reverse("admin:sk_accounts_extensionidentity_changelist")).status_code == 403
+        with pytest.raises(NoReverseMatch):
+            reverse("admin:sk_accounts_extensionidentity_changelist")
+        for path in (
+            "/platform/records/sk_accounts/extensionidentity/",
+            "/admin/sk_accounts/extensionidentity/",
+            "/platform/records/",
+        ):
+            assert client.get(path).status_code == 404
     finally:
         admin.site.unregister(ExtensionIdentity)
         from config import urls

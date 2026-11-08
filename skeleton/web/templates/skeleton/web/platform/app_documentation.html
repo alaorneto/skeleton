@@ -1,0 +1,12 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}Documentação · {{ application.label }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:apps' %}">Aplicativos instalados</a></li><li><a href="{% url 'platform:app' application.app_label %}">{{ application.label }}</a></li><li><span aria-current="page">Documentação</span></li></ol></nav>
+    <h1>Documentação {{ application.version }}</h1>
+    <p class="page-description">Conteúdo textual do código ativo. HTML e scripts do pacote não são executados.</p>
+  </div>
+</div>
+<div class="space-y-5">{% for document in documents %}<section class="card" aria-labelledby="doc-{{ forloop.counter }}"><h2 id="doc-{{ forloop.counter }}" class="mb-3 font-mono text-sm">{{ document.name }}</h2><pre class="max-h-[32rem] overflow-auto rounded-base border border-default bg-neutral-secondary-soft p-4 text-heading">{{ document.text }}</pre></section>{% endfor %}</div>
+{% endblock %}

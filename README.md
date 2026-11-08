@@ -23,8 +23,7 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/accounts/login/` | Pessoa com admissão autorizada | Entrar usando senha, SSO ou MFA conforme a política |
 | `/o/<org>/` | Pessoa com vínculo ativo na organização indicada | Acessar dados e funcionalidades daquele tenant |
 | `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
-| `/admin/` | Administrador da plataforma | Somente configurações, parametrizações e operações da instalação |
-| `/platform/records/` | Administrador da plataforma | Registros globais de identidade, organizações, catálogo e auditoria, fora do painel de configurações |
+| `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
 | `/admin/system/releases/` | Administrador da plataforma, com agente provisionado | Ver versões, aprovar instalação/atualização e acompanhar operações |
 | `/api/v1/` | Cliente com sessão Django válida | Operar recursos autorizados; não existe login independente por token |

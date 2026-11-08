@@ -117,6 +117,61 @@ def deactivate_user(user, *, delete=False, using="default"):
         return locked
 
 
+PLATFORM_USER_FIELDS = ("first_name", "last_name", "is_active", "is_staff", "is_superuser")
+
+
+def update_platform_user(user, *, data, expected_revision, using="default"):
+    """Platform-side identity edit with CAS; email changes stay in the verified allauth flow.
+
+    Deactivating keeps the last-administrator guard, and any change to an access flag
+    increments ``auth_version`` so existing sessions are revoked.
+    """
+    from skeleton.access.services import assert_user_deactivation
+    from skeleton.accounts.models import User
+
+    unknown = set(data) - set(PLATFORM_USER_FIELDS) - {"email"}
+    if unknown:
+        raise ValidationError("Campo não permitido.")
+    with transaction.atomic(using=using):
+        previous = User.all_objects.using(using).select_for_update().get(pk=user.pk)
+        if expected_revision != previous.revision:
+            raise ConcurrentUpdate("The platform form is stale.")
+        if "email" in data and normalized_email(data["email"]) != previous.email:
+            raise PermissionDenied("Email changes require allauth verified email flow.")
+        if previous.is_active and data.get("is_active", True) is False:
+            assert_user_deactivation(previous, using=using)
+        changed = {key for key in PLATFORM_USER_FIELDS if key in data and getattr(previous, key) != data[key]}
+        if not changed:
+            return previous
+        for key in changed:
+            setattr(previous, key, data[key])
+        if changed & {"is_active", "is_staff", "is_superuser"}:
+            previous.auth_version += 1
+            changed.add("auth_version")
+        previous.save(using=using, update_fields=changed)
+        return previous
+
+
+def update_organization(organization, *, data, expected_revision, using="default"):
+    """Platform-side organization edit with CAS; the slug is immutable."""
+    from skeleton.tenancy.models import Organization
+
+    unknown = set(data) - {"name", "is_active"}
+    if unknown:
+        raise ValidationError("Campo não permitido.")
+    with transaction.atomic(using=using):
+        previous = Organization.objects.using(using).select_for_update().get(pk=organization.pk)
+        if expected_revision != previous.revision:
+            raise ConcurrentUpdate("The organization form is stale.")
+        changed = {key for key, value in data.items() if getattr(previous, key) != value}
+        if not changed:
+            return previous
+        for key in changed:
+            setattr(previous, key, data[key])
+        previous.save(using=using, update_fields=changed)
+        return previous
+
+
 def restore_user(user, *, using="default"):
     with transaction.atomic(using=using):
         user.restore(using=using)

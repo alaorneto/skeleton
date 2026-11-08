@@ -571,38 +571,6 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
     )
 
 
-@login_required
-def platform_catalog(request):
-    if not request.user.is_superuser or not request.user.is_active:
-        raise PermissionDenied
-    if mfa_required(request.user):
-        return redirect("mfa_index")
-    tables = apps.get_model("sk_system", "TableDefinition").objects.order_by("db_table")
-    return render(
-        request,
-        "skeleton/web/platform_catalog.html",
-        {"title": "Inventário físico", "rows": pagination(request, tables)},
-    )
-
-
-@login_required
-def platform_audit(request):
-    if not request.user.is_superuser or not request.user.is_active:
-        raise PermissionDenied
-    if mfa_required(request.user):
-        return redirect("mfa_index")
-    events = (
-        apps.get_model("sk_audit", "AuditEvent")
-        .objects.filter(organization_id__isnull=True)
-        .order_by("-created_at", "sysid")
-    )
-    from skeleton.api.serializers import audit_data
-
-    rows = pagination(request, events)
-    rows.object_list = [audit_data(event) for event in rows]
-    return render(request, "skeleton/web/audit.html", {"title": "Auditoria global", "rows": rows})
-
-
 @tenant_page()
 @require_http_methods(["GET"])
 def reference_picker(request, organization_id, table_key, field_name):

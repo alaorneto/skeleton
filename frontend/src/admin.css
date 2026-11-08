@@ -1,10 +1,10 @@
 /*
- * Tema do admin Django (Configurações da plataforma e Registros globais).
+ * Tema do admin Django (telas de versões e login enquanto migram para /platform/).
  *
  * Estratégia: o admin continua com seus templates e CSS de origem (mudam a
  * cada versão do Django). Este arquivo, carregado depois deles, (1) mapeia as
  * variáveis CSS do admin para os tokens do site, (2) ajusta forma, tipografia
- * e ritmo, e (3) nos "Registros globais" isola o shell do site do CSS do admin.
+ * e ritmo.
  * Sem utilitários Tailwind: apenas tokens. Compilado em
  * skeleton/web/static/skeleton/web/admin.css por `npm run build`.
  */
@@ -82,7 +82,7 @@
 /* ------------------------------------------------------------------ */
 /* 2. Admin Django: forma, tipografia e ritmo                           */
 /* ------------------------------------------------------------------ */
-body:not(.platform-records) {
+body {
   background: var(--color-canvas);
   font-feature-settings: "cv05" 1, "cv08" 1;
   -webkit-font-smoothing: antialiased;
@@ -597,37 +597,6 @@ pre.skeleton-document {
     font-size: 1.5rem;
     line-height: 2rem;
   }
-}
-
-/* ------------------------------------------------------------------ */
-/* 3. Registros globais: changelists do admin dentro do shell do site.  */
-/*                                                                      */
-/* O CSS do admin não está em camada e venceria o Tailwind (que está).  */
-/* - shell e blocos marcados .sk-scope voltam aos valores das camadas   */
-/*   do site com `all: revert-layer`;                                   */
-/* - o conteúdo do admin (#content) descarta preflight/base do site com */
-/*   `all: revert` de especificidade zero, ficando só com o CSS do admin.*/
-/* ------------------------------------------------------------------ */
-:where(.platform-records #content) :where(*, *::before, *::after) {
-  all: revert;
-}
-body.platform-records,
-.platform-records :is(.app-header, .sidebar-wrapper, .app-footer),
-.platform-records :is(.app-header, .sidebar-wrapper, .app-footer) :is(*, ::before, ::after),
-.platform-records #content-start :is(.sk-scope, .sk-scope *, .sk-scope ::before, .sk-scope ::after) {
-  all: revert-layer;
-}
-.platform-records #content {
-  padding: 0;
-  color: var(--body-fg);
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-.platform-records #content-start > div.breadcrumbs,
-.platform-records #content-start > nav.breadcrumbs {
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
 
 /* Conta no cabeçalho: identificação curta + ações. */

@@ -93,7 +93,7 @@ Uma app possui `manifest.json` canônico, carregado como `AppManifest`, separado
 
 O core é o wheel `django-skeleton`; `config` e `applications` pertencem ao derivado. O inventário privado determina as apps gerenciadas no startup; apps locais continuam em `PROJECT_APPS`. Retirar uma app gerenciada conserva schema e migrations históricas sem carregar seus modelos/rotas de negócio.
 
-Há um único `PlatformAdminSite`, com autodiscover Django e uma única política de plataforma. `/admin/` contém somente configuração/parametrização e releases; listas/formulários de registros globais ficam em `/platform/records/`, com shell web separado. O viewer de negócio fica em `/o/<org>/catalog/` e `/o/<org>/tables/<table_key>/`, nunca dentro desses painéis de parâmetros. Manifesto v2 registra apresentação imutável na memória; `TableSpec` e serviços continuam a autoridade de segurança.
+A administração da plataforma fica em `/platform/`, com views explícitas (`skeleton/web/platform`) que chamam os serviços de lifecycle; não há editor genérico do Django admin. O `PlatformAdminSite` restante hospeda somente login e releases, até a migração destes. O viewer de negócio fica em `/o/<org>/catalog/` e `/o/<org>/tables/<table_key>/`, nunca dentro desses painéis de parâmetros. Manifesto v2 registra apresentação imutável na memória; `TableSpec` e serviços continuam a autoridade de segurança.
 
 `/admin/system/releases/` valida o ator e solicita uma operação ao agente independente. O agente guarda journal privado, valida assinatura/conteúdo, prepara release separado, faz backup, migrations, checks runtime/configuração persistida e reinício. A request web nunca executa pip/DDL nem recebe a credencial owner.
 

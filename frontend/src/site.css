@@ -191,11 +191,23 @@
   .header-end {
     @apply flex flex-col max-md:mt-2 max-md:border-t max-md:border-default max-md:pt-2 md:ms-auto md:flex-row md:items-center md:gap-2;
   }
-  .header-end > .header-menu + .header-menu {
+  .header-end > * + * {
     @apply max-md:mt-2 max-md:border-t max-md:border-default max-md:pt-2;
   }
   .header-trigger {
     @apply inline-flex cursor-pointer items-center gap-2 rounded-base border border-default bg-neutral-primary-soft px-2.5 py-1.5 text-sm/5 font-medium text-heading transition-colors hover:bg-neutral-tertiary aria-expanded:bg-neutral-tertiary max-md:hidden;
+  }
+  .header-link {
+    @apply flex items-center gap-2 rounded-base px-3 py-2 text-sm/5 font-medium text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading md:border md:border-default md:bg-neutral-primary-soft md:py-1.5 md:text-heading;
+    & svg {
+      @apply text-body-subtle;
+    }
+  }
+  .header-link[aria-current] {
+    @apply bg-brand-softer text-fg-brand md:border-brand-subtle md:bg-brand-softer;
+    & svg {
+      @apply text-fg-brand;
+    }
   }
   .dropdown-panel {
     @apply z-40 max-md:static! max-md:block! max-md:transform-none! md:rounded-card md:border md:border-default md:bg-neutral-primary-soft md:p-1.5 md:shadow-pop;
@@ -210,7 +222,12 @@
     @apply mt-1 border-t border-default pt-1;
   }
 
-  /* Menu lateral da organização (Flowbite sidebar). */
+  /* Áreas com menu lateral (organização, plataforma). */
+  .with-sidebar {
+    @apply lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10;
+  }
+
+  /* Menu lateral da organização e da plataforma (Flowbite sidebar). */
   .sidebar {
     @apply max-lg:rounded-card max-lg:border max-lg:border-default max-lg:bg-neutral-primary-soft max-lg:p-2 max-lg:shadow-card lg:sticky lg:top-24;
   }

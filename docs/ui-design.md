@@ -54,7 +54,7 @@ A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu
 | Área | Entrada | Conteúdo |
 |---|---|---|
 | Organização (`/o/<org>/…`) | seletor de organização no cabeçalho | menu lateral: Início · Aplicativos (apps ativas) · Dados (Tabelas, Auditoria) · Administração, só para `organization_admin` (Pessoas, Grupos, Papéis e permissões, Aplicativos) |
-| Administração da plataforma | menu "Plataforma" no cabeçalho, só para superusuários | Usuários e organizações, Catálogo de tabelas, Auditoria global, Aplicativos instalados, Versões e atualizações. Ainda servidas pelo admin Django; serão migradas para views próprias em `/platform/`. |
+| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global). Views próprias em `skeleton/web/platform`; somente Versões e atualizações ainda usa o admin Django. |
 | Minha conta | menu da conta | Perfil, Email, Senha, Autenticação em dois fatores |
 
 - O seletor lista os vínculos ativos do usuário (`memberships_for_user`); ele só cria links, e cada tela revalida a autorização.
@@ -89,15 +89,9 @@ Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `p
 - Abas mantêm ARIA e teclado (ArrowLeft/ArrowRight/Home/End) em `site.js`.
 - Até 600 px o renderer usa uma coluna e não há rolagem horizontal da página; acima disso vale a grade de 12 colunas (`field-span-1..12`), gerada fora do scanner porque vem do manifesto.
 
-## Admin Django e Registros globais
+## Admin Django (transitório)
 
-O admin não foi reescrito em Tailwind: ele é a área de configuração, tem templates próprios que mudam a cada versão do Django e já oferece claro/escuro. `admin.css`, gerado pelo mesmo build e carregado depois do CSS do admin:
-
-1. mapeia as variáveis do admin (`--primary`, `--body-bg`, `--link-fg`, `--button-bg`, fontes etc.) para os tokens;
-2. ajusta cabeçalho (marca, navegação principal igual à do site, conta), breadcrumbs, módulos, tabelas, botões, campos, mensagens e changelists;
-3. nos **Registros globais** (changelists do admin dentro do shell do site), devolve o shell e os blocos `.sk-scope` às camadas do site com `all: revert-layer` e deixa `#content` só com o CSS do admin (`all: revert` de especificidade zero). Isso é necessário porque o CSS do admin não está em camada e venceria o Tailwind.
-
-As telas próprias do skeleton no admin (versões, operações, documentação) não usam mais `<style>` nem `style=` embutidos.
+A administração da plataforma foi migrada para views próprias em `/platform/`. O Django admin resta apenas para o login e as telas de **Versões e atualizações** (`/admin/system/releases/`), até sua migração. Enquanto isso, `admin.css`, gerado pelo mesmo build e carregado depois do CSS do admin, mapeia as variáveis do admin (`--primary`, `--body-bg`, `--link-fg`, `--button-bg`, fontes etc.) para os tokens e ajusta cabeçalho, módulos, tabelas, botões, campos e mensagens. Essas telas não usam `<style>` nem `style=` embutidos.
 
 ## Build do CSS
 

@@ -1,0 +1,31 @@
+{% comment %}Menu lateral da administração da plataforma (mesmo componente visual do menu da organização).{% endcomment %}
+<div class="sidebar-wrapper pt-6 sm:pt-8 lg:pb-8">
+  <button type="button" class="group btn btn-secondary mb-4 w-full justify-between lg:hidden noscript:hidden" data-collapse-toggle="platform-sidebar" aria-controls="platform-sidebar" aria-expanded="false">
+    <span class="flex min-w-0 items-center gap-2">{% include "skeleton/web/components/icon.html" with name="server" %}<span class="truncate">Administração da plataforma</span></span>
+    <span class="sr-only">— menu da plataforma</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 transition-transform group-aria-expanded:rotate-180" %}
+  </button>
+  <nav id="platform-sidebar" aria-label="Administração da plataforma" class="sidebar hidden lg:block! max-lg:noscript:block! max-lg:mb-6">
+    <div class="sidebar-org">
+      <p class="page-eyebrow">Plataforma</p>
+      <p class="truncate text-sm font-semibold text-heading">Administração</p>
+    </div>
+    <ul class="sidebar-list">
+      <li><a class="sidebar-link" href="{% url 'platform:overview' %}"{% if platform_section == "overview" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="home" %}Visão geral</a></li>
+    </ul>
+    <p class="sidebar-heading" id="platform-identity">Identidade</p>
+    <ul class="sidebar-list" aria-labelledby="platform-identity">
+      <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}Usuários</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}Organizações</a></li>
+    </ul>
+    <p class="sidebar-heading" id="platform-apps">Aplicativos</p>
+    <ul class="sidebar-list" aria-labelledby="platform-apps">
+      <li><a class="sidebar-link" href="{% url 'platform:apps' %}"{% if platform_section == "apps" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}Aplicativos instalados</a></li>
+      <li><a class="sidebar-link" href="{% url 'admin:skeleton_releases' %}"{% if platform_section == "releases" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>
+    </ul>
+    <p class="sidebar-heading" id="platform-data">Dados</p>
+    <ul class="sidebar-list" aria-labelledby="platform-data">
+      <li><a class="sidebar-link" href="{% url 'platform:catalog' %}"{% if platform_section == "catalog" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Catálogo de tabelas</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:audit' %}"{% if platform_section == "audit" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>
+    </ul>
+  </nav>
+</div>

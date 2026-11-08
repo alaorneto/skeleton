@@ -34,9 +34,9 @@
   </div>
 </header>
 {% block main %}
-<div class="mx-auto w-full max-w-7xl min-w-0 px-4 sm:px-6 lg:px-8{% if organization_id %} lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-10{% endif %}">
-  {% if organization_id %}{% include "skeleton/web/components/org-sidebar.html" %}{% endif %}
-  <main id="conteudo" tabindex="-1" class="app-main min-w-0 py-6 focus:outline-none sm:py-8{% if organization_id %} max-lg:pt-0{% endif %}">
+<div class="mx-auto w-full max-w-7xl min-w-0 px-4 sm:px-6 lg:px-8 {% block shell_class %}{% if organization_id %}with-sidebar{% endif %}{% endblock %}">
+  {% block sidebar %}{% if organization_id %}{% include "skeleton/web/components/org-sidebar.html" %}{% endif %}{% endblock %}
+  <main id="conteudo" tabindex="-1" class="app-main min-w-0 py-6 focus:outline-none sm:py-8 {% block main_class %}{% if organization_id %}max-lg:pt-0{% endif %}{% endblock %}">
     {% include "skeleton/web/components/messages.html" %}
     {% block page_nav %}{% endblock %}
     {% block content %}{% endblock %}
