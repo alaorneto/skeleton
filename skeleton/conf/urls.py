@@ -1,6 +1,5 @@
 """Core routing, with project-owned routes supplied by the entrypoint."""
 
-from django.contrib import admin
 from django.urls import include, path
 
 from skeleton.accounts import oidc
@@ -17,7 +16,6 @@ def application_urls(project_urls=()):
         path("accounts/logout/", logout, name="account_logout"),
         path("accounts/", include("allauth.urls")),
         path("platform/", include("skeleton.web.platform.urls")),
-        path("", admin.site.urls),
         path("invite/<uuid:organization_id>/<str:token>/", invitation_view, name="invitation"),
     ]
     if project_urls:

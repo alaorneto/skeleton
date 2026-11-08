@@ -66,7 +66,7 @@ O core/agente 0.3.0 integra `django-crispy-forms==2.7` com pack SSR próprio `sk
 
 ### Interface e CSS
 
-A interface SSR usa Tailwind CSS 4 e Flowbite 4 com a paleta "Cobalto e Ardósia" e a fonte Inter, servidas da própria origem. O CSS compilado (`skeleton/web/static/skeleton/web/site.css` e `admin.css`) e os assets vendorizados são versionados: o wheel não depende de Node. Depois de alterar `frontend/src/` ou templates, recompile e versione o resultado:
+A interface SSR usa Tailwind CSS 4 e Flowbite 4 com a paleta "Cobalto e Ardósia" e a fonte Inter, servidas da própria origem. O CSS compilado (`skeleton/web/static/skeleton/web/site.css`) e os assets vendorizados são versionados: o wheel não depende de Node. Depois de alterar `frontend/src/` ou templates, recompile e versione o resultado:
 
 ```sh
 cd frontend && npm ci --ignore-scripts && npm run build

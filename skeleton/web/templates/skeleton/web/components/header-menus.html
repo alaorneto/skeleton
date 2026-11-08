@@ -25,7 +25,7 @@ JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
 <div class="header-end">
   {% if user.is_superuser and user.is_staff %}
   {% url 'platform:overview' as platform_url %}
-  <a class="header-link" href="{{ platform_url }}"{% if request.path|slice:":10" == "/platform/" or request.path|slice:":7" == "/admin/" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" class="size-4" %}<span>Plataforma</span></a>
+  <a class="header-link" href="{{ platform_url }}"{% if request.path|slice:":10" == "/platform/" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" class="size-4" %}<span>Plataforma</span></a>
   {% endif %}
   {% url 'web:profile' as profile_url %}
   <div class="header-menu">

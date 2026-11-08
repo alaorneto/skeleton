@@ -1,21 +1,10 @@
 /*
- * Tokens compartilhados por site.css e admin.css: fontes, escalas de cor,
+ * Tokens da interface: fontes, escalas de cor,
  * mapeamento semântico do Flowbite 4 e valores do modo escuro.
  * Documentação: docs/ui-design.md.
  */
-/* Modo escuro: segue o sistema (prefers-color-scheme), sem script nem flash.
- * O admin Django pode forçar claro/escuro com html[data-theme]; o mesmo
- * seletor vale aqui para que admin e site nunca fiquem em temas diferentes. */
-@custom-variant dark {
-  @media (prefers-color-scheme: dark) {
-    &:where(:not([data-theme="light"], [data-theme="light"] *)) {
-      @slot;
-    }
-  }
-  &:where([data-theme="dark"], [data-theme="dark"] *) {
-    @slot;
-  }
-}
+/* Modo escuro: segue o sistema (prefers-color-scheme), sem script nem flash. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
 
 @font-face {
   font-family: "Inter Variable";

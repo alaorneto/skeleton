@@ -522,7 +522,7 @@ def test_platform_mfa_remains_required_after_government_login(govbr):
     transport.prepare(authorization)
     assert finish(client, authorization).status_code == 302
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):
-        response = client.get("/admin/")
+        response = client.get("/platform/")
         assert response.status_code == 302 and "/accounts/2fa/" in response["Location"]
     user.refresh_from_db()
     assert user.is_staff and user.is_superuser  # claims cannot demote an existing identity either

@@ -135,13 +135,13 @@ def test_issued_reset_token_cannot_create_password_after_policy_revocation(local
     assert len(mail.outbox) == before
 
 
-def test_admin_login_has_no_password_or_mfa_bypass(skeleton_db):
+def test_platform_has_no_parallel_login_or_mfa_bypass(skeleton_db):
     admin, organization = bootstrap_identity(
         email="mfa-owner@example.test", organization="mfa-flow", name="MFA flow", password=PASSWORD
     )
     client = Client()
-    response = client.post("/admin/login/", {"username": admin.email, "password": PASSWORD})
-    assert response.status_code == 302 and "/accounts/login/" in response["Location"]
+    # The Django admin login is gone: there is no parallel password form.
+    assert client.post("/admin/login/", {"username": admin.email, "password": PASSWORD}).status_code == 404
     assert client.get("/api/v1/me/").status_code == 403
     assert client.post("/accounts/login/", {"login": admin.email, "password": PASSWORD}).status_code == 302
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):
@@ -149,7 +149,7 @@ def test_admin_login_has_no_password_or_mfa_bypass(skeleton_db):
         assert response.status_code == 403 and response.json()["code"] == "mfa_required"
         assert client.get("/profile/").status_code == 200
         assert client.get("/accounts/2fa/").status_code == 200
-        response = client.get("/admin/")
+        response = client.get("/platform/")
         assert response.status_code == 302 and "/accounts/2fa/" in response["Location"]
 
 

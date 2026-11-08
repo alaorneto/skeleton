@@ -11,7 +11,10 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="development-only-not-for-deployme
 DEBUG = False
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "testserver"])
 INSTALLED_APPS = [
-    "skeleton.accounts.admin_config.PlatformAdminConfig",
+    # Technical dependency only: LogEntry and the historical migrations that grant on
+    # django_admin_log. No admin site, autodiscovery or route exists; platform
+    # administration lives in skeleton.web.platform (/platform/).
+    "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

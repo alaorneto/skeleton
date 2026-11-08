@@ -60,9 +60,9 @@ def test_platform_routes_and_retired_generic_editors(platform_actor):
     assert reverse("platform:user", args=[user.pk]) == f"/platform/users/{user.pk}/"
     assert reverse("platform:organization", args=[organization.pk]) == f"/platform/organizations/{organization.pk}/"
     assert admin.site._registry == {}
-    for name in ("records_index", "sk_accounts_user_changelist", "sk_tenancy_organization_change", "app_list"):
+    for name in ("index", "login", "records_index", "skeleton_releases", "sk_accounts_user_changelist"):
         with pytest.raises(NoReverseMatch):
-            reverse(f"admin:{name}", args=[user.pk] if name.endswith("change") else [])
+            reverse(f"admin:{name}")
     for path in (
         "/platform/records/",
         "/platform/records/sk_accounts/user/",
@@ -71,10 +71,12 @@ def test_platform_routes_and_retired_generic_editors(platform_actor):
         "/admin/system/apps/example_notes/",
         "/catalog/",
         "/audit/",
+        "/admin/",
+        "/admin/login/",
+        "/admin/system/releases/",
     ):
         assert client.get(path).status_code == 404
-    index = client.get(reverse("admin:index"))
-    assert index.status_code == 302 and index.url == reverse("platform:overview")
+        assert Client().get(path).status_code == 404
 
 
 def test_platform_pages_use_site_shell_without_admin_assets(platform_actor):
@@ -113,7 +115,7 @@ def test_platform_routes_preserve_permission_mfa_csrf_and_cas(platform_actor):
     assert anonymous.status_code == 302 and anonymous.url.startswith(reverse("account_login"))
     assert client.post(change, {"first_name": "CSRF bypass"}).status_code == 403
     with override_settings(SKELETON_REQUIRE_ADMIN_MFA=True):
-        for url in (overview, change, reverse("platform:users"), reverse("admin:index")):
+        for url in (overview, change, reverse("platform:users"), reverse("platform:updates")):
             response = client.get(url)
             assert response.status_code == 302 and response.url == reverse("mfa_index")
     stale_revision = user.revision
@@ -159,7 +161,7 @@ def test_platform_routes_preserve_permission_mfa_csrf_and_cas(platform_actor):
         user.is_staff = user.is_superuser = False
         user.save(update_fields=["is_staff", "is_superuser"])
     nonplatform = login(user)
-    for url in (overview, change, reverse("platform:catalog"), reverse("admin:index")):
+    for url in (overview, change, reverse("platform:catalog"), reverse("platform:updates")):
         assert nonplatform.get(url).status_code == 403
 
 

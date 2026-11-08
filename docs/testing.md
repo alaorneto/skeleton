@@ -23,7 +23,7 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | Job | O que prova | O que não prova |
 |---|---|---|
 | `lint` | Ruff 0.17.4 com as regras de `pyproject.toml` e `ruff format --check`. | E501 e PLC0415, que seguem fora da linha de base. |
-| `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css`, `admin.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
+| `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
 | `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
 | `sqlite` | Lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e `tests/unit tests/integration_sqlite tests/accounts` com cobertura (`coverage.xml` publicado como artefato), em Python 3.12 e 3.14. | RLS PostgreSQL. Cobertura mede linhas executadas, não a qualidade das assertions. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
@@ -33,6 +33,22 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` recrie o schema `skeleton`. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
+
+## Interface Tailwind/Flowbite e administração em `/platform/`
+
+Rodada de 2026-11-08 em Windows 11 com Python 3.14.7 e Django 5.2.18 (venv local; lock Linux instalado sem `--require-hashes`), Node 25.9 para o build do CSS. Cobre a renovação visual, a navegação em três áreas e a retirada do Django admin.
+
+| Conjunto executado | Backend | Resultado observado |
+|---|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 452 passed, 107 skipped (marcados `posix` e os que exigem Docker) |
+| `ruff check`, `ruff format --check` (0.17.4) e `mypy` | — | sem problemas |
+| `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run` | SQLite de desenvolvimento | sem problemas, sem migrations novas |
+| `collectstatic` com `config.settings.build` (ManifestStaticFilesStorage) | — | `url()` das fontes e o JS do Flowbite resolvidos com hash |
+| `npm ci --ignore-scripts` + `npm run check` em `frontend/` | — | CSS e `vendor/` atualizados |
+
+No navegador (servidor de desenvolvimento, SQLite descartável, login real), foram conferidos em 1280px e 390px, claro e escuro: login (inclusive erro), Minha conta (perfil, senha, 2FA, sair), organizações, painel, catálogo, lista com paginação, detalhe, formulário com abas (teclado ArrowLeft/ArrowRight/Home/End), administração de acesso com abas, apps da organização, e toda a área `/platform/` (visão geral, usuários, organizações, catálogo, auditoria, apps, documentação e as cinco etapas de Versões e atualizações, com uma operação de exemplo). Nenhuma página tinha rolagem horizontal em 390px.
+
+**Não verificado nesta rodada:** PostgreSQL/RLS (inclusive a listagem do seletor de organização dentro do contexto tenant), os testes POSIX (`test_core_distribution`, pacotes, agente), o fluxo real com o agente de deployment e o comportamento com JavaScript desligado (`@media (scripting: none)` não emulado).
 
 ## Integração do renderer CRUD — core/agente 0.3.0
 
@@ -55,7 +71,7 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
   tests/integration_sqlite/test_reference_picker.py \
   tests/integration_sqlite/test_http_boundaries.py \
   tests/integration_sqlite/test_application_administration.py \
-  tests/integration_sqlite/test_admin_configuration_boundary.py -q
+  tests/integration_sqlite/test_platform_boundary.py -q
 SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
   tests/unit tests/integration_sqlite tests/accounts -q
 # Ambiente privado já provisionado; não imprimir DSNs:
@@ -68,7 +84,7 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
   tests/integration_sqlite/test_reference_picker.py \
   tests/integration_sqlite/test_http_boundaries.py \
   tests/integration_sqlite/test_application_administration.py \
-  tests/integration_sqlite/test_admin_configuration_boundary.py -q
+  tests/integration_sqlite/test_platform_boundary.py -q
 ```
 
 ### Smoke do manifesto ao Chromium
@@ -352,7 +368,7 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
   tests/integration_sqlite/test_application_administration.py \
   tests/integration_sqlite/test_record_presentation.py \
   tests/integration_sqlite/test_reference_picker.py \
-  tests/integration_sqlite/test_admin_configuration_boundary.py \
+  tests/integration_sqlite/test_platform_boundary.py \
   tests/integration_sqlite/test_app_extensions.py -q
 ```
 

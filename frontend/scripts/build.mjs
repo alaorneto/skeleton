@@ -6,7 +6,6 @@
 //
 // Saídas (todas versionadas; o wheel não depende de Node em runtime):
 //   skeleton/web/static/skeleton/web/site.css   (interface SSR)
-//   skeleton/web/static/skeleton/web/admin.css  (tema do admin Django)
 //   skeleton/web/static/skeleton/web/vendor/flowbite-<versão>/flowbite.min.js
 //   skeleton/web/static/skeleton/web/vendor/inter-<versão>/*.woff2
 //   skeleton/web/static/skeleton/web/vendor/VENDOR.json
@@ -40,7 +39,7 @@ if (!tokens.includes(`vendor/inter-${inter}/`)) {
   process.exit(1);
 }
 // Os templates referenciam os assets vendorizados pela versão instalada.
-for (const template of ["skeleton/web/templates/skeleton/web/base.html", "skeleton/web/templates/skeleton/web/components/admin-theme.html"]) {
+for (const template of ["skeleton/web/templates/skeleton/web/base.html"]) {
   const text = readFileSync(join(repository, ...template.split("/")), "utf8");
   for (const match of text.matchAll(/vendor\/(flowbite|inter)-([0-9][^/]*)\//g)) {
     const expected = match[1] === "flowbite" ? flowbite : inter;
@@ -50,8 +49,8 @@ for (const template of ["skeleton/web/templates/skeleton/web/base.html", "skelet
     }
   }
 }
-// Entradas Tailwind: interface SSR e tema do admin Django.
-const entries = ["site.css", "admin.css"];
+// Entrada Tailwind da interface SSR.
+const entries = ["site.css"];
 
 function buildInto(outRoot) {
   const files = new Map();

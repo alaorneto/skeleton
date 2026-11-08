@@ -451,7 +451,11 @@ def _widget_allowed(field, widget):
     return False
 
 
+RESERVED_ROOTS = ("admin", "platform")
+
+
 def _validate_reserved_routes(patterns, prefix=""):
+    """Apps cannot capture core-owned roots: platform/ (administration) and the retired admin/."""
     from django.core.exceptions import ValidationError
     from django.urls import URLResolver
     from django.urls.resolvers import RoutePattern
@@ -460,14 +464,15 @@ def _validate_reserved_routes(patterns, prefix=""):
         if isinstance(pattern.pattern, RoutePattern):
             route = prefix + pattern.pattern._route
             first = route.split("/", 1)[0]
-            if first == "admin":
-                raise ValidationError("Application URLs collide with reserved admin/ prefix.")
+            if first in RESERVED_ROOTS:
+                raise ValidationError(f"Application URLs collide with reserved {first}/ prefix.")
             if "<" in first:
                 # Test just the first segment, independently of later path parameters.
                 from django.urls.resolvers import RoutePattern as SegmentPattern
 
-                if SegmentPattern(first + "/").regex.match("admin/") is not None:
-                    raise ValidationError("Application URLs capture the reserved admin/ prefix.")
+                for root in RESERVED_ROOTS:
+                    if SegmentPattern(first + "/").regex.match(root + "/") is not None:
+                        raise ValidationError(f"Application URLs capture the reserved {root}/ prefix.")
             if not first and isinstance(pattern, URLResolver):
                 _validate_reserved_routes(pattern.url_patterns, route)
         else:
@@ -487,11 +492,10 @@ def _validate_reserved_routes(patterns, prefix=""):
             if (
                 not expression.startswith("^")
                 or not route
-                or "admin/".startswith(route)
-                or route.startswith("admin/")
+                or any(f"{root}/".startswith(route) or route.startswith(f"{root}/") for root in RESERVED_ROOTS)
                 or "|" in expression
             ):
-                raise ValidationError("Application regex URLs may capture reserved admin/ prefix.")
+                raise ValidationError("Application regex URLs may capture a reserved prefix (admin/, platform/).")
 
 
 def _validate_owned_routes(patterns, package):

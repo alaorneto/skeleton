@@ -31,7 +31,7 @@ Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `
 
 ### Modo escuro
 
-Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP. O admin Django pode forçar claro/escuro com `html[data-theme]`; a variante `dark` do Tailwind respeita o mesmo atributo, então admin e site nunca ficam em temas diferentes.
+Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
 
 ### Tipografia
 
@@ -89,9 +89,9 @@ Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `p
 - Abas mantêm ARIA e teclado (ArrowLeft/ArrowRight/Home/End) em `site.js`.
 - Até 600 px o renderer usa uma coluna e não há rolagem horizontal da página; acima disso vale a grade de 12 colunas (`field-span-1..12`), gerada fora do scanner porque vem do manifesto.
 
-## Admin Django (transitório)
+## Django admin
 
-Toda a administração da plataforma, inclusive Versões e atualizações, usa views próprias em `/platform/`. O Django admin resta apenas para o login legado (`/admin/login/`, que encaminha à autenticação allauth); `admin.css` estiliza essa tela com os tokens até a remoção do admin.
+Não há tela do Django admin: toda a administração da plataforma usa views próprias em `/platform/`, no mesmo shell, componentes e tokens do site. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.
 
 ## Build do CSS
 
@@ -100,10 +100,9 @@ frontend/
   package.json, package-lock.json   versões fixas (Tailwind 4.3.3, Flowbite 4.0.2, Inter 5.2.8)
   src/tokens.css                    tokens compartilhados
   src/site.css                      interface SSR (base, componentes, grade do renderer)
-  src/admin.css                     tema do admin Django
   scripts/build.mjs                 build e verificação
 skeleton/web/static/skeleton/web/
-  site.css, admin.css               saídas compiladas e minificadas (versionadas)
+  site.css                          saída compilada e minificada (versionada)
   vendor/flowbite-4.0.2/            flowbite.min.js + LICENSE.md
   vendor/inter-5.2.8/               woff2 + LICENSE
   vendor/VENDOR.json                versões, licenças e SHA-256 dos arquivos vendorizados
@@ -112,7 +111,7 @@ skeleton/web/static/skeleton/web/
 ```sh
 cd frontend
 npm ci --ignore-scripts      # instala exatamente o lockfile, sem scripts de instalação
-npm run build                # gera site.css/admin.css e copia os assets vendorizados
+npm run build                # gera site.css e copia os assets vendorizados
 npm run check                # falha se static/ estiver desatualizado em relação às fontes
 ```
 
