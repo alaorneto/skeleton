@@ -198,7 +198,7 @@ def profile(request):
                 status = form_error(form, exc)
         else:
             status = 400
-    return render(request, "skeleton/web/form.html", {"title": "Meu perfil", "form": form}, status=status)
+    return render(request, "account/profile.html", {"title": "Perfil", "form": form}, status=status)
 
 
 @tenant_page()

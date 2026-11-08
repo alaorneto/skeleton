@@ -3,32 +3,28 @@
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
-    <p class="page-eyebrow">Organização</p>
+    <p class="page-eyebrow">Início</p>
     <h1>{{ organization.name }}</h1>
-    <p class="page-description">Tabelas autorizadas, auditoria e administração de acesso desta organização.</p>
+    <p class="page-description">Aplicativos e tabelas que você pode usar nesta organização. A auditoria e as demais telas ficam no menu lateral.</p>
   </div>
 </div>
 <nav aria-label="Organização" class="space-y-8">
-  <section aria-labelledby="dashboard-shortcuts">
-    <h2 id="dashboard-shortcuts" class="section-heading">Consulta</h2>
-    <ul class="cards grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <li><a class="link-card" href="{% url 'web:catalog' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="grid" %}</span><span class="min-w-0"><span class="link-card-title">Catálogo</span><span class="link-card-text">Tabelas que você pode consultar.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:audit' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="clock" %}</span><span class="min-w-0"><span class="link-card-title">Auditoria</span><span class="link-card-text">Histórico de alterações autorizado.</span></span></a></li>
+  {% if application_navigation %}
+  <section aria-labelledby="dashboard-apps">
+    <h2 id="dashboard-apps" class="section-heading">Aplicativos</h2>
+    <ul class="cards grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {% for entry in application_navigation %}<li><a class="link-card" href="{{ entry.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ entry.label }}</span><span class="link-card-text">Abrir aplicativo</span></span></a></li>{% endfor %}
     </ul>
   </section>
+  {% endif %}
   {% if is_org_admin %}
-  <section aria-labelledby="dashboard-access">
-    <h2 id="dashboard-access" class="section-heading">Administração de acesso</h2>
-    <ul class="cards grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'memberships' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="users" %}</span><span class="min-w-0"><span class="link-card-title">Membros</span><span class="link-card-text">Vínculos de pessoas com a organização.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'roles' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">Papéis</span><span class="link-card-text">Conjuntos nomeados de permissões.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'groups' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="user-group" %}</span><span class="min-w-0"><span class="link-card-title">Grupos</span><span class="link-card-text">Equipes que compartilham registros.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'invitations' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="envelope" %}</span><span class="min-w-0"><span class="link-card-title">Convites</span><span class="link-card-text">Admissões pendentes por email.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'member-roles' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="user" %}</span><span class="min-w-0"><span class="link-card-title">Papéis de membros</span><span class="link-card-text">Papéis atribuídos a cada membro.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'group-members' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="users" %}</span><span class="min-w-0"><span class="link-card-title">Membros de grupos</span><span class="link-card-text">Quem pertence a cada grupo.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'group-roles' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">Papéis de grupos</span><span class="link-card-text">Papéis herdados pelos membros do grupo.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'table-permissions' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="lock" %}</span><span class="min-w-0"><span class="link-card-title">Permissões de tabelas</span><span class="link-card-text">Ações permitidas por papel e tabela.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'record-grants' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="badge-check" %}</span><span class="min-w-0"><span class="link-card-title">Concessões de registros</span><span class="link-card-text">Acessos pontuais a registros.</span></span></a></li>
+  <section aria-labelledby="dashboard-admin">
+    <h2 id="dashboard-admin" class="section-heading">Administração</h2>
+    <ul class="cards grid gap-3 sm:grid-cols-2">
+      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'memberships' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="users" %}</span><span class="min-w-0"><span class="link-card-title">Pessoas</span><span class="link-card-text">Membros, convites e seus papéis.</span></span></a></li>
+      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'groups' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="user-group" %}</span><span class="min-w-0"><span class="link-card-title">Grupos</span><span class="link-card-text">Equipes, seus membros e papéis.</span></span></a></li>
+      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'roles' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">Papéis e permissões</span><span class="link-card-text">Papéis, permissões de tabelas e concessões.</span></span></a></li>
+      <li><a class="link-card" href="{% url 'application-list' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="min-w-0"><span class="link-card-title">Aplicativos</span><span class="link-card-text">Ativação e parâmetros das apps.</span></span></a></li>
     </ul>
   </section>
   {% endif %}

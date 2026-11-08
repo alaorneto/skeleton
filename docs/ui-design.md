@@ -47,6 +47,21 @@ Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP. O adm
 - Raios: controles 8 px (`rounded-base`), cartões 12 px (`rounded-card`), avatares e pílulas redondos.
 - Profundidade por borda e sombra mínima (`shadow-card`); sombra maior (`shadow-pop`) apenas em menus suspensos.
 
+## Navegação
+
+A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu lateral:
+
+| Área | Entrada | Conteúdo |
+|---|---|---|
+| Organização (`/o/<org>/…`) | seletor de organização no cabeçalho | menu lateral: Início · Aplicativos (apps ativas) · Dados (Tabelas, Auditoria) · Administração, só para `organization_admin` (Pessoas, Grupos, Papéis e permissões, Aplicativos) |
+| Administração da plataforma | menu "Plataforma" no cabeçalho, só para superusuários | Usuários e organizações, Catálogo de tabelas, Auditoria global, Aplicativos instalados, Versões e atualizações. Ainda servidas pelo admin Django; serão migradas para views próprias em `/platform/`. |
+| Minha conta | menu da conta | Perfil, Email, Senha, Autenticação em dois fatores |
+
+- O seletor lista os vínculos ativos do usuário (`memberships_for_user`); ele só cria links, e cada tela revalida a autorização.
+- A administração de acesso é agrupada por tarefa em `skeleton/web/navigation.py` (`ACCESS_SECTIONS`): **Pessoas** (membros, convites, papéis de membros), **Grupos** (grupos, membros de grupos, papéis de grupos) e **Papéis e permissões** (papéis, permissões de tabelas, concessões de registros). Cada seção é um item do menu lateral e seus recursos viram abas na lista.
+- Telas de parâmetros de apps (`parameter_panel`) não mostram atalhos para rotas de negócio, conforme o [contrato de administração](application-admin-ui-plan.md).
+- No celular, o menu principal e o menu da organização são painéis recolhíveis (Flowbite collapse); sem JavaScript, ficam abertos.
+
 ## Componentes para templates
 
 Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os padrões do Flowbite com os tokens.

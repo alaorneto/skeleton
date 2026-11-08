@@ -1,0 +1,59 @@
+{% comment %}
+Menus do cabeçalho. No desktop são dropdowns do Flowbite; no celular (e sem
+JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
+{% endcomment %}
+{% url 'web:home' as home_url %}
+<div class="header-menu">
+  <button type="button" id="organization-menu-button" class="header-trigger" data-dropdown-toggle="organization-menu" data-dropdown-placement="bottom-start" aria-expanded="false" aria-controls="organization-menu">
+    {% include "skeleton/web/components/icon.html" with name="building" class="size-4 text-body-subtle" %}
+    <span class="max-w-56 truncate">{% if current_organization %}{{ current_organization.organization_name|default:"Organização" }}{% else %}Organizações{% endif %}</span>
+    <span class="sr-only">— trocar de organização</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 text-body-subtle" %}
+  </button>
+  <div id="organization-menu" class="dropdown-panel hidden md:w-72">
+    <p class="dropdown-heading">Suas organizações</p>
+    <ul class="dropdown-list">
+      {% for membership in organization_memberships %}
+      {% url 'web:dashboard' membership.organization_id as organization_url %}
+      <li><a class="nav-link" href="{{ organization_url }}"{% if membership.organization_id == current_organization.organization_id %} aria-current="true"{% endif %}><span class="grid size-6 shrink-0 place-items-center rounded-sm bg-brand-soft text-xs font-semibold text-fg-brand-strong" aria-hidden="true">{{ membership.organization_name|first|upper }}</span><span class="min-w-0 truncate">{{ membership.organization_name }}</span>{% if membership.organization_id == current_organization.organization_id %}{% include "skeleton/web/components/icon.html" with name="check" class="ms-auto size-4 text-fg-brand" %}{% endif %}</a></li>
+      {% empty %}
+      <li class="px-3 py-2 text-sm text-body-subtle">Nenhum vínculo ativo.</li>
+      {% endfor %}
+    </ul>
+    <div class="dropdown-footer"><a class="nav-link" href="{{ home_url }}"{% if request.path == home_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="grid" %}Todas as organizações</a></div>
+  </div>
+</div>
+<div class="header-end">
+  {% if user.is_superuser %}
+  {% url 'web:platform-catalog' as catalog_url %}{% url 'web:platform-audit' as platform_audit_url %}
+  <div class="header-menu">
+    <button type="button" id="platform-menu-button" class="header-trigger" data-dropdown-toggle="platform-menu" data-dropdown-placement="bottom-end" aria-expanded="false" aria-controls="platform-menu">
+      {% include "skeleton/web/components/icon.html" with name="server" class="size-4 text-body-subtle" %}<span>Plataforma</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 text-body-subtle" %}
+    </button>
+    <div id="platform-menu" class="dropdown-panel hidden md:w-72">
+      <p class="dropdown-heading">Administração da plataforma</p>
+      <ul class="dropdown-list">
+        <li><a class="nav-link" href="{% url 'admin:records_index' %}">{% include "skeleton/web/components/icon.html" with name="users" %}Usuários e organizações</a></li>
+        <li><a class="nav-link" href="{{ catalog_url }}"{% if request.path == catalog_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Catálogo de tabelas</a></li>
+        <li><a class="nav-link" href="{{ platform_audit_url }}"{% if request.path == platform_audit_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>
+        <li><a class="nav-link" href="{% url 'admin:index' %}">{% include "skeleton/web/components/icon.html" with name="cube" %}Aplicativos instalados</a></li>
+        <li><a class="nav-link" href="{% url 'admin:skeleton_releases' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>
+      </ul>
+    </div>
+  </div>
+  {% endif %}
+  {% url 'web:profile' as profile_url %}
+  <div class="header-menu">
+    <button type="button" id="user-menu-button" class="header-trigger rounded-full! py-1! ps-1!" data-dropdown-toggle="user-menu" data-dropdown-placement="bottom-end" aria-expanded="false" aria-controls="user-menu">
+      <span class="grid size-7 place-items-center rounded-full bg-brand-soft text-xs font-semibold text-fg-brand-strong" aria-hidden="true">{{ user.email|first|upper }}</span>
+      <span class="max-w-48 truncate">{{ user.email }}</span>
+      <span class="sr-only">— abrir menu da conta</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 text-body-subtle" %}
+    </button>
+    <div id="user-menu" class="dropdown-panel hidden md:w-64">
+      <p class="dropdown-heading normal-case! tracking-normal!"><span class="block text-xs font-normal text-body-subtle">Conectado como</span><span class="block truncate text-sm font-medium text-heading">{{ user.email }}</span></p>
+      <ul class="dropdown-list">
+        <li><a class="nav-link" href="{{ profile_url }}"{% if request.path == profile_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="user" %}Minha conta</a></li>
+      </ul>
+      <div class="dropdown-footer"><a class="nav-link" href="{% url 'account_logout' %}">{% include "skeleton/web/components/icon.html" with name="logout" %}Sair</a></div>
+    </div>
+  </div>
+</div>

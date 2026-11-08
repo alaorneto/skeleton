@@ -67,6 +67,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "skeleton.system.applications.application_navigation",
+                "skeleton.web.navigation.organization_shell",
             ]
         },
     }

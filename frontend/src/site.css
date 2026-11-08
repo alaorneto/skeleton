@@ -176,16 +176,74 @@
       @apply size-4 shrink-0 text-body-subtle;
     }
   }
-  .nav-link[aria-current="page"] {
+  .nav-link[aria-current] {
     @apply bg-brand-softer text-fg-brand;
-  }
-  .context-link {
-    @apply inline-flex items-center gap-1.5 border-b-2 border-transparent px-1 py-3 text-sm/5 font-medium whitespace-nowrap text-body no-underline transition-colors hover:border-default-strong hover:text-heading;
     & svg {
-      @apply size-4 shrink-0;
+      @apply text-fg-brand;
     }
   }
-  .context-link[aria-current="page"] {
+
+  /* Cabeçalho: menus da organização, da plataforma e da conta. Dropdowns do
+   * Flowbite no desktop; listas empilhadas no menu principal do celular. */
+  .primary-nav {
+    @apply max-md:absolute max-md:inset-x-0 max-md:top-16 max-md:z-30 max-md:max-h-[calc(100dvh-4rem)] max-md:overflow-y-auto max-md:border-b max-md:border-default max-md:bg-neutral-primary-soft max-md:px-4 max-md:pt-2 max-md:pb-4 max-md:shadow-pop md:ms-2 md:flex-1 md:items-center md:gap-2;
+  }
+  .header-end {
+    @apply flex flex-col max-md:mt-2 max-md:border-t max-md:border-default max-md:pt-2 md:ms-auto md:flex-row md:items-center md:gap-2;
+  }
+  .header-end > .header-menu + .header-menu {
+    @apply max-md:mt-2 max-md:border-t max-md:border-default max-md:pt-2;
+  }
+  .header-trigger {
+    @apply inline-flex cursor-pointer items-center gap-2 rounded-base border border-default bg-neutral-primary-soft px-2.5 py-1.5 text-sm/5 font-medium text-heading transition-colors hover:bg-neutral-tertiary aria-expanded:bg-neutral-tertiary max-md:hidden;
+  }
+  .dropdown-panel {
+    @apply z-40 max-md:static! max-md:block! max-md:transform-none! md:rounded-card md:border md:border-default md:bg-neutral-primary-soft md:p-1.5 md:shadow-pop;
+  }
+  .dropdown-heading {
+    @apply px-3 pt-2 pb-1.5 text-xs/5 font-semibold tracking-wide text-body-subtle uppercase;
+  }
+  .dropdown-list {
+    @apply flex flex-col gap-0.5;
+  }
+  .dropdown-footer {
+    @apply mt-1 border-t border-default pt-1;
+  }
+
+  /* Menu lateral da organização (Flowbite sidebar). */
+  .sidebar {
+    @apply max-lg:rounded-card max-lg:border max-lg:border-default max-lg:bg-neutral-primary-soft max-lg:p-2 max-lg:shadow-card lg:sticky lg:top-24;
+  }
+  .sidebar-org {
+    @apply mb-2 border-b border-default px-3 pt-1 pb-3 max-lg:hidden;
+  }
+  .sidebar-heading {
+    @apply mt-5 mb-1 px-3 text-xs/5 font-semibold tracking-wide text-body-subtle uppercase;
+  }
+  .sidebar-list {
+    @apply flex flex-col gap-0.5;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-2.5 rounded-base px-3 py-2 text-sm/5 font-medium text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading;
+    & svg {
+      @apply size-[1.125rem] shrink-0 text-body-subtle;
+    }
+  }
+  .sidebar-link[aria-current] {
+    @apply bg-brand-softer font-semibold text-fg-brand;
+    & svg {
+      @apply text-fg-brand;
+    }
+  }
+
+  /* Abas de navegação entre telas irmãs (links, não role=tab). */
+  .link-tabs {
+    @apply mb-6 flex gap-x-1 overflow-x-auto overflow-y-hidden border-b border-default [scrollbar-width:thin];
+  }
+  .link-tabs a {
+    @apply -mb-px border-b-2 border-transparent px-3 py-2.5 text-sm/5 font-medium whitespace-nowrap text-body no-underline transition-colors hover:border-default-strong hover:text-heading;
+  }
+  .link-tabs a[aria-current] {
     @apply border-brand text-fg-brand;
   }
 
@@ -362,6 +420,19 @@
   .record-form > .form-actions {
     @apply border-0 pt-0;
   }
+  /* Formulários do renderer dentro de um cartão (Minha conta): sem cartão aninhado. */
+  .account-form .record-section {
+    @apply my-0 border-0 bg-transparent shadow-none;
+  }
+  .account-form .record-section > h2 {
+    @apply sr-only;
+  }
+  .account-form .section-fields {
+    @apply p-0;
+  }
+  .record-form.account-form > .form-actions {
+    @apply border-t pt-5;
+  }
   .form-actions > a:not([class]) {
     @apply btn btn-secondary;
   }
@@ -494,6 +565,9 @@
   .uuid {
     @apply font-mono text-xs/5 text-body-subtle;
   }
+  .table-scroll .uuid {
+    @apply whitespace-nowrap [overflow-wrap:normal];
+  }
 
   /* Paginação (Flowbite pagination) */
   .pagination {
@@ -622,15 +696,30 @@
   [data-nojs-open] {
     display: block !important;
   }
-  [data-nojs-hide] {
+  [data-nojs-hide],
+  .header-trigger {
     display: none !important;
+  }
+  .dropdown-panel {
+    display: block !important;
+    position: static !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+}
+@media (scripting: none) and (max-width: 47.99rem) {
+  .primary-nav {
+    display: block !important;
+    position: static;
+    box-shadow: none;
   }
 }
 
 @media print {
   .app-header,
   .app-footer,
-  .context-bar {
+  .sidebar-wrapper {
     display: none !important;
   }
   body {

@@ -180,7 +180,7 @@ body:not(.platform-records) {
 .admin-nav a {
   white-space: nowrap;
 }
-@media (max-width: 1099px) {
+@media (max-width: 1439px) {
   #header {
     flex-wrap: wrap;
   }
@@ -612,8 +612,8 @@ pre.skeleton-document {
   all: revert;
 }
 body.platform-records,
-.platform-records :is(.app-header, .context-bar, .app-footer),
-.platform-records :is(.app-header, .context-bar, .app-footer) :is(*, ::before, ::after),
+.platform-records :is(.app-header, .sidebar-wrapper, .app-footer),
+.platform-records :is(.app-header, .sidebar-wrapper, .app-footer) :is(*, ::before, ::after),
 .platform-records #content-start :is(.sk-scope, .sk-scope *, .sk-scope ::before, .sk-scope ::after) {
   all: revert-layer;
 }
