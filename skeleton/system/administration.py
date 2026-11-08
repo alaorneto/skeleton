@@ -131,6 +131,60 @@ def guard_application_urls(patterns, manifest):
     return result
 
 
+def guard_application_api_urls(patterns, manifest):
+    """Clone the API URL tree and close every endpoint of a disabled application.
+
+    The gate runs before the view, so an endpoint that never calls ``authorized_queryset``
+    is still closed. ``functools.wraps`` keeps ``csrf_exempt`` and the DRF ``cls``/``initkwargs``
+    attributes; names and namespaces are copied, so ``reverse`` keeps resolving.
+    """
+    from functools import wraps
+
+    from django.http import JsonResponse
+    from django.urls.resolvers import URLPattern, URLResolver
+
+    result = []
+    for pattern in patterns:
+        if isinstance(pattern, URLResolver):
+            result.append(
+                URLResolver(
+                    pattern.pattern,
+                    guard_application_api_urls(pattern.url_patterns, manifest),
+                    default_kwargs=pattern.default_kwargs,
+                    app_name=pattern.app_name,
+                    namespace=pattern.namespace,
+                )
+            )
+        elif isinstance(pattern, URLPattern):
+
+            def protect(callback):
+                @wraps(callback)
+                def guarded(request, *args, **kwargs):
+                    if current_context().organization_id is None:
+                        # The tenant middleware opens no tenant context for anonymous sessions.
+                        return JsonResponse(
+                            {"code": "permission_denied", "detail": "Authentication credentials were not provided."},
+                            status=403,
+                        )
+                    try:
+                        get_app(manifest.app_label)
+                        require_application_enabled(manifest.app_label)
+                    except (KeyError, PermissionDenied):
+                        return JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
+                    return callback(request, *args, **kwargs)
+
+                return guarded
+
+            result.append(
+                URLPattern(
+                    pattern.pattern, protect(pattern.callback), default_args=pattern.default_args, name=pattern.name
+                )
+            )
+        else:
+            raise TypeError(f"Unsupported application API URL declaration: {manifest.app_label}.")
+    return result
+
+
 def tenant_screen_url(manifest, screen, organization_id):
     if screen.kind == "configuration":
         return reverse(
