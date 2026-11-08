@@ -7,9 +7,10 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 1. `README.md` e `docs/architecture.md`.
 2. `docs/data-model.md`, `docs/access-control.md`, `docs/audit-soft-delete.md`.
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
-4. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
-5. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
-6. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
+4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
+5. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
+6. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
+7. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
 
 ## Rastreabilidade: plano, issue, commit e fechamento
 
@@ -30,11 +31,24 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
+- `skeleton/service_api` (em implementação): API de serviços pública do núcleo para apps; base, DTOs e erros do contrato entre apps.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
 - `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
 - `examples/notes`: exemplo didático opt-in, não dependência do núcleo.
 
 **Não adicione regras de negócio em `skeleton`. Não renomeie os app labels do núcleo.** Adicione apps a `PROJECT_APPS` em `config/settings/project.py` e URLs a `config/urls_project.py`. O núcleo não importa `applications` ou `examples`.
+
+## API de serviços entre apps
+
+Apps interagem com o núcleo e entre si pela API de serviços: classes em processo definidas em [docs/service-api.md](docs/service-api.md). O procedimento é o skill `service-api` (`.claude/skills/service-api/`). A base técnica e os checks estão em implementação (epics #112 e #113); até lá, as regras abaixo valem por revisão de código.
+
+- Toda app publica `service_api.py` com ao menos uma classe de serviço e a declara no manifesto (`runtime.service_api`, quando o validador aceitar). Toda app mantém `docs/service-api.md` no `documentation_root`.
+- Uma app só importa de outra o `service_api` dela, e declara a dependência em `dependencies` com faixa de versão. Modelos, managers, `services.py`, forms e views de outra app não são contrato. Do núcleo, importe só as superfícies públicas listadas na especificação.
+- Métodos públicos são keyword-only, recebem `actor` explícito igual ao ator do contexto e devolvem DTOs imutáveis, `Page` ou primitivos; nunca modelos, querysets ou campos sensíveis.
+- O serviço autoriza internamente (`authorized_queryset`, `require_record_action`, capacidades) e exige a app ativa. Ser chamado por código não concede permissão. Inexistente e não autorizado respondem igual.
+- O serviço participa da transação do chamador: não faz commit, não abre `system_context` para ampliar acesso, não troca de organização e não executa efeito externo dentro do método (use jobs, eventos ou `on_commit` com valores prontos).
+- Alterações recebem `expected_revision`; criações repetíveis aceitam `idempotency_key`. Mudança incompatível em método público é versão *major* da app, precedida de depreciação.
+- Testes de cada método cobrem caminho autorizado, default deny, A/B, app desativada, ator divergente e, em comandos, CAS e idempotência, em SQLite e PostgreSQL runtime.
 
 ## Contrato de cada tabela própria
 

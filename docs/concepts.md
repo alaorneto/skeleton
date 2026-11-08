@@ -158,6 +158,12 @@ O **catálogo físico** no banco (`TableDefinition`/`FieldDefinition`) descreve 
 
 `manifest.json` é o **contrato canônico da app**: identidade, versão, dependências, entradas de código, configuração, arquivos e migrations. `AppManifest` é sua representação usada no runtime. “Canônico” significa que não se mantém outro manifesto manual divergente para a mesma app.
 
+### API de serviços e API REST
+
+A **API de serviços** é o conjunto de classes que uma app publica em `service_api.py` para outras apps chamarem dentro do mesmo processo. Por exemplo, a agenda chama `NotificationService().notify(...)` do núcleo para avisar participantes, sem importar os modelos de notificação. A chamada roda na transação e no contexto de quem chama, e o serviço revalida a autorização. Ela devolve um **DTO** (*data transfer object*): um objeto imutável só com os campos que o contrato promete, nunca o modelo do banco.
+
+A **API REST** (`/api/v1/`) atende navegadores e clientes HTTP. As duas não competem: a REST de uma app deve ser uma camada fina sobre a API de serviços dela. Toda app é obrigada a publicar a sua; veja [API de serviços entre apps](service-api.md).
+
 ### Pacote, wheel, assinatura e publicador
 
 Um **pacote `.skapp`** é um artefato fechado e assinado que pode ser enviado ao instalador. Uma **wheel** é uma distribuição Python pronta para instalação; o wheel do core contém o namespace `skeleton`, não os arquivos de negócio e configuração do projeto derivado.
