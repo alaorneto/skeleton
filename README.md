@@ -89,12 +89,14 @@ As regras do Ruff (lint, ordem de imports e formatter) ficam em `pyproject.toml`
 ```sh
 uvx ruff@0.17.4 check
 uvx ruff@0.17.4 format
-uvx pre-commit install
+uv tool install pre-commit && pre-commit install  # hooks pre-commit e commit-msg
 .venv/bin/python -m mypy
 SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts --cov
 ```
 
 A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
+
+O hook `commit-msg` exige que cada commit referencie uma issue (`Refs #N`), e o workflow `.github/workflows/issue-link.yml` exige que o PR cite uma issue classificada; ver [fluxo de trabalho](docs/workflow.md).
 
 O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compilado, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
 
@@ -163,6 +165,7 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md) e [testes/evidências](docs/testing.md).
 - [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro, tema do admin e build do CSS.
+- [Fluxo de trabalho](docs/workflow.md): plano → issues classificadas → branch/commits → PR → fechamento aprovado.
 - [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.
 
 Os resultados observados da integração e os comandos para reproduzi-los estão em [testing](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; SQLite ou mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.

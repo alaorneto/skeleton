@@ -1,0 +1,136 @@
+name: Bug
+description: "Comportamento incorreto, regressão ou falha de segurança existente."
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não inclua segredos, dados pessoais ou passos de exploração além do necessário.
+        Preencha todas as seções; use "Não se aplica — motivo" quando for o caso. Fluxo: docs/workflow.md.
+  - type: textarea
+    id: observado
+    attributes:
+      label: "Comportamento observado"
+      description: "O que acontece: mensagem, URL, status HTTP, log redigido."
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: "Comportamento esperado"
+      description: "O que deveria acontecer e onde isso está documentado."
+    validations:
+      required: true
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: "Passos para reproduzir"
+      description: "Passos mínimos."
+      placeholder: |
+        1. 
+    validations:
+      required: true
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: "Ambiente"
+      description: "Branch/commit, banco (SQLite/PostgreSQL), settings, navegador, versão do core/agente."
+    validations:
+      required: true
+  - type: textarea
+    id: causa
+    attributes:
+      label: "Causa provável"
+      description: "Diagnóstico, se conhecido."
+      placeholder: |
+        A investigar
+    validations:
+      required: false
+  - type: textarea
+    id: escopo
+    attributes:
+      label: "Escopo"
+      description: "O que entra e o que fica fora (e onde será tratado)."
+      placeholder: |
+        **Inclui**
+        - 
+        
+        **Fora do escopo**
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: abordagem
+    attributes:
+      label: "Abordagem técnica"
+      description: "Módulos/arquivos afetados, decisões, fronteiras do AGENTS.md envolvidas."
+      placeholder: |
+        - Módulos e arquivos: 
+        - Decisões: 
+        - Fronteiras do AGENTS.md: 
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Critérios de aceite"
+      description: "Comportamentos observáveis e verificáveis, incluindo negativos."
+      placeholder: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: testes
+    attributes:
+      label: "Plano de testes"
+      description: "Inclua o teste de regressão que falha antes da correção."
+      placeholder: |
+        - [ ] Regressão: 
+        - [ ] Unitários/integração: 
+        - [ ] PostgreSQL com role runtime: 
+        
+        Comandos:
+    validations:
+      required: true
+  - type: textarea
+    id: documentacao
+    attributes:
+      label: "Documentação a atualizar"
+      description: "Arquivos em docs/, README.md, AGENTS.md e a evidência em docs/testing.md."
+      placeholder: |
+        - [ ] docs/....md — 
+        - [ ] docs/testing.md — evidência
+    validations:
+      required: true
+  - type: textarea
+    id: seguranca
+    attributes:
+      label: "Segurança e contrato do AGENTS.md"
+      description: "Itens pertinentes do contrato, ou \"Sem impacto — motivo\"."
+      placeholder: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: riscos
+    attributes:
+      label: "Riscos e dependências"
+      description: "Parte de/depende de #N, migrations, compatibilidade, rollback."
+      placeholder: |
+        - Parte de / depende de: 
+        - Migrations e rollback: 
+    validations:
+      required: false
+  - type: checkboxes
+    id: pronto
+    attributes:
+      label: "Definição de pronto"
+      description: "Conferida antes do fechamento (docs/workflow.md)."
+      options:
+        - label: "Critérios de aceite verificados"
+        - label: "Plano de testes executado e registrado (somente o que rodou)"
+        - label: "Documentação atualizada"
+        - label: "CI verde"
+        - label: "Commits com Refs #N e PR com Closes #N"
+        - label: "Aprovado pelo responsável"
