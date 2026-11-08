@@ -1,4 +1,7 @@
-# Instale com `pre-commit install`; a mesma versão do Ruff roda no CI.
+# Instale com `pre-commit install`: instala os hooks pre-commit e commit-msg.
+# A mesma versão do Ruff roda no CI.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.4
@@ -15,3 +18,11 @@ repos:
       - id: check-toml
       - id: check-yaml
       - id: detect-private-key
+  - repo: local
+    hooks:
+      # Todo commit referencia uma issue (Refs #N); docs/workflow.md.
+      - id: issue-reference
+        name: referência a issue do GitHub
+        entry: python tools/workflow/github_issues.py commit-msg
+        language: python
+        stages: [commit-msg]

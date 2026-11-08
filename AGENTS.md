@@ -9,6 +9,17 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
 4. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
 5. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
+6. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
+
+## Rastreabilidade: plano, issue, commit e fechamento
+
+Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub. O procedimento é o skill `issue-workflow` (`.claude/skills/issue-workflow/`); o racional e os mecanismos estão em [docs/workflow.md](docs/workflow.md).
+
+- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição.
+- **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
+- Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
+- Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`. Nunca `--no-verify`.
+- A issue fecha só depois de aprovada: pelo merge do PR ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue ou abre outra.
 
 ## Fronteiras de código
 

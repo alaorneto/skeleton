@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Fluxo de issues do projeto
+    url: https://github.com/alaorneto/skeleton/blob/main/docs/workflow.md
+    about: Como classificar, detalhar, vincular commits e fechar issues.
