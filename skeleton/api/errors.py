@@ -41,6 +41,7 @@ def validation_conflict(error):
 
 def exception_handler(exc, context):
     from skeleton.access.services import LastAdministrator
+    from skeleton.accounts.platform import LastPlatformAdministrator
     from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
 
     if isinstance(exc, ConcurrentUpdate):
@@ -49,6 +50,10 @@ def exception_handler(exc, context):
         exc = BoundaryError("live_references", "Existem vínculos ativos com este registro.", 409)
     elif isinstance(exc, LastAdministrator):
         exc = BoundaryError("last_administrator", "A organização precisa manter ao menos um administrador ativo.", 409)
+    elif isinstance(exc, LastPlatformAdministrator):
+        exc = BoundaryError(
+            "last_platform_administrator", "A plataforma precisa manter ao menos um administrador ativo.", 409
+        )
     elif isinstance(exc, ValidationError):
         fields = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
         conflict = validation_conflict(exc)

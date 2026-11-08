@@ -6,6 +6,7 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.db.models import Model, Q, QuerySet
 
+from skeleton.accounts.platform import is_platform_admin
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import MissingTenantContext, current_context
 
@@ -136,7 +137,7 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
 
     organization_id = current_context().organization_id
     if organization_id is None:
-        if getattr(user, "is_superuser", False) and user.is_active and user.deleted_at is None:
+        if is_platform_admin(user):
             return AuditEvent.objects.filter(organization_id__isnull=True)
         raise PermissionDenied("Platform access required.")
     active_membership(user)

@@ -9,6 +9,7 @@ from django.views.decorators.cache import never_cache
 
 from skeleton.access.services import LastAdministrator
 from skeleton.accounts.mfa import mfa_required
+from skeleton.accounts.platform import LastPlatformAdministrator, is_platform_admin
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.releases import require_platform
 
@@ -16,9 +17,7 @@ __all__ = ["has_platform_role", "platform_page"]
 
 
 def has_platform_role(user):
-    return bool(
-        user.is_authenticated and user.is_active and user.deleted_at is None and user.is_staff and user.is_superuser
-    )
+    return is_platform_admin(user)
 
 
 def platform_page(view):
@@ -37,6 +36,8 @@ def platform_page(view):
         require_platform(user)
         try:
             return view(request, *args, **kwargs)
+        except LastPlatformAdministrator:
+            detail = "A operação deixaria a plataforma sem administrador ativo."
         except LastAdministrator:
             detail = "A operação deixaria uma organização sem administrador ativo."
         except ConcurrentUpdate:

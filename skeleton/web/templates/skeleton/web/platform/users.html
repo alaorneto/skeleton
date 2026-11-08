@@ -1,4 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
+{% load platform_admin %}
 {% block page_title %}Usuários{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -7,7 +8,7 @@
 </div>
 {% include "skeleton/web/platform/search.html" with placeholder="Buscar por email ou nome" %}
 <div class="table-scroll"><table><thead><tr><th scope="col">Email</th><th scope="col">Nome</th><th scope="col">Situação</th><th scope="col">Acesso de plataforma</th><th scope="col">Último acesso</th></tr></thead><tbody>
-{% for user in rows %}<tr><td><a href="{% url 'platform:user' user.pk %}">{{ user.email }}</a></td><td>{{ user.first_name }} {{ user.last_name }}</td><td>{% if user.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}</td><td>{% if user.is_staff and user.is_superuser %}<span class="badge badge-brand">Administrador</span>{% elif user.is_staff or user.is_superuser %}<span class="badge badge-warning">Parcial</span>{% else %}<span class="text-body-subtle">—</span>{% endif %}</td><td class="whitespace-nowrap!">{{ user.last_login|default:"—" }}</td></tr>
+{% for user in rows %}<tr><td><a href="{% url 'platform:user' user.pk %}">{{ user.email }}</a></td><td>{{ user.first_name }} {{ user.last_name }}</td><td>{% if user.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}</td><td>{% if user|is_platform_admin %}<span class="badge badge-brand">Administrador</span>{% elif user|has_partial_platform_flags %}<span class="badge badge-warning">Parcial</span>{% else %}<span class="text-body-subtle">—</span>{% endif %}</td><td class="whitespace-nowrap!">{{ user.last_login|default:"—" }}</td></tr>
 {% empty %}<tr><td colspan="5" class="empty-state">Nenhuma identidade encontrada.</td></tr>{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}

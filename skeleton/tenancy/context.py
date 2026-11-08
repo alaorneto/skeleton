@@ -10,6 +10,7 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
 
+from skeleton.accounts.platform import is_platform_admin
 from skeleton.common.exceptions import MissingTenantContext
 
 
@@ -102,7 +103,7 @@ def request_context(
         actor=actor_id,
         request_id=_uuid(request_id),
         source=source,
-        platform_admin=bool(getattr(actor, "is_superuser", False) and getattr(actor, "is_active", False)),
+        platform_admin=is_platform_admin(actor),
         using=using,
     )
     try:
@@ -201,7 +202,7 @@ def refresh_authenticated_actor(user: Any) -> None:
     context = replace(
         prior,
         actor=_uuid(user) if getattr(user, "is_authenticated", False) else None,
-        platform_admin=bool(getattr(user, "is_superuser", False) and getattr(user, "is_active", False)),
+        platform_admin=is_platform_admin(user),
     )
     _context.set(context)
     _apply(context)

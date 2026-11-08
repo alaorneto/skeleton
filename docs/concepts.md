@@ -16,7 +16,7 @@ Pense em um exemplo: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela t
 
 ### Plataforma e administração da organização
 
-A **plataforma** é a instalação inteira do sistema. Seu administrador usa a área `/platform/` (identidades, organizações, aplicativos instalados, catálogo e auditoria global) incluindo Versões e atualizações; o viewer de negócio fica no catálogo/tabelas de `/o/<org>/`. Acesso de plataforma exige flags Django, conta ativa e MFA quando configurado, sem conceder automaticamente vínculo/autorização tenant.
+A **plataforma** é a instalação inteira do sistema. Seu administrador usa a área `/platform/` (identidades, organizações, aplicativos instalados, catálogo e auditoria global) incluindo Versões e atualizações; o viewer de negócio fica no catálogo/tabelas de `/o/<org>/`. Acesso de plataforma exige flags Django, conta ativa e MFA quando configurado, sem conceder automaticamente vínculo/autorização tenant. Quem é administrador da plataforma é decidido por um único predicado, `is_platform_admin` (`skeleton/accounts/platform.py`): conta autenticada, ativa, não excluída, com `is_staff` **e** `is_superuser`. Só uma das flags ("Parcial") não concede nada. A plataforma nunca fica sem administrador: rebaixar, desativar ou remover o último administrador ativo é recusado com 409.
 
 O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
 

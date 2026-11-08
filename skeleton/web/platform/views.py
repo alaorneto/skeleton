@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.access.services import LastAdministrator
+from skeleton.accounts.platform import LastPlatformAdministrator
 from skeleton.accounts.services import (
     PLATFORM_USER_FIELDS,
     create_identity,
@@ -208,6 +209,9 @@ def user_delete(request, sysid):
         try:
             with transaction.atomic():
                 deactivate_user(user, delete=True)
+        except LastPlatformAdministrator:
+            error = "A remoção deixaria a plataforma sem administrador ativo."
+            status = 409
         except LastAdministrator:
             error = "A remoção deixaria uma organização sem administrador ativo."
             status = 409

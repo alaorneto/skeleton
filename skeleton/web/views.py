@@ -138,8 +138,13 @@ def pagination(request, queryset, *, validated_filters=None):
 
 
 def form_error(form, error):
+    from skeleton.accounts.platform import LastPlatformAdministrator
+
     if isinstance(error, access_services.LastAdministrator):
         form.add_error(None, "A organização precisa manter ao menos um administrador ativo.")
+        return 409
+    if isinstance(error, LastPlatformAdministrator):
+        form.add_error(None, "A plataforma precisa manter ao menos um administrador ativo.")
         return 409
     if isinstance(error, ValidationError):
         if hasattr(error, "message_dict"):
