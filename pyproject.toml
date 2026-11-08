@@ -89,6 +89,7 @@ files = [
     "skeleton/access/policies.py",
     "skeleton/common/models.py",
     "skeleton/system/dependencies.py",
+    "skeleton/service_api",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -103,6 +104,7 @@ module = [
     "skeleton.access.policies",
     "skeleton.common.models",
     "skeleton.system.dependencies",
+    "skeleton.service_api.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

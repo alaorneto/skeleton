@@ -23,6 +23,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/system` | Registro de especificações, catálogo, apps, checks e controle de releases | Metadados não executam DDL |
 | `skeleton/audit` | Eventos e infraestrutura de auditoria | Triggers são a fonte; não há segunda fonte por signals de save |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
+| `skeleton/service_api` | Base da API de serviços entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate` e erros públicos | Não abre contexto: confere que `actor` é o ator do contexto e que há tenant; devolve só DTOs imutáveis |
 | `skeleton/conf` | Defaults, profiles e URLs distribuídos com o núcleo | Não importa negócio nem configurações do derivado |
 | `config` | Overlay de settings, URLs e entrypoints do projeto | Mantém os hooks de extensão sem renomear labels do núcleo |
 | `applications` | Apps de negócio do projeto derivado | Consome contratos do núcleo; não modifica suas regras |
