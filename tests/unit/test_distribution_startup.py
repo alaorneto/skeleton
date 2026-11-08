@@ -98,7 +98,7 @@ def test_maintenance_stops_all_application_requests_before_session_or_db(tmp_pat
     state = DeploymentInventory(0, {}, (), (), ())
     with override_settings(SKELETON_MAINTENANCE_MARKER=str(marker), SKELETON_DEPLOYMENT_STATE=state):
         middleware = MaintenanceMiddleware(lambda request: called.append(request) or HttpResponse("active"))
-        response = middleware(RequestFactory().post("/admin/system/releases/"))
+        response = middleware(RequestFactory().post("/platform/updates/plan/"))
         assert response.status_code == 503
         assert response["Cache-Control"] == "no-store"
         assert called == []

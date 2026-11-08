@@ -18,13 +18,13 @@
       <div><dt>Versão</dt><dd>{{ core.version|default:"—" }}</dd></div>
       <div><dt>Origem</dt><dd>{{ core.origin|default:"—" }}</dd></div>
     </dl>
-    <a class="btn btn-secondary btn-sm mt-4" href="{% url 'admin:skeleton_releases' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a>
+    <a class="btn btn-secondary btn-sm mt-4" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a>
   </section>
   <section class="card lg:col-span-2" aria-labelledby="overview-operations">
     <h2 id="overview-operations" class="mb-3">Operações recentes</h2>
     {% if operations %}
     <ul class="divide-y divide-default-subtle">
-      {% for operation in operations %}<li class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"><a href="{% url 'admin:skeleton_release_operation' operation.sysid %}">{{ operation.get_operation_display }}</a><span class="flex items-center gap-2"><span class="badge">{{ operation.state }}</span><span class="text-body-subtle">{{ operation.created_at }}</span></span></li>{% endfor %}
+      {% for operation in operations %}<li class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"><a href="{% url 'platform:updates-operation' operation.sysid %}">{{ operation.get_operation_display }}</a><span class="flex items-center gap-2"><span class="badge">{{ operation.state }}</span><span class="text-body-subtle">{{ operation.created_at }}</span></span></li>{% endfor %}
     </ul>
     {% else %}<p class="text-sm text-body-subtle">Nenhuma operação de versão registrada.</p>{% endif %}
   </section>

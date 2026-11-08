@@ -13,7 +13,7 @@ from skeleton.common.exceptions import ConcurrentUpdate
 
 
 class PlatformAdminSite(AdminSite):
-    """Transitional host of the release screens; platform administration lives in /platform/.
+    """Transitional host of the admin login; platform administration lives in /platform/.
 
     No model is registered here and no generic changelist/catch-all is routed: global
     records are edited through the explicit views of ``skeleton.web.platform``.
@@ -24,10 +24,8 @@ class PlatformAdminSite(AdminSite):
     index_title = "Administração da plataforma"
 
     def get_urls(self):
-        from skeleton.system.release_admin import urlpatterns as release_urls
-
         kept = {"index", "login", "logout", "password_change", "password_change_done"}
-        routes = release_urls(self) + [route for route in super().get_urls() if getattr(route, "name", None) in kept]
+        routes = [route for route in super().get_urls() if getattr(route, "name", None) in kept]
         return [path("admin/", include(routes))]
 
     def get_app_list(self, request, app_label=None):

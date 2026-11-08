@@ -102,14 +102,13 @@ def test_component_identity_cannot_be_reassigned_to_another_app():
         assert ComponentInstallation.objects.get(pk=row.pk).app_label == "project_tasks"
 
 
-def test_organization_admin_cannot_use_release_admin():
+def test_organization_admin_cannot_use_platform_updates():
     user = actor()
     client = Client()
     assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
-    assert client.get("/admin/system/releases/").status_code == 403
-    assert (
-        client.post("/admin/system/releases/preview/", {"action": "uninstall", "app_ids": "tasks"}).status_code == 403
-    )
+    assert client.get("/platform/updates/").status_code == 403
+    assert client.post("/platform/updates/plan/", {"action": "uninstall", "app_ids": "tasks"}).status_code == 403
+    assert client.get("/admin/system/releases/").status_code == 404
 
 
 def test_retained_app_can_only_disable_existing_configuration():
@@ -168,7 +167,7 @@ def test_private_maintenance_smoke_does_not_bypass_authorization_or_writes(tmp_p
     with override_settings(
         SKELETON_MAINTENANCE_MARKER=str(marker),
         SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE=str(token_file),
-        SKELETON_DEPLOYMENT_SMOKE_PATHS=("/accounts/login/", "/admin/system/releases/"),
+        SKELETON_DEPLOYMENT_SMOKE_PATHS=("/accounts/login/", "/platform/updates/"),
     ):
         client = Client()
         assert client.get("/accounts/login/").status_code == 503
@@ -179,7 +178,7 @@ def test_private_maintenance_smoke_does_not_bypass_authorization_or_writes(tmp_p
         marker.unlink()
         assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
         marker.touch()
-        assert client.get("/admin/system/releases/", HTTP_X_SKELETON_DEPLOYMENT_SMOKE=token).status_code == 403
+        assert client.get("/platform/updates/", HTTP_X_SKELETON_DEPLOYMENT_SMOKE=token).status_code == 403
 
 
 def test_release_upload_is_bounded_and_still_requires_csrf(tmp_path):
@@ -198,14 +197,12 @@ def test_release_upload_is_bounded_and_still_requires_csrf(tmp_path):
     )
     csrf = client.cookies["csrftoken"].value
     assert (
-        client.post(
-            "/admin/system/releases/upload/", {"package": SimpleUploadedFile("app.skapp", b"unsigned")}
-        ).status_code
+        client.post("/platform/updates/upload/", {"package": SimpleUploadedFile("app.skapp", b"unsigned")}).status_code
         == 403
     )
     with override_settings(SKELETON_PACKAGE_MAX_BYTES=8):
         response = client.post(
-            "/admin/system/releases/upload/",
+            "/platform/updates/upload/",
             {
                 "csrfmiddlewaretoken": csrf,
                 "package": SimpleUploadedFile("app.skapp", b"123456789"),
@@ -238,7 +235,7 @@ def test_status_ticket_rotation_does_not_rewrite_durable_state():
 
 
 def test_failed_operation_refresh_shows_offline_recovery(monkeypatch):
-    from skeleton.system import release_admin
+    from skeleton.web.platform import updates as release_admin
 
     user = actor(platform=True)
     with request_context(actor=user, request_id=None, source="test:deployment"):
@@ -262,7 +259,7 @@ def test_failed_operation_refresh_shows_offline_recovery(monkeypatch):
     monkeypatch.setattr(release_admin, "agent_client", lambda: SimpleNamespace(operation=lambda operation_id: status))
     client = Client()
     assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
-    assert client.get(f"/admin/system/releases/operations/{row.pk}/").status_code == 200
+    assert client.get(f"/platform/updates/operations/{row.pk}/").status_code == 200
     row.refresh_from_db()
     assert row.state == "restored"
     assert row.stage == "restored"
@@ -445,7 +442,7 @@ def test_stale_release_confirmation_returns_conflict_without_delivery(monkeypatc
     client = Client()
     assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
     response = client.post(
-        f"/admin/system/releases/operations/{row.pk}/",
+        f"/platform/updates/operations/{row.pk}/",
         {
             "revision": row.revision + 1,
             "plan_digest": row.plan_digest,

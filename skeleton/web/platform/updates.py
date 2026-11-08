@@ -1,3 +1,11 @@
+"""Versions and updates of the platform (/platform/updates/), in steps.
+
+The web process only asks the independent deployment agent for previews and
+approvals; it never runs pip, migrations or DDL. Mutations require a platform
+administrator, CSRF and a recent authentication. The upload handler is bounded
+and installed before CSRF parses the multipart body.
+"""
+
 import re
 import tempfile
 import time
@@ -9,17 +17,17 @@ from allauth.account.decorators import reauthentication_required
 from allauth.core.exceptions import ReauthenticationRequired
 from django import forms
 from django.conf import settings
-from django.contrib import admin, messages
+from django.contrib import messages
 from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import path
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
+from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.common.exceptions import ConcurrentUpdate
-
-from .models import ComponentInstallation, DeploymentOperation
-from .releases import (
+from skeleton.system.models import ComponentInstallation, DeploymentOperation
+from skeleton.system.releases import (
+    DeploymentUnavailable,
     agent_client,
     confirm_operation,
     create_preview,
@@ -28,9 +36,34 @@ from .releases import (
     retry_submission,
 )
 
+from .guards import platform_page
+
+__all__ = [
+    "add_dependency",
+    "available",
+    "fetch_release",
+    "installed",
+    "operation",
+    "operations",
+    "plan",
+    "recent_authentication",
+    "upload",
+]
+
+STEPS = (
+    ("installed", "Versões instaladas", "platform:updates"),
+    ("available", "Novas versões", "platform:updates-available"),
+    ("upload", "Enviar pacote", "platform:updates-upload"),
+    ("plan", "Preparar plano", "platform:updates-plan"),
+    ("operations", "Operações", "platform:updates-operations"),
+)
+
 
 class UploadForm(forms.Form):
-    package = forms.FileField(label="Pacote assinado (.skapp)")
+    package = forms.FileField(
+        label="Pacote assinado (.skapp)",
+        help_text="Assinado por um publicador autorizado. O agente verifica assinatura e conteúdo antes de liberar o digest.",
+    )
 
 
 class PlanForm(forms.Form):
@@ -48,9 +81,13 @@ class PlanForm(forms.Form):
         label="Digests dos pacotes",
         required=False,
         widget=forms.Textarea(attrs={"rows": 2}),
-        help_text="Separe por espaço ou vírgula; permite atualização conjunta.",
+        help_text="SHA-256 devolvidos pelo envio ou pela busca de versões; separe por espaço ou vírgula para atualizar em conjunto.",
     )
-    app_ids = forms.CharField(label="IDs das apps a desinstalar", required=False)
+    app_ids = forms.CharField(
+        label="IDs das apps a desinstalar",
+        required=False,
+        help_text="Somente para desinstalação. Dados e migrations históricas são preservados.",
+    )
 
     def clean_artifacts(self):
         values = self.cleaned_data["artifacts"].replace(",", " ").split()
@@ -96,17 +133,20 @@ class BoundedPackageUpload(FileUploadHandler):
         return None
 
 
-def _recent_authentication(request):
+def recent_authentication(request):
     records = get_authentication_records(request)
     if not records or time.time() - records[-1]["at"] >= account_settings.REAUTHENTICATION_TIMEOUT:
         raise ReauthenticationRequired()
 
 
-def _context(request, **values):
-    return {**admin.site.each_context(request), "title": "Versões e pacotes", **values}
+def _context(step, **values):
+    return {"platform_section": "updates", "updates_step": step, "steps": STEPS, **values}
 
 
 def _error(request, exc):
+    if isinstance(exc, DeploymentUnavailable):
+        messages.error(request, "O agente de deployment não está disponível ou não foi configurado nesta instalação.")
+        return
     messages.error(request, f"Operação indisponível: {getattr(exc, 'code', type(exc).__name__)}.")
 
 
@@ -148,41 +188,66 @@ def describe_problems(details):
 
 def _installed_components():
     inventory = agent_client().inventory()
-    installed = {
+    return {
         entry["manifest"]["app_id"] for entry in inventory.get("apps", []) if entry.get("state") != "schema_retained"
     }
-    return installed
 
 
-def index(request):
-    require_platform(request.user)
+def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts=""):
+    return render(
+        request,
+        "skeleton/web/platform/updates/plan.html",
+        _context(
+            "plan",
+            plan_form=form,
+            artifact=artifact,
+            problems=problems,
+            plan_action=plan_action,
+            plan_artifacts=plan_artifacts,
+        ),
+        status=status,
+    )
+
+
+# --------------------------------------------------------------------------- steps
+
+
+@platform_page
+@require_safe
+def installed(request):
     from skeleton.versioning import core_version
 
     inventory = None
-    updates = None
     try:
-        if request.method == "POST" and request.POST.get("intent") == "check":
-            updates = agent_client().check_updates()
         inventory = agent_client().inventory()
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
     return render(
         request,
-        "admin/skeleton/releases.html",
+        "skeleton/web/platform/updates/installed.html",
         _context(
-            request,
-            inventory=inventory,
+            "installed",
             core=core_version(),
-            updates=updates,
-            upload_form=UploadForm(),
-            plan_form=PlanForm(),
+            inventory=inventory,
             components=ComponentInstallation.objects.order_by("kind", "component_id"),
-            operations=DeploymentOperation.objects.order_by("-created_at")[:30],
         ),
     )
 
 
+@platform_page
+@require_http_methods(["GET", "POST"])
+def available(request):
+    updates = None
+    if request.method == "POST":
+        try:
+            updates = agent_client().check_updates()
+        except (ValueError, RuntimeError, OSError) as exc:
+            _error(request, exc)
+    return render(request, "skeleton/web/platform/updates/available.html", _context("available", updates=updates))
+
+
 @csrf_exempt
+@platform_page
 def upload(request):
     # Install the bounded streaming handler before CSRF parses multipart data.
     request.upload_handlers.insert(0, BoundedPackageUpload(request))
@@ -194,8 +259,10 @@ def upload(request):
 def _upload(request):
     require_platform(request.user)
     if request.method != "POST":
-        return redirect("admin:skeleton_releases")
-    _recent_authentication(request)
+        return render(
+            request, "skeleton/web/platform/updates/upload.html", _context("upload", upload_form=UploadForm())
+        )
+    recent_authentication(request)
     handler = request.upload_handlers[0]
     form = UploadForm(request.POST, request.FILES)
     if handler.exceeded:
@@ -210,86 +277,55 @@ def _upload(request):
                         stream.write(chunk)
                 source.chmod(0o600)
                 artifact = agent_client().upload(source)
-            messages.success(request, f"Pacote verificado. Digest: {artifact['digest']}")
-            return render(
+            messages.success(request, "Pacote verificado. Confira o plano e visualize o impacto.")
+            return _plan_page(
                 request,
-                "admin/skeleton/releases.html",
-                _context(
-                    request,
-                    core=None,
-                    inventory=None,
-                    upload_form=UploadForm(),
-                    plan_form=PlanForm(initial={"artifacts": artifact["digest"], "action": "install"}),
-                    artifact=artifact,
-                ),
+                PlanForm(initial={"artifacts": artifact["digest"], "action": "install"}),
+                artifact=artifact,
             )
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
     return render(
-        request,
-        "admin/skeleton/releases.html",
-        _context(
-            request,
-            upload_form=form,
-            plan_form=PlanForm(),
-            inventory=None,
-        ),
-        status=400,
+        request, "skeleton/web/platform/updates/upload.html", _context("upload", upload_form=form), status=400
     )
 
 
+@platform_page
+@require_http_methods(["GET", "POST"])
 @reauthentication_required(allow_get=True)
-def preview(request):
-    require_platform(request.user)
+def plan(request):
     if request.method != "POST":
-        return redirect("admin:skeleton_releases")
-    _recent_authentication(request)
+        return _plan_page(request, PlanForm())
+    recent_authentication(request)
     form = PlanForm(request.POST)
     if form.is_valid():
         try:
             row = create_preview(user=request.user, **form.cleaned_data)
-            return redirect("admin:skeleton_release_operation", operation_id=row.pk)
+            return redirect("platform:updates-operation", operation_id=row.pk)
         except (ValueError, RuntimeError, OSError) as exc:
             return _preview_failure(request, form, exc)
-    return render(
-        request,
-        "admin/skeleton/releases.html",
-        _context(
-            request,
-            upload_form=UploadForm(),
-            plan_form=form,
-            inventory=None,
-        ),
-        status=400,
-    )
+    return _plan_page(request, form, status=400)
 
 
 def _preview_failure(request, form, exc):
     _error(request, exc)
     cleaned = getattr(form, "cleaned_data", {}) or {}
-    return render(
+    return _plan_page(
         request,
-        "admin/skeleton/releases.html",
-        _context(
-            request,
-            upload_form=UploadForm(),
-            plan_form=form,
-            inventory=None,
-            problems=describe_problems(getattr(exc, "details", ())),
-            plan_action=cleaned.get("action", ""),
-            plan_artifacts=" ".join(cleaned.get("artifacts", ())),
-        ),
+        form,
         status=409 if getattr(exc, "details", ()) else 400,
+        problems=describe_problems(getattr(exc, "details", ())),
+        plan_action=cleaned.get("action", ""),
+        plan_artifacts=" ".join(cleaned.get("artifacts", ())),
     )
 
 
+@platform_page
+@require_http_methods(["POST"])
 @reauthentication_required(allow_get=True)
 def add_dependency(request):
     """Fetch an operator-chosen catalogue suggestion and preview the plan again with it."""
-    require_platform(request.user)
-    if request.method != "POST":
-        return redirect("admin:skeleton_releases")
-    _recent_authentication(request)
+    recent_authentication(request)
     identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
     if any(not value or len(value) > 128 for value in identifiers.values()):
         return HttpResponse("Identificação de release inválida.", status=400)
@@ -303,17 +339,51 @@ def add_dependency(request):
         form = PlanForm({"action": action, "artifacts": " ".join(artifacts)})
         form.is_valid()
         row = create_preview(user=request.user, action=action, artifacts=artifacts)
-        return redirect("admin:skeleton_release_operation", operation_id=row.pk)
+        return redirect("platform:updates-operation", operation_id=row.pk)
     except (ValueError, RuntimeError, OSError) as exc:
         return _preview_failure(request, form, exc)
 
 
+@platform_page
+@require_http_methods(["POST"])
+@reauthentication_required(allow_get=True)
+def fetch_release(request):
+    recent_authentication(request)
+    try:
+        identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
+        if any(not value or len(value) > 128 for value in identifiers.values()):
+            return HttpResponse("Identificação de release inválida.", status=400)
+        artifact = agent_client().fetch_release(**identifiers)
+        if identifiers["component_id"] == "django-skeleton":
+            action = "core_update"
+        else:
+            action = "update" if identifiers["component_id"] in _installed_components() else "install"
+        messages.success(request, "Versão obtida e verificada. Confira o plano e visualize o impacto.")
+        return _plan_page(
+            request, PlanForm(initial={"action": action, "artifacts": artifact["digest"]}), artifact=artifact
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return redirect("platform:updates-available")
+
+
+@platform_page
+@require_safe
+def operations(request):
+    return render(
+        request,
+        "skeleton/web/platform/updates/operations.html",
+        _context("operations", operations=DeploymentOperation.objects.order_by("-created_at")[:50]),
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
 @reauthentication_required(allow_get=True)
 def operation(request, operation_id):
-    require_platform(request.user)
     row = get_object_or_404(DeploymentOperation.objects.select_for_update(), pk=operation_id)
     if request.method == "POST":
-        _recent_authentication(request)
+        recent_authentication(request)
         form = ConfirmationForm(request.POST)
         if not form.is_valid() or form.cleaned_data["plan_digest"] != row.plan_digest:
             return HttpResponse("Confirmação do plano inválida.", status=400)
@@ -326,7 +396,7 @@ def operation(request, operation_id):
             return HttpResponse("A operação mudou; atualize o estado antes de confirmar.", status=409)
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
-        return redirect("admin:skeleton_release_operation", operation_id=row.pk)
+        return redirect("platform:updates-operation", operation_id=row.pk)
     status_url = None
     try:
         if row.state == "preview":
@@ -339,61 +409,11 @@ def operation(request, operation_id):
         _error(request, exc)
     return render(
         request,
-        "admin/skeleton/release_operation.html",
+        "skeleton/web/platform/updates/operation.html",
         _context(
-            request,
+            "operations",
             operation=row,
             confirmation_form=ConfirmationForm(initial={"revision": row.revision, "plan_digest": row.plan_digest}),
             status_url=status_url,
         ),
     )
-
-
-@reauthentication_required(allow_get=True)
-def fetch_release(request):
-    require_platform(request.user)
-    if request.method != "POST":
-        return redirect("admin:skeleton_releases")
-    _recent_authentication(request)
-    try:
-        identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
-        if any(not value or len(value) > 128 for value in identifiers.values()):
-            return HttpResponse("Identificação de release inválida.", status=400)
-        artifact = agent_client().fetch_release(**identifiers)
-        if identifiers["component_id"] == "django-skeleton":
-            action = "core_update"
-        else:
-            action = "update" if identifiers["component_id"] in _installed_components() else "install"
-        return render(
-            request,
-            "admin/skeleton/releases.html",
-            _context(
-                request,
-                upload_form=UploadForm(),
-                inventory=None,
-                artifact=artifact,
-                plan_form=PlanForm(initial={"action": action, "artifacts": artifact["digest"]}),
-            ),
-        )
-    except (ValueError, RuntimeError, OSError) as exc:
-        _error(request, exc)
-        return redirect("admin:skeleton_releases")
-
-
-def urlpatterns(site):
-    return [
-        path("system/releases/", site.admin_view(index), name="skeleton_releases"),
-        path("system/releases/upload/", site.admin_view(upload), name="skeleton_release_upload"),
-        path("system/releases/preview/", site.admin_view(preview), name="skeleton_release_preview"),
-        path("system/releases/fetch/", site.admin_view(fetch_release), name="skeleton_release_fetch"),
-        path(
-            "system/releases/add-dependency/",
-            site.admin_view(add_dependency),
-            name="skeleton_release_add_dependency",
-        ),
-        path(
-            "system/releases/operations/<uuid:operation_id>/",
-            site.admin_view(operation),
-            name="skeleton_release_operation",
-        ),
-    ]

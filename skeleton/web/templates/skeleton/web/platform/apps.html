@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">Aplicativos</p><h1>Aplicativos instalados</h1><p class="page-description">Código ativo na plataforma. Cada organização ativa e configura as apps na sua própria área; instalar e atualizar é feito em Versões e atualizações.</p></div>
-  <nav class="toolbar" aria-label="Ações"><a class="btn btn-secondary" href="{% url 'admin:skeleton_releases' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></nav>
+  <nav class="toolbar" aria-label="Ações"><a class="btn btn-secondary" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></nav>
 </div>
 <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 {% for app in applications %}

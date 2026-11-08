@@ -1,0 +1,37 @@
+{% extends "skeleton/web/platform/updates/base.html" %}
+{% block step_title %}Versões instaladas{% endblock %}
+{% block step %}
+{% if inventory.error %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0"><strong>Divergência operacional:</strong> {{ inventory.error }}. O inventário não comprova um deployment coerente.</div></div>{% endif %}
+<div class="grid gap-5 lg:grid-cols-3">
+  <section class="card" aria-labelledby="installed-core">
+    <h2 id="installed-core" class="mb-4">Núcleo</h2>
+    <dl class="meta-list sm:grid-cols-1!">
+      <div><dt>Versão em execução</dt><dd>{{ core.version|default:"—" }} <span class="text-body-subtle">· {{ core.origin|default:"—" }}</span></dd></div>
+      {% if inventory %}
+      <div><dt>Geração ativa</dt><dd>{{ inventory.generation }}</dd></div>
+      <div><dt>Núcleo ativo no agente</dt><dd>{{ inventory.core.version }} <span class="text-body-subtle">· {{ inventory.core.origin }}, publicador {{ inventory.core.publisher }}</span></dd></div>
+      <div><dt>Digest</dt><dd><code class="uuid">{{ inventory.core.digest }}</code></dd></div>
+      {% endif %}
+    </dl>
+    {% if not inventory %}<p class="mt-4 text-sm/6 text-body-subtle">O agente não respondeu; o inventário gerenciado está indisponível.</p>{% endif %}
+  </section>
+  <section class="min-w-0 lg:col-span-2" aria-labelledby="installed-apps">
+    <h2 id="installed-apps" class="section-heading">Apps gerenciadas pelo agente</h2>
+    <div class="table-scroll"><table><thead><tr><th scope="col">App</th><th scope="col">Versão</th><th scope="col">Estado</th><th scope="col">Digest</th></tr></thead><tbody>
+    {% for entry in inventory.apps %}<tr><td class="font-medium text-heading">{{ entry.manifest.app_id }}</td><td>{{ entry.manifest.version }}</td><td><span class="badge">{{ entry.state }}</span></td><td><code class="uuid">{{ entry.digest }}</code></td></tr>
+    {% empty %}<tr><td colspan="4" class="empty-state">Nenhuma app gerenciada.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+<section class="mt-8" aria-labelledby="installed-components">
+  <h2 id="installed-components" class="section-heading">Inventário confirmado no banco</h2>
+  <div class="table-scroll"><table><thead><tr><th scope="col">Componente</th><th scope="col">Versão</th><th scope="col">Estado</th><th scope="col">Geração</th></tr></thead><tbody>
+  {% for component in components %}<tr><td class="font-medium text-heading">{{ component.component_id }}</td><td>{{ component.version }}</td><td><span class="badge">{{ component.get_state_display }}</span></td><td>{{ component.generation }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="empty-state">Nenhum componente confirmado.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+<div class="mt-8 flex flex-wrap gap-3">
+  <a class="button" href="{% url 'platform:updates-available' %}">Procurar novas versões{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
+  <a class="btn btn-secondary" href="{% url 'platform:updates-upload' %}">{% include "skeleton/web/components/icon.html" with name="archive" %}Enviar pacote</a>
+</div>
+{% endblock %}

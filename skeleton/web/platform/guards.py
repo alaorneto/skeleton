@@ -5,6 +5,7 @@ from functools import wraps
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
+from django.views.decorators.cache import never_cache
 
 from skeleton.access.services import LastAdministrator
 from skeleton.accounts.mfa import mfa_required
@@ -23,6 +24,7 @@ def has_platform_role(user):
 def platform_page(view):
     """Anonymous → login; non-platform → 403; pending MFA → enrolment; global context only."""
 
+    @never_cache
     @wraps(view)
     def guarded(request, *args, **kwargs):
         user = request.user

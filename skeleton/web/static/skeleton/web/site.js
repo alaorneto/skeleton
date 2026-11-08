@@ -109,3 +109,9 @@ window.addEventListener("message", event => {
   picker.popup.close();
   picker = null;
 });
+
+// Link tabs (e.g. update steps) scroll horizontally on narrow screens: keep the current one visible.
+for (const current of document.querySelectorAll(".link-tabs [aria-current]")) {
+  const strip = current.parentElement;
+  strip.scrollLeft = Math.max(0, current.offsetLeft - strip.offsetLeft - 16);
+}

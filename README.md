@@ -25,7 +25,7 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
 | `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
-| `/admin/system/releases/` | Administrador da plataforma, com agente provisionado | Ver versões, aprovar instalação/atualização e acompanhar operações |
+| `/platform/updates/` | Administrador da plataforma, com agente provisionado | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
 | `/api/v1/` | Cliente com sessão Django válida | Operar recursos autorizados; não existe login independente por token |
 
 No caminho `/o/<org>/`, substitua `<org>` pelo UUID da organização. O servidor valida o vínculo: conhecer o UUID não concede acesso.
@@ -142,7 +142,7 @@ Após configuração/migrations de SSO, rode `validate_provider_bindings --datab
 
 O núcleo é distribuído como wheel `django-skeleton`, separado de `config` e `applications`. Sua versão tem uma fonte de build em `pyproject.toml`; quando instalado, o código consulta os metadados da distribuição. Uma app usa `manifest.json` para declarar identidade, versão, compatibilidade, arquivos e migrations.
 
-A plataforma envia um pacote assinado `.skapp` e aprova um plano em `/admin/system/releases/`. Um agente independente prepara outro release, cria backup, executa migrations/checks e reinicia os workers. O processo web não recebe credencial de migration nem executa pip/DDL. Antes de usar a interface, o operador precisa provisionar esse agente, suas raízes privadas e os publicadores confiáveis.
+A plataforma envia um pacote assinado `.skapp` e aprova um plano em `/platform/updates/`. Um agente independente prepara outro release, cria backup, executa migrations/checks e reinicia os workers. O processo web não recebe credencial de migration nem executa pip/DDL. Antes de usar a interface, o operador precisa provisionar esse agente, suas raízes privadas e os publicadores confiáveis.
 
 ```sh
 .venv/bin/python manage.py package versions --manifest examples/notes/manifest.json

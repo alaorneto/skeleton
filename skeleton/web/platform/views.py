@@ -526,11 +526,11 @@ def app_screen(request, app_label, screen_id):
     except KeyError:
         raise Http404 from None
     if screen.sensitive:
-        from skeleton.system.release_admin import _recent_authentication
+        from .updates import recent_authentication
 
         @reauthentication_required(allow_get=True)
         def sensitive_handler(request):
-            _recent_authentication(request)
+            recent_authentication(request)
             return handler(request)
 
         return sensitive_handler(request)

@@ -1,0 +1,1 @@
+<span class="badge badge-dot {% if operation.state == 'succeeded' or operation.state == 'completed' or operation.state == 'restored' %}badge-success{% elif operation.state == 'failed' or operation.state == 'submission_failed' %}badge-warning{% elif operation.state == 'preview' %}badge-brand{% endif %}">{{ operation.state }}</span>

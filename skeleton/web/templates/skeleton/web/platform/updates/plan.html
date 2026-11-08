@@ -1,0 +1,25 @@
+{% extends "skeleton/web/platform/updates/base.html" %}
+{% block step_title %}Preparar plano{% endblock %}
+{% block step %}
+{% if artifact %}
+<section class="alert alert-success mb-5" aria-labelledby="plan-artifact">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0"><h2 id="plan-artifact" class="text-sm font-semibold text-inherit">Pacote verificado: {{ artifact.manifest.name|default:"pacote" }} {{ artifact.manifest.version }}</h2><p class="mt-1">Digest <code class="uuid text-inherit!">{{ artifact.digest }}</code></p></div></section>
+{% endif %}
+{% if problems %}
+<section class="card mb-5 border-danger-subtle!" aria-labelledby="plan-problems">
+  <h2 id="plan-problems" class="flex items-center gap-2 text-fg-danger-strong">{% include "skeleton/web/components/icon.html" with name="error" class="size-5" %}O plano não pode ser aplicado</h2>
+  <p class="mt-1 text-sm/6 text-body">Corrija os itens abaixo. Sugestões vêm de catálogos assinados já verificados; nada é baixado sem a sua escolha, e o plano resultante passa por uma nova prévia.</p>
+  <ul class="mt-4 space-y-3">{% for problem in problems %}<li class="rounded-base border border-default bg-neutral-secondary-soft p-3 text-sm/6">{{ problem.text }}
+  {% if problem.suggestions %}<ul class="mt-2 space-y-2">{% for suggestion in problem.suggestions %}<li class="flex flex-wrap items-center justify-between gap-2"><span>{{ suggestion.component_id }} {{ suggestion.version }} <span class="text-body-subtle">(fonte {{ suggestion.source_id }})</span></span>
+  <form method="post" action="{% url 'platform:updates-add-dependency' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ suggestion.component_id }}"><input type="hidden" name="version" value="{{ suggestion.version }}"><input type="hidden" name="source_id" value="{{ suggestion.source_id }}"><input type="hidden" name="action" value="{{ plan_action }}"><input type="hidden" name="artifacts" value="{{ plan_artifacts }}">{% if problem.upgrade %}<input type="hidden" name="upgrade" value="1">{% endif %}<button type="submit" class="btn btn-secondary btn-sm">{% if problem.upgrade %}Atualizar no plano{% else %}Adicionar ao plano{% endif %}</button></form></li>{% endfor %}</ul>{% endif %}
+  </li>{% endfor %}</ul>
+</section>
+{% endif %}
+<form method="post" action="{% url 'platform:updates-plan' %}" class="card max-w-3xl">
+  {% csrf_token %}
+  <h2>Plano</h2>
+  <p class="mt-1 mb-5 text-sm/6 text-body">Escolha a operação e os pacotes. "Visualizar impacto" pede ao agente uma prévia; a aprovação acontece na tela da operação.</p>
+  {% with form=plan_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+  <p class="mt-5 text-sm/6 text-body-subtle">Desinstalar remove código e integrações ativas, preservando dados e migrations históricas. Não existe exclusão de dados pela interface.</p>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Visualizar impacto{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button></div>
+</form>
+{% endblock %}

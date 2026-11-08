@@ -1,0 +1,26 @@
+{% extends "skeleton/web/platform/updates/base.html" %}
+{% block step_title %}Novas versões{% endblock %}
+{% block step %}
+<section class="card" aria-labelledby="available-check">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div class="min-w-0">
+      <h2 id="available-check">Consultar fontes de releases</h2>
+      <p class="mt-1 text-sm/6 text-body">Consulta os catálogos assinados configurados no agente. Nada é baixado sem a sua escolha.</p>
+    </div>
+    <form method="post" action="{% url 'platform:updates-available' %}">{% csrf_token %}<button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="refresh" %}Verificar versões disponíveis</button></form>
+  </div>
+  {% if updates %}
+  <p class="mt-4 text-sm text-body-subtle">Consulta: {{ updates.checked_at }}</p>
+  <ul class="mt-2 flex flex-wrap gap-2">{% for source in updates.sources %}<li class="badge {% if source.state == 'ok' %}badge-success{% else %}badge-warning{% endif %} badge-dot">{{ source.id }}: {{ source.state }}{% if source.error_code %} — {{ source.error_code }}{% endif %}</li>{% empty %}<li class="text-sm text-body-subtle">Nenhuma fonte de releases configurada.</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+{% if updates %}
+<section class="mt-6" aria-labelledby="available-releases">
+  <h2 id="available-releases" class="section-heading">Versões candidatas</h2>
+  <div class="table-scroll"><table><thead><tr><th scope="col">Componente</th><th scope="col">Versão</th><th scope="col">Situação</th><th scope="col">Notas</th><th scope="col">Ação</th></tr></thead><tbody>
+  {% for release in updates.releases %}<tr><td class="font-medium text-heading">{{ release.component_id }}</td><td>{{ release.version }}</td><td><span class="badge {% if release.state == 'available' %}badge-brand{% endif %}">{{ release.state }}</span></td><td>{{ release.notes }}</td><td>{% if release.state == 'available' %}<form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ release.component_id }}"><input type="hidden" name="version" value="{{ release.version }}"><input type="hidden" name="source_id" value="{{ release.source_id }}"><button type="submit" class="btn btn-secondary btn-sm">Preparar plano</button></form>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="5" class="empty-state">Nenhuma versão candidata nas fontes consultadas.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
+{% endblock %}

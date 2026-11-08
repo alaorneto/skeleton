@@ -54,7 +54,7 @@ A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu
 | Área | Entrada | Conteúdo |
 |---|---|---|
 | Organização (`/o/<org>/…`) | seletor de organização no cabeçalho | menu lateral: Início · Aplicativos (apps ativas) · Dados (Tabelas, Auditoria) · Administração, só para `organization_admin` (Pessoas, Grupos, Papéis e permissões, Aplicativos) |
-| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global). Views próprias em `skeleton/web/platform`; somente Versões e atualizações ainda usa o admin Django. |
+| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global). Views próprias em `skeleton/web/platform`; Versões e atualizações (`/platform/updates/`) segue em etapas: instaladas, novas versões, enviar pacote, preparar plano, operações. |
 | Minha conta | menu da conta | Perfil, Email, Senha, Autenticação em dois fatores |
 
 - O seletor lista os vínculos ativos do usuário (`memberships_for_user`); ele só cria links, e cada tela revalida a autorização.
@@ -91,7 +91,7 @@ Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `p
 
 ## Admin Django (transitório)
 
-A administração da plataforma foi migrada para views próprias em `/platform/`. O Django admin resta apenas para o login e as telas de **Versões e atualizações** (`/admin/system/releases/`), até sua migração. Enquanto isso, `admin.css`, gerado pelo mesmo build e carregado depois do CSS do admin, mapeia as variáveis do admin (`--primary`, `--body-bg`, `--link-fg`, `--button-bg`, fontes etc.) para os tokens e ajusta cabeçalho, módulos, tabelas, botões, campos e mensagens. Essas telas não usam `<style>` nem `style=` embutidos.
+Toda a administração da plataforma, inclusive Versões e atualizações, usa views próprias em `/platform/`. O Django admin resta apenas para o login legado (`/admin/login/`, que encaminha à autenticação allauth); `admin.css` estiliza essa tela com os tokens até a remoção do admin.
 
 ## Build do CSS
 

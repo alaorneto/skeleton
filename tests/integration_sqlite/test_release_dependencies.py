@@ -1,4 +1,4 @@
-"""Release admin: dependency problems, catalogue suggestions and the add-to-plan flow."""
+"""Platform updates: dependency problems, catalogue suggestions and the add-to-plan flow."""
 
 from types import SimpleNamespace
 
@@ -57,9 +57,7 @@ def test_preview_failure_explains_the_problem_and_offers_the_suggestion(monkeypa
         raise AgentError("dependency_unsatisfied", 409, sanitize_details([MISSING]))
 
     monkeypatch.setattr(releases, "agent_client", lambda: SimpleNamespace(preview=preview))
-    response = platform_client().post(
-        "/admin/system/releases/preview/", {"action": "install", "artifacts": CONSUMER_DIGEST}
-    )
+    response = platform_client().post("/platform/updates/plan/", {"action": "install", "artifacts": CONSUMER_DIGEST})
     assert response.status_code == 409
     page = response.content.decode()
     assert "org.test.consumer exige org.test.base &gt;=1.0" in page
@@ -70,7 +68,8 @@ def test_preview_failure_explains_the_problem_and_offers_the_suggestion(monkeypa
 
 @pytest.mark.parametrize("upgrade, expected", [("", "install"), ("1", "update")])
 def test_add_dependency_fetches_and_previews_the_combined_plan(monkeypatch, upgrade, expected):
-    from skeleton.system import release_admin, releases
+    from skeleton.system import releases
+    from skeleton.web.platform import updates as release_admin
 
     calls = []
 
@@ -86,7 +85,7 @@ def test_add_dependency_fetches_and_previews_the_combined_plan(monkeypatch, upgr
     monkeypatch.setattr(release_admin, "agent_client", lambda: agent)
     monkeypatch.setattr(releases, "agent_client", lambda: agent)
     response = platform_client().post(
-        "/admin/system/releases/add-dependency/",
+        "/platform/updates/plan/add-dependency/",
         {
             "component_id": "org.test.base",
             "version": "1.2.0",
@@ -105,11 +104,11 @@ def test_add_dependency_fetches_and_previews_the_combined_plan(monkeypatch, upgr
 
 
 def test_add_dependency_rejects_an_uninstall_plan(monkeypatch):
-    from skeleton.system import release_admin
+    from skeleton.web.platform import updates as release_admin
 
     monkeypatch.setattr(release_admin, "agent_client", lambda: pytest.fail("Invalid plan contacted the agent."))
     response = platform_client().post(
-        "/admin/system/releases/add-dependency/",
+        "/platform/updates/plan/add-dependency/",
         {"component_id": "org.test.base", "version": "1.2.0", "source_id": "main", "action": "uninstall"},
     )
     assert response.status_code == 400
@@ -124,7 +123,7 @@ def test_add_dependency_rejects_an_uninstall_plan(monkeypatch):
     ],
 )
 def test_fetched_release_preselects_the_matching_action(monkeypatch, component, installed, expected):
-    from skeleton.system import release_admin
+    from skeleton.web.platform import updates as release_admin
 
     agent = SimpleNamespace(
         fetch_release=lambda **values: {"digest": BASE_DIGEST, "manifest": {"name": component, "version": "1.0.0"}},
@@ -132,7 +131,7 @@ def test_fetched_release_preselects_the_matching_action(monkeypatch, component, 
     )
     monkeypatch.setattr(release_admin, "agent_client", lambda: agent)
     response = platform_client().post(
-        "/admin/system/releases/fetch/", {"component_id": component, "version": "1.0.0", "source_id": "main"}
+        "/platform/updates/fetch/", {"component_id": component, "version": "1.0.0", "source_id": "main"}
     )
     assert response.status_code == 200
     assert f'<option value="{expected}" selected>' in response.content.decode()

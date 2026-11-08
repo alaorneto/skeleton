@@ -194,7 +194,7 @@ DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py rotate
 
 ## Admin, mensagens e logs
 
-Identidades, organizações e demais registros globais são administrados em `/platform/`, por views explícitas que exigem staff+superuser ativo, sessão allauth (sem senha paralela Django), MFA quando configurado, CSRF e CAS. `/admin/` resta apenas para login e releases. Não se registram recursos tenant ou edição genérica de SocialToken/Authenticator/SocialApp/auth.Group. Operações de identidade usam lifecycle para não esquecer `auth_version`. Org admin configura apps no painel de parâmetros tenant e usa as páginas empresariais para registros.
+Identidades, organizações e demais registros globais são administrados em `/platform/`, por views explícitas que exigem staff+superuser ativo, sessão allauth (sem senha paralela Django), MFA quando configurado, CSRF e CAS. `/admin/` resta apenas para o login legado, que redireciona à autenticação allauth. Não se registram recursos tenant ou edição genérica de SocialToken/Authenticator/SocialApp/auth.Group. Operações de identidade usam lifecycle para não esquecer `auth_version`. Org admin configura apps no painel de parâmetros tenant e usa as páginas empresariais para registros.
 
 Emails são renderizados/materializados no contexto e enviados após commit. SMTP não é transação distribuída; falha de delivery é real, deve ser registrada/apresentada, não alegada como sucesso. Resend explícito allauth permite retomar confirmação. Não existe outbox/fila/retry adicional prometido.
 

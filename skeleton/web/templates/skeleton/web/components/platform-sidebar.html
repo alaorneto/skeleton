@@ -20,7 +20,7 @@
     <p class="sidebar-heading" id="platform-apps">Aplicativos</p>
     <ul class="sidebar-list" aria-labelledby="platform-apps">
       <li><a class="sidebar-link" href="{% url 'platform:apps' %}"{% if platform_section == "apps" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}Aplicativos instalados</a></li>
-      <li><a class="sidebar-link" href="{% url 'admin:skeleton_releases' %}"{% if platform_section == "releases" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:updates' %}"{% if platform_section == "updates" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>
     </ul>
     <p class="sidebar-heading" id="platform-data">Dados</p>
     <ul class="sidebar-list" aria-labelledby="platform-data">

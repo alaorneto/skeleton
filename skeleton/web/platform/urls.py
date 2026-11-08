@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -20,4 +20,12 @@ urlpatterns = [
     path("apps/<str:app_label>/", views.app_detail, name="app"),
     path("apps/<str:app_label>/documentation/", views.app_documentation, name="app-documentation"),
     path("apps/<str:app_label>/screens/<str:screen_id>/", views.app_screen, name="app-screen"),
+    path("updates/", updates.installed, name="updates"),
+    path("updates/available/", updates.available, name="updates-available"),
+    path("updates/fetch/", updates.fetch_release, name="updates-fetch"),
+    path("updates/upload/", updates.upload, name="updates-upload"),
+    path("updates/plan/", updates.plan, name="updates-plan"),
+    path("updates/plan/add-dependency/", updates.add_dependency, name="updates-add-dependency"),
+    path("updates/operations/", updates.operations, name="updates-operations"),
+    path("updates/operations/<uuid:operation_id>/", updates.operation, name="updates-operation"),
 ]
