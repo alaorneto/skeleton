@@ -48,9 +48,10 @@ def test_service_reads_only_what_the_actor_reads_in_its_tenant(records):
         assert "Foreign" not in titles
     with actor_tenant(records.bob, records.a):
         assert "Private" not in all_titles(records.bob)
+    # Alice is a member of B without TablePermission: default deny, nothing from A leaks.
     with actor_tenant(records.alice, records.b):
-        titles = all_titles(records.alice)
-        assert "Private" not in titles
+        with pytest.raises(Forbidden):
+            NoteTitles().titles(actor=records.alice)
 
 
 def test_service_refuses_another_actor_than_the_context(records):
