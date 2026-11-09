@@ -163,6 +163,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_events.domainevent": (
+            "Eventos de domínio",
+            "Outbox de eventos publicados na transação da escrita; só campos declarados e não sensíveis.",
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",
