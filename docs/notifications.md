@@ -33,6 +33,8 @@ O check `skeleton.E023` reprova tipo duplicado, tabela-alvo desconhecida e campo
 
 ## `notify()`
 
+Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. A função interna abaixo é do núcleo.
+
 ```python
 from skeleton.notifications.services import Recipients, notify
 

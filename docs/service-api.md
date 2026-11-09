@@ -219,7 +219,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService` | `skeleton.service_api.audit` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
-| `NotificationService` | (planejado) | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
+| `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | (planejado) | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | (planejado) | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 
@@ -279,6 +279,30 @@ A app chamadora é identificada pelo módulo do primeiro frame fora da API de se
 `history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro, do mais recente ao mais antigo, com as mesmas regras de `authorized_audit_queryset`: administrador da organização, ou `TablePermission audit` mais leitura do registro atual (se excluído, restauração autorizada). Filtra antes de paginar. Sem essas permissões, para tabela desconhecida e para registro de outra organização, responde `NotFound`; eventos de outra organização nunca aparecem.
 
 `AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
+
+### NotificationService
+
+```python
+from skeleton.service_api.notifications import NotificationService, Recipients
+
+NotificationService().notify(
+    actor=request.user,
+    type_code="tasks.assigned",
+    recipients=Recipients(users=(assignee_id,)),
+    payload=(("message", "Nova tarefa"),),
+    target_table_key="tasks.task",
+    target_id=task_id,
+)
+```
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo; cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
+| `unread_count(*, actor) -> int` | linhas do ator em organizações com vínculo ativo | — |
+| `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant | `InvalidInput` |
+| `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |
+
+`Recipients(users, groups, roles, organization)` é o DTO público dos destinatários. Os tipos continuam registrados por cada app ([notificações](notifications.md)). O rollback do chamador não deixa notificação nem job. Canais e preferências ficam internos ao epic de notificações.
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
