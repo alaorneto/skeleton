@@ -181,13 +181,18 @@ def schema_fingerprint(pair):
         return _fingerprint(connection)
 
 
+# A NULL ACL means the default privileges. REVOKE can leave an explicit ACL equal to that
+# default, which pg_dump omits, so the restore yields NULL again: compare acldefault() instead.
 _FINGERPRINT_QUERIES = {
     "schema": """
-        SELECT pg_get_userbyid(nspowner), ARRAY(SELECT unnest(nspacl)::text ORDER BY 1)
+        SELECT pg_get_userbyid(nspowner), ARRAY(SELECT unnest(coalesce(nspacl, acldefault('n', nspowner)))::text ORDER BY 1)
         FROM pg_namespace WHERE nspname='skeleton'""",
     "relations": """
         SELECT c.relname, c.relkind, pg_get_userbyid(c.relowner), c.relrowsecurity, c.relforcerowsecurity,
-               ARRAY(SELECT unnest(c.relacl)::text ORDER BY 1)
+               ARRAY(SELECT unnest(coalesce(c.relacl, CASE
+                   WHEN c.relkind = 'S' THEN acldefault('s', c.relowner)
+                   WHEN c.relkind IN ('r', 'p', 'v', 'm', 'f') THEN acldefault('r', c.relowner)
+               END))::text ORDER BY 1)
         FROM pg_class c WHERE c.relnamespace='skeleton'::regnamespace ORDER BY 1""",
     "columns": """
         SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, a.attidentity,
@@ -211,7 +216,7 @@ _FINGERPRINT_QUERIES = {
     "functions": """
         SELECT p.proname, pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid),
                pg_get_userbyid(p.proowner), p.prokind, p.prosecdef, p.provolatile, p.proconfig,
-               ARRAY(SELECT unnest(p.proacl)::text ORDER BY 1), md5(p.prosrc)
+               ARRAY(SELECT unnest(coalesce(p.proacl, acldefault('f', p.proowner)))::text ORDER BY 1), md5(p.prosrc)
         FROM pg_proc p WHERE p.pronamespace='skeleton'::regnamespace ORDER BY 1, 2""",
     "sequences": "SELECT sequencename, last_value FROM pg_sequences WHERE schemaname='skeleton' ORDER BY 1",
 }
@@ -222,6 +227,8 @@ def _fingerprint(connection):
     from psycopg import sql
 
     result = {name: connection.execute(query).fetchall() for name, query in _FINGERPRINT_QUERIES.items()}
+    result["constraints"] = _canonical_checks(connection, result["constraints"])
+    result["indexes"] = _canonical_indexes(connection, result["indexes"])
     tables = connection.execute(
         "SELECT relname FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relkind IN ('r','p') ORDER BY 1"
     ).fetchall()
@@ -237,3 +244,78 @@ def _fingerprint(connection):
         for (table,) in tables
     ]
     return result
+
+
+_CHECK_PROBE = "sk_fingerprint_probe"
+
+
+def _canonical_checks(connection, rows):
+    """CHECK text as PostgreSQL deparses it after one dump/restore round trip.
+
+    pg_dump writes the deparsed CHECK and the restore parses it again, which can move casts
+    (``IN`` over varchar) without changing the expression. Re-adding each expression as a
+    NOT VALID probe inside a rolled-back transaction yields that same round-tripped text on
+    both sides; every other column is compared unchanged.
+    """
+    from psycopg import sql
+
+    canonical = []
+    with connection.transaction(force_rollback=True):
+        for table, name, kind, definition, deferrable, deferred in rows:
+            if kind == "c" and table:
+                expression = definition.removesuffix(" NOT VALID")
+                target = sql.Identifier("skeleton", table)
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} ADD CONSTRAINT {} {} NOT VALID").format(
+                        target, sql.Identifier(_CHECK_PROBE), sql.SQL(expression)
+                    )
+                )
+                (probe,) = connection.execute(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s",
+                    (target.as_string(connection), _CHECK_PROBE),
+                ).fetchone()
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} DROP CONSTRAINT {}").format(target, sql.Identifier(_CHECK_PROBE))
+                )
+                suffix = definition[len(expression) :]
+                definition = probe.removesuffix(" NOT VALID") + suffix
+            canonical.append((table, name, kind, definition, deferrable, deferred))
+    return canonical
+
+
+_INDEX_NAME = re.compile(r"^(CREATE (?:UNIQUE )?INDEX )(\S+)( ON )")
+
+
+def _canonical_indexes(connection, rows):
+    """Index definitions with predicates or expressions after the same round trip as CHECKs.
+
+    Partial indexes such as ``WHERE type IN (...)`` over varchar deparse differently once
+    restored. Each one is rebuilt under a probe name in a rolled-back transaction and its
+    definition is read back with the original name; plain column indexes are kept as they are.
+    """
+    from psycopg import sql
+
+    computed = {
+        name
+        for (name,) in connection.execute(
+            "SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid "
+            "WHERE c.relnamespace='skeleton'::regnamespace AND (i.indpred IS NOT NULL OR i.indexprs IS NOT NULL)"
+        ).fetchall()
+    }
+    canonical = []
+    with connection.transaction(force_rollback=True):
+        for table, name, definition in rows:
+            match = _INDEX_NAME.match(definition)
+            if name in computed and match:
+                probe_name = sql.Identifier(_CHECK_PROBE).as_string(connection)
+                connection.execute(sql.SQL(_INDEX_NAME.sub(rf"\g<1>{probe_name}\g<3>", definition, count=1)))
+                (probe,) = connection.execute(
+                    "SELECT pg_get_indexdef(%s::regclass)", (f"skeleton.{probe_name}",)
+                ).fetchone()
+                connection.execute(sql.SQL("DROP INDEX {}").format(sql.Identifier("skeleton", _CHECK_PROBE)))
+                original = match[2]
+                definition = _INDEX_NAME.sub(
+                    lambda found, original=original: found[1] + original + found[3], probe, count=1
+                )
+            canonical.append((table, name, definition))
+    return canonical
