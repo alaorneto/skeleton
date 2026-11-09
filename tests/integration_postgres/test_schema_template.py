@@ -24,10 +24,19 @@ def template(skeleton_db, postgres_template):
     return postgres_template
 
 
+def _differences(actual, expected):
+    """First differing row of every section, so one run shows all drift at once."""
+    differences = {}
+    for section, rows in expected.items():
+        got = actual.get(section)
+        if got != rows:
+            differences[section] = sorted(set(map(repr, got or [])) ^ set(map(repr, rows)))[:4]
+    return differences
+
+
 def test_restored_schema_matches_migrated_schema(template):
     restored = schema_fingerprint(disposable_database_pair())
-    for section, expected in template.fingerprint.items():
-        assert restored[section] == expected, f"Restored schema differs from migrated schema in {section}."
+    assert _differences(restored, template.fingerprint) == {}, "Restored schema differs from migrated schema."
     assert restored["policies"] and restored["triggers"], "Fingerprint must cover RLS policies and triggers."
     assert check_deployed_schema() == []
 
@@ -74,7 +83,7 @@ def test_explicit_default_acl_matches_the_restored_null_acl(template):
             "SELECT relacl IS NOT NULL FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relname=%s",
             (sequence,),
         ).fetchone() == (True,)
-    assert schema_fingerprint(pair) == template.fingerprint
+    assert _differences(schema_fingerprint(pair), template.fingerprint) == {}
 
 
 @pytest.mark.parametrize("mutation", ["policy", "trigger", "grant", "sequence_grant", "force_rls", "data"])

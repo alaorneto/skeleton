@@ -227,6 +227,7 @@ def _fingerprint(connection):
     from psycopg import sql
 
     result = {name: connection.execute(query).fetchall() for name, query in _FINGERPRINT_QUERIES.items()}
+    result["constraints"] = _canonical_checks(connection, result["constraints"])
     tables = connection.execute(
         "SELECT relname FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relkind IN ('r','p') ORDER BY 1"
     ).fetchall()
@@ -242,3 +243,40 @@ def _fingerprint(connection):
         for (table,) in tables
     ]
     return result
+
+
+_CHECK_PROBE = "sk_fingerprint_probe"
+
+
+def _canonical_checks(connection, rows):
+    """CHECK text as PostgreSQL deparses it after one dump/restore round trip.
+
+    pg_dump writes the deparsed CHECK and the restore parses it again, which can move casts
+    (``IN`` over varchar) without changing the expression. Re-adding each expression as a
+    NOT VALID probe inside a rolled-back transaction yields that same round-tripped text on
+    both sides; every other column is compared unchanged.
+    """
+    from psycopg import sql
+
+    canonical = []
+    with connection.transaction(force_rollback=True):
+        for table, name, kind, definition, deferrable, deferred in rows:
+            if kind == "c" and table:
+                expression = definition.removesuffix(" NOT VALID")
+                target = sql.Identifier("skeleton", table)
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} ADD CONSTRAINT {} {} NOT VALID").format(
+                        target, sql.Identifier(_CHECK_PROBE), sql.SQL(expression)
+                    )
+                )
+                (probe,) = connection.execute(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s",
+                    (target.as_string(connection), _CHECK_PROBE),
+                ).fetchone()
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} DROP CONSTRAINT {}").format(target, sql.Identifier(_CHECK_PROBE))
+                )
+                suffix = definition[len(expression) :]
+                definition = probe.removesuffix(" NOT VALID") + suffix
+            canonical.append((table, name, kind, definition, deferrable, deferred))
+    return canonical
