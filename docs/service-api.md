@@ -208,20 +208,38 @@ O check `skeleton.E019` analisa com `ast`, sem importar código, todos os `.py` 
 
 `package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
 
-## Catálogo planejado do núcleo
+## Catálogo do núcleo
 
-O núcleo publica a própria API de serviços em `skeleton.service_api` (epic [#113](https://github.com/alaorneto/skeleton/issues/113)). Nenhum destes serviços existe ainda. A tabela mostra o contrato planejado e a issue que o entrega.
+O núcleo publica a própria API de serviços em submódulos de `skeleton.service_api` (epic [#113](https://github.com/alaorneto/skeleton/issues/113)). Os serviços do núcleo não têm `app_label`: não dependem de ativação de app. Todos seguem as regras deste documento (keyword-only, `actor` igual ao do contexto, DTOs imutáveis, erros públicos).
 
-| Serviço | Métodos principais | Issue |
+| Serviço | Módulo | Métodos | Issue |
+|---|---|---|---|
+| `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
+| `OrganizationService` | (planejado) | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
+| `AccessService` | (planejado) | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
+| `ApplicationService` | (planejado) | `is_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
+| `AuditService` | (planejado) | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
+| `NotificationService` | (planejado) | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
+| `JobService`, `EventService` | (planejado) | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
+| `FileService` | (planejado) | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+
+### IdentityService
+
+```python
+from skeleton.service_api.identity import IdentityService
+
+me = IdentityService().me(actor=request.user)  # UserProfileInfo
+person = IdentityService().get_person(actor=request.user, user_id=assignee_id)  # PersonSummary
+IdentityService().update_my_preferences(actor=request.user, expected_revision=me.revision, timezone="America/Sao_Paulo")
+```
+
+| Método | Autorização | Erros |
 |---|---|---|
-| `IdentityService` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
-| `OrganizationService` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
-| `AccessService` | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
-| `ApplicationService` | `is_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
-| `AuditService` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
-| `NotificationService` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
-| `JobService`, `EventService` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
-| `FileService` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `me(*, actor) -> UserProfileInfo` | o próprio ator; com ou sem organização no contexto | `Forbidden` (ator divergente) |
+| `get_person(*, actor, user_id) -> PersonSummary` | vínculo ativo do ator; `email` só com a capacidade `members.view` | `NotFound` se a pessoa não tiver vínculo ativo na organização atual, mesmo que exista |
+| `update_my_preferences(*, actor, expected_revision, language=None, timezone=None) -> UserProfileInfo` | só o próprio ator | `InvalidInput` (idioma/fuso inválido, nada a alterar); `Conflict("stale_revision")` |
+
+`UserProfileInfo` tem `sysid`, `email`, `display_name`, `language`, `timezone`, `kind` e `revision` (do perfil, para CAS); `PersonSummary` tem `sysid`, `display_name`, `email` (ou `None`) e `kind`. `kind` é `person` hoje e `service` para contas de serviço (#44). Nenhum DTO traz senha, MFA, flags de plataforma ou `auth_version`.
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
