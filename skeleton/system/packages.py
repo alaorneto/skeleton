@@ -1151,6 +1151,32 @@ def _doctor_dependencies(manifest, inventory, entries, report):
         report(code, problem.summary, **detail)
 
 
+def _doctor_import_boundary(root, manifest, inventory, report):
+    """Same static boundary as check E019/W019, with providers taken from the target inventory."""
+    from skeleton.system.import_boundary import providers_from_manifests, scan_application
+
+    installed = {
+        entry["manifest"]["app_id"]: entry["manifest"]
+        for entry in (inventory or {}).get("apps", [])
+        if isinstance(entry.get("manifest"), dict)
+        and entry["manifest"].get("app_id")
+        and entry["manifest"]["app_id"] != manifest["app_id"]
+    }
+    for violation in scan_application(
+        root,
+        package="applications." + manifest["package_name"],
+        providers=providers_from_manifests(installed),
+        dependencies=manifest["dependencies"],
+    ):
+        values = {"path": violation.path, "line": violation.line, "module": violation.module}
+        if violation.provider:
+            values["provider"] = violation.provider
+        if not violation.is_error:
+            # Non-public core surfaces are reported without failing doctor until they become errors.
+            values["severity"] = "warning"
+        report(violation.code, violation.message, **values)
+
+
 def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_store=None):
     """Report every packaging, documentation, migration and dependency problem of an app source.
 
@@ -1196,6 +1222,7 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
         missing = [heading for heading in headings if heading not in path.read_text(encoding="utf-8")]
         if missing:
             report("documentation_sections", f"{filename} lacks sections {missing}.", path=filename)
+    _doctor_import_boundary(root, manifest, inventory, report)
     actual = static_migration_leaves(root / "migrations", manifest["app_label"])
     declared = sorted(manifest["migrations"]["leaves"])
     if actual is None:
@@ -1222,7 +1249,8 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
                     dependency=dependency,
                     required=required,
                 )
-    return {"ok": not problems, "app_id": manifest["app_id"], "problems": problems}
+    failures = [problem for problem in problems if problem.get("severity") != "warning"]
+    return {"ok": not failures, "app_id": manifest["app_id"], "problems": problems}
 
 
 def build_package(app_root, manifest_path, output_path, private_key_path, wheels=()):

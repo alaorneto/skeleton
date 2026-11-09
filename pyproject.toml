@@ -90,6 +90,7 @@ files = [
     "skeleton/common/models.py",
     "skeleton/system/dependencies.py",
     "skeleton/service_api",
+    "skeleton/system/import_boundary.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -105,6 +106,7 @@ module = [
     "skeleton.common.models",
     "skeleton.system.dependencies",
     "skeleton.service_api.*",
+    "skeleton.system.import_boundary",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

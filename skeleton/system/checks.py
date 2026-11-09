@@ -172,6 +172,64 @@ def service_api_checks(app_configs=None, **kwargs):
     return errors
 
 
+def _boundary_providers(manifests):
+    from .import_boundary import Provider
+
+    providers = {}
+    for label, manifest in manifests.items():
+        try:
+            app_module = apps.get_app_config(label).name
+        except LookupError:
+            continue
+        packages = {app_module}
+        if manifest.package_name:
+            packages.add(f"applications.{manifest.package_name}")
+        services = set()
+        if manifest.service_api is not None:
+            module = manifest.service_api.module
+            services.add(module)
+            for package in packages:
+                if module.startswith(app_module + "."):
+                    services.add(package + module[len(app_module) :])
+        providers[label] = Provider(
+            identity=label, packages=tuple(sorted(packages)), service_modules=tuple(sorted(services))
+        )
+    return providers
+
+
+@register()
+def import_boundary_checks(app_configs=None, **kwargs):
+    """E019/W019: apps import other apps only through their declared service_api (docs/service-api.md)."""
+    from .app_registry import get_app
+    from .import_boundary import scan_application
+
+    manifests = {manifest.app_label: manifest for manifest in all_apps()}
+    providers = _boundary_providers(manifests)
+    errors = []
+    for label in sorted(manifests):
+        if label not in providers:
+            continue
+        config = apps.get_app_config(label)
+        own = providers[label]
+        # get_app() resolves dependency app IDs to registered labels.
+        dependencies = set(get_app(label).dependencies)
+        violations = scan_application(
+            config.path,
+            package=config.name,
+            aliases=[package for package in own.packages if package != config.name],
+            providers=[provider for other, provider in providers.items() if other != label],
+            dependencies=dependencies,
+        )
+        for violation in violations:
+            message = f"{label}: {violation.path}:{violation.line}: {violation.message}"
+            if violation.is_error:
+                errors.append(Error(message, id="skeleton.E019"))
+            else:
+                # Non-public core surfaces are a warning first, an error in a later core.
+                errors.append(Warning(message, id="skeleton.W019"))
+    return errors
+
+
 def undeclared_migration_dependencies(migrations, registered, allowed):
     """Registered app labels the migrations depend on outside the allowed (declared) set."""
     return sorted(

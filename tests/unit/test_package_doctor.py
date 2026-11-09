@@ -57,7 +57,7 @@ def test_invalid_manifest_stops_with_one_problem(tmp_path):
 def inventory_for(manifests):
     return {
         "generation": 1,
-        "core": {"version": "0.3.0"},
+        "core": {"version": "0.4.0"},
         "runtime": {"python": "3.14.0", "django": "5.2.18"},
         "apps": [{"manifest": manifest, "state": "installed"} for manifest in manifests],
     }
@@ -91,3 +91,30 @@ def test_cli_exits_non_zero_and_prints_json(tmp_path):
     )
     assert completed.returncode == 1
     assert codes(json.loads(completed.stdout)) == ["documentation_missing"]
+
+
+def test_doctor_lists_import_boundary_violations_before_build(tmp_path):
+    root = notes_copy(tmp_path)
+    (root / "integration.py").write_text(
+        "from applications.tasks.models import Task\n"
+        "from applications.tasks.service_api import TaskService\n"
+        "from skeleton.access.services import provision_membership\n"
+    )
+    tasks = {
+        "app_id": "com.example.tasks",
+        "package_name": "tasks",
+        "runtime": {"service_api": {"module": "applications.tasks.service_api", "classes": ["TaskService"]}},
+    }
+    result = doctor(root, inventory={"apps": [{"manifest": tasks, "state": "installed"}]})
+    boundary = [
+        p for p in result["problems"] if p["code"] in {"internal_import", "undeclared_dependency", "core_import"}
+    ]
+    assert [(p["code"], p["line"], p.get("severity")) for p in boundary] == [
+        ("internal_import", 1, None),
+        ("undeclared_dependency", 2, None),
+        ("core_import", 3, "warning"),
+    ]
+    assert not result["ok"]
+    (root / "integration.py").write_text("from skeleton.access.services import provision_membership\n")
+    warning_only = doctor(root)
+    assert warning_only["ok"] and codes(warning_only) == ["core_import"]
