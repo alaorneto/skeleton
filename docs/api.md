@@ -14,17 +14,17 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `organizations/` | GET | Apenas organizações dos próprios vínculos ativos |
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
 | `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros record_sysid/model_label na lista |
-| `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | Org admin; criar com user explícito; PATCH só is_active |
-| `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | code,name,description; is_builtin read-only |
-| `o/<org>/groups/`, `<id>/` | GET, POST; GET/PATCH/DELETE | code,name,description |
-| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | email,role; digest/token/estado não graváveis; sem PATCH |
-| `o/<org>/member-roles/`, `group-members/`, `group-roles/`, `table-permissions/`, `record-grants/` | GET/POST coleção; GET/DELETE detalhe | Links explícitos; sem nested write/PATCH |
+| `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
+| `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description; is_builtin read-only |
+| `o/<org>/groups/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description |
+| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade; digest/token/estado não graváveis; sem PATCH |
+| `o/<org>/member-roles/`, `group-members/`, `group-roles/`, `table-permissions/`, `record-grants/` | GET/POST coleção; GET/DELETE detalhe | `access.manage`; links explícitos; sem nested write/PATCH |
 | `o/<org>/tables/<table_key>/records/` | GET, POST | Gateway allowlist de SecuredRecord exposto |
 | `.../records/<sysid>/` | GET, PATCH, DELETE | Um registro autorizado; ETag/revisão |
 | `.../records/<sysid>/restore/` | POST | Restore autorizado com If-Match |
 | `.../records/<sysid>/access/` | GET, PATCH | Manage_access + ownership/org admin; If-Match no PATCH |
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
-| `o/<org>/invitations/<id>/resend/` | POST | Org admin, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
+| `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
 | `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Org admin; app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial |
 
 `org`, `sysid` e IDs de relações são UUIDs. Primeiro escolha uma organização devolvida por `organizations/` e use seu UUID em `o/<org>/`; não envie a organização ou o ator no corpo para tentar mudar o contexto. `table_key` é o identificador registrado do modelo (`label_lower`), por exemplo `example_notes.note`, e nunca um nome SQL. O registry, a lista explícita de modelos permitidos no código, é a única fonte dessa resolução. Modelos não expostos ou técnicos não entram no gateway.

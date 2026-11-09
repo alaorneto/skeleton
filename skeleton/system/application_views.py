@@ -7,7 +7,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods, require_safe
 from rest_framework.response import Response
 
-from skeleton.access.services import require_organization_admin
+from skeleton.access.capabilities import require_admin_surface
 from skeleton.api.errors import BoundaryError
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
@@ -33,7 +33,7 @@ def _manifest(app_label):
 class ApplicationAPI(TenantAPI):
     def check_permissions(self, request):
         super().check_permissions(request)
-        require_organization_admin(request.user)
+        require_admin_surface(request.user)
 
     def get(self, request, organization_id, app_label=None):
         if app_label is None:

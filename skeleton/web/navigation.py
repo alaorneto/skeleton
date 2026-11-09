@@ -38,7 +38,9 @@ ACCESS_SECTIONS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
 )
 
 
-def _access_navigation(organization_id: Any, resource: str | None) -> dict[str, Any]:
+def _access_navigation(organization_id: Any, resource: str | None, capabilities: frozenset[str]) -> dict[str, Any]:
+    from skeleton.access.capabilities import RESOURCE_VIEW_CAPABILITIES
+
     sections = []
     current = None
     for section_id, label, resources in ACCESS_SECTIONS:
@@ -50,7 +52,10 @@ def _access_navigation(organization_id: Any, resource: str | None) -> dict[str, 
                 "current": name == resource,
             }
             for name, tab_label in resources
+            if RESOURCE_VIEW_CAPABILITIES[name] in capabilities
         ]
+        if not tabs:
+            continue  # A delegated manager sees only the sections of their capabilities.
         active = any(tab["current"] for tab in tabs)
         entry = {"id": section_id, "label": label, "url": tabs[0]["url"], "tabs": tabs, "current": active}
         if active:
@@ -74,5 +79,7 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     )
     match = getattr(request, "resolver_match", None)
     resource = match.kwargs.get("resource") if match is not None else None
-    values.update(_access_navigation(organization_id, resource))
+    from skeleton.access.capabilities import capabilities_for
+
+    values.update(_access_navigation(organization_id, resource, capabilities_for(user)))
     return values

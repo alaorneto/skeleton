@@ -71,15 +71,17 @@ def pending_invitation(request):
 
 
 def issue_invitation(*, user, email, role, request=None):
-    from skeleton.access.services import require_organization_admin
+    from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
+    from skeleton.access.services import require_unprivileged_target
     from skeleton.accounts.services import normalized_email
     from skeleton.tenancy.context import current_context
     from skeleton.tenancy.models import Invitation, Organization
 
-    require_organization_admin(user)
+    require_capability(user, INVITATIONS_MANAGE)
     organization_id = current_context().organization_id
     if role.organization_id != organization_id or role.deleted_at:
         raise ValidationError({"role": "Role must be active in this organization."})
+    require_unprivileged_target(user, role=role)
     organization = Organization.objects.get(pk=organization_id, is_active=True)
     token = secrets.token_urlsafe(32)
     with transaction.atomic():
@@ -159,12 +161,12 @@ def accept_invitation(*, user, organization_id, token=None, proof=None, verified
 
 @transaction.atomic
 def resend_invitation(invitation, *, user, revision, request):
-    from skeleton.access.services import require_organization_admin
+    from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
     from skeleton.common.exceptions import ConcurrentUpdate
     from skeleton.tenancy.context import current_context
     from skeleton.tenancy.models import Invitation
 
-    require_organization_admin(user)
+    require_capability(user, INVITATIONS_MANAGE)
     if invitation.organization_id != current_context().organization_id:
         raise InvalidInvitation()
     locked = Invitation.objects.select_for_update().get(pk=invitation.pk)

@@ -20,6 +20,8 @@ A **plataforma** é a instalação inteira do sistema. Seu administrador usa a �
 
 O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
 
+Parte dessa gestão pode ser delegada sem conceder administração plena. O **gestor de pessoas** (`people_manager`) administra membros e convites; o **gestor de apps** (`app_manager`) recebe a capacidade de gerir apps. Esses perfis são papéis internos com **capacidades** declaradas em código; um papel criado pela organização nunca carrega capacidade. Veja [capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos).
+
 A distinção importa: conceder administração de uma clínica não pode conceder administração das outras clínicas ou permissão para atualizar o servidor. E ser superusuário Django não elimina os requisitos de vínculo e autorização nas rotas organizacionais.
 
 Veja [modelo de dados](data-model.md) e [controle de acesso](access-control.md).

@@ -2,7 +2,7 @@ from django.db import transaction
 from django.http import Http404
 from rest_framework.response import Response
 
-from skeleton.access.services import require_organization_admin
+from skeleton.access.capabilities import INVITATIONS_MANAGE, require_resource_capability
 from skeleton.api.errors import BoundaryError, require_revision
 from skeleton.api.serializers import dedicated_data
 from skeleton.api.views import TenantAPI, etag, request_fields
@@ -13,7 +13,7 @@ from skeleton.tenancy.models import Invitation
 class ResendInvitationView(TenantAPI):
     @transaction.atomic
     def post(self, request, organization_id, sysid):
-        require_organization_admin(request.user)
+        require_resource_capability(request.user, INVITATIONS_MANAGE)
         if request_fields(request):
             raise BoundaryError("invalid_request", "Reenvio não aceita campos.")
         invitation = Invitation.objects.select_for_update().filter(pk=sysid).first()

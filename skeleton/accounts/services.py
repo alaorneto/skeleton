@@ -213,8 +213,9 @@ def set_local_password(user, password, *, using="default"):
 
 
 def create_organization(*, owner, slug, name, using="default"):
+    from skeleton.access.capabilities import BUILTIN_ROLES
     from skeleton.access.models import Role
-    from skeleton.access.services import provision_membership, reconcile_builtin_permissions
+    from skeleton.access.services import provision_membership, reconcile_builtin_roles
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Organization
 
@@ -225,11 +226,12 @@ def create_organization(*, owner, slug, name, using="default"):
             organization = Organization(name=name, slug=slug)
             organization.save(using=using)
         with system_context(reason="organization:bootstrap", organization_id=organization.pk, using=using):
-            admin = Role(organization=organization, code="organization_admin", name="Administrador", is_builtin=True)
-            admin.save(using=using)
-            Role(organization=organization, code="member", name="Membro", is_builtin=True).save(using=using)
-            provision_membership(organization=organization, user=owner, role=admin)
-        reconcile_builtin_permissions(organization_id=organization.pk, using=using)
+            roles = {}
+            for code, builtin in BUILTIN_ROLES.items():
+                roles[code] = Role(organization=organization, code=code, name=builtin.name, is_builtin=True)
+                roles[code].save(using=using)
+            provision_membership(organization=organization, user=owner, role=roles["organization_admin"])
+        reconcile_builtin_roles(organization_id=organization.pk, using=using)
     return organization
 
 

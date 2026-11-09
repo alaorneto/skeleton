@@ -67,7 +67,7 @@ Um **papel** (`Role`) reúne permissões; um **grupo** (`AccessGroup`) reúne me
 | Modelo | Campos próprios | Unicidade/regras |
 |---|---|---|
 | Membership | user; is_active | UNIQUE(org,user) incondicional; user/org imutáveis; novo convite reativa a mesma linha, não cria duplicata |
-| Role | code,name,description,is_builtin | Código único entre vivos por organização; papéis internos organization_admin/member não podem ser removidos/renomeados |
+| Role | code,name,description,is_builtin | Código único entre vivos por organização; papéis internos (`organization_admin`, `people_manager`, `app_manager`, `member`, declarados em `BUILTIN_ROLES`) não podem ser removidos/renomeados e são os únicos que carregam capacidades |
 | MemberRole | membership,role | Par único entre vivos; mesma organização; revogação lógica |
 | AccessGroup | code,name,description | Código único entre vivos por organização; grupo de negócio, não auth.Group |
 | GroupMember | group,membership | Par único entre vivos; Membership precisa estar ativa |

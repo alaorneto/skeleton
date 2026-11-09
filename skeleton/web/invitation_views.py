@@ -13,7 +13,7 @@ class ResendForm(forms.Form):
     revision = forms.IntegerField(min_value=1)
 
 
-@tenant_page(admin=True)
+@tenant_page(capability="invitations.manage")
 @require_POST
 def resend(request, organization_id, sysid):
     invitation = Invitation.objects.filter(pk=sysid).first()

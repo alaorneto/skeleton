@@ -193,10 +193,10 @@ def sync_table_catalog(*, using="default", apps_registry=None):
         )
 
         def reconcile():
-            from skeleton.access.services import reconcile_builtin_permissions
+            from skeleton.access.services import reconcile_builtin_roles
 
             for organization_id in organization_ids:
-                reconcile_builtin_permissions(organization_id=organization_id, using=using)
+                reconcile_builtin_roles(organization_id=organization_id, using=using)
 
         transaction.on_commit(reconcile, using=using)
     return {"tables": len(names), "fields": field_count}

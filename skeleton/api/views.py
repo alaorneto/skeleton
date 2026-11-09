@@ -10,7 +10,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from skeleton.access import services as access_services
-from skeleton.access.policies import authorized_audit_queryset, is_organization_admin
+from skeleton.access.capabilities import has_any_capability, require_resource_capability, resource_capability
+from skeleton.access.policies import authorized_audit_queryset
 from skeleton.accounts.mfa import mfa_required
 from skeleton.accounts.services import update_profile
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
@@ -49,7 +50,7 @@ class TenantAPI(SessionAPI):
         super().check_permissions(request)
         if current_context().organization_id is None:
             raise Http404
-        if is_organization_admin(request.user) and mfa_required(request.user):
+        if has_any_capability(request.user) and mfa_required(request.user):
             raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403)
 
 
@@ -101,7 +102,8 @@ class OrganizationsView(SessionAPI):
 class DedicatedView(TenantAPI):
     def check_permissions(self, request):
         super().check_permissions(request)
-        access_services.require_organization_admin(request.user)
+        self.capability = resource_capability(self.kwargs.get("resource", ""), method=request.method)
+        require_resource_capability(request.user, self.capability)
 
     def get(self, request, organization_id, resource, sysid=None):
         model, fields = dedicated_model(resource)
@@ -141,7 +143,7 @@ class DedicatedView(TenantAPI):
         if not sysid or resource in LINKS or resource == "invitations":
             raise BoundaryError("method_not_allowed", "Este recurso não aceita atualização.", 405)
         model, fields = dedicated_model(resource)
-        with access_services.organization_lock(request.user):
+        with access_services.organization_lock(request.user, capability=self.capability):
             record = model.objects.select_for_update().filter(pk=sysid).first()
             if record is None:
                 raise Http404
@@ -158,7 +160,7 @@ class DedicatedView(TenantAPI):
         if request_fields(request):
             raise BoundaryError("invalid_request", "Remoção não aceita campos.")
         model, fields = dedicated_model(resource)
-        with access_services.organization_lock(request.user):
+        with access_services.organization_lock(request.user, capability=self.capability):
             record = model.objects.select_for_update().filter(pk=sysid).first()
             if record is None:
                 raise Http404

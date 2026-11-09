@@ -12,7 +12,14 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
-from skeleton.access.policies import authorized_audit_queryset, is_organization_admin, require_record_action
+from skeleton.access.capabilities import (
+    capabilities_for,
+    has_any_capability,
+    require_admin_surface,
+    require_resource_capability,
+    resource_capability,
+)
+from skeleton.access.policies import authorized_audit_queryset, require_record_action
 from skeleton.accounts.mfa import mfa_required
 from skeleton.accounts.services import update_profile
 from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
@@ -80,21 +87,30 @@ def record_breadcrumbs(spec, organization_id):
     ]
 
 
-def tenant_page(*, admin=False):
+def tenant_page(*, admin=False, capability=None):
+    """Tenant HTML page; ``admin`` requires the administrator, ``capability`` a delegated capability.
+
+    ``capability`` is a capability name or ``callable(request, kwargs) -> name``
+    for pages whose resource selects it.
+    """
+
     def decorator(view):
         @login_required
         @wraps(view)
         def wrapper(request, *args, **kwargs):
             if current_context().organization_id is None:
                 raise Http404
+            needed = capability(request, kwargs) if callable(capability) else capability
             if admin:
-                access_services.require_organization_admin(request.user)
-            if is_organization_admin(request.user) and mfa_required(request.user):
+                require_admin_surface(request.user)
+            elif needed:
+                require_resource_capability(request.user, needed)
+            if has_any_capability(request.user) and mfa_required(request.user):
                 return redirect("mfa_index")
             try:
                 with timezone.override(request.user.profile.timezone):
-                    if admin and request.method not in {"GET", "HEAD", "OPTIONS"}:
-                        with access_services.organization_lock(request.user):
+                    if (admin or needed) and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                        with access_services.organization_lock(request.user, capability=needed):
                             return view(request, *args, **kwargs)
                     return view(request, *args, **kwargs)
             except (service_errors.NotFound, service_errors.Unavailable):
@@ -212,6 +228,10 @@ def profile(request):
     return render(request, "account/profile.html", {"title": "Perfil", "form": form}, status=status)
 
 
+def access_capability(request, kwargs):
+    return resource_capability(kwargs.get("resource", ""), method=request.method)
+
+
 @tenant_page()
 def dashboard(request, organization_id):
     organization = apps.get_model("sk_tenancy", "Organization").objects.get(pk=organization_id)
@@ -224,12 +244,12 @@ def dashboard(request, organization_id):
             "specs": specs,
             "app_groups": grouped_specs(specs),
             "organization_id": organization_id,
-            "is_org_admin": is_organization_admin(request.user),
+            "capabilities": capabilities_for(request.user),
         },
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=access_capability)
 def access_list(request, organization_id, resource):
     model, fields = dedicated_model(resource)
     queryset = model.objects.order_by("created_at", "sysid")
@@ -258,7 +278,7 @@ def access_list(request, organization_id, resource):
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=access_capability)
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def access_edit(request, organization_id, resource, sysid=None):
@@ -319,7 +339,7 @@ def access_edit(request, organization_id, resource, sysid=None):
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=access_capability)
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def access_delete(request, organization_id, resource, sysid):

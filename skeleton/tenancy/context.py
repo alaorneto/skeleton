@@ -173,9 +173,7 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
     prior = _context.get()
     # These are private, narrow identity admission paths, never request-selectable flags.
     admitted = reason in {"invitation:validated", "sso:validated"} or bool(
-        prior
-        and prior.platform_admin
-        and reason in {"organization:create", "organization:bootstrap", "builtin-permissions"}
+        prior and prior.platform_admin and reason in {"organization:create", "organization:bootstrap", "builtin-roles"}
     )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")

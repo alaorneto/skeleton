@@ -30,6 +30,12 @@ def target_queryset(field, *, user, source_model, access=False):
     if issubclass(related, OrganizationRecord):
         if related._meta.label_lower not in CORE_REFERENCE_LABELS:
             raise PermissionDenied("Reference target has no readable policy.")
+        if (
+            related._meta.label_lower == "sk_access.role"
+            and source_model._meta.label_lower == "sk_tenancy.invitation"
+            and not is_organization_admin(user)
+        ):
+            return _invitation_roles(related, user=user)
         if not (access and related._meta.label_lower == "sk_access.accessgroup") and not is_organization_admin(user):
             raise PermissionDenied("Organization administration required for this reference.")
         queryset = related.objects.all()
@@ -45,6 +51,15 @@ def target_queryset(field, *, user, source_model, access=False):
             available=True, model_label__in=[spec.model._meta.label_lower for spec in readable_specs(user)]
         )
     raise PermissionDenied("Reference target has no readable policy.")
+
+
+def _invitation_roles(model, *, user):
+    """A delegated inviter picks only roles that hand out no capability."""
+    from skeleton.access.capabilities import BUILTIN_ROLES, INVITATIONS_MANAGE, require_capability
+
+    require_capability(user, INVITATIONS_MANAGE)
+    privileged = [code for code, role in BUILTIN_ROLES.items() if role.capabilities]
+    return model.objects.exclude(is_builtin=True, code__in=privileged)
 
 
 def reference_queryset(spec, field_name, *, user, record=None, access=False):
