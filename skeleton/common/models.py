@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import Collection, Iterable
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -10,6 +10,9 @@ from django.utils import timezone
 
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
 from .querysets import InfrastructureManager, RecordManager, context
+
+if TYPE_CHECKING:
+    from django.db.models.fetch_modes import FetchMode
 
 
 class SystemRecord(models.Model):
@@ -42,8 +45,19 @@ class SystemRecord(models.Model):
         ]
 
     @classmethod
-    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any]) -> Self:
-        instance = super().from_db(db, field_names, values)
+    def from_db(
+        cls,
+        db: str | None,
+        field_names: Collection[str],
+        values: Collection[Any],
+        *,
+        fetch_mode: "FetchMode | None" = None,
+    ) -> Self:
+        # Django 6.1 passes fetch_mode; Django 5.2 neither passes nor accepts it.
+        if fetch_mode is None:
+            instance = super().from_db(db, field_names, values)
+        else:
+            instance = super().from_db(db, field_names, values, fetch_mode=fetch_mode)
         instance._loaded_values = dict(zip(field_names, values, strict=True))
         return instance
 
