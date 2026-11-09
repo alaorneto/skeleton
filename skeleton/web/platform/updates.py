@@ -8,13 +8,8 @@ and installed before CSRF parses the multipart body.
 
 import re
 import tempfile
-import time
 from pathlib import Path
 
-from allauth.account import app_settings as account_settings
-from allauth.account.authentication import get_authentication_records
-from allauth.account.decorators import reauthentication_required
-from allauth.core.exceptions import ReauthenticationRequired
 from django import forms
 from django.conf import settings
 from django.contrib import messages
@@ -24,6 +19,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
+from skeleton.accounts.reauthentication import recent_authentication_required, require_recent_authentication
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.models import ComponentInstallation, DeploymentOperation
 from skeleton.system.releases import (
@@ -134,9 +130,7 @@ class BoundedPackageUpload(FileUploadHandler):
 
 
 def recent_authentication(request):
-    records = get_authentication_records(request)
-    if not records or time.time() - records[-1]["at"] >= account_settings.REAUTHENTICATION_TIMEOUT:
-        raise ReauthenticationRequired()
+    require_recent_authentication(request)
 
 
 def _context(step, **values):
@@ -255,7 +249,7 @@ def upload(request):
 
 
 @csrf_protect
-@reauthentication_required(allow_get=True)
+@recent_authentication_required(allow_get=True)
 def _upload(request):
     require_platform(request.user)
     if request.method != "POST":
@@ -292,7 +286,7 @@ def _upload(request):
 
 @platform_page
 @require_http_methods(["GET", "POST"])
-@reauthentication_required(allow_get=True)
+@recent_authentication_required(allow_get=True)
 def plan(request):
     if request.method != "POST":
         return _plan_page(request, PlanForm())
@@ -322,7 +316,7 @@ def _preview_failure(request, form, exc):
 
 @platform_page
 @require_http_methods(["POST"])
-@reauthentication_required(allow_get=True)
+@recent_authentication_required(allow_get=True)
 def add_dependency(request):
     """Fetch an operator-chosen catalogue suggestion and preview the plan again with it."""
     recent_authentication(request)
@@ -346,7 +340,7 @@ def add_dependency(request):
 
 @platform_page
 @require_http_methods(["POST"])
-@reauthentication_required(allow_get=True)
+@recent_authentication_required(allow_get=True)
 def fetch_release(request):
     recent_authentication(request)
     try:
@@ -379,7 +373,7 @@ def operations(request):
 
 @platform_page
 @require_http_methods(["GET", "POST"])
-@reauthentication_required(allow_get=True)
+@recent_authentication_required(allow_get=True)
 def operation(request, operation_id):
     row = get_object_or_404(DeploymentOperation.objects.select_for_update(), pk=operation_id)
     if request.method == "POST":

@@ -1,6 +1,6 @@
 # Skeleton Django
 
-Base reutilizável de Django 5.2 LTS para construir sistemas com login, várias organizações e controle de acesso aos dados. Ela resolve a infraestrutura comum: identificar a pessoa, separar dados de empresas/equipes, decidir quem pode ler ou alterar cada registro e conservar a história das mudanças. As regras do seu negócio ficam no projeto derivado, não no núcleo `skeleton`.
+Base reutilizável de Django 6.1 para construir sistemas com login, várias organizações e controle de acesso aos dados. Ela resolve a infraestrutura comum: identificar a pessoa, separar dados de empresas/equipes, decidir quem pode ler ou alterar cada registro e conservar a história das mudanças. As regras do seu negócio ficam no projeto derivado, não no núcleo `skeleton`.
 
 **Desenvolvimento não é produção.** SQLite permite começar sem serviços externos, mas não oferece RLS, a proteção PostgreSQL por linha, nem defesa contra quem controla o arquivo. Produção usa PostgreSQL com credenciais distintas para atender usuários e alterar a estrutura do banco, além de Redis compartilhado, SMTP e HTTPS. Trocar `DATABASE_URL` só troca a conexão: não transporta dados.
 
@@ -105,13 +105,14 @@ O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compil
 ### Atualizar locks (manutenção, não todo startup)
 
 ```sh
-.venv/bin/python -m pip install pip-tools
-.venv/bin/pip-compile --generate-hashes requirements.in
+uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements.in -o requirements.txt
 uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements-dev.in -o requirements-dev.txt
 .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
-O runtime fixa Django 5.2.18, django-allauth 65.19.7, DRF 3.18.3, django-environ 0.14.0 e WhiteNoise 6.12.0. Protocolos, MFA e cifragem reutilizam bibliotecas, não parsers caseiros.
+Ao mudar uma versão em `requirements.in`, `requirements-dev.in` ou `pyproject.toml`, regenere os dois locks no mesmo commit; para não atualizar outros pacotes de carona, acrescente `--upgrade-package <pacote>` aos dois comandos. Os PRs do Dependabot não regeneram os locks de forma confiável: confira o diff antes do merge.
+
+O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 0.14.0 e WhiteNoise 6.12.0. Protocolos, MFA e cifragem reutilizam bibliotecas, não parsers caseiros.
 
 ## Configuração
 

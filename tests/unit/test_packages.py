@@ -338,7 +338,7 @@ def test_dependency_versions_cycles_and_namespace_collisions(signed_app):
         app_id="org.test.second", app_label="project_second", package_name="second", publisher="test-publisher"
     )
     second["dependencies"] = {first["app_id"]: ">=0.1.0,<0.2.0"}
-    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18"}
+    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "6.1.3"}
     assert validate_dependency_graph([second, first], **kwargs) == [first["app_id"], second["app_id"]]
     with pytest.raises(PackageError):
         validate_dependency_graph([second], **kwargs)
@@ -656,7 +656,7 @@ def test_dependency_graph_validates_complete_core_contract(signed_app, failure):
     app = load_manifest(signed_app["manifest"])
     core = core_manifest(signed_app)
     core["version"] = "0.3.0"
-    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18"}
+    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "6.1.3"}
     core["dependencies"] = {app["app_id"]: ">=0.1.0,<0.2.0"}
     assert validate_dependency_graph([core, app], **kwargs) == [app["app_id"]]
     if failure in ("python", "django", "skeleton"):
@@ -683,7 +683,7 @@ def test_dependency_graph_compares_only_target_active_wheel_pins(signed_app, tar
     )
     declare_dependency(first, "dependency", "1.0.0", "a" * 64, 'sys_platform == "win32"')
     declare_dependency(second, "dependency", "2.0.0", "b" * 64, 'sys_platform == "linux"')
-    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18", "target_environment": {"sys_platform": target}}
+    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "6.1.3", "target_environment": {"sys_platform": target}}
     assert set(validate_dependency_graph([first, second], **kwargs)) == {first["app_id"], second["app_id"]}
     first["python_dependencies"][0]["marker"] = f'sys_platform == "{target}"'
     second["python_dependencies"][0]["marker"] = f'sys_platform == "{target}"'
@@ -702,7 +702,7 @@ def test_target_python_markers_and_metadata_requirements_agree(signed_app, tmp_p
         assert (
             len(
                 validate_dependency_graph(
-                    [first, second], core="0.3.0", django="5.2.18", target_environment={"python_full_version": version}
+                    [first, second], core="0.3.0", django="6.1.3", target_environment={"python_full_version": version}
                 )
             )
             == 2
@@ -711,7 +711,7 @@ def test_target_python_markers_and_metadata_requirements_agree(signed_app, tmp_p
         validate_dependency_graph(
             [first],
             core="0.3.0",
-            django="5.2.18",
+            django="6.1.3",
             python="3.14.0",
             target_environment={"python_full_version": "3.12.10"},
         )
