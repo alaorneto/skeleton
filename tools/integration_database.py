@@ -181,13 +181,18 @@ def schema_fingerprint(pair):
         return _fingerprint(connection)
 
 
+# A NULL ACL means the default privileges. REVOKE can leave an explicit ACL equal to that
+# default, which pg_dump omits, so the restore yields NULL again: compare acldefault() instead.
 _FINGERPRINT_QUERIES = {
     "schema": """
-        SELECT pg_get_userbyid(nspowner), ARRAY(SELECT unnest(nspacl)::text ORDER BY 1)
+        SELECT pg_get_userbyid(nspowner), ARRAY(SELECT unnest(coalesce(nspacl, acldefault('n', nspowner)))::text ORDER BY 1)
         FROM pg_namespace WHERE nspname='skeleton'""",
     "relations": """
         SELECT c.relname, c.relkind, pg_get_userbyid(c.relowner), c.relrowsecurity, c.relforcerowsecurity,
-               ARRAY(SELECT unnest(c.relacl)::text ORDER BY 1)
+               ARRAY(SELECT unnest(coalesce(c.relacl, CASE
+                   WHEN c.relkind = 'S' THEN acldefault('s', c.relowner)
+                   WHEN c.relkind IN ('r', 'p', 'v', 'm', 'f') THEN acldefault('r', c.relowner)
+               END))::text ORDER BY 1)
         FROM pg_class c WHERE c.relnamespace='skeleton'::regnamespace ORDER BY 1""",
     "columns": """
         SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, a.attidentity,
@@ -211,7 +216,7 @@ _FINGERPRINT_QUERIES = {
     "functions": """
         SELECT p.proname, pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid),
                pg_get_userbyid(p.proowner), p.prokind, p.prosecdef, p.provolatile, p.proconfig,
-               ARRAY(SELECT unnest(p.proacl)::text ORDER BY 1), md5(p.prosrc)
+               ARRAY(SELECT unnest(coalesce(p.proacl, acldefault('f', p.proowner)))::text ORDER BY 1), md5(p.prosrc)
         FROM pg_proc p WHERE p.pronamespace='skeleton'::regnamespace ORDER BY 1, 2""",
     "sequences": "SELECT sequencename, last_value FROM pg_sequences WHERE schemaname='skeleton' ORDER BY 1",
 }

@@ -54,7 +54,30 @@ def _first_policy(owner):
     return row
 
 
-@pytest.mark.parametrize("mutation", ["policy", "trigger", "grant", "force_rls", "data"])
+def _default_acl_sequence(owner):
+    row = owner.execute(
+        "SELECT relname FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relkind='S' AND relacl IS NULL "
+        "ORDER BY 1 LIMIT 1"
+    ).fetchone()
+    assert row, "Restored schema must have a sequence with default privileges."
+    return row[0]
+
+
+def test_explicit_default_acl_matches_the_restored_null_acl(template):
+    # REVOKE on a sequence with default privileges stores the owner's default ACL explicitly;
+    # pg_dump omits it, so migrated and restored schemas differ only in that representation.
+    pair = disposable_database_pair()
+    with psycopg.connect(pair.owner, autocommit=True) as owner:
+        sequence = _default_acl_sequence(owner)
+        owner.execute(sql.SQL("REVOKE ALL ON SEQUENCE skeleton.{} FROM PUBLIC").format(sql.Identifier(sequence)))
+        assert owner.execute(
+            "SELECT relacl IS NOT NULL FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relname=%s",
+            (sequence,),
+        ).fetchone() == (True,)
+    assert schema_fingerprint(pair) == template.fingerprint
+
+
+@pytest.mark.parametrize("mutation", ["policy", "trigger", "grant", "sequence_grant", "force_rls", "data"])
 def test_fingerprint_detects_missing_security_object(template, mutation):
     pair = disposable_database_pair()
     table = Role._meta.db_table
@@ -72,6 +95,12 @@ def test_fingerprint_detects_missing_security_object(template, mutation):
             )
         elif mutation == "grant":
             owner.execute(sql.SQL("REVOKE SELECT ON skeleton.{} FROM skeleton_runtime").format(sql.Identifier(table)))
+        elif mutation == "sequence_grant":
+            owner.execute(
+                sql.SQL("GRANT USAGE ON SEQUENCE skeleton.{} TO skeleton_runtime").format(
+                    sql.Identifier(_default_acl_sequence(owner))
+                )
+            )
         elif mutation == "force_rls":
             owner.execute(
                 sql.SQL("ALTER TABLE skeleton.{} NO FORCE ROW LEVEL SECURITY").format(
