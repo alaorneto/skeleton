@@ -23,7 +23,8 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/system` | Registro de especificações, catálogo, apps, checks e controle de releases | Metadados não executam DDL |
 | `skeleton/audit` | Eventos e infraestrutura de auditoria | Triggers são a fonte; não há segunda fonte por signals de save |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
-| `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate` e erros públicos | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
+| `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate`, erros públicos, introspecção do contrato (`contract`) e APIs declaradas pelas apps (`registry`) | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
+| `skeleton/testing` | Kit de testes distribuído no wheel: `assert_service_contract`, cenário A/B e helpers de isolamento, default deny, app desativada e CAS | Só para testes; cria dados pelas mesmas APIs públicas e não concede bypass |
 | `skeleton/conf` | Defaults, profiles e URLs distribuídos com o núcleo | Não importa negócio nem configurações do derivado |
 | `config` | Overlay de settings, URLs e entrypoints do projeto | Mantém os hooks de extensão sem renomear labels do núcleo |
 | `applications` | Apps de negócio do projeto derivado | Consome contratos do núcleo; não modifica suas regras |
@@ -88,7 +89,7 @@ O **registry** contém `TableSpec` no código: modelos, campos permitidos, sensi
 
 Uma app possui `manifest.json` canônico, carregado como `AppManifest`, separado das especificações de tabela. Rotas e menus declarados entram sob prefixes tenant reservados, antes do gateway. A navegação e as policies revalidam ativação e permissão: esconder um menu não basta.
 
-Apps interagem entre si e com o núcleo pela **API de serviços**: cada app publica classes em `service_api.py`, e as outras só importam esse módulo. A chamada roda no contexto e na transação de quem chama, com autorização revalidada no serviço e retorno em DTOs imutáveis. As superfícies HTTP e HTML da app são camadas finas sobre a mesma API. Veja [API de serviços entre apps](service-api.md).
+Apps interagem entre si e com o núcleo pela **API de serviços**: cada app publica classes em `service_api.py`, e as outras só importam esse módulo. A chamada roda no contexto e na transação de quem chama, com autorização revalidada no serviço e retorno em DTOs imutáveis. As superfícies HTTP e HTML da app são camadas finas sobre a mesma API. A fronteira é verificada no CI e no empacotamento: `runtime.service_api` declara módulo e classes (check E018), uma análise estática dos imports reprova acesso a internos de outra app ou a dependência não declarada (E019) e avisa sobre módulos não públicos do núcleo (W019), e `package doctor` repete a análise antes do build. Veja [API de serviços entre apps](service-api.md).
 
 ```mermaid
 flowchart LR

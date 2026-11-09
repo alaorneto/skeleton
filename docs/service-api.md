@@ -1,6 +1,6 @@
 # API de serviços entre apps
 
-**Estado: especificação aprovada; base implementada em `skeleton.service_api` ([#97](https://github.com/alaorneto/skeleton/issues/97)); verificações automáticas e serviços do núcleo em andamento.** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. A base técnica, as verificações automáticas e o catálogo de serviços do núcleo estão nos epics [#112](https://github.com/alaorneto/skeleton/issues/112) (contrato) e [#113](https://github.com/alaorneto/skeleton/issues/113) (núcleo). Cada seção indica quando depende de algo ainda não entregue. Até lá, a obrigação vale por revisão de código, e o skill `service-api` (`.claude/skills/service-api/`) é o procedimento.
+**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), core 0.4.0): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Os serviços do núcleo seguem em andamento (epic [#113](https://github.com/alaorneto/skeleton/issues/113)).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
 
 ## Por que existe
 
@@ -28,8 +28,8 @@ A REST e as páginas HTML devem ser camadas finas sobre a API de serviços da pr
 
 ## Obrigações de toda app
 
-1. **Publicar uma API de serviços.** Toda app tem `service_api.py` no pacote, com pelo menos uma classe de serviço, ainda que só com consultas. Ela é declarada no manifesto em `runtime.service_api` (verificação pelo check `skeleton.E018`, a partir de [#98](https://github.com/alaorneto/skeleton/issues/98)).
-2. **Publicar só por ela.** Outra app só pode importar o `service_api` do provedor. Modelos, managers, `services.py` internos, forms e views não são contrato (verificação estática pelo check `skeleton.E019`, a partir de [#99](https://github.com/alaorneto/skeleton/issues/99)).
+1. **Publicar uma API de serviços.** Toda app tem `service_api.py` no pacote, com pelo menos uma classe de serviço, ainda que só com consultas. Ela é declarada no manifesto em `runtime.service_api` (verificação pelo check `skeleton.E018`; `package build` e `package doctor` recusam release sem a declaração).
+2. **Publicar só por ela.** Outra app só pode importar o `service_api` do provedor. Modelos, managers, `services.py` internos, forms e views não são contrato (verificação estática pelo check `skeleton.E019` e pelo `package doctor`).
 3. **Declarar a dependência.** Consumir a API de outra app exige declará-la em `dependencies` do manifesto, com faixa de versão, como já acontece com migrations e FKs (E014/E015).
 4. **Autorizar dentro do serviço.** O método aplica `authorized_queryset`, `require_record_action`, capacidades e ativação da app. Ser chamado por código não concede permissão.
 5. **Não vazar internos.** Retorna DTOs, páginas de DTOs ou tipos primitivos, nunca modelos, querysets ou campos de `sensitive_fields`.
@@ -53,7 +53,7 @@ applications/tasks/
 
 Uma app grande pode transformar `service_api.py` em pacote (`service_api/__init__.py` reexportando as classes). O nome do módulo declarado continua sendo o ponto de importação.
 
-Declaração no manifesto (campo introduzido em [#98](https://github.com/alaorneto/skeleton/issues/98)):
+Declaração no manifesto (`manifest_version` 2, core `>=0.4.0`):
 
 ```json
 "runtime": {
@@ -63,6 +63,12 @@ Declaração no manifesto (campo introduzido em [#98](https://github.com/alaorne
   }
 }
 ```
+
+- `module` fica dentro do pacote da app (`applications.<package_name>.…`); qualquer outro caminho é recusado pelo validador do manifesto.
+- `classes` são nomes simples e únicos (1 a 32), definidos no módulo declarado (ou num submódulo dele).
+- Declarar o campo exige `compatibility.skeleton` com piso `>=0.4.0`: um core mais antigo não conhece o campo. `package build` acrescenta o piso ao artefato publicado.
+- Manifestos históricos sem o campo continuam carregando, com o aviso `skeleton.W018`, até a versão do core que tornar o campo obrigatório. `package build` e `package doctor` já exigem o campo, o módulo e `docs/service-api.md`.
+- `skeleton.service_api.registry.service_registry()` devolve `app_id → classes` resolvidas, para introspecção e documentação; a página `/platform/apps/<app_label>/documentation/` mostra o `service-api.md` da app.
 
 ## Forma de um serviço e de seus métodos
 
@@ -114,7 +120,7 @@ O decorador confere que `actor` é o mesmo de `current_context().actor` (`skelet
 - Campos permitidos: UUID, `str`, `int`, `bool`, `Decimal`, `date`, `datetime` com fuso, enums de texto, tuplas e outros DTOs. Datas e horas saem em UTC com `tzinfo`. Converter para o fuso da pessoa é trabalho da superfície.
 - Só entram campos que estão em `read_fields` do `TableSpec` e fora de `sensitive_fields`, salvo campo sensível documentado na seção **Autorização** do método.
 - Listas usam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100). Nunca devolva lista ilimitada.
-- Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: o kit de contrato ([#100](https://github.com/alaorneto/skeleton/issues/100)) reprova.
+- Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: `@service_method` recusa o valor na execução, e `assert_service_contract` reprova a anotação de retorno.
 
 ## Erros
 
@@ -187,9 +193,20 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.tenancy.context` | `current_context` (leitura) |
 | `skeleton.web.views` | `tenant_page` |
 | `skeleton.api.views` | `TenantAPI` |
-| `skeleton.testing` | Fixtures e kit de contrato, só em testes (a partir de [#100](https://github.com/alaorneto/skeleton/issues/100)) |
+| `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
-`skeleton.system.applications.application_state` continua permitido até existir o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)). Importar outros módulos do núcleo vira aviso e depois erro do check E019.
+`skeleton.system.applications.application_state` continua permitido até existir o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)). Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
+
+### Fronteira verificada
+
+O check `skeleton.E019` analisa com `ast`, sem importar código, todos os `.py` de cada app registrada:
+
+- importar de outra app registrada qualquer módulo que não seja o `service_api` declarado dela (ou submódulo dele) é erro, inclusive por import relativo (`from ..tasks.models import Task`) e por `from applications.tasks import models`;
+- importar o `service_api` de outra app sem declará-la em `dependencies` é erro, como E014/E015 fazem para migrations e FKs;
+- `applications.<pacote>` desconhecido (app não registrada) só admite `applications.<pacote>.service_api`;
+- módulos fora das superfícies públicas do núcleo geram `skeleton.W019`.
+
+`package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
 
 ## Catálogo planejado do núcleo
 
@@ -221,9 +238,32 @@ Para cada método público, prove:
   - CAS com duas chamadas na mesma revisão: uma vence, a outra recebe `Conflict`;
   - `idempotency_key` repetida não duplica;
   - rollback do chamador não deixa efeitos nem eventos.
-- **Contrato:** `assert_service_contract(ServiceClass)` do kit ([#100](https://github.com/alaorneto/skeleton/issues/100)).
+- **Contrato:** `assert_service_contract(ServiceClass)` do kit.
 
 Rode em SQLite e em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre em [testing](testing.md) somente o que rodou de fato.
+
+### Kit de testes de contrato
+
+`skeleton.testing.service_api` é distribuído no wheel do core. As funções levantam `AssertionError` e funcionam com pytest ou unittest:
+
+| Helper | Prova |
+|---|---|
+| `assert_service_contract(Service)` | Estrutura do E018 mais anotações de retorno só com DTO congelado, `Page[T]`, tupla, enum de texto ou primitivo (nunca modelo, `QuerySet`, `dict`, `list`, `Any` ou `float`), parâmetros anotados (exceto `actor`) e docstring com `Autorização:`, `Erros:` e `Efeitos:` |
+| `build_service_scenario(Model)` | Organizações A/B, `member` com `TablePermission` em todas as ações nas duas, `denied` em A sem permissão, `outsider` sem vínculo e a app ativa nas duas, tudo pelos serviços públicos de identidade e provisionamento |
+| `scenario.caller(fn, user=..., organization=...)` | Uma chamada `fn(actor)` dentro do próprio contexto (contextos não aninham nem trocam de ator) |
+| `assert_tenant_isolated(call, foreign=[...])` | Nenhum UUID, código ou título de B aparece em retorno, página, contagem ou mensagem de erro |
+| `assert_denied_as_not_found(call, missing=...)` | Negado responde `NotFound` idêntico ao de um alvo inexistente |
+| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Com a app desativada na organização, `Unavailable` |
+| `assert_rejects_other_actor(call)` | `actor` diferente do contexto, `Forbidden` |
+| `assert_cas_conflict(first, second)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")` |
+
+O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado do projeto, nunca num banco compartilhado. `tests/integration_sqlite/test_notes_service_api.py` é o exemplo completo, executado também no job PostgreSQL com a role runtime. O gerador cria `tests/test_service_api.py` com o teste de contrato, que não usa banco.
+
+### Limites da verificação
+
+- Imports dinâmicos (`importlib.import_module`, `__import__`, strings resolvidas em runtime) escapam da análise estática.
+- Os checks verificam forma, não semântica: que o método chama `authorized_queryset` e não vaza dados só se prova com os testes do kit.
+- W019 ainda é aviso; até virar erro, um import de módulo interno do núcleo depende da revisão.
 
 ## Documentação por app
 

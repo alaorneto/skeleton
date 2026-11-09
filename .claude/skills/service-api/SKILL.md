@@ -13,8 +13,7 @@ Escreva docs e comentários em português, como o restante do repositório; iden
 
 1. Vincule o trabalho a uma issue pelo skill `issue-workflow` (criar app, expor operação e integrar apps são desenvolvimento versionado).
 2. Verifique o que já existe no checkout, porque partes do contrato ainda estão sendo entregues:
-   - `skeleton/service_api/` (base, DTOs, erros: issue #97). Se não existir, escreva o serviço com a mesma forma (classe sem estado, métodos keyword-only com `actor`, DTOs congelados) usando exceções do Django/`skeleton.common.exceptions`. Registre na issue o follow-up de adotar `ServiceAPI`/`@service_method` quando #97 entrar e avise o usuário. Não crie uma base local paralela no projeto.
-   - `runtime.service_api` no validador de manifesto (#98) e os checks E018/E019 (#98/#99). Se não existirem, declare o campo só quando o validador aceitar; até lá, documente o módulo em `docs/service-api.md` da app.
+   - `skeleton/service_api/` (base, DTOs, erros, `contract`, `registry`), `runtime.service_api` no manifesto (core `>=0.4.0`), os checks E018/E019/W019 e o kit `skeleton.testing.service_api` estão entregues (epic #112). Num projeto com core mais antigo, atualize o core antes; não crie uma base local paralela.
    - Serviços do núcleo em `skeleton/service_api/` (#102–#109). Use os que existirem; para os demais, use as superfícies públicas listadas na especificação, nunca módulos internos do núcleo.
 3. Leia o `TableSpec` dos modelos envolvidos (`read_fields`, `write_fields`, `sensitive_fields`) e as políticas da app.
 
@@ -36,14 +35,14 @@ Exponha o mínimo que os consumidores precisam. Cada método público é comprom
 1. `service_api.py` no pacote da app, com DTOs e classes de serviço (modelo em `references/templates.md`).
 2. Regras de negócio ficam em funções internas (`services.py`). O `service_api` valida a entrada, autoriza, chama a regra interna e converte para DTO.
 3. Consultas partem de `authorized_queryset(Model, user=actor, action=...)`. Comandos localizam o registro por queryset autorizado e chamam `require_record_action(record, user=actor, action=...)`.
-4. Exija a app ativa no início de cada método (`require_application_enabled` hoje; `Unavailable` depois de #97/#105).
+4. Defina `app_label` da app na classe: o `@service_method` exige a app ativa e responde `Unavailable` (o E018 recusa `app_label` diferente).
 5. Alterações: aplique `expected_revision` no CAS e traduza `ConcurrentUpdate` para `Conflict(code="stale_revision")`. Nunca tente de novo em silêncio.
 6. Não abra `system_context`, não troque de organização, não faça commit e não envie email/HTTP dentro do método. Use jobs, eventos ou `on_commit` com valores materializados.
 7. Views, REST e jobs da própria app passam a chamar o `service_api`, para existir um único caminho.
 
 ## 3. Declarar
 
-- Manifesto: `runtime.service_api = {"module": "applications.<pkg>.service_api", "classes": [...]}` (quando o validador aceitar).
+- Manifesto: `runtime.service_api = {"module": "applications.<pkg>.service_api", "classes": [...]}`, com `compatibility.skeleton` `>=0.4.0`. Rode `manage.py check` (E018/E019) e `manage.py package doctor applications/<pkg>`.
 - Consumir outra app: declare o `app_id` dela em `dependencies` com faixa de versão. Importe só `applications.<outra>.service_api`, nunca `models`, `services`, `forms` ou `views` dela. Trate `Unavailable` como integração desligada.
 - Do núcleo, importe só as superfícies públicas da tabela da especificação.
 
@@ -57,7 +56,7 @@ Para cada método público (modelo em `references/templates.md`):
 - app desativada → `Unavailable`;
 - ator divergente do contexto → `Forbidden`;
 - comandos: CAS com um vencedor, idempotência e rollback sem efeitos residuais;
-- `assert_service_contract` quando o kit (#100) existir.
+- `assert_service_contract` e os helpers do kit (`build_service_scenario`, `assert_tenant_isolated`, `assert_denied_as_not_found`, `assert_unavailable_when_disabled`, `assert_rejects_other_actor`, `assert_cas_conflict`).
 
 Rode SQLite e PostgreSQL com a role runtime:
 
