@@ -80,6 +80,16 @@ def _authorized(people: list[UUID], target) -> list[UUID]:
     return allowed
 
 
+def _display(notification) -> dict:
+    return {
+        "type_code": notification.type_code,
+        "target_table_key": notification.target_table_key,
+        "target_sysid": notification.target_sysid,
+        "snapshot": dict(notification.snapshot),
+        "payload": dict(notification.payload),
+    }
+
+
 def fan_out(*, notification_id: str, offset: int) -> int:
     """Job handler (system context of the organization): one batch of at most BATCH_SIZE people."""
     from skeleton.jobs.services import enqueue
@@ -100,7 +110,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
         )
     if grouped:
         NotificationRecipient.objects.filter(pk__in=grouped.values()).update(
-            count=F("count") + 1, notification=notification
+            count=F("count") + 1, notification=notification, **_display(notification)
         )
     NotificationRecipient.objects.bulk_create(
         [
@@ -109,6 +119,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
                 notification=notification,
                 user_id=user,
                 group_key=notification.group_key,
+                **_display(notification),
             )
             for user in batch
             if user not in grouped

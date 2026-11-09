@@ -64,6 +64,13 @@ class NotificationRecipient(OperationalRecord):
     )
     notification = models.ForeignKey(Notification, on_delete=models.PROTECT, related_name="deliveries")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    # Copied at fan-out: the cross-organization inbox reads only this self-discoverable row,
+    # since Notification itself is visible only inside its tenant (RLS).
+    type_code = models.CharField(max_length=100, default="")
+    target_table_key = models.CharField(max_length=128, blank=True, default="")
+    target_sysid = models.UUIDField(null=True, blank=True)
+    snapshot = models.JSONField(default=dict)
+    payload = models.JSONField(default=dict)
     group_key = models.CharField(max_length=200, blank=True, default="")
     count = models.PositiveIntegerField(default=1)
     read_at = models.DateTimeField(null=True, blank=True)

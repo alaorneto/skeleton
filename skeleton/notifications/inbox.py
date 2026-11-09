@@ -34,7 +34,8 @@ def inbox_queryset(user, *, include_archived: bool = False):
         rows = own_rows(NotificationRecipient, user).filter(organization_id__in=_active_organizations(user))
     if not include_archived:
         rows = rows.filter(archived_at__isnull=True)
-    return rows.select_related("notification").order_by("-updated_at", "sysid")
+    # No join with Notification: across organizations only the person's own rows are visible.
+    return rows.order_by("-updated_at", "sysid")
 
 
 def unread_count(user, *, organization_ids: Iterable | None = None) -> int:
@@ -100,15 +101,14 @@ def open_target(user, row_id) -> str | None:
     from skeleton.access.policies import require_record_action
     from skeleton.system.registry import get_spec
 
-    row = _own_rows_in_tenant(user, [row_id]).select_related("notification").get()
+    row = _own_rows_in_tenant(user, [row_id]).get()
     if row.read_at is None:
         mark_read(user, [row.pk])
-    notification = row.notification
-    if not notification.target_sysid:
+    if not row.target_sysid:
         return None
     try:
-        model = get_spec(notification.target_table_key).model
-        record = model.objects.filter(pk=notification.target_sysid).first()
+        model = get_spec(row.target_table_key).model
+        record = model.objects.filter(pk=row.target_sysid).first()
         if record is None:
             return None
         require_record_action(record, user=user, action="read")
@@ -116,11 +116,7 @@ def open_target(user, row_id) -> str | None:
         return None
     return reverse(
         "web:record",
-        kwargs={
-            "organization_id": notification.organization_id,
-            "table_key": notification.target_table_key,
-            "sysid": record.pk,
-        },
+        kwargs={"organization_id": row.organization_id, "table_key": row.target_table_key, "sysid": record.pk},
     )
 
 
@@ -128,18 +124,17 @@ def row_data(row) -> dict:
     """Presentation of one inbox row: the type label and the declared snapshot, never the target itself."""
     from .registry import get_notification_type
 
-    notification = row.notification
     try:
-        label = get_notification_type(notification.type_code).label
+        label = get_notification_type(row.type_code).label
     except KeyError:
-        label = notification.type_code
+        label = row.type_code
     return {
         "sysid": row.pk,
         "organization_id": row.organization_id,
-        "type_code": notification.type_code,
+        "type_code": row.type_code,
         "label": label,
-        "snapshot": dict(notification.snapshot),
-        "payload": dict(notification.payload),
+        "snapshot": dict(row.snapshot),
+        "payload": dict(row.payload),
         "count": row.count,
         "read": row.read_at is not None,
         "archived": row.archived_at is not None,

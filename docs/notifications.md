@@ -7,7 +7,7 @@ O núcleo oferece notificações in-app como infraestrutura (`skeleton/notificat
 | Modelo | O que guarda | Proteção |
 |---|---|---|
 | `Notification` | Tipo, ator, alvo (`target_table_key`, `target_sysid`), payload, snapshot, especificação dos destinatários, `group_key`, `dedupe_key` | [Tabela operacional](data-model.md#tabelas-operacionais-adr) com RLS tenant; campos imutáveis |
-| `NotificationRecipient` | A cópia de cada pessoa: `read_at`, `archived_at`, `count` agrupada | RLS tenant com [autodescoberta](access-control.md#rls-postgresql) por `user_id`: a pessoa lê as próprias linhas de todas as organizações, e só escreve no tenant atual |
+| `NotificationRecipient` | A cópia de cada pessoa: `read_at`, `archived_at`, `count` agrupada e, copiados no fan-out, tipo, alvo, snapshot e payload, porque a caixa entre organizações nunca lê `Notification` (visível só no próprio tenant) | RLS tenant com [autodescoberta](access-control.md#rls-postgresql) por `user_id`: a pessoa lê as próprias linhas de todas as organizações, e só escreve no tenant atual |
 
 Nenhuma das duas entra no gateway, e a exclusão física fica para o serviço de retenção.
 
