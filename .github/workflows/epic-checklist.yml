@@ -21,7 +21,7 @@ jobs:
     name: Atualizar as caixas do epic pai
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Reconciliar a seção Itens do epic pai
         # O número entra por variável de ambiente, nunca interpolado no script.
         env:
