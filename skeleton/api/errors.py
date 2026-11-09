@@ -39,10 +39,34 @@ def validation_conflict(error):
     return any(item.code in {"unique", "unique_together"} for item in errors)
 
 
+def service_error_response(exc):
+    """Map a public service API error to the REST boundary; ``ContextRequired`` stays a 500."""
+    from skeleton.service_api import errors
+
+    if isinstance(exc, errors.NotFound | errors.Unavailable):
+        # Unavailable is neutral on purpose: a disabled integration looks like a missing route.
+        return BoundaryError("not_found", "Not found.", 404)
+    if isinstance(exc, errors.Forbidden):
+        return BoundaryError("permission_denied", exc.detail, 403)
+    if isinstance(exc, errors.InvalidInput):
+        return BoundaryError(
+            "validation_error", exc.detail, 400, {field: list(items) for field, items in exc.errors.items()}
+        )
+    if isinstance(exc, errors.Conflict):
+        return BoundaryError(exc.code, exc.detail, 409)
+    return None
+
+
 def exception_handler(exc, context):
     from skeleton.access.services import LastAdministrator
     from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
+    from skeleton.service_api.errors import ServiceError
 
+    if isinstance(exc, ServiceError):
+        mapped = service_error_response(exc)
+        if mapped is None:
+            return None  # ContextRequired and unknown service errors are programming errors (500).
+        exc = mapped
     if isinstance(exc, ConcurrentUpdate):
         exc = BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412)
     elif isinstance(exc, LiveReferencesExist):
