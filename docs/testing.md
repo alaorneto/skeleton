@@ -51,6 +51,30 @@ Antes das correções, a mesma suíte teve 13 falhas: API interna de reautentica
 
 **Não verificado nesta rodada:** PostgreSQL com role runtime, os testes POSIX (pacotes, `test_core_distribution`, agente), `pip install --require-hashes` dos locks e build da imagem; ficam a cargo do CI do PR. A suíte emite `RemovedInDjango2028Warning` para as settings `EMAIL_*` (substituídas por `MAILERS` no Django 6.1); a migração fica para uma issue própria.
 
+## API de serviços do núcleo e subsistemas (epic #113)
+
+Rodada de 2026-11-09 para o epic [#113](https://github.com/alaorneto/skeleton/issues/113) (#102 a #110) e as dependências implementadas no mesmo branch: #17, #21, #18, #36, #37, #38, #39, #41, #42, #50, #51, #52, #58, #59 e #60. Cada commit de issue foi verificado em seguida num worktree separado; a tabela registra a rodada final no commit `27f9e8e`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite (venv com as versões do lock, sem `--require-hashes`) | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 820 passed, 111 skipped (marcados `posix` e os que exigem Docker) |
+| Windows 11, PostgreSQL 16.2 local (binários portáteis do pacote `pgserver`, banco descartável `local_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`, migrations como `skeleton_owner`, assertions como `skeleton_runtime`) | a lista de testes do job `postgres` do CI (`tests/integration_postgres` e os módulos SQLite listados, inclusive os novos deste epic) | 307 passed, 1 skipped (o teste do serviço que vaza, pulado de propósito no PostgreSQL) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança do schema válido; smoke de segurança do runtime aprovado |
+| Windows | `manage.py check --fail-level WARNING`, `manage.py makemigrations --check --dry-run` | sem problemas; nenhuma migration pendente |
+| Windows, settings de produção com valores descartáveis (como o job `deploy-check`) | `manage.py check --deploy --fail-level WARNING` | sem problemas (inclui o check E024 de armazenamento privado) |
+| Windows | Ruff 0.17.4 `check .`/`format --check .` e `python -m mypy` (estrito em `skeleton/service_api` e `skeleton/testing`) | sem erros |
+
+Cobertura nova, por área:
+
+- **Capacidades e disponibilidade:** `test_capabilities.py` (matriz papel × recurso em HTML e API, escalada negada, reconciliação, MFA, menu) e `test_app_availability.py` (A/B, revogação, dependências, CAS, E017).
+- **RLS e contrato operacional:** `test_self_discovery.py`, `tests/integration_postgres/test_self_discovery_policies.py` (política faltante, extra ou alargada reprova o check de schema) e `test_operational_records.py`.
+- **Jobs e eventos:** `test_jobs_queue.py`, `test_jobs_worker.py` (dois workers PostgreSQL nunca executam o mesmo job), `test_jobs_periodic.py` (dois agendadores concorrentes), `test_domain_events.py` e `test_event_consumers.py`.
+- **Notificações:** `test_notifications_notify.py`, `test_notifications_fanout.py` e `test_notifications_inbox.py` (contador com número constante de consultas; a caixa global revelou no PostgreSQL um JOIN bloqueado pela RLS, corrigido em `sk_notifications.0002`).
+- **Arquivos:** `tests/unit/test_private_storage.py`, `test_attachments.py` e `test_attachment_downloads.py` (streaming com zero consultas, revogação, estados, X-Accel-Redirect).
+- **Serviços do núcleo:** `test_core_identity_service.py`, `test_core_organization_service.py`, `test_core_access_service.py` (matriz papel × ação igual a `authorized_queryset`), `test_core_application_service.py`, `test_core_audit_service.py`, `test_core_notification_service.py`, `test_core_job_event_services.py`, `test_core_file_service.py` e `test_core_surfaces_on_services.py` (superfícies migradas sem caminhos internos e mapeamento único de erros).
+
+**Não verificado nesta rodada:** os testes `posix` (pacotes, agente) e os que exigem Docker, pulados no Windows; SSO real; o PostgreSQL 16.15 do CI (a rodada local usou 16.2). Esses ficam a cargo do CI do PR.
+
 ## API de serviços entre apps — core/agente 0.4.0 (epic #112)
 
 Rodada de 2026-11-09 para [#98](https://github.com/alaorneto/skeleton/issues/98), [#99](https://github.com/alaorneto/skeleton/issues/99), [#100](https://github.com/alaorneto/skeleton/issues/100) e [#101](https://github.com/alaorneto/skeleton/issues/101): `runtime.service_api`, checks E012/E018/W018/E019/W019, `package doctor`/`build`, kit `skeleton.testing.service_api`, `NoteService` e gerador. Rodada depois do merge da `main` com Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122). Somente o que rodou:
