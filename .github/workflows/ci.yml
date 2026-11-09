@@ -49,6 +49,27 @@ jobs:
         working-directory: frontend
         run: npm run check
 
+  locks:
+    name: Locks correspondem aos requirements .in
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          # Versão fixa: o formato e o cabeçalho do lock dependem do uv.
+          version: "0.12.7"
+          enable-cache: false
+      - name: Regenerar os locks e exigir diff vazio
+        # Com -o, o uv usa o lock existente como preferência: só há diff quando
+        # um .in mudou sem regenerar ou o lock foi gerado por outra ferramenta.
+        run: |
+          uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements.in -o requirements.txt
+          uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --generate-hashes requirements-dev.in -o requirements-dev.txt
+          if ! git diff --exit-code -- requirements.txt requirements-dev.txt; then
+            echo "::error::requirements.txt/requirements-dev.txt não correspondem aos .in. Regenere com os comandos de 'Atualizar locks' do README.md (uv 0.12.7) e commite o diff."
+            exit 1
+          fi
+
   sqlite:
     name: SQLite (Python ${{ matrix.python }})
     runs-on: ubuntu-24.04
