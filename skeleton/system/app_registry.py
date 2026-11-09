@@ -286,11 +286,11 @@ def validate_documentation(manifest):
 def application_urlpatterns():
     from django.urls import include, path
 
+    from .administration import guard_application_api_urls, guard_application_urls
+
     result = []
     for manifest in all_apps():
         if manifest.urls:
-            from .administration import guard_application_urls
-
             module, app_name, namespace = include(manifest.urls)
             patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
             guarded = guard_application_urls(patterns, manifest)
@@ -301,7 +301,13 @@ def application_urlpatterns():
                 )
             )
         if manifest.api_urls:
+            module, app_name, namespace = include(manifest.api_urls)
+            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
+            guarded = guard_application_api_urls(patterns, manifest)
             result.append(
-                path(f"api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/", include(manifest.api_urls))
+                path(
+                    f"api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/",
+                    include((guarded, app_name), namespace=namespace),
+                )
             )
     return result

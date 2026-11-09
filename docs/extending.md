@@ -44,7 +44,7 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 4. `python manage.py migrate`;
 5. `python manage.py sync_table_catalog`;
 6. `python manage.py check_skeleton_schema`;
-7. atualizar `migrations.leaves` no manifesto e revisar spec/ADR;
+7. atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
 8. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
 9. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
@@ -62,7 +62,7 @@ As rotas declaradas são incluídas antes dos gateways, exclusivamente sob `/o/<
 
 A configuração JSON é redigida integralmente na auditoria. Segredos pertencem à configuração privada do deployment, nunca à configuração organizacional. Sem linha persistida, vale `default_enabled` do manifesto, preservando o comportamento de apps instaladas no upgrade. A API exige `If-Match`: use a revisão virtual `"0"` na primeira escrita e, depois, a revisão atual. CAS evita sobrescrever configuração concorrente; o bloqueio de Organization serializa também as validações de dependências. Somente `organization_admin` configura.
 
-Desativar bloqueia endpoints próprios, gateway e políticas e remove o menu, mas preserva registros, IDs e ACL (regras de acesso). Reativar não concede `TablePermission`. Instalação, atualização e retirada global do código são solicitadas pela plataforma em `/platform/updates/` e executadas por um agente separado; a requisição web não executa instalador nem DDL. Remoção de dados/schema permanece exclusivamente offline e revisada.
+Desativar bloqueia endpoints próprios, gateway e políticas e remove o menu, mas preserva registros, IDs e ACL (regras de acesso). O bloqueio fica na URL, antes da view: `runtime.urls` passa por `guard_application_urls` e `runtime.api_urls` por `guard_application_api_urls`, então um endpoint que não chama `authorized_queryset` também fecha. Com a app, ou uma dependência transitiva dela, desativada, a API responde 404 JSON neutro (`{"code": "not_found"}`); a configuração do núcleo em `/api/v1/o/<org>/apps/<app_label>/configuration/` continua disponível ao administrador para reativar. Reativar não concede `TablePermission`. Instalação, atualização e retirada global do código são solicitadas pela plataforma em `/platform/updates/` e executadas por um agente separado; a requisição web não executa instalador nem DDL. Remoção de dados/schema permanece exclusivamente offline e revisada.
 
 Não há editor genérico do Django admin: modelos registrados com `@admin.register` não são roteados, porque um ModelAdmin contornaria os serviços de lifecycle, CAS e auditoria. Telas globais de uma app são declaradas no manifesto como `administration.screens` de escopo `platform` e `kind: custom`, com handler registrado por `register_admin_handler`; elas aparecem em `/platform/apps/<app_label>/` sob o mesmo guard da plataforma (e reautenticação quando `sensitive`). Negócio tenant fica no viewer: `/o/<org>/catalog/` e `/o/<org>/tables/<table_key>/`.
 
@@ -108,9 +108,25 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E016 | `sensitive_fields` do `TableSpec` difere da especificação congelada em `InstallRecordInfrastructure`; crie uma migration nova com `record_infrastructure --write`. |
 | W017 | `migrations.leaves` do manifesto difere das folhas reais do grafo de migrations da app. É aviso, e não erro, porque o manifesto é atualizado depois do `makemigrations`; o `build`, o `doctor` e a prévia do agente recusam a divergência. |
 
+Dependência declarada não autoriza importar qualquer módulo da outra app. O único ponto de consumo é a API de serviços dela (próxima seção).
+
+### API de serviços da app
+
+Toda app publica as operações que outras apps podem chamar num módulo `service_api.py`, com classes de serviço em processo. O contrato completo está em [API de serviços entre apps](service-api.md), e o procedimento no skill `service-api`. Em resumo:
+
+- métodos públicos são keyword-only, recebem `actor` e devolvem DTOs imutáveis ou `Page` de DTOs, nunca modelos ou querysets;
+- a autorização acontece dentro do serviço (`authorized_queryset`, `require_record_action`, capacidades), e a app provedora precisa estar ativa na organização;
+- o serviço participa da transação do chamador e deixa efeitos externos para jobs, eventos ou `on_commit`;
+- outras apps importam só `<app>.service_api` e declaram a dependência acima;
+- views e endpoints da própria app também chamam o `service_api`, para haver um único caminho de regra.
+
+A base `ServiceAPI`, os erros, o campo `runtime.service_api` do manifesto, os checks E018/E019 e a adoção pelo gerador e pelo exemplo Notes estão em implementação (epic [#112](https://github.com/alaorneto/skeleton/issues/112)). Até lá, a obrigação vale por revisão.
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
+
+O mesmo diretório tem `service-api.md` com a referência da API de serviços da app: serviços, métodos (Autorização, Erros, Efeitos), DTOs, eventos e histórico de versões. O modelo está no skill `service-api`; a check E012 passa a exigir o arquivo com [#98](https://github.com/alaorneto/skeleton/issues/98).
 
 ### Diagnosticar antes de empacotar
 
@@ -344,7 +360,7 @@ O `"5"` exemplifica a transição exata 4→5, não revisão fixa para qualquer 
 
 ## Novas operações de negócio
 
-Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serviço abre `tenant_context` com organização e ator confiáveis, obtém `authorized_queryset` para a ação pretendida, valida a regra e grava com `save`/CAS. Em uma view, use o contexto validado pela superfície tenant; em um job, abra uma transação independente por organização e materialize os resultados antes de sair do contexto. Nunca use `all_objects` ou SQL direto como atalho em endpoints.
+Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serviço roda dentro de um contexto já aberto com organização e ator confiáveis, obtém `authorized_queryset` para a ação pretendida, valida a regra e grava com `save`/CAS. Em uma view, o contexto é o validado pela superfície tenant; em um job, quem abre o `tenant_context` (uma transação independente por organização) é o job, e os resultados são materializados antes de sair do contexto. Nunca use `all_objects` ou SQL direto como atalho em endpoints. Se a operação interessa a outras apps, publique-a na [API de serviços](#api-de-serviços-da-app) em vez de deixar outra app importar o serviço interno.
 
 Uma referência a outro registro organizacional precisa apontar para a mesma organização e para um alvo vivo que o ator possa ler. Combine validação no serviço, seleção autorizada de FK e infraestrutura de integridade no banco: apenas comparar UUIDs não assegura isso. Relações entre registros próprios usam `PROTECT`, para impedir remoção com referências vivas, e links de negócio são tabelas UUID explícitas, não M2M implícito. Marque campos sensíveis no `TableSpec` e na especificação congelada de migration antes de persistir dados em auditoria.
 

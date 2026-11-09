@@ -10,7 +10,8 @@ Base reutilizável de Django 5.2 LTS para construir sistemas com login, várias 
 |---|---|
 | Experimentar o sistema | Siga “Iniciar localmente” abaixo e habilite o exemplo de anotações |
 | Entender o vocabulário e as decisões | [Guia dos conceitos](docs/concepts.md), depois [arquitetura](docs/architecture.md) |
-| Criar uma app de negócio | [Extensão](docs/extending.md), [modelo de dados](docs/data-model.md) e [controle de acesso](docs/access-control.md) |
+| Criar uma app de negócio | [Extensão](docs/extending.md), [modelo de dados](docs/data-model.md), [controle de acesso](docs/access-control.md) e [API de serviços](docs/service-api.md) |
+| Fazer apps conversarem entre si ou usar notificações, identidade e outros serviços do núcleo | [API de serviços](docs/service-api.md) e o skill `service-api` |
 | Integrar uma interface ou cliente HTTP | [API](docs/api.md) e [autenticação](docs/authentication-sso.md) |
 | Instalar, atualizar ou operar produção | [Deployment](docs/deployment.md) e [testes/evidências](docs/testing.md) |
 
@@ -164,6 +165,7 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md) e [testes/evidências](docs/testing.md).
+- [API de serviços entre apps](docs/service-api.md): contrato obrigatório de classes de serviço que cada app publica e que outras apps consomem em processo; procedimento no skill `service-api`.
 - [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro, tema do admin e build do CSS.
 - [Fluxo de trabalho](docs/workflow.md): plano → issues classificadas → branch/commits → PR → fechamento aprovado.
 - [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.

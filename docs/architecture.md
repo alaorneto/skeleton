@@ -23,7 +23,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/system` | Registro de especificações, catálogo, apps, checks e controle de releases | Metadados não executam DDL |
 | `skeleton/audit` | Eventos e infraestrutura de auditoria | Triggers são a fonte; não há segunda fonte por signals de save |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
-| `skeleton/service_api` | Base da API de serviços entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate` e erros públicos | Não abre contexto: confere que `actor` é o ator do contexto e que há tenant; devolve só DTOs imutáveis |
+| `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate` e erros públicos | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
 | `skeleton/conf` | Defaults, profiles e URLs distribuídos com o núcleo | Não importa negócio nem configurações do derivado |
 | `config` | Overlay de settings, URLs e entrypoints do projeto | Mantém os hooks de extensão sem renomear labels do núcleo |
 | `applications` | Apps de negócio do projeto derivado | Consome contratos do núcleo; não modifica suas regras |
@@ -87,6 +87,18 @@ Não sirva requests com schema parcialmente protegido. Depois de migrations, sin
 O **registry** contém `TableSpec` no código: modelos, campos permitidos, sensibilidade e exposição. O **catálogo** é um inventário físico sincronizado, inclusive de tabelas técnicas e desconhecidas. Alterar título/descrição no catálogo não abre API, cria tabela ou muda policy.
 
 Uma app possui `manifest.json` canônico, carregado como `AppManifest`, separado das especificações de tabela. Rotas e menus declarados entram sob prefixes tenant reservados, antes do gateway. A navegação e as policies revalidam ativação e permissão: esconder um menu não basta.
+
+Apps interagem entre si e com o núcleo pela **API de serviços**: cada app publica classes em `service_api.py`, e as outras só importam esse módulo. A chamada roda no contexto e na transação de quem chama, com autorização revalidada no serviço e retorno em DTOs imutáveis. As superfícies HTTP e HTML da app são camadas finas sobre a mesma API. Veja [API de serviços entre apps](service-api.md).
+
+```mermaid
+flowchart LR
+    V["Views e REST da app B"] --> SB["service_api da app B"]
+    J["Jobs e consumidores de eventos da app B"] --> SB
+    SB --> SA["service_api da app A"]
+    SB --> SK["skeleton.service_api (identidade, notificações, ...)"]
+    SA --> P["Políticas e serviços internos da app A"]
+    SK --> PK["Serviços e políticas do núcleo"]
+```
 
 `AppInstallation` guarda ativação/configuração **da organização**. `ComponentInstallation` e `DeploymentOperation` representam instalação e operação **da plataforma**. Confundir essas entidades permitiria a um admin tenant alterar software usado por todos.
 
