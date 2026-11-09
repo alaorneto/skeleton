@@ -35,6 +35,14 @@ class MenuEntry:
 
 
 @dataclass(frozen=True)
+class ServiceAPIDeclaration:
+    """Module and class names an app publishes to other apps (runtime.service_api)."""
+
+    module: str
+    classes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class AppManifest:
     app_label: str
     label: str
@@ -54,6 +62,7 @@ class AppManifest:
     canonical: dict | None = None
     administration: AdministrationSpec = AdministrationSpec()
     model_ui: tuple[ModelUISpec, ...] = ()
+    service_api: ServiceAPIDeclaration | None = None
 
     @classmethod
     def from_json(cls, path, *, app_config):
@@ -91,6 +100,10 @@ class AppManifest:
                 if origin == "installed" and entry.get("activation_policy") == "explicit":
                     default_enabled = False
         administration, model_ui = presentation_from_runtime(runtime)
+        declared = runtime.get("service_api")
+        service_api = (
+            ServiceAPIDeclaration(module(declared["module"]), tuple(declared["classes"])) if declared else None
+        )
         return cls(
             app_label=contract["app_label"],
             label=contract["name"],
@@ -120,6 +133,7 @@ class AppManifest:
             canonical=contract,
             administration=administration,
             model_ui=model_ui,
+            service_api=service_api,
         )
 
 
@@ -132,6 +146,7 @@ def register_app(manifest):
         raise ValidationError("Application requires a stable app label.")
     if len(set(manifest.dependencies)) != len(manifest.dependencies) or manifest.app_label in manifest.dependencies:
         raise ValidationError("Application dependencies must be unique and nonrecursive.")
+    _validate_service_declaration(manifest)
     names = [field.name for field in manifest.configuration_fields]
     if len(names) != len(set(names)):
         raise ValidationError("Duplicate application configuration field.")
@@ -167,6 +182,20 @@ def register_app(manifest):
     register_presentation(manifest)
     _manifests[manifest.app_label] = manifest
     return manifest
+
+
+def _validate_service_declaration(manifest):
+    declaration = manifest.service_api
+    if declaration is None:
+        return
+    if not isinstance(declaration, ServiceAPIDeclaration) or not declaration.classes:
+        raise ValidationError("runtime.service_api requires a module and at least one class.")
+    if not re.fullmatch(r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)+", declaration.module):
+        raise ValidationError("runtime.service_api.module must be a dotted module path.")
+    if len(set(declaration.classes)) != len(declaration.classes) or any(
+        not isinstance(name, str) or not re.fullmatch(r"[A-Z][A-Za-z0-9_]{0,99}", name) for name in declaration.classes
+    ):
+        raise ValidationError("runtime.service_api.classes requires unique simple class names.")
 
 
 def unregister_app(app_label):
@@ -267,13 +296,15 @@ def dependent_labels(app_label):
 
 
 def validate_documentation(manifest):
+    """spec.md and adr.md always; docs/service-api.md once the app declares runtime.service_api."""
+    from .packages import DOCUMENT_HEADINGS, SERVICE_API_DOCUMENT, SERVICE_API_HEADINGS
+
     if not manifest.documentation_root:
         raise ValidationError("Application requires a documentation root.")
     root = Path(manifest.documentation_root)
-    requirements = {
-        "spec.md": ("## Contract", "## Acceptance"),
-        "adr.md": ("## Context", "## Decision", "## Consequences"),
-    }
+    requirements = dict(DOCUMENT_HEADINGS)
+    if getattr(manifest, "service_api", None) is not None:
+        requirements[SERVICE_API_DOCUMENT] = SERVICE_API_HEADINGS
     for filename, headings in requirements.items():
         path = root / filename
         if not path.is_file():

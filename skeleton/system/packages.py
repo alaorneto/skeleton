@@ -64,6 +64,12 @@ INTERPRETER_LAUNCHER = re.compile(r"(?:pythonw?|pypy|pip|easy_install)(?:\d+(?:\
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_]*\Z")
 STABLE_ID = re.compile(r"[a-z][a-z0-9._-]{1,127}\Z")
 SHA256 = re.compile(r"[a-f0-9]{64}\Z")
+SERVICE_CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,99}\Z")
+MAX_SERVICE_CLASSES = 32
+# runtime.service_api (docs/service-api.md) is unknown to older cores, so declaring it raises the floor.
+SERVICE_API_CORE_MINIMUM = "0.4.0"
+SERVICE_API_DOCUMENT = "service-api.md"
+SERVICE_API_HEADINGS = ("## Serviços", "## DTOs", "## Histórico de versões")
 # v1 entries lack dependency ranges; the verified artifact manifest stays authoritative.
 CATALOG_VERSIONS = (1, 2)
 
@@ -151,6 +157,33 @@ def _compatibility(value):
     return {key: _specifier(spec) for key, spec in value.items()}
 
 
+def _core_floor_at_least(specifier, minimum):
+    """Whether a compatibility.skeleton range excludes every core older than minimum."""
+    from packaging.specifiers import SpecifierSet
+
+    floor = Version(minimum)
+    return any(
+        item.operator in (">=", ">", "==", "~=") and Version(item.version.removesuffix(".*")) >= floor
+        for item in SpecifierSet(specifier)
+    )
+
+
+def _validate_service_api(value, prefix):
+    """runtime.service_api: one module inside the app package and simple, unique class names."""
+    _object(value, ("module", "classes"), ("module", "classes"))
+    module = value["module"]
+    if not isinstance(module, str) or not re.fullmatch(re.escape(prefix) + r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*", module):
+        _fail("runtime.service_api.module must belong to the application.")
+    classes = value["classes"]
+    if (
+        not isinstance(classes, list)
+        or not 1 <= len(classes) <= MAX_SERVICE_CLASSES
+        or len(set(classes)) != len(classes)
+        or any(not isinstance(name, str) or not SERVICE_CLASS.fullmatch(name) for name in classes)
+    ):
+        _fail("runtime.service_api.classes requires unique simple class names.")
+
+
 def _validate_manifest(value):
     fields = {
         "manifest_version",
@@ -223,15 +256,8 @@ def _validate_manifest(value):
             "documentation_root",
         )
         if m["manifest_version"] == 2:
-            runtime_fields += ("administration", "model_ui")
-            from packaging.specifiers import SpecifierSet
-
-            minimum = Version(MANIFEST_V2_CORE_MINIMUM)
-            bounds = SpecifierSet(m["compatibility"]["skeleton"])
-            if not any(
-                item.operator in (">=", ">", "==", "~=") and Version(item.version.removesuffix(".*")) >= minimum
-                for item in bounds
-            ):
+            runtime_fields += ("administration", "model_ui", "service_api")
+            if not _core_floor_at_least(m["compatibility"]["skeleton"], MANIFEST_V2_CORE_MINIMUM):
                 _fail("Manifest v2 requires a core minimum of " + MANIFEST_V2_CORE_MINIMUM + ".")
         r = _object(
             m["runtime"],
@@ -284,13 +310,14 @@ def _validate_manifest(value):
                 _fail("Invalid navigation ownership/action.")
         if m["manifest_version"] == 2:
             validate_runtime_presentation(r, label, error_class=PackageError)
-            if required_presentation_core(r) == FIELD_DIMENSIONS_CORE_MINIMUM:
-                minimum = Version(FIELD_DIMENSIONS_CORE_MINIMUM)
-                if not any(
-                    item.operator in (">=", ">", "==", "~=") and Version(item.version.removesuffix(".*")) >= minimum
-                    for item in bounds
-                ):
-                    _fail("Field dimensions require a core minimum of 0.3.0.")
+            if required_presentation_core(r) == FIELD_DIMENSIONS_CORE_MINIMUM and not _core_floor_at_least(
+                m["compatibility"]["skeleton"], FIELD_DIMENSIONS_CORE_MINIMUM
+            ):
+                _fail("Field dimensions require a core minimum of 0.3.0.")
+            if "service_api" in r:
+                _validate_service_api(r["service_api"], prefix)
+                if not _core_floor_at_least(m["compatibility"]["skeleton"], SERVICE_API_CORE_MINIMUM):
+                    _fail("runtime.service_api requires a core minimum of " + SERVICE_API_CORE_MINIMUM + ".")
     else:
         if m.get("component_id") != "django-skeleton" or any(
             k in m for k in ("app_id", "app_label", "package_name", "app_config", "runtime")
@@ -787,9 +814,23 @@ def validate_wheel_set(paths, target_environment=None):
     return ownership
 
 
+def required_documents(manifest):
+    """Document -> required headings; the service API reference once runtime.service_api exists."""
+    documents = dict(DOCUMENT_HEADINGS)
+    if "service_api" in manifest.get("runtime", {}):
+        documents[SERVICE_API_DOCUMENT] = SERVICE_API_HEADINGS
+    return documents
+
+
+def _module_path(module, package_name):
+    """Relative candidate files of a module declared under applications.<package_name>."""
+    relative = module[len("applications." + package_name) + 1 :].replace(".", "/")
+    return f"{relative}.py", f"{relative}/__init__.py"
+
+
 def _documentation(manifest, contents):
     root = "app/" + manifest["runtime"]["documentation_root"]
-    for filename, headings in DOCUMENT_HEADINGS.items():
+    for filename, headings in required_documents(manifest).items():
         try:
             text = contents[root + "/" + filename].decode("utf-8")
         except (KeyError, UnicodeError) as exc:
@@ -826,11 +867,11 @@ def _entrypoint(manifest, archive, files):
         or (isinstance(package, ast.Constant) and package.value == expected)
     ):
         _fail("AppConfig name must be its managed namespace or __package__.")
-    for key in ("urls", "api_urls"):
-        module = manifest["runtime"].get(key)
+    modules = [manifest["runtime"].get(key) for key in ("urls", "api_urls")]
+    modules.append(manifest["runtime"].get("service_api", {}).get("module"))
+    for module in modules:
         if module:
-            relative = module[len(expected) + 1 :].replace(".", "/")
-            if f"app/{relative}.py" not in files and f"app/{relative}/__init__.py" not in files:
+            if not any("app/" + path in files for path in _module_path(module, manifest["package_name"])):
                 _fail("Declared runtime module is absent.")
     for leaf in manifest["migrations"]["leaves"]:
         if f"app/migrations/{leaf}.py" not in files:
@@ -935,6 +976,8 @@ def build_artifact(manifest, payloads, output_path, private_key_path):
     if m.get("kind") == "app":
         validate_runtime_presentation(m["runtime"], m["app_label"], error_class=PackageError)
         minimum = required_presentation_core(m["runtime"])
+        if "service_api" in m["runtime"]:
+            minimum = max(minimum, SERVICE_API_CORE_MINIMUM, key=Version)
         m["compatibility"]["skeleton"] = _specifier(m["compatibility"]["skeleton"] + ",>=" + minimum)
     m["files"] = []
     contents = {}
@@ -1135,8 +1178,17 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
         report(code, message, path=path)
     if not (root / "apps.py").is_file():
         report("entrypoint_missing", "Application root requires apps.py.")
+    service_api = manifest["runtime"].get("service_api")
+    if service_api is None:
+        report(
+            "service_api_missing",
+            "New releases declare runtime.service_api with the module and classes of the app's service API.",
+        )
+    elif not any((root / path).is_file() for path in _module_path(service_api["module"], manifest["package_name"])):
+        report("service_api_module_missing", f"Declared service API module {service_api['module']} is absent.")
     documentation = root / manifest["runtime"]["documentation_root"]
-    for filename, headings in DOCUMENT_HEADINGS.items():
+    documents = {**required_documents(manifest), SERVICE_API_DOCUMENT: SERVICE_API_HEADINGS}
+    for filename, headings in documents.items():
         path = documentation / filename
         if not path.is_file():
             report("documentation_missing", f"Required app documentation {filename} is missing.", path=filename)
@@ -1181,6 +1233,9 @@ def build_package(app_root, manifest_path, output_path, private_key_path, wheels
     leaves_problem = check_migration_leaves(root, manifest)
     if leaves_problem:
         _fail(leaves_problem)
+    if "service_api" not in manifest["runtime"]:
+        # Historical artifacts without it still load; a new publication must declare its service API.
+        _fail("New releases require runtime.service_api (docs/service-api.md).")
     output = Path(output_path).resolve()
     if output.is_relative_to(root):
         _fail("Build output must be outside the application root.")
@@ -1293,7 +1348,39 @@ def initialize_keys(private_path, public_path):
     return private, public
 
 
-def manifest_template(*, app_id, app_label, package_name, publisher, version="0.1.0", app_config_class="AppConfig"):
+def default_service_class(package_name):
+    """Conventional service class of a package: tasks_board -> TasksBoardService."""
+    return "".join(part.capitalize() for part in package_name.split("_")) + "Service"
+
+
+def manifest_template(
+    *,
+    app_id,
+    app_label,
+    package_name,
+    publisher,
+    version="0.1.0",
+    app_config_class="AppConfig",
+    service_classes=None,
+):
+    """Canonical v2 source manifest; service_classes declares applications.<pkg>.service_api."""
+    runtime = {
+        "urls": None,
+        "api_urls": None,
+        "default_enabled": False,
+        "configuration_fields": [],
+        "navigation": [],
+        "documentation_root": "docs",
+        "administration": {"configuration_sections": [], "sections": [], "screens": []},
+        "model_ui": [],
+    }
+    floor = FIELD_DIMENSIONS_CORE_MINIMUM
+    if service_classes is not None:
+        runtime["service_api"] = {
+            "module": f"applications.{package_name}.service_api",
+            "classes": list(service_classes),
+        }
+        floor = SERVICE_API_CORE_MINIMUM
     return validate_manifest(
         {
             "manifest_version": 2,
@@ -1307,22 +1394,13 @@ def manifest_template(*, app_id, app_label, package_name, publisher, version="0.
             "version": version,
             "publisher": publisher,
             "compatibility": {
-                "skeleton": f">={FIELD_DIMENSIONS_CORE_MINIMUM},<1.0.0",
+                "skeleton": f">={floor},<1.0.0",
                 "python": ">=3.12,<3.15",
                 "django": ">=5.2,<5.3",
             },
             "dependencies": {},
             "conflicts": {},
-            "runtime": {
-                "urls": None,
-                "api_urls": None,
-                "default_enabled": False,
-                "configuration_fields": [],
-                "navigation": [],
-                "documentation_root": "docs",
-                "administration": {"configuration_sections": [], "sections": [], "screens": []},
-                "model_ui": [],
-            },
+            "runtime": runtime,
             "migrations": {"leaves": [], "from_versions": ">=0.0.0", "labels": [app_label]},
             "files": [],
             "python_dependencies": [],
@@ -1536,6 +1614,12 @@ def configure_parser(parser):
     for flag in ("app-id", "app-label", "package-name", "publisher", "app-config-class"):
         init.add_argument("--" + flag, required=True)
     init.add_argument("--version", default="0.1.0")
+    init.add_argument(
+        "--service-class",
+        action="append",
+        default=[],
+        help="Service API class of applications.<package>.service_api (default: <Package>Service).",
+    )
     build = commands.add_parser("build", help="Build a complete signed .skapp, checking docs and wheels.")
     build.add_argument("--app-root", required=True)
     build.add_argument("--manifest", required=True)
@@ -1613,7 +1697,8 @@ def run_command(options):
             **{
                 key: options[key]
                 for key in ("app_id", "app_label", "package_name", "publisher", "version", "app_config_class")
-            }
+            },
+            service_classes=options.get("service_class") or [default_service_class(options["package_name"])],
         )
         with Path(options["output"]).open("xb") as handle:
             handle.write(canonical_json(value))

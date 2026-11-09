@@ -54,12 +54,17 @@ def signed_app(tmp_path):
     (root / "docs/adr.md").write_text(
         "## Context\nRelease artifacts.\n## Decision\nSigned.\n## Consequences\nPrivileged code.\n"
     )
+    (root / "service_api.py").write_text("class DemoService:\n    pass\n")
+    (root / "docs/service-api.md").write_text(
+        "## Serviços\nDemoService.\n## DTOs\nNenhum.\n## Histórico de versões\n0.1.0.\n", encoding="utf-8"
+    )
     manifest = manifest_template(
         app_id="org.test.demo",
         app_label="project_demo",
         package_name="package_demo",
         publisher="test-publisher",
         app_config_class="DemoConfig",
+        service_classes=["DemoService"],
     )
     manifest_path = root / "manifest.json"
     manifest_path.write_bytes(canonical_json(manifest))
@@ -242,6 +247,8 @@ def test_published_history_keeps_signed_bytes_inventory_and_digest(signed_app, t
         contents = {item["path"]: archive.read(item["path"]) for item in manifest["files"]}
     manifest["manifest_version"] = manifest_version
     manifest["compatibility"]["skeleton"] = f"<1.0.0,>=0.{manifest_version}.0"
+    # Historical releases predate runtime.service_api; they keep loading unchanged.
+    manifest["runtime"].pop("service_api")
     if manifest_version == 1:
         manifest["runtime"].pop("administration")
         manifest["runtime"].pop("model_ui")
@@ -270,18 +277,50 @@ def test_new_build_upgrades_v1_source_without_rewriting_it(signed_app, tmp_path)
     source = load_manifest(signed_app["manifest"])
     source["manifest_version"] = 1
     source["compatibility"]["skeleton"] = "<1.0.0,>=0.1.0"
-    source["runtime"].pop("administration")
-    source["runtime"].pop("model_ui")
+    for key in ("administration", "model_ui", "service_api"):
+        source["runtime"].pop(key)
     original = canonical_json(source)
     signed_app["manifest"].write_bytes(original)
-    artifact = build_package(
-        signed_app["root"], signed_app["manifest"], tmp_path / "new-v2.skapp", signed_app["private"]
+    # A v1 source cannot declare runtime.service_api, so it is no longer a valid new publication.
+    with pytest.raises(PackageError, match="runtime.service_api"):
+        build_package(signed_app["root"], signed_app["manifest"], tmp_path / "refused.skapp", signed_app["private"])
+    artifact = build_artifact(
+        source, published_payloads(signed_app, tmp_path), tmp_path / "new-v2.skapp", signed_app["private"]
     )
     new = validate_package(artifact, signed_app["trust"]).manifest
     assert new["manifest_version"] == 2
     assert version_satisfies("0.2.0", new["compatibility"]["skeleton"])
     assert not version_satisfies("0.1.0", new["compatibility"]["skeleton"])
     assert signed_app["manifest"].read_bytes() == original
+
+
+def published_payloads(signed_app, tmp_path):
+    with zipfile.ZipFile(signed_app["package"]) as archive:
+        payloads = {}
+        for index, item in enumerate(json.loads(archive.read("manifest.json"))["files"]):
+            payload = tmp_path / f"published-payload-{index}"
+            payload.write_bytes(archive.read(item["path"]))
+            payloads[item["path"]] = payload
+    return payloads
+
+
+def test_service_api_build_requires_module_reference_and_floor(signed_app, tmp_path):
+    published = validate_package(signed_app["package"], signed_app["trust"]).manifest
+    assert published["runtime"]["service_api"] == {
+        "module": "applications.package_demo.service_api",
+        "classes": ["DemoService"],
+    }
+    assert version_satisfies("0.4.0", published["compatibility"]["skeleton"])
+    assert not version_satisfies("0.3.0", published["compatibility"]["skeleton"])
+    (signed_app["root"] / "docs/service-api.md").unlink()
+    with pytest.raises(PackageError, match="documentation"):
+        build_package(signed_app["root"], signed_app["manifest"], tmp_path / "no-doc.skapp", signed_app["private"])
+    (signed_app["root"] / "docs/service-api.md").write_text(
+        "## Serviços\n## DTOs\n## Histórico de versões\n", encoding="utf-8"
+    )
+    (signed_app["root"] / "service_api.py").unlink()
+    with pytest.raises(PackageError, match="runtime module is absent"):
+        build_package(signed_app["root"], signed_app["manifest"], tmp_path / "no-module.skapp", signed_app["private"])
 
 
 def test_unknown_publisher_and_key_mismatch(signed_app, tmp_path):
@@ -338,7 +377,7 @@ def test_dependency_versions_cycles_and_namespace_collisions(signed_app):
         app_id="org.test.second", app_label="project_second", package_name="second", publisher="test-publisher"
     )
     second["dependencies"] = {first["app_id"]: ">=0.1.0,<0.2.0"}
-    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18"}
+    kwargs = {"core": "0.4.0", "python": "3.14.0", "django": "5.2.18"}
     assert validate_dependency_graph([second, first], **kwargs) == [first["app_id"], second["app_id"]]
     with pytest.raises(PackageError):
         validate_dependency_graph([second], **kwargs)
@@ -655,8 +694,8 @@ def test_core_manifest_version_binds_early_to_wheel(signed_app, tmp_path):
 def test_dependency_graph_validates_complete_core_contract(signed_app, failure):
     app = load_manifest(signed_app["manifest"])
     core = core_manifest(signed_app)
-    core["version"] = "0.3.0"
-    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18"}
+    core["version"] = "0.4.0"
+    kwargs = {"core": "0.4.0", "python": "3.14.0", "django": "5.2.18"}
     core["dependencies"] = {app["app_id"]: ">=0.1.0,<0.2.0"}
     assert validate_dependency_graph([core, app], **kwargs) == [app["app_id"]]
     if failure in ("python", "django", "skeleton"):
@@ -670,7 +709,7 @@ def test_dependency_graph_validates_complete_core_contract(signed_app, failure):
     elif failure == "cycle":
         app["dependencies"] = {"django-skeleton": ">=0.1.0"}
     else:
-        kwargs["core"] = "0.4.0"
+        kwargs["core"] = "0.5.0"  # The core manifest is 0.4.0.
     with pytest.raises(PackageError):
         validate_dependency_graph([core, app], **kwargs)
 
@@ -683,7 +722,7 @@ def test_dependency_graph_compares_only_target_active_wheel_pins(signed_app, tar
     )
     declare_dependency(first, "dependency", "1.0.0", "a" * 64, 'sys_platform == "win32"')
     declare_dependency(second, "dependency", "2.0.0", "b" * 64, 'sys_platform == "linux"')
-    kwargs = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18", "target_environment": {"sys_platform": target}}
+    kwargs = {"core": "0.4.0", "python": "3.14.0", "django": "5.2.18", "target_environment": {"sys_platform": target}}
     assert set(validate_dependency_graph([first, second], **kwargs)) == {first["app_id"], second["app_id"]}
     first["python_dependencies"][0]["marker"] = f'sys_platform == "{target}"'
     second["python_dependencies"][0]["marker"] = f'sys_platform == "{target}"'
@@ -702,7 +741,7 @@ def test_target_python_markers_and_metadata_requirements_agree(signed_app, tmp_p
         assert (
             len(
                 validate_dependency_graph(
-                    [first, second], core="0.3.0", django="5.2.18", target_environment={"python_full_version": version}
+                    [first, second], core="0.4.0", django="5.2.18", target_environment={"python_full_version": version}
                 )
             )
             == 2
@@ -710,7 +749,7 @@ def test_target_python_markers_and_metadata_requirements_agree(signed_app, tmp_p
     with pytest.raises(PackageError, match="disagree"):
         validate_dependency_graph(
             [first],
-            core="0.3.0",
+            core="0.4.0",
             django="5.2.18",
             python="3.14.0",
             target_environment={"python_full_version": "3.12.10"},
@@ -845,6 +884,7 @@ def dimension_layout(**dimensions):
 @pytest.mark.parametrize("bound", [">=0.3.0,<1.0.0", ">0.3.0,<1.0.0", "==0.3.0", "~=0.3.0"])
 def test_dimensions_require_explicit_new_floor(signed_app, dimensions, bound):
     manifest = load_manifest(signed_app["manifest"])
+    manifest["runtime"].pop("service_api")  # Its own, higher floor is covered separately.
     manifest["runtime"]["model_ui"] = dimension_layout(**dimensions)
     manifest["compatibility"]["skeleton"] = ">=0.2.0,<1.0.0"
     with pytest.raises(PackageError, match=r"^Field dimensions require a core minimum of 0\.3\.0\.$"):
@@ -863,6 +903,8 @@ def test_dimension_source_requires_floor_but_artifact_adds_it_without_mutation(s
     with pytest.raises(PackageError, match="Field dimensions require a core minimum"):
         build_package(signed_app["root"], signed_app["manifest"], tmp_path / "rejected.skapp", signed_app["private"])
     assert signed_app["manifest"].read_bytes() == original
+    manifest["runtime"].pop("service_api")  # Isolate the dimensions floor from the service API floor.
+    original = canonical_json(manifest)
     with zipfile.ZipFile(signed_app["package"]) as archive:
         payloads = {}
         for index, item in enumerate(json.loads(archive.read("manifest.json"))["files"]):
@@ -901,8 +943,8 @@ def test_artifact_validates_dimensions_before_detection(signed_app, tmp_path):
 
 def test_new_manifest_template_requires_current_presentation_core(signed_app):
     manifest = load_manifest(signed_app["manifest"])
-    assert version_satisfies("0.3.0", manifest["compatibility"]["skeleton"])
-    assert not version_satisfies("0.2.0", manifest["compatibility"]["skeleton"])
+    assert version_satisfies("0.4.0", manifest["compatibility"]["skeleton"])
+    assert not version_satisfies("0.3.0", manifest["compatibility"]["skeleton"])
 
 
 def test_dimension_source_with_new_floor_builds_and_verifies(signed_app, tmp_path):

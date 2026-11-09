@@ -89,8 +89,14 @@ def record_contract_checks(app_configs=None, **kwargs):
     for manifest in all_apps():
         try:
             validate_documentation(manifest)
-        except ValidationError:
-            errors.append(Error(f"{manifest.app_label}: missing application spec/ADR contract.", id="skeleton.E012"))
+        except ValidationError as exc:
+            errors.append(
+                Error(
+                    f"{manifest.app_label}: missing application spec/ADR/service API contract "
+                    f"({'; '.join(exc.messages)}).",
+                    id="skeleton.E012",
+                )
+            )
         try:
             validate_presentation(manifest)
         except ValidationError as exc:
@@ -109,6 +115,60 @@ def record_contract_checks(app_configs=None, **kwargs):
         )
     if any(db.get("ATOMIC_REQUESTS") for db in settings.DATABASES.values()):
         errors.append(Error("ATOMIC_REQUESTS must be False; tenant middleware owns transactions.", id="skeleton.E010"))
+    return errors
+
+
+@register()
+def service_api_checks(app_configs=None, **kwargs):
+    """E018: every registered app publishes a well-formed service API (docs/service-api.md)."""
+    from skeleton.service_api.contract import structural_problems
+    from skeleton.service_api.registry import DeclaredService, ServiceDeclarationError, resolve_classes
+
+    errors = []
+    for manifest in all_apps():
+        label = manifest.app_label
+        if manifest.service_api is None:
+            # Two-step obligation: historical signed manifests keep loading until the core that
+            # makes runtime.service_api mandatory; new releases are refused by build and doctor.
+            errors.append(
+                Warning(
+                    f"{label}: the manifest does not declare runtime.service_api; publish service_api.py and "
+                    "docs/service-api.md before the next release.",
+                    id="skeleton.W018",
+                )
+            )
+            continue
+        declaration = DeclaredService(
+            label, manifest.app_id or label, manifest.service_api.module, manifest.service_api.classes
+        )
+        try:
+            app_module = apps.get_app_config(label).name
+        except LookupError:
+            app_module = None
+        if app_module and not (declaration.module == app_module or declaration.module.startswith(app_module + ".")):
+            errors.append(
+                Error(
+                    f"{label}: service API module {declaration.module} is outside the app package.", id="skeleton.E018"
+                )
+            )
+            continue
+        try:
+            classes = resolve_classes(declaration)
+        except ServiceDeclarationError as exc:
+            errors.append(Error(f"{label}: {exc}", id="skeleton.E018"))
+            continue
+        for name, service_class in classes.items():
+            if getattr(service_class, "__module__", None) != declaration.module and not str(
+                getattr(service_class, "__module__", "")
+            ).startswith(declaration.module + "."):
+                errors.append(Error(f"{label}: {name} must be defined in {declaration.module}.", id="skeleton.E018"))
+                continue
+            problems = structural_problems(service_class)
+            if not problems and service_class.app_label != label:
+                # app_label makes every method require the provider app enabled in the organization.
+                problems = [f"app_label must be {label!r} so calls require the app enabled (Unavailable)."]
+            for problem in problems:
+                errors.append(Error(f"{label}: {name}: {problem}", id="skeleton.E018"))
     return errors
 
 

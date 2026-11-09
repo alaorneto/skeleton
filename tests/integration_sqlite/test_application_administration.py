@@ -305,6 +305,10 @@ def test_documentation_is_escaped_and_not_client_selected(actor, app_screens, tm
     assert response.status_code == 200
     assert b"&lt;script&gt;" in response.content and b"<script>alert(" not in response.content
     assert b"root:x:" not in response.content
+    assert b"service-api.md" not in response.content
+    (tmp_path / "service-api.md").write_text("## Serviços\n<b>NoteService</b>", encoding="utf-8")
+    response = client.get("/platform/apps/example_notes/documentation/")
+    assert b"service-api.md" in response.content and b"&lt;b&gt;NoteService" in response.content
 
 
 def test_platform_handler_has_platform_guard_mfa_csrf_and_sensitive_reauth(actor, app_screens, monkeypatch):
