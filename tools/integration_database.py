@@ -228,6 +228,7 @@ def _fingerprint(connection):
 
     result = {name: connection.execute(query).fetchall() for name, query in _FINGERPRINT_QUERIES.items()}
     result["constraints"] = _canonical_checks(connection, result["constraints"])
+    result["indexes"] = _canonical_indexes(connection, result["indexes"])
     tables = connection.execute(
         "SELECT relname FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relkind IN ('r','p') ORDER BY 1"
     ).fetchall()
@@ -279,4 +280,42 @@ def _canonical_checks(connection, rows):
                 suffix = definition[len(expression) :]
                 definition = probe.removesuffix(" NOT VALID") + suffix
             canonical.append((table, name, kind, definition, deferrable, deferred))
+    return canonical
+
+
+_INDEX_NAME = re.compile(r"^(CREATE (?:UNIQUE )?INDEX )(\S+)( ON )")
+
+
+def _canonical_indexes(connection, rows):
+    """Index definitions with predicates or expressions after the same round trip as CHECKs.
+
+    Partial indexes such as ``WHERE type IN (...)`` over varchar deparse differently once
+    restored. Each one is rebuilt under a probe name in a rolled-back transaction and its
+    definition is read back with the original name; plain column indexes are kept as they are.
+    """
+    from psycopg import sql
+
+    computed = {
+        name
+        for (name,) in connection.execute(
+            "SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid "
+            "WHERE c.relnamespace='skeleton'::regnamespace AND (i.indpred IS NOT NULL OR i.indexprs IS NOT NULL)"
+        ).fetchall()
+    }
+    canonical = []
+    with connection.transaction(force_rollback=True):
+        for table, name, definition in rows:
+            match = _INDEX_NAME.match(definition)
+            if name in computed and match:
+                probe_name = sql.Identifier(_CHECK_PROBE).as_string(connection)
+                connection.execute(sql.SQL(_INDEX_NAME.sub(rf"\g<1>{probe_name}\g<3>", definition, count=1)))
+                (probe,) = connection.execute(
+                    "SELECT pg_get_indexdef(%s::regclass)", (f"skeleton.{probe_name}",)
+                ).fetchone()
+                connection.execute(sql.SQL("DROP INDEX {}").format(sql.Identifier("skeleton", _CHECK_PROBE)))
+                original = match[2]
+                definition = _INDEX_NAME.sub(
+                    lambda found, original=original: found[1] + original + found[3], probe, count=1
+                )
+            canonical.append((table, name, definition))
     return canonical
