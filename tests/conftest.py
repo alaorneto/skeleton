@@ -46,28 +46,87 @@ def sqlite_template(tmp_path_factory, django_db_blocker):
     return path
 
 
+def _postgres_requested():
+    return os.environ.get("TEST_DATABASE_URL", "").startswith(("postgres://", "postgresql://"))
+
+
+def _configure_postgres(dsn):
+    config = environ.Env.db_url_config(dsn)
+    config["OPTIONS"] = {"options": "-c search_path=skeleton,public"}
+    _configure(config)
+
+
+def _disposable_pair():
+    from tools.integration_database import disposable_database_pair
+
+    try:
+        return disposable_database_pair()
+    except RuntimeError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+
+
+def _migrate_postgres(pair, stats):
+    """Fresh schema skeleton migrated by skeleton_owner; the caller restores the connection."""
+    from tools.integration_database import reset_schema
+
+    reset_schema(pair)
+    _configure_postgres(pair.owner)
+    call_command("migrate", verbosity=0, interactive=False)
+    connections.close_all()
+    stats["migrate"] += 1
+
+
+@pytest.fixture(scope="session")
+def postgres_schema_stats():
+    """How the PostgreSQL schemas of this session were built (asserted by the template tests)."""
+    return {"migrate": 0, "restore": 0}
+
+
+@pytest.fixture(scope="session")
+def postgres_template(django_db_blocker, postgres_schema_stats):
+    """Migrate once per session and keep the migrated schema skeleton as a restorable template.
+
+    Returns None when SKELETON_TEST_POSTGRES_TEMPLATE=0: skeleton_db then migrates for each test.
+    """
+    from tools.integration_database import dump_schema, template_enabled
+
+    if not _postgres_requested() or not template_enabled():
+        return None
+    pair = _disposable_pair()
+    original = connections["default"].settings_dict.copy()
+    with django_db_blocker.unblock():
+        try:
+            _migrate_postgres(pair, postgres_schema_stats)
+        finally:
+            _configure(original)
+        try:
+            return dump_schema(pair)
+        except RuntimeError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+
+
 @pytest.fixture
 def skeleton_db(request, tmp_path, django_db_blocker):
     """Real committed per-test DB; protected rows are never flushed/deleted."""
     original = connections["default"].settings_dict.copy()
-    runtime_url = os.environ.get("TEST_DATABASE_URL", "")
     with django_db_blocker.unblock():
-        if runtime_url.startswith(("postgres://", "postgresql://")):
-            from tools.integration_database import disposable_database_pair, reset_schema
+        if _postgres_requested():
+            from django.contrib.contenttypes.models import ContentType
 
-            try:
-                pair = disposable_database_pair()
-            except RuntimeError as exc:
-                raise pytest.UsageError(str(exc)) from exc
-            reset_schema(pair)
-            runtime, owner = pair.runtime, pair.owner
-            config = environ.Env.db_url_config(owner)
-            config["OPTIONS"] = {"options": "-c search_path=skeleton,public"}
-            _configure(config)
-            call_command("migrate", verbosity=0, interactive=False)
-            config = environ.Env.db_url_config(runtime)
-            config["OPTIONS"] = {"options": "-c search_path=skeleton,public"}
-            _configure(config)
+            from tools.integration_database import restore_schema
+
+            pair = _disposable_pair()
+            template = request.getfixturevalue("postgres_template")
+            stats = request.getfixturevalue("postgres_schema_stats")
+            if template is None:
+                _migrate_postgres(pair, stats)
+            else:
+                # Same starting point as migrate: a recreated schema, never a flushed one.
+                restore_schema(pair, template)
+                stats["restore"] += 1
+            # migrate's post_migrate handlers clear this cache; the restore does not run them.
+            ContentType.objects.clear_cache()
+            _configure_postgres(pair.runtime)
         else:
             template = request.getfixturevalue("sqlite_template")
             target = tmp_path / "test.sqlite3"
