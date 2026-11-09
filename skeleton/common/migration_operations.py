@@ -6,6 +6,52 @@ Only historical migration models and the frozen specification determine DDL.
 from django.db.migrations.operations.base import Operation
 
 MECHANICAL = {"sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_by", "revision"}
+POLICY_NAMES = (
+    "skeleton_tenant",
+    "skeleton_membership_select",
+    "skeleton_membership_insert",
+    "skeleton_membership_update",
+    "skeleton_membership_delete",
+    "skeleton_self_select",
+    "skeleton_self_insert",
+    "skeleton_self_update",
+    "skeleton_self_delete",
+    "skeleton_audit_select",
+    "skeleton_audit_insert",
+)
+TENANT_PREDICATE = "organization_id = NULLIF(current_setting('skeleton.tenant_id',true),'')::uuid"
+
+
+def self_discovery_mode(model, specification):
+    """How a tenant table lets a person read their own rows of other tenants.
+
+    ``("self", column)`` for a frozen ``self_discovery_column``; ``("membership",
+    "user_id")`` for the historical Membership specification installed before
+    the key existed; ``(None, None)`` otherwise. Writes always check only the tenant.
+    """
+    column = specification.get("self_discovery_column")
+    if column is not None:
+        columns = {field.column for field in model._meta.concrete_fields}
+        if column not in columns or column == "organization_id":
+            raise ValueError(f"{model._meta.label}: self_discovery_column must be a concrete user column.")
+        return "self", column
+    if model._meta.label_lower == "sk_tenancy.membership":
+        return "membership", "user_id"
+    return None, None
+
+
+def self_discovery_policies(prefix, column):
+    """(command, roles, USING, WITH CHECK) per policy, shared by the DDL and the schema check."""
+    tenant = TENANT_PREDICATE
+    user = f"{column} = NULLIF(current_setting('skeleton.user_id',true),'')::uuid"
+    return {
+        f"{prefix}_select": ("r", ["skeleton_runtime"], f"{tenant} OR {user}", None),
+        f"{prefix}_insert": ("a", ["skeleton_runtime"], None, tenant),
+        f"{prefix}_update": ("w", ["skeleton_runtime"], tenant, tenant),
+        f"{prefix}_delete": ("d", ["skeleton_runtime"], tenant, None),
+    }
+
+
 SENSITIVE = {"password", "token", "token_digest", "secret", "private_key", "recovery_codes"}
 
 
@@ -52,17 +98,18 @@ class InstallRecordInfrastructure(Operation):
     reversible = True
     reduces_to_sql = True
 
-    def __init__(self, app_label, model_name, specification):
+    def __init__(self, app_label, model_name, specification, replaces=None):
         self.app_label = app_label
         self.model_name = model_name
         self.specification = specification
+        # The frozen specification this operation supersedes; backwards reinstalls it.
+        self.replaces = replaces
 
     def deconstruct(self):
-        return (
-            self.__class__.__name__,
-            [],
-            {"app_label": self.app_label, "model_name": self.model_name, "specification": self.specification},
-        )
+        kwargs = {"app_label": self.app_label, "model_name": self.model_name, "specification": self.specification}
+        if self.replaces is not None:
+            kwargs["replaces"] = self.replaces
+        return (self.__class__.__name__, [], kwargs)
 
     def state_forwards(self, app_label, state):
         pass
@@ -82,6 +129,12 @@ class InstallRecordInfrastructure(Operation):
             raise NotImplementedError("Record infrastructure requires SQLite or PostgreSQL.")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        if self.replaces is not None:
+            # Superseding operation: restore the previous frozen infrastructure, never drop it.
+            InstallRecordInfrastructure(self.app_label, self.model_name, self.replaces).database_forwards(
+                app_label, schema_editor, from_state, to_state
+            )
+            return
         model = from_state.apps.get_model(self.app_label, self.model_name)
         table, q = model._meta.db_table, schema_editor.quote_name
         if schema_editor.connection.vendor == "sqlite":
@@ -92,21 +145,24 @@ class InstallRecordInfrastructure(Operation):
                 schema_editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
             for kind in ("guard", "audit"):
                 schema_editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
-            for name in (
-                "skeleton_tenant",
-                "skeleton_membership_select",
-                "skeleton_membership_insert",
-                "skeleton_membership_update",
-                "skeleton_membership_delete",
-                "skeleton_audit_select",
-                "skeleton_audit_insert",
-            ):
+            for name in POLICY_NAMES:
                 schema_editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
             schema_editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
             for field in self._org_refs(model):
                 schema_editor.execute(
                     f"ALTER TABLE skeleton.{q(table)} DROP CONSTRAINT IF EXISTS {q(table + '_sk_org_' + field.column)}"
                 )
+
+    def policy_names(self, model):
+        """RLS policies this frozen specification installs on ``model``."""
+        if self._append_only(model):
+            return ("skeleton_audit_select", "skeleton_audit_insert")
+        if not any(f.name == "organization" for f in model._meta.fields):
+            return ()
+        mode, column = self_discovery_mode(model, self.specification)
+        if mode is None:
+            return ("skeleton_tenant",)
+        return tuple(self_discovery_policies(f"skeleton_{mode}", column))
 
     def _append_only(self, model):
         return self.specification.get("append_only", model._meta.label_lower == "sk_audit.auditevent")
@@ -276,20 +332,13 @@ class InstallRecordInfrastructure(Operation):
             f"CREATE TRIGGER {q(table + '_sk_guard')} BEFORE INSERT OR UPDATE OR DELETE ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
         editor.execute(f"REVOKE ALL ON FUNCTION skeleton.{function}() FROM PUBLIC")
-        tenant = "organization_id = NULLIF(current_setting('skeleton.tenant_id',true),'')::uuid"
+        tenant = TENANT_PREDICATE
         if append or any(f.name == "organization" for f in model._meta.fields):
             editor.execute(f"ALTER TABLE skeleton.{q(table)} ENABLE ROW LEVEL SECURITY")
             editor.execute(f"ALTER TABLE skeleton.{q(table)} FORCE ROW LEVEL SECURITY")
-            for name in (
-                "skeleton_tenant",
-                "skeleton_membership_select",
-                "skeleton_membership_insert",
-                "skeleton_membership_update",
-                "skeleton_membership_delete",
-                "skeleton_audit_select",
-                "skeleton_audit_insert",
-            ):
+            for name in POLICY_NAMES:
                 editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
+            mode, column = (None, None) if append else self_discovery_mode(model, self.specification)
             if append:
                 editor.execute(
                     f"CREATE POLICY skeleton_audit_select ON skeleton.{q(table)} FOR SELECT TO skeleton_runtime USING ({tenant} OR (organization_id IS NULL AND current_setting('skeleton.platform_admin',true)='on'))"
@@ -297,16 +346,18 @@ class InstallRecordInfrastructure(Operation):
                 editor.execute(
                     f"CREATE POLICY skeleton_audit_insert ON skeleton.{q(table)} FOR INSERT TO skeleton_audit_writer WITH CHECK ({tenant} OR organization_id IS NULL)"
                 )
-            elif model._meta.label_lower == "sk_tenancy.membership":
-                user = "user_id = NULLIF(current_setting('skeleton.user_id',true),'')::uuid"
-                for command, expression in (
-                    ("select", f"USING ({tenant} OR {user})"),
-                    ("insert", f"WITH CHECK ({tenant})"),
-                    ("update", f"USING ({tenant}) WITH CHECK ({tenant})"),
-                    ("delete", f"USING ({tenant})"),
-                ):
+            elif mode is not None:
+                # Self-discovery: read own rows of other tenants; every write checks only the tenant.
+                commands = {"r": "SELECT", "a": "INSERT", "w": "UPDATE", "d": "DELETE"}
+                for name, (command, _, using, check) in self_discovery_policies(f"skeleton_{mode}", column).items():
+                    clauses = []
+                    if using:
+                        clauses.append(f"USING ({using})")
+                    if check:
+                        clauses.append(f"WITH CHECK ({check})")
                     editor.execute(
-                        f"CREATE POLICY skeleton_membership_{command} ON skeleton.{q(table)} FOR {command.upper()} TO skeleton_runtime {expression}"
+                        f"CREATE POLICY {name} ON skeleton.{q(table)} FOR {commands[command]} TO skeleton_runtime "
+                        + " ".join(clauses)
                     )
             else:
                 editor.execute(

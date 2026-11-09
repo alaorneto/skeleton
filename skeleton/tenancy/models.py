@@ -43,6 +43,8 @@ class Membership(OrganizationRecord):
     )
     is_active = models.BooleanField(default=True)
     immutable_fields = ("user_id",)
+    # Frozen as self_discovery_column in sk_tenancy.0003; read across tenants only via own_rows().
+    self_discovery_field = "user"
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [

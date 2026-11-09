@@ -484,8 +484,10 @@ def _expected_sql(operation, model, connection):
     return capture.statements
 
 
-def expected_policies(model):
-    tenant = "organization_id = NULLIF(current_setting('skeleton.tenant_id',true),'')::uuid"
+def expected_policies(model, operation=None):
+    from skeleton.common.migration_operations import TENANT_PREDICATE, self_discovery_mode, self_discovery_policies
+
+    tenant = TENANT_PREDICATE
     if model._meta.label_lower == "sk_audit.auditevent":
         return {
             "skeleton_audit_select": (
@@ -498,14 +500,9 @@ def expected_policies(model):
         }
     if not any(field.name == "organization" for field in model._meta.fields):
         return {}
-    if model._meta.label_lower == "sk_tenancy.membership":
-        user = "user_id = NULLIF(current_setting('skeleton.user_id',true),'')::uuid"
-        return {
-            "skeleton_membership_select": ("r", ["skeleton_runtime"], tenant + " OR " + user, None),
-            "skeleton_membership_insert": ("a", ["skeleton_runtime"], None, tenant),
-            "skeleton_membership_update": ("w", ["skeleton_runtime"], tenant, tenant),
-            "skeleton_membership_delete": ("d", ["skeleton_runtime"], tenant, None),
-        }
+    mode, column = self_discovery_mode(model, operation.specification if operation is not None else {})
+    if mode is not None:
+        return self_discovery_policies(f"skeleton_{mode}", column)
     return {"skeleton_tenant": ("*", ["skeleton_runtime"], tenant, tenant)}
 
 
@@ -618,6 +615,10 @@ def check_deployed_schema(*, using="default"):
             except ValueError as exc:
                 errors.append(str(exc))
                 continue
+            declared_discovery = getattr(model, "self_discovery_field", None)
+            frozen_discovery = operation.specification.get("self_discovery_column")
+            if (model._meta.get_field(declared_discovery).column if declared_discovery else None) != frozen_discovery:
+                errors.append(f"{name}: self_discovery_field differs from the frozen self_discovery_column.")
             declared_sensitive = {column for column, sensitive in operation._audit_fields(model) if sensitive}
             for field_name in spec.sensitive_fields:
                 if model._meta.get_field(field_name).column not in declared_sensitive:
@@ -675,7 +676,7 @@ def check_deployed_schema(*, using="default"):
                     )
                     if _trigger_tokens(qualified) != _trigger_tokens(definition):
                         errors.append(f"{trigger}: exact guard/audit trigger definition mismatch.")
-                expected = expected_policies(model)
+                expected = expected_policies(model, operation)
                 actual_policies = policies.get(name, {})
                 if set(actual_policies) != set(expected):
                     errors.append(f"{name}: exact RLS policy inventory mismatch.")

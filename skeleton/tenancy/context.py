@@ -206,6 +206,26 @@ def refresh_authenticated_actor(user: Any) -> None:
     _apply(context)
 
 
+def own_rows(model: Any, user: Any, *, using: str = "default") -> Any:
+    """Live rows of ``model`` that belong to ``user`` in every organization (self-discovery).
+
+    Only models that declare ``self_discovery_field`` (frozen as ``self_discovery_column``
+    in their migration) qualify. The filter by user is explicit in Python, as SQLite has no
+    RLS; on PostgreSQL the policy additionally limits cross-tenant reads to the actor GUC.
+    The normal manager stays restricted to the current tenant, and writes never cross it.
+    """
+    field = getattr(model, "self_discovery_field", None)
+    if not field:
+        raise InvalidContext(f"{model._meta.label} does not declare self-discovery.")
+    if not getattr(user, "is_authenticated", False):
+        return model.all_objects.using(using).none()
+    actor = current_context().actor
+    if actor is not None and actor != user.pk:
+        raise InvalidContext("Self-discovery reads only the current actor's rows.")
+    column = model._meta.get_field(field).attname
+    return model.all_objects.using(using).filter(**{column: user.pk}, deleted_at__isnull=True)
+
+
 def memberships_for_user(user: Any, *, using: str = "default") -> list[dict[str, Any]]:
     from skeleton.tenancy.models import Membership
 
@@ -214,11 +234,9 @@ def memberships_for_user(user: Any, *, using: str = "default") -> list[dict[str,
     from django.db.models import F
 
     return list(
-        Membership.all_objects.using(using)
+        own_rows(Membership, user, using=using)
         .filter(
-            user_id=user.pk,
             is_active=True,
-            deleted_at__isnull=True,
             organization__is_active=True,
             organization__deleted_at__isnull=True,
         )
