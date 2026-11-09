@@ -14,6 +14,8 @@ from . import services
 def _translate(error):
     if isinstance(error, services.UploadTooLarge):
         return BoundaryError("request_too_large", "O arquivo excede o limite permitido.", 413)
+    if isinstance(error, services.QuotaExceeded):
+        return BoundaryError("quota_exceeded", "A cota de armazenamento da organização foi atingida.", 409)
     if isinstance(error, services.UnsupportedFileType):
         return BoundaryError("unsupported_type", "Tipo de arquivo não permitido.", 400)
     return error
@@ -38,7 +40,7 @@ class AttachmentsView(TenantAPI):
             attachment = services.upload(
                 spec, sysid, user=request.user, stream=uploaded, filename=uploaded.name, size=uploaded.size
             )
-        except (services.UploadTooLarge, services.UnsupportedFileType) as error:
+        except (services.UploadTooLarge, services.UnsupportedFileType, services.QuotaExceeded) as error:
             raise _translate(error) from None
         return etag(Response(services.attachment_data(attachment), status=201), attachment.revision)
 

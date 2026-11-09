@@ -133,6 +133,8 @@ STORAGES = {
     "skeleton_files": private_files_storage(env, BASE_DIR),
 }
 SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
+# Live attachment bytes per organization; empty means unlimited (full quota accounting is #61).
+SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True

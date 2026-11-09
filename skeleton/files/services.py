@@ -26,6 +26,23 @@ class UploadTooLarge(ValidationError):
         super().__init__("O arquivo excede o limite permitido.", code="too_large")
 
 
+class QuotaExceeded(Exception):
+    """The organization's live attachments would exceed SKELETON_FILES_ORG_QUOTA_BYTES."""
+
+
+def _check_quota(organization_id, size: int) -> None:
+    from django.db.models import Sum
+
+    from .models import Attachment
+
+    quota = getattr(settings, "SKELETON_FILES_ORG_QUOTA_BYTES", None)
+    if not quota:
+        return
+    used = Attachment.objects.filter(organization_id=organization_id).aggregate(total=Sum("size"))["total"] or 0
+    if used + size > quota:
+        raise QuotaExceeded()
+
+
 class UnsupportedFileType(ValidationError):
     def __init__(self):
         super().__init__("Tipo de arquivo não permitido ou inconsistente com a extensão.", code="unsupported_type")
@@ -92,6 +109,8 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
     limit = min(rules.max_bytes, settings.SKELETON_UPLOAD_MAX_BYTES)
     if size is not None and size > limit:
         raise UploadTooLarge()
+    if size is not None:
+        _check_quota(record.organization_id, size)
     name = _clean_filename(filename)
     head = stream.read(HEAD_BYTES)
     kind = detect(head, name)
@@ -118,6 +137,13 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
     except StorageError as error:
         if "large" in str(error):
             raise UploadTooLarge() from None
+        raise
+    try:
+        _check_quota(record.organization_id, stored)
+    except QuotaExceeded:
+        from .storage import delete
+
+        delete(key)
         raise
     scan = getattr(settings, "SKELETON_FILES_SCAN", False)
     attachment = Attachment(

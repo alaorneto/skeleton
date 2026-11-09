@@ -221,7 +221,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `AuditService` | `skeleton.service_api.audit` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
-| `FileService` | (planejado) | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 
 ### IdentityService
 
@@ -312,6 +312,17 @@ NotificationService().notify(
 | `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
 
 `JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)).
+
+### FileService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `attach(*, actor, table_key, record_id, filename, stream, content_type=None) -> AttachmentInfo` | update no registro alvo; o tipo é provado pelo conteúdo (`content_type` é só indicativo) | `NotFound` (tabela sem opt-in, alvo inexistente, de outra organização ou ilegível); `Forbidden` (lê sem update); `InvalidInput` (tipo, nome ou tamanho); `Conflict("quota_exceeded")` |
+| `list(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AttachmentInfo]` | leitura do alvo | `NotFound`, `InvalidInput` |
+| `download_url(*, actor, attachment_id) -> str` | leitura do alvo e anexo `available`; a URL é interna e a view reautoriza a cada pedido | `NotFound` (inclusive pendente ou em quarentena) |
+| `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
+
+Apps não acessam o armazenamento diretamente. A cota por organização é `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão; a contabilidade completa é #61). Veja [arquivos e anexos](files.md).
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
