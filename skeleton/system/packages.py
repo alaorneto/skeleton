@@ -1424,7 +1424,7 @@ def manifest_template(
             "compatibility": {
                 "skeleton": f">={floor},<1.0.0",
                 "python": ">=3.12,<3.15",
-                "django": ">=5.2,<5.3",
+                "django": ">=6.1,<6.2",
             },
             "dependencies": {},
             "conflicts": {},

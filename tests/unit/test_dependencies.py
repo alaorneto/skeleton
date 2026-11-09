@@ -11,7 +11,7 @@ from skeleton.system.packages import (
     validate_manifest,
 )
 
-TARGET = {"core": "0.3.0", "python": "3.14.0", "django": "5.2.18"}
+TARGET = {"core": "0.3.0", "python": "3.14.0", "django": "6.1.3"}
 
 
 def app(name, version="0.1.0", **dependencies):
@@ -42,7 +42,7 @@ def test_reports_every_problem_with_structured_details():
     present = app("present", "0.1.0")
     consumer = app("consumer", absent=">=1.0", present=">=0.2,<1.0")
     consumer["conflicts"] = {"org.test.present": "<0.5"}
-    consumer["compatibility"]["django"] = ">=6.0"
+    consumer["compatibility"]["django"] = ">=7.0"
     resolution = resolve_dependencies([consumer, present], **TARGET)
     assert codes(resolution) == [
         "incompatible_platform",
@@ -55,8 +55,8 @@ def test_reports_every_problem_with_structured_details():
         "code": "incompatible_platform",
         "component": "org.test.consumer",
         "dependency": "django",
-        "required": ">=6.0",
-        "found": "5.2.18",
+        "required": ">=7.0",
+        "found": "6.1.3",
     }
     assert missing == {
         "code": "missing_dependency",

@@ -23,9 +23,10 @@ def invitation_view(request, organization_id, token):
     if request.method == "POST":
         if not request.user.is_authenticated:
             return redirect("account_signup")
-        from allauth.account.internal.flows.reauthentication import did_recently_authenticate
+        from skeleton.accounts.reauthentication import has_recent_authentication
 
-        if not did_recently_authenticate(request):
+        # SSO-only accounts cannot reauthenticate locally; their login is accepted as before.
+        if not has_recent_authentication(request, allow_without_reauthentication_flow=True):
             from django.urls import reverse
 
             return redirect(reverse("account_reauthenticate") + "?next=" + request.path)

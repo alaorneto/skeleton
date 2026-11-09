@@ -7,7 +7,6 @@ read here: platform administration does not grant organization access.
 
 from pathlib import Path
 
-from allauth.account.decorators import reauthentication_required
 from django.apps import apps
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -20,6 +19,7 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.access.services import LastAdministrator
 from skeleton.accounts.platform import LastPlatformAdministrator
+from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.accounts.services import (
     PLATFORM_USER_FIELDS,
     create_identity,
@@ -534,7 +534,7 @@ def app_screen(request, app_label, screen_id):
     if screen.sensitive:
         from .updates import recent_authentication
 
-        @reauthentication_required(allow_get=True)
+        @recent_authentication_required(allow_get=True)
         def sensitive_handler(request):
             recent_authentication(request)
             return handler(request)

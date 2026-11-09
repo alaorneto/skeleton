@@ -32,6 +32,11 @@ def test_rd01_primary_email_change_revokes_other_session_but_preserves_current()
         EmailAddress.objects.create(user=user, email="new-primary@example.test", verified=True)
     first, second = login(user), login(user)
     before = User.objects.get(pk=user.pk).auth_version
+    # allauth >= 65.21 treats a login as not enough to change the primary email.
+    response = first.post(reverse("account_email"), {"email": "new-primary@example.test", "action_primary": ""})
+    assert response["Location"].startswith(reverse("account_reauthenticate"))
+    assert User.objects.get(pk=user.pk).email == user.email
+    assert first.post(reverse("account_reauthenticate"), {"password": PASSWORD}).status_code == 302
     response = first.post(reverse("account_email"), {"email": "new-primary@example.test", "action_primary": ""})
     assert response.status_code == 302
     user.refresh_from_db()

@@ -24,24 +24,41 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 |---|---|---|
 | `lint` | Ruff 0.17.4 com as regras de `pyproject.toml` e `ruff format --check`. | E501 e PLC0415, que seguem fora da linha de base. |
 | `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
+| `locks` | uv 0.12.7 regenera `requirements.txt` e `requirements-dev.txt` com os comandos `uv pip compile` de "Atualizar locks" do `README.md` e o job exige `git diff --exit-code`: os locks correspondem aos `.in` e foram gerados pelo comando oficial (cabeçalho, `pip`/`setuptools` fixados, hashes). | Que as versões resolvidas são as mais novas ou estão livres de vulnerabilidades (ver `build`); que `pyproject.toml` declara as mesmas faixas que `requirements.in`. |
 | `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
 | `sqlite` | Lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e `tests/unit tests/integration_sqlite tests/accounts` com cobertura (`coverage.xml` publicado como artefato), em Python 3.12 e 3.14. | RLS PostgreSQL. Cobertura mede linhas executadas, não a qualidade das assertions. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
 | `postgres` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; migrations como `skeleton_owner`, assertions como `skeleton_runtime` e `tools/smoke_postgres.py`. | Um PostgreSQL de produção ou um backup/restore. |
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |
 
+Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR, inclusive nos PRs do Dependabot, que mudam só os `.in` ou regeneram no estilo `pip-compile`. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma.
+
 O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por sessão e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122)
+
+Rodada de 2026-11-09 em Windows 11 com Python 3.14 e os locks regenerados por `uv pip compile`. O venv local foi instalado com as versões do novo `requirements-dev.txt` usadas como constraints (sem `--require-hashes`, porque os hashes são de wheels Linux). Para comparação, os testes que falharam também rodaram num venv com os locks anteriores (Django 5.2.18, allauth 65.19.7): passaram nos dois casos, o que confirma que as falhas eram regressões da atualização e não do ambiente.
+
+| Conjunto executado | Backend | Resultado observado |
+|---|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 531 passed, 107 skipped (marcados `posix`, agente e os que exigem Docker) |
+| `ruff check`, `ruff format --check` (0.17.4) e `mypy` | — | sem problemas |
+| `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run` | SQLite em memória | sem problemas, sem migrations novas |
+
+Antes das correções, a mesma suíte teve 13 falhas: API interna de reautenticação removida no allauth 65.21 (`did_recently_authenticate`), `get_authentication_records` passando a exigir o usuário, o decorator `reauthentication_required` deixando de aceitar login recente, e faixas `django >=5.2,<5.3` no manifesto do Notes e no template de scaffold.
+
+**Não verificado nesta rodada:** PostgreSQL com role runtime, os testes POSIX (pacotes, `test_core_distribution`, agente), `pip install --require-hashes` dos locks e build da imagem; ficam a cargo do CI do PR. A suíte emite `RemovedInDjango2028Warning` para as settings `EMAIL_*` (substituídas por `MAILERS` no Django 6.1); a migração fica para uma issue própria.
+
 ## API de serviços entre apps — core/agente 0.4.0 (epic #112)
 
-Rodada de 2026-11-09 para [#98](https://github.com/alaorneto/skeleton/issues/98), [#99](https://github.com/alaorneto/skeleton/issues/99), [#100](https://github.com/alaorneto/skeleton/issues/100) e [#101](https://github.com/alaorneto/skeleton/issues/101): `runtime.service_api`, checks E012/E018/W018/E019/W019, `package doctor`/`build`, kit `skeleton.testing.service_api`, `NoteService` e gerador. Somente o que rodou:
+Rodada de 2026-11-09 para [#98](https://github.com/alaorneto/skeleton/issues/98), [#99](https://github.com/alaorneto/skeleton/issues/99), [#100](https://github.com/alaorneto/skeleton/issues/100) e [#101](https://github.com/alaorneto/skeleton/issues/101): `runtime.service_api`, checks E012/E018/W018/E019/W019, `package doctor`/`build`, kit `skeleton.testing.service_api`, `NoteService` e gerador. Rodada depois do merge da `main` com Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122). Somente o que rodou:
 
 | Ambiente | Comando | Resultado |
 |---|---|---|
-| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 676 passed, 108 skipped (marcados `posix` e Docker) |
-| Linux (WSL Debian), Python 3.14.7 standalone, venv com `requirements-dev.txt` por hashes, SQLite | mesmo comando com `.venv/bin/python` | 803 passed, 3 skipped (Compose exige o CLI do Docker): inclui os testes `posix` de artefatos assinados |
+| Windows 11, Python 3.14.7, SQLite (venv com as versões do lock, sem `--require-hashes`: os hashes são de wheels Linux) | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 680 passed, 108 skipped (marcados `posix` e Docker) |
+| Linux (WSL Debian), Python 3.14.7 standalone, venv com `requirements-dev.txt` por hashes, SQLite | mesmo comando com `.venv/bin/python` | 807 passed, 3 skipped (Compose exige o CLI do Docker): inclui os testes `posix` de artefatos assinados; `pip check` sem problemas |
 | Linux (WSL), mesmo venv | `manage.py check --fail-level WARNING` e `manage.py makemigrations --check --dry-run` | sem problemas; nenhuma migration pendente |
 | Windows | `python -m mypy` (inclui `skeleton/testing` e `skeleton/system/import_boundary.py` no modo estrito) e Ruff 0.17.4 `check`/`format --check` | sem erros |
 
