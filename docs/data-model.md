@@ -21,6 +21,8 @@ As bases são **abstratas**: Django copia seus campos para cada modelo concreto,
 | Dado de negócio com proprietário e acesso por registro | `SecuredRecord` | Tudo acima e proprietário/visibilidade/grupo; base para negócio organizacional e gateway genérico |
 | Tabela de Django ou allauth | Modelo oficial da biblioteca | Não adaptar às bases próprias; registrar a exceção técnica nominal no catálogo |
 
+Há uma quarta base, **`OperationalRecord`**, reservada ao estado de pipeline do núcleo (jobs, outbox, entregas, leitura de notificações). Ela não é para negócio: veja a decisão abaixo.
+
 Herdar a base não instala sozinho a proteção no banco: são necessários `TableSpec` e a migration com `InstallRecordInfrastructure`. Veja [catálogo](table-catalog.md#migration-e-checks) e [extensão](extending.md).
 
 ## Identificador não é código comercial
@@ -88,6 +90,14 @@ Criar uma organização também é uma unidade transacional: `create_organizatio
 
 `sk_system.0005_deploymentoperation_lifecycle` acrescenta `reinstall` e `core_update` ao contrato de operação, sem alterar colunas/infraestrutura da migration anterior. Falha de migration conserva o modo de manutenção; recuperação offline reconciliada aparece como `restored` no histórico.
 
+
+## Tabelas operacionais (ADR)
+
+**Contexto.** Fila de jobs, outbox de eventos, entregas e estado de leitura de notificações mudam a cada claim, heartbeat ou leitura. Com `SystemRecord`, cada UPDATE geraria um `AuditEvent`, e a role runtime não tem DELETE: essas tabelas cresceriam para sempre e inflariam a auditoria.
+
+**Decisão.** `OperationalRecord` (`skeleton/common/models.py`) tem `sysid` UUID, `created_at` e `updated_at`; não tem revisão, exclusão lógica nem auditoria. O manager filtra o tenant quando há FK `organization`, permite `update`, `delete` e `bulk_create` e recusa `bulk_update` e mudança de campos imutáveis. A migration congela `lifecycle: operational` no spec de `InstallRecordInfrastructure`, que instala: guard de imutabilidade (`sysid`, `organization_id` e `immutable_fields`), RLS tenant quando há `organization` (com `self_discovery_column` opcional), FKs compostas de mesmo tenant, `GRANT SELECT, INSERT, UPDATE, DELETE` à role runtime e nenhum trigger de auditoria. O catálogo registra `audit_mode=operational` e `base_class=OperationalRecord`; `check_skeleton_schema` compara triggers, grants, políticas e a ausência da função de auditoria, e o check E020 reprova tabela operacional exposta ou com `write_fields`.
+
+**Consequências.** A exclusão física fica disponível ao runtime, mas só o serviço de retenção declarado em código a usa. A auditoria continua a fonte de verdade do negócio: um evento de domínio ou um job carregam `record_revision`/`request_id` para correlação, não substituem o `AuditEvent`. Desligar a auditoria de uma tabela de negócio por flag foi descartado: a base separada deixa o contrato explícito e verificável.
 
 ## AuditEvent
 

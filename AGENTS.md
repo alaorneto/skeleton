@@ -54,6 +54,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 ## Contrato de cada tabela própria
 
 - Toda entidade concreta própria deriva de `SystemRecord`, `OrganizationRecord` ou `SecuredRecord`. A herança é abstrata: não existe supertabela universal. UUID `sysid` é PK e imutável; códigos comerciais são campos separados.
+- **Exceção operacional:** estado de pipeline do núcleo (fila de jobs, outbox, entregas, leitura de notificações) deriva de `OperationalRecord`: UUID, isolamento tenant e guard de identidade, sem revisão, soft delete nem auditoria por linha. A migration congela `lifecycle: operational`; exclusão física só pelo serviço de retenção declarado em código. Nunca use a base para dado de negócio, nunca a exponha no gateway (E020) e nunca dê `write_fields` a ela.
 - Negócio genérico organizacional deriva de `SecuredRecord`. Organização obrigatória/imutável, owner ativo da mesma organização, visibilidade e grupo consistentes.
 - Registre `TableSpec` único por `_meta.label_lower`; `read_fields`, `write_fields` e `sensitive_fields` explícitos. Nunca `__all__`, `eval` ou nomes de classes fornecidos pelo cliente. Campos sistêmicos e de acesso não entram na escrita comum. Só `SecuredRecord` pode usar gateway genérico exposto.
 - Na migration da criação, e após mudanças de colunas auditáveis/relações, instale `InstallRecordInfrastructure` com especificação congelada. Use modelos históricos; nunca imports dos modelos correntes nem dados editáveis do catálogo para DDL.

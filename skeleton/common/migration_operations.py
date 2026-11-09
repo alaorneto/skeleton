@@ -59,13 +59,21 @@ def _lit(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def infrastructure_names(table, vendor):
-    suffixes = (
-        ("guard", "audit")
-        if vendor == "postgresql"
-        else ("guard_insert", "guard_update", "guard_delete", "audit_insert", "audit_update", "audit_delete")
-    )
+def infrastructure_names(table, vendor, *, operational=False):
+    if operational:
+        # Operational tables: identity guard only; physical DELETE is allowed and nothing is audited.
+        suffixes = ("guard",) if vendor == "postgresql" else ("guard_insert", "guard_update")
+    else:
+        suffixes = (
+            ("guard", "audit")
+            if vendor == "postgresql"
+            else ("guard_insert", "guard_update", "guard_delete", "audit_insert", "audit_update", "audit_delete")
+        )
     return tuple(table + "_sk_" + suffix for suffix in suffixes)
+
+
+def is_operational(specification):
+    return specification.get("lifecycle") == "operational"
 
 
 def build_infrastructure_specification(model, spec):
@@ -87,6 +95,11 @@ def build_infrastructure_specification(model, spec):
             }
         )
     specification = {"scope": spec.scope, "sensitive_fields": list(spec.sensitive_fields)}
+    if getattr(model, "lifecycle", None) == "operational":
+        specification["lifecycle"] = "operational"
+    discovery = getattr(model, "self_discovery_field", None)
+    if discovery:
+        specification["self_discovery_column"] = model._meta.get_field(discovery).column
     immutable = tuple(getattr(model, "immutable_fields", ()))
     if immutable:
         specification["immutable_fields"] = list(immutable)
@@ -152,6 +165,16 @@ class InstallRecordInfrastructure(Operation):
                 schema_editor.execute(
                     f"ALTER TABLE skeleton.{q(table)} DROP CONSTRAINT IF EXISTS {q(table + '_sk_org_' + field.column)}"
                 )
+
+    def operational(self):
+        return is_operational(self.specification)
+
+    def runtime_privileges(self, model):
+        if self._append_only(model):
+            return {"SELECT"}
+        if self.operational():
+            return {"SELECT", "INSERT", "UPDATE", "DELETE"}
+        return {"SELECT", "INSERT", "UPDATE"}
 
     def policy_names(self, model):
         """RLS policies this frozen specification installs on ``model``."""
@@ -231,6 +254,9 @@ class InstallRecordInfrastructure(Operation):
         append = self._append_only(model)
         for name in infrastructure_names(table, "sqlite"):
             editor.execute(f"DROP TRIGGER IF EXISTS {q(name)}")
+        if self.operational():
+            self._sqlite_operational(editor, model)
+            return
         relation_guards = []
         for field in self._org_refs(model):
             target = field.related_model._meta.db_table
@@ -304,8 +330,35 @@ class InstallRecordInfrastructure(Operation):
                 VALUES (skeleton_uuid(),skeleton_now(),skeleton_now(),skeleton_actor(),skeleton_actor(),NULL,NULL,1,
                  {org},{_lit(table)},{_lit(model._meta.label_lower)},{ref}.sysid,{ref}.revision,{action},skeleton_actor(),skeleton_request_id(),skeleton_source(),'sqlite',{changes}); END""")
 
+    def _sqlite_operational(self, editor, model):
+        q, table = editor.quote_name, model._meta.db_table
+        relation_guards = []
+        for field in self._org_refs(model):
+            target = field.related_model._meta.db_table
+            relation_guards.append(
+                f"SELECT CASE WHEN NEW.{q(field.column)} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM {q(target)} WHERE sysid=NEW.{q(field.column)} AND organization_id=NEW.organization_id) THEN RAISE(ABORT, 'cross-tenant reference') END;"
+            )
+        common = "\n".join(relation_guards)
+        insert_guard = (
+            "SELECT CASE WHEN NEW.sysid IS NULL OR length(NEW.sysid) != 32 OR NEW.sysid GLOB '*[^0-9a-f]*' "
+            "THEN RAISE(ABORT, 'sysid must be a canonical UUID') END;"
+        )
+        editor.execute(
+            f"CREATE TRIGGER {q(table + '_sk_guard_insert')} BEFORE INSERT ON {q(table)} BEGIN {insert_guard} {common} END"
+        )
+        clauses = " ".join(
+            f"SELECT CASE WHEN NEW.{q(name)} IS NOT OLD.{q(name)} THEN RAISE(ABORT, 'immutable record identity') END;"
+            for name in self._immutable(model)
+        )
+        editor.execute(
+            f"CREATE TRIGGER {q(table + '_sk_guard_update')} BEFORE UPDATE ON {q(table)} BEGIN {clauses} {common} END"
+        )
+
     def _postgres(self, editor, model):
         q, table = editor.quote_name, model._meta.db_table
+        if self.operational():
+            for kind in ("guard", "audit"):
+                editor.execute(f"DROP TRIGGER IF EXISTS {q(table + '_sk_' + kind)} ON skeleton.{q(table)}")
         for field in self._org_refs(model):
             constraint = q(table + "_sk_org_" + field.column)
             target = q(field.related_model._meta.db_table)
@@ -317,9 +370,12 @@ class InstallRecordInfrastructure(Operation):
                 f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_idx_' + field.column)} ON skeleton.{q(table)} (organization_id,{q(field.column)})"
             )
         append = self._append_only(model)
+        operational = self.operational()
         immutable = " OR ".join(f"NEW.{q(name)} IS DISTINCT FROM OLD.{q(name)}" for name in self._immutable(model))
         guard = (
-            "IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'audit is append only' USING ERRCODE='23514'; END IF; IF NEW.revision <> 1 OR NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN RAISE EXCEPTION 'invalid audit metadata' USING ERRCODE='23514'; END IF;"
+            f"IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF;"
+            if operational
+            else "IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'audit is append only' USING ERRCODE='23514'; END IF; IF NEW.revision <> 1 OR NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN RAISE EXCEPTION 'invalid audit metadata' USING ERRCODE='23514'; END IF;"
             if append
             else f"IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF; ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF; IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
         )
@@ -328,8 +384,9 @@ class InstallRecordInfrastructure(Operation):
             f"CREATE OR REPLACE FUNCTION skeleton.{function}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,skeleton AS $guard$ BEGIN {guard} RETURN NEW; END $guard$"
         )
         editor.execute(f"DROP TRIGGER IF EXISTS {q(table + '_sk_guard')} ON skeleton.{q(table)}")
+        events = "UPDATE" if operational else "INSERT OR UPDATE OR DELETE"
         editor.execute(
-            f"CREATE TRIGGER {q(table + '_sk_guard')} BEFORE INSERT OR UPDATE OR DELETE ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
+            f"CREATE TRIGGER {q(table + '_sk_guard')} BEFORE {events} ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
         editor.execute(f"REVOKE ALL ON FUNCTION skeleton.{function}() FROM PUBLIC")
         tenant = TENANT_PREDICATE
@@ -364,11 +421,13 @@ class InstallRecordInfrastructure(Operation):
                     f"CREATE POLICY skeleton_tenant ON skeleton.{q(table)} FOR ALL TO skeleton_runtime USING ({tenant}) WITH CHECK ({tenant})"
                 )
         editor.execute(f"REVOKE ALL ON skeleton.{q(table)} FROM PUBLIC, skeleton_runtime")
-        editor.execute(
-            f"GRANT {'SELECT' if append else 'SELECT,INSERT,UPDATE'} ON skeleton.{q(table)} TO skeleton_runtime"
-        )
+        privileges = "SELECT" if append else "SELECT,INSERT,UPDATE,DELETE" if operational else "SELECT,INSERT,UPDATE"
+        editor.execute(f"GRANT {privileges} ON skeleton.{q(table)} TO skeleton_runtime")
         if append:
             editor.execute(f"GRANT INSERT ON skeleton.{q(table)} TO skeleton_audit_writer")
+            return
+        if operational:
+            editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_audit_fn')}()")
             return
         fields = self._audit_fields(model)
         build = []
