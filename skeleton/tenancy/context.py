@@ -223,7 +223,10 @@ def own_rows(model: Any, user: Any, *, using: str = "default") -> Any:
     if actor is not None and actor != user.pk:
         raise InvalidContext("Self-discovery reads only the current actor's rows.")
     column = model._meta.get_field(field).attname
-    return model.all_objects.using(using).filter(**{column: user.pk}, deleted_at__isnull=True)
+    rows = model.all_objects.using(using).filter(**{column: user.pk})
+    if any(item.name == "deleted_at" for item in model._meta.fields):
+        rows = rows.filter(deleted_at__isnull=True)  # Operational tables have no tombstones.
+    return rows
 
 
 def memberships_for_user(user: Any, *, using: str = "default") -> list[dict[str, Any]]:

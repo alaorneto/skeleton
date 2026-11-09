@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "skeleton.audit.apps.AuditConfig",
     "skeleton.jobs.apps.JobsConfig",
     "skeleton.events.apps.EventsConfig",
+    "skeleton.notifications.apps.NotificationsConfig",
     "skeleton.web",
     "skeleton.api",
 ]

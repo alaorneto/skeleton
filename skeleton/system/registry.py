@@ -169,6 +169,18 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_notifications.notification": (
+            "Notificações",
+            "Fato notificado, alvo e especificação dos destinatários; snapshot só com campos declarados.",
+            "organization",
+            (),
+        ),
+        "sk_notifications.notificationrecipient": (
+            "Notificações por pessoa",
+            "Cópia da notificação de cada pessoa, com lida, arquivada e contagem agrupada.",
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",

@@ -23,6 +23,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/system` | Registro de especificações, catálogo, apps, checks e controle de releases | Metadados não executam DDL |
 | `skeleton/audit` | Eventos e infraestrutura de auditoria | Triggers são a fonte; não há segunda fonte por signals de save |
 | `skeleton/jobs` | Fila de jobs no banco, tipos registrados em código | Enqueue na transação do negócio; payload sem dado de negócio; [jobs](jobs.md) |
+| `skeleton/notifications` | Tipos de notificação, `notify()` e linhas por pessoa | Snapshot só com campos declarados e não sensíveis; [notificações](notifications.md) |
 | `skeleton/events` | Eventos de domínio publicados explicitamente pelo serviço | Mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade; [eventos](events.md) |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
 | `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate`, erros públicos, introspecção do contrato (`contract`) e APIs declaradas pelas apps (`registry`) | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
@@ -41,7 +42,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 
 `sysid` identifica uma linha; código comercial identifica algo segundo o negócio; `table_key` identifica um modelo registrado na interface. Nenhum desses valores é autorização ou um nome SQL livre recebido do cliente.
 
-Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs` e `sk_events`; o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
+Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events` e `sk_notifications`; o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
 
 ## Caminho de uma requisição
 
