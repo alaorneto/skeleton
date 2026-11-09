@@ -94,3 +94,23 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 Efeitos externos (SMTP, HTTP, push) são **pelo menos uma vez**: precisam de registro de entrega e chave de idempotência próprios.
 
 Em testes, `skeleton.testing.jobs.run_pending_jobs()` executa os jobs vencidos com os mesmos contextos e retentativas do worker e devolve os resultados. Chame-o fora de qualquer contexto, depois do commit que enfileirou.
+
+## Jobs periódicos
+
+```python
+from datetime import time, timedelta
+
+from skeleton.jobs.periodic import register_periodic
+
+register_periodic("tasks.digest", "tasks.send_digest", daily_at=time(6, 0))  # por organização, 06:00 UTC
+register_periodic("files.reconcile", "files.reconcile_quota", every=timedelta(hours=1), per_organization=True)
+register_periodic("events.retention", "events.purge", every=timedelta(hours=6), per_organization=False)
+```
+
+`python manage.py run_scheduler [--once] [--interval 30]` enfileira, a cada verificação, a **janela atual** de cada declaração:
+
+- A chave de idempotência é `periodic:<code>:<organização>:<início da janela>`. Vários agendadores podem rodar ao mesmo tempo, sem eleição de líder: o banco guarda exatamente um job por janela e organização.
+- Com `per_organization=True`, os IDs das organizações ativas e não excluídas são materializados antes, e cada organização enfileira na própria transação `system_context`. Nenhuma transação global envolve o laço.
+- Só a janela em curso é agendada: um agendador parado recupera no máximo uma janela, nunca um acúmulo.
+- Mudar o agendamento vale a partir da próxima janela calculada com a nova cadência.
+- Jobs periódicos rodam como sistema; o tipo precisa ter `scope` coerente com `per_organization` (check `skeleton.E021`).
