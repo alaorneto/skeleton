@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "skeleton.system.apps.SystemConfig",
     "skeleton.access.apps.AccessConfig",
     "skeleton.audit.apps.AuditConfig",
+    "skeleton.jobs.apps.JobsConfig",
     "skeleton.web",
     "skeleton.api",
 ]

@@ -151,6 +151,12 @@ def register_core_specs():
             "global",
             ("plan", "result"),
         ),
+        "sk_jobs.job": (
+            "Jobs",
+            "Fila de trabalho em segundo plano; payload só com identificadores, sem dados de negócio.",
+            "global",
+            (),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",

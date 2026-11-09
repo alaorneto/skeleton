@@ -138,7 +138,7 @@ class AppManifest:
 
 
 _manifests = {}
-CORE_APP_LABELS = frozenset({"sk_accounts", "sk_tenancy", "sk_access", "sk_system", "sk_audit"})
+CORE_APP_LABELS = frozenset({"sk_accounts", "sk_tenancy", "sk_access", "sk_system", "sk_audit", "sk_jobs"})
 
 
 def register_app(manifest):

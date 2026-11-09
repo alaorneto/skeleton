@@ -372,8 +372,19 @@ class InstallRecordInfrastructure(Operation):
         append = self._append_only(model)
         operational = self.operational()
         immutable = " OR ".join(f"NEW.{q(name)} IS DISTINCT FROM OLD.{q(name)}" for name in self._immutable(model))
-        guard = (
+        tenant_column = self.specification.get("tenant_column") if operational else None
+        tenant_guc = "NULLIF(current_setting('skeleton.tenant_id',true),'')"
+        operational_guard = (
             f"IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF;"
+        )
+        if tenant_column:
+            # Global operational table: an INSERT made inside a tenant must target that tenant.
+            operational_guard = (
+                f"IF TG_OP='INSERT' THEN IF {tenant_guc} IS NOT NULL AND NEW.{q(tenant_column)} IS DISTINCT FROM {tenant_guc}::uuid "
+                f"THEN RAISE EXCEPTION 'cross-tenant insert' USING ERRCODE='42501'; END IF; ELSE {operational_guard} END IF;"
+            )
+        guard = (
+            operational_guard
             if operational
             else "IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'audit is append only' USING ERRCODE='23514'; END IF; IF NEW.revision <> 1 OR NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN RAISE EXCEPTION 'invalid audit metadata' USING ERRCODE='23514'; END IF;"
             if append
@@ -384,7 +395,7 @@ class InstallRecordInfrastructure(Operation):
             f"CREATE OR REPLACE FUNCTION skeleton.{function}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,skeleton AS $guard$ BEGIN {guard} RETURN NEW; END $guard$"
         )
         editor.execute(f"DROP TRIGGER IF EXISTS {q(table + '_sk_guard')} ON skeleton.{q(table)}")
-        events = "UPDATE" if operational else "INSERT OR UPDATE OR DELETE"
+        events = ("INSERT OR UPDATE" if tenant_column else "UPDATE") if operational else "INSERT OR UPDATE OR DELETE"
         editor.execute(
             f"CREATE TRIGGER {q(table + '_sk_guard')} BEFORE {events} ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
