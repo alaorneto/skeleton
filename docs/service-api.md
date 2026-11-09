@@ -1,6 +1,6 @@
 # API de serviços entre apps
 
-**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), core 0.4.0): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Os serviços do núcleo seguem em andamento (epic [#113](https://github.com/alaorneto/skeleton/issues/113)).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
+**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), core 0.4.0): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Serviços do núcleo entregues (epic [#113](https://github.com/alaorneto/skeleton/issues/113), métodos `since="0.5.0"`): veja o [catálogo do núcleo](#catálogo-do-núcleo).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
 
 ## Por que existe
 

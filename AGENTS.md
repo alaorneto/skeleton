@@ -31,7 +31,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
-- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas. Os serviços do núcleo estão em implementação (epic #113).
+- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos e arquivos; epic #113).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
 - `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
@@ -41,7 +41,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 
 ## API de serviços entre apps
 
-Apps interagem com o núcleo e entre si pela API de serviços: classes em processo definidas em [docs/service-api.md](docs/service-api.md). O procedimento é o skill `service-api` (`.claude/skills/service-api/`). A base técnica e as verificações automáticas estão entregues (epic #112): E018 confere a API declarada, E019/W019 a fronteira de importação, E012 a documentação, e o kit `skeleton.testing.service_api` prova o comportamento. Os serviços do núcleo estão no epic #113. O que os checks não alcançam (imports dinâmicos, semântica da autorização) continua valendo por revisão de código.
+Apps interagem com o núcleo e entre si pela API de serviços: classes em processo definidas em [docs/service-api.md](docs/service-api.md). O procedimento é o skill `service-api` (`.claude/skills/service-api/`). A base técnica e as verificações automáticas estão entregues (epic #112): E018 confere a API declarada, E019/W019 a fronteira de importação, E012 a documentação, e o kit `skeleton.testing.service_api` prova o comportamento. Os serviços do núcleo (epic #113) estão catalogados em [docs/service-api.md](docs/service-api.md#catálogo-do-núcleo); use-os em vez dos módulos internos. O que os checks não alcançam (imports dinâmicos, semântica da autorização) continua valendo por revisão de código.
 
 - Toda app publica `service_api.py` com ao menos uma classe de serviço (`app_label` da própria app) e a declara no manifesto em `runtime.service_api`, com piso de core `>=0.4.0`. Toda app mantém `docs/service-api.md` no `documentation_root`. `package build`/`doctor` recusam release sem a declaração; manifestos históricos só recebem W018.
 - Uma app só importa de outra o `service_api` dela, e declara a dependência em `dependencies` com faixa de versão. Modelos, managers, `services.py`, forms e views de outra app não são contrato (E019). Do núcleo, importe só as superfícies públicas listadas na especificação (W019, depois erro). Não use import dinâmico para contornar a análise.
