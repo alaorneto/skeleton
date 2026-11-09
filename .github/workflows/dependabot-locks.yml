@@ -1,0 +1,145 @@
+name: Locks dos PRs do Dependabot
+
+# O Dependabot regenera os locks no estilo pip-compile ou muda só os .in; o job
+# "locks" do CI reprova esses PRs. Este workflow refaz os locks com o comando
+# oficial do uv e commita no branch do PR (docs/testing.md, "Locks dos PRs do
+# Dependabot"). A regeneração roda sem permissão de escrita nem secrets; o job
+# que commita não executa código do PR: valida o artifact com o script da base e
+# só copia os dois locks.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - requirements.in
+      - requirements-dev.in
+      - requirements.txt
+      - requirements-dev.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-locks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    name: Regenerar locks com uv
+    # A confiança vem do autor do PR e do branch no próprio repositório. O ator só
+    # restringe aos eventos do Dependabot, os únicos que recebem os Dependabot
+    # secrets, e impede que o commit do app redispare a regeneração.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'dependabot[bot]' # zizmor: ignore[bot-conditions]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          # Mesma versão do job "locks" do CI: o formato do lock depende do uv.
+          version: "0.12.7"
+          enable-cache: false
+      - name: Regenerar a partir dos locks da base do PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/workflow/dependabot_locks.py regenerate --base "$(git merge-base HEAD "$BASE_SHA")"
+      - name: Detectar mudança
+        id: diff
+        run: |
+          if git diff --quiet -- requirements.txt requirements-dev.txt; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Os locks do PR já correspondem ao comando oficial."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- requirements.txt requirements-dev.txt
+          fi
+      - if: steps.diff.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: locks
+          path: |
+            requirements.txt
+            requirements-dev.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  commit:
+    name: Commitar locks no branch do PR
+    needs: regenerate
+    if: needs.regenerate.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Exigir o GitHub App dos locks
+        env:
+          CLIENT_ID: ${{ secrets.LOCKS_APP_CLIENT_ID }}
+          PRIVATE_KEY: ${{ secrets.LOCKS_APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$CLIENT_ID" ] || [ -z "$PRIVATE_KEY" ]; then
+            echo "::error::Faltam os Dependabot secrets LOCKS_APP_CLIENT_ID e LOCKS_APP_PRIVATE_KEY. Configure o GitHub App como em docs/testing.md (\"Locks dos PRs do Dependabot\") ou regenere os locks à mão."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          # Código confiável: o validador vem da base, não do branch do PR.
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: locks
+          path: artifact
+      - name: Validar os locks do artifact
+        run: python3 trusted/tools/workflow/dependabot_locks.py check-artifact artifact
+      - uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          client-id: ${{ secrets.LOCKS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.LOCKS_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: pr
+          token: ${{ steps.app.outputs.token }}
+      - name: Commit e push
+        working-directory: pr
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "::notice::O branch mudou durante a execução; o novo evento do Dependabot regenera os locks."
+            exit 0
+          fi
+          cp ../artifact/requirements.txt ../artifact/requirements-dev.txt .
+          if git diff --quiet -- requirements.txt requirements-dev.txt; then
+            echo "Nada a commitar."
+            exit 0
+          fi
+          bot="${APP_SLUG}[bot]"
+          bot_id="$(gh api "/users/${bot}" --jq .id)"
+          git config user.name "$bot"
+          git config user.email "${bot_id}+${bot}@users.noreply.github.com"
+          git add requirements.txt requirements-dev.txt
+          git commit --quiet -F - <<'MESSAGE'
+          build(deps): regenerate locks with uv for Dependabot
+
+          Dependabot rewrites the locks in pip-compile style or changes only the
+          .in files. Regenerate both locks with the uv pip compile command from
+          the README on top of the base locks, upgrading only the packages this
+          PR changed.
+
+          Refs #140
+          MESSAGE
+          git push origin "HEAD:refs/heads/${HEAD_REF}"

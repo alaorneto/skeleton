@@ -98,6 +98,7 @@ Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh is
 | Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
 | Fechamento do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py close-epic` | Ao fechar a última sub-issue aberta, fecha o epic com comentário-resumo e sobe para o epic de cima |
 | CI | `.github/workflows/issue-link.yml` | O PR precisa citar uma issue existente deste repositório com exatamente um label de tipo. PRs do Dependabot ficam isentos |
+| Locks do Dependabot | `.github/workflows/dependabot-locks.yml`, `tools/workflow/dependabot_locks.py` | Regenera com uv os locks dos PRs de pip do Dependabot e commita no branch do PR, com `Refs #140`. Ver [testes](testing.md#locks-dos-prs-do-dependabot) |
 | GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
 
 O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "PR vinculado a issue classificada" como check obrigatório na proteção da branch `main`.

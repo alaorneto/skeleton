@@ -112,7 +112,7 @@ uv pip compile --python-version 3.14 --python-platform x86_64-manylinux_2_28 --g
 .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
-Ao mudar uma versão em `requirements.in`, `requirements-dev.in` ou `pyproject.toml`, regenere os dois locks no mesmo commit; para não atualizar outros pacotes de carona, acrescente `--upgrade-package <pacote>` aos dois comandos. Os PRs do Dependabot não regeneram os locks de forma confiável: confira o diff antes do merge.
+Ao mudar uma versão em `requirements.in`, `requirements-dev.in` ou `pyproject.toml`, regenere os dois locks no mesmo commit; para não atualizar outros pacotes de carona, acrescente `--upgrade-package <pacote>` aos dois comandos. Os PRs do Dependabot não regeneram os locks de forma confiável; o workflow `dependabot-locks` faz isso no branch do PR, depois de configurado o GitHub App ([testes](docs/testing.md#locks-dos-prs-do-dependabot)). Confira o diff antes do merge.
 
 O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 0.14.0 e WhiteNoise 6.12.0. Protocolos, MFA e cifragem reutilizam bibliotecas, não parsers caseiros.
 

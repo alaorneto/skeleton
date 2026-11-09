@@ -2,9 +2,10 @@ version: 2
 updates:
   # Os locks são gerados por `uv pip compile` (README, "Atualizar locks"), que o
   # Dependabot não reproduz: ele muda só os .in ou regenera no estilo pip-compile,
-  # sem pip/setuptools. O job "locks" do CI reprova esses PRs; regenere os locks
-  # no branch do PR antes do merge. O grupo junta os bumps num PR por semana,
-  # para regenerar uma vez só; atualizações de segurança continuam separadas.
+  # sem pip/setuptools. O job "locks" do CI reprova esses PRs, e o workflow
+  # dependabot-locks os regenera no branch do PR (docs/testing.md, "Locks dos PRs
+  # do Dependabot"). O grupo junta os bumps num PR por semana; atualizações de
+  # segurança continuam separadas.
   - package-ecosystem: pip
     directory: /
     schedule:
