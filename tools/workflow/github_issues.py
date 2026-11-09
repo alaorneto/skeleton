@@ -14,6 +14,9 @@ Subcomandos, todos só com a biblioteca padrão:
 - ``sync-checklist (N... | --all | --parent-of N) [--dry-run]``: marca ``[x]`` na seção
   "Itens" as filhas fechadas e ``[ ]`` as abertas. O workflow ``epic-checklist`` usa
   ``--parent-of`` ao fechar ou reabrir uma issue.
+- ``close-epic --parent-of N [--dry-run]``: se o pai nativo de N é um epic aberto com todas as
+  sub-issues fechadas, fecha-o com um comentário-resumo e sobe para o epic de cima. O workflow
+  ``epic-checklist`` usa ao fechar uma issue.
 """
 
 from __future__ import annotations
@@ -225,6 +228,8 @@ class IssueLinks:
     sub_issues: tuple[int | str, ...] = ()
     blocked_by: tuple[int | str, ...] = ()
     closed: bool = False
+    title: str = ""
+    state_reason: str | None = None  # COMPLETED, NOT_PLANNED, REOPENED ou None
 
 
 @dataclass(frozen=True)
@@ -374,7 +379,7 @@ def reconcile_checklist(body: str, closed: Mapping[int, bool], repository: str) 
 # Leitura em lote pelo GraphQL; escrita pelo `gh issue edit`, que valida os vínculos.
 
 _LINK_FIELDS = (
-    "__typename ... on Issue { number state "
+    "__typename ... on Issue { number state stateReason title "
     "parent { number repository { nameWithOwner } } "
     "subIssues(first: 100) { nodes { number repository { nameWithOwner } } } "
     "blockedBy(first: 100) { nodes { number repository { nameWithOwner } } } }"
@@ -413,6 +418,8 @@ def parse_links(data: Mapping[str, object] | None, repository: str) -> IssueLink
         sub_issues=_nodes(data.get("subIssues"), repository),
         blocked_by=_nodes(data.get("blockedBy"), repository),
         closed=data.get("state") == "CLOSED",
+        title=str(data.get("title") or ""),
+        state_reason=str(data["stateReason"]) if data.get("stateReason") else None,
     )
 
 
@@ -532,6 +539,87 @@ def sync_parent_checklist(issue: int, repository: str, *, dry_run: bool, gh: GhR
     return sync_checklist([parent], repository, dry_run=dry_run, gh=gh)
 
 
+CLOSE_EPIC_DEPTH = 10  # epics dentro de epics; o limite só evita ciclo de parents
+
+
+def _issue_state(number: int, repository: str, gh: GhRunner) -> tuple[bool, list[str]]:
+    """``(aberta, labels)`` lidos na hora, logo antes de decidir fechar."""
+    completed = gh(["issue", "view", str(number), "--repo", repository, "--json", "state,labels"])
+    if completed.returncode != 0:
+        raise RuntimeError(f"#{number}: {completed.stderr.strip()}")
+    data = json.loads(completed.stdout)
+    return data.get("state") == "OPEN", [str(label["name"]) for label in data.get("labels", [])]
+
+
+def epic_summary(children: Sequence[IssueLinks]) -> tuple[str, str]:
+    """``(motivo, comentário)`` do fechamento automático de um epic com todas as filhas fechadas."""
+    reason = "completed" if any(child.state_reason != "NOT_PLANNED" for child in children) else "not planned"
+    lines = [
+        f"- #{child.number} {child.title} — {'dispensada' if child.state_reason == 'NOT_PLANNED' else 'concluída'}"
+        for child in children
+    ]
+    comment = (
+        f"Fechado automaticamente pelo workflow `epic-checklist`: as {len(children)} sub-issues estão fechadas.\n\n"
+        + "\n".join(lines)
+        + "\n\nSe algum critério de conclusão do epic ainda faltar, reabra o epic e registre o que falta."
+    )
+    return reason, comment
+
+
+def close_completed_parents(issue: int, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
+    """Fecha o epic pai de ``issue`` quando todas as sub-issues nativas dele estão fechadas.
+
+    Sobe a cadeia: um fechamento feito com o token do workflow não dispara outro evento
+    ``issues: closed``, então o próprio run atualiza as caixas do epic de cima e o verifica.
+    """
+    current = issue
+    for _ in range(CLOSE_EPIC_DEPTH):
+        links = fetch_links([current], repository, gh).get(current)
+        parent = links.parent if links else None
+        if not isinstance(parent, int):
+            print(f"#{current} não é sub-issue de um epic deste repositório; nada a fechar.")
+            return 0
+        open_, labels = _issue_state(parent, repository, gh)
+        if "epic" not in labels:
+            print(f"#{parent} não tem o label epic; não é fechado automaticamente.")
+            return 0
+        if not open_:
+            print(f"#{parent} já está fechado.")
+            return 0
+        epic = fetch_links([parent], repository, gh).get(parent)
+        children = epic.sub_issues if epic else ()
+        if not children:
+            print(f"#{parent} não tem sub-issues nativas; nada a fechar.")
+            return 0
+        foreign = [str(child) for child in children if not isinstance(child, int)]
+        if foreign:
+            print(f"#{parent} tem sub-issues de outro repositório ({', '.join(foreign)}); feche-o à mão.")
+            return 0
+        states = fetch_links([child for child in children if isinstance(child, int)], repository, gh)
+        pending = [f"#{number}" for number, state in sorted(states.items()) if state is None or not state.closed]
+        if pending:
+            print(f"#{parent} continua aberto: {', '.join(pending)} ainda aberta(s).")
+            return 0
+        reason, comment = epic_summary([state for _, state in sorted(states.items()) if state is not None])
+        if dry_run:
+            print(f"[dry-run] fecharia #{parent} como {reason}:\n{comment}")
+            return 0
+        if not _issue_state(parent, repository, gh)[0]:  # outra filha fechou ao mesmo tempo
+            print(f"#{parent} já foi fechado por outra execução.")
+            return 0
+        completed = gh(["issue", "close", str(parent), "--repo", repository, "--reason", reason, "--comment", comment])
+        if completed.returncode != 0:
+            print(f"ERRO ao fechar #{parent}: {completed.stderr.strip() or completed.stdout.strip()}")
+            return 1
+        print(f"#{parent} fechado como {reason}.")
+        grandparent = epic.parent if epic else None
+        if isinstance(grandparent, int) and sync_checklist([grandparent], repository, dry_run=False, gh=gh):
+            return 1
+        current = parent
+    print(f"ERRO: a cadeia de epics acima de #{issue} passa de {CLOSE_EPIC_DEPTH} níveis.")
+    return 1
+
+
 def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
     epics = _fetch_epics(selection, repository, gh)
     plans = {epic: parse_epic_items(body, repository) for epic, (body, _) in epics.items()}
@@ -583,6 +671,20 @@ def _current_repository() -> str:
 
 SYNC_EPIC_USAGE = "sync-epic (N [N...] | --all) [--dry-run]"
 SYNC_CHECKLIST_USAGE = "sync-checklist (N [N...] | --all | --parent-of N) [--dry-run]"
+CLOSE_EPIC_USAGE = "close-epic --parent-of N [--dry-run]"
+
+
+def _close_epic_command(args: Sequence[str]) -> int:
+    rest = [arg for arg in args if arg != "--dry-run"]
+    if len(rest) != 2 or rest[0] != "--parent-of" or not rest[1].lstrip("#").isdigit():
+        print(f"uso: github_issues.py {CLOSE_EPIC_USAGE}", file=sys.stderr)
+        return 2
+    try:
+        repository = os.environ.get("GITHUB_REPOSITORY") or _current_repository()
+        return close_completed_parents(int(rest[1].lstrip("#")), repository, dry_run="--dry-run" in args)
+    except RuntimeError as exc:
+        print(f"close-epic: {exc}", file=sys.stderr)
+        return 1
 
 
 def _sync_command(name: str, args: Sequence[str]) -> int:
@@ -624,7 +726,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return sync_labels()
     if args[:1] in (["sync-epic"], ["sync-checklist"]):
         return _sync_command(args[0], args[1:])
-    usage = f"commit-msg ARQUIVO | check-pr | sync-labels | {SYNC_EPIC_USAGE} | {SYNC_CHECKLIST_USAGE}"
+    if args[:1] == ["close-epic"]:
+        return _close_epic_command(args[1:])
+    usage = (
+        f"commit-msg ARQUIVO | check-pr | sync-labels | {SYNC_EPIC_USAGE} | {SYNC_CHECKLIST_USAGE} | {CLOSE_EPIC_USAGE}"
+    )
     print(f"uso: github_issues.py {usage}", file=sys.stderr)
     return 2
 

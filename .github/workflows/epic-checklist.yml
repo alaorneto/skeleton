@@ -2,7 +2,8 @@ name: Caixas do epic
 
 # Ao fechar ou reabrir uma issue, marca [x] ou [ ] no item dela na seção "Itens" do epic pai
 # nativo (sub-issue). Cada execução reconcilia o epic inteiro e relê o corpo depois de gravar,
-# então execuções concorrentes para filhas do mesmo epic convergem. Veja docs/workflow.md.
+# então execuções concorrentes para filhas do mesmo epic convergem. Ao fechar a última
+# sub-issue aberta, fecha também o epic com um comentário-resumo. Veja docs/workflow.md.
 
 on:
   issues:
@@ -28,3 +29,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: python3 tools/workflow/github_issues.py sync-checklist --parent-of "$ISSUE_NUMBER"
+      - name: Fechar o epic pai quando todas as sub-issues estiverem fechadas
+        # Sobe a cadeia no mesmo run: um fechamento feito com este token não dispara outro evento.
+        if: github.event.action == 'closed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python3 tools/workflow/github_issues.py close-epic --parent-of "$ISSUE_NUMBER"
