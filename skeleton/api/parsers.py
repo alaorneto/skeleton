@@ -1,7 +1,7 @@
 import io
 
 from django.conf import settings
-from rest_framework.parsers import JSONParser
+from rest_framework.parsers import JSONParser, MultiPartParser
 
 
 class BoundedJSONParser(JSONParser):
@@ -13,3 +13,22 @@ class BoundedJSONParser(JSONParser):
 
             raise BoundaryError("request_too_large", "O corpo JSON excede o limite permitido.", 413)
         return super().parse(io.BytesIO(data), media_type, parser_context)
+
+
+class BoundedMultiPartParser(MultiPartParser):
+    """Multipart for uploads only; refuses a body larger than SKELETON_UPLOAD_MAX_BYTES before parsing."""
+
+    OVERHEAD = 64 * 1024  # Boundaries and form fields around the file.
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        from skeleton.api.errors import BoundaryError
+
+        request = (parser_context or {}).get("request")
+        meta = getattr(request, "META", {}) if request is not None else {}
+        try:
+            length = int(meta.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            length = 0
+        if length > settings.SKELETON_UPLOAD_MAX_BYTES + self.OVERHEAD:
+            raise BoundaryError("request_too_large", "O arquivo excede o limite permitido.", 413)
+        return super().parse(stream, media_type, parser_context)

@@ -2,6 +2,14 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class AttachmentPolicy:
+    """Opt-in to attachments on a table: size limit and allowed MIME types (checked by content)."""
+
+    max_bytes: int
+    types: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TableSpec:
     model: type
     description: str
@@ -11,6 +19,7 @@ class TableSpec:
     write_fields: tuple = ()
     sensitive_fields: tuple = ()
     expose_api: bool = False
+    attachments: AttachmentPolicy | None = None
 
 
 _registry = {}
@@ -180,6 +189,12 @@ def register_core_specs():
             "Cópia da notificação de cada pessoa, com lida, arquivada e contagem agrupada.",
             "organization",
             (),
+        ),
+        "sk_files.attachment": (
+            "Anexos",
+            "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",
+            "organization",
+            ("storage_key",),
         ),
         "sk_audit.auditevent": (
             "Auditoria",

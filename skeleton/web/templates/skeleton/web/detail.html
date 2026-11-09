@@ -15,5 +15,6 @@
 {% include 'skeleton/web/components/tabs.html' %}
 {% crud_detail_fields sections %}
 </div>
+{% if attachments %}{% include 'skeleton/files/attachments_panel.html' %}{% endif %}
 </div>
 {% endblock %}

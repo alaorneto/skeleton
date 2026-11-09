@@ -101,6 +101,8 @@ A ordem resolvida vale para o inventário e para `INSTALLED_APPS`: uma app sempr
 
 Acima da ativação há a **disponibilidade** decidida pela plataforma (`skeleton/system/availability.py`): `set_app_availability` (CAS, revisão virtual 0), `grant_app` e `revoke_app` exigem administrador de plataforma e só escrevem linhas globais. `grant_app` recusa uma app cuja dependência esteja indisponível para a organização (`dependency_unavailable`); `revoke_app` recusa enquanto uma dependente estiver concedida (`dependent_granted`). `application_state` informa `available`, `require_application_enabled` exige disponibilidade da app e das dependências e responde 404 quando falta (`ApplicationUnavailable`), e `configure_application` recusa ativar app indisponível (`app_unavailable`), mas permite desativar. Enquanto o default fechado (#22) não entra, a ausência de linha equivale a `all`. Re-conceder restaura a mesma concessão e devolve a escolha de ativação anterior da organização.
 
+Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Veja [arquivos e anexos](files.md#anexos).
+
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
 Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:

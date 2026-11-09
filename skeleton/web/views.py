@@ -485,10 +485,13 @@ def record_detail(request, organization_id, table_key, sysid):
         for action, (route, label) in names.items()
         if permissions[action]
     ]
+    from skeleton.files.views import panel_context
+
     return render(
         request,
         "skeleton/web/detail.html",
         {
+            "attachments": panel_context(spec, item, user=request.user),
             "record": {"sysid": item.sysid},
             "title": safe_record_label(item, spec),
             "actions": actions,
