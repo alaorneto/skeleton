@@ -13,7 +13,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 
-from skeleton.system.packages import PackageError, _identifier, _stable_id, manifest_template, validate_manifest
+from skeleton.system.packages import (
+    PackageError,
+    _identifier,
+    _stable_id,
+    manifest_template,
+    validate_manifest,
+)
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "app_template"
 MODEL_NAME = re.compile(r"[A-Z][A-Za-z0-9]{0,62}\Z")
@@ -33,6 +39,10 @@ class ApplicationScaffold:
     @property
     def config_class(self) -> str:
         return "".join(part.capitalize() for part in self.package_name.split("_")) + "Config"
+
+    @property
+    def service_class(self) -> str:
+        return f"{self.model}Service"
 
     @property
     def model_lower(self) -> str:
@@ -63,13 +73,14 @@ def build_scaffold(*, app_label, app_id, publisher, model="Item", package_name=N
 
 
 def scaffold_manifest(scaffold):
-    """Canonical v2 manifest from ``manifest_template`` with the generated runtime."""
+    """Canonical v2 manifest from ``manifest_template`` with the generated runtime and service API."""
     manifest = manifest_template(
         app_id=scaffold.app_id,
         app_label=scaffold.app_label,
         package_name=scaffold.package_name,
         publisher=scaffold.publisher,
         app_config_class=scaffold.config_class,
+        service_classes=[scaffold.service_class],
     )
     prefix = f"applications.{scaffold.package_name}"
     manifest["name"] = scaffold.verbose_name
@@ -91,7 +102,9 @@ def render_files(scaffold):
     """Map each relative path of the new app to its rendered text."""
     values = {
         "app_label": scaffold.app_label,
+        "app_id": scaffold.app_id,
         "config_class": scaffold.config_class,
+        "service_class": scaffold.service_class,
         "model": scaffold.model,
         "model_lower": scaffold.model_lower,
         "table_key": scaffold.table_key,
@@ -101,13 +114,17 @@ def render_files(scaffold):
         "__init__.py": "__init__.py-tpl",
         "apps.py": "apps.py-tpl",
         "models.py": "models.py-tpl",
+        "service_api.py": "service_api.py-tpl",
         "views.py": "views.py-tpl",
         "urls.py": "urls.py-tpl",
         "api_urls.py": "api_urls.py-tpl",
         f"templates/{scaffold.app_label}/home.html": "home.html-tpl",
         "docs/spec.md": "spec.md-tpl",
         "docs/adr.md": "adr.md-tpl",
+        "docs/service-api.md": "service-api.md-tpl",
         "migrations/__init__.py": "__init__.py-tpl",
+        "tests/__init__.py": "__init__.py-tpl",
+        "tests/test_service_api.py": "test_service_api.py-tpl",
     }
     files = {
         target: Template((TEMPLATE_ROOT / source).read_text(encoding="utf-8")).substitute(values)
@@ -145,7 +162,10 @@ def next_steps(scaffold):
         "python manage.py migrate",
         "python manage.py sync_table_catalog",
         "python manage.py check_skeleton_schema",
-        "Atualize migrations.leaves no manifest.json (ex.: 0001_initial) e revise docs/spec.md e docs/adr.md.",
+        "Atualize migrations.leaves no manifest.json (ex.: 0001_initial) e revise docs/spec.md, docs/adr.md "
+        "e docs/service-api.md.",
+        f"Exponha em service_api.py ({scaffold.service_class}) só o que outras apps precisam; "
+        "rode assert_service_contract em tests/.",
         f"python manage.py package doctor applications/{scaffold.package_name}",
         "Publique com: python manage.py package build --app-root applications/"
         f"{scaffold.package_name} --manifest applications/{scaffold.package_name}/manifest.json "

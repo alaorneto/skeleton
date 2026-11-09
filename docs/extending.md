@@ -31,10 +31,12 @@ Ele cria `applications/<package>/` (por padrão o package é o label; mude com `
 
 - `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos;
 - `models.py`: um modelo `SecuredRecord` mínimo (`code` único entre registros vivos da organização e `title`);
-- `views.py`, `urls.py` e `api_urls.py`: uma página `tenant_page` e um sumário `TenantAPI`, ambos sobre `authorized_queryset`;
+- `service_api.py`: `<Model>Service` (`ServiceAPI`) com `<model>_count`, `list_<model>_summaries` e `get_<model>`, DTO `<Model>Summary` e `app_label` da app;
+- `views.py`, `urls.py` e `api_urls.py`: uma página `tenant_page` e um sumário `TenantAPI`, ambos chamando o serviço, sem consultar o modelo;
+- `tests/test_service_api.py`: o teste de contrato `assert_service_contract(<Model>Service)`;
 - `templates/<app_label>/home.html`, `migrations/__init__.py`;
-- `docs/spec.md` e `docs/adr.md` com as seções exigidas pela check E012 (texto inicial a substituir);
-- `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls` e uma entrada de navegação apontando para os módulos gerados. `default_enabled` começa `false`.
+- `docs/spec.md`, `docs/adr.md` e `docs/service-api.md` com as seções exigidas pela check E012 (texto inicial a substituir);
+- `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls`, `runtime.service_api` e uma entrada de navegação apontando para os módulos gerados. A compatibilidade começa em `>=0.4.0,<1.0.0` e `default_enabled` começa `false`.
 
 O comando valida label, package, IDs e nome do modelo com os mesmos validadores de `skeleton.system.packages`. Ele recusa namespaces reservados (`sk_*`, `skeleton`, `config`…) e diretório existente. Também não edita settings. Os modelos de código ficam em `skeleton/system/app_template/` e são distribuídos no wheel do core. Ao final, o comando imprime os próximos passos:
 
@@ -66,7 +68,7 @@ Desativar bloqueia endpoints próprios, gateway e políticas e remove o menu, ma
 
 Não há editor genérico do Django admin: modelos registrados com `@admin.register` não são roteados, porque um ModelAdmin contornaria os serviços de lifecycle, CAS e auditoria. Telas globais de uma app são declaradas no manifesto como `administration.screens` de escopo `platform` e `kind: custom`, com handler registrado por `register_admin_handler`; elas aparecem em `/platform/apps/<app_label>/` sob o mesmo guard da plataforma (e reautenticação quando `sensitive`). Negócio tenant fica no viewer: `/o/<org>/catalog/` e `/o/<org>/tables/<table_key>/`.
 
-O [contrato de administração e interfaces](application-admin-ui-plan.md) documenta grupos automáticos, telas de parâmetros, listas/layouts e serviços próprios. Novos manifestos usam `manifest_version=2` e compatibilidade inicial `>=0.3.0,<1.0.0`; o piso histórico v2 sem dimensões permanece 0.2.0, e v1/v2 assinados continuam legíveis sem normalizar JSON ou alterar bytes/digest. A presença de `col_span`/`rows`, inclusive `null`, exige piso 0.3.0 declarado na fonte antes de construir o pacote. Atualize primeiro agente e core para 0.3.0. `administration.screens` admite somente `configuration` ou `custom` de parâmetros, nunca `model_list`/metadados de tabela. `TableSpec`, não o layout, autoriza leitura/escrita/sensibilidade.
+O [contrato de administração e interfaces](application-admin-ui-plan.md) documenta grupos automáticos, telas de parâmetros, listas/layouts e serviços próprios. Novos manifestos usam `manifest_version=2` e compatibilidade inicial `>=0.4.0,<1.0.0` (piso exigido por `runtime.service_api`); o piso histórico v2 sem dimensões permanece 0.2.0, e v1/v2 assinados continuam legíveis sem normalizar JSON ou alterar bytes/digest. A presença de `col_span`/`rows`, inclusive `null`, exige piso 0.3.0 declarado na fonte antes de construir o pacote. Atualize primeiro agente e core para 0.3.0. `administration.screens` admite somente `configuration` ou `custom` de parâmetros, nunca `model_list`/metadados de tabela. `TableSpec`, não o layout, autoriza leitura/escrita/sensibilidade.
 
 O core 0.3.0 distribui `django-crispy-forms==2.7` e o pack SSR `skeleton_crud` no wheel. Customize somente `runtime.model_ui` do manifesto canônico, sem arquivo UI paralelo nem editor no admin. Notes 0.2.0 demonstra abas Identificação/Conteúdo, labels Código/Título/Texto e spans `code:4`, `title:8`, `body:12` com `rows:8`; o [exemplo JSON completo](application-admin-ui-plan.md#3-manifesto-canônico-v2) mantém IDs, seções e ordem. `col_span` aceita inteiro exato 1..12, `rows` inteiro exato 1..40; omissão/`null` mantém defaults, mas bool/string/float são recusados. Rows exige textarea editável efetivo (ou override `textarea`/`json` compatível), nunca readonly/input/select/relação, sem mudar validators. Seção `columns:1/2` define largura padrão 12/6, campos largos usam 12 e spans explícitos prevalecem. A grade preserva DOM/foco e, até 600px, todos os campos ocupam a linha inteira.
 
@@ -107,6 +109,10 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E015 | Um modelo da app tem FK para modelo de outra app registrada que não está em `dependencies`. |
 | E016 | `sensitive_fields` do `TableSpec` difere da especificação congelada em `InstallRecordInfrastructure`; crie uma migration nova com `record_infrastructure --write`. |
 | W017 | `migrations.leaves` do manifesto difere das folhas reais do grafo de migrations da app. É aviso, e não erro, porque o manifesto é atualizado depois do `makemigrations`; o `build`, o `doctor` e a prévia do agente recusam a divergência. |
+| E018 | A API de serviços declarada em `runtime.service_api` não resolve ou está malformada: módulo ausente ou fora do pacote da app, classe ausente, definida fora do módulo ou que não deriva de `ServiceAPI`, `app_label` diferente da app, nenhuma `@service_method`, método público sem `@service_method`, sem docstring ou com argumento posicional. |
+| W018 | O manifesto (histórico) não declara `runtime.service_api`. É aviso para que pacotes assinados antigos continuem carregando; `package build` e `package doctor` já recusam a ausência. |
+| E019 | Um módulo da app importa de outra app algo que não seja o `service_api` declarado dela, ou importa esse `service_api` sem declarar a app em `dependencies`. Análise estática (AST) de todos os `.py` da app, inclusive imports relativos e `from pacote import modulo`. |
+| W019 | A app importa um módulo do núcleo fora das [superfícies públicas](service-api.md#superfícies-públicas-do-núcleo-para-apps). É aviso nesta versão e vira erro numa próxima. |
 
 Dependência declarada não autoriza importar qualquer módulo da outra app. O único ponto de consumo é a API de serviços dela (próxima seção).
 
@@ -120,13 +126,19 @@ Toda app publica as operações que outras apps podem chamar num módulo `servic
 - outras apps importam só `<app>.service_api` e declaram a dependência acima;
 - views e endpoints da própria app também chamam o `service_api`, para haver um único caminho de regra.
 
-A base `ServiceAPI`, os erros, o campo `runtime.service_api` do manifesto, os checks E018/E019 e a adoção pelo gerador e pelo exemplo Notes estão em implementação (epic [#112](https://github.com/alaorneto/skeleton/issues/112)). Até lá, a obrigação vale por revisão.
+A declaração no manifesto é obrigatória para novos releases:
+
+```json
+"runtime": {"service_api": {"module": "applications.tasks.service_api", "classes": ["TaskService"]}}
+```
+
+O módulo tem de estar dentro do pacote da app, e as classes são nomes simples. Declarar o campo exige `compatibility.skeleton` com piso `>=0.4.0`, a primeira versão do core que o lê; `package build` acrescenta o piso ao artefato. Os checks E018/E019 e o `package doctor` verificam o contrato; o [kit de testes](service-api.md#kit-de-testes-de-contrato) prova autorização, isolamento e CAS. O exemplo Notes (`examples/notes/service_api.py`) e o gerador já seguem o contrato. A análise de imports não alcança imports dinâmicos (`importlib`, `__import__`), que continuam questão de revisão.
 
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
 
-O mesmo diretório tem `service-api.md` com a referência da API de serviços da app: serviços, métodos (Autorização, Erros, Efeitos), DTOs, eventos e histórico de versões. O modelo está no skill `service-api`; a check E012 passa a exigir o arquivo com [#98](https://github.com/alaorneto/skeleton/issues/98).
+O mesmo diretório tem `service-api.md` com a referência da API de serviços da app: serviços, métodos (Autorização, Erros, Efeitos), DTOs, eventos e histórico de versões. O modelo está no skill `service-api`. A check E012 exige o arquivo, com as seções `## Serviços`, `## DTOs` e `## Histórico de versões`, em toda app que declara `runtime.service_api`; `package build` e `package doctor` também o exigem. A página `/platform/apps/<app_label>/documentation/` mostra o arquivo quando ele existe.
 
 ### Diagnosticar antes de empacotar
 

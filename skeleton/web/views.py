@@ -17,6 +17,7 @@ from skeleton.accounts.mfa import mfa_required
 from skeleton.accounts.services import update_profile
 from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
+from skeleton.service_api import errors as service_errors
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context, memberships_for_user
 from skeleton.tenancy.invitations import issue_invitation
@@ -96,14 +97,19 @@ def tenant_page(*, admin=False):
                         with access_services.organization_lock(request.user):
                             return view(request, *args, **kwargs)
                     return view(request, *args, **kwargs)
-            except ValidationError:
+            except (service_errors.NotFound, service_errors.Unavailable):
+                # Neutral like the REST mapping: a disabled integration looks like a missing page.
+                raise Http404 from None
+            except service_errors.Forbidden:
+                raise PermissionDenied from None
+            except (ValidationError, service_errors.InvalidInput):
                 return render(
                     request,
                     "skeleton/web/error.html",
                     {"detail": "Verifique os campos ou filtros informados."},
                     status=400,
                 )
-            except IntegrityError:
+            except (IntegrityError, service_errors.Conflict):
                 return render(
                     request,
                     "skeleton/web/error.html",

@@ -63,6 +63,8 @@ No desenvolvimento, o email é impresso no console: isso ajuda a testar, mas nã
 
 O exemplo Notes é uma app de negócio fora do núcleo. Defina `SKELETON_ENABLE_EXAMPLE_APP=true`, repita `migrate`, `sync_table_catalog` e `check_skeleton_schema`. Sua chave registrada `example_notes.note` passa a existir no gateway; apenas pessoas com as permissões correspondentes podem usá-la. [Extensão](docs/extending.md) explica modelo, manifesto, especificação, migration, página e API do exemplo.
 
+O core/agente 0.4.0 lê `runtime.service_api`: toda app nova declara sua [API de serviços](docs/service-api.md), verificada pelos checks E018/E019 e pelo `package doctor`, com o kit `skeleton.testing.service_api` para os testes de contrato; manifestos históricos sem o campo continuam carregando com aviso.
+
 O core/agente 0.3.0 integra `django-crispy-forms==2.7` com pack SSR próprio `skeleton_crud`, distribuído no wheel: apresentação apenas, sem mudar autorização, CAS ou persistência. O manifesto canônico `runtime.model_ui` define labels/abas/ordem e grade responsiva de 12 unidades, sem editor no admin ou arquivo UI paralelo. Notes 0.2.0 demonstra Código 4/Título 8/Texto 12, textarea com 8 linhas; apps elegíveis sem layout recebem defaults. [Contrato de dimensões e exemplos](docs/application-admin-ui-plan.md#5-formulário-e-detalhe-padronizados): `col_span` inteiro exato 1..12, `rows` 1..40 em textarea editável, omissão/`null` conserva defaults; `columns:1/2` define padrão 12/6 e mobile usa largura inteira. Atualize agente/core antes de dimensões: presença de suas chaves, inclusive `null`, exige piso >=0.3.0; v1/v2 históricos sem dimensões conservam compatibilidade e JSON assinado.
 
 ### Interface e CSS

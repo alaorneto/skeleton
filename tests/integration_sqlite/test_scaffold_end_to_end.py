@@ -38,6 +38,7 @@ def project(tmp_path):
             pytest.fail(f"{' '.join(arguments)} failed:\n{completed.stdout}\n{completed.stderr}")
         return completed
 
+    run.environment = environment
     return target, run
 
 
@@ -80,3 +81,16 @@ def test_scaffolded_app_migrates_passes_checks_and_doctor(project):
     run("check_skeleton_schema")
     report = json.loads(run("package", "doctor", "applications/tasks").stdout)
     assert report == {"ok": True, "app_id": "com.example.tasks", "problems": []}
+
+    # The generated service API passes E018/E019 with warnings as errors and its own contract test.
+    checked = run("check", "--fail-level", "WARNING")
+    assert "skeleton.E018" not in checked.stderr and "skeleton.E019" not in checked.stderr
+    contract = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "applications/tasks/tests"],
+        cwd=target,
+        env=run.environment,
+        capture_output=True,
+        text=True,
+    )
+    assert contract.returncode == 0, contract.stdout + contract.stderr
+    assert "1 passed" in contract.stdout

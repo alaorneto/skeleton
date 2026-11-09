@@ -18,6 +18,10 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 
 **Ordem segura:** provisione serviços e segredos → crie roles/schema → aplique migrations com owner → verifique com runtime → inicie web → confirme saúde e comportamento. Um check feito como owner não demonstra que o web está isolado.
 
+### Core/agente 0.4.0 e API de serviços
+
+O core 0.4.0 é o primeiro que lê `runtime.service_api` (docs/service-api.md). Atualize o agente independente para 0.4.0 (ele fixa `django-skeleton==0.4.0`) e o core antes de instalar apps que declarem o campo: um core 0.3.0 recusa o manifesto por campo desconhecido, e o piso `>=0.4.0` da compatibilidade impede a instalação. Apps já instaladas sem o campo continuam carregando, com o aviso `skeleton.W018`; um release novo delas precisa declarar a API de serviços, porque `package build` e `package doctor` recusam a ausência. O release não muda schema nem migrations do núcleo.
+
 ### Core/agente 0.3.0 e contratos de apresentação
 
 Atualize primeiro o agente independente para 0.3.0 e prepare core >=0.3.0 antes de publicar/consumir dimensões de campos. O core distribui `django-crispy-forms==2.7` e o pack SSR próprio `skeleton_crud`; inclua a dependência no lock/wheelhouse aprovado do release, sem download pelo web ou fallback ao renderer antigo. Novas publicações usam `manifest_version=2`, com compatibilidade inicial `>=0.3.0,<1.0.0`. O piso histórico v2 sem dimensões permanece 0.2.0: qualquer presença de `col_span` ou `rows` no campo, inclusive `null`, exige piso 0.3.0 na fonte. Pacotes v1/v2 históricos assinados continuam verificáveis sem normalizar JSON ou alterar bytes/digest/inventário. O [contrato de interfaces](application-admin-ui-plan.md) descreve grade de 12 unidades, dimensões e defaults e separa a administração da plataforma (`/platform/`) do viewer tenant; nenhum layout concede acesso ou modifica autorização/CAS/persistência.

@@ -1,0 +1,15 @@
+"""Contrato da API de serviços de ${verbose_name} (docs/service-api.md, "Testes obrigatórios").
+
+O teste de contrato não usa banco. Os testes de cenário do kit (skeleton.testing.service_api:
+build_service_scenario, assert_tenant_isolated, assert_denied_as_not_found,
+assert_unavailable_when_disabled, assert_cas_conflict) rodam dentro da fixture de banco isolado
+do projeto, em SQLite e PostgreSQL com a role runtime.
+"""
+
+from skeleton.testing.service_api import assert_service_contract
+
+from ..service_api import ${service_class}
+
+
+def test_service_contract():
+    assert_service_contract(${service_class})

@@ -12,6 +12,8 @@ Se ainda não há uma linha de estado, vale o `default_enabled` declarado: isso 
 
 O manifesto v2 canônico declara apresentação imutável junto ao código, sem DDL ou consultas em `ready()`. Notes 0.2.0 exige core >=0.3.0 para spans code 4/title 8/body 12 e rows 8; o core usa django-crispy-forms 2.7 com pack SSR próprio, somente como renderer dos formulários existentes. O admin é reservado a parâmetros; listas/formulários de notas usam o viewer tenant fora dele. Abas, seções, labels e dimensões não concedem campos ou acesso além de `TableSpec`. Um modelo sem metadados de UI continua usando o shell/defaults do core, evitando exigir uma segunda implementação de formulário ou arquivo UI paralelo.
 
+Outras apps consomem Notes só por `NoteService` (`service_api.py`), com DTOs imutáveis e autorização revalidada dentro de cada método. As views e a API REST da própria app usam o mesmo serviço, o que prova o contrato e evita uma segunda regra de acesso.
+
 ## Consequences
 Ativação não concede `TablePermission`; mesmo com menu visível, o servidor revalida a ação e o registro. Essa separação evita tratar a presença de software como autorização. O exemplo demonstra HTML, API, configuração e administração organizacional sem registrar tabelas de negócio no admin global.
 

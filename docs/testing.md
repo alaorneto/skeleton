@@ -51,6 +51,21 @@ Antes das correções, a mesma suíte teve 13 falhas: API interna de reautentica
 
 **Não verificado nesta rodada:** PostgreSQL com role runtime, os testes POSIX (pacotes, `test_core_distribution`, agente), `pip install --require-hashes` dos locks e build da imagem; ficam a cargo do CI do PR. A suíte emite `RemovedInDjango2028Warning` para as settings `EMAIL_*` (substituídas por `MAILERS` no Django 6.1); a migração fica para uma issue própria.
 
+## API de serviços entre apps — core/agente 0.4.0 (epic #112)
+
+Rodada de 2026-11-09 para [#98](https://github.com/alaorneto/skeleton/issues/98), [#99](https://github.com/alaorneto/skeleton/issues/99), [#100](https://github.com/alaorneto/skeleton/issues/100) e [#101](https://github.com/alaorneto/skeleton/issues/101): `runtime.service_api`, checks E012/E018/W018/E019/W019, `package doctor`/`build`, kit `skeleton.testing.service_api`, `NoteService` e gerador. Rodada depois do merge da `main` com Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite (venv com as versões do lock, sem `--require-hashes`: os hashes são de wheels Linux) | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 680 passed, 108 skipped (marcados `posix` e Docker) |
+| Linux (WSL Debian), Python 3.14.7 standalone, venv com `requirements-dev.txt` por hashes, SQLite | mesmo comando com `.venv/bin/python` | 807 passed, 3 skipped (Compose exige o CLI do Docker): inclui os testes `posix` de artefatos assinados; `pip check` sem problemas |
+| Linux (WSL), mesmo venv | `manage.py check --fail-level WARNING` e `manage.py makemigrations --check --dry-run` | sem problemas; nenhuma migration pendente |
+| Windows | `python -m mypy` (inclui `skeleton/testing` e `skeleton/system/import_boundary.py` no modo estrito) e Ruff 0.17.4 `check`/`format --check` | sem erros |
+
+Cobertura nova: `tests/unit/test_service_api_manifest.py` (validação do campo, piso 0.4.0, manifesto histórico, doctor/build e estrutura E018), `tests/unit/test_import_boundary.py` (imports absolutos, relativos, `from pacote import módulo`, superfícies do núcleo), `tests/unit/test_service_contract_kit.py` (kit contra serviços corretos e defeituosos), `tests/unit/test_package_doctor.py` (fronteira no doctor), `tests/integration_sqlite/test_service_api_checks.py` (checks com apps de fixture registradas), `tests/integration_sqlite/test_notes_service_api.py` (NoteService pelo kit: default deny, A/B, app desativada, ator divergente, CAS, conflito de código, rollback sem evento de auditoria, página e sumário via serviço, e um serviço que vaza B para A reprovado pelo kit) e o fluxo `skeleton_startapp` → `check --fail-level WARNING` → teste de contrato gerado em `tests/integration_sqlite/test_scaffold_end_to_end.py`.
+
+**PostgreSQL com a role runtime não rodou localmente** (sem servidor PostgreSQL nesta máquina). `tests/integration_sqlite/test_notes_service_api.py` foi incluído no job `postgres` do CI; a evidência PostgreSQL é o resultado desse job no PR do epic, não esta rodada. O teste do serviço que vaza é pulado no PostgreSQL de propósito: lá a RLS da role runtime já impede o vazamento.
+
 ## Interface Tailwind/Flowbite e administração em `/platform/`
 
 Rodada de 2026-11-08 em Windows 11 com Python 3.14.7 e Django 5.2.18 (venv local; lock Linux instalado sem `--require-hashes`), Node 25.9 para o build do CSS. Cobre a renovação visual, a navegação em três áreas e a retirada do Django admin.

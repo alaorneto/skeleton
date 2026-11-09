@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-skeleton"
-version = "0.3.0"
+version = "0.4.0"
 description = "Núcleo Django reutilizável com identidade e autorização por registros"
 requires-python = ">=3.12,<3.15"
 dependencies = [
@@ -90,6 +90,8 @@ files = [
     "skeleton/common/models.py",
     "skeleton/system/dependencies.py",
     "skeleton/service_api",
+    "skeleton/testing",
+    "skeleton/system/import_boundary.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -105,6 +107,8 @@ module = [
     "skeleton.common.models",
     "skeleton.system.dependencies",
     "skeleton.service_api.*",
+    "skeleton.testing.*",
+    "skeleton.system.import_boundary",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

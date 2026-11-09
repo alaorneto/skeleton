@@ -505,8 +505,10 @@ def app_documentation(request, app_label):
         raise Http404
     root = Path(manifest.documentation_root).resolve()
     documents = []
-    for filename in ("spec.md", "adr.md"):
+    for filename in ("spec.md", "adr.md", "service-api.md"):
         source = root / filename
+        if filename == "service-api.md" and not source.is_file():
+            continue  # Historical apps predate it; check E012 reports it for apps that declare a service API.
         if not source.resolve().is_relative_to(root) or not source.is_file():
             raise Http404
         documents.append({"name": filename, "text": source.read_text(encoding="utf-8")})

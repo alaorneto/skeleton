@@ -1,6 +1,6 @@
 # Modelos da API de serviços
 
-Modelos para uma app hipotética `applications.tasks` (label `project_tasks`, app_id `com.example.tasks`) com o modelo `Task(SecuredRecord)`. Troque nomes e campos. Os imports de `skeleton.service_api` dependem da issue #97; até ela entrar, siga o passo 0 do skill.
+Modelos para uma app hipotética `applications.tasks` (label `project_tasks`, app_id `com.example.tasks`) com o modelo `Task(SecuredRecord)`. Troque nomes e campos. O exemplo executável do repositório é `examples/notes/service_api.py`, com testes em `tests/integration_sqlite/test_notes_service_api.py`.
 
 ## `service_api.py`
 
@@ -130,54 +130,74 @@ def schedule_followup(*, actor, invoice):
 ## Testes
 
 ```python
+from uuid import uuid4
+
 import pytest
 
+from applications.tasks.models import Task
 from applications.tasks.service_api import TaskService
-from skeleton.service_api.errors import Conflict, Forbidden, NotFound, Unavailable
-
-pytestmark = pytest.mark.django_db
-
-
-def test_task_is_isolated_between_organizations(tenant_a, tenant_b):
-    task = tenant_a.create_task(title="A")
-    with tenant_b.context() as actor:
-        with pytest.raises(NotFound):
-            TaskService().task(actor=actor, task_id=task.sysid)
-
-
-def test_reader_without_table_permission_is_denied(tenant_a):
-    with tenant_a.context(role="member_without_permissions") as actor:
-        with pytest.raises(NotFound):
-            TaskService().task(actor=actor, task_id=tenant_a.create_task(title="x").sysid)
+from skeleton.service_api.errors import Forbidden
+from skeleton.testing.service_api import (
+    assert_cas_conflict,
+    assert_denied_as_not_found,
+    assert_rejects_other_actor,
+    assert_service_contract,
+    assert_tenant_isolated,
+    assert_unavailable_when_disabled,
+    build_service_scenario,
+)
 
 
-def test_disabled_app_is_unavailable(tenant_a):
-    tenant_a.disable_app("project_tasks")
-    with tenant_a.context() as actor, pytest.raises(Unavailable):
-        TaskService().tasks(actor=actor)
+@pytest.fixture
+def scenario(skeleton_db):  # a fixture de banco isolado do projeto (SQLite ou PostgreSQL runtime)
+    return build_service_scenario(Task)
 
 
-def test_actor_must_match_context(tenant_a, other_user):
-    with tenant_a.context(), pytest.raises(Forbidden):
-        TaskService().tasks(actor=other_user)
+def test_contract():
+    assert_service_contract(TaskService)
 
 
-def test_stale_revision_conflicts(tenant_a):
-    with tenant_a.context() as actor:
-        info = TaskService().create_task(actor=actor, title="t")
-        TaskService().close_task(actor=actor, task_id=info.sysid, expected_revision=info.revision)
-        with pytest.raises(Conflict):
-            TaskService().close_task(actor=actor, task_id=info.sysid, expected_revision=info.revision)
+def test_isolated_between_organizations(scenario):
+    foreign = scenario.create(scenario.b, code="b-1", title="Tarefa de B")
+    assert_tenant_isolated(scenario.caller(lambda actor: TaskService().tasks(actor=actor)), foreign=[foreign, "b-1"])
+    assert_denied_as_not_found(
+        scenario.caller(lambda actor: TaskService().task(actor=actor, task_id=foreign.pk)),
+        missing=scenario.caller(lambda actor: TaskService().task(actor=actor, task_id=uuid4())),
+    )
 
 
-def test_idempotent_creation(tenant_a):
-    with tenant_a.context() as actor:
-        first = TaskService().create_task(actor=actor, title="t", idempotency_key="k")
-        again = TaskService().create_task(actor=actor, title="t", idempotency_key="k")
-        assert first.sysid == again.sysid
+def test_default_deny(scenario):
+    with pytest.raises(Forbidden):
+        scenario.caller(lambda actor: TaskService().tasks(actor=actor), user=scenario.denied)()
+
+
+def test_disabled_app_is_unavailable(scenario):
+    assert_unavailable_when_disabled(
+        scenario.caller(lambda actor: TaskService().tasks(actor=actor)), disabled=scenario.application_disabled
+    )
+
+
+def test_actor_must_match_context(scenario):
+    assert_rejects_other_actor(scenario.caller(lambda actor: TaskService().tasks(actor=scenario.outsider)))
+
+
+def test_stale_revision_conflicts(scenario):
+    task = scenario.create(scenario.a, code="t-1", title="t")
+
+    def close():
+        return scenario.caller(
+            lambda actor: TaskService().close_task(actor=actor, task_id=task.pk, expected_revision=task.revision)
+        )
+
+    assert_cas_conflict(close(), close())
+
+
+def test_idempotent_creation(scenario):
+    create = scenario.caller(lambda actor: TaskService().create_task(actor=actor, title="t", idempotency_key="k"))
+    assert create().sysid == create().sysid
 ```
 
-As fixtures `tenant_a`/`tenant_b` vêm do kit de contrato (#100). Até lá, use as fixtures de `tests/conftest.py` com `tenant_context` explícito.
+`scenario.caller` abre o contexto de cada chamada: contextos não aninham nem trocam de ator. O cenário grava dados confirmados, então use-o só na fixture de banco descartável do projeto.
 
 ## `docs/service-api.md` da app
 

@@ -18,14 +18,18 @@ EXPECTED_FILES = {
     "__init__.py",
     "apps.py",
     "models.py",
+    "service_api.py",
     "views.py",
     "urls.py",
     "api_urls.py",
     "templates/project_tasks/home.html",
     "docs/spec.md",
     "docs/adr.md",
+    "docs/service-api.md",
     "manifest.json",
     "migrations/__init__.py",
+    "tests/__init__.py",
+    "tests/test_service_api.py",
 }
 VALID = {"app_id": "com.example.tasks", "publisher": "example-publisher"}
 
@@ -52,8 +56,13 @@ def test_generates_complete_application(tmp_path):
         {"label": "Tarefas", "url_name": "project_tasks:home", "table_key": "project_tasks.taskitem", "action": "read"}
     ]
     assert manifest["migrations"]["labels"] == ["project_tasks"]
+    assert manifest["runtime"]["service_api"] == {
+        "module": "applications.project_tasks.service_api",
+        "classes": ["TaskItemService"],
+    }
+    assert ">=0.4.0" in manifest["compatibility"]["skeleton"].split(",")
 
-    validate_documentation(SimpleNamespace(documentation_root=str(root / "docs")))
+    validate_documentation(SimpleNamespace(documentation_root=str(root / "docs"), service_api=object()))
 
     for path in root.rglob("*.py"):
         compile(path.read_text(encoding="utf-8"), str(path), "exec")
@@ -64,6 +73,15 @@ def test_generates_complete_application(tmp_path):
         assert allowlist in apps_source
     assert "__all__" not in apps_source
     assert "class TaskItem(SecuredRecord):" in (root / "models.py").read_text(encoding="utf-8")
+    service_source = (root / "service_api.py").read_text(encoding="utf-8")
+    assert "class TaskItemService(ServiceAPI):" in service_source
+    assert "app_label = APP_LABEL" in service_source and 'APP_LABEL = "project_tasks"' in service_source
+    views_source = (root / "views.py").read_text(encoding="utf-8")
+    assert "TaskItemService().taskitem_count(actor=request.user)" in views_source
+    assert "authorized_queryset" not in views_source and ".models import" not in views_source
+    assert "assert_service_contract(TaskItemService)" in (root / "tests/test_service_api.py").read_text(
+        encoding="utf-8"
+    )
     assert "'project_tasks.taskitem'" in (root / "templates/project_tasks/home.html").read_text(encoding="utf-8")
     assert "$" not in "".join(path.read_text(encoding="utf-8") for path in root.rglob("*") if path.is_file())
 
