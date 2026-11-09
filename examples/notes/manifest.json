@@ -7,9 +7,9 @@
   "app_config": "applications.notes.apps.NotesConfig",
   "name": "Anotações",
   "description": "Anotações de demonstração do contrato de extensão",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "skeleton-examples",
-  "compatibility": {"skeleton": ">=0.3.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=5.2,<5.3"},
+  "compatibility": {"skeleton": ">=0.4.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=5.2,<5.3"},
   "dependencies": {},
   "conflicts": {},
   "runtime": {
@@ -19,6 +19,7 @@
     "configuration_fields": [{"name": "heading", "type": "str", "default": "Anotações", "max_length": 200, "label": "Título da aplicação", "help_text": "Título exibido na página de anotações desta organização.", "section_id": "general"}],
     "navigation": [{"label": "Anotações", "url_name": "example_notes:home", "table_key": "example_notes.note", "action": "read"}],
     "documentation_root": "docs",
+    "service_api": {"module": "applications.notes.service_api", "classes": ["NoteService"]},
     "administration": {
       "configuration_sections": [{"id": "general", "label": "Geral", "order": 10}],
       "sections": [{"id": "parameters", "label": "Parâmetros", "order": 20}],
@@ -40,5 +41,5 @@
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},
-  "release_notes": "Primeiro release do exemplo opt-in; dados preservados na retirada do código."
+  "release_notes": "NoteService publica consulta, criação e alteração com revisão; views e API usam o serviço. Dados preservados na retirada do código."
 }

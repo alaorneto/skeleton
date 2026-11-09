@@ -11,6 +11,8 @@ O gateway usa `${table_key}` com criação, leitura, alteração, exclusão lóg
 
 A página própria fica em `/o/<org>/apps/${app_label}/` e o sumário em `/api/v1/o/<org>/apps/${app_label}/summary/`. Ambos exigem app ativa e `table.read`, e contam somente registros legíveis pelo ator.
 
+Outras apps consomem esta só por `${service_class}`, declarada em `runtime.service_api` e documentada em [service-api.md](service-api.md). Página e sumário chamam o mesmo serviço, que devolve DTOs imutáveis e revalida a autorização.
+
 ## Acceptance
 Critérios observáveis a confirmar por testes reais (não por inferência):
 
