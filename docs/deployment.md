@@ -40,6 +40,7 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py che
 - `migrate`: conexão exclusivamente MIGRATION_DATABASE_URL; fallback SQLite existe apenas para setup local. Em produção declare URL owner explicitamente antes de executar.
 - `test`: TEST_DATABASE_URL ou SQLite isolado; não apontar ao banco de produção.
 - `build`: collectstatic com manifest storage sem exigir credenciais de produção. Não é settings para servir requests.
+- Arquivos: `STORAGES["skeleton_files"]` é privado em todos os perfis. Em produção, defina `SKELETON_FILES_ROOT` fora de `STATIC_ROOT` num volume persistente, ou `SKELETON_FILES_BACKEND=s3` com o extra `[s3]` e um bucket sem acesso público. `check --deploy` (E024) recusa armazenamento público ou ausente. Veja [arquivos](files.md).
 
 Docker usa Python 3.14-slim, bibliotecas XML/xmlsec, usuário não-root e Gunicorn WSGI. Collectstatic é parte do build; WhiteNoise segue SecurityMiddleware. Produção usa CompressedManifestStaticFilesStorage e STATIC_ROOT=staticfiles; dev usa runserver/staticfiles. Não inicie migrations em cada worker.
 

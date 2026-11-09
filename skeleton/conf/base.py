@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "skeleton.jobs.apps.JobsConfig",
     "skeleton.events.apps.EventsConfig",
     "skeleton.notifications.apps.NotificationsConfig",
+    "skeleton.files.apps.FilesConfig",
     "skeleton.web",
     "skeleton.api",
 ]
@@ -103,6 +104,35 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+
+def private_files_storage(env, base_dir):
+    """STORAGES["skeleton_files"]: local (default) or S3 with the optional extra ``[s3]``; never public."""
+    if env("SKELETON_FILES_BACKEND", default="local") == "s3":
+        return {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "bucket_name": env("SKELETON_FILES_S3_BUCKET"),
+                "region_name": env("SKELETON_FILES_S3_REGION", default=None),
+                "endpoint_url": env("SKELETON_FILES_S3_ENDPOINT", default=None),
+                "default_acl": "private",
+                "querystring_auth": True,
+                "querystring_expire": 60,
+                "file_overwrite": False,
+            },
+        }
+    return {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": {"location": env("SKELETON_FILES_ROOT", default=str(base_dir / "var" / "files")), "base_url": None},
+    }
+
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    "skeleton_files": private_files_storage(env, BASE_DIR),
+}
+SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True
