@@ -195,7 +195,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.api.views` | `TenantAPI` |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
-`skeleton.system.applications.application_state` continua permitido até existir o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)). Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
+Para ler a própria configuração ou a ativação de outra app, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` continua permitido nesta versão e sai da lista numa próxima. Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
 
 ### Fronteira verificada
 
@@ -217,7 +217,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
-| `ApplicationService` | (planejado) | `is_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
+| `ApplicationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService` | (planejado) | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
 | `NotificationService` | (planejado) | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | (planejado) | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
@@ -263,6 +263,16 @@ O diretório traz só vínculos ativos de identidades ativas da organização at
 | `my_groups(*, actor) -> tuple[GroupSummary, ...]` | Grupos vivos do ator na organização | `Forbidden` sem vínculo |
 
 Não há cache entre chamadas: uma revogação vale na chamada seguinte. Alterar ACL continua nos serviços de gestão de acesso.
+
+### ApplicationService
+
+| Método | Comportamento | Erros |
+|---|---|---|
+| `is_enabled(*, actor, app_id) -> bool` | `app_id` ou `app_label`; verdadeiro se a app está instalada, disponível pela plataforma para a organização e ativa, com as dependências; app desconhecida: `False` | `InvalidInput` (vazio) |
+| `require_enabled(*, actor, app_id) -> None` | Igual, mas levanta o `Unavailable` padronizado | `Unavailable` |
+| `my_configuration(*, actor, app_label) -> AppConfiguration` | Configuração da organização para a **própria** app, com todos os campos declarados resolvidos; `AppConfiguration.get(nome)` | `Forbidden` se o módulo que chama não pertencer a `app_label`; `Unavailable` se a app estiver desativada ou indisponível |
+
+A app chamadora é identificada pelo módulo do primeiro frame fora da API de serviços, do kit de testes e do Django, resolvido para a app registrada que o contém (`apps.get_containing_app_config`). Uma app não lê a configuração de outra. Essa identificação assume que o código das apps é confiável (o mesmo processo); ela impede engano, não um código malicioso que forje frames. Ativar ou configurar apps continua com o administrador.
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
