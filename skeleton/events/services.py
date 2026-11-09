@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -13,6 +14,8 @@ from skeleton.common.exceptions import MissingTenantContext
 from skeleton.tenancy.context import current_context
 
 from .registry import get_event_type
+
+_captured: ContextVar[list | None] = ContextVar("skeleton_captured_events", default=None)
 
 
 def _json_value(name: str, value: Any) -> Any:
@@ -64,4 +67,10 @@ def publish_event(code: str, *, record: Any, data: dict[str, Any] | None = None)
         data={name: _json_value(name, value) for name, value in data.items()},
     )
     event.save(using=context.using)
+    from .consumers import enqueue_deliveries
+
+    enqueue_deliveries(event)
+    captured = _captured.get()
+    if captured is not None:
+        captured.append(event)
     return event

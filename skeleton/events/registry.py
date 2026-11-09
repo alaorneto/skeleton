@@ -1,8 +1,12 @@
-"""Event types are declared in code and validated against the TableSpec."""
+"""Event types and their consumers are declared in code and validated against the TableSpec."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
+
+WILDCARD = "*"
 
 
 @dataclass(frozen=True)
@@ -17,7 +21,17 @@ class EventType:
     owner_app: str = ""
 
 
+@dataclass(frozen=True)
+class Consumer:
+    """A reaction to events; ``handler(envelope)`` re-authorizes whatever it reads."""
+
+    event_code: str
+    code: str
+    handler: Callable[..., Any]
+
+
 _types: dict[str, EventType] = {}
+_consumers: dict[str, Consumer] = {}
 _duplicates: list[str] = []
 
 
@@ -38,6 +52,27 @@ def all_event_types() -> tuple[EventType, ...]:
     return tuple(_types[code] for code in sorted(_types))
 
 
+def register_consumer(event_code: str, code: str, handler: Callable[..., Any]) -> Consumer:
+    """Subscribe ``handler`` to one event code or to ``"*"``; one delivery job per event and consumer."""
+    consumer = Consumer(event_code, code, handler)
+    existing = _consumers.get(code)
+    if existing is not None and existing != consumer:
+        _duplicates.append(f"consumer {code}")
+        return existing
+    _consumers[code] = consumer
+    return consumer
+
+
+def get_consumer(code: str) -> Consumer:
+    return _consumers[code]
+
+
+def consumers_for(event_code: str) -> tuple[Consumer, ...]:
+    return tuple(
+        _consumers[code] for code in sorted(_consumers) if _consumers[code].event_code in (event_code, WILDCARD)
+    )
+
+
 def event_problems() -> list[str]:
     from skeleton.system.registry import get_spec
 
@@ -55,4 +90,9 @@ def event_problems() -> list[str]:
                 problems.append(f"{event_type.code}: payload field {name} is not a read field")
         if event_type.version < 1:
             problems.append(f"{event_type.code}: version must be positive")
+    for consumer in (_consumers[code] for code in sorted(_consumers)):
+        if consumer.event_code != WILDCARD and consumer.event_code not in _types:
+            problems.append(f"consumer {consumer.code}: unknown event {consumer.event_code}")
+        if not callable(consumer.handler):
+            problems.append(f"consumer {consumer.code}: handler is not callable")
     return problems

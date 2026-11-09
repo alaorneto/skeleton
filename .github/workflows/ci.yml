@@ -205,6 +205,7 @@ jobs:
             tests/integration_sqlite/test_jobs_worker.py \
             tests/integration_sqlite/test_jobs_periodic.py \
             tests/integration_sqlite/test_domain_events.py \
+            tests/integration_sqlite/test_event_consumers.py \
             tests/accounts/test_lifecycle_findings.py \
             tests/accounts/test_social_hardening.py
       - name: Smoke de segurança do runtime
