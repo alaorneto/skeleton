@@ -82,6 +82,8 @@ Criar uma organização também é uma unidade transacional: `create_organizatio
 
 `sk_system.AppInstallation` deriva de OrganizationRecord: `app_label` imutável, `enabled` e `configuration` JSON (ocultado integralmente na auditoria), UNIQUE incondicional `(organization,app_label)`. Esse estado organiza ativação/configuração; não instala código nem altera o schema. Sem linha, usam-se os valores padrão do manifesto de deployment. `organization_admin` faz a gestão com revisão/CAS, bloqueio da organização e validação de dependências.
 
+`sk_system.AppAvailability` (SystemRecord global) guarda, por app instalada, `app_label` único e imutável, `mode` (`all`/`selected`) e `upgrade_state`. `sk_system.AppOrganizationGrant` (SystemRecord global) liga uma disponibilidade a `granted_organization` (FK PROTECT), com UNIQUE incondicional; revogar é exclusão lógica e re-conceder restaura a mesma linha. Nenhuma das duas escreve linhas tenant nem entra no gateway.
+
 `ComponentInstallation` e `DeploymentOperation`, os dois modelos de controle global, recebem infraestrutura congelada em `sk_system.0004_deployment`. O banco reflete o inventário e o diário (`journal`) do agente; não escolhe o código carregado pelos processos web. Desinstalar globalmente preserva `AppInstallation` e sua configuração. Sem código, só é permitido desabilitar o estado existente. Reinstalar exige ativação explícita, sem substituir UUIDs ou valores padrão já persistidos.
 
 `sk_system.0005_deploymentoperation_lifecycle` acrescenta `reinstall` e `core_update` ao contrato de operação, sem alterar colunas/infraestrutura da migration anterior. Falha de migration conserva o modo de manutenção; recuperação offline reconciliada aparece como `restored` no histórico.

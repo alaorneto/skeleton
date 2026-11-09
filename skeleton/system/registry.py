@@ -127,6 +127,18 @@ def register_core_specs():
             "organization",
             ("configuration",),
         ),
+        "sk_system.appavailability": (
+            "Disponibilidade de apps",
+            "Portão da plataforma: app disponível para todas as organizações ou só para as selecionadas.",
+            "global",
+            (),
+        ),
+        "sk_system.apporganizationgrant": (
+            "Concessões de apps",
+            "Organização admitida pela plataforma a uma app em modo selecionado.",
+            "global",
+            (),
+        ),
         "sk_system.componentinstallation": (
             "Componentes instalados",
             "Versão e procedência global do release confirmado.",

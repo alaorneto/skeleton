@@ -99,6 +99,8 @@ O mesmo resolvedor (`skeleton.system.dependencies.resolve_dependencies`) roda em
 
 A ordem resolvida vale para o inventário e para `INSTALLED_APPS`: uma app sempre vem depois das que ela exige, então o `ready()` dela encontra as dependências já registradas.
 
+Acima da ativação há a **disponibilidade** decidida pela plataforma (`skeleton/system/availability.py`): `set_app_availability` (CAS, revisão virtual 0), `grant_app` e `revoke_app` exigem administrador de plataforma e só escrevem linhas globais. `grant_app` recusa uma app cuja dependência esteja indisponível para a organização (`dependency_unavailable`); `revoke_app` recusa enquanto uma dependente estiver concedida (`dependent_granted`). `application_state` informa `available`, `require_application_enabled` exige disponibilidade da app e das dependências e responde 404 quando falta (`ApplicationUnavailable`), e `configure_application` recusa ativar app indisponível (`app_unavailable`), mas permite desativar. Enquanto o default fechado (#22) não entra, a ausência de linha equivale a `all`. Re-conceder restaura a mesma concessão e devolve a escolha de ativação anterior da organização.
+
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
 Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:
@@ -108,6 +110,7 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E014 | Uma migration da app depende de migration de outra app registrada que não está em `dependencies`. |
 | E015 | Um modelo da app tem FK para modelo de outra app registrada que não está em `dependencies`. |
 | E016 | `sensitive_fields` do `TableSpec` difere da especificação congelada em `InstallRecordInfrastructure`; crie uma migration nova com `record_infrastructure --write`. |
+| E017 | Um `SystemRecord` declara um campo `organization`; esse nome ativa a semântica tenant em querysets e migrations. Use outro nome, como `granted_organization`. |
 | W017 | `migrations.leaves` do manifesto difere das folhas reais do grafo de migrations da app. É aviso, e não erro, porque o manifesto é atualizado depois do `makemigrations`; o `build`, o `doctor` e a prévia do agente recusam a divergência. |
 | E018 | A API de serviços declarada em `runtime.service_api` não resolve ou está malformada: módulo ausente ou fora do pacote da app, classe ausente, definida fora do módulo ou que não deriva de `ServiceAPI`, `app_label` diferente da app, nenhuma `@service_method`, método público sem `@service_method`, sem docstring ou com argumento posicional. |
 | W018 | O manifesto (histórico) não declara `runtime.service_api`. É aviso para que pacotes assinados antigos continuem carregando; `package build` e `package doctor` já recusam a ausência. |

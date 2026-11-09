@@ -37,6 +37,19 @@ def record_contract_checks(app_configs=None, **kwargs):
             errors.append(
                 Error(f"{model._meta.label}: own models require SystemRecord and UUID sysid PK.", id="skeleton.E001")
             )
+        if (
+            issubclass(model, SystemRecord)
+            and not issubclass(model, OrganizationRecord)
+            and "organization" in {field.name for field in model._meta.fields}
+        ):
+            # The name turns on tenant filtering in querysets and tenant DDL in migrations.
+            errors.append(
+                Error(
+                    f"{model._meta.label}: a SystemRecord cannot declare a field named organization; "
+                    "use another name such as granted_organization.",
+                    id="skeleton.E017",
+                )
+            )
         spec = specs.get(model._meta.label_lower)
         if spec is None:
             errors.append(Error(f"{model._meta.label}: missing TableSpec.", id="skeleton.E002"))

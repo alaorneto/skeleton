@@ -58,6 +58,18 @@ class TenantContextMiddleware:
             response["X-Request-ID"] = str(request.request_id)
             return response
 
+    def process_exception(self, request, exception):
+        """An app withdrawn by the platform looks like a missing route, not a forbidden one."""
+        from django.http import HttpResponseNotFound
+
+        from skeleton.common.exceptions import ApplicationUnavailable
+
+        if not isinstance(exception, ApplicationUnavailable):
+            return None
+        if request.path.startswith("/api/"):
+            return JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
+        return HttpResponseNotFound("Not found.")
+
     def _handle(self, request):
         response = self.get_response(request)
         if response.streaming:

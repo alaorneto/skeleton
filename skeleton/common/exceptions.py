@@ -1,3 +1,6 @@
+from django.core.exceptions import PermissionDenied
+
+
 class RecordError(Exception):
     """A record operation violated an explicit application invariant."""
 
@@ -20,3 +23,7 @@ class LiveReferencesExist(RecordError):
 
 class ImmutableRecord(RecordError):
     pass
+
+
+class ApplicationUnavailable(PermissionDenied):
+    """The platform withdrew the app from this organization; surfaces answer 404, not 403."""

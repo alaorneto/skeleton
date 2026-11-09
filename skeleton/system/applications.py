@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.urls import reverse
 
-from skeleton.common.exceptions import ConcurrentUpdate, MissingTenantContext
+from skeleton.common.exceptions import ApplicationUnavailable, ConcurrentUpdate, MissingTenantContext
 from skeleton.tenancy.context import current_context
 
 from .app_registry import (
@@ -22,10 +22,13 @@ def application_state(app_label):
 
     if current_context().organization_id is None:
         raise MissingTenantContext("Application state requires tenant context.")
+    from .availability import app_available
+
     manifest = get_app(app_label)
     record = AppInstallation.objects.filter(app_label=app_label).first()
     return {
         "app_label": app_label,
+        "available": app_available(app_label),
         "label": manifest.label,
         "description": manifest.description,
         "app_id": manifest.app_id,
@@ -42,11 +45,17 @@ def require_application_enabled(app_label):
         manifest = get_app(app_label)
     except KeyError:
         return  # The core has no optional tenant activation contract.
-    if not application_state(manifest.app_label)["enabled"]:
+    state = application_state(manifest.app_label)
+    if not state["available"]:
+        raise ApplicationUnavailable("Application is unavailable to this organization.")
+    if not state["enabled"]:
         raise PermissionDenied("Application is disabled in this organization.")
-    # Transitive: a dependency's own disabled dependency also closes this application.
+    # Transitive: a dependency's own disabled or unavailable dependency also closes this application.
     for dependency in required_labels(manifest.app_label):
-        if not application_state(dependency)["enabled"]:
+        state = application_state(dependency)
+        if not state["available"]:
+            raise ApplicationUnavailable("Application dependency is unavailable.")
+        if not state["enabled"]:
             raise PermissionDenied("Application dependency is disabled.")
 
 
@@ -69,6 +78,13 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     expected = record.revision if record else 0
     if type(revision) is not int or revision != expected:
         raise ConcurrentUpdate("Application configuration changed.")
+    from .availability import available_with_dependencies
+
+    if enabled and not available_with_dependencies(app_label):
+        # Disabling stays allowed so an organization can close an app the platform withdrew.
+        raise ValidationError(
+            {"enabled": ValidationError("Application is unavailable to this organization.", code="app_unavailable")}
+        )
     if enabled:
         pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
         if pending:

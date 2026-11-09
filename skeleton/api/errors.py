@@ -60,9 +60,11 @@ def service_error_response(exc):
 def exception_handler(exc, context):
     from skeleton.access.services import LastAdministrator
     from skeleton.accounts.platform import LastPlatformAdministrator
-    from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
+    from skeleton.common.exceptions import ApplicationUnavailable, ConcurrentUpdate, LiveReferencesExist
     from skeleton.service_api.errors import ServiceError
 
+    if isinstance(exc, ApplicationUnavailable):
+        exc = BoundaryError("not_found", "Not found.", 404)
     if isinstance(exc, ServiceError):
         mapped = service_error_response(exc)
         if mapped is None:
