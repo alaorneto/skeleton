@@ -155,12 +155,15 @@ def test_availability_cas_has_one_winner_and_is_audited(setup):
         as_platform(
             platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=1)
         )
-    with system_context(reason="test:availability-audit"):
-        operations = list(
+    # Global events are readable only with the platform GUC on (RLS in PostgreSQL).
+    operations = as_platform(
+        platform,
+        lambda: list(
             AuditEvent.objects.filter(record_sysid=row.pk, organization_id__isnull=True)
             .order_by("record_revision")
             .values_list("operation", flat=True)
-        )
+        ),
+    )
     assert operations == ["create", "update"]
 
 
