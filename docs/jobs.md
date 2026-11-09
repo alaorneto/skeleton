@@ -70,3 +70,27 @@ receipt = enqueue(
 | A mesma chave usada por outra organização | `ValidationError`, sem revelar o job alheio |
 
 O recibo (`JobReceipt`) traz `id`, `job_type`, `state`, `run_after` e `created`, nunca o payload.
+
+## Executar: `run_worker`
+
+```sh
+python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--worker-id ID]
+```
+
+| Etapa | Comportamento |
+|---|---|
+| Reivindicar | PostgreSQL: `SELECT ... FOR UPDATE SKIP LOCKED` seguido de CAS `state='queued'`, seguro com vários workers. SQLite: o mesmo CAS, com um worker só. Cada claim incrementa `attempts` e define o lease `locked_until` (`timeout_s` + 30 s) |
+| Heartbeat | `WorkerHeartbeat` (operacional, global) guarda `worker_id`, filas, estado e `last_seen` |
+| Lease vencido | O reaper recoloca na fila uma vez (`last_error_code=lease_expired`); sem tentativas restantes, o job vira `dead`. Um worker que perdeu o lease não consegue mais marcar o job |
+| Contexto | `run_as="system"` executa em `system_context(reason="job:<code>", organization_id=...)`, e a auditoria das escritas grava `source=system:job:<code>`. `run_as="actor"` abre `tenant_context` de topo como o ator, que revalida o vínculo; o handler recebe `actor` |
+| Sucesso | O handler e a marca `succeeded` comitam na mesma transação: efeitos só no banco acontecem exatamente uma vez |
+| Falha | A transação do handler é desfeita; numa transação nova o job volta à fila com backoff exponencial (`backoff × 2^(tentativa−1)`, com jitter de 0,5 a 1,5) e `last_error_class/code`. Esgotado `max_attempts`, fica `dead` |
+| Acesso revogado | Job de ator sem vínculo ativo falha fechado, sem escrita, e vai direto para `dead` (`actor_unauthorized`) |
+| Organização inativa | O job é pulado e fica `cancelled` (`organization_inactive`) |
+| SIGTERM/SIGINT | Para de reivindicar, termina o job atual e sai |
+| Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker pausa (heartbeat `paused`) |
+| Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload |
+
+Efeitos externos (SMTP, HTTP, push) são **pelo menos uma vez**: precisam de registro de entrega e chave de idempotência próprios.
+
+Em testes, `skeleton.testing.jobs.run_pending_jobs()` executa os jobs vencidos com os mesmos contextos e retentativas do worker e devolve os resultados. Chame-o fora de qualquer contexto, depois do commit que enfileirou.

@@ -157,6 +157,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_jobs.workerheartbeat": (
+            "Workers",
+            "Último sinal de vida de cada worker; leases de um worker silencioso expiram.",
+            "global",
+            (),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",

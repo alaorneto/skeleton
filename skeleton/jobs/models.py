@@ -56,3 +56,16 @@ class Job(OperationalRecord):
 
     def __str__(self):
         return f"{self.job_type} {self.state}"
+
+
+class WorkerHeartbeat(OperationalRecord):
+    """Liveness of a worker process; leases of a silent worker expire and are requeued."""
+
+    worker_id = models.CharField(max_length=200, unique=True)
+    queues = models.CharField(max_length=500, blank=True, default="")
+    state = models.CharField(max_length=16, default="running")
+    last_seen = models.DateTimeField()
+    immutable_fields = ("worker_id",)
+
+    def __str__(self):
+        return f"{self.worker_id} {self.state}"
