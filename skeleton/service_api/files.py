@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import BinaryIO
+from typing import Any, BinaryIO
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -30,7 +30,7 @@ class AttachmentInfo:
     created_at: datetime
 
 
-def _spec(table_key: str):
+def _spec(table_key: str) -> Any:
     from skeleton.common.models import SecuredRecord
     from skeleton.system.registry import get_spec
 
@@ -43,7 +43,7 @@ def _spec(table_key: str):
     return spec
 
 
-def _info(attachment) -> AttachmentInfo:
+def _info(attachment: Any) -> AttachmentInfo:
     return AttachmentInfo(
         sysid=attachment.pk,
         table_key=attachment.target_table.model_label,
@@ -58,7 +58,7 @@ def _info(attachment) -> AttachmentInfo:
     )
 
 
-def _attachment(attachment_id: UUID):
+def _attachment(attachment_id: UUID) -> Any:
     """The attachment and its spec; anything not found in the current tenant is NotFound."""
     from skeleton.files.models import Attachment
 

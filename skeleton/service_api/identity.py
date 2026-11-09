@@ -14,6 +14,11 @@ from .dto import as_uuid
 from .errors import InvalidInput, NotFound
 
 
+def _user(actor: AbstractBaseUser | None) -> Any:
+    """The actor as the core policies type it (the concrete User model)."""
+    return actor
+
+
 class IdentityKind(StrEnum):
     PERSON = "person"
     SERVICE = "service"  # Service accounts (#44) will report this kind.
@@ -108,7 +113,7 @@ class IdentityService(ServiceAPI):
         from skeleton.access.policies import active_membership
         from skeleton.tenancy.models import Membership
 
-        active_membership(actor)
+        active_membership(_user(actor))
         identifier = as_uuid(user_id, field="user_id")
         membership = (
             Membership.objects.filter(
@@ -123,7 +128,7 @@ class IdentityService(ServiceAPI):
         return PersonSummary(
             sysid=person.pk,
             display_name=_display_name(person, _profile(person)),
-            email=person.email if has_capability(actor, MEMBERS_VIEW) else None,
+            email=person.email if has_capability(_user(actor), MEMBERS_VIEW) else None,
             kind=IdentityKind.PERSON,
         )
 

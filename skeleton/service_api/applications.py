@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
+from typing import Any
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
@@ -11,6 +12,7 @@ from django.core.exceptions import PermissionDenied
 from .base import ServiceAPI, service_method
 from .errors import Forbidden, InvalidInput, Unavailable
 from .errors import NotFound as NotFoundError
+from .identity import _user
 
 _SKIPPED_PREFIXES = ("skeleton.service_api", "skeleton.testing", "django.", "functools", "contextlib")
 
@@ -35,7 +37,7 @@ class AppConfiguration:
         raise KeyError(name)
 
 
-def _manifest_for(app_id: str):
+def _manifest_for(app_id: str) -> Any:
     from skeleton.system.app_registry import all_apps
 
     if not isinstance(app_id, str) or not app_id:
@@ -49,19 +51,16 @@ def calling_app_label() -> str | None:
     The first frame outside the service API, the test kit and Django decides. Only
     apps registered with a manifest qualify; core modules and scripts return None.
     """
-    from django.apps import apps
+    from skeleton.system.app_registry import registered_app_of_module
 
-    from skeleton.system.app_registry import all_apps
-
-    registered = {item.app_label for item in all_apps()}
     frame = inspect.currentframe()
     try:
         frame = frame.f_back if frame else None
         while frame is not None:
             module = frame.f_globals.get("__name__", "")
             if not module.startswith(_SKIPPED_PREFIXES):
-                config = apps.get_containing_app_config(module)
-                return config.label if config is not None and config.label in registered else None
+                label: str | None = registered_app_of_module(module)
+                return label
             frame = frame.f_back
     finally:
         del frame
@@ -91,7 +90,7 @@ class ApplicationService(ServiceAPI):
         """
         from skeleton.access.policies import active_membership
 
-        active_membership(actor)
+        active_membership(_user(actor))
         manifest = _manifest_for(app_id)
         return manifest is not None and _enabled(manifest.app_label)
 
@@ -119,7 +118,7 @@ class ApplicationService(ServiceAPI):
         from skeleton.access.policies import active_membership
         from skeleton.system.applications import application_state
 
-        active_membership(actor)
+        active_membership(_user(actor))
         if calling_app_label() != app_label:
             raise Forbidden("Uma app só lê a própria configuração.")
         if not _enabled(app_label):
@@ -163,7 +162,7 @@ def _state(app_label: str) -> ApplicationState:
     )
 
 
-def _require_administrator(actor) -> None:
+def _require_administrator(actor: Any) -> None:
     from skeleton.access.capabilities import require_admin_surface
 
     require_admin_surface(actor)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -49,11 +50,11 @@ class NotificationItem:
     updated_at: datetime
 
 
-def _values(mapping: dict) -> tuple[NotificationValue, ...]:
+def _values(mapping: dict[str, Any]) -> tuple[NotificationValue, ...]:
     return tuple(NotificationValue(str(name), value) for name, value in sorted(mapping.items()))
 
 
-def _item(row) -> NotificationItem:
+def _item(row: Any) -> NotificationItem:
     from skeleton.notifications.inbox import row_data
 
     data = row_data(row)
@@ -126,7 +127,7 @@ class NotificationService(ServiceAPI):
         return NotificationReceipt(notification.pk, notification.type_code, notification.dedupe_key)
 
     @staticmethod
-    def _readable_target(actor, table_key: str, identifier: UUID):
+    def _readable_target(actor: Any, table_key: str, identifier: UUID) -> Any:
         from skeleton.access.policies import authorized_queryset
         from skeleton.system.registry import get_spec
 

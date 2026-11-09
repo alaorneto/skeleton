@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -13,6 +14,7 @@ from django.core.exceptions import PermissionDenied
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate
 from .errors import InvalidInput, NotFound
+from .identity import _user
 
 Scalar = str | int | bool | None
 
@@ -45,7 +47,7 @@ def _scalar(value: object) -> Scalar:
     return json.dumps(value, sort_keys=True, default=str)
 
 
-def _entry(event) -> AuditEntry:
+def _entry(event: Any) -> AuditEntry:
     from skeleton.audit.presentation import visible_audit_changes
 
     changes = tuple(
@@ -64,7 +66,7 @@ def _entry(event) -> AuditEntry:
     )
 
 
-def _record_visible(model, actor, record_id: UUID) -> bool:
+def _record_visible(model: Any, actor: Any, record_id: UUID) -> bool:
     from skeleton.access.policies import authorized_queryset, has_table_permission
 
     try:
@@ -115,15 +117,15 @@ class AuditService(ServiceAPI):
             raise NotFound() from None
         if not spec.expose_api or not issubclass(spec.model, SecuredRecord):
             raise NotFound()
-        if not is_organization_admin(actor):
+        if not is_organization_admin(_user(actor)):
             try:
-                allowed = has_table_permission(spec.model, user=actor, action="audit")
+                allowed = has_table_permission(spec.model, user=_user(actor), action="audit")
             except PermissionDenied:
                 allowed = False
-            if not allowed or not _record_visible(spec.model, actor, identifier):
+            if not allowed or not _record_visible(spec.model, _user(actor), identifier):
                 raise NotFound()
         events = (
-            authorized_audit_queryset(actor)
+            authorized_audit_queryset(_user(actor))
             .filter(model_label=spec.model._meta.label_lower, record_sysid=identifier)
             .order_by("-created_at", "-record_revision", "sysid")
         )

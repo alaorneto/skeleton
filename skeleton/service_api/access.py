@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -10,10 +11,11 @@ from django.core.exceptions import PermissionDenied
 from .base import ServiceAPI, service_method
 from .dto import as_uuid
 from .errors import Forbidden, InvalidInput, NotFound
+from .identity import _user
 from .organizations import GroupSummary
 
 
-def _model(table_key: str):
+def _model(table_key: str) -> Any:
     from skeleton.common.models import SecuredRecord
     from skeleton.system.registry import get_spec
 
@@ -36,7 +38,7 @@ def _action(action: str) -> str:
     return action
 
 
-def _decide(actor, action: str, table_key: str, record_id) -> tuple[bool, bool]:
+def _decide(actor: Any, action: str, table_key: str, record_id: Any) -> tuple[bool, bool]:
     """(readable, allowed): readability decides NotFound, the action decides Forbidden."""
     from skeleton.access.policies import authorized_queryset
 
@@ -104,7 +106,7 @@ class AccessService(ServiceAPI):
         """
         from skeleton.access.capabilities import capabilities_for
 
-        return tuple(sorted(capabilities_for(actor)))
+        return tuple(sorted(capabilities_for(_user(actor))))
 
     @service_method(read_only=True, since="0.5.0")
     def my_groups(self, *, actor: AbstractBaseUser) -> tuple[GroupSummary, ...]:
@@ -117,5 +119,5 @@ class AccessService(ServiceAPI):
         from skeleton.access.models import AccessGroup
         from skeleton.access.policies import group_ids
 
-        groups = AccessGroup.objects.filter(pk__in=group_ids(actor)).order_by("code", "sysid")
+        groups = AccessGroup.objects.filter(pk__in=group_ids(_user(actor))).order_by("code", "sysid")
         return tuple(GroupSummary(group.pk, group.code, group.name) for group in groups)

@@ -13,6 +13,7 @@ from .applications import calling_app_label
 from .base import ServiceAPI, service_method
 from .dto import as_utc, as_uuid
 from .errors import Forbidden, InvalidInput, NotFound
+from .identity import _user
 
 Scalar = str | int | bool | None
 
@@ -62,7 +63,7 @@ class EventService(ServiceAPI):
             if actor is None:
                 record = model.objects.filter(pk=identifier).first()
             else:
-                record = authorized_queryset(model, user=actor, action="read").filter(pk=identifier).first()
+                record = authorized_queryset(model, user=_user(actor), action="read").filter(pk=identifier).first()
         except PermissionDenied:
             record = None
         if record is None:

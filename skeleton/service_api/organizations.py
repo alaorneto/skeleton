@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -10,7 +11,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_uuid, paginate
 from .errors import InvalidInput, NotFound
-from .identity import IdentityKind, PersonSummary, _display_name
+from .identity import IdentityKind, PersonSummary, _display_name, _user
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +29,7 @@ class GroupSummary:
     name: str
 
 
-def _active_members():
+def _active_members() -> Any:
     from skeleton.tenancy.models import Membership
 
     # Service accounts (#44) will be excluded here by default.
@@ -49,7 +50,7 @@ class OrganizationService(ServiceAPI):
         from skeleton.access.policies import active_membership
         from skeleton.tenancy.models import Organization
 
-        organization = Organization.objects.get(pk=active_membership(actor).organization_id)
+        organization = Organization.objects.get(pk=active_membership(_user(actor)).organization_id)
         return OrganizationInfo(organization.pk, organization.name, organization.slug)
 
     @service_method(read_only=True, since="0.5.0", tenant=False)
@@ -93,7 +94,7 @@ class OrganizationService(ServiceAPI):
         from skeleton.access.models import AccessGroup, GroupMember
         from skeleton.access.policies import active_membership
 
-        active_membership(actor)
+        active_membership(_user(actor))
         rows = _active_members().select_related("user", "user__profile")
         if query is not None:
             if not isinstance(query, str) or len(query.strip()) > 100:
@@ -110,9 +111,9 @@ class OrganizationService(ServiceAPI):
             if group is None:
                 raise NotFound()
             rows = rows.filter(pk__in=GroupMember.objects.filter(group=group).values("membership_id"))
-        show_email = has_capability(actor, MEMBERS_VIEW)
+        show_email = has_capability(_user(actor), MEMBERS_VIEW)
 
-        def convert(membership) -> PersonSummary:
+        def convert(membership: Any) -> PersonSummary:
             person = membership.user
             return PersonSummary(
                 sysid=person.pk,
@@ -136,7 +137,7 @@ class OrganizationService(ServiceAPI):
         from skeleton.access.models import AccessGroup
         from skeleton.access.policies import active_membership
 
-        active_membership(actor)
+        active_membership(_user(actor))
         return paginate(
             AccessGroup.objects.order_by("code", "sysid"),
             convert=lambda group: GroupSummary(group.pk, group.code, group.name),
@@ -154,5 +155,5 @@ class OrganizationService(ServiceAPI):
         """
         from skeleton.access.policies import active_membership
 
-        active_membership(actor)
+        active_membership(_user(actor))
         return _active_members().filter(user_id=as_uuid(user_id, field="user_id")).exists()
