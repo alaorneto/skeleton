@@ -215,7 +215,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
-| `OrganizationService` | (planejado) | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
 | `AccessService` | (planejado) | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService` | (planejado) | `is_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService` | (planejado) | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
@@ -240,6 +240,18 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `update_my_preferences(*, actor, expected_revision, language=None, timezone=None) -> UserProfileInfo` | só o próprio ator | `InvalidInput` (idioma/fuso inválido, nada a alterar); `Conflict("stale_revision")` |
 
 `UserProfileInfo` tem `sysid`, `email`, `display_name`, `language`, `timezone`, `kind` e `revision` (do perfil, para CAS); `PersonSummary` tem `sysid`, `display_name`, `email` (ou `None`) e `kind`. `kind` é `person` hoje e `service` para contas de serviço (#44). Nenhum DTO traz senha, MFA, flags de plataforma ou `auth_version`.
+
+### OrganizationService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `current(*, actor) -> OrganizationInfo` | vínculo ativo | `ContextRequired` sem organização |
+| `my_organizations(*, actor) -> tuple[OrganizationInfo, ...]` | o próprio ator, por autodescoberta; só organizações ativas com vínculo ativo; funciona sem organização | `Forbidden` (ator divergente) |
+| `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
+| `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
+| `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
+
+O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e ficará sem contas de serviço por padrão (#44). Administrar vínculos continua nos serviços de acesso.
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
