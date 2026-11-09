@@ -31,7 +31,24 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | `postgres` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; migrations como `skeleton_owner`, assertions como `skeleton_runtime` e `tools/smoke_postgres.py`. | Um PostgreSQL de produção ou um backup/restore. |
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |
 
-Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR, inclusive nos PRs do Dependabot, que mudam só os `.in` ou regeneram no estilo `pip-compile`. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma.
+Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma. Nos PRs de pip do Dependabot, o workflow da seção seguinte faz isso sozinho.
+
+### Locks dos PRs do Dependabot
+
+O Dependabot muda só os `.in` ou regenera os locks no estilo `pip-compile`, sem `pip`/`setuptools` e com extras nos nomes, e não tem opção para usar o comando do README. `.github/workflows/dependabot-locks.yml` corrige esses PRs com um commit no branch deles:
+
+1. **`regenerate`**, com `contents: read` e sem secrets: parte dos locks da merge-base do PR e roda `tools/workflow/dependabot_locks.py regenerate`. Ele repete os dois `uv pip compile` do README (uv 0.12.7) com `--upgrade-package` restrito ao que o PR mudou: a versão de cada pacote alterado nos locks e o nome de cada linha nova dos `.in`. `--no-build` impede o compile de executar código de build de sdists, e `--custom-compile-command` grava o cabeçalho oficial, de modo que o job `locks` não vê diff. Os locks vão para um artifact.
+2. **`commit`**, só quando há diff: valida o artifact com o script da **base** (`check-artifact`: só os dois arquivos, cabeçalho oficial, LF, toda requisição `pacote==versão` com `--hash=sha256`, sem `--index-url`, `--find-links`, URL direta ou `-e`). Depois copia os dois arquivos para o branch do PR e faz o push com o token de um GitHub App. Esse job não executa código do PR, e não faz push se o branch mudou durante a execução.
+
+O workflow só roda quando o autor do PR e o ator do evento são `dependabot[bot]`, e o branch é deste repositório. Por isso o push do app não redispara a regeneração. O push usa um GitHub App porque um commit feito com o `GITHUB_TOKEN` não dispara o CI, e o PR ficaria sem checks no commit novo.
+
+**Configuração (uma vez, pelo responsável pelo repositório):**
+
+1. Crie um GitHub App com a permissão de repositório **Contents: Read and write** e nenhuma outra, sem webhook, e instale-o só neste repositório.
+2. Gere uma chave privada do app.
+3. Em *Settings → Secrets and variables → Dependabot*, cadastre `LOCKS_APP_CLIENT_ID` (o Client ID do app) e `LOCKS_APP_PRIVATE_KEY` (o conteúdo do `.pem`). Workflows disparados pelo Dependabot só leem secrets dessa seção.
+
+Sem os secrets, o job `commit` falha com uma mensagem que aponta para esta seção, e o conserto continua manual. O Dependabot para de rebasear um PR que recebeu commit de outro autor; se a `main` mudar os locks antes do merge, comente `@dependabot recreate` no PR: o Dependabot refaz o branch e o workflow regenera os locks de novo. O resultado foi reproduzido com o PR #133: a partir do lock original do Dependabot, `regenerate` produz byte a byte o lock corrigido à mão em #139.
 
 O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por sessão e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
 
