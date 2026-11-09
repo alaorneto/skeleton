@@ -106,15 +106,17 @@ class MeView(SessionAPI):
 
     @transaction.atomic
     def patch(self, request):
+        from skeleton.api.errors import if_match_precondition
         from skeleton.service_api.identity import IdentityService
 
         revisions = parse_revision(request.headers.get("If-Match"), composite=True)
-        me = IdentityService().update_my_profile(
-            actor=request.user,
-            expected_user_revision=revisions[0],
-            expected_revision=revisions[1],
-            changes=tuple(request_fields(request).items()),
-        )
+        with if_match_precondition():
+            me = IdentityService().update_my_profile(
+                actor=request.user,
+                expected_user_revision=revisions[0],
+                expected_revision=revisions[1],
+                changes=tuple(request_fields(request).items()),
+            )
         return etag(Response(me_data(me)), me.user_revision, me.revision)
 
 

@@ -1,4 +1,5 @@
 import re
+from contextlib import contextmanager
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -53,11 +54,24 @@ def service_error_response(exc):
             "validation_error", exc.detail, 400, {field: list(items) for field, items in exc.errors.items()}
         )
     if isinstance(exc, errors.Conflict):
-        if exc.code == "stale_revision":
-            # The same answer as the gateway and the dedicated resources for a stale If-Match.
-            return BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412)
         return BoundaryError(exc.code, exc.detail, 409)
     return None
+
+
+@contextmanager
+def if_match_precondition():
+    """Core resources that take If-Match answer a stale revision with 412, as the gateway does.
+
+    Service errors otherwise keep the published mapping (``Conflict`` → 409).
+    """
+    from skeleton.service_api import errors
+
+    try:
+        yield
+    except errors.Conflict as exc:
+        if exc.code != "stale_revision":
+            raise
+        raise BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412) from exc
 
 
 def exception_handler(exc, context):

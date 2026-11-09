@@ -131,7 +131,7 @@ Os erros públicos ficam em `skeleton.service_api.errors` ([#97](https://github.
 | `NotFound` | Alvo inexistente, de outra organização ou não legível | 404 |
 | `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto | 403 |
 | `InvalidInput(errors)` | Validação de campos; `errors` mapeia campo → mensagens | 400 |
-| `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade, último admin, cota | 409; `stale_revision` vira 412 `revision_conflict`, como no gateway |
+| `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade, último admin, cota | 409 |
 | `Unavailable` | App provedora desativada, indisponível ou não instalada na organização | 404 |
 | `ContextRequired` | Chamada sem o contexto exigido | 500 (erro de programação) |
 
@@ -327,7 +327,7 @@ Apps não acessam o armazenamento diretamente.
 
 ### Superfícies do núcleo sobre os serviços
 
-A REST e as páginas do núcleo são camadas finas sobre estes serviços ([#110](https://github.com/alaorneto/skeleton/issues/110)), sem mudança observável: `GET/PATCH /api/v1/me/` e a página de perfil usam o `IdentityService`; `GET /api/v1/organizations/`, a página inicial e o painel da organização usam o `OrganizationService`; `GET/PUT /api/v1/o/<org>/apps/...` usa o `ApplicationAdministrationService`. Os erros de serviço passam por um único mapeamento para HTTP (`skeleton.api.errors.service_error_response`). Ficaram fora, por ora: a lista de auditoria (`/audit/`, com paginação numerada e campos privilegiados que o `AuditService.history` não expõe), os recursos administrativos de acesso e o gateway genérico de tabelas. A cota por organização é `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão; a contabilidade completa é #61). Veja [arquivos e anexos](files.md).
+A REST e as páginas do núcleo são camadas finas sobre estes serviços ([#110](https://github.com/alaorneto/skeleton/issues/110)), sem mudança observável: `GET/PATCH /api/v1/me/` e a página de perfil usam o `IdentityService`; `GET /api/v1/organizations/`, a página inicial e o painel da organização usam o `OrganizationService`; `GET/PUT /api/v1/o/<org>/apps/...` usa o `ApplicationAdministrationService`. Os erros de serviço passam por um único mapeamento para HTTP (`skeleton.api.errors.service_error_response`); os recursos do núcleo que recebem `If-Match` usam `if_match_precondition()` para manter o 412 `revision_conflict` do gateway numa revisão desatualizada. Ficaram fora, por ora: a lista de auditoria (`/audit/`, com paginação numerada e campos privilegiados que o `AuditService.history` não expõe), os recursos administrativos de acesso e o gateway genérico de tabelas. A cota por organização é `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão; a contabilidade completa é #61). Veja [arquivos e anexos](files.md).
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 

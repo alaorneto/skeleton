@@ -70,16 +70,18 @@ class ApplicationAPI(TenantAPI):
         data = request_fields(request)
         if set(data) != {"enabled", "configuration"}:
             raise BoundaryError("invalid_request", "Informe enabled e configuration.")
+        from skeleton.api.errors import if_match_precondition
         from skeleton.service_api.applications import ApplicationAdministrationService
 
         configuration = data["configuration"]
-        state = ApplicationAdministrationService().configure(
-            actor=request.user,
-            app_label=app_label,
-            enabled=data["enabled"],
-            configuration=tuple(configuration.items()) if isinstance(configuration, dict) else configuration,
-            expected_revision=int(value[1:-1]),
-        )
+        with if_match_precondition():
+            state = ApplicationAdministrationService().configure(
+                actor=request.user,
+                app_label=app_label,
+                enabled=data["enabled"],
+                configuration=tuple(configuration.items()) if isinstance(configuration, dict) else configuration,
+                expected_revision=int(value[1:-1]),
+            )
         return etag(Response(state_data(state)), state.revision)
 
 

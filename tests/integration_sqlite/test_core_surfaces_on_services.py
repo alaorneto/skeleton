@@ -43,12 +43,23 @@ def test_one_mapping_from_service_errors_to_http():
         Unavailable(): (404, "not_found"),
         Forbidden(): (403, "permission_denied"),
         InvalidInput({"field": ["x"]}): (400, "validation_error"),
-        Conflict("stale_revision"): (412, "revision_conflict"),
+        Conflict("stale_revision"): (409, "stale_revision"),
         Conflict("quota_exceeded"): (409, "quota_exceeded"),
     }
     for error, (status, code) in cases.items():
         mapped = service_error_response(error)
         assert (mapped.status_code, mapped.detail["code"]) == (status, code), error
+
+
+def test_core_if_match_resources_keep_412_for_a_stale_revision():
+    from skeleton.api.errors import BoundaryError, if_match_precondition
+
+    with pytest.raises(BoundaryError) as stale:
+        with if_match_precondition():
+            raise Conflict("stale_revision")
+    assert (stale.value.status_code, stale.value.detail["code"]) == (412, "revision_conflict")
+    with pytest.raises(Conflict), if_match_precondition():
+        raise Conflict("integrity_conflict")
 
 
 @pytest.mark.usefixtures("skeleton_db")
