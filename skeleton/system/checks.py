@@ -17,7 +17,7 @@ from .synchronization import physical_tables, technical_manifest
 
 @register()
 def record_contract_checks(app_configs=None, **kwargs):
-    from skeleton.common.models import OrganizationRecord, SecuredRecord, SystemRecord
+    from skeleton.common.models import OperationalRecord, OrganizationRecord, SecuredRecord, SystemRecord
 
     errors = []
     specs = {spec.model._meta.label_lower: spec for spec in all_specs()}
@@ -26,16 +26,29 @@ def record_contract_checks(app_configs=None, **kwargs):
     for model in registry.get_models():
         if model._meta.proxy:
             continue
-        own = model._meta.app_label in own_labels or issubclass(model, SystemRecord)
+        own = model._meta.app_label in own_labels or issubclass(model, SystemRecord | OperationalRecord)
         if not own:
             continue
         if (
-            not issubclass(model, SystemRecord)
+            not issubclass(model, SystemRecord | OperationalRecord)
             or not isinstance(model._meta.pk, models.UUIDField)
             or model._meta.pk.name != "sysid"
         ):
             errors.append(
                 Error(f"{model._meta.label}: own models require SystemRecord and UUID sysid PK.", id="skeleton.E001")
+            )
+        if (
+            issubclass(model, SystemRecord)
+            and not issubclass(model, OrganizationRecord)
+            and "organization" in {field.name for field in model._meta.fields}
+        ):
+            # The name turns on tenant filtering in querysets and tenant DDL in migrations.
+            errors.append(
+                Error(
+                    f"{model._meta.label}: a SystemRecord cannot declare a field named organization; "
+                    "use another name such as granted_organization.",
+                    id="skeleton.E017",
+                )
             )
         spec = specs.get(model._meta.label_lower)
         if spec is None:
@@ -68,6 +81,13 @@ def record_contract_checks(app_configs=None, **kwargs):
             )
         if spec.expose_api and not issubclass(model, SecuredRecord):
             errors.append(Error(f"{model._meta.label}: generic API requires SecuredRecord.", id="skeleton.E005"))
+        if issubclass(model, OperationalRecord) and (spec.expose_api or spec.write_fields):
+            errors.append(
+                Error(
+                    f"{model._meta.label}: operational tables are pipeline state; never exposed or externally writable.",
+                    id="skeleton.E020",
+                )
+            )
         if issubclass(model, OrganizationRecord) and model._meta.get_field("organization").null:
             errors.append(Error(f"{model._meta.label}: tenant is mandatory.", id="skeleton.E006"))
         for field in model._meta.local_many_to_many:
@@ -471,8 +491,10 @@ def _expected_sql(operation, model, connection):
     return capture.statements
 
 
-def expected_policies(model):
-    tenant = "organization_id = NULLIF(current_setting('skeleton.tenant_id',true),'')::uuid"
+def expected_policies(model, operation=None):
+    from skeleton.common.migration_operations import TENANT_PREDICATE, self_discovery_mode, self_discovery_policies
+
+    tenant = TENANT_PREDICATE
     if model._meta.label_lower == "sk_audit.auditevent":
         return {
             "skeleton_audit_select": (
@@ -485,14 +507,9 @@ def expected_policies(model):
         }
     if not any(field.name == "organization" for field in model._meta.fields):
         return {}
-    if model._meta.label_lower == "sk_tenancy.membership":
-        user = "user_id = NULLIF(current_setting('skeleton.user_id',true),'')::uuid"
-        return {
-            "skeleton_membership_select": ("r", ["skeleton_runtime"], tenant + " OR " + user, None),
-            "skeleton_membership_insert": ("a", ["skeleton_runtime"], None, tenant),
-            "skeleton_membership_update": ("w", ["skeleton_runtime"], tenant, tenant),
-            "skeleton_membership_delete": ("d", ["skeleton_runtime"], tenant, None),
-        }
+    mode, column = self_discovery_mode(model, operation.specification if operation is not None else {})
+    if mode is not None:
+        return self_discovery_policies(f"skeleton_{mode}", column)
     return {"skeleton_tenant": ("*", ["skeleton_runtime"], tenant, tenant)}
 
 
@@ -605,6 +622,10 @@ def check_deployed_schema(*, using="default"):
             except ValueError as exc:
                 errors.append(str(exc))
                 continue
+            declared_discovery = getattr(model, "self_discovery_field", None)
+            frozen_discovery = operation.specification.get("self_discovery_column")
+            if (model._meta.get_field(declared_discovery).column if declared_discovery else None) != frozen_discovery:
+                errors.append(f"{name}: self_discovery_field differs from the frozen self_discovery_column.")
             declared_sensitive = {column for column, sensitive in operation._audit_fields(model) if sensitive}
             for field_name in spec.sensitive_fields:
                 if model._meta.get_field(field_name).column not in declared_sensitive:
@@ -612,7 +633,10 @@ def check_deployed_schema(*, using="default"):
                         f"{name}.{field_name}: sensitive registry field absent from frozen audit specification."
                     )
             append = model._meta.label_lower == "sk_audit.auditevent"
-            expected_triggers = set(infrastructure_names(name, connection.vendor))
+            operational = operation.operational()
+            if operational != (getattr(model, "lifecycle", None) == "operational"):
+                errors.append(f"{name}: model lifecycle differs from the frozen operational specification.")
+            expected_triggers = set(infrastructure_names(name, connection.vendor, operational=operational))
             if append:
                 expected_triggers = {trigger for trigger in expected_triggers if "audit" not in trigger[len(name) :]}
             if connection.vendor == "sqlite":
@@ -662,7 +686,7 @@ def check_deployed_schema(*, using="default"):
                     )
                     if _trigger_tokens(qualified) != _trigger_tokens(definition):
                         errors.append(f"{trigger}: exact guard/audit trigger definition mismatch.")
-                expected = expected_policies(model)
+                expected = expected_policies(model, operation)
                 actual_policies = policies.get(name, {})
                 if set(actual_policies) != set(expected):
                     errors.append(f"{name}: exact RLS policy inventory mismatch.")
@@ -692,19 +716,24 @@ def check_deployed_schema(*, using="default"):
                 )
                 grants = cursor.fetchall()
                 privileges = {row[0] for row in grants}
-                if privileges != ({"SELECT"} if append else {"SELECT", "INSERT", "UPDATE"}) or any(
-                    row[1] != "NO" for row in grants
-                ):
+                allowed = operation.runtime_privileges(model)
+                if privileges != allowed or any(row[1] != "NO" for row in grants):
                     errors.append(f"{name}: exact runtime table grant inventory mismatch.")
-                for forbidden in {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"} - (
-                    {"SELECT"} if append else {"SELECT", "INSERT", "UPDATE"}
-                ):
+                for forbidden in {
+                    "SELECT",
+                    "INSERT",
+                    "UPDATE",
+                    "DELETE",
+                    "TRUNCATE",
+                    "REFERENCES",
+                    "TRIGGER",
+                } - allowed:
                     cursor.execute(
                         "SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, forbidden]
                     )
                     if cursor.fetchone()[0]:
                         errors.append(f"{name}: runtime unexpectedly has {forbidden}.")
-                for kind in ("guard", "audit") if not append else ("guard",):
+                for kind in ("guard", "audit") if not (append or operational) else ("guard",):
                     function_name = name + "_sk_" + kind + "_fn"
                     cursor.execute(
                         "SELECT r.rolname,p.prosecdef,p.proconfig,p.prosrc,has_function_privilege('skeleton_runtime',p.oid,'EXECUTE') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname='skeleton' AND p.proname=%s AND p.prokind='f' AND p.pronargs=0 AND p.prorettype='trigger'::regtype",
@@ -734,6 +763,13 @@ def check_deployed_schema(*, using="default"):
                         errors.append(
                             f"{name}: exact {kind} function body/owner/security/search_path/EXECUTE inventory mismatch."
                         )
+                if operational:
+                    cursor.execute(
+                        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='skeleton' AND p.proname=%s",
+                        [name + "_sk_audit_fn"],
+                    )
+                    if cursor.fetchone()[0]:
+                        errors.append(f"{name}: operational tables must not carry a row audit function.")
                 for field in operation._org_refs(model):
                     constraint_name = name + "_sk_org_" + field.column
                     cursor.execute(

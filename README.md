@@ -23,6 +23,7 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 |---|---|---|
 | `/accounts/login/` | Pessoa com admissão autorizada | Entrar usando senha, SSO ou MFA conforme a política |
 | `/o/<org>/` | Pessoa com vínculo ativo na organização indicada | Acessar dados e funcionalidades daquele tenant |
+| `/notifications/`, `/o/<org>/notifications/` | Pessoa autenticada | Caixa de notificações de todas as organizações ou de uma, com lida, arquivada e contador no cabeçalho; abrir revalida o acesso ao conteúdo ([notificações](docs/notifications.md)) |
 | `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
 | `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |

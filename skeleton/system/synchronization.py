@@ -89,8 +89,11 @@ def sync_table_catalog(*, using="default", apps_registry=None):
             uuid_managed = bool(
                 model and model._meta.pk.get_internal_type() == "UUIDField" and model._meta.pk.name == "sysid"
             )
+            operational = bool(model and getattr(model, "lifecycle", None) == "operational")
             base_class = (
-                "SecuredRecord"
+                "OperationalRecord"
+                if is_owned and operational
+                else "SecuredRecord"
                 if is_owned and any(f.name == "visibility" for f in model._meta.fields)
                 else "OrganizationRecord"
                 if is_owned and scope == "organization"
@@ -107,9 +110,11 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                     "scope": scope,
                     "base_class": base_class,
                     "uuid_managed": uuid_managed,
-                    "soft_delete": is_owned,
+                    "soft_delete": is_owned and not operational,
                     "audit_mode": "append_only"
                     if model and model._meta.label_lower == "sk_audit.auditevent"
+                    else "operational"
+                    if is_owned and operational
                     else "trigger"
                     if is_owned
                     else "library"
@@ -193,10 +198,10 @@ def sync_table_catalog(*, using="default", apps_registry=None):
         )
 
         def reconcile():
-            from skeleton.access.services import reconcile_builtin_permissions
+            from skeleton.access.services import reconcile_builtin_roles
 
             for organization_id in organization_ids:
-                reconcile_builtin_permissions(organization_id=organization_id, using=using)
+                reconcile_builtin_roles(organization_id=organization_id, using=using)
 
         transaction.on_commit(reconcile, using=using)
     return {"tables": len(names), "fields": field_count}

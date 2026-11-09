@@ -7,6 +7,15 @@ from django.db import transaction
 
 from skeleton.tenancy.context import current_context
 
+from .capabilities import (
+    ACCESS_MANAGE,
+    BUILTIN_CODES,
+    BUILTIN_ROLES,
+    MEMBERS_MANAGE,
+    has_capability,
+    membership_holds_capability,
+    require_capability,
+)
 from .policies import is_organization_admin
 
 
@@ -20,8 +29,12 @@ def require_organization_admin(user):
 
 
 @contextmanager
-def organization_lock(user=None):
-    """Lock the organization before its records; HTTP callers must pass the actor."""
+def organization_lock(user=None, *, capability=None):
+    """Lock the organization before its records; HTTP callers must pass the actor.
+
+    Without ``capability`` the actor must be the organization administrator;
+    with it, the actor needs that capability of a builtin role.
+    """
     from skeleton.tenancy.models import Organization
 
     context = current_context()
@@ -32,8 +45,27 @@ def organization_lock(user=None):
         if not organization.is_active or organization.deleted_at is not None:
             raise PermissionDenied("Organization unavailable.")
         if user is not None:
-            require_organization_admin(user)
+            if capability is None:
+                require_organization_admin(user)
+            else:
+                require_capability(user, capability)
         yield organization
+
+
+def require_unprivileged_target(user, *, role=None, membership=None):
+    """Delegated managers cannot hand out or remove administrative capabilities.
+
+    Only a holder of ``access.manage`` (the organization administrator) may
+    assign a capability role or deactivate someone who holds one.
+    """
+    from .capabilities import privileged_role
+
+    if user is None or has_capability(user, ACCESS_MANAGE):
+        return
+    if role is not None and privileged_role(role):
+        raise PermissionDenied("Only an administrator can assign a role with capabilities.")
+    if membership is not None and membership_holds_capability(membership):
+        raise PermissionDenied("Only an administrator can change someone who holds capabilities.")
 
 
 def ensure_last_admin():
@@ -69,10 +101,10 @@ def _tenant_relation(obj):
         raise ValidationError("Relation must be active.")
 
 
-def _create(model, *, user, data, fields):
+def _create(model, *, user, data, fields, capability=ACCESS_MANAGE):
     if set(data) - set(fields):
         raise ValidationError("Unsupported fields.")
-    with organization_lock(user) as organization:
+    with organization_lock(user, capability=capability) as organization:
         for value in data.values():
             if hasattr(value, "_meta"):
                 _tenant_relation(value)
@@ -81,10 +113,10 @@ def _create(model, *, user, data, fields):
         return record
 
 
-def _update(record, *, user, data, fields):
+def _update(record, *, user, data, fields, capability=ACCESS_MANAGE):
     if set(data) - set(fields):
         raise ValidationError("Unsupported fields.")
-    with organization_lock(user):
+    with organization_lock(user, capability=capability):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False) and "code" in data and data["code"] != record.code:
             raise ValidationError("Builtin role codes are immutable.")
@@ -95,8 +127,8 @@ def _update(record, *, user, data, fields):
         return record
 
 
-def _delete(record, *, user):
-    with organization_lock(user):
+def _delete(record, *, user, capability=ACCESS_MANAGE):
+    with organization_lock(user, capability=capability):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False):
             raise ValidationError("Builtin roles cannot be removed.")
@@ -137,7 +169,7 @@ def create_membership(*, user, data):
 
     if set(data) - {"user", "is_active"}:
         raise ValidationError("Unsupported fields.")
-    with organization_lock(user) as organization:
+    with organization_lock(user, capability=MEMBERS_MANAGE) as organization:
         identity = data["user"]
         if identity.deleted_at is not None or not identity.is_active:
             raise ValidationError("Identity unavailable.")
@@ -165,10 +197,11 @@ def _revoke_membership_links(record):
 def update_membership(record, *, user, data):
     if set(data) - {"is_active"}:
         raise ValidationError("Membership identity is immutable.")
-    with organization_lock(user):
+    with organization_lock(user, capability=MEMBERS_MANAGE):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
             raise ValidationError("Membership unavailable.")
         if data.get("is_active") is False:
+            require_unprivileged_target(user, membership=record)
             _revoke_membership_links(record)
         record.is_active = data.get("is_active", record.is_active)
         record.save(update_fields={"is_active"})
@@ -177,9 +210,10 @@ def update_membership(record, *, user, data):
 
 
 def delete_membership(record, *, user):
-    with organization_lock(user):
+    with organization_lock(user, capability=MEMBERS_MANAGE):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
             raise ValidationError("Membership unavailable.")
+        require_unprivileged_target(user, membership=record)
         _revoke_membership_links(record)
         record.is_active = False
         record.save(update_fields={"is_active"})
@@ -190,7 +224,7 @@ def delete_membership(record, *, user):
 def create_role(*, user, data):
     from .models import Role
 
-    if data.get("code") in {"organization_admin", "member"}:
+    if data.get("code") in BUILTIN_CODES:
         raise ValidationError("Builtin codes are reserved.")
     return _create(Role, user=user, data=data, fields=("code", "name", "description"))
 
@@ -280,7 +314,13 @@ def revoke_link(record, *, user):
     return _delete(record, user=user)
 
 
-def reconcile_builtin_permissions(*, organization_id, using="default"):
+def reconcile_builtin_roles(*, organization_id, using="default"):
+    """Create missing builtin roles and the administrator's table permissions.
+
+    Idempotent and one organization per call (the caller loops in independent
+    transactions). Returns the codes of builtin roles that could not be created
+    because a custom role already uses the code; those must be renamed first.
+    """
     from skeleton.system.models import TableDefinition
     from skeleton.system.registry import all_specs
     from skeleton.tenancy.context import system_context
@@ -288,10 +328,18 @@ def reconcile_builtin_permissions(*, organization_id, using="default"):
     from .models import Role, TablePermission
     from .policies import ACTIONS
 
-    with system_context(reason="builtin-permissions", organization_id=organization_id, using=using):
-        role = Role.objects.filter(code="organization_admin", is_builtin=True).first()
+    collisions = []
+    with system_context(reason="builtin-roles", organization_id=organization_id, using=using):
+        existing = {role.code: role for role in Role.objects.using(using).filter(code__in=BUILTIN_CODES)}
+        for code, builtin in BUILTIN_ROLES.items():
+            role = existing.get(code)
+            if role is None:
+                Role(organization_id=organization_id, code=code, name=builtin.name, is_builtin=True).save(using=using)
+            elif not role.is_builtin:
+                collisions.append(code)
+        role = Role.objects.using(using).filter(code="organization_admin", is_builtin=True).first()
         if role is None:
-            return
+            return collisions
         for spec in all_specs():
             if not spec.expose_api:
                 continue
@@ -306,6 +354,7 @@ def reconcile_builtin_permissions(*, organization_id, using="default"):
                         TablePermission(organization_id=organization_id, role=role, table=table, action=action).save(
                             using=using
                         )
+    return collisions
 
 
 def assert_user_deactivation(user, *, using="default"):

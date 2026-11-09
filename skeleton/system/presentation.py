@@ -451,7 +451,7 @@ def _widget_allowed(field, widget):
     return False
 
 
-RESERVED_ROOTS = ("admin", "platform")
+RESERVED_ROOTS = ("admin", "platform", "notifications")
 
 
 def _validate_reserved_routes(patterns, prefix=""):

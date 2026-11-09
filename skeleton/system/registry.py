@@ -2,6 +2,14 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class AttachmentPolicy:
+    """Opt-in to attachments on a table: size limit and allowed MIME types (checked by content)."""
+
+    max_bytes: int
+    types: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TableSpec:
     model: type
     description: str
@@ -11,6 +19,7 @@ class TableSpec:
     write_fields: tuple = ()
     sensitive_fields: tuple = ()
     expose_api: bool = False
+    attachments: AttachmentPolicy | None = None
 
 
 _registry = {}
@@ -127,6 +136,18 @@ def register_core_specs():
             "organization",
             ("configuration",),
         ),
+        "sk_system.appavailability": (
+            "Disponibilidade de apps",
+            "Portão da plataforma: app disponível para todas as organizações ou só para as selecionadas.",
+            "global",
+            (),
+        ),
+        "sk_system.apporganizationgrant": (
+            "Concessões de apps",
+            "Organização admitida pela plataforma a uma app em modo selecionado.",
+            "global",
+            (),
+        ),
         "sk_system.componentinstallation": (
             "Componentes instalados",
             "Versão e procedência global do release confirmado.",
@@ -138,6 +159,42 @@ def register_core_specs():
             "Plano aprovado e resultado auditado de instalação, atualização e desinstalação.",
             "global",
             ("plan", "result"),
+        ),
+        "sk_jobs.job": (
+            "Jobs",
+            "Fila de trabalho em segundo plano; payload só com identificadores, sem dados de negócio.",
+            "global",
+            (),
+        ),
+        "sk_jobs.workerheartbeat": (
+            "Workers",
+            "Último sinal de vida de cada worker; leases de um worker silencioso expiram.",
+            "global",
+            (),
+        ),
+        "sk_events.domainevent": (
+            "Eventos de domínio",
+            "Outbox de eventos publicados na transação da escrita; só campos declarados e não sensíveis.",
+            "organization",
+            (),
+        ),
+        "sk_notifications.notification": (
+            "Notificações",
+            "Fato notificado, alvo e especificação dos destinatários; snapshot só com campos declarados.",
+            "organization",
+            (),
+        ),
+        "sk_notifications.notificationrecipient": (
+            "Notificações por pessoa",
+            "Cópia da notificação de cada pessoa, com lida, arquivada e contagem agrupada.",
+            "organization",
+            (),
+        ),
+        "sk_files.attachment": (
+            "Anexos",
+            "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",
+            "organization",
+            ("storage_key",),
         ),
         "sk_audit.auditevent": (
             "Auditoria",

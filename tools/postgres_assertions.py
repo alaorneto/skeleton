@@ -71,13 +71,8 @@ def assert_runtime_security(pair, fixture, emit=lambda message: None):
                 ("skeleton", table),
             ).fetchall()
             expected = (
-                {
-                    "skeleton_membership_select",
-                    "skeleton_membership_insert",
-                    "skeleton_membership_update",
-                    "skeleton_membership_delete",
-                }
-                if model is Membership
+                {"skeleton_self_select", "skeleton_self_insert", "skeleton_self_update", "skeleton_self_delete"}
+                if getattr(model, "self_discovery_field", None)
                 else {"skeleton_tenant"}
             )
             require({p[0] for p in policies} == expected, f"{table}: unexpected policy inventory {policies}.")

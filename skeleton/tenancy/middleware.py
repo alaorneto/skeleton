@@ -15,6 +15,13 @@ class TenantContextMiddleware:
             raise InvalidContext("Tenant middleware requires synchronous views.")
 
     def __call__(self, request):
+        response = self._in_context(request)
+        if getattr(response, "detached", False):
+            # The transaction committed and the contexts are gone: stream without the ORM.
+            response = response.materialize()
+        return response
+
+    def _in_context(self, request):
         user = request.user
         with request_context(
             actor=user if user.is_authenticated else None, request_id=request.request_id, source="http"
@@ -57,6 +64,18 @@ class TenantContextMiddleware:
                 transaction.set_rollback(True)
             response["X-Request-ID"] = str(request.request_id)
             return response
+
+    def process_exception(self, request, exception):
+        """An app withdrawn by the platform looks like a missing route, not a forbidden one."""
+        from django.http import HttpResponseNotFound
+
+        from skeleton.common.exceptions import ApplicationUnavailable
+
+        if not isinstance(exception, ApplicationUnavailable):
+            return None
+        if request.path.startswith("/api/"):
+            return JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
+        return HttpResponseNotFound("Not found.")
 
     def _handle(self, request):
         response = self.get_response(request)

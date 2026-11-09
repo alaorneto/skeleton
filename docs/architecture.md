@@ -22,6 +22,9 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/access` | Papéis, grupos, permissões, policies e serviços de gestão | Permissões Django globais não substituem autorização empresarial |
 | `skeleton/system` | Registro de especificações, catálogo, apps, checks e controle de releases | Metadados não executam DDL |
 | `skeleton/audit` | Eventos e infraestrutura de auditoria | Triggers são a fonte; não há segunda fonte por signals de save |
+| `skeleton/jobs` | Fila de jobs no banco, tipos registrados em código | Enqueue na transação do negócio; payload sem dado de negócio; [jobs](jobs.md) |
+| `skeleton/notifications` | Tipos de notificação, `notify()` e linhas por pessoa | Snapshot só com campos declarados e não sensíveis; [notificações](notifications.md) |
+| `skeleton/events` | Eventos de domínio publicados explicitamente pelo serviço | Mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade; [eventos](events.md) |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
 | `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate`, erros públicos, introspecção do contrato (`contract`) e APIs declaradas pelas apps (`registry`) | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
 | `skeleton/testing` | Kit de testes distribuído no wheel: `assert_service_contract`, cenário A/B e helpers de isolamento, default deny, app desativada e CAS | Só para testes; cria dados pelas mesmas APIs públicas e não concede bypass |
@@ -39,7 +42,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 
 `sysid` identifica uma linha; código comercial identifica algo segundo o negócio; `table_key` identifica um modelo registrado na interface. Nenhum desses valores é autorização ou um nome SQL livre recebido do cliente.
 
-Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system` e `sk_audit`; o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
+Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events` e `sk_notifications`; o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
 
 ## Caminho de uma requisição
 
@@ -89,7 +92,7 @@ O **registry** contém `TableSpec` no código: modelos, campos permitidos, sensi
 
 Uma app possui `manifest.json` canônico, carregado como `AppManifest`, separado das especificações de tabela. Rotas e menus declarados entram sob prefixes tenant reservados, antes do gateway. A navegação e as policies revalidam ativação e permissão: esconder um menu não basta.
 
-Apps interagem entre si e com o núcleo pela **API de serviços**: cada app publica classes em `service_api.py`, e as outras só importam esse módulo. A chamada roda no contexto e na transação de quem chama, com autorização revalidada no serviço e retorno em DTOs imutáveis. As superfícies HTTP e HTML da app são camadas finas sobre a mesma API. A fronteira é verificada no CI e no empacotamento: `runtime.service_api` declara módulo e classes (check E018), uma análise estática dos imports reprova acesso a internos de outra app ou a dependência não declarada (E019) e avisa sobre módulos não públicos do núcleo (W019), e `package doctor` repete a análise antes do build. Veja [API de serviços entre apps](service-api.md).
+Apps interagem entre si e com o núcleo pela **API de serviços**: cada app publica classes em `service_api.py`, e as outras só importam esse módulo. A chamada roda no contexto e na transação de quem chama, com autorização revalidada no serviço e retorno em DTOs imutáveis. As superfícies HTTP e HTML da app são camadas finas sobre a mesma API, e as do núcleo também: perfil, organizações do ator, painel e configuração de apps chamam os serviços de `skeleton.service_api`, com um único mapeamento de erros de serviço para HTTP. A fronteira é verificada no CI e no empacotamento: `runtime.service_api` declara módulo e classes (check E018), uma análise estática dos imports reprova acesso a internos de outra app ou a dependência não declarada (E019) e avisa sobre módulos não públicos do núcleo (W019), e `package doctor` repete a análise antes do build. Veja [API de serviços entre apps](service-api.md).
 
 ```mermaid
 flowchart LR

@@ -21,6 +21,8 @@ As bases são **abstratas**: Django copia seus campos para cada modelo concreto,
 | Dado de negócio com proprietário e acesso por registro | `SecuredRecord` | Tudo acima e proprietário/visibilidade/grupo; base para negócio organizacional e gateway genérico |
 | Tabela de Django ou allauth | Modelo oficial da biblioteca | Não adaptar às bases próprias; registrar a exceção técnica nominal no catálogo |
 
+Há uma quarta base, **`OperationalRecord`**, reservada ao estado de pipeline do núcleo (jobs, outbox, entregas, leitura de notificações). Ela não é para negócio: veja a decisão abaixo.
+
 Herdar a base não instala sozinho a proteção no banco: são necessários `TableSpec` e a migration com `InstallRecordInfrastructure`. Veja [catálogo](table-catalog.md#migration-e-checks) e [extensão](extending.md).
 
 ## Identificador não é código comercial
@@ -67,7 +69,7 @@ Um **papel** (`Role`) reúne permissões; um **grupo** (`AccessGroup`) reúne me
 | Modelo | Campos próprios | Unicidade/regras |
 |---|---|---|
 | Membership | user; is_active | UNIQUE(org,user) incondicional; user/org imutáveis; novo convite reativa a mesma linha, não cria duplicata |
-| Role | code,name,description,is_builtin | Código único entre vivos por organização; papéis internos organization_admin/member não podem ser removidos/renomeados |
+| Role | code,name,description,is_builtin | Código único entre vivos por organização; papéis internos (`organization_admin`, `people_manager`, `app_manager`, `member`, declarados em `BUILTIN_ROLES`) não podem ser removidos/renomeados e são os únicos que carregam capacidades |
 | MemberRole | membership,role | Par único entre vivos; mesma organização; revogação lógica |
 | AccessGroup | code,name,description | Código único entre vivos por organização; grupo de negócio, não auth.Group |
 | GroupMember | group,membership | Par único entre vivos; Membership precisa estar ativa |
@@ -82,10 +84,20 @@ Criar uma organização também é uma unidade transacional: `create_organizatio
 
 `sk_system.AppInstallation` deriva de OrganizationRecord: `app_label` imutável, `enabled` e `configuration` JSON (ocultado integralmente na auditoria), UNIQUE incondicional `(organization,app_label)`. Esse estado organiza ativação/configuração; não instala código nem altera o schema. Sem linha, usam-se os valores padrão do manifesto de deployment. `organization_admin` faz a gestão com revisão/CAS, bloqueio da organização e validação de dependências.
 
+`sk_system.AppAvailability` (SystemRecord global) guarda, por app instalada, `app_label` único e imutável, `mode` (`all`/`selected`) e `upgrade_state`. `sk_system.AppOrganizationGrant` (SystemRecord global) liga uma disponibilidade a `granted_organization` (FK PROTECT), com UNIQUE incondicional; revogar é exclusão lógica e re-conceder restaura a mesma linha. Nenhuma das duas escreve linhas tenant nem entra no gateway.
+
 `ComponentInstallation` e `DeploymentOperation`, os dois modelos de controle global, recebem infraestrutura congelada em `sk_system.0004_deployment`. O banco reflete o inventário e o diário (`journal`) do agente; não escolhe o código carregado pelos processos web. Desinstalar globalmente preserva `AppInstallation` e sua configuração. Sem código, só é permitido desabilitar o estado existente. Reinstalar exige ativação explícita, sem substituir UUIDs ou valores padrão já persistidos.
 
 `sk_system.0005_deploymentoperation_lifecycle` acrescenta `reinstall` e `core_update` ao contrato de operação, sem alterar colunas/infraestrutura da migration anterior. Falha de migration conserva o modo de manutenção; recuperação offline reconciliada aparece como `restored` no histórico.
 
+
+## Tabelas operacionais (ADR)
+
+**Contexto.** Fila de jobs, outbox de eventos, entregas e estado de leitura de notificações mudam a cada claim, heartbeat ou leitura. Com `SystemRecord`, cada UPDATE geraria um `AuditEvent`, e a role runtime não tem DELETE: essas tabelas cresceriam para sempre e inflariam a auditoria.
+
+**Decisão.** `OperationalRecord` (`skeleton/common/models.py`) tem `sysid` UUID, `created_at` e `updated_at`; não tem revisão, exclusão lógica nem auditoria. O manager filtra o tenant quando há FK `organization`, permite `update`, `delete` e `bulk_create` e recusa `bulk_update` e mudança de campos imutáveis. A migration congela `lifecycle: operational` no spec de `InstallRecordInfrastructure`, que instala: guard de imutabilidade (`sysid`, `organization_id` e `immutable_fields`), RLS tenant quando há `organization` (com `self_discovery_column` opcional), FKs compostas de mesmo tenant, `GRANT SELECT, INSERT, UPDATE, DELETE` à role runtime e nenhum trigger de auditoria. O catálogo registra `audit_mode=operational` e `base_class=OperationalRecord`; `check_skeleton_schema` compara triggers, grants, políticas e a ausência da função de auditoria, e o check E020 reprova tabela operacional exposta ou com `write_fields`.
+
+**Consequências.** A exclusão física fica disponível ao runtime, mas só o serviço de retenção declarado em código a usa. A auditoria continua a fonte de verdade do negócio: um evento de domínio ou um job carregam `record_revision`/`request_id` para correlação, não substituem o `AuditEvent`. Desligar a auditoria de uma tabela de negócio por flag foi descartado: a base separada deixa o contrato explícito e verificável.
 
 ## AuditEvent
 

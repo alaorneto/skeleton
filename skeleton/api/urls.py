@@ -2,6 +2,7 @@ from django.urls import path
 
 from skeleton.api import views
 from skeleton.api.invitation_views import ResendInvitationView
+from skeleton.files.api_views import AttachmentDetailView, AttachmentRestoreView, AttachmentsView
 
 app_name = "api"
 urlpatterns = [
@@ -30,6 +31,21 @@ urlpatterns = [
         "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/access/",
         views.RecordAccessView.as_view(),
         name="record-access",
+    ),
+    path(
+        "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/attachments/",
+        AttachmentsView.as_view(),
+        name="attachments",
+    ),
+    path(
+        "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/attachments/<uuid:attachment_id>/",
+        AttachmentDetailView.as_view(),
+        name="attachment",
+    ),
+    path(
+        "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/attachments/<uuid:attachment_id>/restore/",
+        AttachmentRestoreView.as_view(),
+        name="attachment-restore",
     ),
     path(
         "o/<uuid:organization_id>/invitations/<uuid:sysid>/resend/",

@@ -1,0 +1,5 @@
+{% extends 'skeleton/web/base.html' %}{% block title %}{{ title }} · Skeleton{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Notificações</p><h1>{{ title }}</h1><p class="page-description">O conteúdo desta notificação não está disponível para você. Ele pode ter sido removido ou o seu acesso mudou.</p></div></div>
+<p><a class="btn btn-secondary" href="{% url 'notifications:organization' organization_id %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}Voltar às notificações</a></p>
+{% endblock %}

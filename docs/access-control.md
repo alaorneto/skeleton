@@ -47,9 +47,26 @@ Em Beta, Alice pode ter outro papel e Bob pode nem ter vínculo. Nada do que foi
 
 Criar exige `table.create`; o proprietário inicial é o ator e a visibilidade é `private`. Alterar `owner`, `visibility`, `owning_group` ou a lista de concessões (ACL, lista de controle de acesso) exige `manage_access` **e** condição de proprietário ou administrador da organização. Esses campos nunca são aceitos pelo PATCH comum. O servidor valida proprietário ativo e grupo vivo da mesma organização.
 
+## Capacidades e papéis internos
+
+Uma **capacidade** é um direito administrativo da organização, como gerir pessoas ou apps. Capacidades vêm só de **papéis internos** declarados em código (`skeleton/access/capabilities.py`, registry `BUILTIN_ROLES`). Um papel customizado nunca carrega capacidade, mesmo que reutilize um código interno: editar papéis não vira escalada de privilégio.
+
+| Papel interno | Capacidades |
+|---|---|
+| `organization_admin` | todas: `members.view`, `members.manage`, `invitations.manage`, `admission.decide`, `admission.configure`, `apps.manage`, `access.manage`, `identity.configure` |
+| `people_manager` (gestor de pessoas) | `members.view`, `members.manage`, `invitations.manage`, `admission.decide` |
+| `app_manager` (gestor de apps) | `apps.manage` |
+| `member` | nenhuma |
+
+`has_capability(user, cap)` e `require_capability(user, cap)` leem os papéis efetivos (diretos e via grupo) do tenant atual a cada chamada, sem cache: revogar `MemberRole` vale na requisição seguinte, e uma capacidade em Alfa não vale em Beta. `organization_admin` continua o único administrador pleno: só ele tem a exceção de visibilidade em `authorized_queryset`, a proteção de último administrador e a função SQL `skeleton.assert_user_deactivation`.
+
+Cada recurso administrativo exige uma capacidade: vínculos pedem `members.view` para ler e `members.manage` para alterar; convites, `invitations.manage`; papéis, grupos, associações, permissões de tabela e concessões, `access.manage`. A configuração de apps continua restrita ao administrador. Quem tem outra capacidade recebe **404** num recurso fora da sua delegação, como se ele não existisse; quem não tem capacidade nenhuma mantém o 403 histórico. Qualquer capacidade exige MFA quando `SKELETON_REQUIRE_ADMIN_MFA` está ligado, e o menu "Administração" mostra só as seções da capacidade do ator.
+
+**Regra contra escalada:** quem não tem `access.manage` só convida com papéis sem capacidade e não desativa nem remove quem tem papel com capacidade (403, sem escrita). O seletor de papéis do convite segue a mesma regra. `reconcile_builtin_roles` (também `manage.py reconcile_builtin_roles`) cria os papéis internos que faltam em cada organização ativa, numa transação por organização, é idempotente e reporta o código de um papel customizado que colide com um interno; renomeie esse papel e repita.
+
 ## Administração de acesso
 
-Os serviços em `skeleton.access.services` administram vínculos, papéis, grupos, associações, permissões de tabela e concessões de registro exclusivamente por administrador organizacional. `TablePermission` só aponta a tabela de negócio exposta e ação suportada, nunca identidade global ou tabela técnica. `RecordGrant` resolve um alvo `SecuredRecord` vivo, da mesma organização, com destinatário ativo; o UUID enviado pelo cliente não basta.
+Os serviços em `skeleton.access.services` administram vínculos, papéis, grupos, associações, permissões de tabela e concessões de registro, cada um com a capacidade correspondente (seção anterior). `TablePermission` só aponta a tabela de negócio exposta e ação suportada, nunca identidade global ou tabela técnica. `RecordGrant` resolve um alvo `SecuredRecord` vivo, da mesma organização, com destinatário ativo; o UUID enviado pelo cliente não basta.
 
 Mudanças que podem remover o último administrador bloqueiam `Organization` dentro de `atomic`: desativação/remoção de `Membership`, `MemberRole`, `GroupRole` e relações de grupo. Assim, operações concorrentes não aprovam duas remoções com base no mesmo estado antigo. Conflito deixa tudo inalterado. Remover `Membership` revoga `MemberRole`, `GroupMember` e `RecordGrant` do vínculo antes da marca de exclusão. Papéis/grupos com referências vivas exigem revogação explícita prévia; papéis internos são protegidos.
 
@@ -84,7 +101,7 @@ O exemplo acima ilustra o contexto, não concede permissão HTTP nem `BYPASSRLS`
 
 ### Ordem dos bloqueios administrativos
 
-Um bloqueio de linha (`SELECT ... FOR UPDATE`) impede outra transação de modificar aquela linha até o fim da transação atual. Para alterações administrativas, adquira primeiro o bloqueio de `Organization` com `skeleton.access.services.organization_lock(user)` e só depois carregue/bloqueie o vínculo, papel, grupo ou link a alterar. HTTP sempre passa o ator autenticado; a ausência de ator é reservada ao provisionamento interno.
+Um bloqueio de linha (`SELECT ... FOR UPDATE`) impede outra transação de modificar aquela linha até o fim da transação atual. Para alterações administrativas, adquira primeiro o bloqueio de `Organization` com `skeleton.access.services.organization_lock(user, capability=...)` (sem `capability`, exige o administrador) e só depois carregue/bloqueie o vínculo, papel, grupo ou link a alterar. HTTP sempre passa o ator autenticado; a ausência de ator é reservada ao provisionamento interno.
 
 A API dedicada e os POSTs administrativos HTML seguem essa ordem. Os serviços reutilizam o mesmo bloqueio, e a revisão é comparada **depois** de adquirir os locks. Inverter a ordem — uma requisição segurando o vínculo e esperando a organização, outra segurando a organização e esperando o vínculo — causa deadlock. O banco abortar uma transação não é uma solução de concorrência; não há retry automático para esconder esse erro.
 
@@ -97,7 +114,7 @@ O contexto instala parâmetros locais da sessão PostgreSQL, chamados **GUCs**: 
 
 Tabelas organizacionais usam `ENABLE` + `FORCE ROW LEVEL SECURITY` e policy da conexão runtime (processo da aplicação) `USING T / WITH CHECK T`, onde T significa “organização da linha igual ao tenant da GUC”. `USING` limita linhas existentes; `WITH CHECK` verifica a organização da linha escrita. RLS **não** filtra `deleted_at`, papéis ou visibilidade: uma nota privada de Alfa não se torna legível a Bob apenas porque ambos estão em Alfa.
 
-**Descoberta deliberada de Membership:** SELECT permite `(T OR U)`, onde U significa “user_id igual ao usuário da GUC”. INSERT/UPDATE/DELETE só permitem T. `memberships_for_user(user)` filtra explicitamente o usuário e projeta IDs/status/nome das organizações correspondentes; o manager normal permanece restrito ao tenant. Alice pode assim descobrir seus vínculos em Alfa e Beta antes de escolher uma organização, sem receber escrita entre organizações nem usar uma policy recursiva.
+**Autodescoberta deliberada:** uma tabela organizacional pode declarar, no spec congelado de `InstallRecordInfrastructure`, a chave `self_discovery_column` (a coluna do usuário dono da linha), e o modelo declara o mesmo campo em `self_discovery_field`. Para ela, SELECT permite `(T OR U)`, onde U significa “coluna igual ao usuário da GUC”; INSERT/UPDATE/DELETE só permitem T. As políticas se chamam `skeleton_self_select`, `skeleton_self_insert`, `skeleton_self_update` e `skeleton_self_delete`, e `check_skeleton_schema` reprova política faltante, extra ou alargada, e divergência entre o modelo e o spec. A leitura cruzada só acontece pelo helper explícito `own_rows(model, user)` de `skeleton.tenancy.context`, que filtra o usuário em Python (o SQLite não tem RLS) e exige que ele seja o ator do contexto; o manager normal permanece restrito ao tenant. `Membership` usa a chave desde `sk_tenancy.0003_membership_self_discovery`, com a mesma política efetiva de antes: `memberships_for_user(user)` projeta IDs/status/nome das organizações correspondentes. Alice pode assim descobrir seus vínculos em Alfa e Beta antes de escolher uma organização, sem receber escrita entre organizações nem usar uma policy recursiva.
 
 SELECT de AuditEvent pela conexão runtime limita-se ao tenant; eventos globais só quando `platform_admin=on`. INSERT é da role SQL do trigger; UPDATE/DELETE são proibidos. User/Profile/Organization/catálogo globais não têm RLS tenant e nunca são listas genéricas para membros. Uma role SQL é uma credencial/privilégio do banco; não é o modelo empresarial `Role`.
 

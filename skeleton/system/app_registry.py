@@ -138,7 +138,19 @@ class AppManifest:
 
 
 _manifests = {}
-CORE_APP_LABELS = frozenset({"sk_accounts", "sk_tenancy", "sk_access", "sk_system", "sk_audit"})
+CORE_APP_LABELS = frozenset(
+    {
+        "sk_accounts",
+        "sk_tenancy",
+        "sk_access",
+        "sk_system",
+        "sk_audit",
+        "sk_jobs",
+        "sk_events",
+        "sk_notifications",
+        "sk_files",
+    }
+)
 
 
 def register_app(manifest):
@@ -342,3 +354,11 @@ def application_urlpatterns():
                 )
             )
     return result
+
+
+def registered_app_of_module(module):
+    """The label of the registered app (with a manifest) that contains ``module``, or None."""
+    from django.apps import apps
+
+    config = apps.get_containing_app_config(module)
+    return config.label if config is not None and config.label in _manifests else None

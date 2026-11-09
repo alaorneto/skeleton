@@ -9,7 +9,13 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
-from .querysets import InfrastructureManager, RecordManager, context
+from .querysets import (
+    InfrastructureManager,
+    OperationalInfrastructureManager,
+    OperationalManager,
+    RecordManager,
+    context,
+)
 
 if TYPE_CHECKING:
     from django.db.models.fetch_modes import FetchMode
@@ -316,3 +322,56 @@ class SecuredRecord(OrganizationRecord):
                 organization__deleted_at__isnull=True,
             ).exists():
                 raise ValidationError({"owner": "The owner must have an active organization membership."})
+
+
+class OperationalRecord(models.Model):
+    """Pipeline state (queues, outbox, deliveries, read markers) without per-row audit.
+
+    UUID identity and tenant isolation like the record bases, but no revision,
+    tombstone or audit trigger: claims, heartbeats and reads would otherwise
+    flood ``AuditEvent``. Physical deletion is allowed to the runtime only for
+    the retention service declared in code. Business data never uses this base,
+    and an operational table is never exposed in the generic gateway.
+    """
+
+    sysid = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = OperationalManager()
+    all_objects = OperationalInfrastructureManager()
+    immutable_fields: ClassVar[tuple[str, ...]] = ()
+    lifecycle: ClassVar[str] = "operational"
+
+    class Meta:
+        abstract = True
+        base_manager_name = "all_objects"
+        default_manager_name = "objects"
+
+    def _validate_context(self) -> None:
+        if any(field.name == "organization" for field in self._meta.fields):
+            tenant = context().organization_id
+            if tenant is None:
+                raise MissingTenantContext("An organizational write requires tenant context.")
+            if self.organization_id != tenant:  # type: ignore[attr-defined]
+                raise ValidationError({"organization": "Organization does not match the current tenant."})
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if args:
+            raise TypeError("Use keyword arguments for record save().")
+        if self._state.adding:
+            self._validate_context()
+            self.created_at = self.updated_at = timezone.now()
+        else:
+            using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+            names = ("sysid", "created_at", *self.immutable_fields)
+            if any(field.name == "organization" for field in self._meta.fields):
+                names = (*names, "organization_id")
+            persisted = type(self).all_objects.using(using).filter(pk=self.pk).values(*names).first()
+            if persisted is not None and any(getattr(self, name) != persisted[name] for name in names):
+                raise ImmutableRecord("Operational identity cannot change.")
+            self._validate_context()
+            self.updated_at = timezone.now()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {"updated_at"}
+        super().save(**kwargs)

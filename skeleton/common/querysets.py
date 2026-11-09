@@ -128,3 +128,38 @@ class RecordManager(models.Manager.from_queryset(RecordQuerySet)):
 
 class InfrastructureManager(models.Manager.from_queryset(RecordQuerySet)):
     """Unfiltered Django relation/infrastructure access; never an HTTP boundary."""
+
+
+class OperationalQuerySet(models.QuerySet):
+    """Pipeline state: plain update/delete/bulk_create, never a revision-free bulk_update."""
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise UnsafeBulkMutation("bulk_update is not supported on operational records.")
+
+    def update(self, **kwargs):
+        forbidden = {"sysid", "pk", "organization", "organization_id", "created_at"}
+        forbidden.update(getattr(self.model, "immutable_fields", ()))
+        forbidden.update(name[:-3] for name in tuple(forbidden) if name.endswith("_id"))
+        if forbidden.intersection(kwargs):
+            raise UnsafeBulkMutation("Immutable operational fields cannot be updated.")
+        if not kwargs:
+            return 0
+        kwargs.setdefault("updated_at", timezone.now())
+        return super().update(**kwargs)
+
+
+class OperationalManager(models.Manager.from_queryset(OperationalQuerySet)):
+    """Tenant-filtered when the model has an ``organization``; no tombstones exist."""
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if any(field.name == "organization" for field in self.model._meta.fields):
+            tenant = context().organization_id
+            if tenant is None:
+                raise MissingTenantContext("Organizational records require an explicit tenant context.")
+            queryset = queryset.filter(organization_id=tenant)
+        return queryset
+
+
+class OperationalInfrastructureManager(models.Manager.from_queryset(OperationalQuerySet)):
+    """Unfiltered access for workers and retention services; never an HTTP boundary."""

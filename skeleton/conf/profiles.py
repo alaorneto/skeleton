@@ -54,9 +54,12 @@ def production_settings(base):
     SKELETON_HEALTH_HOST = env("DJANGO_HEALTH_HOST", default=ALLOWED_HOSTS[0].lstrip("."))
     if not validate_host(SKELETON_HEALTH_HOST, ALLOWED_HOSTS):
         raise ImproperlyConfigured("Health Host must be an explicitly allowed host.")
+    from skeleton.conf.base import private_files_storage
+
     STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
         "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+        "skeleton_files": private_files_storage(env, BASE_DIR),
     }
     if env.bool("DJANGO_TRUST_PROXY", default=False):
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -98,6 +101,15 @@ def test_settings(base):
     if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
         DATABASES["default"].setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    import tempfile
+
+    STORAGES = {
+        **base["STORAGES"],
+        "skeleton_files": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+            "OPTIONS": {"location": tempfile.mkdtemp(prefix="skeleton-files-"), "base_url": None},
+        },
+    }
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.PBKDF2PasswordHasher"]
     from skeleton.accounts.providers import load_provider_config
 
@@ -114,6 +126,7 @@ def build_settings(base):
     STORAGES = {
         "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
         "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+        "skeleton_files": base["STORAGES"]["skeleton_files"],
     }
     SOCIALACCOUNT_PROVIDERS = {}
     result = {key: value for key, value in locals().items() if key.isupper()}

@@ -35,7 +35,9 @@ class Role(OrganizationRecord):
 
     def clean(self):
         super().clean()
-        if self.is_builtin and self.code not in {"organization_admin", "member"}:
+        from .capabilities import BUILTIN_CODES
+
+        if self.is_builtin and self.code not in BUILTIN_CODES:
             raise ValidationError({"code": "Unknown builtin role."})
         if self.is_builtin and self.deleted_at is not None:
             raise LiveReferencesExist("Builtin roles cannot be deleted.")

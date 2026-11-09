@@ -1,4 +1,5 @@
 import re
+from contextlib import contextmanager
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -57,12 +58,30 @@ def service_error_response(exc):
     return None
 
 
+@contextmanager
+def if_match_precondition():
+    """Core resources that take If-Match answer a stale revision with 412, as the gateway does.
+
+    Service errors otherwise keep the published mapping (``Conflict`` → 409).
+    """
+    from skeleton.service_api import errors
+
+    try:
+        yield
+    except errors.Conflict as exc:
+        if exc.code != "stale_revision":
+            raise
+        raise BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412) from exc
+
+
 def exception_handler(exc, context):
     from skeleton.access.services import LastAdministrator
     from skeleton.accounts.platform import LastPlatformAdministrator
-    from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
+    from skeleton.common.exceptions import ApplicationUnavailable, ConcurrentUpdate, LiveReferencesExist
     from skeleton.service_api.errors import ServiceError
 
+    if isinstance(exc, ApplicationUnavailable):
+        exc = BoundaryError("not_found", "Not found.", 404)
     if isinstance(exc, ServiceError):
         mapped = service_error_response(exc)
         if mapped is None:

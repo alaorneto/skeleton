@@ -31,7 +31,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
-- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas. Os serviços do núcleo estão em implementação (epic #113).
+- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos e arquivos; epic #113).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
 - `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
@@ -41,7 +41,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 
 ## API de serviços entre apps
 
-Apps interagem com o núcleo e entre si pela API de serviços: classes em processo definidas em [docs/service-api.md](docs/service-api.md). O procedimento é o skill `service-api` (`.claude/skills/service-api/`). A base técnica e as verificações automáticas estão entregues (epic #112): E018 confere a API declarada, E019/W019 a fronteira de importação, E012 a documentação, e o kit `skeleton.testing.service_api` prova o comportamento. Os serviços do núcleo estão no epic #113. O que os checks não alcançam (imports dinâmicos, semântica da autorização) continua valendo por revisão de código.
+Apps interagem com o núcleo e entre si pela API de serviços: classes em processo definidas em [docs/service-api.md](docs/service-api.md). O procedimento é o skill `service-api` (`.claude/skills/service-api/`). A base técnica e as verificações automáticas estão entregues (epic #112): E018 confere a API declarada, E019/W019 a fronteira de importação, E012 a documentação, e o kit `skeleton.testing.service_api` prova o comportamento. Os serviços do núcleo (epic #113) estão catalogados em [docs/service-api.md](docs/service-api.md#catálogo-do-núcleo); use-os em vez dos módulos internos. O que os checks não alcançam (imports dinâmicos, semântica da autorização) continua valendo por revisão de código.
 
 - Toda app publica `service_api.py` com ao menos uma classe de serviço (`app_label` da própria app) e a declara no manifesto em `runtime.service_api`, com piso de core `>=0.4.0`. Toda app mantém `docs/service-api.md` no `documentation_root`. `package build`/`doctor` recusam release sem a declaração; manifestos históricos só recebem W018.
 - Uma app só importa de outra o `service_api` dela, e declara a dependência em `dependencies` com faixa de versão. Modelos, managers, `services.py`, forms e views de outra app não são contrato (E019). Do núcleo, importe só as superfícies públicas listadas na especificação (W019, depois erro). Não use import dinâmico para contornar a análise.
@@ -54,6 +54,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 ## Contrato de cada tabela própria
 
 - Toda entidade concreta própria deriva de `SystemRecord`, `OrganizationRecord` ou `SecuredRecord`. A herança é abstrata: não existe supertabela universal. UUID `sysid` é PK e imutável; códigos comerciais são campos separados.
+- **Exceção operacional:** estado de pipeline do núcleo (fila de jobs, outbox, entregas, leitura de notificações) deriva de `OperationalRecord`: UUID, isolamento tenant e guard de identidade, sem revisão, soft delete nem auditoria por linha. A migration congela `lifecycle: operational`; exclusão física só pelo serviço de retenção declarado em código. Nunca use a base para dado de negócio, nunca a exponha no gateway (E020) e nunca dê `write_fields` a ela.
 - Negócio genérico organizacional deriva de `SecuredRecord`. Organização obrigatória/imutável, owner ativo da mesma organização, visibilidade e grupo consistentes.
 - Registre `TableSpec` único por `_meta.label_lower`; `read_fields`, `write_fields` e `sensitive_fields` explícitos. Nunca `__all__`, `eval` ou nomes de classes fornecidos pelo cliente. Campos sistêmicos e de acesso não entram na escrita comum. Só `SecuredRecord` pode usar gateway genérico exposto.
 - Na migration da criação, e após mudanças de colunas auditáveis/relações, instale `InstallRecordInfrastructure` com especificação congelada. Use modelos históricos; nunca imports dos modelos correntes nem dados editáveis do catálogo para DDL.

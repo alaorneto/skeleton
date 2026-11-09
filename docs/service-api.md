@@ -1,6 +1,6 @@
 # API de serviços entre apps
 
-**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), core 0.4.0): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Os serviços do núcleo seguem em andamento (epic [#113](https://github.com/alaorneto/skeleton/issues/113)).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
+**Estado: contrato entregue (epic [#112](https://github.com/alaorneto/skeleton/issues/112), core 0.4.0): base em `skeleton.service_api`, `runtime.service_api` no manifesto, checks E018/E019, kit de testes `skeleton.testing.service_api` e adoção pelo exemplo Notes e pelo gerador. Serviços do núcleo entregues (epic [#113](https://github.com/alaorneto/skeleton/issues/113), métodos `since="0.5.0"`): veja o [catálogo do núcleo](#catálogo-do-núcleo).** Este documento é o contrato normativo para apps que oferecem operações a outras apps ou consomem as do núcleo. O skill `service-api` (`.claude/skills/service-api/`) é o procedimento. O que as verificações automáticas não alcançam (seção "Limites da verificação") continua valendo por revisão de código.
 
 ## Por que existe
 
@@ -195,7 +195,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.api.views` | `TenantAPI` |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
-`skeleton.system.applications.application_state` continua permitido até existir o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)). Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
+Para ler a própria configuração ou a ativação de outra app, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` continua permitido nesta versão e sai da lista numa próxima. Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
 
 ### Fronteira verificada
 
@@ -208,20 +208,126 @@ O check `skeleton.E019` analisa com `ast`, sem importar código, todos os `.py` 
 
 `package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
 
-## Catálogo planejado do núcleo
+## Catálogo do núcleo
 
-O núcleo publica a própria API de serviços em `skeleton.service_api` (epic [#113](https://github.com/alaorneto/skeleton/issues/113)). Nenhum destes serviços existe ainda. A tabela mostra o contrato planejado e a issue que o entrega.
+O núcleo publica a própria API de serviços em submódulos de `skeleton.service_api` (epic [#113](https://github.com/alaorneto/skeleton/issues/113)). Os serviços do núcleo não têm `app_label`: não dependem de ativação de app. Todos seguem as regras deste documento (keyword-only, `actor` igual ao do contexto, DTOs imutáveis, erros públicos).
 
-| Serviço | Métodos principais | Issue |
+| Serviço | Módulo | Métodos | Issue |
+|---|---|---|---|
+| `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
+| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
+| `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
+| `AuditService` | `skeleton.service_api.audit` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
+| `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
+| `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
+| `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+
+### IdentityService
+
+```python
+from skeleton.service_api.identity import IdentityService
+
+me = IdentityService().me(actor=request.user)  # UserProfileInfo
+person = IdentityService().get_person(actor=request.user, user_id=assignee_id)  # PersonSummary
+IdentityService().update_my_preferences(actor=request.user, expected_revision=me.revision, timezone="America/Sao_Paulo")
+```
+
+| Método | Autorização | Erros |
 |---|---|---|
-| `IdentityService` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
-| `OrganizationService` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
-| `AccessService` | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
-| `ApplicationService` | `is_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
-| `AuditService` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
-| `NotificationService` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
-| `JobService`, `EventService` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
-| `FileService` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `me(*, actor) -> UserProfileInfo` | o próprio ator; com ou sem organização no contexto | `Forbidden` (ator divergente) |
+| `get_person(*, actor, user_id) -> PersonSummary` | vínculo ativo do ator; `email` só com a capacidade `members.view` | `NotFound` se a pessoa não tiver vínculo ativo na organização atual, mesmo que exista |
+| `update_my_preferences(*, actor, expected_revision, language=None, timezone=None) -> UserProfileInfo` | só o próprio ator | `InvalidInput` (idioma/fuso inválido, nada a alterar); `Conflict("stale_revision")` |
+| `update_my_profile(*, actor, expected_user_revision, expected_revision, changes) -> UserProfileInfo` | só o próprio ator; `changes` com `first_name`, `last_name`, `display_name`, `timezone`, `language` | `InvalidInput` (campo não permitido ou valor inválido); `Conflict("stale_revision")` em qualquer das duas revisões |
+
+`UserProfileInfo` tem `sysid`, `email`, `display_name`, `language`, `timezone`, `kind`, `revision` (do perfil, para CAS), `first_name`, `last_name`, `user_revision`, `profile_sysid` e `profile_display_name` (o valor gravado, sem a regra de fallback de `display_name`); `PersonSummary` tem `sysid`, `display_name`, `email` (ou `None`) e `kind`. `kind` é `person` hoje e `service` para contas de serviço (#44). Nenhum DTO traz senha, MFA, flags de plataforma ou `auth_version`.
+
+### OrganizationService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `current(*, actor) -> OrganizationInfo` | vínculo ativo | `ContextRequired` sem organização |
+| `my_organizations(*, actor) -> tuple[OrganizationInfo, ...]` | o próprio ator, por autodescoberta; só organizações ativas com vínculo ativo; funciona sem organização | `Forbidden` (ator divergente) |
+| `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
+| `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
+| `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
+
+O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e ficará sem contas de serviço por padrão (#44). Administrar vínculos continua nos serviços de acesso.
+
+### AccessService
+
+| Método | Comportamento | Erros |
+|---|---|---|
+| `can(*, actor, action, table_key, record_id=None) -> bool` | Exatamente `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro, quando informado); tabela desconhecida ou não exposta, registro inexistente ou de outra organização: `False` | `InvalidInput` (ação ou UUID inválidos) |
+| `require(*, actor, action, table_key, record_id=None) -> None` | Igual a `can`, mas levanta | `NotFound` se não for legível (inclusive de outra organização); `Forbidden` se for legível e a ação for negada |
+| `capabilities(*, actor) -> tuple[str, ...]` | Capacidades dos papéis internos do ator, ordenadas (tupla: o contrato não admite `frozenset`) | — |
+| `my_groups(*, actor) -> tuple[GroupSummary, ...]` | Grupos vivos do ator na organização | `Forbidden` sem vínculo |
+
+Não há cache entre chamadas: uma revogação vale na chamada seguinte. Alterar ACL continua nos serviços de gestão de acesso.
+
+### ApplicationService
+
+| Método | Comportamento | Erros |
+|---|---|---|
+| `is_enabled(*, actor, app_id) -> bool` | `app_id` ou `app_label`; verdadeiro se a app está instalada, disponível pela plataforma para a organização e ativa, com as dependências; app desconhecida: `False` | `InvalidInput` (vazio) |
+| `require_enabled(*, actor, app_id) -> None` | Igual, mas levanta o `Unavailable` padronizado | `Unavailable` |
+| `my_configuration(*, actor, app_label) -> AppConfiguration` | Configuração da organização para a **própria** app, com todos os campos declarados resolvidos; `AppConfiguration.get(nome)` | `Forbidden` se o módulo que chama não pertencer a `app_label`; `Unavailable` se a app estiver desativada ou indisponível |
+
+A app chamadora é identificada pelo módulo do primeiro frame fora da API de serviços, do kit de testes e do Django, resolvido para a app registrada que o contém (`apps.get_containing_app_config`). Uma app não lê a configuração de outra. Essa identificação assume que o código das apps é confiável (o mesmo processo); ela impede engano, não um código malicioso que forje frames. Ativar ou configurar apps continua com o administrador.
+
+### AuditService
+
+`history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro, do mais recente ao mais antigo, com as mesmas regras de `authorized_audit_queryset`: administrador da organização, ou `TablePermission audit` mais leitura do registro atual (se excluído, restauração autorizada). Filtra antes de paginar. Sem essas permissões, para tabela desconhecida e para registro de outra organização, responde `NotFound`; eventos de outra organização nunca aparecem.
+
+`AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
+
+### NotificationService
+
+```python
+from skeleton.service_api.notifications import NotificationService, Recipients
+
+NotificationService().notify(
+    actor=request.user,
+    type_code="tasks.assigned",
+    recipients=Recipients(users=(assignee_id,)),
+    payload=(("message", "Nova tarefa"),),
+    target_table_key="tasks.task",
+    target_id=task_id,
+)
+```
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo; cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
+| `unread_count(*, actor) -> int` | linhas do ator em organizações com vínculo ativo | — |
+| `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant | `InvalidInput` |
+| `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |
+
+`Recipients(users, groups, roles, organization)` é o DTO público dos destinatários. Os tipos continuam registrados por cada app ([notificações](notifications.md)). O rollback do chamador não deixa notificação nem job. Canais e preferências ficam internos ao epic de notificações.
+
+### JobService e EventService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
+| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
+
+`JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)).
+
+### FileService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `attach(*, actor, table_key, record_id, filename, stream, content_type=None) -> AttachmentInfo` | update no registro alvo; o tipo é provado pelo conteúdo (`content_type` é só indicativo) | `NotFound` (tabela sem opt-in, alvo inexistente, de outra organização ou ilegível); `Forbidden` (lê sem update); `InvalidInput` (tipo, nome ou tamanho); `Conflict("quota_exceeded")` |
+| `list(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AttachmentInfo]` | leitura do alvo | `NotFound`, `InvalidInput` |
+| `download_url(*, actor, attachment_id) -> str` | leitura do alvo e anexo `available`; a URL é interna e a view reautoriza a cada pedido | `NotFound` (inclusive pendente ou em quarentena) |
+| `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
+
+Apps não acessam o armazenamento diretamente.
+
+### Superfícies do núcleo sobre os serviços
+
+A REST e as páginas do núcleo são camadas finas sobre estes serviços ([#110](https://github.com/alaorneto/skeleton/issues/110)), sem mudança observável: `GET/PATCH /api/v1/me/` e a página de perfil usam o `IdentityService`; `GET /api/v1/organizations/`, a página inicial e o painel da organização usam o `OrganizationService`; `GET/PUT /api/v1/o/<org>/apps/...` usa o `ApplicationAdministrationService`. Os erros de serviço passam por um único mapeamento para HTTP (`skeleton.api.errors.service_error_response`); os recursos do núcleo que recebem `If-Match` usam `if_match_precondition()` para manter o 412 `revision_conflict` do gateway numa revisão desatualizada. Ficaram fora, por ora: a lista de auditoria (`/audit/`, com paginação numerada e campos privilegiados que o `AuditService.history` não expõe), os recursos administrativos de acesso e o gateway genérico de tabelas. A cota por organização é `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão; a contabilidade completa é #61). Veja [arquivos e anexos](files.md).
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 

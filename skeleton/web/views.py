@@ -1,6 +1,5 @@
 from functools import wraps
 
-from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -12,14 +11,20 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
-from skeleton.access.policies import authorized_audit_queryset, is_organization_admin, require_record_action
+from skeleton.access.capabilities import (
+    capabilities_for,
+    has_any_capability,
+    require_admin_surface,
+    require_resource_capability,
+    resource_capability,
+)
+from skeleton.access.policies import authorized_audit_queryset, require_record_action
 from skeleton.accounts.mfa import mfa_required
-from skeleton.accounts.services import update_profile
 from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
 from skeleton.service_api import errors as service_errors
 from skeleton.system.registry import get_spec
-from skeleton.tenancy.context import current_context, memberships_for_user
+from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.forms import ProfileForm, dedicated_form, explicit_form, record_form, wire_values
 from skeleton.web.presentation import (
@@ -80,21 +85,30 @@ def record_breadcrumbs(spec, organization_id):
     ]
 
 
-def tenant_page(*, admin=False):
+def tenant_page(*, admin=False, capability=None):
+    """Tenant HTML page; ``admin`` requires the administrator, ``capability`` a delegated capability.
+
+    ``capability`` is a capability name or ``callable(request, kwargs) -> name``
+    for pages whose resource selects it.
+    """
+
     def decorator(view):
         @login_required
         @wraps(view)
         def wrapper(request, *args, **kwargs):
             if current_context().organization_id is None:
                 raise Http404
+            needed = capability(request, kwargs) if callable(capability) else capability
             if admin:
-                access_services.require_organization_admin(request.user)
-            if is_organization_admin(request.user) and mfa_required(request.user):
+                require_admin_surface(request.user)
+            elif needed:
+                require_resource_capability(request.user, needed)
+            if has_any_capability(request.user) and mfa_required(request.user):
                 return redirect("mfa_index")
             try:
                 with timezone.override(request.user.profile.timezone):
-                    if admin and request.method not in {"GET", "HEAD", "OPTIONS"}:
-                        with access_services.organization_lock(request.user):
+                    if (admin or needed) and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                        with access_services.organization_lock(request.user, capability=needed):
                             return view(request, *args, **kwargs)
                     return view(request, *args, **kwargs)
             except (service_errors.NotFound, service_errors.Unavailable):
@@ -177,20 +191,40 @@ def check_html_revision(form, record):
 
 @login_required
 def home(request):
-    return render(request, "skeleton/web/home.html", {"memberships": list(memberships_for_user(request.user))})
+    from skeleton.service_api.organizations import OrganizationService
+
+    memberships = [
+        {"organization_id": item.sysid, "organization_name": item.name, "organization_slug": item.slug}
+        for item in OrganizationService().my_organizations(actor=request.user)
+    ]
+    return render(request, "skeleton/web/home.html", {"memberships": memberships})
+
+
+def _service_form_error(form, error):
+    """Show a service error on the form with the same codes as the former internal exceptions."""
+    if isinstance(error, service_errors.Conflict) and error.code == "stale_revision":
+        return form_error(form, ConcurrentUpdate("Revisão desatualizada."))
+    if isinstance(error, service_errors.InvalidInput):
+        return form_error(form, ValidationError({name: list(messages) for name, messages in error.errors.items()}))
+    return form_error(form, ValidationError(error.detail))
 
 
 @login_required
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def profile(request):
-    user = request.user
-    item = apps.get_model("sk_accounts", "UserProfile").objects.get(user=user)
+    from skeleton.service_api.identity import IdentityService
+
+    me = IdentityService().me(actor=request.user)
     initial = {
-        name: getattr(user if name in ("first_name", "last_name") else item, name)
-        for name in ("first_name", "last_name", "display_name", "timezone", "language")
+        "first_name": me.first_name,
+        "last_name": me.last_name,
+        "display_name": me.profile_display_name,
+        "timezone": me.timezone,
+        "language": me.language,
+        "user_revision": me.user_revision,
+        "profile_revision": me.revision,
     }
-    initial.update(user_revision=user.revision, profile_revision=item.revision)
     form = ProfileForm(request.POST or None, initial=initial)
     status = 200
     if request.method == "POST":
@@ -202,19 +236,30 @@ def profile(request):
             user_revision = values.pop("user_revision")
             profile_revision = values.pop("profile_revision")
             try:
-                update_profile(user=user, data=values, user_revision=user_revision, profile_revision=profile_revision)
+                IdentityService().update_my_profile(
+                    actor=request.user,
+                    expected_user_revision=user_revision,
+                    expected_revision=profile_revision,
+                    changes=tuple(values.items()),
+                )
                 messages.success(request, "Perfil atualizado.")
                 return redirect("web:profile")
-            except (ValidationError, IntegrityError, ConcurrentUpdate) as exc:
-                status = form_error(form, exc)
+            except service_errors.ServiceError as exc:
+                status = _service_form_error(form, exc)
         else:
             status = 400
     return render(request, "account/profile.html", {"title": "Perfil", "form": form}, status=status)
 
 
+def access_capability(request, kwargs):
+    return resource_capability(kwargs.get("resource", ""), method=request.method)
+
+
 @tenant_page()
 def dashboard(request, organization_id):
-    organization = apps.get_model("sk_tenancy", "Organization").objects.get(pk=organization_id)
+    from skeleton.service_api.organizations import OrganizationService
+
+    organization = OrganizationService().current(actor=request.user)
     specs = presented_specs(request.user)
     return render(
         request,
@@ -224,12 +269,12 @@ def dashboard(request, organization_id):
             "specs": specs,
             "app_groups": grouped_specs(specs),
             "organization_id": organization_id,
-            "is_org_admin": is_organization_admin(request.user),
+            "capabilities": capabilities_for(request.user),
         },
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=access_capability)
 def access_list(request, organization_id, resource):
     model, fields = dedicated_model(resource)
     queryset = model.objects.order_by("created_at", "sysid")
@@ -258,7 +303,7 @@ def access_list(request, organization_id, resource):
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=access_capability)
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def access_edit(request, organization_id, resource, sysid=None):
@@ -319,7 +364,7 @@ def access_edit(request, organization_id, resource, sysid=None):
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=access_capability)
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def access_delete(request, organization_id, resource, sysid):
@@ -465,10 +510,13 @@ def record_detail(request, organization_id, table_key, sysid):
         for action, (route, label) in names.items()
         if permissions[action]
     ]
+    from skeleton.files.views import panel_context
+
     return render(
         request,
         "skeleton/web/detail.html",
         {
+            "attachments": panel_context(spec, item, user=request.user),
             "record": {"sysid": item.sysid},
             "title": safe_record_label(item, spec),
             "actions": actions,

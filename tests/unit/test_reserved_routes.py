@@ -41,3 +41,8 @@ def test_reserved_roots_are_refused(patterns):
 )
 def test_other_roots_are_accepted(patterns):
     _validate_reserved_routes(patterns)
+
+
+def test_the_core_inbox_root_is_reserved():
+    with pytest.raises(ValidationError):
+        _validate_reserved_routes([path("notifications/", view)])

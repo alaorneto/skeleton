@@ -20,6 +20,8 @@ A **plataforma** é a instalação inteira do sistema. Seu administrador usa a �
 
 O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
 
+Parte dessa gestão pode ser delegada sem conceder administração plena. O **gestor de pessoas** (`people_manager`) administra membros e convites; o **gestor de apps** (`app_manager`) recebe a capacidade de gerir apps. Esses perfis são papéis internos com **capacidades** declaradas em código; um papel criado pela organização nunca carrega capacidade. Veja [capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos).
+
 A distinção importa: conceder administração de uma clínica não pode conceder administração das outras clínicas ou permissão para atualizar o servidor. E ser superusuário Django não elimina os requisitos de vínculo e autorização nas rotas organizacionais.
 
 Veja [modelo de dados](data-model.md) e [controle de acesso](access-control.md).
@@ -178,7 +180,7 @@ Um **lock de dependências** fixa versões e hashes. Um **wheelhouse** é o dire
 
 A **versão do componente**, como `0.2.0`, identifica uma versão declarada do core ou da app. Major/minor/patch descrevem o contrato de compatibilidade; versões e intervalos são comparados por biblioteca, não como texto. `manifest_version` identifica a versão do formato do manifesto, e o número de uma migration identifica um passo de estrutura: não são o mesmo contador.
 
-A **instalação global** diz qual código está disponível para todas as organizações. `ComponentInstallation` representa seu estado confirmado. A **ativação por organização** (`AppInstallation`) decide se uma organização pode usar a app e com qual configuração. Desativar por organização não remove código nem executa migrations.
+A **instalação global** diz qual código existe no deployment. `ComponentInstallation` representa seu estado confirmado. A **disponibilidade** (`AppAvailability`) é decidida pela plataforma: a app instalada serve a todas as organizações (`all`) ou só às selecionadas (`selected`, com uma `AppOrganizationGrant` por organização). A **ativação por organização** (`AppInstallation`) decide se uma organização usa a app e com qual configuração. Instalado ≠ disponível ≠ ativo: uma app indisponível fica fechada (404) mesmo que a organização a tenha ativado, e revogar a disponibilidade não apaga a ativação nem a configuração. Desativar por organização não remove código nem executa migrations.
 
 - `installed`: componente gerenciado presente no release.
 - `project-local`: código pertencente ao projeto derivado; seu inventário não autoriza sobrescrevê-lo com um pacote coincidente.

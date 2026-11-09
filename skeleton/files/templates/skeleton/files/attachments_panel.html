@@ -1,0 +1,17 @@
+<section aria-labelledby="attachments-heading" class="mt-8">
+  <h2 id="attachments-heading" class="section-heading">Anexos</h2>
+  <div class="table-scroll"><table><thead><tr><th scope="col">Arquivo</th><th scope="col">Tamanho</th><th scope="col">Estado</th>{% if attachments.can_write %}<th scope="col"><span class="sr-only">Ações</span></th>{% endif %}</tr></thead><tbody>
+  {% for row in attachments.rows %}<tr>
+    <td>{% if row.state == "available" and row.download_url %}<a class="font-medium text-heading" href="{{ row.download_url }}">{{ row.filename }}</a>{% else %}<span class="font-medium text-heading">{{ row.filename }}</span>{% endif %}<br><span class="text-body-subtle">{{ row.content_type }}</span></td>
+    <td class="whitespace-nowrap!">{{ row.size|filesizeformat }}</td>
+    <td>{% if row.state == "available" %}<span class="badge badge-success">Disponível</span>{% else %}<span class="badge badge-warning">{{ row.state }}</span>{% endif %}</td>
+    {% if attachments.can_write %}<td><form method="post" action="{% url 'files:remove' organization_id table_key record.sysid row.sysid %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="trash" %}Remover</button></form></td>{% endif %}
+  </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhum anexo.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if attachments.can_write %}
+  <form class="mt-4" method="post" enctype="multipart/form-data" action="{% url 'files:upload' organization_id table_key record.sysid %}">{% csrf_token %}
+    <label class="mb-2 block text-sm font-medium text-heading" for="attachment-file">Enviar arquivo ({{ attachments.types }})</label>
+    <div class="toolbar"><input id="attachment-file" type="file" name="file" required><button class="btn btn-primary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="plus" %}Anexar</button></div>
+  </form>
+  {% endif %}
+</section>
