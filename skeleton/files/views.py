@@ -78,5 +78,37 @@ def panel_context(spec, record, *, user):
         can_write = True
     except PermissionDenied:
         can_write = False
-    rows = [services.attachment_data(row) for row in services.attachments_for(spec, record.pk, user=user)]
+    from django.urls import reverse
+
+    rows = []
+    for row in services.attachments_for(spec, record.pk, user=user):
+        data = services.attachment_data(row)
+        data["download_url"] = reverse(
+            "files:download",
+            kwargs={
+                "organization_id": record.organization_id,
+                "table_key": spec.model._meta.label_lower,
+                "sysid": record.pk,
+                "attachment_id": row.pk,
+            },
+        )
+        rows.append(data)
     return {"rows": rows, "can_write": can_write, "types": ", ".join(spec.attachments.types)}
+
+
+@tenant_page()
+def download(request, organization_id, table_key, sysid, attachment_id):
+    """Authorize on every request; the bytes stream only after the transaction (DetachedFileResponse)."""
+    from django.http import Http404
+
+    from skeleton.common.responses import DetachedFileResponse
+
+    from .models import Attachment
+
+    rows = services.attachments_for(exposed_spec(table_key), sysid, user=request.user)
+    attachment = rows.filter(pk=attachment_id, state=Attachment.State.AVAILABLE).first()
+    if attachment is None:
+        raise Http404  # Missing, deleted, pending, quarantined and unauthorized look the same.
+    return DetachedFileResponse(
+        storage_key=attachment.storage_key, filename=attachment.filename, content_type=attachment.content_type
+    )

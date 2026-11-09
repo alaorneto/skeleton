@@ -15,6 +15,13 @@ class TenantContextMiddleware:
             raise InvalidContext("Tenant middleware requires synchronous views.")
 
     def __call__(self, request):
+        response = self._in_context(request)
+        if getattr(response, "detached", False):
+            # The transaction committed and the contexts are gone: stream without the ORM.
+            response = response.materialize()
+        return response
+
+    def _in_context(self, request):
         user = request.user
         with request_context(
             actor=user if user.is_authenticated else None, request_id=request.request_id, source="http"

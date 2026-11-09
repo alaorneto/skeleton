@@ -46,3 +46,18 @@ Sem antivírus configurado (`SKELETON_FILES_SCAN`, #62), o anexo nasce `availabl
 |---|---|
 | API | `GET/POST /api/v1/o/<org>/tables/<table_key>/records/<sysid>/attachments/` (multipart, campo `file`), `DELETE .../attachments/<id>/`, `POST .../attachments/<id>/restore/` |
 | HTML | Painel "Anexos" no detalhe do registro, com envio (`multipart/form-data`) e remoção por formulário |
+
+## Download
+
+Arquivos só saem por `/o/<org>/tables/<table_key>/<sysid>/attachments/<id>/download/`, que autoriza **a cada pedido**: leitura do alvo, anexo vivo e no estado `available`. Inexistente, excluído, `pending`, `quarantined`, `rejected` e não autorizado respondem 404, e a revogação vale no pedido seguinte. Não há URL pública.
+
+O middleware tenant recusa respostas em streaming dentro do contexto do banco. A view devolve uma `DetachedFileResponse` (`skeleton/common/responses.py`) só com valores prontos (chave, nome e tipo). Depois que a transação comita e os contextos terminam, o middleware a transforma na resposta real, que lê os bytes do armazenamento **sem nenhuma consulta ao ORM**.
+
+| Entrega | Configuração |
+|---|---|
+| Streaming pelo Django (padrão) | `FileResponse` lendo do armazenamento local |
+| Nginx | `SKELETON_FILES_ACCEL=nginx` e `SKELETON_FILES_ACCEL_PREFIX` (padrão `/_protected/`): resposta vazia com `X-Accel-Redirect: <prefixo>/<chave>` |
+| Apache/lighttpd | `SKELETON_FILES_ACCEL=sendfile`: `X-Sendfile` com o caminho local |
+| S3 | Redirecionamento para URL pré-assinada de no máximo 60 s, com `Content-Disposition: attachment` forçado |
+
+Toda resposta leva `Content-Disposition: attachment` (nome em RFC 5987), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. Nada é servido inline, nem imagens nesta fase; um tipo fora da lista segura (HTML, SVG) sai como `application/octet-stream`.
