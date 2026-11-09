@@ -220,7 +220,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `ApplicationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService` | `skeleton.service_api.audit` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
-| `JobService`, `EventService` | (planejado) | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
+| `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | (planejado) | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 
 ### IdentityService
@@ -303,6 +303,15 @@ NotificationService().notify(
 | `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |
 
 `Recipients(users, groups, roles, organization)` é o DTO público dos destinatários. Os tipos continuam registrados por cada app ([notificações](notifications.md)). O rollback do chamador não deixa notificação nem job. Canais e preferências ficam internos ao epic de notificações.
+
+### JobService e EventService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
+| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
+
+`JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)).
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
