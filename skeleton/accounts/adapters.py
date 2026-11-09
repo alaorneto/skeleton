@@ -133,21 +133,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         binding = binding_for_sociallogin(sociallogin)
         connecting = sociallogin.state.get("process") == "connect"
         if connecting:
-            import time
+            from skeleton.accounts.reauthentication import has_recent_authentication
 
-            from allauth.account import app_settings as account_settings
-            from allauth.account.authentication import get_authentication_records
-            from allauth.account.internal.flows.reauthentication import did_recently_authenticate
-
-            records = get_authentication_records(request)
-            recent = bool(records and time.time() - records[-1]["at"] < account_settings.REAUTHENTICATION_TIMEOUT)
-            if (
-                not request.user.is_authenticated
-                or not request.user.is_active
-                or request.user.deleted_at
-                or not recent
-                or not did_recently_authenticate(request)
-            ):
+            # SSO-only accounts get no fallback: connecting needs a recent record for this user.
+            if not has_recent_authentication(request) or request.user.deleted_at:
                 _deny()
         if sociallogin.is_existing:
             user = sociallogin.user

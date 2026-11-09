@@ -888,7 +888,7 @@ class DeploymentService:
                 # Prefer the target runtime recorded by the active release over the agent's own.
                 runtime = inventory.get("runtime") or {}
                 python_version = runtime.get("python") or platform.python_version()
-                django_version = runtime.get("django") or self.config.get("django_version", "5.2.18")
+                django_version = runtime.get("django") or self.config.get("django_version", "6.1.3")
                 for release in body["entries"]:
                     compatible = all(
                         Version(value) in SpecifierSet(release["compatibility"][key])

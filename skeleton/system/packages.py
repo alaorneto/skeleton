@@ -1309,7 +1309,7 @@ def manifest_template(*, app_id, app_label, package_name, publisher, version="0.
             "compatibility": {
                 "skeleton": f">={FIELD_DIMENSIONS_CORE_MINIMUM},<1.0.0",
                 "python": ">=3.12,<3.15",
-                "django": ">=5.2,<5.3",
+                "django": ">=6.1,<6.2",
             },
             "dependencies": {},
             "conflicts": {},

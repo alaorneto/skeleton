@@ -58,7 +58,7 @@ def inventory_for(manifests):
     return {
         "generation": 1,
         "core": {"version": "0.3.0"},
-        "runtime": {"python": "3.14.0", "django": "5.2.18"},
+        "runtime": {"python": "3.14.0", "django": "6.1.3"},
         "apps": [{"manifest": manifest, "state": "installed"} for manifest in manifests],
     }
 

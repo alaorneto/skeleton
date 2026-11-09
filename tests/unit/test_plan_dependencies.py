@@ -56,7 +56,7 @@ def inventory(*apps):
 @pytest.fixture
 def agent(tmp_path):
     lock = tmp_path / "requirements.lock"
-    lock.write_text(f"django==5.2.18 --hash=sha256:{DJANGO_HASH}\n")
+    lock.write_text(f"django==6.1.3 --hash=sha256:{DJANGO_HASH}\n")
     config = {"requirements_lock": str(lock)}
     backend = SimpleNamespace(target_environment=lambda: dict(ENVIRONMENT))
     return config, backend
@@ -83,7 +83,7 @@ def test_missing_dependency_fails_with_details_and_catalogue_suggestions(agent):
             "suggestions": [{"component_id": "org.test.base", "version": "1.2.0", "digest": "a" * 64}],
         }
     ]
-    assert calls == [("org.test.base", ">=1.0", {"skeleton": "0.3.0", "python": "3.14.0", "django": "5.2.18"})]
+    assert calls == [("org.test.base", ">=1.0", {"skeleton": "0.3.0", "python": "3.14.0", "django": "6.1.3"})]
 
 
 def test_dependency_already_installed_or_in_the_same_plan_passes(agent):
@@ -122,7 +122,7 @@ def test_update_outside_an_installed_dependent_range_names_the_dependent(agent):
 def test_platform_incompatibility_keeps_the_runtime_code(agent):
     config, backend = agent
     future = app("future")
-    future["compatibility"]["django"] = ">=6.0"
+    future["compatibility"]["django"] = ">=7.0"
     with pytest.raises(AgentError) as raised:
         check_plan_dependencies(config, backend, inventory(), [future], [])
     assert raised.value.code == "target_runtime_incompatible"
@@ -131,12 +131,12 @@ def test_platform_incompatibility_keeps_the_runtime_code(agent):
 
 def test_target_django_version_follows_lock_then_active_manifest_pins(agent):
     config, _ = agent
-    assert target_django_version(config, [app("plain")], ENVIRONMENT) == "5.2.18"
+    assert target_django_version(config, [app("plain")], ENVIRONMENT) == "6.1.3"
     pinned = app("pinned")
     pinned["python_dependencies"] = [
-        {"name": "Django", "version": "5.2.19", "wheel": "wheels/django-5.2.19-py3-none-any.whl", "sha256": "e" * 64}
+        {"name": "Django", "version": "6.1.4", "wheel": "wheels/django-6.1.4-py3-none-any.whl", "sha256": "e" * 64}
     ]
-    assert target_django_version(config, [pinned], ENVIRONMENT) == "5.2.19"
+    assert target_django_version(config, [pinned], ENVIRONMENT) == "6.1.4"
 
 
 def test_ordered_entries_follow_the_resolution_then_the_rest():
