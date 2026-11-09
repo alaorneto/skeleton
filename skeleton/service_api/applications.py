@@ -10,6 +10,7 @@ from django.core.exceptions import PermissionDenied
 
 from .base import ServiceAPI, service_method
 from .errors import Forbidden, InvalidInput, Unavailable
+from .errors import NotFound as NotFoundError
 
 _SKIPPED_PREFIXES = ("skeleton.service_api", "skeleton.testing", "django.", "functools", "contextlib")
 
@@ -126,3 +127,106 @@ class ApplicationService(ServiceAPI):
         state = application_state(app_label)
         values = tuple(ConfigurationValue(name, value) for name, value in sorted(state["configuration"].items()))
         return AppConfiguration(app_label=app_label, values=values)
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicationState:
+    """An installed app as the organization administers it."""
+
+    app_label: str
+    app_id: str
+    label: str
+    description: str
+    version: str
+    available: bool
+    enabled: bool
+    configuration: tuple[ConfigurationValue, ...]
+    revision: int
+    sysid: str | None
+
+
+def _state(app_label: str) -> ApplicationState:
+    from skeleton.system.applications import application_state
+
+    state = application_state(app_label)
+    return ApplicationState(
+        app_label=state["app_label"],
+        app_id=state["app_id"],
+        label=state["label"],
+        description=state["description"],
+        version=state["version"],
+        available=state["available"],
+        enabled=state["enabled"],
+        configuration=tuple(ConfigurationValue(name, value) for name, value in state["configuration"].items()),
+        revision=state["revision"],
+        sysid=state["sysid"],
+    )
+
+
+def _require_administrator(actor) -> None:
+    from skeleton.access.capabilities import require_admin_surface
+
+    require_admin_surface(actor)
+
+
+class ApplicationAdministrationService(ServiceAPI):
+    """Activation and configuration of apps by the organization administrator (surfaces of /o/<org>/apps/)."""
+
+    @service_method(read_only=True, since="0.5.0")
+    def applications(self, *, actor: AbstractBaseUser) -> tuple[ApplicationState, ...]:
+        """Every installed app with its availability, activation and configuration.
+
+        Autorização: administrador da organização.
+        Erros: NotFound para quem tem outra capacidade delegada; Forbidden para os demais.
+        Efeitos: nenhum.
+        """
+        from skeleton.system.app_registry import all_apps
+
+        _require_administrator(actor)
+        return tuple(_state(manifest.app_label) for manifest in all_apps())
+
+    @service_method(read_only=True, since="0.5.0")
+    def application(self, *, actor: AbstractBaseUser, app_label: str) -> ApplicationState:
+        """One installed app.
+
+        Autorização: administrador da organização.
+        Erros: NotFound para app não instalada; Forbidden/NotFound como em ``applications``.
+        Efeitos: nenhum.
+        """
+        from skeleton.system.app_registry import get_app
+
+        _require_administrator(actor)
+        try:
+            get_app(app_label)
+        except KeyError:
+            raise NotFoundError() from None
+        return _state(app_label)
+
+    @service_method(read_only=False, since="0.5.0")
+    def configure(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        app_label: str,
+        enabled: bool,
+        configuration: tuple[tuple[str, str | int | bool], ...],
+        expected_revision: int,
+    ) -> ApplicationState:
+        """Enable, disable or configure an app in the organization with CAS (virtual revision 0).
+
+        Autorização: administrador da organização; a app precisa estar disponível para ativar.
+        Erros: NotFound para app não instalada; InvalidInput para configuração, dependência ou
+        app indisponível (``app_unavailable``); Conflict("stale_revision").
+        Efeitos: grava ``AppInstallation`` (auditado) na transação do chamador.
+        """
+        from skeleton.system.app_registry import get_app
+        from skeleton.system.applications import configure_application
+
+        _require_administrator(actor)
+        try:
+            get_app(app_label)
+        except KeyError:
+            raise NotFoundError() from None
+        values = dict(configuration) if isinstance(configuration, tuple) else configuration
+        configure_application(app_label, user=actor, enabled=enabled, configuration=values, revision=expected_revision)
+        return _state(app_label)

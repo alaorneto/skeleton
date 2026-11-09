@@ -18,6 +18,7 @@ class OrganizationInfo:
     sysid: UUID
     name: str
     slug: str
+    membership_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +66,8 @@ class OrganizationService(ServiceAPI):
             memberships_for_user(actor), key=lambda row: (row["organization_name"], str(row["organization_id"]))
         )
         return tuple(
-            OrganizationInfo(row["organization_id"], row["organization_name"], row["organization_slug"]) for row in rows
+            OrganizationInfo(row["organization_id"], row["organization_name"], row["organization_slug"], row["sysid"])
+            for row in rows
         )
 
     @service_method(read_only=True, since="0.5.0")

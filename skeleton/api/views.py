@@ -13,10 +13,9 @@ from skeleton.access import services as access_services
 from skeleton.access.capabilities import has_any_capability, require_resource_capability, resource_capability
 from skeleton.access.policies import authorized_audit_queryset
 from skeleton.accounts.mfa import mfa_required
-from skeleton.accounts.services import update_profile
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
-from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model, profile_data
-from skeleton.tenancy.context import current_context, memberships_for_user
+from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model
+from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.services import (
     change_record_access,
@@ -80,23 +79,67 @@ def request_fields(request):
     return dict(request.data.items())
 
 
+def me_data(me):
+    """REST shape of the actor's identity (unchanged); built from IdentityService's DTO."""
+    return {
+        "sysid": me.sysid,
+        "email": me.email,
+        "first_name": me.first_name,
+        "last_name": me.last_name,
+        "revision": me.user_revision,
+        "profile": {
+            "sysid": me.profile_sysid,
+            "revision": me.revision,
+            "display_name": me.profile_display_name,
+            "timezone": me.timezone,
+            "language": me.language,
+        },
+    }
+
+
 class MeView(SessionAPI):
     def get(self, request):
-        profile = apps.get_model("sk_accounts", "UserProfile").objects.get(user=request.user)
-        return etag(Response(profile_data(request.user, profile)), request.user.revision, profile.revision)
+        from skeleton.service_api.identity import IdentityService
+
+        me = IdentityService().me(actor=request.user)
+        return etag(Response(me_data(me)), me.user_revision, me.revision)
 
     @transaction.atomic
     def patch(self, request):
+        from skeleton.service_api.identity import IdentityService
+
         revisions = parse_revision(request.headers.get("If-Match"), composite=True)
-        user, profile = update_profile(
-            user=request.user, data=request_fields(request), user_revision=revisions[0], profile_revision=revisions[1]
+        me = IdentityService().update_my_profile(
+            actor=request.user,
+            expected_user_revision=revisions[0],
+            expected_revision=revisions[1],
+            changes=tuple(request_fields(request).items()),
         )
-        return etag(Response(profile_data(user, profile)), user.revision, profile.revision)
+        return etag(Response(me_data(me)), me.user_revision, me.revision)
 
 
 class OrganizationsView(SessionAPI):
     def get(self, request):
-        return Response({"results": list(memberships_for_user(request.user))})
+        from skeleton.service_api.organizations import OrganizationService
+
+        return Response(
+            {
+                "results": [
+                    organization_data(item) for item in OrganizationService().my_organizations(actor=request.user)
+                ]
+            }
+        )
+
+
+def organization_data(item):
+    """REST shape of one membership of the actor (unchanged)."""
+    return {
+        "sysid": item.membership_id,
+        "organization_id": item.sysid,
+        "is_active": True,
+        "organization_name": item.name,
+        "organization_slug": item.slug,
+    }
 
 
 class DedicatedView(TenantAPI):

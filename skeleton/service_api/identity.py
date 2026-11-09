@@ -30,6 +30,11 @@ class UserProfileInfo:
     timezone: str
     kind: IdentityKind
     revision: int
+    first_name: str = ""
+    last_name: str = ""
+    user_revision: int = 0
+    profile_sysid: UUID | None = None
+    profile_display_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +62,9 @@ def _profile(user: Any) -> Any:
 
 
 def _me(user: Any) -> UserProfileInfo:
+    from skeleton.accounts.models import User
+
+    user = User.objects.get(pk=user.pk)
     profile = _profile(user)
     return UserProfileInfo(
         sysid=user.pk,
@@ -66,6 +74,11 @@ def _me(user: Any) -> UserProfileInfo:
         timezone=profile.timezone,
         kind=IdentityKind.PERSON,
         revision=profile.revision,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        user_revision=user.revision,
+        profile_sysid=profile.pk,
+        profile_display_name=profile.display_name,
     )
 
 
@@ -138,4 +151,31 @@ class IdentityService(ServiceAPI):
         if type(expected_revision) is not int:
             raise InvalidInput({"expected_revision": ["Use a revisão inteira do perfil."]})
         update_profile(actor, data=data, profile_revision=expected_revision)
+        return _me(actor)
+
+    @service_method(read_only=False, since="0.5.0", tenant=False)
+    def update_my_profile(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        expected_user_revision: int,
+        expected_revision: int,
+        changes: tuple[tuple[str, str], ...],
+    ) -> UserProfileInfo:
+        """Change the actor's own name and profile fields with CAS on both identity and profile.
+
+        Autorização: só o próprio ator. Campos aceitos: ``first_name``, ``last_name``,
+        ``display_name``, ``timezone`` e ``language``; nunca email, senha ou flags.
+        Erros: InvalidInput para campo desconhecido ou valor inválido; Conflict("stale_revision")
+        se qualquer uma das revisões não for a atual.
+        Efeitos: atualiza identidade e perfil na transação do chamador (auditados).
+        """
+        from skeleton.accounts.services import update_profile
+
+        data = dict(changes)
+        if len(data) != len(changes):
+            raise InvalidInput({"non_field_errors": ["Campo repetido."]})
+        if type(expected_user_revision) is not int or type(expected_revision) is not int:
+            raise InvalidInput({"expected_revision": ["Use revisões inteiras."]})
+        update_profile(actor, data=data, user_revision=expected_user_revision, profile_revision=expected_revision)
         return _me(actor)

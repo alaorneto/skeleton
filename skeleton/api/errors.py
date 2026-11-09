@@ -53,6 +53,9 @@ def service_error_response(exc):
             "validation_error", exc.detail, 400, {field: list(items) for field, items in exc.errors.items()}
         )
     if isinstance(exc, errors.Conflict):
+        if exc.code == "stale_revision":
+            # The same answer as the gateway and the dedicated resources for a stale If-Match.
+            return BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412)
         return BoundaryError(exc.code, exc.detail, 409)
     return None
 

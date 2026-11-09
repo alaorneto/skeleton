@@ -30,17 +30,35 @@ def _manifest(app_label):
         raise Http404 from None
 
 
+def state_data(state):
+    """REST shape of an ApplicationState (unchanged from the former application_state dict)."""
+    return {
+        "app_label": state.app_label,
+        "available": state.available,
+        "label": state.label,
+        "description": state.description,
+        "app_id": state.app_id,
+        "version": state.version,
+        "enabled": state.enabled,
+        "configuration": {item.name: item.value for item in state.configuration},
+        "revision": state.revision,
+        "sysid": state.sysid,
+    }
+
+
 class ApplicationAPI(TenantAPI):
     def check_permissions(self, request):
         super().check_permissions(request)
         require_admin_surface(request.user)
 
     def get(self, request, organization_id, app_label=None):
+        from skeleton.service_api.applications import ApplicationAdministrationService
+
+        service = ApplicationAdministrationService()
         if app_label is None:
-            return Response({"results": [application_state(app.app_label) for app in all_apps()]})
-        _manifest(app_label)
-        state = application_state(app_label)
-        return etag(Response(state), state["revision"])
+            return Response({"results": [state_data(item) for item in service.applications(actor=request.user)]})
+        state = service.application(actor=request.user, app_label=app_label)
+        return etag(Response(state_data(state)), state.revision)
 
     def put(self, request, organization_id, app_label):
         _manifest(app_label)
@@ -52,9 +70,17 @@ class ApplicationAPI(TenantAPI):
         data = request_fields(request)
         if set(data) != {"enabled", "configuration"}:
             raise BoundaryError("invalid_request", "Informe enabled e configuration.")
-        configure_application(app_label, user=request.user, revision=int(value[1:-1]), **data)
-        state = application_state(app_label)
-        return etag(Response(state), state["revision"])
+        from skeleton.service_api.applications import ApplicationAdministrationService
+
+        configuration = data["configuration"]
+        state = ApplicationAdministrationService().configure(
+            actor=request.user,
+            app_label=app_label,
+            enabled=data["enabled"],
+            configuration=tuple(configuration.items()) if isinstance(configuration, dict) else configuration,
+            expected_revision=int(value[1:-1]),
+        )
+        return etag(Response(state_data(state)), state.revision)
 
 
 @tenant_page(admin=True)

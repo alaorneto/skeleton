@@ -2,7 +2,7 @@
 
 import pytest
 
-from skeleton.service_api.applications import ApplicationService, calling_app_label
+from skeleton.service_api.applications import ApplicationAdministrationService, ApplicationService, calling_app_label
 from skeleton.service_api.errors import Forbidden, Unavailable
 from skeleton.testing.service_api import (
     acting_as,
@@ -24,6 +24,7 @@ def as_module(module, function):
 
 def test_contract_and_caller_resolution():
     assert_service_contract(ApplicationService)
+    assert_service_contract(ApplicationAdministrationService)
     assert as_module("examples.notes.views", calling_app_label)() == NOTES
     assert as_module("tests.anything", calling_app_label)() is None
     assert as_module("skeleton.web.views", calling_app_label)() is None
