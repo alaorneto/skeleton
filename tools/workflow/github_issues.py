@@ -8,6 +8,12 @@ Subcomandos, todos só com a biblioteca padrão:
 - ``check-pr``: usado pelo CI. Lê ``PR_BODY`` e ``GITHUB_REPOSITORY`` e exige que
   o PR referencie ao menos uma issue existente com exatamente um label de tipo.
 - ``sync-labels``: cria/atualiza os labels de classificação com ``gh``.
+- ``sync-epic (N... | --all) [--dry-run]``: reconcilia a seção "Itens" de um epic
+  com os sub-issues e as relações "blocked by" nativas do GitHub. É idempotente,
+  nunca troca um parent existente e mostra as divergências. Também acerta as caixas.
+- ``sync-checklist (N... | --all | --parent-of N) [--dry-run]``: marca ``[x]`` na seção
+  "Itens" as filhas fechadas e ``[ ]`` as abertas. O workflow ``epic-checklist`` usa
+  ``--parent-of`` ao fechar ou reabrir uma issue.
 """
 
 from __future__ import annotations
@@ -17,7 +23,9 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Sequence
+import tempfile
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 TYPE_LABELS: dict[str, tuple[str, str]] = {
@@ -183,6 +191,426 @@ def sync_labels() -> int:
     return 0
 
 
+# --- sync-epic -------------------------------------------------------------------------------
+
+SECTION_HEADING = re.compile(r"^##\s+(?P<title>.+?)\s*$")
+CHECKBOX_ITEM = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(?P<rest>.*)$")
+ITEM_ISSUE = re.compile(rf"^{_ISSUE}\b")
+ANY_ISSUE = re.compile(_ISSUE)
+DEPENDS_ON = re.compile(r"\bdepende de\b", re.IGNORECASE)
+ITEMS_SECTION = "itens"
+
+
+@dataclass(frozen=True)
+class EpicItem:
+    number: int
+    blocked_by: tuple[int, ...] = ()
+
+
+@dataclass
+class EpicPlan:
+    """O que a seção "Itens" de um epic declara."""
+
+    items: list[EpicItem] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
+    candidates: int = 0  # itens sem issue criada (ex.: ciclo 2); não são erro
+
+
+@dataclass(frozen=True)
+class IssueLinks:
+    """Estado nativo de uma issue. Referências a outro repositório viram ``owner/repo#N``."""
+
+    number: int
+    parent: int | str | None = None
+    sub_issues: tuple[int | str, ...] = ()
+    blocked_by: tuple[int | str, ...] = ()
+    closed: bool = False
+
+
+@dataclass(frozen=True)
+class Operation:
+    kind: str  # "sub-issue" (target=epic, ref=filha) ou "blocked-by" (target=filha, ref=bloqueadora)
+    target: int
+    ref: int
+
+    def describe(self) -> str:
+        if self.kind == "sub-issue":
+            return f"#{self.ref} vira sub-issue de #{self.target}"
+        return f"#{self.target} fica bloqueada por #{self.ref}"
+
+
+def _same_repo(repo: str | None, repository: str) -> bool:
+    return repo is None or repo.lower() == repository.lower()
+
+
+def parse_epic_items(body: str, repository: str) -> EpicPlan:
+    """Lê as linhas ``- [ ] #N título — depende de #M, #K`` da seção "Itens"."""
+    plan = EpicPlan()
+    in_section = False
+    seen: set[int] = set()
+    for line in body.splitlines():
+        heading = SECTION_HEADING.match(line)
+        if heading:
+            in_section = heading.group("title").strip().lower() == ITEMS_SECTION
+            continue
+        if not in_section:
+            continue
+        item = CHECKBOX_ITEM.match(line)
+        if not item:
+            continue
+        rest = item.group("rest").strip()
+        issue = ITEM_ISSUE.match(rest)
+        if not issue:
+            plan.candidates += 1
+            continue
+        if not _same_repo(issue.group("repo"), repository):
+            plan.problems.append(f"item de outro repositório ignorado: {rest[:80]}")
+            continue
+        number = int(issue.group("number"))
+        if number in seen:
+            plan.problems.append(f"#{number} aparece mais de uma vez na lista")
+            continue
+        seen.add(number)
+        blocked_by: list[int] = []
+        depends = DEPENDS_ON.search(rest)
+        if depends:
+            for ref in ANY_ISSUE.finditer(rest[depends.end() :]):
+                if not _same_repo(ref.group("repo"), repository):
+                    plan.problems.append(f"#{number}: dependência de outro repositório ignorada ({ref.group(0)})")
+                    continue
+                dep = int(ref.group("number"))
+                if dep == number:
+                    plan.problems.append(f"#{number} depende de si mesma")
+                elif dep not in blocked_by:
+                    blocked_by.append(dep)
+        plan.items.append(EpicItem(number, tuple(blocked_by)))
+    return plan
+
+
+def shared_items(plans: Mapping[int, EpicPlan]) -> dict[int, list[int]]:
+    """Issues listadas em mais de um epic: ``{issue: [epics]}``. Uma issue tem no máximo um parent."""
+    owners: dict[int, list[int]] = {}
+    for epic, plan in sorted(plans.items()):
+        for item in plan.items:
+            owners.setdefault(item.number, []).append(epic)
+    return {number: epics for number, epics in owners.items() if len(epics) > 1}
+
+
+def _ref(value: int | str) -> str:
+    return f"#{value}" if isinstance(value, int) else value
+
+
+def plan_epic(
+    epic: int,
+    plan: EpicPlan,
+    links: Mapping[int, IssueLinks | None],
+    skip: Iterable[int] = (),
+) -> tuple[list[Operation], list[str]]:
+    """Operações que faltam para o GitHub refletir a lista, e divergências que exigem uma pessoa."""
+    operations: list[Operation] = []
+    problems = list(plan.problems)
+    epic_links = links.get(epic)
+    if epic_links is None:
+        return [], [*problems, f"#{epic} não existe ou não é uma issue"]
+    skipped = set(skip)
+    listed = {item.number for item in plan.items}
+    for item in plan.items:
+        number = item.number
+        if number == epic:
+            problems.append(f"#{epic} lista a si mesmo como item")
+            continue
+        if number in skipped:
+            continue
+        child = links.get(number)
+        if child is None:
+            problems.append(f"#{number} não existe ou não é uma issue")
+            continue
+        if child.parent is None:
+            operations.append(Operation("sub-issue", epic, number))
+        elif child.parent != epic:
+            problems.append(f"#{number} já é sub-issue de {_ref(child.parent)}; parent não alterado")
+        for dep in item.blocked_by:
+            if links.get(dep) is None:
+                problems.append(f"#{number} depende de #{dep}, que não existe ou não é uma issue")
+            elif dep not in child.blocked_by:
+                operations.append(Operation("blocked-by", number, dep))
+    for native in epic_links.sub_issues:
+        if native not in listed:
+            problems.append(f"{_ref(native)} é sub-issue de #{epic} mas não está na seção Itens")
+    return operations, problems
+
+
+CHECKBOX_PARTS = re.compile(r"^(?P<head>\s*[-*]\s+\[)(?P<mark>[ xX])(?P<tail>\]\s+)(?P<rest>.*)$")
+
+
+def reconcile_checklist(body: str, closed: Mapping[int, bool], repository: str) -> tuple[str, list[tuple[int, bool]]]:
+    """Marca ``[x]`` nos itens fechados da seção "Itens" e ``[ ]`` nos abertos.
+
+    Só toca a caixa das linhas cujo número está em ``closed``; o resto do corpo, inclusive as
+    quebras de linha, fica idêntico. Devolve o corpo novo e as mudanças ``(issue, marcada)``.
+    """
+    out: list[str] = []
+    changes: list[tuple[int, bool]] = []
+    in_section = False
+    for line in body.splitlines(keepends=True):
+        text = line.rstrip("\r\n")
+        ending = line[len(text) :]
+        heading = SECTION_HEADING.match(text)
+        if heading:
+            in_section = heading.group("title").strip().lower() == ITEMS_SECTION
+        parts = CHECKBOX_PARTS.match(text) if in_section else None
+        issue = ITEM_ISSUE.match(parts.group("rest").strip()) if parts else None
+        if parts and issue and _same_repo(issue.group("repo"), repository):
+            number = int(issue.group("number"))
+            checked = parts.group("mark") != " "
+            if number in closed and closed[number] != checked:
+                mark = "x" if closed[number] else " "
+                text = f"{parts.group('head')}{mark}{parts.group('tail')}{parts.group('rest')}"
+                changes.append((number, closed[number]))
+        out.append(text + ending)
+    return "".join(out), changes
+
+
+# Leitura em lote pelo GraphQL; escrita pelo `gh issue edit`, que valida os vínculos.
+
+_LINK_FIELDS = (
+    "__typename ... on Issue { number state "
+    "parent { number repository { nameWithOwner } } "
+    "subIssues(first: 100) { nodes { number repository { nameWithOwner } } } "
+    "blockedBy(first: 100) { nodes { number repository { nameWithOwner } } } }"
+)
+GRAPHQL_BATCH = 50
+
+GhRunner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+
+
+def _run_gh(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", check=False)
+
+
+def _node_ref(node: object, repository: str) -> int | str | None:
+    if not isinstance(node, dict):
+        return None
+    repo = node.get("repository")
+    name = repo.get("nameWithOwner") if isinstance(repo, dict) else None
+    number = int(node["number"])
+    return number if not name or _same_repo(str(name), repository) else f"{name}#{number}"
+
+
+def _nodes(value: object, repository: str) -> tuple[int | str, ...]:
+    nodes = value.get("nodes") if isinstance(value, dict) else None
+    refs = (_node_ref(node, repository) for node in nodes or [])
+    return tuple(ref for ref in refs if ref is not None)
+
+
+def parse_links(data: Mapping[str, object] | None, repository: str) -> IssueLinks | None:
+    """Converte um nó do GraphQL; ``None`` para inexistente ou pull request."""
+    if not data or data.get("__typename") != "Issue":
+        return None
+    return IssueLinks(
+        number=int(str(data["number"])),
+        parent=_node_ref(data.get("parent"), repository),
+        sub_issues=_nodes(data.get("subIssues"), repository),
+        blocked_by=_nodes(data.get("blockedBy"), repository),
+        closed=data.get("state") == "CLOSED",
+    )
+
+
+def fetch_links(numbers: Iterable[int], repository: str, gh: GhRunner = _run_gh) -> dict[int, IssueLinks | None]:
+    owner, name = repository.split("/", 1)
+    wanted = sorted(set(numbers))
+    result: dict[int, IssueLinks | None] = {}
+    for start in range(0, len(wanted), GRAPHQL_BATCH):
+        chunk = wanted[start : start + GRAPHQL_BATCH]
+        aliases = " ".join(f"i{n}: issueOrPullRequest(number: {n}) {{ {_LINK_FIELDS} }}" for n in chunk)
+        query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {aliases} }} }}'
+        completed = gh(["api", "graphql", "-f", f"query={query}"])
+        try:  # números inexistentes geram "errors" e saída != 0, mas os demais vêm em "data"
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"gh api graphql falhou: {completed.stderr.strip()}") from exc
+        data = payload.get("data") or {}
+        repo_data = data.get("repository")
+        if not isinstance(repo_data, dict):
+            raise RuntimeError(f"repositório {repository} inacessível: {completed.stderr.strip()}")
+        for n in chunk:
+            result[n] = parse_links(repo_data.get(f"i{n}"), repository)
+    return result
+
+
+def _fetch_epics(selection: Sequence[int] | None, repository: str, gh: GhRunner) -> dict[int, tuple[str, list[str]]]:
+    """``{epic: (body, labels)}`` para os epics pedidos ou, sem seleção, todos com o label ``epic``."""
+    fields = "number,body,labels"
+    if selection is None:
+        listing = ["issue", "list", "--repo", repository, "--label", "epic", "--state", "all", "--limit", "500"]
+        completed = gh([*listing, "--json", fields])
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip())
+        raw = json.loads(completed.stdout)
+    else:
+        raw = []
+        for number in selection:
+            completed = gh(["issue", "view", str(number), "--repo", repository, "--json", fields])
+            if completed.returncode != 0:
+                raise RuntimeError(f"#{number}: {completed.stderr.strip()}")
+            raw.append(json.loads(completed.stdout))
+    return {
+        int(issue["number"]): (str(issue.get("body") or ""), [str(label["name"]) for label in issue.get("labels", [])])
+        for issue in raw
+    }
+
+
+def _apply(operation: Operation, repository: str, gh: GhRunner) -> str | None:
+    flag = "--add-sub-issue" if operation.kind == "sub-issue" else "--add-blocked-by"
+    completed = gh(["issue", "edit", str(operation.target), "--repo", repository, flag, str(operation.ref)])
+    return None if completed.returncode == 0 else (completed.stderr.strip() or completed.stdout.strip())
+
+
+def _write_body(epic: int, body: str, repository: str, gh: GhRunner) -> str | None:
+    handle, path = tempfile.mkstemp(suffix=".md")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="") as file:
+            file.write(body)
+        completed = gh(["issue", "edit", str(epic), "--repo", repository, "--body-file", path])
+    finally:
+        os.unlink(path)
+    return None if completed.returncode == 0 else (completed.stderr.strip() or completed.stdout.strip())
+
+
+CHECKLIST_ATTEMPTS = 5
+
+
+def sync_epic_checklist(
+    epic: int, body: str, repository: str, *, dry_run: bool, gh: GhRunner, links: Mapping[int, IssueLinks | None]
+) -> bool:
+    """Reconcilia as caixas de um epic com o estado das issues. Devolve ``True`` se falhou.
+
+    Depois de cada escrita, relê o corpo e o estado e reconcilia de novo: se outra execução
+    gravou um corpo antigo no meio-tempo, a última a escrever corrige o resultado.
+    """
+    for attempt in range(CHECKLIST_ATTEMPTS):
+        plan = parse_epic_items(body, repository)
+        closed = {item.number: state.closed for item in plan.items if (state := links.get(item.number)) is not None}
+        new_body, changes = reconcile_checklist(body, closed, repository)
+        if not changes:
+            return False
+        for number, checked in changes:
+            verb = "marcar" if checked else "desmarcar"
+            print(f"  {'[dry-run] ' if dry_run else ''}{verb} #{number} na seção Itens")
+        if dry_run:
+            return False
+        error = _write_body(epic, new_body, repository, gh)
+        if error:
+            print(f"  ERRO ao atualizar a seção Itens de #{epic}: {error}")
+            return True
+        if attempt + 1 < CHECKLIST_ATTEMPTS:
+            body = _fetch_epics([epic], repository, gh)[epic][0]
+            links = fetch_links([item.number for item in parse_epic_items(body, repository).items], repository, gh)
+    print(f"  ERRO: a seção Itens de #{epic} não estabilizou após {CHECKLIST_ATTEMPTS} tentativas")
+    return True
+
+
+def sync_checklist(selection: Sequence[int] | None, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
+    """Só as caixas da seção "Itens"; não cria vínculos nem falha por divergências de vínculo."""
+    epics = _fetch_epics(selection, repository, gh)
+    wanted = {item.number for body, _ in epics.values() for item in parse_epic_items(body, repository).items}
+    links = fetch_links(wanted, repository, gh)
+    failed = False
+    for epic in sorted(epics):
+        print(f"#{epic}:")
+        failed |= sync_epic_checklist(epic, epics[epic][0], repository, dry_run=dry_run, gh=gh, links=links)
+    return 1 if failed else 0
+
+
+def sync_parent_checklist(issue: int, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
+    """Usado pelo workflow ao fechar ou reabrir ``issue``: reconcilia o epic pai nativo, se houver."""
+    links = fetch_links([issue], repository, gh).get(issue)
+    parent = links.parent if links else None
+    if not isinstance(parent, int):
+        print(f"#{issue} não é sub-issue de um epic deste repositório; nada a fazer.")
+        return 0
+    return sync_checklist([parent], repository, dry_run=dry_run, gh=gh)
+
+
+def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
+    epics = _fetch_epics(selection, repository, gh)
+    plans = {epic: parse_epic_items(body, repository) for epic, (body, _) in epics.items()}
+    shared = shared_items(plans)
+    wanted = set(epics)
+    for plan in plans.values():
+        for item in plan.items:
+            wanted.add(item.number)
+            wanted.update(item.blocked_by)
+    links = fetch_links(wanted, repository, gh)
+
+    failed = False
+    for epic in sorted(epics):
+        plan = plans[epic]
+        operations, problems = plan_epic(epic, plan, links, skip=shared)
+        if "epic" not in epics[epic][1]:
+            problems.insert(0, f"#{epic} não tem o label epic")
+        problems.extend(
+            f"#{number} está em mais de um epic ({', '.join(f'#{e}' for e in owners)}); vincule à mão"
+            for number, owners in shared.items()
+            if epic in owners
+        )
+        print(f"#{epic}: {len(plan.items)} itens, {len(operations)} vínculos a criar", end="")
+        print(f", {plan.candidates} candidatos sem issue" if plan.candidates else "")
+        for operation in operations:
+            if dry_run:
+                print(f"  [dry-run] {operation.describe()}")
+                continue
+            error = _apply(operation, repository, gh)
+            if error:
+                failed = True
+                print(f"  ERRO {operation.describe()}: {error}")
+            else:
+                print(f"  ok {operation.describe()}")
+        body = epics[epic][0]
+        failed |= sync_epic_checklist(epic, body, repository, dry_run=dry_run, gh=gh, links=links)
+        for problem in problems:
+            print(f"  divergência: {problem}")
+        failed = failed or bool(problems)
+    return 1 if failed else 0
+
+
+def _current_repository() -> str:
+    completed = _run_gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip())
+    return completed.stdout.strip()
+
+
+SYNC_EPIC_USAGE = "sync-epic (N [N...] | --all) [--dry-run]"
+SYNC_CHECKLIST_USAGE = "sync-checklist (N [N...] | --all | --parent-of N) [--dry-run]"
+
+
+def _sync_command(name: str, args: Sequence[str]) -> int:
+    usage = SYNC_EPIC_USAGE if name == "sync-epic" else SYNC_CHECKLIST_USAGE
+    dry_run = "--dry-run" in args
+    everything = "--all" in args
+    options = {"--dry-run", "--all"} | ({"--parent-of"} if name == "sync-checklist" else set())
+    parent_of = "--parent-of" in args
+    numbers = [arg.lstrip("#") for arg in args if arg not in options]
+    valid = all(number.isdigit() for number in numbers) and (
+        len(numbers) == 1 and not everything if parent_of else everything != bool(numbers)
+    )
+    if not valid:
+        print(f"uso: github_issues.py {usage}", file=sys.stderr)
+        return 2
+    selection = None if everything else [int(n) for n in numbers]
+    try:
+        repository = os.environ.get("GITHUB_REPOSITORY") or _current_repository()
+        if name == "sync-epic":
+            return sync_epic(selection, repository, dry_run=dry_run)
+        if parent_of:
+            return sync_parent_checklist(int(numbers[0]), repository, dry_run=dry_run)
+        return sync_checklist(selection, repository, dry_run=dry_run)
+    except RuntimeError as exc:
+        print(f"{name}: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):  # hooks do git no Windows recebem pipe em cp1252
         if hasattr(stream, "reconfigure"):
@@ -194,7 +622,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return check_pr()
     if args == ["sync-labels"]:
         return sync_labels()
-    print("uso: github_issues.py commit-msg ARQUIVO | check-pr | sync-labels", file=sys.stderr)
+    if args[:1] in (["sync-epic"], ["sync-checklist"]):
+        return _sync_command(args[0], args[1:])
+    usage = f"commit-msg ARQUIVO | check-pr | sync-labels | {SYNC_EPIC_USAGE} | {SYNC_CHECKLIST_USAGE}"
+    print(f"uso: github_issues.py {usage}", file=sys.stderr)
     return 2
 
 

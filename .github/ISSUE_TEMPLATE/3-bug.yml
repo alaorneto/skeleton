@@ -116,7 +116,7 @@ body:
     id: riscos
     attributes:
       label: "Riscos e dependências"
-      description: "Parte de/depende de #N, migrations, compatibilidade, rollback."
+      description: "Epic e dependências valem pelo vínculo nativo: parent (sub-issue) e blocked by, no painel lateral ou com gh issue edit --parent/--add-blocked-by. Repita-os aqui em texto, com migrations, compatibilidade e rollback."
       placeholder: |
         - Parte de / depende de: 
         - Migrations e rollback: 

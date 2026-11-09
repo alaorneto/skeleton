@@ -45,7 +45,11 @@ Executa sem pedir nova confirmação: a aceitação do plano é a autorização.
    gh issue create --title "<resumo no imperativo>" --label feature,security --assignee @me --body-file <scratchpad>/issue-1.md
    ```
    Título curto, em português, sem prefixo de tipo (o label já classifica).
-6. Com 2 ou mais issues: depois de criar as filhas, crie a issue `epic` "Plano: <nome>" com o resumo do plano e a lista ordenada `- [ ] #N título` (com dependências). Em cada filha, a seção "Riscos e dependências" diz `Parte de #E` (edite o corpo depois de criar o epic).
+6. Com 2 ou mais issues, o vínculo com o epic é o **sub-issue nativo** do GitHub, e as dependências são relações **"blocked by"** nativas. O texto no corpo das issues é só um resumo para quem lê.
+   - Depois de criar as filhas, crie a issue `epic` "Plano: <nome>" pelo modelo, com a lista ordenada `- [ ] #N título — depende de #M | independente` na seção "Itens".
+   - Crie os vínculos nativos a partir dessa lista com `py -3 tools/workflow/github_issues.py sync-epic <E>` (`python3` fora do Windows). O comando vincula as filhas como sub-issues, na ordem da lista, e cria um "blocked by" para cada "depende de". Ele é idempotente, nunca troca um parent existente e termina com erro quando há divergência (filha com outro parent, issue inexistente, sub-issue fora da lista). Resolva cada divergência antes de seguir.
+   - Em cada filha, a seção "Riscos e dependências" diz `Parte de #E` e repete as dependências (edite o corpo depois de criar o epic).
+   - À mão, o equivalente é `gh issue create ... --parent <E>` ou `gh issue edit <N> --parent <E>`, e `gh issue edit <N> --add-blocked-by <M>`. Confira com `sync-epic <E> --dry-run`: a saída tem de ser "0 vínculos a criar", sem divergências.
 7. Informe ao usuário uma tabela `# | título | labels | link`. Só então comece a implementação pela primeira issue (fase 3).
 
 ## 3. Desenvolvimento sem plano (pedido direto)
@@ -80,6 +84,6 @@ No caso (b), ou quando a issue não foi fechada automaticamente:
 2. Commits publicados no remoto, para que os links resolvam: `git log --oneline --grep "#N" origin/<branch>`.
 3. Comentário de fechamento pelo modelo (commits com SHA, PR, testes executados com comando e resultado, documentação atualizada, follow-ups com links): `gh issue comment N --body-file <arquivo>`.
 4. `gh issue close N --reason completed`.
-5. Se a issue for filha de um epic, marque-a na lista do epic; feche o epic quando a última filha fechar, com comentário-resumo.
+5. Se a issue for sub-issue de um epic, o progresso nativo do epic se atualiza sozinho, e o workflow `epic-checklist` marca `[x]` no item dela na seção "Itens" (e desmarca se ela for reaberta). Não marque à mão. Se a caixa não mudar, confira o run do workflow ou rode `github_issues.py sync-checklist <E>`. Feche o epic quando a última filha fechar, com comentário-resumo. Uma filha acrescentada depois entra com `gh issue edit <N> --parent <E>` e na lista "Itens".
 
 Itens abandonados: `gh issue close N --reason "not planned"` somente por decisão do usuário, com o motivo em comentário.
