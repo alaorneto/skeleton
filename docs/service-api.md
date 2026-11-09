@@ -218,7 +218,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
-| `AuditService` | (planejado) | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
+| `AuditService` | `skeleton.service_api.audit` | `history` | [#106](https://github.com/alaorneto/skeleton/issues/106) |
 | `NotificationService` | (planejado) | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | (planejado) | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | (planejado) | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
@@ -273,6 +273,12 @@ Não há cache entre chamadas: uma revogação vale na chamada seguinte. Alterar
 | `my_configuration(*, actor, app_label) -> AppConfiguration` | Configuração da organização para a **própria** app, com todos os campos declarados resolvidos; `AppConfiguration.get(nome)` | `Forbidden` se o módulo que chama não pertencer a `app_label`; `Unavailable` se a app estiver desativada ou indisponível |
 
 A app chamadora é identificada pelo módulo do primeiro frame fora da API de serviços, do kit de testes e do Django, resolvido para a app registrada que o contém (`apps.get_containing_app_config`). Uma app não lê a configuração de outra. Essa identificação assume que o código das apps é confiável (o mesmo processo); ela impede engano, não um código malicioso que forje frames. Ativar ou configurar apps continua com o administrador.
+
+### AuditService
+
+`history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro, do mais recente ao mais antigo, com as mesmas regras de `authorized_audit_queryset`: administrador da organização, ou `TablePermission audit` mais leitura do registro atual (se excluído, restauração autorizada). Filtra antes de paginar. Sem essas permissões, para tabela desconhecida e para registro de outra organização, responde `NotFound`; eventos de outra organização nunca aparecem.
+
+`AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
 
 A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
 
