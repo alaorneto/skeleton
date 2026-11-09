@@ -68,10 +68,14 @@ def test_notify_records_snapshot_and_enqueues_fan_out(tenants):
         )
         assert notification.snapshot == {"title": "Shared title", "code": "NT-1"}
         assert "body" not in notification.snapshot
-    assert Job.all_objects.filter(job_type="notifications.fanout").count() == 1
+        # Without a target, the fan-out needs no read authorization (see test_notifications_fanout).
+        notify("system.hello", recipients=Recipients(users=(bob.pk,)), payload={"message": "hi"})
+    assert Job.all_objects.filter(job_type="notifications.fanout").count() == 2
     run_pending_jobs()
     with tenant_context(organization_id=alpha.pk, actor=bob, source="test:notify-read"):
-        assert list(NotificationRecipient.objects.values_list("user_id", flat=True)) == [bob.pk]
+        # Bob cannot read Alice's private note: only the notification without target reaches him.
+        rows = list(NotificationRecipient.objects.values_list("user_id", "notification__type_code"))
+        assert rows == [(bob.pk, "system.hello")]
 
 
 def test_rollback_leaves_no_notification_and_no_job(tenants):
