@@ -48,3 +48,13 @@ notify("tasks.assigned", recipients=Recipients(users=(assignee.pk,)), target=tas
 | `dedupe_key` repetida para o mesmo tipo | devolve a notificação existente |
 
 O snapshot copia só os `snapshot_fields` do alvo, que são lidos e não sensíveis. Um snapshot pode sobreviver à perda de acesso ao registro até a retenção; esse risco residual é aceito. `notify()` enfileira o job `notifications.fanout`, que transforma a notificação em linhas por pessoa.
+
+## Fan-out
+
+O job `notifications.fanout` (sistema, por organização) cria uma linha `NotificationRecipient` por pessoa autorizada **no momento do envio**:
+
+- Destinatários: pessoas citadas, membros dos grupos, quem tem os papéis (diretamente ou por grupo) ou toda a organização. Só vínculos ativos de identidades ativas contam, e o ator nunca recebe a própria notificação. Contas de serviço ficarão fora do diretório quando existirem (#44).
+- Autorização no alvo: cada pessoa precisa passar em `require_record_action(alvo, action="read")`. Quem não lê o alvo não recebe linha, mesmo citado diretamente; um alvo excluído não notifica ninguém.
+- Snapshot dos destinatários: quem saiu do grupo antes do fan-out não recebe, e mudanças posteriores no grupo não reescrevem a história.
+- Lotes de até 10 mil pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`.
+- Agrupamento: com `group_key`, uma linha não lida e não arquivada da mesma chave recebe `count + 1` e passa a apontar para a notificação mais recente, em vez de criar outra linha.
