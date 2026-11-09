@@ -41,18 +41,20 @@ def fresh(user):
 
 
 def test_demoting_or_removing_the_last_platform_admin_conflicts_without_writes(admins):
+    # ``first`` also administers its organization; ``second`` has no membership, so only the
+    # platform guard can refuse changes to it.
     first, second = admins
     with request_context(actor=first, request_id=uuid4(), source="test:last-platform-admin"):
-        demoted = update_platform_user(second, data={"is_superuser": False}, expected_revision=fresh(second).revision)
+        demoted = update_platform_user(first, data={"is_superuser": False}, expected_revision=fresh(first).revision)
         assert not demoted.is_superuser
-        before = fresh(first)
+        before = fresh(second)
         for data in ({"is_staff": False}, {"is_superuser": False}, {"is_active": False}):
             with pytest.raises(LastPlatformAdministrator):
-                update_platform_user(first, data=data, expected_revision=before.revision)
+                update_platform_user(second, data=data, expected_revision=before.revision)
         for delete in (False, True):
             with pytest.raises(LastPlatformAdministrator):
-                deactivate_user(first, delete=delete)
-    after = fresh(first)
+                deactivate_user(second, delete=delete)
+    after = fresh(second)
     assert (after.revision, after.auth_version, after.is_active, after.deleted_at) == (
         before.revision,
         before.auth_version,
