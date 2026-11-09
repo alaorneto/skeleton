@@ -20,6 +20,7 @@ def application_urls(project_urls=()):
     ]
     if project_urls:
         routes.append(path("", include(project_urls)))
+    routes.append(path("", include("skeleton.notifications.urls")))
     routes.extend(
         [
             path("api/v1/", include("skeleton.api.urls")),

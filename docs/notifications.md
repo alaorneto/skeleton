@@ -58,3 +58,21 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 - Snapshot dos destinatários: quem saiu do grupo antes do fan-out não recebe, e mudanças posteriores no grupo não reescrevem a história.
 - Lotes de até 10 mil pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`.
 - Agrupamento: com `group_key`, uma linha não lida e não arquivada da mesma chave recebe `count + 1` e passa a apontar para a notificação mais recente, em vez de criar outra linha.
+
+## Caixa de notificações
+
+| Rota | O que faz |
+|---|---|
+| `/notifications/` | Caixa global: as linhas da pessoa em todas as organizações com vínculo ativo, por [autodescoberta](access-control.md#rls-postgresql) |
+| `/o/<org>/notifications/` | Caixa da organização atual |
+| `POST /o/<org>/notifications/<id>/read/`, `unread/`, `archive/` | Marca lida, não lida ou arquivada; idempotente, com CSRF |
+| `POST /o/<org>/notifications/read-all/` | Marca todas como lidas na organização |
+| `/o/<org>/notifications/<id>/open/` | Marca lida e reautoriza o alvo (`require_record_action(..., "read")`): com acesso, redireciona ao registro; sem acesso ou alvo removido, mostra uma página genérica, sem título nem snapshot |
+| `GET /api/v1/notifications/` | API de sessão: página da caixa global (`page`, `page_size`, `archived=0/1`) mais `unread` |
+| `POST /api/v1/o/<org>/notifications/actions/` | `{"action": "read" \| "unread" \| "archive" \| "read_all", "ids": [...]}` (1 a 100 ids) |
+
+- A linha de outra pessoa responde 404, igual a uma linha inexistente.
+- Toda escrita acontece no tenant da linha; a caixa global só lê.
+- O cabeçalho mostra o contador de não lidas de todas as organizações com vínculo ativo, limitado a `99+`. O número de consultas é constante (índice parcial `(user_id) WHERE read_at IS NULL AND archived_at IS NULL`).
+- Tudo funciona sem JavaScript: as ações são formulários comuns.
+- A raiz `notifications/` é reservada ao núcleo: uma app não pode capturá-la.

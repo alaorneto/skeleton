@@ -23,6 +23,8 @@ JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
   </div>
 </div>
 <div class="header-end">
+  {% url 'notifications:global' as notifications_url %}
+  <a class="header-link" href="{{ notifications_url }}"{% if request.path == notifications_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" class="size-4" %}<span>Notificações</span>{% if notifications_unread %} <span class="badge badge-brand" aria-label="{{ notifications_unread }} não lidas">{{ notifications_label }}</span>{% endif %}</a>
   {% if platform_admin %}
   {% url 'platform:overview' as platform_url %}
   <a class="header-link" href="{{ platform_url }}"{% if request.path|slice:":10" == "/platform/" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" class="size-4" %}<span>Plataforma</span></a>

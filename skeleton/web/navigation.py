@@ -69,7 +69,14 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     if not getattr(user, "is_authenticated", False):
         return {}
     memberships = memberships_for_user(user)
-    values: dict[str, Any] = {"organization_memberships": memberships}
+    from skeleton.notifications.inbox import counter_label, unread_count
+
+    unread = unread_count(user, organization_ids=[item["organization_id"] for item in memberships])
+    values: dict[str, Any] = {
+        "organization_memberships": memberships,
+        "notifications_unread": unread,
+        "notifications_label": counter_label(unread),
+    }
     organization_id = current_context().organization_id
     if organization_id is None:
         return values
