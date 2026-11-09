@@ -49,7 +49,7 @@ Comandos:
 <ou: Sem impacto — motivo>
 
 ## Riscos e dependências
-- Parte de / depende de: <#E, #N | nenhuma>
+- Parte de / depende de: <#E, #N | nenhuma> (também como parent e "blocked by" nativos)
 - Migrations, compatibilidade e rollback: <...>
 
 ## Definição de pronto
@@ -123,6 +123,7 @@ O "Plano de testes" de um bug sempre inclui um teste de regressão que falha ant
 <resultado do conjunto>
 
 ## Itens
+<!-- Resumo legível. O vínculo oficial são os sub-issues e os "blocked by" nativos; confira com `github_issues.py sync-epic <E> --dry-run`. As caixas são marcadas pelo workflow epic-checklist quando a filha fecha; não marque à mão. -->
 - [ ] #<N> <título> — <depende de #M | independente>
 
 ## Critérios de conclusão

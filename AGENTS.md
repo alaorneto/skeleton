@@ -16,7 +16,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 
 Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub. O procedimento é o skill `issue-workflow` (`.claude/skills/issue-workflow/`); o racional e os mecanismos estão em [docs/workflow.md](docs/workflow.md).
 
-- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição.
+- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`tools/workflow/github_issues.py sync-epic`).
 - **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
 - Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
 - Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`. Nunca `--no-verify`.

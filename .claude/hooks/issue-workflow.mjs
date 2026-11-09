@@ -43,7 +43,9 @@ function planAccepted() {
         "(fase 2): crie no GitHub as issues da seção 'Itens do GitHub' do plano, cada uma com " +
         "exatamente um label de tipo, todas as seções do modelo (critérios de aceite, plano de " +
         "testes, documentação a atualizar, segurança, dependências, definição de pronto) e um " +
-        "epic quando houver 2 ou mais itens. Mostre ao usuário a tabela com os links e só então " +
+        "epic quando houver 2 ou mais itens, com as filhas como sub-issues nativos e as dependências " +
+        "como 'blocked by' (tools/workflow/github_issues.py sync-epic <E>). Mostre ao usuário a tabela " +
+        "com os links e só então " +
         "implemente, começando pela primeira issue, em branch <tipo>/<N>-<slug>.",
     },
   });

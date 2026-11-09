@@ -1,0 +1,30 @@
+name: Caixas do epic
+
+# Ao fechar ou reabrir uma issue, marca [x] ou [ ] no item dela na seção "Itens" do epic pai
+# nativo (sub-issue). Cada execução reconcilia o epic inteiro e relê o corpo depois de gravar,
+# então execuções concorrentes para filhas do mesmo epic convergem. Veja docs/workflow.md.
+
+on:
+  issues:
+    types: [closed, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: epic-checklist-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  epic-checklist:
+    name: Atualizar as caixas do epic pai
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconciliar a seção Itens do epic pai
+        # O número entra por variável de ambiente, nunca interpolado no script.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: python3 tools/workflow/github_issues.py sync-checklist --parent-of "$ISSUE_NUMBER"

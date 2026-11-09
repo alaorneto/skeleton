@@ -5,7 +5,7 @@ Todo trabalho versionado neste repositório nasce de uma issue do GitHub e termi
 ## Ciclo
 
 1. **Planejar.** No modo de planejamento do Claude Code, o plano termina com a seção `Itens do GitHub`: para cada item, o label de tipo, o título, os critérios de aceite, o plano de testes e a documentação a atualizar. Revisar o plano é também revisar essa decomposição.
-2. **Aceitar → issues.** Quando o plano é aceito, o agente cria as issues antes de qualquer edição: uma por entrega independente e revisável, cada uma detalhada pelo modelo do tipo. Com duas ou mais, cria também uma issue `epic` com a lista ordenada das filhas. Sem modo de planejamento, a issue é identificada ou criada antes da primeira edição.
+2. **Aceitar → issues.** Quando o plano é aceito, o agente cria as issues antes de qualquer edição: uma por entrega independente e revisável, cada uma detalhada pelo modelo do tipo. Com duas ou mais, cria também uma issue `epic` com a lista ordenada das filhas e as vincula a ele como sub-issues nativos, com as dependências como "blocked by" (veja [Epics](#epics-sub-issues-e-dependências)). Sem modo de planejamento, a issue é identificada ou criada antes da primeira edição.
 3. **Desenvolver.** Branch `<tipo>/<N>-<slug>` a partir de `main` (por exemplo `feat/42-platform-users`). Commits em Conventional Commits, com trailer `Refs #N`. Mudança de escopo atualiza a issue ou abre outra.
 4. **Revisar.** PR para `main` pelo [modelo](../.github/pull_request_template.md), com `Closes #N` (entrega completa) ou `Refs #N` (parcial) e somente os testes executados de fato.
 5. **Aprovar e fechar.** O merge do PR fecha as issues citadas com `Closes`. Sem PR, a issue só fecha com aprovação explícita do responsável, depois de um comentário com commits, testes executados, documentação atualizada e follow-ups. Quem implementa não fecha a própria issue por conta própria.
@@ -38,10 +38,41 @@ Os formulários em [.github/ISSUE_TEMPLATE](../.github/ISSUE_TEMPLATE) e os mode
 - **Plano de testes**: unitários, integração SQLite, PostgreSQL com a role runtime, negativos de segurança, smoke manual e os comandos. Bugs incluem um teste de regressão.
 - **Documentação a atualizar**, incluindo a evidência em [testing](testing.md).
 - **Segurança e contrato do AGENTS.md**.
-- **Riscos e dependências**: epic, issues bloqueantes, migrations, rollback.
+- **Riscos e dependências**: epic, issues bloqueantes, migrations, rollback. O epic e as bloqueantes também ficam registrados como parent e "blocked by" nativos.
 - **Definição de pronto**.
 
 Uma seção sem conteúdo leva "Não se aplica — motivo". Ela não é removida.
+
+## Epics, sub-issues e dependências
+
+O vínculo oficial entre um epic e suas filhas é o relacionamento nativo de **sub-issue** do GitHub, e as dependências entre issues são relações **"blocked by"** nativas. Assim, o epic mostra o progresso sozinho, a filha mostra o parent no painel lateral e o vínculo pode ser conferido pela API. O texto também continua no corpo das issues, como resumo para quem lê: a seção "Itens" do epic tem a lista ordenada `- [ ] #N título — depende de #M | independente`, e cada filha diz `Parte de #E`.
+
+`tools/workflow/github_issues.py sync-epic` reconcilia esse texto com o GitHub:
+
+```sh
+python3 tools/workflow/github_issues.py sync-epic 112 --dry-run   # mostra o que faria
+python3 tools/workflow/github_issues.py sync-epic 112             # cria os vínculos que faltam
+python3 tools/workflow/github_issues.py sync-epic --all           # todos os issues com o label epic
+```
+
+O comando:
+
+- vincula cada item da seção "Itens" como sub-issue, na ordem da lista, e cria um "blocked by" para cada "depende de";
+- é idempotente: não duplica vínculos que já existem;
+- nunca troca um parent existente: uma issue tem no máximo um parent, e o conflito aparece como divergência;
+- termina com erro quando há divergência: issue inexistente ou de outro repositório, item listado em dois epics, sub-issue nativo fora da lista ou epic sem o label;
+- ignora as linhas de checklist sem número de issue, como os candidatos dos epics de ciclo 2, e mostra quantas são.
+
+O `sync-epic` também acerta as caixas da seção "Itens". No dia a dia, quem faz isso é o workflow [epic-checklist](../.github/workflows/epic-checklist.yml): quando uma issue fecha (por merge de PR com `Closes` ou à mão, como concluída ou dispensada), ele marca `[x]` no item dela no epic pai nativo, e quando ela é reaberta, volta a `[ ]`. Não marque as caixas à mão. Cada execução reconcilia o epic inteiro com o estado atual das filhas e relê o corpo depois de gravar, então filhas do mesmo epic fechadas ao mesmo tempo convergem. Quando o epic também é sub-issue (como o #112 do #95), o fechamento dele atualiza o epic de cima. Para reconciliar à mão, sem criar vínculos:
+
+```sh
+python3 tools/workflow/github_issues.py sync-checklist 112 --dry-run
+python3 tools/workflow/github_issues.py sync-checklist --all
+```
+
+O workflow só existe depois do merge na `main`, porque eventos de issue usam a versão do workflow da branch padrão.
+
+Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
 
 ## Mecanismos
 
@@ -51,6 +82,8 @@ Uma seção sem conteúdo leva "Não se aplica — motivo". Ela não é removida
 | Procedimento | `.claude/skills/issue-workflow/` | Passo a passo do agente e modelos de issue, PR e fechamento |
 | Hook do Claude Code | `.claude/settings.json`, `.claude/hooks/issue-workflow.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
 | Git | `.pre-commit-config.yaml`, `tools/workflow/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
+| Epics | `tools/workflow/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
+| Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
 | CI | `.github/workflows/issue-link.yml` | O PR precisa citar uma issue existente deste repositório com exatamente um label de tipo. PRs do Dependabot ficam isentos |
 | GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
 
