@@ -25,7 +25,9 @@ class SkeletonAuthenticationBackend(AuthenticationBackend):
         return set()
 
     def has_perm(self, user_obj, perm, obj=None):
-        return bool(user_obj.is_active and user_obj.deleted_at is None and user_obj.is_superuser)
+        from skeleton.accounts.platform import is_platform_admin
+
+        return is_platform_admin(user_obj)
 
     def has_module_perms(self, user_obj, app_label):
         return self.has_perm(user_obj, app_label)

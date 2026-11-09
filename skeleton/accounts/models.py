@@ -71,6 +71,17 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
     def get_short_name(self):
         return self.first_name or self.email
 
+    # PermissionsMixin short-circuits for any active superuser; the platform predicate decides.
+    def has_perm(self, perm, obj=None):
+        from skeleton.accounts.platform import is_platform_admin
+
+        return is_platform_admin(self)
+
+    def has_module_perms(self, app_label):
+        from skeleton.accounts.platform import is_platform_admin
+
+        return is_platform_admin(self)
+
     def __str__(self):
         return self.email
 

@@ -111,3 +111,88 @@ def test_admin_mutation_after_concurrent_membership_post_conflicts_without_deadl
         assert member.revision == original_revision + 1
         assert not MemberRole.objects.filter(membership=member).exists()
         assert not GroupMember.objects.filter(membership=member).exists()
+
+
+def _platform_admins(*users):
+    from skeleton.accounts.models import User
+    from skeleton.tenancy.context import system_context
+
+    with system_context(reason="test:platform-admins"):
+        for user in users:
+            stored = User.objects.get(pk=user.pk)
+            stored.is_staff = stored.is_superuser = True
+            stored.save(update_fields=["is_staff", "is_superuser"])
+        return set(User.objects.filter(is_active=True, is_staff=True, is_superuser=True).values_list("pk", flat=True))
+
+
+def test_concurrent_platform_demotions_keep_one_admin(skeleton_db):
+    import time
+    from uuid import uuid4
+
+    from skeleton.accounts.models import User
+    from skeleton.accounts.platform import LastPlatformAdministrator
+    from skeleton.accounts.services import update_platform_user
+    from skeleton.tenancy.context import request_context
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    fixture = build_security_fixture()
+    assert _platform_admins(fixture.alice, fixture.bob) == {fixture.alice.pk, fixture.bob.pk}
+    leader_locked, follower_waiting = Event(), Event()
+
+    def demote(user, leader):
+        def observe(execute, sql, params, many, context):
+            # Only the ordered lock of the administrator set, not the target row lock.
+            if "FOR UPDATE" in sql and "ORDER BY" in sql and User._meta.db_table in sql:
+                if leader:
+                    result = execute(sql, params, many, context)
+                    leader_locked.set()
+                    assert follower_waiting.wait(10), "Follower did not reach the administrator lock."
+                    time.sleep(0.5)
+                    return result
+                assert leader_locked.wait(10), "Leader did not lock the administrators."
+                follower_waiting.set()
+            return execute(sql, params, many, context)
+
+        connections.close_all()
+        try:
+            with connection.execute_wrapper(observe):
+                with request_context(actor=user, request_id=uuid4(), source="test:concurrent-platform-demotion"):
+                    revision = User.objects.get(pk=user.pk).revision
+                    update_platform_user(user, data={"is_staff": False}, expected_revision=revision)
+            return "demoted"
+        except LastPlatformAdministrator:
+            return "last_platform_administrator"
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leader = pool.submit(demote, fixture.alice, True)
+        follower = pool.submit(demote, fixture.bob, False)
+        results = [leader.result(timeout=30), follower.result(timeout=30)]
+    assert results == ["demoted", "last_platform_administrator"]
+    remaining = User.objects.filter(is_active=True, is_staff=True, is_superuser=True)
+    assert list(remaining.values_list("pk", flat=True)) == [fixture.bob.pk]
+
+
+def test_superuser_without_staff_keeps_platform_guc_off(skeleton_db):
+    from uuid import uuid4
+
+    from skeleton.accounts.models import User
+    from skeleton.tenancy.context import request_context, system_context
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    fixture = build_security_fixture()
+    with system_context(reason="test:partial-platform-flags"):
+        partial = User.objects.get(pk=fixture.alice.pk)
+        partial.is_superuser = True
+        partial.save(update_fields=["is_superuser"])
+    _platform_admins(fixture.bob)
+    observed = {}
+    for user in (User.objects.get(pk=fixture.alice.pk), User.objects.get(pk=fixture.bob.pk)):
+        with request_context(actor=user, request_id=uuid4(), source="test:platform-guc"):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_setting('skeleton.platform_admin', true)")
+                observed[user.pk] = cursor.fetchone()[0]
+    assert observed == {fixture.alice.pk: "off", fixture.bob.pk: "on"}

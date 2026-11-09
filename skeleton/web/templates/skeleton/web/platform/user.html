@@ -1,4 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
+{% load platform_admin %}
 {% block page_title %}{{ subject.email }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -6,7 +7,7 @@
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:users' %}">Usuários</a></li><li><span aria-current="page">{{ subject.email }}</span></li></ol></nav>
     <h1 class="break-all">{{ subject.email }}</h1>
-    <p class="mt-2 flex flex-wrap gap-1.5">{% if subject.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}{% if subject.is_staff and subject.is_superuser %}<span class="badge badge-brand">Administrador da plataforma</span>{% endif %}</p>
+    <p class="mt-2 flex flex-wrap gap-1.5">{% if subject.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}{% if subject|is_platform_admin %}<span class="badge badge-brand">Administrador da plataforma</span>{% endif %}</p>
   </div>
   <nav class="toolbar" aria-label="Ações"><a class="btn btn-secondary text-fg-danger" href="{% url 'platform:user-delete' subject.pk %}">{% include "skeleton/web/components/icon.html" with name="trash" %}Remover identidade</a></nav>
 </div>

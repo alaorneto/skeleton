@@ -104,9 +104,13 @@ def revoke_sessions(user, *, using="default"):
 def deactivate_user(user, *, delete=False, using="default"):
     from skeleton.access.services import assert_user_deactivation
     from skeleton.accounts.models import User
+    from skeleton.accounts.platform import assert_platform_admin_remains, lock_platform_admins
 
     with transaction.atomic(using=using):
+        # Platform administrators first, in sysid order, then the target: no lock inversion.
+        admins = lock_platform_admins(using=using)
         locked = User.all_objects.using(using).select_for_update().get(pk=user.pk)
+        assert_platform_admin_remains(admins, locked, keeps_role=False)
         assert_user_deactivation(locked, using=using)
         if delete:
             locked.delete(using=using)
@@ -123,16 +127,25 @@ PLATFORM_USER_FIELDS = ("first_name", "last_name", "is_active", "is_staff", "is_
 def update_platform_user(user, *, data, expected_revision, using="default"):
     """Platform-side identity edit with CAS; email changes stay in the verified allauth flow.
 
-    Deactivating keeps the last-administrator guard, and any change to an access flag
-    increments ``auth_version`` so existing sessions are revoked.
+    Deactivating keeps the last-administrator guard, demoting or deactivating the last
+    platform administrator raises ``LastPlatformAdministrator``, and any change to an access
+    flag increments ``auth_version`` so existing sessions are revoked.
     """
     from skeleton.access.services import assert_user_deactivation
     from skeleton.accounts.models import User
+    from skeleton.accounts.platform import (
+        PLATFORM_FLAGS,
+        assert_platform_admin_remains,
+        is_platform_admin,
+        lock_platform_admins,
+    )
 
     unknown = set(data) - set(PLATFORM_USER_FIELDS) - {"email"}
     if unknown:
         raise ValidationError("Campo não permitido.")
     with transaction.atomic(using=using):
+        touches_role = bool(set(data) & {"is_active", *PLATFORM_FLAGS})
+        admins = lock_platform_admins(using=using) if touches_role else []
         previous = User.all_objects.using(using).select_for_update().get(pk=user.pk)
         if expected_revision != previous.revision:
             raise ConcurrentUpdate("The platform form is stale.")
@@ -145,7 +158,9 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
             return previous
         for key in changed:
             setattr(previous, key, data[key])
-        if changed & {"is_active", "is_staff", "is_superuser"}:
+        if touches_role:
+            assert_platform_admin_remains(admins, previous, keeps_role=is_platform_admin(previous))
+        if changed & {"is_active", *PLATFORM_FLAGS}:
             previous.auth_version += 1
             changed.add("auth_version")
         previous.save(using=using, update_fields=changed)
@@ -230,7 +245,9 @@ def bootstrap_identity(*, email, organization, name, password=None, using="defau
         with transaction.atomic(using=using):
             user = User.all_objects.using(using).select_for_update().filter(email=email).first()
             if user is not None:
-                if user.deleted_at or not user.is_active or not user.is_staff or not user.is_superuser:
+                from skeleton.accounts.platform import is_platform_admin
+
+                if not is_platform_admin(user):
                     raise ValidationError("Existing bootstrap identity is inactive or not a platform administrator.")
             else:
                 if not password:

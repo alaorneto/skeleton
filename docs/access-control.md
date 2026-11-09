@@ -37,6 +37,7 @@ As verificações seguem esta ordem; falhar em uma camada não pode ser compensa
 5. Atualização/exclusão: proprietário é o ator **ou** existe `RecordGrant` específico da ação. Compartilhar leitura com organização/grupo não compartilha escrita.
 6. Restauração: permissão `restore` e condição de proprietário/administrador. Ler uma marca de exclusão (tombstone) também exige autorização de restauração.
 7. O papel interno `organization_admin` tem concessões reconciliadas para tabelas elegíveis e exceção explícita à visibilidade **só na própria organização**. `is_superuser` global não pula vínculo/papel nas rotas organizacionais.
+8. Administrador da plataforma é definido só por `is_platform_admin` (`skeleton/accounts/platform.py`): autenticado, ativo, não excluído, `is_staff` e `is_superuser`. O mesmo predicado liga `Context.platform_admin` e a GUC `skeleton.platform_admin`, abre a auditoria global (`authorized_audit_queryset`), responde `has_perm` e decide menus e selos nos templates (context processor `platform_admin` e filtros `platform_admin`). Conta só superuser ou só staff não é administrador. `update_platform_user` e `deactivate_user` bloqueiam os administradores ativos em ordem de `sysid` (`FOR UPDATE`) antes da identidade alvo e recusam com `LastPlatformAdministrator` (409, sem escrita parcial) a mudança que deixaria a plataforma sem administrador ativo; dois rebaixamentos concorrentes serializam e um deles recebe 409.
 
 ### Exemplo com Alfa e Beta
 

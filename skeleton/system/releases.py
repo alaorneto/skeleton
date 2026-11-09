@@ -19,14 +19,9 @@ class DeploymentUnavailable(RuntimeError):
 
 
 def require_platform(user):
-    if not (
-        user.is_authenticated
-        and user.is_active
-        and user.deleted_at is None
-        and user.is_staff
-        and user.is_superuser
-        and not mfa_required(user)
-    ):
+    from skeleton.accounts.platform import is_platform_admin
+
+    if not is_platform_admin(user) or mfa_required(user):
         raise PermissionDenied("Platform administration required.")
     if current_context().organization_id is not None:
         raise PermissionDenied("Deployment operations are global.")
