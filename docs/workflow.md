@@ -70,6 +70,18 @@ python3 tools/workflow/github_issues.py sync-checklist 112 --dry-run
 python3 tools/workflow/github_issues.py sync-checklist --all
 ```
 
+Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fecha o epic (`close-epic`), com um comentário que lista cada filha e se foi concluída ou dispensada. O epic fecha como concluído se ao menos uma filha foi concluída, e como `not planned` se todas foram dispensadas. A fonte de verdade são as sub-issues nativas, que o GitHub usa no progresso, não a lista em "Itens". Nada é fechado quando:
+
+- ainda há filha aberta, ou o epic não tem sub-issues;
+- o pai não tem o label `epic` ou já está fechado;
+- alguma sub-issue é de outro repositório, que o token do workflow não consegue verificar; feche à mão.
+
+Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`. Por isso, ao fechar um epic que também é sub-issue (como o #112 do #95), o mesmo run atualiza as caixas do epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic: ele pode ter sido fechado à mão por outro motivo, então reabra-o à mão se for o caso. A seção "Critérios de conclusão" do epic não é verificada; o comentário pede para reabrir o epic se algum critério faltar. Para conferir sem fechar:
+
+```sh
+python3 tools/workflow/github_issues.py close-epic --parent-of 101 --dry-run
+```
+
 O workflow só existe depois do merge na `main`, porque eventos de issue usam a versão do workflow da branch padrão.
 
 Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
@@ -84,6 +96,7 @@ Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh is
 | Git | `.pre-commit-config.yaml`, `tools/workflow/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
 | Epics | `tools/workflow/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
 | Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
+| Fechamento do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py close-epic` | Ao fechar a última sub-issue aberta, fecha o epic com comentário-resumo e sobe para o epic de cima |
 | CI | `.github/workflows/issue-link.yml` | O PR precisa citar uma issue existente deste repositório com exatamente um label de tipo. PRs do Dependabot ficam isentos |
 | GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
 
