@@ -1,11 +1,19 @@
 version: 2
 updates:
-  # Locks gerados por pip-compile --generate-hashes; revise o diff dos hashes.
+  # Os locks são gerados por `uv pip compile` (README, "Atualizar locks"), que o
+  # Dependabot não reproduz: ele muda só os .in ou regenera no estilo pip-compile,
+  # sem pip/setuptools. O job "locks" do CI reprova esses PRs; regenere os locks
+  # no branch do PR antes do merge. O grupo junta os bumps num PR por semana,
+  # para regenerar uma vez só; atualizações de segurança continuam separadas.
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      python:
+        applies-to: version-updates
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:
