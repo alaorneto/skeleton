@@ -143,7 +143,15 @@ def skeleton_db(request, tmp_path, django_db_blocker):
                     }
                 }
             ):
-                yield
+                if request.node.get_closest_marker("closed_app_defaults"):
+                    yield
+                else:
+                    # Precondition of most tests: apps open and active, as an upgraded deployment
+                    # keeps them (#22). Tests of the closed default opt out with the marker.
+                    from skeleton.testing.applications import apps_open_by_default
+
+                    with apps_open_by_default():
+                        yield
         finally:
             connections.close_all()
             _configure(original)

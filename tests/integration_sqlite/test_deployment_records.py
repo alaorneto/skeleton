@@ -131,10 +131,9 @@ def test_retained_app_can_only_disable_existing_configuration():
             state="schema_retained",
         ).save()
     with system_context(reason="test:retention", organization_id=organization.pk):
-        row = AppInstallation(
-            app_label="example_notes", organization=organization, enabled=True, configuration={"heading": "Preserved"}
-        )
-        row.save()
+        row = AppInstallation.objects.get(app_label="example_notes")  # Activated by the test precondition.
+        row.configuration = {"heading": "Preserved"}
+        row.save(update_fields={"configuration"})
     unregister_app("example_notes")
     try:
         with system_context(reason="test:retention", organization_id=organization.pk):

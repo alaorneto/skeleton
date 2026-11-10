@@ -45,6 +45,9 @@ from .storage import (
     now,
 )
 
+# First core release whose apps are closed by default and that ships ``upgrade_app_activation`` (#22).
+APP_ACTIVATION_UPGRADE_CORE = Version("0.5.0")
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, request, response, code, message, headers, newurl):
@@ -572,6 +575,9 @@ class DeploymentService:
         self.backend.manage(release, ["migrate", "--noinput"], "migration", code="migration_failed")
         self.stage(operation, "migrated")
         self.backend.manage(release, ["sync_table_catalog"], "migration", code="catalogue_sync_failed")
+        if Version(record["inventory"]["core"]["version"]) >= APP_ACTIVATION_UPGRADE_CORE:
+            # Closed-by-default activation (#22): keep what organizations used before; idempotent per run.
+            self.backend.manage(release, ["upgrade_app_activation"], "runtime", code="app_activation_upgrade_failed")
         self.backend.manage(release, ["check_skeleton_schema"], "runtime", code="runtime_schema_failed")
         if Version(record["inventory"]["core"]["version"]) >= Version("0.2.0"):
             self.backend.manage(

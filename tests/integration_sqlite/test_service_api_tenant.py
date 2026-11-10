@@ -7,6 +7,7 @@ from skeleton.access.policies import authorized_queryset
 from skeleton.service_api import Forbidden, Page, ServiceAPI, Unavailable, paginate, service_method
 from skeleton.system.applications import application_state, configure_application
 from skeleton.tenancy.context import system_context
+from skeleton.testing.applications import activation_revision
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 
@@ -71,7 +72,13 @@ def test_system_job_calls_only_allow_system_methods(records):
 
 def test_disabled_provider_is_unavailable_only_in_that_tenant(records):
     with actor_tenant(records.bob, records.b):
-        configure_application("example_notes", user=records.bob, enabled=False, configuration={}, revision=0)
+        configure_application(
+            "example_notes",
+            user=records.bob,
+            enabled=False,
+            configuration={},
+            revision=activation_revision("example_notes"),
+        )
         with pytest.raises(Unavailable):
             NoteTitles().titles(actor=records.bob)
     with actor_tenant(records.alice, records.a):

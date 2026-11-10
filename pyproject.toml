@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "django-skeleton"
-version = "0.4.0"
+version = "0.5.0"
 description = "Núcleo Django reutilizável com identidade e autorização por registros"
 requires-python = ">=3.12,<3.15"
 dependencies = [
@@ -43,6 +43,7 @@ testpaths = ["tests"]
 addopts = "-ra"
 markers = [
     "posix: exige APIs de sistema de arquivos POSIX (os.O_NOFOLLOW, fcntl); pulado em outras plataformas",
+    "closed_app_defaults: o skeleton_db não abre nem ativa as apps (prova o default fechado, #22)",
 ]
 
 [tool.coverage.run]

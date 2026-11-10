@@ -33,7 +33,8 @@ def application_state(app_label):
         "description": manifest.description,
         "app_id": manifest.app_id,
         "version": manifest.version,
-        "enabled": record.enabled if record else manifest.default_enabled,
+        # Closed by default (#22): the obsolete manifest default_enabled no longer activates anything.
+        "enabled": record.enabled if record else False,
         "configuration": validate_configuration(manifest, record.configuration if record else {}),
         "revision": record.revision if record else 0,
         "sysid": str(record.pk) if record else None,

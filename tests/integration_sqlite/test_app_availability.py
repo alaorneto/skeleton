@@ -12,8 +12,9 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system import availability
 from skeleton.system.applications import application_state, configure_application, navigation_for_user
 from skeleton.tenancy.context import request_context, system_context, tenant_context
+from skeleton.testing.applications import activate_app
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
 PASSWORD = "Availability-gate-Password!61"
 NOTES = "example_notes"
 
@@ -62,10 +63,11 @@ def test_selected_app_is_closed_for_organizations_without_grant(setup):
     as_platform(platform, lambda: availability.grant_app(NOTES, user=platform, organization_id=org_a.pk))
     with tenant_context(organization_id=org_a.pk, actor=platform, source="test:availability-a"):
         assert application_state(NOTES)["available"] is True
+    activate_app(NOTES, org_b.pk)  # B enabled the app, but the platform gate stays closed.
     with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:availability-b"):
         state = application_state(NOTES)
         assert state["available"] is False and state["enabled"] is True
-        assert availability.availability_map([NOTES, "unknown"]) == {NOTES: False, "unknown": True}
+        assert availability.availability_map([NOTES, "unknown"]) == {NOTES: False, "unknown": False}
         assert all(entry["app_label"] != NOTES for entry in navigation_for_user(member_b))
     client = login(member_b)
     records = {"organization_id": org_b.pk, "table_key": "example_notes.note"}

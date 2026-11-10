@@ -9,6 +9,7 @@ from django.test.utils import CaptureQueriesContext
 
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.tenancy.context import tenant_context
+from skeleton.testing.applications import activation_revision
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Reference-picker-test-password!72"
@@ -83,7 +84,9 @@ def test_picker_source_is_hidden_outside_tenant_and_blocked_when_disabled(picker
     url = f"/api/v1/o/{organization.pk}/tables/example_notes.note/references/owner/"
     assert client.get(url, {"record": str(hidden.pk), "access": "1"}).status_code == 404
     with tenant_context(organization_id=organization.pk, actor=user, source="test:disable-picker"):
-        configure_application("example_notes", user=user, enabled=False, configuration={}, revision=0)
+        configure_application(
+            "example_notes", user=user, enabled=False, configuration={}, revision=activation_revision("example_notes")
+        )
     assert client.get(url, {"record": str(note.pk), "access": "1"}).status_code == 403
 
 
@@ -123,12 +126,9 @@ def test_persisted_unknown_configuration_blocks_release_check(picker_actor, monk
             ),
         )
         with tenant_context(organization_id=organization.pk, actor=user, source="test:legacy-configuration"):
-            AppInstallation(
-                organization=organization,
-                app_label="example_notes",
-                enabled=True,
-                configuration={"removed_field": "must not be silently discarded"},
-            ).save()
+            record = AppInstallation.objects.get(app_label="example_notes")
+            record.configuration = {"removed_field": "must not be silently discarded"}
+            record.save(update_fields={"configuration"})
     with pytest.raises(CommandError):
         call_command("check_application_configuration")
 
