@@ -32,7 +32,7 @@ from skeleton.accounts.services import (
     update_platform_user,
 )
 from skeleton.common.exceptions import ConcurrentUpdate
-from skeleton.web.views import form_error, pagination
+from skeleton.web.views import form_error, pagination, service_pagination
 
 from .forms import (
     CatalogLabelForm,
@@ -515,9 +515,9 @@ def catalog_field(request, sysid):
 @require_safe
 def audit(request):
     from skeleton.api.serializers import audit_data
+    from skeleton.service_api.audit import AuditLogService
 
-    events = _model("sk_audit.AuditEvent").objects.filter(organization_id__isnull=True).order_by("-created_at", "sysid")
-    rows = pagination(request, events)
+    rows = service_pagination(request, lambda **page: AuditLogService().events(actor=request.user, **page))
     rows.object_list = [audit_data(event) for event in rows]
     return render(request, "skeleton/web/platform/audit.html", {"platform_section": "audit", "rows": rows})
 

@@ -72,6 +72,20 @@ Cobertura nova:
 - `tests/integration_sqlite/test_file_scanning_jobs.py`: com scanner, o anexo nasce `pending` e o download fica bloqueado; limpo vira `available`, EICAR vira `quarantined` com a assinatura; scanner fora deixa `pending`, o job volta à fila com `ScannerUnavailable` e o download continua 404; sem scanner, `available` na hora; o objeto de um upload revertido é apagado depois da carência, e os de linhas vivas e excluídas logicamente ficam.
 
 **Não verificado:** um `clamd` real (a suíte usa um `clamd` falso e um scanner falso), armazenamento S3, o `run_worker` real, smoke manual no navegador da página da plataforma e o PostgreSQL 16.15 do CI.
+
+## Superfícies do núcleo sobre a API de serviços (#110)
+
+Rodada de 2026-11-10 para [#110](https://github.com/alaorneto/skeleton/issues/110), que fecha o epic [#113](https://github.com/alaorneto/skeleton/issues/113): a auditoria (`/o/<org>/audit/`, a REST `/api/v1/o/<org>/audit/` com o filtro por registro e `/platform/audit/`) passou a usar o `AuditLogService`, com a paginação numerada e os campos publicados. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1015 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com `test_core_audit_log_service.py` | 391 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_core_audit_log_service.py` (SQLite e PostgreSQL): contrato do serviço; a lista é filtrada antes de contar (membro com `audit` vê só os eventos dos registros que lê, sem o registro privado do administrador; colunas sensíveis redigidas); `denied` (sem `TablePermission`) conta zero e recebe `NotFound` no detalhe; páginas numeradas sem repetição, página além do fim vazia e entradas inválidas (`page`, `page_size`, `record_id`, `model_label`) como `InvalidInput`; ator divergente recusado; eventos de B nunca aparecem para o administrador de A, nem pelo identificador; sem organização, quem não administra a plataforma recebe `Forbidden`. Em `test_core_surfaces_on_services.py`, `AuditView`, a página de auditoria e a auditoria da plataforma entraram na lista das superfícies que só chamam serviços. A suíte HTTP existente (`test_audit_findings.py`, `test_http_boundaries.py`, `test_platform_boundary.py` e demais) passou sem mudar expectativas.
+
+**Não verificado:** smoke manual no navegador das páginas de auditoria; o PostgreSQL 16.15 do CI. A primeira rodada PostgreSQL desta branch teve 5 falhas em `test_core_surfaces_on_services.py` porque os arquivos foram editados com a suíte em execução (`inspect.getsource` leu linhas deslocadas); a rodada da tabela, depois das edições, passou inteira.
 ## Rodada combinada: instância, webhooks e sequências
 
 Rodada de 2026-11-10 na branch que junta #143, #49, #44, #63, #64, #65, #155 e #156 (um commit por issue e o ajuste final do catálogo da instância e do mapa de pacotes). Somente o que rodou:
