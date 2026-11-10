@@ -22,7 +22,10 @@ def resolve_people(notification) -> list[UUID]:
     from skeleton.tenancy.models import Membership
 
     spec = notification.recipients
-    active = Membership.objects.filter(is_active=True, user__is_active=True, user__deleted_at__isnull=True)
+    # People only: a service account (#44) has no inbox.
+    active = Membership.objects.filter(
+        is_active=True, user__is_active=True, user__deleted_at__isnull=True, user__account_type="human"
+    )
     if spec.get("organization"):
         memberships = active
     else:

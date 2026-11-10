@@ -222,6 +222,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 
 ### IdentityService
 
@@ -240,7 +241,7 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `update_my_preferences(*, actor, expected_revision, language=None, timezone=None) -> UserProfileInfo` | só o próprio ator | `InvalidInput` (idioma/fuso inválido, nada a alterar); `Conflict("stale_revision")` |
 | `update_my_profile(*, actor, expected_user_revision, expected_revision, changes) -> UserProfileInfo` | só o próprio ator; `changes` com `first_name`, `last_name`, `display_name`, `timezone`, `language` | `InvalidInput` (campo não permitido ou valor inválido); `Conflict("stale_revision")` em qualquer das duas revisões |
 
-`UserProfileInfo` tem `sysid`, `email`, `display_name`, `language`, `timezone`, `kind`, `revision` (do perfil, para CAS), `first_name`, `last_name`, `user_revision`, `profile_sysid` e `profile_display_name` (o valor gravado, sem a regra de fallback de `display_name`); `PersonSummary` tem `sysid`, `display_name`, `email` (ou `None`) e `kind`. `kind` é `person` hoje e `service` para contas de serviço (#44). Nenhum DTO traz senha, MFA, flags de plataforma ou `auth_version`.
+`UserProfileInfo` tem `sysid`, `email`, `display_name`, `language`, `timezone`, `kind`, `revision` (do perfil, para CAS), `first_name`, `last_name`, `user_revision`, `profile_sysid` e `profile_display_name` (o valor gravado, sem a regra de fallback de `display_name`); `PersonSummary` tem `sysid`, `display_name`, `email` (ou `None`) e `kind`. `kind` é `person`, ou `service` para contas de serviço (#44). Nenhum DTO traz senha, MFA, flags de plataforma ou `auth_version`.
 
 ### OrganizationService
 
@@ -252,7 +253,7 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
 | `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
 
-O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e ficará sem contas de serviço por padrão (#44). Administrar vínculos continua nos serviços de acesso.
+O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e deixa de fora as contas de serviço (#44). Administrar vínculos continua nos serviços de acesso.
 
 ### AccessService
 
@@ -324,6 +325,14 @@ NotificationService().notify(
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
 Apps não acessam o armazenamento diretamente.
+
+### SequenceService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto | `Forbidden` (sequência de outra app); `InvalidInput` (sequência não declarada, data sem fuso) |
+
+`SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
 
 ### Superfícies do núcleo sobre os serviços
 

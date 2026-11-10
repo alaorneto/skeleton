@@ -22,7 +22,12 @@ def normalized_email(email):
 
 
 def password_allowed(user):
-    return bool(user.is_active and user.deleted_at is None and user.local_password_allowed)
+    return bool(
+        user.is_active
+        and user.deleted_at is None
+        and user.local_password_allowed
+        and not getattr(user, "is_service_account", False)
+    )
 
 
 def create_identity(*, email, password=None, first_name="", last_name="", local_password_allowed=True, using="default"):
@@ -400,3 +405,67 @@ def bootstrap_identity(*, email, organization, name, password=None, using="defau
             role = Role.objects.using(using).get(code="organization_admin")
             provision_membership(organization=org, user=user, role=role)
     return user, org
+
+
+def create_service_account(*, actor, name):
+    """An organization creates a non-interactive member for its integrations (#44).
+
+    Requires ``integrations.manage`` under ``organization_lock``. The identity is global (it is a
+    ``User`` so owners, policies and audit keep working) but bound to this organization only: a
+    synthetic ``@service.invalid`` email, an unusable password, ``local_password_allowed=False``
+    and exactly one membership, with no role. Every login path refuses it.
+    """
+    from uuid import uuid4
+
+    from skeleton.access.capabilities import INTEGRATIONS_MANAGE
+    from skeleton.access.services import organization_lock
+    from skeleton.accounts.models import SERVICE_EMAIL_DOMAIN, AccountType, User, UserProfile
+    from skeleton.tenancy.models import Membership
+
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
+        raise ValidationError({"name": "Informe um nome de até 150 caracteres."})
+    with organization_lock(actor, capability=INTEGRATIONS_MANAGE) as organization:
+        user = User(
+            email=f"svc-{uuid4().hex}@{SERVICE_EMAIL_DOMAIN}",
+            first_name=name.strip(),
+            account_type=AccountType.SERVICE,
+            service_organization=organization,
+            local_password_allowed=False,
+        )
+        user.set_unusable_password()
+        user.save()
+        UserProfile(user=user).save()
+        Membership(organization=organization, user=user, is_active=True).save()
+        return user
+
+
+def deactivate_service_account(*, actor, user):
+    """Deactivate a service account of the current organization; sessions and tokens stop at once.
+
+    Same capability and lock as creation. Revokes the membership's roles, groups and grants,
+    deactivates the membership and the identity, and increments ``auth_version``. Another
+    organization's account, or a human, is reported as unavailable.
+    """
+    from skeleton.access.capabilities import INTEGRATIONS_MANAGE
+    from skeleton.access.services import _revoke_membership_links, organization_lock
+    from skeleton.accounts.models import AccountType, User
+    from skeleton.tenancy.models import Membership
+
+    with organization_lock(actor, capability=INTEGRATIONS_MANAGE) as organization:
+        membership = Membership.objects.select_for_update().filter(user_id=user.pk).first()
+        locked = (
+            User.all_objects.select_for_update()
+            .filter(pk=user.pk, account_type=AccountType.SERVICE, service_organization=organization)
+            .first()
+        )
+        if locked is None or membership is None:
+            raise ValidationError({"user": "Conta de serviço indisponível."})
+        _revoke_membership_links(membership)
+        if membership.is_active:
+            membership.is_active = False
+            membership.save(update_fields={"is_active"})
+        if locked.is_active:
+            locked.is_active = False
+            locked.auth_version += 1
+            locked.save(update_fields=["is_active", "auth_version"])
+        return locked

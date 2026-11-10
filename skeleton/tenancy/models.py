@@ -58,6 +58,25 @@ class Membership(OrganizationRecord):
 
     def clean(self):
         super().clean()
+        if self.deleted_at is None and self.user_id:
+            from skeleton.accounts.models import AccountType, User
+
+            using = self._state.db or "default"
+            # A service account has exactly one membership: the organization that created it (#44).
+            owner = (
+                User.all_objects.using(using)
+                .filter(pk=self.user_id, account_type=AccountType.SERVICE)
+                .values_list("service_organization_id", flat=True)
+                .first()
+            )
+            if owner is not None and owner != self.organization_id:
+                raise ValidationError(
+                    {
+                        "user": ValidationError(
+                            "Uma conta de serviço pertence a uma só organização.", code="service_account"
+                        )
+                    }
+                )
         if self.deleted_at is None and self.is_active:
             from skeleton.accounts.models import User
 

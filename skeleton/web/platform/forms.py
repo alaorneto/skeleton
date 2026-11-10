@@ -49,7 +49,7 @@ class PlatformUserForm(forms.Form):
 
 
 def _owners():
-    return User.objects.filter(is_active=True).order_by("email")
+    return User.objects.filter(is_active=True, account_type="human").order_by("email")
 
 
 class OrganizationCreateForm(forms.Form):
@@ -101,7 +101,7 @@ class OrganizationAdministratorForm(forms.Form):
         from skeleton.accounts.services import normalized_email
 
         email = normalized_email(self.cleaned_data["email"])
-        user = User.objects.filter(email=email, is_active=True).first()
+        user = User.objects.filter(email=email, is_active=True, account_type="human").first()
         if user is None:
             raise forms.ValidationError("Não há identidade ativa com este email.")
         return user

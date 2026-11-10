@@ -54,6 +54,202 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Rodada combinada: instância, webhooks e sequências
+
+Rodada de 2026-11-10 na branch que junta #143, #49, #44, #63, #64, #65, #155 e #156 (um commit por issue e o ajuste final do catálogo da instância e do mapa de pacotes). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1006 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com `test_app_activation_upgrade.py`, `test_sequences.py`, `test_sequence_fields.py`, `test_service_accounts.py`, `test_webhook_endpoints.py`, `test_webhook_delivery.py` e `tests/integration_postgres/test_sequence_concurrency.py` | 382 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido com as quatro tabelas novas; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` | sem problemas, sem migrations pendentes |
+
+As falhas de teste da #44 e da #63 (seções abaixo) não se repetem aqui: a lista inteira passou com as correções.
+
+**Não verificado:** smokes manuais no navegador, entrega de webhook a um destino HTTPS público real, o `run_worker` real, os testes `posix` e o PostgreSQL 16.15 do CI.
+
+## Log, reenvio e teste de webhooks (#65)
+
+Rodada de 2026-11-10 para [#65](https://github.com/alaorneto/skeleton/issues/65): log de entregas (HTML e API), reenvio com `resend_of` (`sk_integrations.0003`), `webhook.ping` e o job periódico `webhooks.retention`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 977 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 369 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run build` e `npm run check` | sem problemas, sem migrations pendentes; o Tailwind passou a ler `skeleton/integrations/templates` |
+
+Cobertura nova em `tests/integration_sqlite/test_webhook_delivery.py` (SQLite e PostgreSQL):
+- o log guarda e mostra no máximo 1 KB da resposta, escapado na página e igual na API;
+- o reenvio exige `If-Match` do endpoint (428/412; no HTML, revisão antiga não cria nada), cria uma entrega nova com `resend_of`, o mesmo evento e o mesmo corpo, e a original continua `failed` com a mesma tentativa e o mesmo status;
+- o `webhook.ping` chega assinado, com `data: {}` e sem registro;
+- membro sem a capacidade e administrador de B recebem 404 na página, na lista, no detalhe e no reenvio, inclusive pela URL de B;
+- a retenção apaga só a entrega final expirada, mantém a que tem retentativa agendada e a original de um reenvio vivo.
+
+**Não verificado:** smoke manual no navegador da página de entregas; o PostgreSQL 16.15 do CI.
+
+## Entrega assinada de webhooks (#64)
+
+Rodada de 2026-11-10 para [#64](https://github.com/alaorneto/skeleton/issues/64): `WebhookDelivery` e `WebhookEndpointHealth` (`sk_integrations.0002`, operacionais), o consumidor `webhooks.fanout`, o job `webhooks.deliver` e a notificação `webhooks.endpoint_disabled`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 972 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_webhook_delivery.py`) | 364 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_webhook_signature.py`: o vetor de teste publicado em `docs/webhooks.md`; duas assinaturas na rotação, a atual primeiro; agenda de retentativas (1 min a 24 h, nada depois da sétima); 5xx/408/429/timeout retentáveis e os demais 4xx não; trecho de resposta limitado a 1 KB e sem caracteres de controle.
+- `tests/integration_sqlite/test_webhook_delivery.py` (SQLite e PostgreSQL, com um receptor HTTP local pelo override de desenvolvimento):
+  - entrega assinada e verificável com o segredo, corpo só com identificadores (nenhum campo da nota), `Skeleton-Webhook-Id` igual à entrega e consumidor idempotente;
+  - 503 é retentado em cerca de 1 minuto e entregue na segunda tentativa; 400 falha sem retentativa;
+  - principal que não lê a nota privada gera entrega `unauthorized` e nada chega ao receptor;
+  - evento não inscrito ou não exposto não cria entrega;
+  - a rotação envia duas assinaturas, ambas válidas;
+  - 15 falhas seguidas desativam o endpoint, notificam os administradores, e o próximo evento não é entregue.
+
+**Não verificado:** entrega a um destino HTTPS público real (a suíte usa o override de desenvolvimento com HTTP local), o worker `run_worker` de fato (os testes usam `run_pending_jobs`) e o PostgreSQL 16.15 do CI.
+
+## Endpoints de webhook por organização (#63)
+
+Rodada de 2026-11-10 para [#63](https://github.com/alaorneto/skeleton/issues/63): app `skeleton.integrations` (`sk_integrations.0001`), `WebhookEndpoint` com segredo cifrado (`INTEGRATION_ENCRYPTION_KEYS`), serviços, páginas e API. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 962 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_webhook_endpoints.py`) | 357 passed, 1 skipped, 1 failed: a consulta crua do teste rodava fora do tenant, e a RLS escondia as linhas. Com a leitura dentro do contexto da organização, `test_webhook_endpoints.py` repetido no PostgreSQL e no SQLite: 13 passed em cada. A lista inteira não foi repetida |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui a infraestrutura nova); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_webhook_endpoints.py` (SQLite e PostgreSQL):
+- a criação devolve o segredo uma vez, com `no-store`; a leitura, a lista e a página não o mostram; a coluna guarda só o token Fernet; a auditoria não traz nem o segredo nem o texto cifrado;
+- recusas com 400: `http://`, IP privado, nome que resolve para endereço interno, metadados de nuvem, tipo de evento não exposto, desconhecido ou vazio;
+- o principal precisa ser conta de serviço ativa da mesma organização (conta de B e pessoa: 400); campo desconhecido é recusado;
+- sem `integrations.manage` (gestor de pessoas, membro), lista, detalhe e página respondem 404; B não vê o endpoint de A;
+- a rotação exige `If-Match` (428/412), devolve segredo novo e mantém o anterior por 24 horas;
+- `PATCH` e `DELETE` usam CAS, e a URL interna também é recusada na alteração;
+- as páginas HTML exigem CSRF e autenticação recente (redireciona; na API, 403 `reauthentication_required`).
+
+O módulo `outbound_http` passou a resolver o DNS no momento da chamada, para o resolver poder ser substituído; os 45 testes da #49 continuam passando.
+
+**Não verificado:** smoke manual no navegador; o PostgreSQL 16.15 do CI. `INTEGRATION_ENCRYPTION_KEYS` ainda não está no catálogo da configuração da instância (#143, outra branch).
+
+## Contas de serviço (#44)
+
+Rodada de 2026-11-10 para [#44](https://github.com/alaorneto/skeleton/issues/44): `User.account_type`/`service_organization` (`sk_accounts.0002`, com a infraestrutura do `User` reinstalada), `integrations.manage`, `create_service_account`/`deactivate_service_account`, recusa de login e o diretório. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 949 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_service_accounts.py`) | 343 passed, 1 skipped, 1 failed: o teste lia o evento global de auditoria sem a GUC de plataforma, que a RLS exige. Corrigido o teste; depois disso, e do ajuste do diretório, rodaram de novo no PostgreSQL `test_service_accounts.py`, `test_notifications_fanout.py`, `test_core_organization_service.py` e `test_core_identity_service.py`: 23 passed. A lista inteira não foi repetida |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `record_infrastructure sk_accounts` | sem problemas, sem migrations nem infraestrutura pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_service_accounts.py` (SQLite e PostgreSQL):
+- o administrador cria a conta: email `@service.invalid`, senha inutilizável, um vínculo sem papel, auditoria com o administrador como ator, marca nas listas HTML e API;
+- login com a senha inutilizável responde igual a um email desconhecido; mesmo com uma senha forjada no banco, o backend recusa, a sessão forçada não vale, o reset não envia email e `pre_login`/`pre_social_login` negam;
+- `organization_admin`, `app_manager` e `people_manager` são recusados com 400, direto e por grupo, nos dois sentidos; `member` é aceito;
+- o vínculo numa segunda organização é recusado pela API e pelo provisionamento de sistema;
+- a desativação revoga os papéis, desativa vínculo e identidade e incrementa `auth_version`; pessoa e conta de outra organização respondem como indisponíveis;
+- o gestor de pessoas não cria, desativa nem altera o vínculo da conta, mas continua gerindo pessoas;
+- a conta fica fora das listas da plataforma (404 no detalhe), e o CHECK do banco recusa flags de plataforma;
+- fica fora do diretório de pessoas e do fan-out de notificações.
+
+**Não verificado:** a lista inteira do PostgreSQL depois das duas últimas correções; SSO real; o PostgreSQL 16.15 do CI.
+
+## Cliente HTTP de saída com proteção contra SSRF (#49)
+
+Rodada de 2026-11-10 para [#49](https://github.com/alaorneto/skeleton/issues/49): `skeleton/common/outbound_http.py`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 941 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (sem teste novo: o cliente não usa banco) | 337 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com o módulo em modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/unit/test_outbound_http.py` (45 casos):
+- tabela de faixas bloqueadas: loopback, `169.254.169.254`, 10/8, 172.16/12, 192.168/16, CGNAT 100.64/10, `0.0.0.0`, multicast, reservados, documentação, `::1`, `::`, link-local e ULA IPv6, `::ffff:127.0.0.1`, NAT64 e 6to4. Endereços públicos IPv4 e IPv6 passam;
+- URLs internas são recusadas sem nenhuma tentativa de conexão;
+- um nome com qualquer endereço interno é recusado;
+- só HTTPS, portas permitidas (configuráveis) e nenhuma credencial na URL;
+- um resolver que responde público e depois privado é consultado uma vez, e a conexão vai ao endereço público validado;
+- o TLS usa o nome no SNI e no certificado;
+- o override de desenvolvimento é recusado com `DEBUG=False`;
+- com um receptor HTTP local e o override ligado: redirect 302 devolvido sem ser seguido, corpo truncado em 64 KB, `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` ignorados, e exatamente três requisições recebidas.
+
+**Não verificado:** uma requisição HTTPS real a um destino público (a suíte não sai para a internet), deployments atrás de proxy de saída corporativo (sem suporte, documentado) e o PostgreSQL 16.15 do CI.
+
+## Campos de sequência no formulário genérico (#156)
+
+Rodada de 2026-11-10 para [#156](https://github.com/alaorneto/skeleton/issues/156) (epic #89): `TableSpec.sequence_fields`, preenchimento na criação genérica e o check no `skeleton.E028`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 916 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_sequence_fields.py`) | 350 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_sequence_fields.py` (SQLite e PostgreSQL), com a spec do Notes trocada no teste para numerar `code`:
+- a API e o formulário preenchem o código com números consecutivos (`NT-<ano>-001`, `-002`); o formulário não mostra o campo; B numera de forma independente;
+- enviar o código na criação ou no `PATCH` responde 400, sem consumir número nem mudar o código;
+- uma criação recusada pela validação, ou por quem não é membro, não consome número;
+- o check reprova campo inexistente, campo gravável e sequência não declarada.
+
+**Não verificado:** smoke manual no navegador (o exemplo Notes não liga a sequência por padrão); o PostgreSQL 16.15 do CI.
+
+## Sequências sem lacunas (#155)
+
+Rodada de 2026-11-10 para [#155](https://github.com/alaorneto/skeleton/issues/155) (epic #89): app `skeleton.sequences` (`sk_sequences.0001`), registro em código com o check `skeleton.E028`, `next_number` e `SequenceService`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 912 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `tests/integration_postgres/test_sequence_concurrency.py` e `test_sequences.py`) | 346 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui a tabela nova); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_sequence_registry.py`: declarações válidas; recusas de chave, período, modelo sem `{number}`, campo desconhecido, formato inválido e duplicata; períodos de calendário em UTC.
+- `tests/integration_sqlite/test_sequences.py` (SQLite e PostgreSQL):
+  - números consecutivos no modelo `AT-{year}-{number:04d}`;
+  - um rollback devolve o número, sem lacuna;
+  - organizações, anos, meses e sequências sem período são independentes;
+  - sem tenant, sequência não declarada e data sem fuso são recusadas sem gravar;
+  - os contadores são auditados (criação e incremento) e isolados por organização;
+  - `SequenceService` passa no `assert_service_contract`, só a app dona numera, e ator divergente, ator ausente e contexto global são recusados.
+- `tests/integration_postgres/test_sequence_concurrency.py`: seis alocações simultâneas recebem números distintos e consecutivos, tanto na criação do contador quanto com o contador existente, sem deadlock; B não vê o contador de A.
+
+**Não verificado:** o PostgreSQL 16.15 do CI.
+
+## Configuração da instância num SQLite próprio (#143)
+
+Rodada de 2026-11-10 para [#143](https://github.com/alaorneto/skeleton/issues/143): `skeleton/instance/` (armazém, catálogo, cifra, resolução), `manage.py instance` e os settings lendo ambiente > SQLite > default. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 905 passed, 112 skipped (marcados `posix`, inclusive o teste de permissão 0600, e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (sem teste novo: o armazém não usa o PostgreSQL) | 337 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com `skeleton/instance` em modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+| Windows, SQLite e chave temporários | `instance status`, `set` (com e sem `--stdin`), `set` de chave desconhecida e de valor inválido, `show` com uma variável de ambiente definida, busca da senha nos bytes do SQLite, settings `development` carregados num processo novo | recusas com mensagem clara; `show` com a origem `env` e o segredo mascarado; a senha não aparece no arquivo; os settings usaram os valores gravados |
+
+Cobertura nova em `tests/unit/test_instance_config.py`:
+- o catálogo é fechado e valida bool, inteiro, lista, URL e escolha; variáveis de bootstrap e a credencial owner ficam fora dele;
+- `set` cifra segredos (a senha e a senha do banco não aparecem nos bytes do SQLite) e `show` os mascara;
+- o `change_log` registra chave, ação e origem, nunca o valor;
+- `set` recusa chave desconhecida e valor inválido sem gravar;
+- o ambiente vence o SQLite, e a origem `env`/`instance`/`default` aparece em `show`;
+- sem a chave mestra, ou com outra, a leitura do segredo falha com erro explícito, sem cair para o default;
+- `import-env`, `unset`, `export-template` (sem valores) e `status`;
+- SQLite e chave em arquivos separados, e criados com 0600 (POSIX);
+- **settings de produção carregados num processo novo só a partir do SQLite**, sem `.env` e sem as variáveis do catálogo.
+
+**Não verificado:** o teste de permissão 0600 (pulado no Windows), o PostgreSQL 16.15 do CI e um smoke num checkout limpo em Linux.
+
 ## Apps fechadas por padrão e upgrade da ativação (#22)
 
 Rodada de 2026-11-10 para [#22](https://github.com/alaorneto/skeleton/issues/22): disponibilidade e ativação fechadas por padrão, `upgrade_app_activation`, `set_app_availability`, aviso de `check_skeleton_schema` e de `package doctor`, e agente/núcleo 0.5.0. Somente o que rodou:

@@ -10,6 +10,8 @@ O skeleton separa três responsabilidades que costumam se confundir: **quem é a
 | Dados organizacionais | Vínculos, papéis/grupos, convites, configuração de apps e negócio derivado | Organização obrigatória, autorização Django e RLS tenant no PostgreSQL |
 | Técnico dos frameworks | Migrations, sessões, content types, permissões Django e tabelas allauth | Schema/lifecycle oficiais, privilégios explícitos e exceção nominal no catálogo |
 
+A **configuração da instância** (banco, email, hosts, segredos, armazenamento) fica fora desses planos: num SQLite próprio (`skeleton/instance/`, padrão `var/instance/instance.sqlite3`), lido pelos settings antes de o Django existir, com `sqlite3` da biblioteca padrão. Ele guarda só configuração e o estado do setup, nunca dados de aplicação, não é um alias de `DATABASES` e não tem migrations Django. O catálogo de chaves é fechado e fica em código (`skeleton/instance/schema.py`); os segredos são tokens Fernet cuja chave mestra fica num arquivo separado. A precedência é ambiente > SQLite > default, e `manage.py instance show` mostra a origem de cada chave.
+
 Uma organização não duplica identidades globais. As tabelas técnicas também não viram entidades de negócio nem entram no gateway genérico. A separação define quem pode consultar e alterar cada recurso: não é apenas uma organização de diretórios.
 
 ## Onde cada responsabilidade fica
@@ -25,6 +27,9 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/jobs` | Fila de jobs no banco, tipos registrados em código | Enqueue na transação do negócio; payload sem dado de negócio; [jobs](jobs.md) |
 | `skeleton/notifications` | Tipos de notificação, `notify()` e linhas por pessoa | Snapshot só com campos declarados e não sensíveis; [notificações](notifications.md) |
 | `skeleton/events` | Eventos de domínio publicados explicitamente pelo serviço | Mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade; [eventos](events.md) |
+| `skeleton/integrations` | Webhooks da organização: endpoints, entrega assinada com retentativas e log | Saídas HTTP só pelo cliente anti-SSRF; entregas agem como a conta de serviço do endpoint; [webhooks](webhooks.md) |
+| `skeleton/sequences` | Sequências sem lacunas por organização e período | Contador bloqueado na transação do chamador; [sequências](sequences.md) |
+| `skeleton/instance` | Configuração da instância num SQLite próprio, com segredos cifrados | Lido antes do Django, sem `DATABASES` nem migrations; nunca guarda dados |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
 | `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate`, erros públicos, introspecção do contrato (`contract`) e APIs declaradas pelas apps (`registry`) | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
 | `skeleton/testing` | Kit de testes distribuído no wheel: `assert_service_contract`, cenário A/B e helpers de isolamento, default deny, app desativada e CAS | Só para testes; cria dados pelas mesmas APIs públicas e não concede bypass |
@@ -42,7 +47,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 
 `sysid` identifica uma linha; código comercial identifica algo segundo o negócio; `table_key` identifica um modelo registrado na interface. Nenhum desses valores é autorização ou um nome SQL livre recebido do cliente.
 
-Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events` e `sk_notifications`; o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
+Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences` e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
 
 ## Caminho de uma requisição
 
@@ -124,5 +129,6 @@ Uma resposta de entrega perdida não autoriza refazer o plano como uma nova oper
 - **Auditoria:** append-only no runtime, não WORM contra DBA/migration owner.
 - **Redis:** coordena rate limiting distribuído em produção; LocMem não coordena vários workers.
 - **HTTP:** sessão Django e CSRF; sem JWT da API, BasicAuth, CORS aberto ou domínio de cookie wildcard.
+- **Saídas HTTP:** toda requisição do núcleo a uma URL escolhida por terceiros (webhooks, push) passa por `skeleton.common.outbound_http`, sobre `http.client`/`ssl` da biblioteca padrão. Só HTTPS nas portas de `SKELETON_OUTBOUND_HTTP_PORTS` (padrão 443), sem credenciais na URL. O nome é resolvido uma vez e recusado se qualquer endereço não for público (privado, loopback, link-local, CGNAT, reservado, multicast, não especificado, IPv4 mapeado em IPv6, NAT64, 6to4/Teredo). A conexão vai ao endereço validado, com SNI, certificado e `Host` do nome, de modo que um DNS que muda a resposta (rebinding) não desvia a conexão. Não segue redirects, ignora variáveis de proxy do ambiente, usa timeouts de 5 s para conectar e 10 s para ler e guarda no máximo 64 KB da resposta. `SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE` libera `http://` e endereços privados só com `DEBUG=True` (um receptor local); com `DEBUG=False` a requisição é recusada. Não use `requests`/`urllib` para esses destinos. Os [webhooks](webhooks.md) são o primeiro uso. Um deployment atrás de proxy de saída corporativo ainda não tem suporte: o proxy precisaria de configuração explícita e própria.
 
 [Controle de acesso](access-control.md) detalha as decisões. [Deployment](deployment.md) mostra como preservar essas fronteiras na operação. [Testes](testing.md) distingue contratos implementados de provas realmente executadas.

@@ -1,0 +1,30 @@
+{% extends 'skeleton/web/base.html' %}{% block title %}{% if endpoint %}{{ endpoint.name }}{% else %}Novo webhook{% endif %} · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'integrations:webhooks' organization_id %}">Webhooks</a></li><li><span aria-current="page">{% if endpoint %}{{ endpoint.name }}{% else %}Novo{% endif %}</span></li></ol></nav>
+    <h1>{% if endpoint %}{{ endpoint.name }}{% else %}Novo webhook{% endif %}</h1>
+    {% if endpoint %}<p class="mt-2"><a href="{% url 'integrations:webhook-deliveries' organization_id endpoint.pk %}">Ver entregas e enviar teste</a></p>{% endif %}
+    {% if endpoint and not endpoint.is_enabled and endpoint.disabled_reason %}<p class="mt-2"><span class="badge badge-dot">Desativado automaticamente ({{ endpoint.disabled_reason }})</span></p>{% endif %}
+  </div>
+</div>
+<form method="post" class="card">
+  {% csrf_token %}
+  {% include "skeleton/web/components/form-errors.html" %}
+  {% include "skeleton/web/components/form-fields.html" %}
+  <p class="mt-2 text-sm/6 text-body-subtle">Salvar exige autenticação recente. O segredo de assinatura aparece uma única vez, ao criar ou rotacionar.</p>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% if endpoint %}Salvar{% else %}Criar webhook{% endif %}</button><a class="btn btn-secondary" href="{% url 'integrations:webhooks' organization_id %}">Cancelar</a></div>
+</form>
+{% if endpoint %}
+<section class="card mt-5" aria-labelledby="webhook-secret">
+  <h2 id="webhook-secret">Segredo de assinatura</h2>
+  <p class="mt-1 text-sm/6 text-body-subtle">Rotacionar gera um segredo novo. O anterior continua assinando as entregas por 24 horas{% if endpoint.previous_valid_until %} (o atual período vai até {{ endpoint.previous_valid_until }}){% endif %}, para o receptor trocar sem perder eventos.</p>
+  <div class="form-actions">
+    <form method="post" action="{% url 'integrations:webhook-rotate' organization_id endpoint.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="btn btn-secondary">Rotacionar segredo</button></form>
+    <form method="post" action="{% url 'integrations:webhook-delete' organization_id endpoint.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="btn btn-danger">Remover webhook</button></form>
+  </div>
+</section>
+{% endif %}
+</div>
+{% endblock %}

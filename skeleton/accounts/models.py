@@ -13,6 +13,14 @@ from skeleton.common.models import SystemRecord
 from .managers import UserManager
 
 
+class AccountType(models.TextChoices):
+    HUMAN = "human", "Pessoa"
+    SERVICE = "service", "Conta de serviço"
+
+
+SERVICE_EMAIL_DOMAIN = "service.invalid"
+
+
 class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     first_name = models.CharField(max_length=150, blank=True)
@@ -21,6 +29,13 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     auth_version = models.PositiveBigIntegerField(default=1)
     local_password_allowed = models.BooleanField(default=True)
+    # A service account acts as a member of exactly one organization and never logs in (#44).
+    account_type = models.CharField(max_length=16, choices=AccountType.choices, default=AccountType.HUMAN)
+    # Not named ``organization``: that name turns on tenant semantics for SystemRecord models (E017).
+    service_organization = models.ForeignKey(
+        "sk_tenancy.Organization", null=True, blank=True, on_delete=models.PROTECT, related_name="service_accounts"
+    )
+    immutable_fields = ("account_type", "service_organization_id")
     groups = None
     user_permissions = None
     objects = UserManager()
@@ -35,7 +50,26 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
                 condition=Q(deleted_at__isnull=True) | Q(is_active=False), name="sk_accounts_user_deleted_inactive"
             ),
             models.CheckConstraint(condition=Q(auth_version__gte=1), name="sk_accounts_user_auth_version_positive"),
+            # A service account belongs to one organization and can never hold a platform flag or a password.
+            models.CheckConstraint(
+                condition=Q(account_type="human", service_organization__isnull=True)
+                | Q(
+                    account_type="service",
+                    service_organization__isnull=False,
+                    is_staff=False,
+                    is_superuser=False,
+                    local_password_allowed=False,
+                ),
+                name="sk_accounts_user_service_account",
+            ),
         ]
+
+    def __str__(self):
+        return f"{self.email} (conta de serviço)" if self.is_service_account else self.email
+
+    @property
+    def is_service_account(self):
+        return self.account_type == AccountType.SERVICE
 
     def clean_fields(self, exclude=None):
         self.email = UserManager.normalize_email(self.email)
@@ -81,9 +115,6 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
         from skeleton.accounts.platform import is_platform_admin
 
         return is_platform_admin(self)
-
-    def __str__(self):
-        return self.email
 
 
 class UserProfile(SystemRecord):

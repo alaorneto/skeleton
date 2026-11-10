@@ -806,7 +806,11 @@ def check_deployed_schema(*, using="default"):
     return errors
 
 
-KEYRINGS = (("MFA_ENCRYPTION_KEYS", "MFA"), ("IDENTITY_PROVIDER_ENCRYPTION_KEYS", "identity provider"))
+KEYRINGS = (
+    ("MFA_ENCRYPTION_KEYS", "MFA"),
+    ("IDENTITY_PROVIDER_ENCRYPTION_KEYS", "identity provider"),
+    ("INTEGRATION_ENCRYPTION_KEYS", "integration"),
+)
 
 
 @register()

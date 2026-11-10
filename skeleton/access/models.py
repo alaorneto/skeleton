@@ -55,6 +55,16 @@ class Role(OrganizationRecord):
         return self.name
 
 
+def validate_service_account_role(membership, role):
+    """A service account never receives a role with a capability, directly or through a group (#44)."""
+    from .capabilities import privileged_role
+
+    if membership.user.is_service_account and privileged_role(role):
+        raise ValidationError(
+            {"role": ValidationError("Conta de serviço não recebe papel com capacidade.", code="service_account_role")}
+        )
+
+
 class MemberRole(OrganizationRecord):
     membership = models.ForeignKey("sk_tenancy.Membership", on_delete=models.PROTECT, related_name="member_roles")
     role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="member_roles")
@@ -68,6 +78,8 @@ class MemberRole(OrganizationRecord):
     def clean(self):
         super().clean()
         validate_active_membership(self)
+        if self.role_id and self.membership_id and self.deleted_at is None:
+            validate_service_account_role(self.membership, self.role)
 
 
 class AccessGroup(OrganizationRecord):
@@ -97,6 +109,9 @@ class GroupMember(OrganizationRecord):
     def clean(self):
         super().clean()
         validate_active_membership(self)
+        if self.group_id and self.membership_id and self.deleted_at is None:
+            for group_role in GroupRole.objects.filter(group_id=self.group_id).select_related("role"):
+                validate_service_account_role(self.membership, group_role.role)
 
 
 class GroupRole(OrganizationRecord):
@@ -108,6 +123,12 @@ class GroupRole(OrganizationRecord):
         constraints = OrganizationRecord.Meta.constraints + [
             live_unique(("group", "role"), "sk_access_grouprole_live_pair")
         ]
+
+    def clean(self):
+        super().clean()
+        if self.group_id and self.role_id and self.deleted_at is None:
+            for member in GroupMember.objects.filter(group_id=self.group_id).select_related("membership__user"):
+                validate_service_account_role(member.membership, self.role)
 
 
 class TablePermission(OrganizationRecord):

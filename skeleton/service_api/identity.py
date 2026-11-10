@@ -19,9 +19,13 @@ def _user(actor: AbstractBaseUser | None) -> Any:
     return actor
 
 
+def _kind(user: Any) -> IdentityKind:
+    return IdentityKind.SERVICE if getattr(user, "is_service_account", False) else IdentityKind.PERSON
+
+
 class IdentityKind(StrEnum):
     PERSON = "person"
-    SERVICE = "service"  # Service accounts (#44) will report this kind.
+    SERVICE = "service"  # Service accounts (#44).
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +81,7 @@ def _me(user: Any) -> UserProfileInfo:
         display_name=_display_name(user, profile),
         language=profile.language,
         timezone=profile.timezone,
-        kind=IdentityKind.PERSON,
+        kind=_kind(user),
         revision=profile.revision,
         first_name=user.first_name,
         last_name=user.last_name,
@@ -129,7 +133,7 @@ class IdentityService(ServiceAPI):
             sysid=person.pk,
             display_name=_display_name(person, _profile(person)),
             email=person.email if has_capability(_user(actor), MEMBERS_VIEW) else None,
-            kind=IdentityKind.PERSON,
+            kind=_kind(person),
         )
 
     @service_method(read_only=False, since="0.5.0", tenant=False)

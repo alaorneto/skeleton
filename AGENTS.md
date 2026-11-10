@@ -30,6 +30,9 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/access`: papéis/grupos, concessões e serviços/policies.
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
+- `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log); saídas HTTP só por `skeleton.common.outbound_http`.
+- `skeleton/sequences`: sequências sem lacunas por organização e período.
+- `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
 - `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos e arquivos; epic #113).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.

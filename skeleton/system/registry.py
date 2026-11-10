@@ -20,6 +20,8 @@ class TableSpec:
     sensitive_fields: tuple = ()
     expose_api: bool = False
     attachments: AttachmentPolicy | None = None
+    # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
+    sequence_fields: tuple = ()
 
 
 _registry = {}
@@ -195,6 +197,30 @@ def register_core_specs():
             "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",
             "organization",
             ("storage_key",),
+        ),
+        "sk_integrations.webhookendpoint": (
+            "Webhooks",
+            "URLs HTTPS que recebem eventos da organização, assinadas com segredo cifrado.",
+            "organization",
+            ("secret_ciphertext", "previous_secret_ciphertext"),
+        ),
+        "sk_integrations.webhookdelivery": (
+            "Entregas de webhook",
+            "Corpo fixo com identificadores, tentativas e último resultado de cada evento por endpoint.",
+            "organization",
+            (),
+        ),
+        "sk_integrations.webhookendpointhealth": (
+            "Saúde dos webhooks",
+            "Falhas seguidas por endpoint; o limite desativa o endpoint.",
+            "organization",
+            (),
+        ),
+        "sk_sequences.sequencecounter": (
+            "Sequências",
+            "Último número entregue de cada sequência declarada, por organização e período.",
+            "organization",
+            (),
         ),
         "sk_audit.auditevent": (
             "Auditoria",
