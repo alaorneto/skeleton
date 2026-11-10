@@ -128,6 +128,14 @@ _SPECS = (
         _list,
         True,
     ),
+    SettingSpec(
+        "integration_encryption_keys",
+        "INTEGRATION_ENCRYPTION_KEYS",
+        "list",
+        "Chaves de cifra dos segredos de integração (webhooks)",
+        _list,
+        True,
+    ),
     SettingSpec("sso_provider_config_path", "SSO_PROVIDER_CONFIG_PATH", "path", "Arquivo de provedores SSO", _text),
     SettingSpec("public_signup", "SKELETON_PUBLIC_SIGNUP", "bool", "Cadastro público aberto", _bool),
     SettingSpec("require_admin_mfa", "SKELETON_REQUIRE_ADMIN_MFA", "bool", "MFA obrigatório para administração", _bool),
@@ -138,6 +146,9 @@ _SPECS = (
         "files_org_quota_bytes", "SKELETON_FILES_ORG_QUOTA_BYTES", "int", "Cota de anexos por organização", _int(0)
     ),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
+    SettingSpec(
+        "webhook_retention_days", "SKELETON_WEBHOOK_RETENTION_DAYS", "int", "Retenção das entregas de webhook", _int(1)
+    ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),
     SettingSpec("files_s3_bucket", "SKELETON_FILES_S3_BUCKET", "str", "Bucket S3 dos anexos", _required_text),

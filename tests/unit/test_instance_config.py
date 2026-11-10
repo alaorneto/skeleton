@@ -67,6 +67,7 @@ def test_catalog_is_closed_and_validates_types():
         "cache_url",
         "mfa_encryption_keys",
         "identity_provider_encryption_keys",
+        "integration_encryption_keys",
     }
 
 
