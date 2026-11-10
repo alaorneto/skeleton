@@ -71,7 +71,7 @@ Alterar um label já usado em migrations não é a mesma coisa que mudar o títu
 
 ### Estrutura, schema e migrations
 
-A **estrutura do banco** descreve tabelas, colunas, índices e relações. No PostgreSQL, **schema** também significa um espaço de nomes que agrupa objetos: este projeto usa `skeleton`. No SQLite, a introspecção usa `main`. Não confunda esse espaço de nomes com a estrutura lógica de um modelo ou o formato de um JSON.
+A **estrutura do banco** descreve tabelas, colunas, índices e relações. No PostgreSQL, **schema** também significa um espaço de nomes que agrupa objetos: este projeto usa `skeleton`. Não confunda esse espaço de nomes com a estrutura lógica de um modelo ou o formato de um JSON.
 
 Uma **migration** é uma mudança versionada que o executor Django aplica ao banco: criar uma tabela, acrescentar uma coluna ou transformar dados. Seu número não é a versão da app. Migrations já aplicadas precisam conservar seus nomes e conteúdo para que instalações antigas continuem atualizáveis.
 
@@ -112,7 +112,7 @@ No PostgreSQL, o contexto também é refletido em **GUCs**, variáveis de config
 
 A credencial **runtime** é a usada pelo processo que atende usuários. A credencial **migrator/owner** é a usada pelo operador para estrutura e migrations. “Owner” neste contexto significa proprietário de objetos SQL, não o campo `owner` de uma anotação. **BYPASSRLS** é um privilégio PostgreSQL que ignora essas políticas; a credencial runtime não o possui.
 
-RLS não implementa papéis, visibilidade ou exclusão lógica: as policies e os serviços Django continuam necessários. Também não é uma defesa contra quem controla o banco ou uma credencial runtime maliciosa capaz de alterar o contexto por SQL. SQLite não tem RLS.
+RLS não implementa papéis, visibilidade ou exclusão lógica: as policies e os serviços Django continuam necessários. Também não é uma defesa contra quem controla o banco ou uma credencial runtime maliciosa capaz de alterar o contexto por SQL.
 
 Veja [controle de acesso](access-control.md) para o algoritmo completo e [deployment](deployment.md) para provisionar as credenciais.
 
@@ -146,7 +146,9 @@ Um **trigger** é uma rotina do banco acionada por uma mudança de linha. Os tri
 
 **Redação** (*redaction*) significa substituir valores sensíveis por `[REDACTED]` antes de gravá-los no evento. Não significa apenas esconder um valor na tela depois de armazená-lo. Campos novos precisam de declaração e infraestrutura apropriadas; não há detecção garantida de segredos desconhecidos.
 
-**Append-only** significa que o runtime acrescenta eventos, mas não os altera nem exclui. Isso não é **WORM** (*write once, read many*, armazenamento que impediria alteração posterior inclusive por atores privilegiados). DBA, owner de migrations e controlador de um arquivo SQLite continuam fronteiras privilegiadas.
+**Append-only** significa que o runtime acrescenta eventos, mas não os altera nem exclui. Isso não é **WORM** (*write once, read many*, armazenamento que impediria alteração posterior inclusive por atores privilegiados). DBA e owner de migrations continuam fronteiras privilegiadas.
+
+A **configuração da instância** (hosts, banco, email, cache, arquivos, segredos) não é dado de aplicação: fica num SQLite próprio da instância, com segredos cifrados por uma chave mestra separada, e o ambiente vence o que estiver gravado. Ela nasce no **setup** do primeiro acesso (um token de uso único protege a instância recém-instalada) e muda depois em `/platform/instance/`, só pelo administrador da plataforma e com autenticação recente.
 
 Veja [auditoria, concorrência e exclusão](audit-soft-delete.md) e [API](api.md).
 

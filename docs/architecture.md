@@ -125,7 +125,6 @@ Uma resposta de entrega perdida não autoriza refazer o plano como uma nova oper
 
 - **PostgreSQL:** runtime não é owner/superuser/BYPASSRLS. Owner offline e audit writer são separados. RLS/FORCE protege filtros tenant esquecidos, não uma credencial runtime maliciosa capaz de `set_config` ou SQL injection arbitrária.
 - **Django:** papéis, visibilidade e exclusão lógica não são implementados pela RLS. Superuser Django não pula os requisitos nas rotas tenant.
-- **SQLite:** serviços, triggers e integridade existem; RLS e segurança contra quem lê/altera o arquivo não existem.
 - **Auditoria:** append-only no runtime, não WORM contra DBA/migration owner.
 - **Redis:** coordena rate limiting distribuído em produção; LocMem não coordena vários workers.
 - **HTTP:** sessão Django e CSRF; sem JWT da API, BasicAuth, CORS aberto ou domínio de cookie wildcard.

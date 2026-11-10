@@ -29,7 +29,7 @@ Os títulos de seção (`##`) são fixos: os formulários em `.github/ISSUE_TEMP
 
 ## Plano de testes
 - [ ] Unitários (`tests/unit/...`): <o que provar>
-- [ ] Integração SQLite (`tests/integration_sqlite/...`): <o que provar>
+- [ ] Integração em PostgreSQL com a role runtime (`tests/integration/...`): <o que provar>
 - [ ] PostgreSQL com role runtime (`tests/integration_postgres/...`): <o que provar | Não se aplica — motivo>
 - [ ] Negativos de segurança: <tenant A/B, default deny, CAS, auditoria, segredos redigidos...>
 - [ ] Smoke manual ou no navegador: <roteiro curto | Não se aplica>
@@ -76,7 +76,7 @@ Use o modelo acima com estas seções no lugar de "Contexto" e "Objetivo":
 1. <...>
 
 ## Ambiente
-<branch/commit, banco (SQLite/PostgreSQL), settings, navegador, versão do core/agente>
+<branch/commit, versão do PostgreSQL, settings, navegador, versão do core/agente>
 
 ## Causa provável
 <diagnóstico, se conhecido; senão "A investigar">

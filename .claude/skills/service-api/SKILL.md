@@ -58,10 +58,10 @@ Para cada método público (modelo em `references/templates.md`):
 - comandos: CAS com um vencedor, idempotência e rollback sem efeitos residuais;
 - `assert_service_contract` e os helpers do kit (`build_service_scenario`, `assert_tenant_isolated`, `assert_denied_as_not_found`, `assert_unavailable_when_disabled`, `assert_rejects_other_actor`, `assert_cas_conflict`).
 
-Rode SQLite e PostgreSQL com a role runtime:
+Rode em PostgreSQL com a role runtime (`tools/dev_postgres.py start` e `env`):
 
 ```sh
-SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts <testes da app>
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests <testes da app>
 .venv/bin/python -m pytest tests/integration_postgres <testes PG da app>
 ```
 
@@ -82,5 +82,5 @@ Registre na issue e em `docs/testing.md` somente o que rodou de fato. Serviço i
 - [ ] Alterações com `expected_revision`; criações repetíveis com `idempotency_key`.
 - [ ] Sem efeito externo dentro do método; rollback do chamador não deixa rastros.
 - [ ] Consumidor importa só `service_api` e declara a dependência no manifesto.
-- [ ] Testes A/B, default deny, desativada, ator divergente, CAS e idempotência em SQLite e PostgreSQL runtime.
+- [ ] Testes A/B, default deny, desativada, ator divergente, CAS e idempotência em PostgreSQL com a role runtime.
 - [ ] `docs/service-api.md` da app atualizado, com histórico de versões.
