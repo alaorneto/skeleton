@@ -25,6 +25,7 @@
     <p class="sidebar-heading" id="platform-data">Dados</p>
     <ul class="sidebar-list" aria-labelledby="platform-data">
       <li><a class="sidebar-link" href="{% url 'platform:catalog' %}"{% if platform_section == "catalog" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Catálogo de tabelas</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:instance' %}"{% if platform_section == "instance" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Configuração da instância</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:audit' %}"{% if platform_section == "audit" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>
     </ul>
   </nav>
