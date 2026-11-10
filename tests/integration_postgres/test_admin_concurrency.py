@@ -198,6 +198,104 @@ def test_superuser_without_staff_keeps_platform_guc_off(skeleton_db):
     assert observed == {fixture.alice.pk: "off", fixture.bob.pk: "on"}
 
 
+def test_concurrent_departures_of_two_administrators_keep_one_without_deadlock(skeleton_db):
+    import time
+
+    from skeleton.access.models import Role
+    from skeleton.access.services import LastAdministrator, leave_organization
+    from skeleton.tenancy.context import system_context
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    fixture = build_security_fixture()
+    with system_context(reason="test:second-admin", organization_id=fixture.a.pk):
+        role = Role.objects.get(code="organization_admin")
+        MemberRole(organization=fixture.a, membership=fixture.alice_membership, role=role).save()
+    leader_locked, follower_waiting = Event(), Event()
+
+    def leave(user, leader):
+        def observe(execute, sql, params, many, context):
+            if "FOR UPDATE" in sql and Organization._meta.db_table in sql:
+                if leader and not leader_locked.is_set():
+                    result = execute(sql, params, many, context)
+                    leader_locked.set()
+                    assert follower_waiting.wait(10), "Follower did not reach the organization lock."
+                    time.sleep(0.5)
+                    return result
+                if not leader and not follower_waiting.is_set():
+                    assert leader_locked.wait(10), "Leader did not lock the organization."
+                    follower_waiting.set()
+            return execute(sql, params, many, context)
+
+        connections.close_all()
+        try:
+            with connection.execute_wrapper(observe):
+                with actor_tenant(user, fixture.a):
+                    leave_organization(user)
+            return "left"
+        except LastAdministrator:
+            return "last_administrator"
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leader = pool.submit(leave, fixture.admin, True)
+        assert leader_locked.wait(10)
+        follower = pool.submit(leave, fixture.alice, False)
+        assert [leader.result(timeout=30), follower.result(timeout=30)] == ["left", "last_administrator"]
+    with actor_tenant(fixture.alice, fixture.a):
+        assert not Membership.objects.filter(user=fixture.admin).exists()
+        assert Membership.objects.get(pk=fixture.alice_membership.pk).is_active
+        assert MemberRole.objects.filter(membership=fixture.alice_membership, role__code="organization_admin").exists()
+
+
+def test_departure_and_admin_removal_of_the_same_member_serialize(skeleton_db):
+    from django.core.exceptions import PermissionDenied, ValidationError
+
+    from skeleton.access.services import delete_membership, leave_organization
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    fixture = build_security_fixture()
+    locked, waiting = Event(), Event()
+
+    def run(kind):
+        def observe(execute, sql, params, many, context):
+            if "FOR UPDATE" in sql and Organization._meta.db_table in sql:
+                if kind == "leave" and not locked.is_set():
+                    result = execute(sql, params, many, context)
+                    locked.set()
+                    assert waiting.wait(10), "Removal did not reach the organization lock."
+                    return result
+                if kind == "remove" and not waiting.is_set():
+                    waiting.set()
+            return execute(sql, params, many, context)
+
+        connections.close_all()
+        try:
+            with connection.execute_wrapper(observe):
+                if kind == "leave":
+                    with actor_tenant(fixture.bob, fixture.a):
+                        leave_organization(fixture.bob)
+                else:
+                    with actor_tenant(fixture.admin, fixture.a):
+                        delete_membership(Membership.objects.get(pk=fixture.bob_membership.pk), user=fixture.admin)
+            return "ok"
+        except (ValidationError, PermissionDenied, ConcurrentUpdate):
+            return "unavailable"
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        departure = pool.submit(run, "leave")
+        assert locked.wait(10)
+        removal = pool.submit(run, "remove")
+        assert [departure.result(timeout=30), removal.result(timeout=30)] == ["ok", "unavailable"]
+    with actor_tenant(fixture.admin, fixture.a):
+        assert Membership.objects.with_deleted().get(pk=fixture.bob_membership.pk).deleted_at is not None
+
+
 def _make_admin(fixture, membership):
     from skeleton.access.models import Role
     from skeleton.tenancy.context import system_context

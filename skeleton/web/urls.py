@@ -11,6 +11,7 @@ urlpatterns = [
     path("health/live/", probe_response, name="health-live"),
     path("health/ready/", probe_response, name="health-ready"),
     path("o/<uuid:organization_id>/", views.dashboard, name="dashboard"),
+    path("o/<uuid:organization_id>/leave/", views.leave_organization, name="leave-organization"),
     path("o/<uuid:organization_id>/catalog/", views.catalog, name="catalog"),
     path("o/<uuid:organization_id>/audit/", views.audit, name="audit"),
     path("o/<uuid:organization_id>/invitations/<uuid:sysid>/resend/", resend, name="invitation-resend"),

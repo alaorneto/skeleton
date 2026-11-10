@@ -144,6 +144,39 @@ def organization_data(item):
     }
 
 
+def own_membership_data(membership):
+    return {
+        "sysid": membership.sysid,
+        "organization_id": membership.organization_id,
+        "is_active": membership.is_active,
+        "revision": membership.revision,
+    }
+
+
+class OwnMembershipView(TenantAPI):
+    """The actor's own membership in this organization; its ETag is what leaving requires."""
+
+    def get(self, request, organization_id):
+        from skeleton.tenancy.models import Membership
+
+        membership = Membership.objects.filter(user=request.user, is_active=True).first()
+        if membership is None:
+            raise Http404
+        return etag(Response(own_membership_data(membership)), membership.revision)
+
+
+class LeaveOrganizationView(TenantAPI):
+    """``POST`` with ``If-Match`` of the membership revision: the actor leaves the organization."""
+
+    @transaction.atomic
+    def post(self, request, organization_id):
+        if request_fields(request):
+            raise BoundaryError("invalid_request", "Sair da organização não aceita campos.")
+        revision = parse_revision(request.headers.get("If-Match"))
+        access_services.leave_organization(request.user, expected_revision=revision)
+        return Response(status=204)
+
+
 class DedicatedView(TenantAPI):
     def check_permissions(self, request):
         super().check_permissions(request)
