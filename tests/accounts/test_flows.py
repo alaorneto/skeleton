@@ -120,11 +120,20 @@ def test_issued_reset_token_cannot_create_password_after_policy_revocation(local
 
     reset = Client()
     path = reset_key_path(reset, local_user.email)
-    with system_context(reason="test:reset-policy"):
-        if state == "sso_only":
+    if state == "sso_only":
+        with system_context(reason="test:reset-policy"):
             local_user.local_password_allowed = False
             local_user.save(update_fields=["local_password_allowed"])
-        else:
+    else:
+        from uuid import uuid4
+
+        from skeleton.tenancy.context import request_context
+
+        # Deactivation runs on the platform plane: the PostgreSQL guard demands its GUC.
+        platform, _ = bootstrap_identity(
+            email="reset-platform@example.test", organization="reset-platform", name="Platform", password=PASSWORD
+        )
+        with request_context(actor=platform, request_id=uuid4(), source="test:reset-policy"):
             deactivate_user(local_user, delete=state == "deleted")
     response = reset.post(path, {"password1": NEW_PASSWORD, "password2": NEW_PASSWORD})
     assert response.status_code in {200, 302, 400, 403}

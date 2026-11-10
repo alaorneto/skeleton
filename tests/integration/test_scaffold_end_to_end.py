@@ -31,7 +31,8 @@ def project(tmp_path, skeleton_db):
         "DJANGO_SETTINGS_MODULE": "config.settings.test",
         "SKELETON_PROJECT_ROOT": str(target),
         "TEST_DATABASE_URL": owner,
-        "SKELETON_ENABLE_EXAMPLE_APP": "false",
+        # Same apps as the schema template this test restored (an unknown table would be unclassified).
+        "SKELETON_ENABLE_EXAMPLE_APP": os.environ.get("SKELETON_ENABLE_EXAMPLE_APP", "false"),
     }
     environment.pop("SKELETON_DEPLOYMENT_INVENTORY", None)
 

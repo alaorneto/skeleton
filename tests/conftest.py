@@ -27,6 +27,9 @@ def _configure(config):
 
 
 POSIX_FILESYSTEM = hasattr(os, "O_NOFOLLOW")
+# The real SSO protocol suite needs Keycloak, a browser and tools/prepare_sso_fixtures.py; it is
+# collected only when its fixture environment is configured (docs/testing.md).
+collect_ignore = [] if os.environ.get("SSO_FIXTURE_ENV_PATH") else ["sso"]
 
 
 def pytest_collection_modifyitems(config, items):
