@@ -97,6 +97,10 @@ files = [
     "skeleton/service_api",
     "skeleton/testing",
     "skeleton/system/import_boundary.py",
+    "skeleton/instance/schema.py",
+    "skeleton/instance/store.py",
+    "skeleton/instance/crypto.py",
+    "skeleton/instance/resolve.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -114,6 +118,10 @@ module = [
     "skeleton.service_api.*",
     "skeleton.testing.*",
     "skeleton.system.import_boundary",
+    "skeleton.instance.schema",
+    "skeleton.instance.store",
+    "skeleton.instance.crypto",
+    "skeleton.instance.resolve",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

@@ -54,6 +54,31 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Configuração da instância num SQLite próprio (#143)
+
+Rodada de 2026-11-10 para [#143](https://github.com/alaorneto/skeleton/issues/143): `skeleton/instance/` (armazém, catálogo, cifra, resolução), `manage.py instance` e os settings lendo ambiente > SQLite > default. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 905 passed, 112 skipped (marcados `posix`, inclusive o teste de permissão 0600, e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (sem teste novo: o armazém não usa o PostgreSQL) | 337 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com `skeleton/instance` em modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+| Windows, SQLite e chave temporários | `instance status`, `set` (com e sem `--stdin`), `set` de chave desconhecida e de valor inválido, `show` com uma variável de ambiente definida, busca da senha nos bytes do SQLite, settings `development` carregados num processo novo | recusas com mensagem clara; `show` com a origem `env` e o segredo mascarado; a senha não aparece no arquivo; os settings usaram os valores gravados |
+
+Cobertura nova em `tests/unit/test_instance_config.py`:
+- o catálogo é fechado e valida bool, inteiro, lista, URL e escolha; variáveis de bootstrap e a credencial owner ficam fora dele;
+- `set` cifra segredos (a senha e a senha do banco não aparecem nos bytes do SQLite) e `show` os mascara;
+- o `change_log` registra chave, ação e origem, nunca o valor;
+- `set` recusa chave desconhecida e valor inválido sem gravar;
+- o ambiente vence o SQLite, e a origem `env`/`instance`/`default` aparece em `show`;
+- sem a chave mestra, ou com outra, a leitura do segredo falha com erro explícito, sem cair para o default;
+- `import-env`, `unset`, `export-template` (sem valores) e `status`;
+- SQLite e chave em arquivos separados, e criados com 0600 (POSIX);
+- **settings de produção carregados num processo novo só a partir do SQLite**, sem `.env` e sem as variáveis do catálogo.
+
+**Não verificado:** o teste de permissão 0600 (pulado no Windows), o PostgreSQL 16.15 do CI e um smoke num checkout limpo em Linux.
+
 ## Apps fechadas por padrão e upgrade da ativação (#22)
 
 Rodada de 2026-11-10 para [#22](https://github.com/alaorneto/skeleton/issues/22): disponibilidade e ativação fechadas por padrão, `upgrade_app_activation`, `set_app_availability`, aviso de `check_skeleton_schema` e de `package doctor`, e agente/núcleo 0.5.0. Somente o que rodou:
