@@ -3,7 +3,12 @@ from allauth.account.auth_backends import AuthenticationBackend
 
 class SkeletonAuthenticationBackend(AuthenticationBackend):
     def user_can_authenticate(self, user):
-        return bool(super().user_can_authenticate(user) and user.deleted_at is None and user.local_password_allowed)
+        return bool(
+            super().user_can_authenticate(user)
+            and user.deleted_at is None
+            and user.local_password_allowed
+            and not user.is_service_account  # Service accounts never log in (#44).
+        )
 
     def get_user(self, user_id):
         # SSO-only identities may retain a session on this backend, but never authenticate by password.
@@ -13,7 +18,8 @@ class SkeletonAuthenticationBackend(AuthenticationBackend):
             user = get_user_model().objects.get(pk=user_id)
         except get_user_model().DoesNotExist:
             return None
-        return user if user.is_active and user.deleted_at is None else None
+        # A service account never holds a session, even one forged or left over.
+        return user if user.is_active and user.deleted_at is None and not user.is_service_account else None
 
     def get_user_permissions(self, user_obj, obj=None):
         return set()

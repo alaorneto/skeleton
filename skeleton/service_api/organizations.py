@@ -11,7 +11,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_uuid, paginate
 from .errors import InvalidInput, NotFound
-from .identity import IdentityKind, PersonSummary, _display_name, _user
+from .identity import PersonSummary, _display_name, _kind, _user
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +32,10 @@ class GroupSummary:
 def _active_members() -> Any:
     from skeleton.tenancy.models import Membership
 
-    # Service accounts (#44) will be excluded here by default.
-    return Membership.objects.filter(is_active=True, user__is_active=True, user__deleted_at__isnull=True)
+    # The directory lists people: service accounts (#44) are left out by default.
+    return Membership.objects.filter(
+        is_active=True, user__is_active=True, user__deleted_at__isnull=True, user__account_type="human"
+    )
 
 
 class OrganizationService(ServiceAPI):
@@ -119,7 +121,7 @@ class OrganizationService(ServiceAPI):
                 sysid=person.pk,
                 display_name=_display_name(person, getattr(person, "profile", None)),
                 email=person.email if show_email else None,
-                kind=IdentityKind.PERSON,
+                kind=_kind(person),
             )
 
         return paginate(rows.order_by("user__sysid"), convert=convert, page_size=page_size, cursor=cursor)

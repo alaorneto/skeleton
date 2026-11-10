@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "skeleton.events.apps.EventsConfig",
     "skeleton.notifications.apps.NotificationsConfig",
     "skeleton.files.apps.FilesConfig",
+    "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.web",
     "skeleton.api",
 ]
@@ -174,11 +175,14 @@ from skeleton.api.proxy import proxy_settings
 globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
+SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 SKELETON_REQUIRE_ADMIN_MFA = env.bool("SKELETON_REQUIRE_ADMIN_MFA", default=False)
 MFA_ENCRYPTION_KEYS = env.list("MFA_ENCRYPTION_KEYS", default=[])
 # Separate keyring for identity provider secrets (client secrets, SAML keys, LDAP passwords):
 # the first key encrypts, all decrypt; never derived from SECRET_KEY.
 IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS", default=[])
+# Separate keyring for integration secrets (webhook signing secrets, #63); never derived from SECRET_KEY.
+INTEGRATION_ENCRYPTION_KEYS = env.list("INTEGRATION_ENCRYPTION_KEYS", default=[])
 MFA_ADAPTER = "skeleton.accounts.adapters.EncryptedMFAAdapter"
 MFA_SUPPORTED_TYPES = ["totp", "recovery_codes"]
 MFA_ALLOW_UNVERIFIED_EMAIL = False

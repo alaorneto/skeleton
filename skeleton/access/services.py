@@ -91,6 +91,14 @@ def administrator_memberships():
     )
 
 
+def require_service_account_manager(user, membership):
+    """Only ``integrations.manage`` changes a service account's membership; a people manager cannot (#44)."""
+    from .capabilities import INTEGRATIONS_MANAGE
+
+    if user is not None and membership.user.is_service_account:
+        require_capability(user, INTEGRATIONS_MANAGE)
+
+
 def ensure_last_admin():
     if not administrator_memberships().exists():
         raise LastAdministrator("An organization must retain an active administrator.")
@@ -205,6 +213,7 @@ def update_membership(record, *, user, data):
     with organization_lock(user, capability=MEMBERS_MANAGE):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
             raise ValidationError("Membership unavailable.")
+        require_service_account_manager(user, record)
         if data.get("is_active") is False:
             require_unprivileged_target(user, membership=record)
             _revoke_membership_links(record)
@@ -218,6 +227,7 @@ def delete_membership(record, *, user):
     with organization_lock(user, capability=MEMBERS_MANAGE):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
             raise ValidationError("Membership unavailable.")
+        require_service_account_manager(user, record)
         require_unprivileged_target(user, membership=record)
         _revoke_membership_links(record)
         record.is_active = False

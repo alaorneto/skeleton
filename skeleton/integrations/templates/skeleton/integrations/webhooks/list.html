@@ -1,0 +1,8 @@
+{% extends 'skeleton/web/base.html' %}{% block title %}Webhooks · Skeleton{% endblock %}
+{% block content %}
+<div class="page-header mb-4! sm:mb-5!">
+  <div class="min-w-0"><p class="page-eyebrow">Integrações</p><h1>Webhooks</h1><p class="page-description">URLs HTTPS que recebem eventos desta organização, assinados com um segredo próprio. Cada entrega age como a conta de serviço escolhida.</p></div>
+  <nav class="toolbar" aria-label="Ações"><a class="button" href="{% url 'integrations:webhook-create' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}Novo webhook</a></nav>
+</div>
+<div class="table-scroll"><table><thead><tr><th scope="col">Nome</th><th scope="col">URL</th><th scope="col">Conta de serviço</th><th scope="col">Eventos</th><th scope="col">Estado</th></tr></thead><tbody>{% for endpoint in endpoints %}<tr><td><a href="{% url 'integrations:webhook' organization_id endpoint.pk %}">{{ endpoint.name }}</a></td><td><code class="break-all">{{ endpoint.url }}</code></td><td>{{ endpoint.principal.first_name|default:endpoint.principal.email }}</td><td>{{ endpoint.event_types|join:", " }}</td><td>{% if endpoint.is_enabled %}<span class="badge badge-success badge-dot">Ativo</span>{% else %}<span class="badge badge-dot">Desativado{% if endpoint.disabled_reason %} ({{ endpoint.disabled_reason }}){% endif %}</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="empty-state">Nenhum webhook cadastrado.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

@@ -17,6 +17,7 @@
 
 /* Fontes de classes: somente templates e JS do próprio projeto. */
 @source "../../skeleton/web/templates";
+@source "../../skeleton/integrations/templates";
 @source "../../skeleton/web/static/skeleton/web/*.js";
 @source "../../skeleton/system/app_template/*.html-tpl";
 @source "../../examples/notes/templates";
