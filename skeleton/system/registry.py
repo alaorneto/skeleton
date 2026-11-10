@@ -202,6 +202,18 @@ def register_core_specs():
             "organization",
             ("secret_ciphertext", "previous_secret_ciphertext"),
         ),
+        "sk_integrations.webhookdelivery": (
+            "Entregas de webhook",
+            "Corpo fixo com identificadores, tentativas e último resultado de cada evento por endpoint.",
+            "organization",
+            (),
+        ),
+        "sk_integrations.webhookendpointhealth": (
+            "Saúde dos webhooks",
+            "Falhas seguidas por endpoint; o limite desativa o endpoint.",
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",

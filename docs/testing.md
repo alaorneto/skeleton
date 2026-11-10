@@ -54,6 +54,29 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Entrega assinada de webhooks (#64)
+
+Rodada de 2026-11-10 para [#64](https://github.com/alaorneto/skeleton/issues/64): `WebhookDelivery` e `WebhookEndpointHealth` (`sk_integrations.0002`, operacionais), o consumidor `webhooks.fanout`, o job `webhooks.deliver` e a notificação `webhooks.endpoint_disabled`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 972 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_webhook_delivery.py`) | 364 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_webhook_signature.py`: o vetor de teste publicado em `docs/webhooks.md`; duas assinaturas na rotação, a atual primeiro; agenda de retentativas (1 min a 24 h, nada depois da sétima); 5xx/408/429/timeout retentáveis e os demais 4xx não; trecho de resposta limitado a 1 KB e sem caracteres de controle.
+- `tests/integration_sqlite/test_webhook_delivery.py` (SQLite e PostgreSQL, com um receptor HTTP local pelo override de desenvolvimento):
+  - entrega assinada e verificável com o segredo, corpo só com identificadores (nenhum campo da nota), `Skeleton-Webhook-Id` igual à entrega e consumidor idempotente;
+  - 503 é retentado em cerca de 1 minuto e entregue na segunda tentativa; 400 falha sem retentativa;
+  - principal que não lê a nota privada gera entrega `unauthorized` e nada chega ao receptor;
+  - evento não inscrito ou não exposto não cria entrega;
+  - a rotação envia duas assinaturas, ambas válidas;
+  - 15 falhas seguidas desativam o endpoint, notificam os administradores, e o próximo evento não é entregue.
+
+**Não verificado:** entrega a um destino HTTPS público real (a suíte usa o override de desenvolvimento com HTTP local), o worker `run_worker` de fato (os testes usam `run_pending_jobs`) e o PostgreSQL 16.15 do CI.
+
 ## Endpoints de webhook por organização (#63)
 
 Rodada de 2026-11-10 para [#63](https://github.com/alaorneto/skeleton/issues/63): app `skeleton.integrations` (`sk_integrations.0001`), `WebhookEndpoint` com segredo cifrado (`INTEGRATION_ENCRYPTION_KEYS`), serviços, páginas e API. Somente o que rodou:
