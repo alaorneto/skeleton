@@ -9,8 +9,6 @@ class AuditConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
-        from .sqlite import register_sqlite_functions
+        from .connection import reset_context_settings
 
-        connection_created.connect(
-            register_sqlite_functions, dispatch_uid="skeleton.audit.context_functions", weak=False
-        )
+        connection_created.connect(reset_context_settings, dispatch_uid="skeleton.audit.context_functions", weak=False)

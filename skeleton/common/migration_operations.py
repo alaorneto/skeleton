@@ -59,17 +59,21 @@ def _lit(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def infrastructure_names(table, vendor, *, operational=False):
-    if operational:
-        # Operational tables: identity guard only; physical DELETE is allowed and nothing is audited.
-        suffixes = ("guard",) if vendor == "postgresql" else ("guard_insert", "guard_update")
-    else:
-        suffixes = (
-            ("guard", "audit")
-            if vendor == "postgresql"
-            else ("guard_insert", "guard_update", "guard_delete", "audit_insert", "audit_update", "audit_delete")
-        )
+def infrastructure_names(table, *, operational=False):
+    """Trigger names of a table; operational tables have the identity guard only (no audit)."""
+    suffixes = ("guard",) if operational else ("guard", "audit")
     return tuple(table + "_sk_" + suffix for suffix in suffixes)
+
+
+def require_postgresql(connection):
+    """Every data table lives in PostgreSQL (#144); any other backend is refused explicitly."""
+    if connection.vendor != "postgresql":
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            "Record infrastructure requires PostgreSQL: the data layer has no other backend "
+            f"(got {connection.vendor}). The instance SQLite stores configuration only."
+        )
 
 
 def is_operational(specification):
@@ -134,12 +138,8 @@ class InstallRecordInfrastructure(Operation):
         model = to_state.apps.get_model(self.app_label, self.model_name)
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
-        if schema_editor.connection.vendor == "sqlite":
-            self._sqlite(schema_editor, model)
-        elif schema_editor.connection.vendor == "postgresql":
-            self._postgres(schema_editor, model)
-        else:
-            raise NotImplementedError("Record infrastructure requires SQLite or PostgreSQL.")
+        require_postgresql(schema_editor.connection)
+        self._postgres(schema_editor, model)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
         if self.replaces is not None:
@@ -148,23 +148,20 @@ class InstallRecordInfrastructure(Operation):
                 app_label, schema_editor, from_state, to_state
             )
             return
+        require_postgresql(schema_editor.connection)
         model = from_state.apps.get_model(self.app_label, self.model_name)
         table, q = model._meta.db_table, schema_editor.quote_name
-        if schema_editor.connection.vendor == "sqlite":
-            for name in infrastructure_names(table, "sqlite"):
-                schema_editor.execute(f"DROP TRIGGER IF EXISTS {q(name)}")
-        else:
-            for name in infrastructure_names(table, "postgresql"):
-                schema_editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
-            for kind in ("guard", "audit"):
-                schema_editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
-            for name in POLICY_NAMES:
-                schema_editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
-            schema_editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
-            for field in self._org_refs(model):
-                schema_editor.execute(
-                    f"ALTER TABLE skeleton.{q(table)} DROP CONSTRAINT IF EXISTS {q(table + '_sk_org_' + field.column)}"
-                )
+        for name in infrastructure_names(table):
+            schema_editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
+        for kind in ("guard", "audit"):
+            schema_editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
+        for name in POLICY_NAMES:
+            schema_editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
+        schema_editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
+        for field in self._org_refs(model):
+            schema_editor.execute(
+                f"ALTER TABLE skeleton.{q(table)} DROP CONSTRAINT IF EXISTS {q(table + '_sk_org_' + field.column)}"
+            )
 
     def operational(self):
         return is_operational(self.specification)
@@ -236,123 +233,6 @@ class InstallRecordInfrastructure(Operation):
             for field in model._meta.concrete_fields
             if field.name not in MECHANICAL
         ]
-
-    def _sqlite_value(self, model, column, reference, quote):
-        field = next(field for field in model._meta.concrete_fields if field.column == column)
-        value = f"{reference}.{quote(column)}"
-        kind = field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
-        if kind == "UUIDField":
-            return f"CASE WHEN {value} IS NULL THEN NULL ELSE substr({value},1,8)||'-'||substr({value},9,4)||'-'||substr({value},13,4)||'-'||substr({value},17,4)||'-'||substr({value},21,12) END"
-        if kind == "JSONField":
-            return f"json({value})"
-        if kind == "BooleanField":
-            return f"CASE WHEN {value} IS NULL THEN NULL ELSE json(CASE WHEN {value} THEN 'true' ELSE 'false' END) END"
-        return value
-
-    def _sqlite(self, editor, model):
-        q, table = editor.quote_name, model._meta.db_table
-        append = self._append_only(model)
-        for name in infrastructure_names(table, "sqlite"):
-            editor.execute(f"DROP TRIGGER IF EXISTS {q(name)}")
-        if self.operational():
-            self._sqlite_operational(editor, model)
-            return
-        relation_guards = []
-        for field in self._org_refs(model):
-            target = field.related_model._meta.db_table
-            relation_guards.append(
-                f"SELECT CASE WHEN NEW.{q(field.column)} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM {q(target)} WHERE sysid=NEW.{q(field.column)} AND organization_id=NEW.organization_id) THEN RAISE(ABORT, 'cross-tenant reference') END;"
-            )
-        common = "\n".join(relation_guards)
-        insert_guard = (
-            "SELECT CASE WHEN NEW.sysid IS NULL OR length(NEW.sysid) != 32 OR NEW.sysid GLOB '*[^0-9a-f]*' "
-            "THEN RAISE(ABORT, 'sysid must be a canonical UUID') END; "
-            "SELECT CASE WHEN NEW.revision != 1 THEN RAISE(ABORT, 'initial revision must be one') END;"
-        )
-        if append:
-            insert_guard += " SELECT CASE WHEN NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN RAISE(ABORT, 'audit is append only') END;"
-        editor.execute(
-            f"CREATE TRIGGER {q(table + '_sk_guard_insert')} BEFORE INSERT ON {q(table)} BEGIN {insert_guard} {common} END"
-        )
-        if append:
-            update_guard = "SELECT RAISE(ABORT, 'audit is append only');"
-        else:
-            clauses = [
-                f"SELECT CASE WHEN NEW.{q(name)} IS NOT OLD.{q(name)} THEN RAISE(ABORT, 'immutable record identity') END;"
-                for name in self._immutable(model)
-            ]
-            clauses.append(
-                "SELECT CASE WHEN NEW.revision != OLD.revision + 1 THEN RAISE(ABORT, 'revision must increment') END;"
-            )
-            update_guard = " ".join(clauses) + common
-        editor.execute(
-            f"CREATE TRIGGER {q(table + '_sk_guard_update')} BEFORE UPDATE ON {q(table)} BEGIN {update_guard} END"
-        )
-        editor.execute(
-            f"CREATE TRIGGER {q(table + '_sk_guard_delete')} BEFORE DELETE ON {q(table)} BEGIN SELECT RAISE(ABORT, 'physical delete prohibited'); END"
-        )
-        if append:
-            return
-        fields = self._audit_fields(model)
-        for operation in ("insert", "update", "delete"):
-            ref = "OLD" if operation == "delete" else "NEW"
-            changed = " OR ".join(f"OLD.{q(column)} IS NOT NEW.{q(column)}" for column, _ in fields) or "0"
-            fragments = []
-            for column, sensitive in fields:
-                old = (
-                    "NULL"
-                    if operation == "insert"
-                    else (_lit("[REDACTED]") if sensitive else self._sqlite_value(model, column, "OLD", q))
-                )
-                new = (
-                    "NULL"
-                    if operation == "delete"
-                    else (_lit("[REDACTED]") if sensitive else self._sqlite_value(model, column, "NEW", q))
-                )
-                redacted = _lit("true" if sensitive else "false")
-                entry = f"json_object({_lit(column)}, json_object('old',{old},'new',{new},'redacted',json({redacted})))"
-                if operation == "update":
-                    entry = f"CASE WHEN OLD.{q(column)} IS NOT NEW.{q(column)} THEN {entry} ELSE '{{}}' END"
-                fragments.append(entry)
-            # RFC 7396 json_patch removes null keys recursively. Aggregate complete
-            # change objects instead, preserving both old/new even when null.
-            union = " UNION ALL ".join(f"SELECT key,value FROM json_each({fragment})" for fragment in fragments)
-            changes = f"(SELECT json_group_object(key,json(value)) FROM ({union}))" if fragments else "'{}'"
-            org = f"{ref}.organization_id" if any(f.name == "organization" for f in model._meta.fields) else "NULL"
-            action = _lit("create" if operation == "insert" else "hard_delete" if operation == "delete" else "update")
-            if operation == "update":
-                action = "CASE WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN 'soft_delete' WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL THEN 'restore' ELSE 'update' END"
-            editor.execute(f"""CREATE TRIGGER {q(table + "_sk_audit_" + operation)} AFTER {operation.upper()} ON {q(table)}
-                {("WHEN " + changed) if operation == "update" else ""} BEGIN
-                INSERT INTO sk_audit_auditevent
-                (sysid,created_at,updated_at,created_by,updated_by,deleted_by,deleted_at,revision,
-                 organization_id,table_name,model_label,record_sysid,record_revision,operation,actor_sysid,request_id,source,db_principal,changes)
-                VALUES (skeleton_uuid(),skeleton_now(),skeleton_now(),skeleton_actor(),skeleton_actor(),NULL,NULL,1,
-                 {org},{_lit(table)},{_lit(model._meta.label_lower)},{ref}.sysid,{ref}.revision,{action},skeleton_actor(),skeleton_request_id(),skeleton_source(),'sqlite',{changes}); END""")
-
-    def _sqlite_operational(self, editor, model):
-        q, table = editor.quote_name, model._meta.db_table
-        relation_guards = []
-        for field in self._org_refs(model):
-            target = field.related_model._meta.db_table
-            relation_guards.append(
-                f"SELECT CASE WHEN NEW.{q(field.column)} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM {q(target)} WHERE sysid=NEW.{q(field.column)} AND organization_id=NEW.organization_id) THEN RAISE(ABORT, 'cross-tenant reference') END;"
-            )
-        common = "\n".join(relation_guards)
-        insert_guard = (
-            "SELECT CASE WHEN NEW.sysid IS NULL OR length(NEW.sysid) != 32 OR NEW.sysid GLOB '*[^0-9a-f]*' "
-            "THEN RAISE(ABORT, 'sysid must be a canonical UUID') END;"
-        )
-        editor.execute(
-            f"CREATE TRIGGER {q(table + '_sk_guard_insert')} BEFORE INSERT ON {q(table)} BEGIN {insert_guard} {common} END"
-        )
-        clauses = " ".join(
-            f"SELECT CASE WHEN NEW.{q(name)} IS NOT OLD.{q(name)} THEN RAISE(ABORT, 'immutable record identity') END;"
-            for name in self._immutable(model)
-        )
-        editor.execute(
-            f"CREATE TRIGGER {q(table + '_sk_guard_update')} BEFORE UPDATE ON {q(table)} BEGIN {clauses} {common} END"
-        )
 
     def _postgres(self, editor, model):
         q, table = editor.quote_name, model._meta.db_table

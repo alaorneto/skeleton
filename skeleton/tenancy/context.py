@@ -224,8 +224,8 @@ def own_rows(model: Any, user: Any, *, using: str = "default") -> Any:
     """Live rows of ``model`` that belong to ``user`` in every organization (self-discovery).
 
     Only models that declare ``self_discovery_field`` (frozen as ``self_discovery_column``
-    in their migration) qualify. The filter by user is explicit in Python, as SQLite has no
-    RLS; on PostgreSQL the policy additionally limits cross-tenant reads to the actor GUC.
+    in their migration) qualify. The filter by user is explicit in Python as defense in depth;
+    the PostgreSQL policy also limits cross-tenant reads to the actor GUC.
     The normal manager stays restricted to the current tenant, and writes never cross it.
     """
     field = getattr(model, "self_discovery_field", None)

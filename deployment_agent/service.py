@@ -733,7 +733,7 @@ class DeploymentService:
                         self.backend.restore(operation["backup"], previous)
                     previous_inventory = record["previous_inventory"]
                     previous_owned = record["previous_owned_files"]
-                    if action == "restore" and load_json(operation["backup"])["database_kind"] != "sqlite":
+                    if action == "restore":
                         self.backend.manage(
                             previous,
                             ["reinstall_record_infrastructure", "--database", "default"],

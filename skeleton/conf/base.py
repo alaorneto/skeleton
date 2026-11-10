@@ -85,11 +85,26 @@ TEMPLATES = [
         },
     }
 ]
-DATABASES = {"default": env.db("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")}
-DATABASES["default"]["ATOMIC_REQUESTS"] = False
-if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
-    DATABASES["default"].setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
-    DATABASES["default"]["CONN_MAX_AGE"] = 60
+
+
+def database_config(env, variable, *, conn_max_age=60):
+    """``DATABASES`` entry of a PostgreSQL URL; empty when the variable is unset (setup, #146).
+
+    The data layer is PostgreSQL only (#144): another engine stays in the config only so that
+    check ``skeleton.E025`` can refuse it with a clear message. SQLite is never a fallback.
+    """
+    if not env.str(variable, default=""):
+        return None
+    config = env.db(variable)
+    config["ATOMIC_REQUESTS"] = False
+    if config["ENGINE"] == "django.db.backends.postgresql":
+        config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
+        config["CONN_MAX_AGE"] = conn_max_age
+    return config
+
+
+_database = database_config(env, "DATABASE_URL")
+DATABASES = {"default": _database} if _database else {}
 CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
 EMAIL_CONFIG = env.email("EMAIL_URL", default="consolemail://")
 vars().update(EMAIL_CONFIG)

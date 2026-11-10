@@ -3,7 +3,7 @@
 O teste de contrato não usa banco. Os testes de cenário do kit (skeleton.testing.service_api:
 build_service_scenario, assert_tenant_isolated, assert_denied_as_not_found,
 assert_unavailable_when_disabled, assert_cas_conflict) rodam dentro da fixture de banco isolado
-do projeto, em SQLite e PostgreSQL com a role runtime.
+do projeto, em PostgreSQL com a role runtime.
 """
 
 from skeleton.testing.service_api import assert_service_contract

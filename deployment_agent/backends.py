@@ -3,7 +3,6 @@
 import json
 import os
 import shutil
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -207,12 +206,6 @@ class Backend:
             result[allowed[key]] = values[0]
         return result
 
-    def sqlite_path(self, release):
-        url = self.config.environment("migration", release)["MIGRATION_DATABASE_URL"]
-        if not url.startswith("sqlite:////"):
-            raise AgentError("sqlite_requires_absolute_path")
-        return Path(unquote(url[len("sqlite:///") :].split("?", 1)[0]))
-
     def backup(self, release, operation):
         root = self.store.root / "backups" / operation
         if root.exists():
@@ -220,26 +213,21 @@ class Backend:
             root = root.with_name(f"{operation}-{uuid4()}")
         root.mkdir(mode=0o700, exist_ok=False)
         url = urlsplit(self.config.environment("migration", release)["MIGRATION_DATABASE_URL"])
-        if url.scheme == "sqlite":
-            database = root / "database.sqlite3"
-            with sqlite3.connect(self.sqlite_path(release)) as source, sqlite3.connect(database) as target:
-                source.backup(target)
-                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise AgentError("backup_invalid", 409)
-        else:
-            database = root / "database.dump"
-            self.run(
-                [
-                    self.config.get("pg_dump", "/usr/bin/pg_dump"),
-                    "--format=custom",
-                    "--schema=skeleton",
-                    "--file",
-                    database,
-                ],
-                env=self.pg_environment(release),
-                code="backup_failed",
-            )
-            self.run([self.config.get("pg_restore", "/usr/bin/pg_restore"), "--list", database], code="backup_invalid")
+        if url.scheme not in ("postgres", "postgresql"):
+            raise AgentError("unsupported_database")  # The data layer is PostgreSQL only (#144).
+        database = root / "database.dump"
+        self.run(
+            [
+                self.config.get("pg_dump", "/usr/bin/pg_dump"),
+                "--format=custom",
+                "--schema=skeleton",
+                "--file",
+                database,
+            ],
+            env=self.pg_environment(release),
+            code="backup_failed",
+        )
+        self.run([self.config.get("pg_restore", "/usr/bin/pg_restore"), "--list", database], code="backup_invalid")
         if not database.is_file() or database.stat().st_size == 0:
             raise AgentError("backup_invalid", 409)
         resources = []
@@ -283,37 +271,35 @@ class Backend:
             hashes = inventory_files(target) if resource["directory"] else {".": {"sha256": file_hash(target)}}
             if hashes != resource["files"]:
                 raise AgentError("backup_hash_conflict", 409)
-        if metadata["database_kind"] == "sqlite":
-            with sqlite3.connect(database) as source, sqlite3.connect(self.sqlite_path(release)) as target:
-                source.backup(target)
-        else:
-            # Objects introduced after the snapshot are absent from its DROP list.
-            self.run(
-                [
-                    self.config.get("psql", "/usr/bin/psql"),
-                    "--no-psqlrc",
-                    "--set",
-                    "ON_ERROR_STOP=1",
-                    "--command",
-                    "DROP SCHEMA IF EXISTS skeleton CASCADE",
-                ],
-                env=self.pg_environment(release),
-                code="restore_reset_failed",
-            )
-            self.run(
-                [
-                    self.config.get("pg_restore", "/usr/bin/pg_restore"),
-                    "--clean",
-                    "--if-exists",
-                    "--exit-on-error",
-                    "--no-owner",
-                    "--dbname",
-                    self.pg_environment(release)["PGDATABASE"],
-                    database,
-                ],
-                env=self.pg_environment(release),
-                code="restore_failed",
-            )
+        if metadata["database_kind"] not in ("postgres", "postgresql"):
+            raise AgentError("unsupported_database", 409)  # Only pg_dump snapshots are restorable.
+        # Objects introduced after the snapshot are absent from its DROP list.
+        self.run(
+            [
+                self.config.get("psql", "/usr/bin/psql"),
+                "--no-psqlrc",
+                "--set",
+                "ON_ERROR_STOP=1",
+                "--command",
+                "DROP SCHEMA IF EXISTS skeleton CASCADE",
+            ],
+            env=self.pg_environment(release),
+            code="restore_reset_failed",
+        )
+        self.run(
+            [
+                self.config.get("pg_restore", "/usr/bin/pg_restore"),
+                "--clean",
+                "--if-exists",
+                "--exit-on-error",
+                "--no-owner",
+                "--dbname",
+                self.pg_environment(release)["PGDATABASE"],
+                database,
+            ],
+            env=self.pg_environment(release),
+            code="restore_failed",
+        )
         for resource in metadata["resources"]:
             source, target = Path(resource["snapshot"]), Path(resource["path"])
             if resource["directory"]:

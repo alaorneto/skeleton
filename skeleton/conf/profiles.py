@@ -22,12 +22,12 @@ def production_settings(base):
 
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
-    DATABASES = {"default": env.db("DATABASE_URL")}
-    if DATABASES["default"]["ENGINE"] != "django.db.backends.postgresql":
-        raise ImproperlyConfigured("Produção exige PostgreSQL; SQLite é apenas para setup/desenvolvimento.")
-    DATABASES["default"].setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
-    DATABASES["default"]["ATOMIC_REQUESTS"] = False
-    DATABASES["default"]["CONN_MAX_AGE"] = 60
+    from skeleton.conf.base import database_config
+
+    database = database_config(env, "DATABASE_URL")
+    if database is None or database["ENGINE"] != "django.db.backends.postgresql":
+        raise ImproperlyConfigured("Produção exige DATABASE_URL apontando para PostgreSQL.")
+    DATABASES = {"default": database}
     CACHES = {"default": env.cache("CACHE_URL")}
     if CACHES["default"]["BACKEND"] != "django.core.cache.backends.redis.RedisCache":
         raise ImproperlyConfigured("Produção exige Redis compartilhado.")
@@ -78,10 +78,11 @@ def migrate_settings(base):
     env = base["env"]
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
-    DATABASES = {"default": env.db("MIGRATION_DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")}
-    DATABASES["default"]["ATOMIC_REQUESTS"] = False
-    if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
-        DATABASES["default"].setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
+    from skeleton.conf.base import database_config
+
+    # The owner credential is transient: environment only, never the instance store.
+    database = database_config(env, "MIGRATION_DATABASE_URL", conn_max_age=0)
+    DATABASES = {"default": database} if database else {}
     # Migrations do not authenticate or contact IdPs; runtime settings own provider configuration.
     SOCIALACCOUNT_PROVIDERS = {}
 
@@ -99,9 +100,11 @@ def test_settings(base):
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
     DEBUG = True
-    DATABASES = {"default": env.db("TEST_DATABASE_URL", default="sqlite:///:memory:")}
-    if DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql":
-        DATABASES["default"].setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
+    from skeleton.conf.base import database_config
+
+    # The suite runs on PostgreSQL with the runtime role (#145); tools/dev_postgres.py provides one.
+    database = database_config(env, "TEST_DATABASE_URL", conn_max_age=0)
+    DATABASES = {"default": database} if database else {}
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     import tempfile
 

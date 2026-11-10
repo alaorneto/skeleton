@@ -131,19 +131,13 @@ class Config:
             raise AgentError("migration_secret_in_runtime")
         if not migration.get("MIGRATION_DATABASE_URL"):
             raise AgentError("missing_migration_credentials")
-        if migration.get("MIGRATION_DATABASE_URL") == runtime.get("DATABASE_URL") and not values.get(
-            "allow_sqlite", False
-        ):
+        if migration.get("MIGRATION_DATABASE_URL") == runtime.get("DATABASE_URL"):
             raise AgentError("shared_database_credentials")
         if not runtime.get("DATABASE_URL"):
             raise AgentError("missing_runtime_credentials")
         for url in (runtime["DATABASE_URL"], migration["MIGRATION_DATABASE_URL"]):
-            if (
-                urlsplit(url).scheme not in ("postgres", "postgresql", "sqlite")
-                or urlsplit(url).scheme == "sqlite"
-                and not values.get("allow_sqlite", False)
-            ):
-                raise AgentError("unsupported_database")
+            if urlsplit(url).scheme not in ("postgres", "postgresql"):
+                raise AgentError("unsupported_database")  # PostgreSQL only (#144).
         if values.get("backup_env_file"):
             if not isinstance(values["backup_env_file"], str) or not Path(values["backup_env_file"]).is_absolute():
                 raise AgentError("invalid_backup_environment_path")
