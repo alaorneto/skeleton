@@ -2,7 +2,9 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
-from skeleton.common.models import OperationalRecord
+from skeleton.common.models import OperationalRecord, SystemRecord
+
+DEFAULT_TYPE = "*"
 
 
 class Notification(OperationalRecord):
@@ -91,3 +93,48 @@ class NotificationRecipient(OperationalRecord):
 
     def __str__(self):
         return f"{self.user_id} {self.notification_id}"
+
+
+class UserNotificationPreference(SystemRecord):
+    """How one person receives one notification type on one channel (#53).
+
+    ``type_code`` ``*`` is the person's default for every type. Without a row the type's
+    ``default_channels`` apply. A mandatory type always reaches the in-app inbox.
+    """
+
+    class Channel(models.TextChoices):
+        IN_APP = "in_app", "Na aplicação"
+        EMAIL = "email", "Email"
+        PUSH = "push", "Push no navegador"
+
+    class Mode(models.TextChoices):
+        OFF = "off", "Desligado"
+        IMMEDIATE = "immediate", "Imediato"
+        DAILY = "daily", "Resumo diário"
+        WEEKLY = "weekly", "Resumo semanal"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    type_code = models.CharField(max_length=100)
+    channel = models.CharField(max_length=16, choices=Channel.choices)
+    mode = models.CharField(max_length=16, choices=Mode.choices)
+    # Local hour (the person's time zone) of daily and weekly digests; weekly digests go on Mondays.
+    digest_hour = models.PositiveSmallIntegerField(default=8)
+    immutable_fields = ("user_id", "type_code", "channel")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("user", "type_code", "channel"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_preference_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(condition=Q(digest_hour__lte=23), name="sk_notif_preference_hour"),
+            models.CheckConstraint(
+                condition=Q(channel="email") | Q(mode__in=("off", "immediate")),
+                name="sk_notif_preference_digest_email",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} {self.type_code} {self.channel}"

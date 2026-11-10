@@ -192,6 +192,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_notifications.usernotificationpreference": (
+            "Preferências de notificação",
+            "Modo de cada canal (in-app, email, push) por tipo de notificação, escolhido pela própria pessoa.",
+            "global",
+            (),
+        ),
         "sk_files.attachment": (
             "Anexos",
             "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",

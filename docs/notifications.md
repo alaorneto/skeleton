@@ -78,3 +78,23 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 - O cabeçalho mostra o contador de não lidas de todas as organizações com vínculo ativo, limitado a `99+`. O número de consultas é constante (índice parcial `(user_id) WHERE read_at IS NULL AND archived_at IS NULL`).
 - Tudo funciona sem JavaScript: as ações são formulários comuns.
 - A raiz `notifications/` é reservada ao núcleo: uma app não pode capturá-la.
+
+## Preferências
+
+Cada pessoa escolhe, por tipo e canal, como recebe as notificações em todas as organizações (`UserNotificationPreference`, `SystemRecord` global, auditado e com revisão). A página fica em `/profile/notifications/` (formulário comum, sem JavaScript) e a API de sessão em `/api/v1/me/notification-preferences/`.
+
+| Canal | Modos |
+|---|---|
+| `in_app` | `off`, `immediate` |
+| `email` | `off`, `immediate`, `daily`, `weekly` (com `digest_hour`, de 0 a 23, no fuso da pessoa; o semanal sai às segundas-feiras) |
+| `push` | `off`, `immediate` |
+
+A resolução vai do mais específico ao mais geral: a linha da pessoa para o tipo, a linha `*` (padrão dela para todos os tipos) e, sem linha, o `default_channels` do tipo (canal listado é `immediate`, os demais `off`). Um tipo `mandatory=True` sempre chega à caixa in-app: desligá-lo responde 400, e a linha `*` não o desliga.
+
+| Rota | O que faz |
+|---|---|
+| `GET /api/v1/me/notification-preferences/` | Todos os tipos registrados e o `*`, com `mode`, `digest_hour`, `source` (`own`, `default`, `type`, `mandatory`), `sysid` e `revision` da linha, quando existe |
+| `GET`/`PUT /api/v1/me/notification-preferences/<tipo>/<canal>/` | `PUT {"mode": ..., "digest_hour": ...}`. Sem linha, cria (sem `If-Match`); com linha, exige `If-Match` com a revisão (428 sem ela, 412 desatualizada) |
+| `DELETE /api/v1/me/notification-preferences/<tipo>/<canal>/` | Exclusão lógica com `If-Match`: volta a valer o nível seguinte da resolução |
+
+A pessoa só lê e altera as próprias linhas: nenhuma rota recebe identificador de usuário. Um formulário com revisão antiga responde 409 sem gravar nada.
