@@ -57,7 +57,10 @@ def dedicated_input(resource, data, *, user, creating=True):
 def dedicated_data(resource, record):
     _, fields = dedicated_model(resource)
     extra = {"roles": ("is_builtin",), "invitations": ("expires_at", "accepted_at", "accepted_by")}.get(resource, ())
-    return record_data(record, (*fields, *extra))
+    data = record_data(record, (*fields, *extra))
+    if resource == "memberships":
+        data["account_type"] = record.user.account_type  # Service accounts are marked in the list (#44).
+    return data
 
 
 def profile_data(user, profile):

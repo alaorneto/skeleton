@@ -24,6 +24,8 @@ ADMISSION_CONFIGURE = "admission.configure"
 APPS_MANAGE = "apps.manage"
 ACCESS_MANAGE = "access.manage"
 IDENTITY_CONFIGURE = "identity.configure"
+# Service accounts and, later, their tokens and webhooks (#44); only the administrator holds it.
+INTEGRATIONS_MANAGE = "integrations.manage"
 
 CAPABILITIES: frozenset[str] = frozenset(
     {
@@ -35,6 +37,7 @@ CAPABILITIES: frozenset[str] = frozenset(
         APPS_MANAGE,
         ACCESS_MANAGE,
         IDENTITY_CONFIGURE,
+        INTEGRATIONS_MANAGE,
     }
 )
 

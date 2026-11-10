@@ -31,6 +31,12 @@ def _accept_pending(request, user):
 
 
 class AccountAdapter(DefaultAccountAdapter):
+    def pre_login(self, request, user, **kwargs):
+        # Defense in depth after the backend: no interactive login path admits a service account (#44).
+        if getattr(user, "is_service_account", False):
+            _deny()
+        return super().pre_login(request, user, **kwargs)
+
     def is_open_for_signup(self, request):
         return pending_invitation(request) is not None or getattr(settings, "SKELETON_PUBLIC_SIGNUP", False)
 
@@ -130,6 +136,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
     def pre_social_login(self, request, sociallogin):
         from skeleton.accounts.models import User
 
+        if getattr(getattr(request, "user", None), "is_service_account", False) or (
+            sociallogin.is_existing and sociallogin.user.is_service_account
+        ):
+            _deny()  # Service accounts never connect or log in through a provider (#44).
         binding = binding_for_sociallogin(sociallogin)
         connecting = sociallogin.state.get("process") == "connect"
         if connecting:

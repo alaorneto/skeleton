@@ -94,7 +94,11 @@ def overview(request):
             "platform_section": "overview",
             "core": core_version(),
             "stats": [
-                ("Usuários ativos", User.objects.filter(is_active=True).count(), reverse("platform:users")),
+                (
+                    "Usuários ativos",
+                    User.objects.filter(is_active=True, account_type="human").count(),
+                    reverse("platform:users"),
+                ),
                 (
                     "Organizações ativas",
                     Organization.objects.filter(is_active=True).count(),
@@ -119,7 +123,8 @@ def overview(request):
 @require_safe
 def users(request):
     query, filters = _search(request)
-    queryset = _model("sk_accounts.User").objects.order_by("email")
+    # Service accounts belong to their organization, outside platform lists and limits (#44).
+    queryset = _model("sk_accounts.User").objects.filter(account_type="human").order_by("email")
     if query:
         queryset = queryset.filter(Q(email__icontains=query) | Q(first_name__icontains=query))
     return render(
@@ -176,7 +181,7 @@ def user_create(request):
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def user_detail(request, sysid):
-    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid)
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
     initial = {name: getattr(user, name) for name in PLATFORM_USER_FIELDS}
     form = PlatformUserForm(request.POST or None, initial={**initial, "expected_revision": user.revision})
     status = 200
@@ -207,7 +212,7 @@ def user_detail(request, sysid):
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def user_delete(request, sysid):
-    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid)
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
     status = 200
     error = None
     if request.method == "POST":

@@ -54,6 +54,29 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Contas de serviço (#44)
+
+Rodada de 2026-11-10 para [#44](https://github.com/alaorneto/skeleton/issues/44): `User.account_type`/`service_organization` (`sk_accounts.0002`, com a infraestrutura do `User` reinstalada), `integrations.manage`, `create_service_account`/`deactivate_service_account`, recusa de login e o diretório. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 949 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_service_accounts.py`) | 343 passed, 1 skipped, 1 failed: o teste lia o evento global de auditoria sem a GUC de plataforma, que a RLS exige. Corrigido o teste; depois disso, e do ajuste do diretório, rodaram de novo no PostgreSQL `test_service_accounts.py`, `test_notifications_fanout.py`, `test_core_organization_service.py` e `test_core_identity_service.py`: 23 passed. A lista inteira não foi repetida |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `record_infrastructure sk_accounts` | sem problemas, sem migrations nem infraestrutura pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_service_accounts.py` (SQLite e PostgreSQL):
+- o administrador cria a conta: email `@service.invalid`, senha inutilizável, um vínculo sem papel, auditoria com o administrador como ator, marca nas listas HTML e API;
+- login com a senha inutilizável responde igual a um email desconhecido; mesmo com uma senha forjada no banco, o backend recusa, a sessão forçada não vale, o reset não envia email e `pre_login`/`pre_social_login` negam;
+- `organization_admin`, `app_manager` e `people_manager` são recusados com 400, direto e por grupo, nos dois sentidos; `member` é aceito;
+- o vínculo numa segunda organização é recusado pela API e pelo provisionamento de sistema;
+- a desativação revoga os papéis, desativa vínculo e identidade e incrementa `auth_version`; pessoa e conta de outra organização respondem como indisponíveis;
+- o gestor de pessoas não cria, desativa nem altera o vínculo da conta, mas continua gerindo pessoas;
+- a conta fica fora das listas da plataforma (404 no detalhe), e o CHECK do banco recusa flags de plataforma;
+- fica fora do diretório de pessoas e do fan-out de notificações.
+
+**Não verificado:** a lista inteira do PostgreSQL depois das duas últimas correções; SSO real; o PostgreSQL 16.15 do CI.
+
 ## Cliente HTTP de saída com proteção contra SSRF (#49)
 
 Rodada de 2026-11-10 para [#49](https://github.com/alaorneto/skeleton/issues/49): `skeleton/common/outbound_http.py`. Somente o que rodou:

@@ -25,6 +25,8 @@ A sessão armazena apenas UUIDs de organização/convite e o digest, nunca o tok
 
 ### Senhas, emails e conexão
 
+**Contas de serviço** (`account_type=service`, ver [controle de acesso](access-control.md#contas-de-serviço)) nunca fazem login interativo. O backend recusa a autenticação e não devolve a sessão (`get_user`), o `AccountAdapter.pre_login` e o `SocialAccountAdapter.pre_social_login` negam de forma genérica, e o reset de senha mantém a resposta neutra sem enviar email. Com a senha inutilizável real, o login responde igual a um email desconhecido. Uma integração vai agir por tokens próprios (#45), não por sessão.
+
 Uma identidade criada por SSO recebe senha inutilizável e `local_password_allowed=False`; contas locais ou criadas por convite usam True. Essa política pertence à identidade global, mesmo quando a pessoa participa de várias organizações. “SSO-only” significa que o login local por senha está proibido, não que a pessoa tem permissão em algum tenant. Reset mantém uma resposta pública neutra, mas não envia mensagem para contas SSO-only, inativas ou excluídas. Definir/trocar senha e concluir reset revalidam a política, mesmo com token antigo. Não há endpoint paralelo de senha na API.
 
 `ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS=False` impede a mensagem genérica que o allauth enviaria depois de filtrar uma identidade sem direito a senha local. A resposta pública continua neutra; não enviar email a conta desconhecida, inativa ou SSO-only não autoriza expor sua existência.
