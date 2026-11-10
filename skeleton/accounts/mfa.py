@@ -1,16 +1,11 @@
-from cryptography.fernet import Fernet, MultiFernet
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
+
+from skeleton.common.crypto import multifernet
 
 
 def cipher():
-    keys = getattr(settings, "MFA_ENCRYPTION_KEYS", ())
-    if not keys:
-        raise ImproperlyConfigured("MFA_ENCRYPTION_KEYS must contain a Fernet key; plaintext MFA is forbidden.")
-    try:
-        return MultiFernet([Fernet(key.encode() if isinstance(key, str) else key) for key in keys])
-    except (ValueError, TypeError) as exc:
-        raise ImproperlyConfigured("Invalid MFA Fernet key.") from exc
+    """The MFA keyring; same MultiFernet tokens as before the common module (no data migration)."""
+    return multifernet("MFA_ENCRYPTION_KEYS", purpose="MFA")
 
 
 def mfa_required(user):

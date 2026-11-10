@@ -354,6 +354,7 @@ CACHE_URL=rediscache://:SENHA_REDIS@127.0.0.1:6379/0
 EMAIL_URL=smtp://usuario:SENHA_SMTP@smtp.example.org:587
 DEFAULT_FROM_EMAIL=app@example.org
 MFA_ENCRYPTION_KEYS=CHAVE_FERNET_VALIDA
+IDENTITY_PROVIDER_ENCRYPTION_KEYS=OUTRA_CHAVE_FERNET_VALIDA
 SKELETON_AGENT_SOCKET=/srv/skeleton/control/agent.sock
 SKELETON_AGENT_TOKEN_FILE=/srv/skeleton/private/agent.token
 SKELETON_DEPLOYMENT_INVENTORY=/srv/skeleton/current/inventory.json
