@@ -182,6 +182,10 @@ SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
+# Notification retention (#57): read/archived rows, unread rows and finished deliveries.
+SKELETON_NOTIFICATION_READ_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_READ_RETENTION_DAYS", default=90)
+SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS", default=180)
+SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS", default=30)
 # Web push (#56): off until a P-256 key file (manage.py generate_vapid_keys) and a subject exist.
 WEBPUSH_VAPID_PRIVATE_KEY_FILE = env("WEBPUSH_VAPID_PRIVATE_KEY_FILE", default="")
 WEBPUSH_VAPID_SUBJECT = env("WEBPUSH_VAPID_SUBJECT", default="")

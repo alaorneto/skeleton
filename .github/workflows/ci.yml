@@ -219,6 +219,7 @@ jobs:
             tests/integration_sqlite/test_notification_email.py \
             tests/integration_sqlite/test_notification_digest.py \
             tests/integration_sqlite/test_web_push.py \
+            tests/integration_sqlite/test_notification_retention.py \
             tests/integration_sqlite/test_attachments.py \
             tests/integration_sqlite/test_attachment_downloads.py \
             tests/integration_sqlite/test_core_identity_service.py \

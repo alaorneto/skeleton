@@ -214,3 +214,18 @@ def register_notification_jobs() -> None:
         JobType(DIGEST_JOB, run_digest, {}, run_as="system", max_attempts=3, owner_app="sk_notifications")
     )
     register_periodic(DIGEST_JOB, DIGEST_JOB, every=timedelta(hours=1))
+    from datetime import time
+
+    from .retention import RETENTION_JOB, purge_expired_notifications
+
+    register_job_type(
+        JobType(
+            RETENTION_JOB,
+            purge_expired_notifications,
+            {},
+            run_as="system",
+            max_attempts=3,
+            owner_app="sk_notifications",
+        )
+    )
+    register_periodic(RETENTION_JOB, RETENTION_JOB, daily_at=time(3, 30))

@@ -140,3 +140,15 @@ Quem tem `push` em `immediate` recebe, a cada notificação, uma `NotificationDe
 - Payload mínimo: `{"title": <rótulo do tipo>, "url": <link de abertura>}`. O snapshot do alvo (o título, por exemplo) só entra quando o tipo declara `push_snapshot=True`.
 - O corpo é cifrado com `aes128gcm` (RFC 8291) e assinado com VAPID ES256 (RFC 8292). Os dois são implementados com `cryptography`, que já está no lock, e não com `pywebpush`, para não trazer `aiohttp`, `requests` e outras dependências. A saída é só pelo `skeleton.common.outbound_http` (anti-SSRF), e de novo só para hosts da allowlist.
 - 2xx conta como enviado. 404 ou 410 exclui logicamente a assinatura, sem retentativa. 429 e 5xx seguem o mesmo calendário de retentativas do email até `dead`.
+
+## Retenção
+
+As tabelas de notificação são operacionais, e a exclusão física só acontece no job periódico `notifications.retention` (diário, às 03:30 UTC, por organização e no `system_context` dela). Prazos (settings e chaves da configuração da instância):
+
+| Setting | Padrão | O que remove |
+|---|---|---|
+| `SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS` | 30 | Entregas finalizadas (`sent`, `skipped`, `dead`) criadas antes do prazo. Entregas `pending` e `retrying` ficam |
+| `SKELETON_NOTIFICATION_READ_RETENTION_DAYS` | 90 | Linhas da caixa lidas ou arquivadas há mais tempo que o prazo |
+| `SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS` | 180 | Linhas não lidas cuja última atualização (incluindo o agrupamento) é mais antiga que o prazo; e, depois delas, as `Notification` já distribuídas, mais antigas que o prazo, que nenhuma linha nem entrega referencia |
+
+A ordem respeita as referências `PROTECT`: primeiro as entregas, depois as linhas e por último as notificações órfãs. O contador de não lidas continua igual ao número de linhas não lidas que restam. Uma `dedupe_key` volta a aceitar uma notificação nova só depois que a antiga sai pela retenção. A retenção por LGPD (expurgo a pedido) fica para o epic do ciclo 2.

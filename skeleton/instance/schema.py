@@ -177,6 +177,27 @@ _SPECS = (
     SettingSpec(
         "webhook_retention_days", "SKELETON_WEBHOOK_RETENTION_DAYS", "int", "Retenção das entregas de webhook", _int(1)
     ),
+    SettingSpec(
+        "notification_read_retention_days",
+        "SKELETON_NOTIFICATION_READ_RETENTION_DAYS",
+        "int",
+        "Retenção das notificações lidas ou arquivadas",
+        _int(1),
+    ),
+    SettingSpec(
+        "notification_unread_retention_days",
+        "SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS",
+        "int",
+        "Retenção das notificações não lidas",
+        _int(1),
+    ),
+    SettingSpec(
+        "notification_delivery_retention_days",
+        "SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS",
+        "int",
+        "Retenção das entregas de notificação",
+        _int(1),
+    ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),
     SettingSpec("files_s3_bucket", "SKELETON_FILES_S3_BUCKET", "str", "Bucket S3 dos anexos", _required_text),
