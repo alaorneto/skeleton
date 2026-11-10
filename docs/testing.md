@@ -70,6 +70,21 @@ Cobertura nova em `tests/integration_sqlite/test_app_activation_upgrade.py` (SQL
 
 **Não verificado:** os testes do agente (`fcntl`) e de pacotes (`posix`), inclusive o passo novo do `finish()` e a remoção de `activation_default_upgrade_requires_review`; uma atualização real pelo agente; Docker e SSO real; o PostgreSQL 16.15 do CI.
 
+## Saída voluntária da organização e caminhos de ingresso (#25)
+
+Rodada de 2026-11-10 para [#25](https://github.com/alaorneto/skeleton/issues/25): `leave_organization`, `/o/<org>/leave/`, `GET /api/v1/o/<org>/membership/`, `POST /api/v1/o/<org>/membership/leave/`, botão no painel e página inicial em blocos. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 878 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 318 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/integration_sqlite/test_access_lifecycle_regressions.py` (SQLite e PostgreSQL): membro comum com papel direto, grupo e concessão de registro sai, os três vínculos ficam excluídos logicamente e `/o/<org>/` responde 404 na requisição seguinte, sem afetar a organização B onde ele administra; GET da confirmação não altera nada; POST sem CSRF 403, revisão antiga ou ausente 409; o último administrador recebe 409 no HTML e `last_administrator` na API, sem mudança de revisão nem de papéis; a API exige `If-Match` (428), recusa revisão antiga (412), campos no corpo (400), GET (405) e POST sem CSRF (403), e responde 204; administrador direto sai quando outra pessoa administra via grupo, e essa pessoa, agora sozinha, não sai; o serviço recusa ator diferente do contexto; convite aceito depois readmite com o mesmo vínculo; a página inicial sem vínculo mostra os caminhos de ingresso e, com convite aberto na sessão, o bloco "Convite pendente" sem revelar a organização. Em `tests/accounts/test_social_hardening.py`: a confirmação de email do JIT não readmite quem saiu. Em `tests/integration_postgres/test_admin_concurrency.py`: dois administradores saindo ao mesmo tempo serializam no lock da organização (um sai, o outro recebe 409) e a saída concorrente com a remoção do mesmo vínculo pelo administrador termina sem deadlock.
+
+**Não verificado:** smoke manual no navegador; os fluxos de domínio e de link (#26, #28) ainda não existem, então a regra "não readmitir quem saiu" só foi provada para o JIT de SSO; testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
 ## Designação de administrador pela plataforma (#20)
 
 Rodada de 2026-11-10 para [#20](https://github.com/alaorneto/skeleton/issues/20): `designate_organization_admin`, `organization_overview`, as razões fechadas de `HTTP_SYSTEM_REASONS` e o card "Administradores" em `/platform/organizations/<id>/`. Somente o que rodou:

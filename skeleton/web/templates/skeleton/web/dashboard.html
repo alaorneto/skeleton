@@ -31,4 +31,9 @@
 </nav>
 <h2 class="section-heading mt-10">Tabelas disponíveis</h2>
 {% include 'skeleton/web/components/model-groups.html' %}
+<section class="mt-10" aria-labelledby="dashboard-membership">
+  <h2 id="dashboard-membership" class="section-heading">Seu vínculo</h2>
+  <p class="text-sm/6 text-body-subtle">Você pode deixar esta organização quando quiser; quem a administra sozinho precisa antes designar outra pessoa.</p>
+  <a class="btn btn-secondary mt-3" href="{% url 'web:leave-organization' organization_id %}">Sair da organização</a>
+</section>
 {% endblock %}

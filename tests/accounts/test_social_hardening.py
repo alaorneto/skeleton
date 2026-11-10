@@ -272,3 +272,41 @@ def test_oidc_email_proof_uses_strict_boolean_from_the_selected_claims(
         login = provider(configuration, req).sociallogin_from_response(req, response)
     assert login.email_addresses[0].email == "proof@example.test"
     assert login.email_addresses[0].verified is verified
+
+
+def test_jit_confirmation_does_not_readmit_who_left(skeleton_db, tmp_path, monkeypatch):
+    from allauth.account.models import EmailAddress
+    from allauth.socialaccount.models import SocialAccount
+
+    from skeleton.access.services import leave_organization
+    from skeleton.accounts.adapters import provision_social_membership
+    from skeleton.accounts.services import create_identity
+    from skeleton.tenancy.models import Membership
+
+    configuration = load(tmp_path, monkeypatch)
+    admin, organization = bootstrap_identity(
+        email="owner@example.test", organization="acme", name="Acme", password="Fixture-password-2026!"
+    )
+    with system_context(reason="test:jit-leave"):
+        user = create_identity(email="left-jit@example.test", password=None)
+        address = EmailAddress.objects.create(user=user, email=user.email, primary=True, verified=False)
+        SocialAccount.objects.create(
+            user=user,
+            provider="acme",
+            uid="left-jit-subject",
+            extra_data={
+                "skeleton_binding": configuration.bindings[0].fingerprint,
+                "skeleton_pending_email": user.email,
+            },
+        )
+    with override_settings(SKELETON_PROVIDER_CONFIGURATION=configuration):
+        provision_social_membership(user, configuration.bindings[0])
+        with tenant_context(organization_id=organization.pk, actor=user, source="test:jit-leave"):
+            leave_organization(user)
+        req = request()
+        with context.request_context(req):
+            # The pending JIT admission is not authority to undo a voluntary departure (#25).
+            assert AccountAdapter().confirm_email(req, address)
+    with tenant_context(organization_id=organization.pk, actor=admin, source="test:jit-leave-observe"):
+        assert not Membership.objects.filter(user=user).exists()
+        assert Membership.objects.with_deleted().get(user=user).deleted_at is not None

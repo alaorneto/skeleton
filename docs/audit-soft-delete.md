@@ -44,7 +44,7 @@ As políticas de dependência são explícitas:
 
 - **`protect` (padrão):** dependente próprio vivo causa `LiveReferencesExist`; revogue/remova os dependentes explicitamente antes.
 - **`retain` em User/Organization:** conserva identidade, afiliação histórica e dados empresariais. O serviço de ciclo de vida desativa acesso antes da marca de exclusão, sem cascata. Restore de User deixa `is_active=False` até reativação de plataforma.
-- **Membership:** o serviço revoga `MemberRole`, `GroupMember` e `RecordGrant` do vínculo no mesmo `atomic`, protege o último administrador e só então remove o vínculo.
+- **Membership:** o serviço revoga `MemberRole`, `GroupMember` e `RecordGrant` do vínculo no mesmo `atomic`, protege o último administrador e só então remove o vínculo. A saída voluntária (`leave_organization`) é a mesma exclusão lógica da remoção pelo administrador: o UUID, a revisão e o histórico ficam, os eventos são de quem saiu e um convite aceito depois restaura o mesmo vínculo.
 - **Role/grupo:** referências vivas exigem revogação prévia; papéis internos (`builtins`) são protegidos.
 - **Sessões:** desativar/excluir User ou revogar globalmente aumenta `auth_version`; sessões antigas são encerradas. Email e identificadores de identidade externa (`subjects`) não são reutilizados.
 

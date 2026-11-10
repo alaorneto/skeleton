@@ -226,6 +226,37 @@ def delete_membership(record, *, user):
         ensure_last_admin()
 
 
+def leave_organization(user, *, expected_revision=None):
+    """The actor leaves the current organization; anyone may, except its last administrator.
+
+    Takes ``organization_lock()`` without a capability (leaving needs none), then locks the
+    actor's own membership: the same Organization → membership order as every administrative
+    change. Revokes ``MemberRole``/``GroupMember``/``RecordGrant`` of the membership, deactivates
+    and soft-deletes it (same lifecycle as removal by an administrator, ids and history kept)
+    and ends with ``ensure_last_admin()``, which rolls everything back with ``LastAdministrator``.
+    ``expected_revision`` is the membership revision the caller showed (``ConcurrentUpdate``).
+    Coming back requires an invitation, an approval or a designation, never an automatic flow.
+    """
+    from skeleton.common.exceptions import ConcurrentUpdate
+    from skeleton.tenancy.models import Membership
+
+    context = current_context()
+    if not getattr(user, "is_authenticated", False) or context.actor != user.pk:
+        raise PermissionDenied("Only the authenticated member can leave.")
+    with organization_lock():
+        membership = Membership.objects.select_for_update().filter(user=user, is_active=True).first()
+        if membership is None:
+            raise PermissionDenied("Membership unavailable.")
+        if expected_revision is not None and membership.revision != expected_revision:
+            raise ConcurrentUpdate("The membership changed.")
+        _revoke_membership_links(membership)
+        membership.is_active = False
+        membership.save(update_fields={"is_active"})
+        membership.delete()
+        ensure_last_admin()
+        return membership
+
+
 def create_role(*, user, data):
     from .models import Role
 
