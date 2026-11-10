@@ -29,6 +29,27 @@
     </dl>
     <p class="mt-4 text-sm/6 text-body-subtle">Para administrar membros e dados, entre na organização com um vínculo de administrador.</p>
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="organization-administrators">
+    <h2 id="organization-administrators">Administradores</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">A plataforma vê só a contagem de membros e o email de quem administra; membros e dados de negócio continuam visíveis apenas dentro da organização.</p>
+    <dl class="meta-list mt-4">
+      <div><dt>Membros ativos</dt><dd>{{ overview.active_members }}</dd></div>
+      <div><dt>Administradores ativos</dt><dd>{{ overview.administrators|length }}</dd></div>
+    </dl>
+    <ul class="mt-4 space-y-1" aria-label="Emails dos administradores">
+      {% for admin in overview.administrators %}<li><span>{{ admin.email }}</span>{% if not admin.direct %} <span class="badge">via grupo</span>{% endif %}</li>{% empty %}<li class="text-body-subtle">Nenhum administrador ativo.</li>{% endfor %}
+    </ul>
+    {% if admin_form %}
+    <form method="post" action="{% url 'platform:organization-administrators' subject.pk %}" class="mt-5">
+      {% csrf_token %}
+      {% with form=admin_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+      <p class="mt-2 text-sm/6 text-body-subtle">A designação é auditada em nome de quem a fez e exige autenticação recente. Ela não dá à administração da plataforma acesso à organização.</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Designar administrador</button></div>
+    </form>
+    {% else %}
+    <p class="mt-4 text-sm/6 text-body-subtle">Reative a organização para designar administradores.</p>
+    {% endif %}
+  </section>
 </div>
 </div>
 {% endblock %}

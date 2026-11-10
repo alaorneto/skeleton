@@ -1,5 +1,9 @@
 """Identity lifecycle operations; callers cannot mass-assign identity flags."""
 
+import hashlib
+from contextlib import contextmanager
+from dataclasses import dataclass
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -185,6 +189,128 @@ def update_organization(organization, *, data, expected_revision, using="default
             setattr(previous, key, data[key])
         previous.save(using=using, update_fields=changed)
         return previous
+
+
+@dataclass(frozen=True)
+class AdministratorSummary:
+    user_id: UUID
+    email: str
+    direct: bool
+
+
+@dataclass(frozen=True)
+class OrganizationOverview:
+    """What the platform may see of an organization: counts and administrator emails only."""
+
+    organization_id: UUID
+    active_members: int
+    administrators: tuple[AdministratorSummary, ...]
+    administrators_version: str
+
+
+@contextmanager
+def _read_only(using):
+    """Refuse any statement but plain reads while the platform inspects a tenant."""
+    from django.db import connections
+
+    allowed = ("SELECT", "SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")
+
+    def guard(execute, sql, params, many, context):
+        statement = sql.lstrip().upper()
+        if not statement.startswith(allowed) or " FOR UPDATE" in statement or " FOR SHARE" in statement:
+            raise PermissionDenied("Platform inspection is read-only.")
+        return execute(sql, params, many, context)
+
+    with connections[using].execute_wrapper(guard):
+        yield
+
+
+def _administrators(using):
+    """Administrators of the current tenant and a version token of that set (the form's CAS)."""
+    from skeleton.access.models import MemberRole
+    from skeleton.access.services import administrator_memberships
+
+    direct = set(
+        MemberRole.objects.using(using)
+        .filter(role__code="organization_admin", role__is_builtin=True, role__deleted_at__isnull=True)
+        .values_list("membership_id", flat=True)
+    )
+    rows = administrator_memberships().using(using).values_list("pk", "user_id", "user__email").order_by("user__email")
+    summaries = tuple(
+        AdministratorSummary(user_id=user_id, email=email, direct=pk in direct) for pk, user_id, email in rows
+    )
+    token = "\n".join(sorted(f"{pk}:{pk in direct}" for pk, _, _ in rows))
+    return summaries, hashlib.sha256(token.encode()).hexdigest()
+
+
+def organization_overview(*, actor, organization, using="default"):
+    """Read-only platform view of one organization; never members' identities or business rows."""
+    from skeleton.accounts.platform import require_platform_admin
+    from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.models import Membership
+
+    require_platform_admin(actor)
+    _require_context_actor(actor)
+    with (
+        system_context(reason="platform:organization-inspect", organization_id=organization.pk, using=using),
+        _read_only(using),
+    ):
+        administrators, version = _administrators(using)
+        return OrganizationOverview(
+            organization_id=organization.pk,
+            active_members=Membership.objects.using(using).filter(is_active=True).count(),
+            administrators=administrators,
+            administrators_version=version,
+        )
+
+
+def _require_context_actor(actor):
+    from skeleton.tenancy.context import InvalidContext, current_context
+
+    current = current_context().actor
+    if current is not None and current != actor.pk:
+        raise InvalidContext("The actor must be the request's authenticated identity.")
+
+
+def designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None, using="default"):
+    """A platform administrator designates (and optionally replaces) an organization administrator.
+
+    Runs under ``system_context(reason="organization:designate-admin")`` for that organization
+    only, so the audit events carry the platform actor and that source. ``expected_version`` is
+    the ``administrators_version`` the form displayed; a different set raises ``ConcurrentUpdate``.
+    ``replace`` loses only its direct ``organization_admin`` role; the organization always keeps an
+    active administrator (``LastAdministrator`` otherwise). The platform cannot designate itself:
+    that would turn platform administration into organization access.
+    """
+    from skeleton.access.models import MemberRole, Role
+    from skeleton.access.services import ensure_last_admin, organization_lock, provision_membership
+    from skeleton.accounts.platform import require_platform_admin
+    from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.models import Membership
+
+    require_platform_admin(actor)
+    _require_context_actor(actor)
+    if user.pk == actor.pk:
+        raise PermissionDenied("Platform administration does not designate itself into an organization.")
+    if replace is not None and replace.pk == user.pk:
+        raise ValidationError({"replace": "A pessoa substituída precisa ser outra."}, code="invalid")
+    with (
+        transaction.atomic(using=using),
+        system_context(reason="organization:designate-admin", organization_id=organization.pk, using=using),
+        organization_lock() as locked,
+    ):
+        if expected_version is not None and _administrators(using)[1] != expected_version:
+            raise ConcurrentUpdate("The administrators changed since the form was displayed.")
+        role = Role.objects.using(using).get(code="organization_admin", is_builtin=True)
+        membership = provision_membership(organization=locked, user=user, role=role)
+        if replace is not None:
+            replaced = Membership.objects.using(using).filter(user=replace).first()
+            link = MemberRole.objects.using(using).filter(membership=replaced, role=role).first() if replaced else None
+            if link is None:
+                raise ValidationError({"replace": "A pessoa substituída não é administradora direta."}, code="invalid")
+            link.delete(using=using)
+        ensure_last_admin()
+        return membership
 
 
 def restore_user(user, *, using="default"):

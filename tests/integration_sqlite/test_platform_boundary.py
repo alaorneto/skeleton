@@ -264,3 +264,183 @@ def test_catalog_edits_only_labels_with_compare_and_swap(platform_actor):
         sensitive = field.sensitive
         field.refresh_from_db()
         assert field.label == "Campo editado" and field.sensitive == sensitive
+
+
+# --------------------------------------------------------------------------- organization administrators (#20)
+
+
+def _person(email):
+    from allauth.account.models import EmailAddress
+
+    from skeleton.accounts.services import create_identity
+
+    with system_context(reason="test:platform-person"):
+        person = create_identity(email=email, password=PASSWORD)
+        EmailAddress.objects.create(user=person, email=email, verified=True, primary=True)
+    return person
+
+
+def _admin_emails(organization):
+    from skeleton.access.services import administrator_memberships
+
+    with system_context(reason="test:platform-admins", organization_id=organization.pk):
+        return sorted(administrator_memberships().values_list("user__email", flat=True))
+
+
+def _admin_form(client, organization, *, email, replace=None, version=None):
+    page = client.get(reverse("platform:organization", args=[organization.pk]))
+    assert page.status_code == 200
+    return client.post(
+        reverse("platform:organization-administrators", args=[organization.pk]),
+        {
+            "email": email,
+            "replace": str(replace.pk) if replace else "",
+            "expected_version": version or page.context["admin_form"]["expected_version"].value(),
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
+
+
+@pytest.fixture
+def foreign_organization():
+    from skeleton.access.models import Role
+    from skeleton.access.services import provision_membership
+    from skeleton.accounts.services import create_organization
+
+    owner = _person("owner@designate.example.test")
+    organization = create_organization(owner=owner, slug="designate-target", name="Designate target")
+    member = _person("plain-member@designate.example.test")
+    with system_context(reason="test:designate-member", organization_id=organization.pk):
+        provision_membership(organization=organization, user=member, role=Role.objects.get(code="member"))
+    return organization, owner, member
+
+
+def test_system_reasons_open_to_http_are_a_closed_list():
+    from uuid import uuid4
+
+    from skeleton.tenancy.context import (
+        HTTP_SYSTEM_REASONS,
+        PLATFORM_ADMIN_REASONS,
+        VALIDATED_IDENTITY_REASONS,
+        InvalidContext,
+        request_context,
+    )
+
+    assert VALIDATED_IDENTITY_REASONS == {"invitation:validated", "sso:validated"}
+    assert PLATFORM_ADMIN_REASONS == {
+        "organization:create",
+        "organization:bootstrap",
+        "builtin-roles",
+        "organization:designate-admin",
+        "platform:organization-inspect",
+    }
+    assert HTTP_SYSTEM_REASONS == VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
+    platform, _ = bootstrap_identity(
+        email="reasons-platform@example.test", organization="reasons", name="Reasons", password=PASSWORD
+    )
+    member = _person("reasons-member@example.test")
+    for reason in sorted(PLATFORM_ADMIN_REASONS):
+        with request_context(actor=member, request_id=uuid4(), source="test:reasons"):
+            with pytest.raises(InvalidContext), system_context(reason=reason):
+                pass
+        with request_context(actor=platform, request_id=uuid4(), source="test:reasons"):
+            with system_context(reason=reason) as active:
+                assert active.system and active.source == "system:" + reason
+    with request_context(actor=platform, request_id=uuid4(), source="test:reasons"):
+        with pytest.raises(InvalidContext), system_context(reason="job:not-for-http"):
+            pass
+
+
+def test_platform_designates_and_replaces_an_organization_admin(platform_actor, foreign_organization):
+    from skeleton.access.models import MemberRole
+    from skeleton.audit.models import AuditEvent
+
+    platform, _, client = platform_actor
+    organization, owner, member = foreign_organization
+    newcomer = _person("newcomer@designate.example.test")
+    page = client.get(reverse("platform:organization", args=[organization.pk]))
+    assert page.status_code == 200
+    overview = page.context["overview"]
+    assert overview.active_members == 2
+    assert [admin.email for admin in overview.administrators] == [owner.email]
+    assert owner.email.encode() in page.content and member.email.encode() not in page.content
+
+    response = _admin_form(client, organization, email="Newcomer@Designate.example.test")
+    assert response.status_code == 302, response.content
+    assert _admin_emails(organization) == sorted([owner.email, newcomer.email])
+    with system_context(reason="test:designate-audit", organization_id=organization.pk):
+        link = MemberRole.objects.get(membership__user=newcomer, role__code="organization_admin")
+        event = AuditEvent.objects.get(record_sysid=link.pk, operation="create")
+        assert event.source == "system:organization:designate-admin"
+        assert event.actor_sysid == platform.pk and event.organization_id == organization.pk
+
+    replaced = _admin_form(client, organization, email=member.email, replace=owner)
+    assert replaced.status_code == 302
+    assert _admin_emails(organization) == sorted([member.email, newcomer.email])
+    with system_context(reason="test:designate-audit", organization_id=organization.pk):
+        removed = MemberRole.all_objects.get(membership__user=owner, role__code="organization_admin")
+        assert removed.deleted_at is not None
+        assert AuditEvent.objects.filter(
+            record_sysid=removed.pk, operation="soft_delete", source="system:organization:designate-admin"
+        ).exists()
+
+
+def test_designation_refuses_stale_forms_self_and_same_person(platform_actor, foreign_organization):
+    platform, _, client = platform_actor
+    organization, owner, member = foreign_organization
+    page = client.get(reverse("platform:organization", args=[organization.pk]))
+    stale = page.context["admin_form"]["expected_version"].value()
+    assert _admin_form(client, organization, email=member.email).status_code == 302
+    late = _person("late@designate.example.test")
+    assert _admin_form(client, organization, email=late.email, version=stale).status_code == 409
+    assert _admin_emails(organization) == sorted([owner.email, member.email])
+    assert _admin_form(client, organization, email=owner.email, replace=owner).status_code == 400
+    assert _admin_form(client, organization, email=platform.email).status_code == 403
+    assert _admin_form(client, organization, email="nobody@designate.example.test").status_code == 400
+    assert _admin_emails(organization) == sorted([owner.email, member.email])
+
+
+def test_designation_never_leaves_an_organization_without_admin(platform_actor, foreign_organization, monkeypatch):
+    from uuid import uuid4
+
+    from skeleton.access import services as access_services
+    from skeleton.access.services import LastAdministrator
+    from skeleton.accounts.services import designate_organization_admin
+    from skeleton.tenancy.context import request_context
+
+    platform, _, _ = platform_actor
+    organization, owner, member = foreign_organization
+    # Simulate a grant that does not make the newcomer an administrator (a concurrent revocation).
+    monkeypatch.setattr(access_services, "provision_membership", lambda **kwargs: None)
+    with request_context(actor=platform, request_id=uuid4(), source="test:last-admin"):
+        with pytest.raises(LastAdministrator):
+            designate_organization_admin(actor=platform, organization=organization, user=member, replace=owner)
+    assert _admin_emails(organization) == [owner.email]
+
+
+def test_designation_requires_platform_csrf_and_recent_authentication(platform_actor, foreign_organization):
+    _, _, client = platform_actor
+    organization, owner, member = foreign_organization
+    url = reverse("platform:organization-administrators", args=[organization.pk])
+    assert client.get(url).status_code == 405
+    assert client.post(url, {"email": member.email}).status_code == 403  # CSRF
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    response = _admin_form(client, organization, email=member.email)
+    assert response.status_code == 302 and response["Location"].startswith(reverse("account_reauthenticate"))
+    assert _admin_emails(organization) == [owner.email]
+    outsider = login(member)
+    assert outsider.get(reverse("platform:organization", args=[organization.pk])).status_code == 403
+    token = outsider.cookies["csrftoken"].value
+    assert outsider.post(url, {"email": member.email, "csrfmiddlewaretoken": token}).status_code == 403
+    assert _admin_emails(organization) == [owner.email]
+
+
+def test_platform_admin_does_not_enter_the_organization_it_administers(platform_actor, foreign_organization):
+    _, _, client = platform_actor
+    organization, _, member = foreign_organization
+    assert _admin_form(client, organization, email=member.email).status_code == 302
+    for name in ("web:dashboard", "web:catalog"):
+        assert client.get(reverse(name, kwargs={"organization_id": organization.pk})).status_code == 404
+    assert client.get(f"/api/v1/o/{organization.pk}/memberships/").status_code in {403, 404}

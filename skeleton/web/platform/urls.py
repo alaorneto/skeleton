@@ -12,6 +12,11 @@ urlpatterns = [
     path("organizations/", views.organizations, name="organizations"),
     path("organizations/new/", views.organization_create, name="organization-create"),
     path("organizations/<uuid:sysid>/", views.organization_detail, name="organization"),
+    path(
+        "organizations/<uuid:sysid>/administrators/",
+        views.organization_administrators,
+        name="organization-administrators",
+    ),
     path("catalog/", views.catalog, name="catalog"),
     path("catalog/<uuid:sysid>/", views.catalog_table, name="catalog-table"),
     path("catalog/fields/<uuid:sysid>/", views.catalog_field, name="catalog-field"),

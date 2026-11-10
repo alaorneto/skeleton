@@ -68,7 +68,10 @@ def require_unprivileged_target(user, *, role=None, membership=None):
         raise PermissionDenied("Only an administrator can change someone who holds capabilities.")
 
 
-def ensure_last_admin():
+def administrator_memberships():
+    """Active memberships of the current tenant that hold ``organization_admin``, directly or by group."""
+    from django.db.models import Q
+
     from skeleton.tenancy.models import Membership
 
     from .models import GroupMember, GroupRole, MemberRole
@@ -83,11 +86,13 @@ def ensure_last_admin():
         group__deleted_at__isnull=True,
     ).values_list("group_id", flat=True)
     indirect = GroupMember.objects.filter(group_id__in=groups).values_list("membership_id", flat=True)
-    from django.db.models import Q
-
-    if not Membership.objects.filter(
+    return Membership.objects.filter(
         Q(pk__in=direct) | Q(pk__in=indirect), is_active=True, user__is_active=True, user__deleted_at__isnull=True
-    ).exists():
+    )
+
+
+def ensure_last_admin():
+    if not administrator_memberships().exists():
         raise LastAdministrator("An organization must retain an active administrator.")
 
 

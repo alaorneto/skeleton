@@ -38,6 +38,20 @@ class Context:
     using: str = "default"
 
 
+# The only system contexts an HTTP request may open (docs/access-control.md). Each is chosen by
+# server code after its own validation, never by a body or header value.
+VALIDATED_IDENTITY_REASONS = frozenset({"invitation:validated", "sso:validated"})
+PLATFORM_ADMIN_REASONS = frozenset(
+    {
+        "organization:create",
+        "organization:bootstrap",
+        "builtin-roles",
+        "organization:designate-admin",
+        "platform:organization-inspect",
+    }
+)
+HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
+
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
 _GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin")
@@ -172,8 +186,8 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
     tenant_id = _uuid(organization_id)
     prior = _context.get()
     # These are private, narrow identity admission paths, never request-selectable flags.
-    admitted = reason in {"invitation:validated", "sso:validated"} or bool(
-        prior and prior.platform_admin and reason in {"organization:create", "organization:bootstrap", "builtin-roles"}
+    admitted = reason in VALIDATED_IDENTITY_REASONS or bool(
+        prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS
     )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")
