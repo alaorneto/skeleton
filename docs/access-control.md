@@ -78,6 +78,20 @@ Desativar ou excluir logicamente o `User` global verifica **todas** as organiza�
 
 O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano de plataforma autenticado; operações offline usam owner. `system_context(reason=...)` numa conexão runtime comum não transforma a credencial em owner. Violação de integridade vira `LastAdministrator`; o admin global responde 409 com rollback, não erro SQL/500.
 
+### Designação de administrador pela plataforma
+
+Quando o administrador de uma organização sai ou fica indisponível, o administrador de plataforma designa outro em `/platform/organizations/<id>/` (card "Administradores"). O serviço é `skeleton.accounts.services.designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None)`:
+
+- roda em `system_context(reason="organization:designate-admin", organization_id=...)`, só dessa organização, e toma `organization_lock()` antes de qualquer vínculo (mesma ordem das demais mudanças administrativas);
+- cria ou reativa o vínculo com `organization_admin` por `provision_membership`. Com `replace`, retira só o papel `organization_admin` **direto** da pessoa substituída (o vínculo dela continua; papel via grupo não é tocado);
+- termina com `ensure_last_admin()`: o que deixaria a organização sem administrador ativo responde 409 sem escrita parcial;
+- compara `expected_version`, a versão do conjunto de administradores que o formulário mostrou, depois do lock; conjunto diferente responde 409 (`ConcurrentUpdate`);
+- recusa designar o próprio administrador de plataforma (403) e substituir alguém por ele mesmo (400). Para entrar numa organização, o administrador de plataforma precisa de convite ou do `bootstrap_identity` no CLI.
+
+A auditoria vem dos triggers, na mesma transação: os eventos de `Membership` e `MemberRole` têm `source` `system:organization:designate-admin` e o administrador de plataforma como ator. O formulário exige autenticação recente (sem ela, redireciona para reautenticar), CSRF e POST.
+
+**Decisão: a leitura restrita da plataforma.** *Contexto:* para designar, a plataforma precisa saber quem administra a organização, mas administração de plataforma não concede acesso tenant. *Decisão:* a única leitura tenant da plataforma é `organization_overview(*, actor, organization)`, em `system_context(reason="platform:organization-inspect")`, que devolve um DTO imutável com o número de vínculos ativos e os emails dos administradores ativos (marcando quem é administrador só via grupo), mais a versão desse conjunto. Um wrapper de execução recusa qualquer instrução que não seja `SELECT` sem `FOR UPDATE`/`FOR SHARE` enquanto o contexto está aberto. *Consequências:* a plataforma não lista membros comuns, papéis, grupos, convites nem dados de negócio, e continua recebendo 404 em `/o/<org>/` sem vínculo próprio. Uma tela que precise de mais que isso exige outra decisão, não uma razão nova reaproveitada.
+
 A confirmação de exclusão de User no Django Admin descreve somente a identidade: não usa o collector de exclusão física do Django. Perfis, Memberships e identificadores de identidade externa (`subjects`) permanecem históricos; o ciclo de vida invalida login/sessões. Não habilite ações de exclusão física da identidade nem de seus dependentes.
 
 ## Contrato de contextos
@@ -88,7 +102,9 @@ O contexto informa à execução **quem está agindo, em qual organização e em
 |---|---|
 | `request_context(*, actor, request_id, source, using='default')` | Abre a transação externa da requisição |
 | `tenant_context(*, organization_id, actor, source, using='default')` | Valida vínculo e organização ativos |
-| `system_context(*, reason, organization_id=None, using='default')` | Exige motivo; somente infraestrutura/CLI, nunca opção de body/header HTTP |
+| `system_context(*, reason, organization_id=None, using='default')` | Exige motivo; somente infraestrutura/CLI, nunca opção de body/header HTTP, salvo as razões fechadas abaixo |
+
+Dentro de uma requisição, `system_context` só aceita as razões de `HTTP_SYSTEM_REASONS` (`skeleton/tenancy/context.py`), sempre escolhidas pelo código do servidor depois da própria validação, nunca por body ou header. `invitation:validated` e `sso:validated` (`VALIDATED_IDENTITY_REASONS`) servem a convite e SSO já validados. As demais (`PLATFORM_ADMIN_REASONS`) exigem que o ator da requisição seja administrador de plataforma: `organization:create`, `organization:bootstrap`, `builtin-roles`, `organization:designate-admin` e `platform:organization-inspect`. Qualquer outra razão, ou uma dessas pedida por quem não é administrador de plataforma, levanta `InvalidContext`. Acrescentar uma razão exige mudar a constante e o teste que fixa a lista (`test_system_reasons_open_to_http_are_a_closed_list`).
 
 Uma requisição global pode entrar em uma organização validada e voltar ao contexto global. Não pode trocar de Alfa para Beta na mesma transação. Blocos aninhados reutilizam identidade/organização usando savepoints (pontos de retorno dentro da transação); o ator só muda no hook de login/logout depois dos estágios allauth completos. Trabalho com várias organizações abre transações independentes por organização. O contexto é restaurado em `finally`; usa somente `SET LOCAL` e não sobrevive a COMMIT/ROLLBACK.
 
