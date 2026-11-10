@@ -169,6 +169,12 @@ def create_record(spec, *, user, data):
     record_queryset(spec, user=user, action="create")
     values = coerce_fields(spec.model, data, user=user)
     record = spec.model(organization_id=current_context().organization_id, owner=user, visibility="private", **values)
+    if spec.sequence_fields:
+        from skeleton.sequences.services import next_number
+
+        # In this atomic block: a refused save rolls the counter back, so no number is lost (#156).
+        for name, key in spec.sequence_fields:
+            setattr(record, name, next_number(key).formatted)
     from skeleton.system.record_operations import require_operation
 
     service = require_operation(spec, "create")

@@ -45,3 +45,21 @@ A função interna do núcleo é `skeleton.sequences.services.next_number(key, *
 - **Auditoria:** `SequenceCounter` é um `OrganizationRecord` com a infraestrutura padrão: cada incremento gera um evento de auditoria na mesma transação.
 
 **Custo:** as escritas que numeram com a mesma sequência e período na mesma organização são serializadas até o commit. Mantenha curtas as transações que numeram. Não há tela nem API para editar ou reiniciar um contador.
+
+## Campos preenchidos pelo gateway (#156)
+
+Uma tabela de negócio exposta pode declarar que um campo vem de uma sequência:
+
+```python
+TableSpec(
+    model=Ticket,
+    read_fields=("code", "title"),
+    write_fields=("title",),
+    sequence_fields=(("code", "tickets.number"),),
+    expose_api=True,
+)
+```
+
+- A criação genérica (`/o/<org>/tables/<tabela>/new/` e `POST /api/v1/o/<org>/tables/<tabela>/records/`) preenche o campo com `next_number(...).formatted`, depois da autorização e da validação dos campos enviados e na mesma transação do registro. Uma criação recusada, inclusive pela validação do modelo ao salvar, desfaz o incremento e não consome número.
+- O campo não aparece no formulário de criação e não é gravável: enviá-lo na criação ou na alteração responde 400, como qualquer campo fora de `write_fields`. Ele aparece só para leitura no detalhe e na API.
+- O check `skeleton.E028` reprova campo inexistente, campo que está em `write_fields` e sequência não declarada.

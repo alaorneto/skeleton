@@ -64,6 +64,7 @@ def template_problem(template: str) -> str | None:
 
 def sequence_problems() -> list[str]:
     problems = [f"{key}: duplicate registration" for key in sorted(set(_duplicates))]
+    problems.extend(sequence_field_problems())
     for spec in all_sequences():
         if not _KEY.fullmatch(spec.key) or len(spec.key) > 100:
             problems.append(f"{spec.key}: key must look like app_label.name (up to 100 characters)")
@@ -72,4 +73,27 @@ def sequence_problems() -> list[str]:
         problem = template_problem(spec.template)
         if problem:
             problems.append(f"{spec.key}: {problem}")
+    return problems
+
+
+def sequence_field_problems() -> list[str]:
+    """``TableSpec.sequence_fields`` name model fields that clients cannot write and declared sequences."""
+    from skeleton.system.registry import all_specs
+
+    problems = []
+    for spec in all_specs():
+        label = spec.model._meta.label_lower
+        for item in spec.sequence_fields:
+            if not (isinstance(item, tuple) and len(item) == 2):
+                problems.append(f"{label}: sequence_fields items are (field, sequence key) pairs")
+                continue
+            name, key = item
+            try:
+                spec.model._meta.get_field(name)
+            except Exception:  # noqa: BLE001 - FieldDoesNotExist and friends: an unknown field.
+                problems.append(f"{label}.{name}: sequence field does not exist")
+            if name in spec.write_fields:
+                problems.append(f"{label}.{name}: a sequence field cannot be in write_fields")
+            if key not in _sequences:
+                problems.append(f"{label}.{name}: sequence {key} is not declared")
     return problems

@@ -20,6 +20,8 @@ class TableSpec:
     sensitive_fields: tuple = ()
     expose_api: bool = False
     attachments: AttachmentPolicy | None = None
+    # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
+    sequence_fields: tuple = ()
 
 
 _registry = {}
