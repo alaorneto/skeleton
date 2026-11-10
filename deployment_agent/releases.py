@@ -371,8 +371,7 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             if not _supports_source(manifest, old["version"]):
                 raise AgentError("unsupported_app_upgrade", 409)
             compare_history(old, manifest)
-            if old["runtime"]["default_enabled"] != manifest["runtime"]["default_enabled"]:
-                raise AgentError("activation_default_upgrade_requires_review", 409)
+            # runtime.default_enabled is obsolete (#22): changing it activates nothing, so it is not refused.
         entry = {"manifest": manifest, "digest": artifact, "state": "installed", "origin": "installed"}
         if previous and (previous.get("activation_policy") == "explicit" or previous["state"] == "schema_retained"):
             entry["activation_policy"] = "explicit"

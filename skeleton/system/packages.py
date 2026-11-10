@@ -1212,6 +1212,13 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
         )
     elif not any((root / path).is_file() for path in _module_path(service_api["module"], manifest["package_name"])):
         report("service_api_module_missing", f"Declared service API module {service_api['module']} is absent.")
+    if manifest["runtime"]["default_enabled"] is True:
+        report(
+            "default_enabled_ignored",
+            "runtime.default_enabled is obsolete and ignored: installed apps start unavailable and disabled. "
+            "Set it to false.",
+            severity="warning",
+        )
     documentation = root / manifest["runtime"]["documentation_root"]
     documents = {**required_documents(manifest), SERVICE_API_DOCUMENT: SERVICE_API_HEADINGS}
     for filename, headings in documents.items():

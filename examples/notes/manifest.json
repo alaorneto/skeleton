@@ -15,7 +15,7 @@
   "runtime": {
     "urls": "applications.notes.urls",
     "api_urls": "applications.notes.api_urls",
-    "default_enabled": true,
+    "default_enabled": false,
     "configuration_fields": [{"name": "heading", "type": "str", "default": "Anotações", "max_length": 200, "label": "Título da aplicação", "help_text": "Título exibido na página de anotações desta organização.", "section_id": "general"}],
     "navigation": [{"label": "Anotações", "url_name": "example_notes:home", "table_key": "example_notes.note", "action": "read"}],
     "documentation_root": "docs",

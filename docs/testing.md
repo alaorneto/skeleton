@@ -54,6 +54,22 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Apps fechadas por padrão e upgrade da ativação (#22)
+
+Rodada de 2026-11-10 para [#22](https://github.com/alaorneto/skeleton/issues/22): disponibilidade e ativação fechadas por padrão, `upgrade_app_activation`, `set_app_availability`, aviso de `check_skeleton_schema` e de `package doctor`, e agente/núcleo 0.5.0. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 881 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_app_activation_upgrade.py`) | 316 passed, 1 skipped, 2 failed em `test_schema_template.py`: o fingerprint compara as linhas e a pré-condição de testes já tinha gravado a disponibilidade. Com o módulo marcado `closed_app_defaults`, `tests/integration_postgres/test_schema_template.py` repetido sozinho: 12 passed. A lista inteira não foi repetida depois dessa correção |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+| SQLite de desenvolvimento novo com o Notes e duas organizações | `check_skeleton_schema`, `upgrade_app_activation --dry-run`, o comando duas vezes, `set_app_availability example_notes --mode selected --enable smoke-a` | aviso de app sem disponibilidade; o dry-run listou e não gravou; a primeira execução criou `all` para o Notes (sem ativações, porque o manifesto do exemplo agora diz `false`), a segunda não fez nada; o CLI deixou o Notes `selected`, concedido e ativo só em `smoke-a`, e o aviso sumiu |
+
+Cobertura nova em `tests/integration_sqlite/test_app_activation_upgrade.py` (SQLite e PostgreSQL, marcado `closed_app_defaults`): sem o upgrade nenhuma app responde (404/403); o upgrade preserva exatamente as apps efetivamente ativas (Notes com default antigo verdadeiro ativo em A, desativado em B por escolha anterior, app com default falso continua desligada), com eventos de `AppInstallation` com `source` `system:upgrade:app-activation`; organização criada depois do upgrade não tem app ativa e repetir o comando não muda nada; app instalada depois nasce `selected` sem concessão e o upgrade não a abre; com inventário do agente, só as apps conhecidas antes viram `all`; interrupção depois de cada fase e falha numa organização retomam sem duplicar linhas (a organização que já tinha confirmado mantém a sua transação); `--dry-run` lista e não grava; linhas do #21 (`upgrade_state` vazio) são processadas uma vez; `set_app_availability` e o aviso do `check_skeleton_schema`. Em `tests/unit/test_package_doctor.py`: `default_enabled: true` gera só o aviso `default_enabled_ignored`. Os testes que dependiam do default aberto passaram a declarar a pré-condição: `skeleton_db` abre e ativa as apps por `skeleton.testing.applications.apps_open_by_default`, e as revisões de ativação vêm de `activation_revision` em vez da revisão virtual 0.
+
+**Não verificado:** os testes do agente (`fcntl`) e de pacotes (`posix`), inclusive o passo novo do `finish()` e a remoção de `activation_default_upgrade_requires_review`; uma atualização real pelo agente; Docker e SSO real; o PostgreSQL 16.15 do CI.
+
 ## Saída voluntária da organização e caminhos de ingresso (#25)
 
 Rodada de 2026-11-10 para [#25](https://github.com/alaorneto/skeleton/issues/25): `leave_organization`, `/o/<org>/leave/`, `GET /api/v1/o/<org>/membership/`, `POST /api/v1/o/<org>/membership/leave/`, botão no painel e página inicial em blocos. Somente o que rodou:

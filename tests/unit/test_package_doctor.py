@@ -118,3 +118,18 @@ def test_doctor_lists_import_boundary_violations_before_build(tmp_path):
     (root / "integration.py").write_text("from skeleton.access.services import provision_membership\n")
     warning_only = doctor(root)
     assert warning_only["ok"] and codes(warning_only) == ["core_import"]
+
+
+def test_doctor_warns_that_default_enabled_is_obsolete(tmp_path):
+    root = notes_copy(tmp_path)
+    manifest = load_manifest(root / "manifest.json")
+    assert manifest["runtime"]["default_enabled"] is False
+    assert codes(doctor(root)) == []
+    manifest["runtime"]["default_enabled"] = True
+    (root / "manifest.json").write_bytes(canonical_json(manifest))
+    result = doctor(root)
+    # A warning only: signed v2 packages that still say true keep building and installing.
+    assert result["ok"] is True
+    assert [(problem["code"], problem["severity"]) for problem in result["problems"]] == [
+        ("default_enabled_ignored", "warning")
+    ]

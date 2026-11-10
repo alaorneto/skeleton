@@ -2,7 +2,9 @@
 
 Installed ≠ available ≠ active. The platform decides availability (all
 organizations or only selected ones); each organization still decides
-activation in ``AppInstallation``. An unavailable app is closed in an
+activation in ``AppInstallation``. Both default closed: without an
+availability row the app is unavailable, and without an ``AppInstallation``
+it is disabled (#22). An unavailable app is closed in an
 organization even if that organization enabled it. These services write only
 global rows: RLS and one tenant per request forbid rewriting N organizations.
 """
@@ -42,9 +44,9 @@ def availability_map(app_labels: Iterable[str], *, organization_id: UUID | None 
             availability_id__in=selected, granted_organization_id=organization_id
         ).values_list("availability_id", flat=True)
     )
-    # Until the platform default closes (#22), the absence of a row means "all".
+    # Closed by default (#22): without a row the app is unavailable to every organization.
     return {
-        label: label not in rows or rows[label].mode == AppAvailability.Mode.ALL or rows[label].pk in granted
+        label: label in rows and (rows[label].mode == AppAvailability.Mode.ALL or rows[label].pk in granted)
         for label in labels
     }
 
@@ -73,7 +75,10 @@ def _locked_availability(app_label: str, *, create: bool):
     if row is None and create:
         try:
             with transaction.atomic():
-                row = AppAvailability(app_label=app_label, mode=AppAvailability.Mode.ALL)
+                # Granting one organization never opens the app to all of them.
+                row = AppAvailability(
+                    app_label=app_label, mode=AppAvailability.Mode.SELECTED, upgrade_state=AppAvailability.UPGRADE_DONE
+                )
                 row.save()
         except IntegrityError:
             raise ConcurrentUpdate("Application availability changed.") from None
@@ -96,7 +101,7 @@ def set_app_availability(app_label: str, *, user, mode: str, revision: int):
             raise ConcurrentUpdate("Application availability changed.")
         try:
             with transaction.atomic():
-                row = AppAvailability(app_label=app_label, mode=mode)
+                row = AppAvailability(app_label=app_label, mode=mode, upgrade_state=AppAvailability.UPGRADE_DONE)
                 row.save()
         except IntegrityError:
             raise ConcurrentUpdate("Application availability changed.") from None

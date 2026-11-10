@@ -7,6 +7,7 @@ from django.urls import resolve
 
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.tenancy.context import tenant_context
+from skeleton.testing.applications import activate_app, activation_revision, open_app
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "App-extension-test-password!49"
@@ -70,7 +71,9 @@ def test_ea05_navigation_hides_disabled_or_unauthorized_apps(app_actor):
     with tenant_context(organization_id=organization.pk, actor=actor, source="test:menu"):
         links = navigation_for_user(actor)
         assert any(link["app_label"] == "example_notes" for link in links)
-        configure_application("example_notes", user=actor, enabled=False, configuration={}, revision=0)
+        configure_application(
+            "example_notes", user=actor, enabled=False, configuration={}, revision=activation_revision("example_notes")
+        )
         assert not any(link["app_label"] == "example_notes" for link in navigation_for_user(actor))
     response = client.get(f"/o/{organization.pk}/")
     assert response.status_code == 200
@@ -92,16 +95,31 @@ def test_ea06_manifest_dependency_and_configuration_contract(app_actor):
             configuration_fields=(),
         )
     )
+    activate_app("dependent_fixture", organization.pk)  # An enabled dependent blocks disabling Notes.
     try:
         with tenant_context(organization_id=organization.pk, actor=actor, source="test:dependencies"):
             with pytest.raises(ValidationError):
-                configure_application("example_notes", user=actor, enabled=False, configuration={}, revision=0)
+                configure_application(
+                    "example_notes",
+                    user=actor,
+                    enabled=False,
+                    configuration={},
+                    revision=activation_revision("example_notes"),
+                )
             with pytest.raises(ValidationError):
                 configure_application(
-                    "example_notes", user=actor, enabled=True, configuration={"unknown": "secret"}, revision=0
+                    "example_notes",
+                    user=actor,
+                    enabled=True,
+                    configuration={"unknown": "secret"},
+                    revision=activation_revision("example_notes"),
                 )
             configure_application(
-                "example_notes", user=actor, enabled=True, configuration={"heading": "Team notes"}, revision=0
+                "example_notes",
+                user=actor,
+                enabled=True,
+                configuration={"heading": "Team notes"},
+                revision=activation_revision("example_notes"),
             )
             assert application_state("example_notes")["configuration"]["heading"] == "Team notes"
     finally:
@@ -145,7 +163,11 @@ def test_ea08_example_configuration_changes_its_own_domain_surface(app_actor):
     actor, organization, client = app_actor
     with tenant_context(organization_id=organization.pk, actor=actor, source="test:example"):
         configure_application(
-            "example_notes", user=actor, enabled=True, configuration={"heading": "My tenant heading"}, revision=0
+            "example_notes",
+            user=actor,
+            enabled=True,
+            configuration={"heading": "My tenant heading"},
+            revision=activation_revision("example_notes"),
         )
     response = client.get(f"/o/{organization.pk}/apps/example_notes/")
     assert response.status_code == 200
@@ -183,15 +205,43 @@ def test_activation_follows_transitive_dependencies_and_names_blockers(app_actor
         register_app(
             AppManifest(app_label=label, label=label.title(), description="Fixture", dependencies=dependencies)
         )
+        open_app(label)
+        activate_app(label, organization.pk)
     try:
         with tenant_context(organization_id=organization.pk, actor=actor, source="test:transitive"):
             with pytest.raises(ValidationError, match="Middle_Fixture, Top_Fixture"):
-                configure_application("example_notes", user=actor, enabled=False, configuration={}, revision=0)
-            configure_application("top_fixture", user=actor, enabled=False, configuration={}, revision=0)
-            configure_application("middle_fixture", user=actor, enabled=False, configuration={}, revision=0)
-            configure_application("example_notes", user=actor, enabled=False, configuration={}, revision=0)
+                configure_application(
+                    "example_notes",
+                    user=actor,
+                    enabled=False,
+                    configuration={},
+                    revision=activation_revision("example_notes"),
+                )
+            configure_application(
+                "top_fixture", user=actor, enabled=False, configuration={}, revision=activation_revision("top_fixture")
+            )
+            configure_application(
+                "middle_fixture",
+                user=actor,
+                enabled=False,
+                configuration={},
+                revision=activation_revision("middle_fixture"),
+            )
+            configure_application(
+                "example_notes",
+                user=actor,
+                enabled=False,
+                configuration={},
+                revision=activation_revision("example_notes"),
+            )
             with pytest.raises(ValidationError, match="Enable required applications first: Anotações, Middle_Fixture"):
-                configure_application("top_fixture", user=actor, enabled=True, configuration={}, revision=1)
+                configure_application(
+                    "top_fixture",
+                    user=actor,
+                    enabled=True,
+                    configuration={},
+                    revision=activation_revision("top_fixture"),
+                )
             with pytest.raises(PermissionDenied):
                 require_application_enabled("top_fixture")
     finally:

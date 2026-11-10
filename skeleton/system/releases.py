@@ -189,6 +189,16 @@ def reconcile_operation(row, status):
     return row
 
 
+def _close_new_app(app_label, *, using="default"):
+    """A newly installed app starts ``selected`` with no grant: installing makes nothing available (#22)."""
+    from .models import AppAvailability
+
+    if not AppAvailability.all_objects.using(using).filter(app_label=app_label).exists():
+        AppAvailability(
+            app_label=app_label, mode=AppAvailability.Mode.SELECTED, upgrade_state=AppAvailability.UPGRADE_DONE
+        ).save(using=using)
+
+
 def synchronize_inventory(inventory, *, using="default"):
     generation = inventory["generation"]
     components = []
@@ -223,6 +233,8 @@ def synchronize_inventory(inventory, *, using="default"):
         }
         if row is None:
             ComponentInstallation(component_id=identifier, **values).save(using=using)
+            if data["kind"] == "app" and values["app_label"] and values["state"] == "installed":
+                _close_new_app(values["app_label"], using=using)
         else:
             changes = {name for name, value in values.items() if getattr(row, name) != value}
             for name in changes:

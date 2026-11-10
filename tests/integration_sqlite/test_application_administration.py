@@ -20,6 +20,7 @@ from skeleton.system import app_registry, presentation
 from skeleton.system.applications import application_state, configure_application
 from skeleton.system.presentation import AdministrationSpec, AdminScreenSpec, AdminSectionSpec
 from skeleton.tenancy.context import system_context, tenant_context
+from skeleton.testing.applications import activation_revision
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Application-administration-Password!54"
@@ -131,7 +132,11 @@ def test_disabled_app_retains_parameters_but_blocks_business_routes(actor, app_s
     user, organization, client = actor
     with tenant_context(organization_id=organization.pk, actor=user, source="test:disable-admin-app"):
         configure_application(
-            "example_notes", user=user, enabled=False, configuration={"heading": "Saved heading"}, revision=0
+            "example_notes",
+            user=user,
+            enabled=False,
+            configuration={"heading": "Saved heading"},
+            revision=activation_revision("example_notes"),
         )
     base = f"/o/{organization.pk}/apps/example_notes/"
     group = client.get(base + "admin/")
@@ -153,12 +158,14 @@ def test_disabled_app_retains_parameters_but_blocks_business_routes(actor, app_s
     assert form.fields["heading"].label == "Tenant heading"
     assert form.fields["heading"].help_text == "Displayed in tenant notes"
     assert [section["id"] for section in configuration.context["sections"]] == ["application-activation", "general"]
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:read-saved-revision"):
+        saved_revision = activation_revision("example_notes")
     assert (
         client.post(
             base + "configuration/",
             {
                 "enabled": "on",
-                "revision": "1",
+                "revision": str(saved_revision),
                 "heading": "Saved heading",
                 "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
             },
@@ -175,9 +182,11 @@ def test_configuration_post_keeps_compare_and_swap_and_csrf(actor, app_screens):
     url = f"/o/{organization.pk}/apps/example_notes/configuration/"
     assert client.post(url, {"enabled": "on", "revision": "0", "heading": "CSRF missing"}).status_code == 403
     client.get(url)
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:read-revision"):
+        current = activation_revision("example_notes")
     values = {
         "enabled": "on",
-        "revision": "0",
+        "revision": str(current),
         "heading": "First",
         "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
     }
@@ -256,7 +265,11 @@ def test_custom_parameter_wrapper_guards_direct_route_without_activation_gate(
     request.user, request.session = user, client.session
     with tenant_context(organization_id=organization.pk, actor=user, source="test:disabled-custom-parameters"):
         configure_application(
-            manifest.app_label, user=user, enabled=False, configuration={"heading": "Saved"}, revision=0
+            manifest.app_label,
+            user=user,
+            enabled=False,
+            configuration={"heading": "Saved"},
+            revision=activation_revision(manifest.app_label),
         )
         sections = screen_sections(manifest, user=user, scope="organization")
         assert [screen["id"] for screen in sections[0]["screens"]] == ["configuration", "custom"]
@@ -383,7 +396,9 @@ def test_api_namespace_wrapper_uses_owning_app_activation(actor, app_screens, mo
         assert response.status_code == 200
         assert response.data["count"] == 0
         assert original.callback is summary
-        configure_application("example_notes", user=user, enabled=False, configuration={}, revision=0)
+        configure_application(
+            "example_notes", user=user, enabled=False, configuration={}, revision=activation_revision("example_notes")
+        )
         with pytest.raises(PermissionDenied):
             request.resolver_match.func(request, organization_id=organization.pk)
         monkeypatch.delitem(app_registry._manifests, "example_notes")
@@ -431,14 +446,18 @@ def test_disabled_app_closes_api_routes_that_skip_authorized_queryset(api_guard)
     assert url == f"/api/v1/o/{organization.pk}/apps/example_notes/v/bare/"
     assert client.get(url).json() == {"ok": True}
     with tenant_context(organization_id=other.pk, actor=user, source="test:api-guard-other"):
-        configure_application("example_notes", user=user, enabled=False, configuration={}, revision=0)
+        configure_application(
+            "example_notes", user=user, enabled=False, configuration={}, revision=activation_revision("example_notes")
+        )
     # Tenant B disabled the app: B is closed, A keeps answering.
     closed = client.get(bare_url(other))
     assert closed.status_code == 404
     assert closed.json() == {"code": "not_found", "detail": "Not found."}
     assert client.get(url).status_code == 200
     with tenant_context(organization_id=organization.pk, actor=user, source="test:api-guard-disable"):
-        configure_application("example_notes", user=user, enabled=False, configuration={}, revision=0)
+        configure_application(
+            "example_notes", user=user, enabled=False, configuration={}, revision=activation_revision("example_notes")
+        )
     response = client.get(url)
     assert response.status_code == 404
     assert response.json() == {"code": "not_found", "detail": "Not found."}

@@ -144,8 +144,12 @@ class AppAvailability(SystemRecord):
 
     app_label = models.CharField(max_length=100, unique=True)
     mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.ALL)
+    # "" marks a row written before #22 that upgrade_app_activation has not processed yet;
+    # "pending" is mid-upgrade and "done" is final. New code always writes "done".
     upgrade_state = models.CharField(max_length=24, blank=True, default="")
     immutable_fields = ("app_label",)
+    UPGRADE_PENDING = "pending"
+    UPGRADE_DONE = "done"
 
     class Meta(SystemRecord.Meta):
         constraints = SystemRecord.Meta.constraints + [

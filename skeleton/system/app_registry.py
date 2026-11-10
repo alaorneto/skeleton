@@ -52,6 +52,7 @@ class AppManifest:
     navigation: tuple[MenuEntry, ...] = ()
     urls: str | None = None
     api_urls: str | None = None
+    # Obsolete since #22: parsed only so upgrade_app_activation can preserve the old default.
     default_enabled: bool = True
     documentation_root: str | None = None
     app_id: str | None = None

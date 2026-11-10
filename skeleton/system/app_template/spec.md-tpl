@@ -3,7 +3,7 @@
 Especificação inicial gerada por `skeleton_startapp`. Substitua cada parágrafo pelo comportamento real da app antes do primeiro release; o check E012 verifica apenas a presença das seções, não a qualidade do conteúdo. Veja [apps e instalação](../../../docs/concepts.md#apps-pacotes-e-deployment) e o roteiro de [extensão](../../../docs/extending.md).
 
 ## Contract
-`${app_label}` é instalada globalmente e ativada por organização; instalar o código não concede permissões. A ativação começa desligada (`default_enabled: false`).
+`${app_label}` é instalada globalmente e ativada por organização; instalar o código não concede permissões. A app nasce indisponível e desativada: a plataforma concede a disponibilidade e cada organização ativa explicitamente (`default_enabled` é obsoleto e fica `false`).
 
 Cada `${model}` pertence a uma organização e deriva de `SecuredRecord`: UUID imutável, revisão, proprietário e visibilidade. Os campos de negócio são `code` (até 64 caracteres, único entre registros vivos da organização) e `title` (até 200). Nenhum campo é sensível; declare em `sensitive_fields` qualquer campo novo cujo valor não possa aparecer na auditoria.
 

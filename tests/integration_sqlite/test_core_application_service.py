@@ -61,7 +61,9 @@ def test_is_enabled_follows_activation_and_platform_availability(scenario):
 
     # The platform restricts the app to selected organizations and grants none: closed in B too.
     with system_context(reason="test:applications-availability"):
-        AppAvailability(app_label=NOTES, mode="selected").save()
+        row = AppAvailability.objects.get(app_label=NOTES)
+        row.mode = "selected"
+        row.save(update_fields={"mode"})
     with acting_as(scenario.member, scenario.b) as actor:
         assert not service.is_enabled(actor=actor, app_id=app_id)
 
