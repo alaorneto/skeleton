@@ -1,0 +1,5 @@
+{% extends "skeleton/setup/base.html" %}
+{% block content %}
+<p class="mt-2 text-sm/6 text-body">Siga as etapas na ordem. Cada uma valida o que recebe antes de gravar na configuração da instância (o SQLite próprio, com segredos cifrados). Variáveis de ambiente continuam vencendo o que for gravado aqui.</p>
+<ol class="mt-6 space-y-2">{% for name, label, done in steps %}<li><a href="{% url 'setup:'|add:name %}">{{ label }}</a> {% if done %}<span class="badge badge-success">feito</span>{% else %}<span class="badge">pendente</span>{% endif %}</li>{% endfor %}</ol>
+{% endblock %}

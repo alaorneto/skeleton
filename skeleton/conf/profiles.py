@@ -136,3 +136,60 @@ def build_settings(base):
     SOCIALACCOUNT_PROVIDERS = {}
     result = {key: value for key, value in locals().items() if key.isupper()}
     return result
+
+
+def setup_settings(base):
+    """First-access setup (#146): no database, signed-cookie session, only /setup/ and health.
+
+    The session key is derived from the instance master key (stable across workers and
+    restarts, never stored); the single-use token is issued here, at process start.
+    """
+    import hashlib
+    import hmac
+
+    from skeleton.instance import crypto
+    from skeleton.instance.writer import open_store
+    from skeleton.setup.tokens import issue_token
+
+    env = base["env"]
+    BASE_DIR = base["BASE_DIR"]
+    DEBUG = env.bool("DJANGO_DEBUG", default=False)
+    SKELETON_SETUP_MODE = True
+    store, key_path = open_store(BASE_DIR)
+    crypto.load_key(key_path, create=True)
+    SECRET_KEY = hmac.new(key_path.read_bytes().strip(), b"skeleton-setup-session", hashlib.sha256).hexdigest()
+    issue_token(store)
+    DATABASES = {}
+    ALLOWED_HOSTS = env.list(
+        "SKELETON_SETUP_ALLOWED_HOSTS", default=env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+    )
+    ROOT_URLCONF = "skeleton.setup.urls"
+    SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Strict"
+    SESSION_COOKIE_AGE = 3600
+    SESSION_COOKIE_SECURE = env.bool("SKELETON_SETUP_SECURE_COOKIES", default=not DEBUG)
+    CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+    MESSAGE_STORAGE = "django.contrib.messages.storage.cookie.CookieStorage"
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "setup"}}
+    MIDDLEWARE = [
+        "django.middleware.security.SecurityMiddleware",
+        "whitenoise.middleware.WhiteNoiseMiddleware",
+        "skeleton.api.health.HealthProbeMiddleware",
+        "skeleton.setup.middleware.SetupOnlyMiddleware",
+        "django.middleware.clickjacking.XFrameOptionsMiddleware",
+        "django.contrib.sessions.middleware.SessionMiddleware",
+        "django.middleware.common.CommonMiddleware",
+        "django.middleware.csrf.CsrfViewMiddleware",
+        # Lazy anonymous user (the setup session never holds one); allauth refuses to load without
+        # its middleware, which then finds nothing to do.
+        "django.contrib.auth.middleware.AuthenticationMiddleware",
+        "django.contrib.messages.middleware.MessageMiddleware",
+        "allauth.account.middleware.AccountMiddleware",
+    ]
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SOCIALACCOUNT_PROVIDERS = {}
+    result = {key: value for key, value in locals().items() if key.isupper()}
+    return result

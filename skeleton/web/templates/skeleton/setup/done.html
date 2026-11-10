@@ -1,0 +1,4 @@
+{% extends "skeleton/setup/base.html" %}
+{% block content %}
+<p class="mt-2 text-sm/6 text-body">A configuração foi gravada.{% if restart == "manual" %} Reinicie o serviço para sair do modo setup.{% else %} O processo está reiniciando em modo normal; em alguns segundos, <a href="/accounts/login/">entre com o administrador</a>.{% endif %}</p>
+{% endblock %}

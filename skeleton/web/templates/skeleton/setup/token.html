@@ -1,0 +1,10 @@
+{% extends "skeleton/setup/base.html" %}
+{% block content %}
+<p class="mt-2 text-sm/6 text-body">Esta instância ainda não foi configurada. Informe o token de uso único que o processo imprimiu no log ao iniciar (também gravado no arquivo <code>setup-token</code>, ao lado do SQLite da instância).</p>
+{% if error %}<div class="error-summary mt-4" role="alert"><h2>{{ error }}</h2></div>{% endif %}
+<form method="post" class="mt-6 record-form">
+{% csrf_token %}
+{% include "skeleton/web/components/form-fields.html" %}
+<div class="form-actions"><button type="submit" class="btn btn-primary">Entrar no setup</button></div>
+</form>
+{% endblock %}

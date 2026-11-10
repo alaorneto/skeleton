@@ -125,7 +125,8 @@ def record_contract_checks(app_configs=None, **kwargs):
     auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
     account = "allauth.account.middleware.AccountMiddleware"
     messages = "django.contrib.messages.middleware.MessageMiddleware"
-    if (
+    setup = getattr(settings, "SKELETON_SETUP_MODE", False)  # Setup mode has no tenant at all (#146).
+    if not setup and (
         tenant not in middleware
         or any(item not in middleware or middleware.index(item) > middleware.index(tenant) for item in (auth, messages))
         or (account in middleware and middleware.index(account) < middleware.index(tenant))
@@ -149,6 +150,8 @@ def postgresql_only_checks(app_configs=None, **kwargs):
     """
     from django.conf import settings
 
+    dummy = "django.db.backends.dummy"  # What Django makes of an empty DATABASES.
+    setup = getattr(settings, "SKELETON_SETUP_MODE", False)
     errors = [
         Error(
             f"DATABASES[{alias!r}] uses {config.get('ENGINE', '')!r}: the data layer is PostgreSQL only.",
@@ -156,9 +159,10 @@ def postgresql_only_checks(app_configs=None, **kwargs):
             id="skeleton.E025",
         )
         for alias, config in settings.DATABASES.items()
-        if config.get("ENGINE") != POSTGRESQL_ENGINE
+        if config.get("ENGINE") not in (POSTGRESQL_ENGINE, dummy)
     ]
-    if not settings.DATABASES and not getattr(settings, "SKELETON_SETUP_MODE", False):
+    configured = [config for config in settings.DATABASES.values() if config.get("ENGINE") != dummy]
+    if not configured and not setup:
         errors.append(
             Error(
                 "No database is configured: DATABASE_URL (PostgreSQL) is required outside the setup.",
