@@ -70,6 +70,17 @@ def _url(parser: str) -> Callable[[str], str]:
     return validate
 
 
+def _origin(value: str) -> str:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(_required_text(value).strip())
+    if parts.scheme not in {"http", "https"} or not parts.netloc or parts.query or parts.fragment:
+        raise ValueError("Use uma origem http(s), como https://app.example.com.")
+    if parts.path not in {"", "/"}:
+        raise ValueError("Use só a origem, sem caminho.")
+    return value.strip().rstrip("/")
+
+
 def _choice(*choices: str) -> Callable[[str], str]:
     def validate(value: str) -> str:
         if value not in choices:
@@ -119,6 +130,7 @@ _SPECS = (
     SettingSpec("cache_url", "CACHE_URL", "url", "Cache compartilhado", _url("cache_url_config"), True),
     SettingSpec("email_url", "EMAIL_URL", "url", "Servidor de email", _url("email_url_config"), True),
     SettingSpec("default_from_email", "DEFAULT_FROM_EMAIL", "str", "Remetente padrão dos emails", _required_text),
+    SettingSpec("public_url", "SKELETON_PUBLIC_URL", "url", "Origem pública dos links de notificação", _origin),
     SettingSpec("mfa_encryption_keys", "MFA_ENCRYPTION_KEYS", "list", "Chaves de cifra do MFA", _list, True),
     SettingSpec(
         "identity_provider_encryption_keys",

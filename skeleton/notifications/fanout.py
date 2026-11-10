@@ -103,7 +103,8 @@ def fan_out(*, notification_id: str, offset: int) -> int:
     if notification is None or notification.fanned_out_at is not None:
         return 0
     people = resolve_people(notification)
-    batch = _authorized(people[offset : offset + BATCH_SIZE], _target(notification))
+    authorized = _authorized(people[offset : offset + BATCH_SIZE], _target(notification))
+    batch, channels = _channels(notification, authorized)
     grouped = {}
     if notification.group_key:
         grouped = dict(
@@ -128,6 +129,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
             if user not in grouped
         ]
     )
+    _schedule_channels(notification, channels)
     following = offset + BATCH_SIZE
     if following < len(people):
         enqueue(
@@ -139,4 +141,35 @@ def fan_out(*, notification_id: str, offset: int) -> int:
     else:
         notification.fanned_out_at = timezone.now()
         notification.save(update_fields={"fanned_out_at"})
-    return len(batch)
+    return len(authorized)
+
+
+def _channels(notification, people: list[UUID]) -> tuple[list[UUID], dict[str, list[UUID]]]:
+    """Who gets an inbox row and who gets an immediate email or push, by their preferences (#53)."""
+    from .preferences import rows_by_user, wants
+    from .registry import get_notification_type
+
+    try:
+        kind = get_notification_type(notification.type_code)
+    except KeyError:
+        return people, {}
+    rows = rows_by_user(people)
+    inbox = [user for user in people if wants(user, kind, "in_app", rows) != "off"]
+    channels = {
+        channel: [user for user in people if wants(user, kind, channel, rows) == "immediate"] for channel in ("email",)
+    }
+    return inbox, channels
+
+
+def _schedule_channels(notification, channels: dict[str, list[UUID]]) -> None:
+    from .channels.delivery import create_delivery
+
+    for channel, people in channels.items():
+        for user in people:
+            create_delivery(
+                organization_id=notification.organization_id,
+                notification_id=notification.pk,
+                user_id=user,
+                channel=channel,
+                dedupe_key=f"{channel}:{notification.pk}:{user}",
+            )

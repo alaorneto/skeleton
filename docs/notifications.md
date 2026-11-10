@@ -98,3 +98,15 @@ A resolução vai do mais específico ao mais geral: a linha da pessoa para o ti
 | `DELETE /api/v1/me/notification-preferences/<tipo>/<canal>/` | Exclusão lógica com `If-Match`: volta a valer o nível seguinte da resolução |
 
 A pessoa só lê e altera as próprias linhas: nenhuma rota recebe identificador de usuário. Um formulário com revisão antiga responde 409 sem gravar nada.
+
+## Email imediato
+
+Quem tem `email` em `immediate` (pela preferência ou pelo `default_channels` do tipo) recebe um email por notificação. O fan-out cria uma `NotificationDelivery` (canal `email`, [tabela operacional](data-model.md#tabelas-operacionais-adr) com RLS tenant) e enfileira o job `notifications.email` na mesma transação: um rollback não deixa nem a entrega nem o job, e nada sai durante o `notify()`.
+
+O job, em `system_context` da organização:
+
+1. Pula a entrega (`skipped`) se a pessoa foi desativada, saiu da organização (`recipient_inactive`), desligou o email (`opted_out`) ou perdeu a leitura do alvo (`target_unreadable`) desde o fan-out.
+2. Renderiza no idioma e no fuso do perfil (`translation.override`, `timezone.override`) os templates `notifications/<tipo>/subject.txt`, `body.txt` e `body.html` (opcional), procurando antes `<nome>.<idioma>.<ext>` (`body.en.txt`) e caindo em `notifications/default/`. O contexto traz `label`, `snapshot`, `payload`, `created_at`, `open_url` e `preferences_url`.
+3. Envia com `List-Unsubscribe: <…/profile/notifications/>`. Uma falha conta uma tentativa e agenda outra em 1 min, 5 min, 30 min e 2 h; depois da quinta, a entrega fica `dead`. Uma entrega `sent` nunca sai de novo: a entrega é pelo menos uma vez, idempotente por linha.
+
+Os links usam `SKELETON_PUBLIC_URL`. Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês; os rótulos dos tipos continuam em português até o epic de i18n.

@@ -198,6 +198,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_notifications.notificationdelivery": (
+            "Entregas de notificação",
+            "Email, resumo ou push de uma notificação a uma pessoa, com tentativas e último resultado.",
+            "organization",
+            (),
+        ),
         "sk_files.attachment": (
             "Anexos",
             "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",

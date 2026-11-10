@@ -138,3 +138,59 @@ class UserNotificationPreference(SystemRecord):
 
     def __str__(self):
         return f"{self.user_id} {self.type_code} {self.channel}"
+
+
+class NotificationDelivery(OperationalRecord):
+    """One email, digest or push of a notification to one person, with its attempts (#54).
+
+    Operational pipeline state: no revision, soft delete or per-row audit; only the
+    retention job removes rows. ``dedupe_key`` makes creation idempotent per organization,
+    and ``items`` lists the inbox rows of a digest (identifiers only).
+    """
+
+    class Channel(models.TextChoices):
+        EMAIL = "email", "Email"
+        DIGEST = "digest", "Resumo por email"
+        PUSH = "push", "Push no navegador"
+
+    class State(models.TextChoices):
+        PENDING = "pending", "Na fila"
+        RETRYING = "retrying", "Nova tentativa agendada"
+        SENT = "sent", "Enviada"
+        SKIPPED = "skipped", "Ignorada"
+        DEAD = "dead", "Falhou"
+
+    organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_notifications_delivery_records"
+    )
+    notification = models.ForeignKey(
+        Notification, null=True, blank=True, on_delete=models.PROTECT, related_name="channel_deliveries"
+    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    channel = models.CharField(max_length=16, choices=Channel.choices)
+    dedupe_key = models.CharField(max_length=200)
+    items = models.JSONField(default=list)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    attempts = models.PositiveIntegerField(default=0)
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("notification_id", "user_id", "channel", "dedupe_key", "items")
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "sysid"),
+                name="sk_notifications_delivery_org_sysid",
+                violation_error_code="unique",
+            ),
+            models.UniqueConstraint(
+                fields=("organization", "dedupe_key"),
+                name="sk_notifications_delivery_dedupe",
+                violation_error_code="unique",
+            ),
+        ]
+        indexes = [models.Index(fields=("organization", "state", "created_at"), name="sk_notif_delivery_state")]
+
+    def __str__(self):
+        return f"{self.channel} {self.user_id} {self.state}"

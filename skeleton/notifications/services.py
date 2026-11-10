@@ -172,3 +172,19 @@ def register_notification_jobs() -> None:
             owner_app="sk_notifications",
         )
     )
+    from .channels.delivery import EMAIL_JOB
+    from .channels.email import send_email
+
+    register_job_type(
+        JobType(
+            EMAIL_JOB,
+            send_email,
+            {"delivery_id": "uuid"},
+            run_as="system",
+            # Crashes only: send failures never raise and follow RETRY_SCHEDULE through new jobs.
+            max_attempts=3,
+            backoff=60.0,
+            timeout_s=120,
+            owner_app="sk_notifications",
+        )
+    )
