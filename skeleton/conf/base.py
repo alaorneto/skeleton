@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "skeleton.events.apps.EventsConfig",
     "skeleton.notifications.apps.NotificationsConfig",
     "skeleton.files.apps.FilesConfig",
+    "skeleton.sequences.apps.SequencesConfig",
     "skeleton.web",
     "skeleton.api",
 ]

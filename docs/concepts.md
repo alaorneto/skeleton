@@ -40,7 +40,7 @@ O **ORM** é a camada Django que traduz consultas e operações sobre modelos em
 
 A **chave primária** (**PK**, de *primary key*) identifica uma linha de forma única na tabela. Nas entidades próprias do skeleton, ela é `sysid`, um **UUID** gerado no servidor. O UUID permanece o mesmo ao editar, excluir logicamente ou restaurar um registro.
 
-Um código comercial, como o número de atendimento `AT-2026-0042`, é outra coisa. Pode obedecer a regras do negócio e fica em um campo separado. Não deve substituir `sysid`.
+Um código comercial, como o número de atendimento `AT-2026-0042`, é outra coisa. Pode obedecer a regras do negócio e fica em um campo separado. Não deve substituir `sysid`. As [sequências](sequences.md) do núcleo geram esses códigos por organização e período, sem lacunas.
 
 O UUID não é senha nem prova de autorização. Conhecer o endereço de uma anotação não concede acesso a ela.
 

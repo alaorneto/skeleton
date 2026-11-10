@@ -196,6 +196,12 @@ def register_core_specs():
             "organization",
             ("storage_key",),
         ),
+        "sk_sequences.sequencecounter": (
+            "Sequências",
+            "Último número entregue de cada sequência declarada, por organização e período.",
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",
