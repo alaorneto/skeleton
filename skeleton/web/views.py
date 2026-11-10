@@ -192,12 +192,72 @@ def check_html_revision(form, record):
 @login_required
 def home(request):
     from skeleton.service_api.organizations import OrganizationService
+    from skeleton.tenancy.invitations import pending_invitation
 
     memberships = [
         {"organization_id": item.sysid, "organization_name": item.name, "organization_slug": item.slug}
         for item in OrganizationService().my_organizations(actor=request.user)
     ]
-    return render(request, "skeleton/web/home.html", {"memberships": memberships})
+    proof = pending_invitation(request)
+    return render(
+        request,
+        "skeleton/web/home.html",
+        {
+            "memberships": memberships,
+            # Join paths (#25): only the invitation this session opened; never other people's.
+            "pending_invitation": {"email": proof.email} if proof else None,
+            # Filled by join requests (#26) and suggested organizations (#28).
+            "join_requests": (),
+            "suggested_organizations": (),
+        },
+    )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def leave_organization(request, organization_id):
+    """Confirm (GET, no change) and leave (POST with CSRF and the membership revision)."""
+    from skeleton.service_api.organizations import OrganizationService
+    from skeleton.tenancy.models import Membership
+
+    if current_context().organization_id is None:
+        raise Http404
+    organization = OrganizationService().current(actor=request.user)
+    membership = Membership.objects.filter(user=request.user, is_active=True).first()
+    if membership is None:
+        raise Http404
+    status, error = 200, None
+    if request.method == "POST":
+        try:
+            revision = int(request.POST.get("revision", ""))
+        except ValueError:
+            revision = None
+        try:
+            if revision is None:
+                raise ConcurrentUpdate("Missing membership revision.")
+            with transaction.atomic():
+                access_services.leave_organization(request.user, expected_revision=revision)
+        except access_services.LastAdministrator:
+            status = 409
+            error = "Você é a última pessoa que administra esta organização. Designe outro administrador antes de sair."
+        except ConcurrentUpdate:
+            status = 409
+            error = "Seu vínculo mudou desde que esta página foi aberta. Confira e tente de novo."
+        else:
+            messages.success(request, f"Você saiu de {organization.name}.")
+            return redirect("web:home")
+    return render(
+        request,
+        "skeleton/web/leave.html",
+        {
+            "organization": organization,
+            "organization_id": organization_id,
+            "revision": membership.revision,
+            "error": error,
+        },
+        status=status,
+    )
 
 
 def _service_form_error(form, error):

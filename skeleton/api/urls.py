@@ -9,6 +9,12 @@ urlpatterns = [
     path("me/", views.MeView.as_view(), name="me"),
     path("organizations/", views.OrganizationsView.as_view(), name="organizations"),
     path("o/<uuid:organization_id>/catalog/", views.CatalogView.as_view(), name="catalog"),
+    path("o/<uuid:organization_id>/membership/", views.OwnMembershipView.as_view(), name="own-membership"),
+    path(
+        "o/<uuid:organization_id>/membership/leave/",
+        views.LeaveOrganizationView.as_view(),
+        name="leave-organization",
+    ),
     path("o/<uuid:organization_id>/audit/", views.AuditView.as_view(), name="audit"),
     path("o/<uuid:organization_id>/audit/<uuid:sysid>/", views.AuditView.as_view(), name="audit-detail"),
     path(

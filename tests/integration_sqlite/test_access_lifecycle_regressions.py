@@ -184,3 +184,186 @@ def test_sbr04_inactive_membership_can_be_deleted_without_cross_tenant_bypass(ac
             delete_membership(foreign, user=access.admin)
     with actor_tenant(access.bob, access.b):
         assert Membership.objects.get(pk=foreign.pk).is_active
+
+
+# --------------------------------------------------------------------------- leaving an organization (#25)
+
+
+def leave_url(organization, api=False):
+    if api:
+        return reverse("api:leave-organization", kwargs={"organization_id": organization.pk})
+    return reverse("web:leave-organization", kwargs={"organization_id": organization.pk})
+
+
+def _links(membership):
+    from skeleton.access.models import GroupMember, MemberRole, RecordGrant
+
+    return {
+        model: list(model.objects.with_deleted().filter(membership=membership).values_list("pk", flat=True))
+        for model in (MemberRole, GroupMember, RecordGrant)
+    }
+
+
+def test_member_leaves_and_loses_direct_and_group_access_on_the_next_request(access):
+    from skeleton.access.services import create_record_grant
+    from skeleton.tenancy.models import Membership
+
+    with actor_tenant(access.admin, access.a):
+        create_record_grant(
+            user=access.admin,
+            data={
+                "table": access.table,
+                "record_sysid": access.private.pk,
+                "membership": access.bob_membership,
+                "action": "read",
+            },
+        )
+        links = _links(access.bob_membership)
+    assert all(links.values())  # A direct role, a group and a record grant.
+    client = login(access.bob)
+    dashboard = reverse("web:dashboard", kwargs={"organization_id": access.a.pk})
+    assert client.get(dashboard).status_code == 200
+    page = client.get(leave_url(access.a))
+    assert page.status_code == 200 and page.context["revision"] == access.bob_membership.revision
+    with actor_tenant(access.admin, access.a):
+        assert Membership.objects.get(pk=access.bob_membership.pk).is_active  # GET changes nothing.
+    token = client.cookies["csrftoken"].value
+    response = client.post(leave_url(access.a), {"revision": page.context["revision"], "csrfmiddlewaretoken": token})
+    assert response.status_code == 302 and response.url == reverse("web:home")
+    assert client.get(dashboard).status_code == 404
+    with actor_tenant(access.admin, access.a):
+        left = Membership.objects.with_deleted().get(pk=access.bob_membership.pk)
+        assert left.deleted_at is not None and not left.is_active
+        assert not Membership.objects.filter(user=access.bob).exists()
+        for model, ids in links.items():
+            assert not model.objects.filter(pk__in=ids).exists()
+            assert model.objects.with_deleted().filter(pk__in=ids, deleted_at__isnull=False).count() == len(ids)
+    # Leaving A does not touch B, where Bob still administers.
+    assert client.get(reverse("web:dashboard", kwargs={"organization_id": access.b.pk})).status_code == 200
+
+
+def test_leaving_requires_csrf_and_a_current_revision(access):
+    from skeleton.tenancy.models import Membership
+
+    client = login(access.alice)
+    revision = access.alice_membership.revision
+    assert client.post(leave_url(access.a), {"revision": revision}).status_code == 403
+    token = client.cookies["csrftoken"].value
+    assert client.post(leave_url(access.a), {"revision": revision + 1, "csrfmiddlewaretoken": token}).status_code == 409
+    assert client.post(leave_url(access.a), {"csrfmiddlewaretoken": token}).status_code == 409
+    with actor_tenant(access.admin, access.a):
+        assert Membership.objects.get(pk=access.alice_membership.pk).is_active
+
+
+def test_last_administrator_cannot_leave_and_nothing_changes(access):
+    from skeleton.access.models import MemberRole
+    from skeleton.tenancy.models import Membership
+
+    with actor_tenant(access.admin, access.a):
+        membership = Membership.objects.get(user=access.admin)
+        before = (membership.revision, MemberRole.objects.filter(membership=membership).count())
+    client = login(access.admin)
+    token = client.cookies["csrftoken"].value
+    response = client.post(leave_url(access.a), {"revision": before[0], "csrfmiddlewaretoken": token})
+    assert response.status_code == 409
+    assert "última pessoa que administra" in response.content.decode()
+    api = mutate(client, "post", leave_url(access.a, api=True), revision=before[0])
+    assert api.status_code == 409 and api.json()["code"] == "last_administrator"
+    with actor_tenant(access.admin, access.a):
+        membership = Membership.objects.get(user=access.admin)
+        assert (membership.revision, MemberRole.objects.filter(membership=membership).count()) == before
+    assert client.get(reverse("web:dashboard", kwargs={"organization_id": access.a.pk})).status_code == 200
+
+
+def test_api_leave_uses_the_membership_etag(access):
+    from skeleton.tenancy.models import Membership
+
+    client = login(access.alice)
+    own = client.get(reverse("api:own-membership", kwargs={"organization_id": access.a.pk}))
+    assert own.status_code == 200 and own.json()["sysid"] == str(access.alice_membership.pk)
+    url = leave_url(access.a, api=True)
+    assert mutate(client, "post", url).status_code == 428
+    assert mutate(client, "post", url, revision=own.json()["revision"] + 1).status_code == 412
+    assert mutate(client, "post", url, {"user": str(access.bob.pk)}, own.json()["revision"]).status_code == 400
+    assert client.get(url).status_code == 405
+    response = client.post(url, content_type="application/json", HTTP_IF_MATCH=own["ETag"])
+    assert response.status_code == 403  # CSRF: the session API still requires the token.
+    assert mutate(client, "post", url, revision=own.json()["revision"]).status_code == 204
+    assert client.get(reverse("api:own-membership", kwargs={"organization_id": access.a.pk})).status_code == 404
+    with actor_tenant(access.admin, access.a):
+        assert Membership.objects.with_deleted().get(pk=access.alice_membership.pk).deleted_at is not None
+        # Bob's membership in A is untouched by Alice leaving.
+        assert Membership.objects.get(pk=access.bob_membership.pk).is_active
+
+
+def test_administrator_leaves_when_another_administrator_remains(access):
+    from skeleton.access.models import AccessGroup, GroupMember, GroupRole, Role
+    from skeleton.access.services import LastAdministrator, leave_organization
+    from skeleton.tenancy.models import Membership
+
+    with actor_tenant(access.admin, access.a):
+        admins = AccessGroup(organization=access.a, code="admins", name="Admins")
+        admins.save()
+        GroupRole(organization=access.a, group=admins, role=Role.objects.get(code="organization_admin")).save()
+        GroupMember(organization=access.a, group=admins, membership=access.alice_membership).save()
+    # Alice administers only through a group; the direct administrator may now leave.
+    with actor_tenant(access.admin, access.a):
+        leave_organization(access.admin)
+    with actor_tenant(access.alice, access.a):
+        assert not Membership.objects.filter(user=access.admin).exists()
+        with pytest.raises(LastAdministrator):
+            leave_organization(access.alice)
+        assert Membership.objects.get(pk=access.alice_membership.pk).is_active
+
+
+def test_leave_service_refuses_another_actor(access):
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.access.services import leave_organization
+
+    with actor_tenant(access.admin, access.a):
+        with pytest.raises(PermissionDenied):
+            leave_organization(access.alice)
+
+
+def test_invitation_readmits_who_left_with_the_same_membership(access):
+    from skeleton.access.models import Role
+    from skeleton.access.services import leave_organization
+    from skeleton.tenancy.invitations import accept_invitation, issue_invitation
+    from skeleton.tenancy.models import Membership
+
+    with actor_tenant(access.alice, access.a):
+        leave_organization(access.alice)
+    with actor_tenant(access.admin, access.a):
+        invitation = issue_invitation(
+            user=access.admin,
+            email=access.alice.email,
+            role=Role.objects.get(code="member"),
+            request=RequestFactory().get("/", HTTP_HOST="testserver"),
+        )
+    message = next(message for message in reversed(mail.outbox) if invitation.email in message.to)
+    path = urlsplit(re.search(r"https?://[^\s]+", message.body).group()).path
+    accept_invitation(user=access.alice, organization_id=access.a.pk, token=path.rstrip("/").rsplit("/", 1)[-1])
+    with actor_tenant(access.alice, access.a):
+        assert Membership.objects.get(user=access.alice).pk == access.alice_membership.pk
+
+
+def test_home_without_membership_shows_the_join_paths(access):
+    from skeleton.tenancy.invitations import issue_invitation
+
+    client = login(access.outsider)
+    home = client.get(reverse("web:home")).content.decode()
+    assert "Você ainda não pertence a uma organização." in home
+    assert "abra o link de um convite" in home and "Convite pendente" not in home
+    with actor_tenant(access.admin, access.a):
+        invitation = issue_invitation(
+            user=access.admin,
+            email=access.outsider.email,
+            role=access.member_role,
+            request=RequestFactory().get("/", HTTP_HOST="testserver"),
+        )
+    message = next(message for message in reversed(mail.outbox) if invitation.email in message.to)
+    assert client.get(urlsplit(re.search(r"https?://[^\s]+", message.body).group()).path).status_code == 200
+    home = client.get(reverse("web:home")).content.decode()
+    assert "Convite pendente" in home and access.outsider.email in home
+    assert access.a.name not in home  # The block never reveals the organization before acceptance.

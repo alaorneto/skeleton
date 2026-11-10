@@ -54,6 +54,21 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Saída voluntária da organização e caminhos de ingresso (#25)
+
+Rodada de 2026-11-10 para [#25](https://github.com/alaorneto/skeleton/issues/25): `leave_organization`, `/o/<org>/leave/`, `GET /api/v1/o/<org>/membership/`, `POST /api/v1/o/<org>/membership/leave/`, botão no painel e página inicial em blocos. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 878 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 318 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/integration_sqlite/test_access_lifecycle_regressions.py` (SQLite e PostgreSQL): membro comum com papel direto, grupo e concessão de registro sai, os três vínculos ficam excluídos logicamente e `/o/<org>/` responde 404 na requisição seguinte, sem afetar a organização B onde ele administra; GET da confirmação não altera nada; POST sem CSRF 403, revisão antiga ou ausente 409; o último administrador recebe 409 no HTML e `last_administrator` na API, sem mudança de revisão nem de papéis; a API exige `If-Match` (428), recusa revisão antiga (412), campos no corpo (400), GET (405) e POST sem CSRF (403), e responde 204; administrador direto sai quando outra pessoa administra via grupo, e essa pessoa, agora sozinha, não sai; o serviço recusa ator diferente do contexto; convite aceito depois readmite com o mesmo vínculo; a página inicial sem vínculo mostra os caminhos de ingresso e, com convite aberto na sessão, o bloco "Convite pendente" sem revelar a organização. Em `tests/accounts/test_social_hardening.py`: a confirmação de email do JIT não readmite quem saiu. Em `tests/integration_postgres/test_admin_concurrency.py`: dois administradores saindo ao mesmo tempo serializam no lock da organização (um sai, o outro recebe 409) e a saída concorrente com a remoção do mesmo vínculo pelo administrador termina sem deadlock.
+
+**Não verificado:** smoke manual no navegador; os fluxos de domínio e de link (#26, #28) ainda não existem, então a regra "não readmitir quem saiu" só foi provada para o JIT de SSO; testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
 ## Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122)
 
 Rodada de 2026-11-09 em Windows 11 com Python 3.14 e os locks regenerados por `uv pip compile`. O venv local foi instalado com as versões do novo `requirements-dev.txt` usadas como constraints (sem `--require-hashes`, porque os hashes são de wheels Linux). Para comparação, os testes que falharam também rodaram num venv com os locks anteriores (Django 5.2.18, allauth 65.19.7): passaram nos dois casos, o que confirma que as falhas eram regressões da atualização e não do ambiente.
