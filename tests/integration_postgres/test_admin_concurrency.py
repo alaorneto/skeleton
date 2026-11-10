@@ -196,3 +196,105 @@ def test_superuser_without_staff_keeps_platform_guc_off(skeleton_db):
                 cursor.execute("SELECT current_setting('skeleton.platform_admin', true)")
                 observed[user.pk] = cursor.fetchone()[0]
     assert observed == {fixture.alice.pk: "off", fixture.bob.pk: "on"}
+
+
+def _make_admin(fixture, membership):
+    from skeleton.access.models import Role
+    from skeleton.tenancy.context import system_context
+
+    with system_context(reason="test:second-admin", organization_id=fixture.a.pk):
+        role = Role.objects.get(code="organization_admin")
+        MemberRole(organization=fixture.a, membership=membership, role=role).save()
+
+
+def _admins_of(organization):
+    from skeleton.access.services import administrator_memberships
+    from skeleton.tenancy.context import system_context
+
+    with system_context(reason="test:admins-of", organization_id=organization.pk):
+        return set(administrator_memberships().values_list("user_id", flat=True))
+
+
+def test_platform_designation_writes_only_the_designated_tenant(skeleton_db):
+    from uuid import uuid4
+
+    from skeleton.access.models import Role
+    from skeleton.accounts.services import designate_organization_admin
+    from skeleton.tenancy.context import request_context, system_context
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    fixture = build_security_fixture()
+    _platform_admins(fixture.outsider)
+    fixture.outsider.refresh_from_db()
+    b_admins = _admins_of(fixture.b)
+    with request_context(actor=fixture.outsider, request_id=uuid4(), source="test:designate-tenant"):
+        designate_organization_admin(actor=fixture.outsider, organization=fixture.a, user=fixture.alice)
+        with system_context(reason="organization:designate-admin", organization_id=fixture.a.pk):
+            with connection.cursor() as cursor:
+                # The tenant GUC is A: B's rows are neither visible nor writable from this context.
+                cursor.execute(f"SELECT count(*) FROM {Role._meta.db_table} WHERE organization_id = %s", [fixture.b.pk])
+                assert cursor.fetchone()[0] == 0
+                cursor.execute(
+                    f"UPDATE {Role._meta.db_table} SET name = 'hijacked' WHERE organization_id = %s", [fixture.b.pk]
+                )
+                assert cursor.rowcount == 0
+    assert fixture.alice.pk in _admins_of(fixture.a)
+    assert _admins_of(fixture.b) == b_admins
+    with system_context(reason="test:designate-tenant-b", organization_id=fixture.b.pk):
+        assert not Role.objects.filter(name="hijacked").exists()
+
+
+def test_platform_designation_and_admin_removal_serialize_without_deadlock(skeleton_db):
+    import time
+    from uuid import uuid4
+
+    from skeleton.access.services import delete_membership
+    from skeleton.accounts.services import designate_organization_admin
+    from skeleton.tenancy.context import request_context
+
+    disposable_database_pair()
+    assert connection.vendor == "postgresql"
+    fixture = build_security_fixture()
+    _platform_admins(fixture.outsider)
+    fixture.outsider.refresh_from_db()
+    _make_admin(fixture, fixture.bob_membership)
+    designation_locked, removal_waiting = Event(), Event()
+
+    def run(kind):
+        def observe(execute, sql, params, many, context):
+            if "FOR UPDATE" in sql and Organization._meta.db_table in sql:
+                if kind == "designate" and not designation_locked.is_set():
+                    result = execute(sql, params, many, context)
+                    designation_locked.set()
+                    assert removal_waiting.wait(10), "Removal did not reach the organization lock."
+                    time.sleep(0.5)
+                    return result
+                if kind == "remove" and not removal_waiting.is_set():
+                    assert designation_locked.wait(10), "Designation did not lock the organization."
+                    removal_waiting.set()
+            return execute(sql, params, many, context)
+
+        connections.close_all()
+        try:
+            with connection.execute_wrapper(observe):
+                if kind == "designate":
+                    with request_context(actor=fixture.outsider, request_id=uuid4(), source="test:designate"):
+                        designate_organization_admin(
+                            actor=fixture.outsider, organization=fixture.a, user=fixture.alice, replace=fixture.bob
+                        )
+                else:
+                    with actor_tenant(fixture.admin, fixture.a):
+                        delete_membership(Membership.objects.get(pk=fixture.bob_membership.pk), user=fixture.admin)
+            return "ok"
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        designate = pool.submit(run, "designate")
+        assert designation_locked.wait(10)
+        remove = pool.submit(run, "remove")
+        assert [designate.result(timeout=30), remove.result(timeout=30)] == ["ok", "ok"]
+    assert _admins_of(fixture.a) == {fixture.admin.pk, fixture.alice.pk}
+    with actor_tenant(fixture.admin, fixture.a):
+        assert Membership.all_objects.get(pk=fixture.bob_membership.pk).deleted_at is not None
