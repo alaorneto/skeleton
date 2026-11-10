@@ -1,13 +1,12 @@
-"""Public record APIs and actual SQLite SQL, not source-string assertions."""
+"""Public record APIs and actual PostgreSQL SQL (runtime role), not source-string assertions."""
 
 import json
-import sqlite3
 from uuid import UUID, uuid4
 
 import pytest
 from django.apps import apps
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import UUIDField
 
 from skeleton.common.exceptions import ConcurrentUpdate, ImmutableRecord, UnsafeBulkMutation
@@ -17,7 +16,7 @@ from tools.security_fixtures import actor_tenant, build_security_fixture
 
 @pytest.fixture
 def records(skeleton_db):
-    assert connection.vendor == "sqlite", "Use the SQLite fixture for this suite."
+    assert connection.vendor == "postgresql", "The record contract runs on PostgreSQL with the runtime role."
     return build_security_fixture()
 
 
@@ -36,7 +35,9 @@ def test_all_owned_models_are_uuid_and_physically_catalogued(records):
             assert isinstance(model._meta.pk, UUIDField)
             assert model._meta.pk.name == "sysid"
             assert get_spec(model._meta.label_lower).model is model
-    physical = set(connection.introspection.table_names()) - {"sqlite_sequence"}
+    from skeleton.system.synchronization import physical_tables
+
+    physical = set(physical_tables(connection))
     catalog = set(TableDefinition.objects.filter(available=True).values_list("db_table", flat=True))
     assert physical <= catalog
 
@@ -198,8 +199,10 @@ def test_actual_guards_reject_cross_tenant_fk_identity_and_audit_mutation(record
             (f"UPDATE {table} SET title=%s WHERE sysid=%s", ["No revision", records.private.pk.hex]),
             (f"DELETE FROM {table} WHERE sysid=%s", [records.private.pk.hex]),
         ]
+        # Guards, tenant FKs, RLS WITH CHECK and missing runtime privileges (DELETE, audit
+        # UPDATE/DELETE) all refuse inside the database; each is some DatabaseError.
         for statement, params in attempts:
-            with pytest.raises(IntegrityError), transaction.atomic():
+            with pytest.raises(DatabaseError), transaction.atomic():
                 with connection.cursor() as cursor:
                     cursor.execute(statement, params)
         audit = connection.ops.quote_name(AuditEvent._meta.db_table)
@@ -208,39 +211,54 @@ def test_actual_guards_reject_cross_tenant_fk_identity_and_audit_mutation(record
             f"DELETE FROM {audit} WHERE record_sysid=%s",
         ):
             params = ["tamper", records.private.pk.hex] if statement.startswith("UPDATE") else [records.private.pk.hex]
-            with pytest.raises(IntegrityError), transaction.atomic():
+            with pytest.raises(DatabaseError), transaction.atomic():
                 with connection.cursor() as cursor:
                     cursor.execute(statement, params)
         assert Note.objects.get(pk=records.private.pk).revision == 1
 
 
-def test_external_sqlite_without_registered_udfs_fails_closed(records):
-    from examples.notes.models import Note
+def test_external_connection_without_context_fails_closed(records):
+    import psycopg
 
-    # A genuine second driver connection lacks Django's context/audit UDFs.
-    with sqlite3.connect(connection.settings_dict["NAME"]) as external:
-        with pytest.raises(sqlite3.OperationalError, match="no such function"):
-            external.execute(
-                f'UPDATE "{Note._meta.db_table}" SET title=?,revision=revision+1 WHERE sysid=?',
-                ("external", records.private.pk.hex),
-            )
+    from examples.notes.models import Note
+    from tools.integration_database import disposable_database_pair
+
+    # A genuine second driver connection of the runtime role has no tenant GUC: RLS hides every row.
+    with psycopg.connect(disposable_database_pair().runtime, options="-c search_path=skeleton,public") as external:
+        changed = external.execute(
+            f'UPDATE "{Note._meta.db_table}" SET title=%s,revision=revision+1 WHERE sysid=%s',
+            ("external", records.private.pk),
+        ).rowcount
+    assert changed == 0
     with actor_tenant(records.alice, records.a):
         assert Note.objects.get(pk=records.private.pk).title == "Private"
 
 
 def test_password_changes_are_detected_before_redaction(records):
-    from skeleton.accounts.services import set_local_password
+    from skeleton.accounts.services import bootstrap_identity, set_local_password
     from skeleton.tenancy.context import request_context
 
+    platform, _ = bootstrap_identity(
+        email="password-platform@example.test",
+        organization="password-platform",
+        name="Platform",
+        password="Platform-fixture-password-2026!",
+    )
+
+    def global_events():
+        # Global audit is readable only with the platform GUC on (RLS of the runtime role).
+        with request_context(actor=platform, request_id=uuid4(), source="test:password-audit"):
+            return events(records.alice)
+
+    before = len(global_events())
     with request_context(actor=records.alice, request_id=uuid4(), source="test:password"):
-        before = len(events(records.alice))
         set_local_password(records.alice, "Another-fixture-password-2026!")
-        history = events(records.alice)
-        assert len(history) == before + 1
-        change = history[-1].changes["password"]
-        assert change["old"] == change["new"] == "[REDACTED]"
-        assert change["redacted"] is True
-        assert "pbkdf2" not in json.dumps(history[-1].changes)
+    history = global_events()
+    assert len(history) == before + 1
+    change = history[-1].changes["password"]
+    assert change["old"] == change["new"] == "[REDACTED]"
+    assert change["redacted"] is True
+    assert "pbkdf2" not in json.dumps(history[-1].changes)
 
 
 @pytest.mark.parametrize("invalid_sysid", ["not-a-guid", "g" * 32])
@@ -250,7 +268,8 @@ def test_direct_sql_cannot_insert_non_guid_identity(records, invalid_sysid):
     from examples.notes.models import Note
 
     with actor_tenant(records.alice, records.a):
-        with pytest.raises(IntegrityError), transaction.atomic():
+        # PostgreSQL's uuid type refuses the value itself (DataError), before any guard runs.
+        with pytest.raises(DatabaseError), transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO example_notes_note "

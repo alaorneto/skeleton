@@ -1,6 +1,6 @@
 """Domain events published in the write's transaction, validated against the TableSpec (#41).
 
-Runs on SQLite and, in the PostgreSQL job, with the runtime role (tenant RLS of DomainEvent).
+Runs on PostgreSQL with the runtime role (tenant RLS of DomainEvent).
 """
 
 import pytest
@@ -98,12 +98,10 @@ def test_tenant_b_never_reads_events_of_a(tenants):
     with tenant_context(organization_id=alpha.pk, actor=alice, source="test:events-a"):
         publish_event("notes.note_created", record=note(alpha, alice, "N-4"))
     assert events(beta, bob) == []
-    from django.db import connection
 
-    if connection.vendor == "postgresql":
-        # RLS hides A's rows even from the unfiltered infrastructure manager.
-        with tenant_context(organization_id=beta.pk, actor=bob, source="test:events-b-raw"):
-            assert not DomainEvent.all_objects.filter(organization_id=alpha.pk).exists()
+    # RLS hides A's rows even from the unfiltered infrastructure manager.
+    with tenant_context(organization_id=beta.pk, actor=bob, source="test:events-b-raw"):
+        assert not DomainEvent.all_objects.filter(organization_id=alpha.pk).exists()
 
 
 def test_declaring_a_sensitive_or_unknown_field_fails_the_check():

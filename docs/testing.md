@@ -8,7 +8,7 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 | Pergunta | Prova necessária | O que não substitui essa prova |
 |---|---|---|
-| Contratos de registros/serviços funcionam localmente? | Suíte SQLite isolada e seus negativos. | Isso não demonstra RLS PostgreSQL. |
+| Contratos de registros/serviços funcionam? | A suíte inteira em PostgreSQL com a role runtime (`pytest tests`) e seus negativos. | Um teste que só exercita o ORM não prova a RLS: as assertions de isolamento usam a role runtime. |
 | Runtime realmente isola organizações no banco? | PostgreSQL real, migrations owner e assertions com role runtime restrita. | Consulta como owner ou teste só no ORM. |
 | Login corporativo percorre o protocolo? | Navegador, IdP real, callback e sessão final; negativos de assinatura/estado. | `force_login`, página de login 200 ou JWT local. |
 | Atualização e recuperação funcionam? | Release/pacotes reais, processos reiniciados, banco e restore no backend escolhido. | Renderizar Compose, ter Dockerfile ou testar somente planejamento. |
@@ -26,9 +26,8 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
 | `locks` | uv 0.12.7 regenera `requirements.txt` e `requirements-dev.txt` com os comandos `uv pip compile` de "Atualizar locks" do `README.md` e o job exige `git diff --exit-code`: os locks correspondem aos `.in` e foram gerados pelo comando oficial (cabeçalho, `pip`/`setuptools` fixados, hashes). | Que as versões resolvidas são as mais novas ou estão livres de vulnerabilidades (ver `build`); que `pyproject.toml` declara as mesmas faixas que `requirements.in`. |
 | `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
-| `sqlite` | Lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e `tests/unit tests/integration_sqlite tests/accounts` com cobertura (`coverage.xml` publicado como artefato), em Python 3.12 e 3.14. | RLS PostgreSQL. Cobertura mede linhas executadas, não a qualidade das assertions. |
+| `tests` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e a suíte inteira (`pytest tests`) com cobertura, em Python 3.12 e 3.14; migrations como `skeleton_owner`, assertions como `skeleton_runtime`; `tools/smoke_postgres.py` no 3.14. | Um PostgreSQL de produção, um backup/restore ou SSO real. Cobertura mede linhas executadas, não a qualidade das assertions. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
-| `postgres` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; migrations como `skeleton_owner`, assertions como `skeleton_runtime` e `tools/smoke_postgres.py`. | Um PostgreSQL de produção ou um backup/restore. |
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |
 
 Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma. Nos PRs de pip do Dependabot, o workflow da seção seguinte faz isso sozinho.
@@ -50,9 +49,26 @@ O workflow só roda quando o autor do PR e o ator do evento são `dependabot[bot
 
 Sem os secrets, o job `commit` falha com uma mensagem que aponta para esta seção, e o conserto continua manual. O Dependabot para de rebasear um PR que recebeu commit de outro autor; se a `main` mudar os locks antes do merge, comente `@dependabot recreate` no PR: o Dependabot refaz o branch e o workflow regenera os locks de novo. O resultado foi reproduzido com o PR #133: a partir do lock original do Dependabot, `regenerate` produz byte a byte o lock corrigido à mão em #139.
 
-O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por sessão e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
+O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por sessão e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
+
+## PostgreSQL local de desenvolvimento (#145)
+
+Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um servidor descartável sem Docker:
+
+```sh
+python tools/dev_postgres.py start                 # inicializa (na primeira vez), sobe e provisiona
+eval "$(python tools/dev_postgres.py env)"          # POSIX; no PowerShell: python tools/dev_postgres.py env --shell powershell | Invoke-Expression
+SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q
+python tools/dev_postgres.py stop
+```
+
+O servidor vem do `pgserver` (binários do PostgreSQL num wheel). Como o `pgserver` só publica wheels para CPython 3.12, o script o executa pelo `uv` num ambiente isolado com Python 3.12, fora do virtualenv do projeto, e nada entra nos locks. Os dados ficam em `var/dev-postgres` (ignorado pelo Git). O banco `local_skeleton_test` é provisionado com `deploy/postgres/bootstrap.sql` e senhas só locais, no mesmo layout do CI. O script também copia os dados de fuso do pacote `tzdata` quando o build do `pgserver` vem sem eles, e exporta `SKELETON_TEST_PG_DUMP` para o template de schema.
+
+Duas suítes não podem rodar ao mesmo tempo no mesmo banco: cada teste recria o schema `skeleton`.
+
+**Rodadas abaixo de [#144](https://github.com/alaorneto/skeleton/issues/144):** as seções seguintes registram a história anterior ao modelo só PostgreSQL e citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Elas continuam como evidência do que rodou naquela época, não como procedimento.
 
 ## Rodada combinada: instância, webhooks e sequências
 

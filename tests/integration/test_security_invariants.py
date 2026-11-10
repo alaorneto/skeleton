@@ -9,7 +9,7 @@ from tools.security_fixtures import actor_tenant, build_security_fixture
 
 @pytest.fixture
 def access(skeleton_db):
-    assert connection.vendor == "sqlite"
+    assert connection.vendor == "postgresql"
     return build_security_fixture()
 
 
@@ -179,16 +179,22 @@ def test_audit_access_applies_before_list_count_and_tombstone_lookup(access):
         assert authorized_audit_queryset(user=access.alice).filter(record_sysid=note.pk).count() == 2
 
 
-def test_failure_to_write_audit_aborts_business_write(access):
+def test_failure_to_write_audit_aborts_business_write(access, owner_schema_editor):
     from examples.notes.models import Note
     from skeleton.audit.models import AuditEvent
 
+    table = AuditEvent._meta.db_table
+    # Fixture DDL as the owner; the business write below runs as the runtime role.
+    with owner_schema_editor() as editor:
+        editor.execute(
+            "CREATE FUNCTION skeleton.fixture_reject_audit_fn() RETURNS trigger LANGUAGE plpgsql AS "
+            "$f$ BEGIN RAISE EXCEPTION 'fixture audit denial' USING ERRCODE='23514'; END $f$"
+        )
+        editor.execute(
+            f"CREATE TRIGGER fixture_reject_audit BEFORE INSERT ON skeleton.{editor.quote_name(table)} "
+            "FOR EACH ROW EXECUTE FUNCTION skeleton.fixture_reject_audit_fn()"
+        )
     with actor_tenant(access.alice, access.a):
-        table = connection.ops.quote_name(AuditEvent._meta.db_table)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"CREATE TRIGGER fixture_reject_audit BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT, 'fixture audit denial'); END"
-            )
         note = Note.objects.get(pk=access.private.pk)
         note.title = "Must roll back"
         with pytest.raises(IntegrityError), transaction.atomic():

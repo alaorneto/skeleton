@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, models
+from django.db import DatabaseError, IntegrityError, connection, models, transaction
 from django.test.utils import isolate_apps
 
 from skeleton.accounts.services import bootstrap_identity
@@ -36,9 +36,7 @@ SPEC = {
 
 
 @pytest.fixture
-def pipeline():
-    if connection.vendor != "sqlite":
-        pytest.skip("The throwaway table is created by the SQLite owner; PostgreSQL uses real operational tables.")
+def pipeline(owner_schema_editor):
     with isolate_apps("skeleton.system.apps.SystemConfig"):
 
         class PipelineRow(OperationalRecord):
@@ -49,14 +47,10 @@ def pipeline():
                 app_label = "sk_system"
                 db_table = "sk_test_pipelinerow"
 
-        with connection.schema_editor() as editor:
+        with owner_schema_editor() as editor:
             editor.create_model(PipelineRow)
-            InstallRecordInfrastructure("sk_system", "pipelinerow", SPEC)._sqlite(editor, PipelineRow)
-        try:
-            yield PipelineRow
-        finally:
-            with connection.schema_editor() as editor:
-                editor.delete_model(PipelineRow)
+            InstallRecordInfrastructure("sk_system", "pipelinerow", SPEC)._postgres(editor, PipelineRow)
+        yield PipelineRow  # The next test restores the schema template without this table.
 
 
 @pytest.fixture
@@ -110,11 +104,13 @@ def test_guard_refuses_identity_changes(pipeline, tenants):
         with pytest.raises(ImmutableRecord):
             row.save()
         table = pipeline._meta.db_table
-        with pytest.raises(IntegrityError), connection.cursor() as cursor:
+        # Guard (23514), RLS WITH CHECK and the uuid type refuse inside PostgreSQL; one
+        # savepoint per statement keeps the outer transaction usable.
+        with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
             cursor.execute(f'UPDATE "{table}" SET organization_id=%s WHERE sysid=%s', [beta.pk.hex, row.pk.hex])
-        with pytest.raises(IntegrityError), connection.cursor() as cursor:
+        with pytest.raises(IntegrityError), transaction.atomic(), connection.cursor() as cursor:
             cursor.execute(f'UPDATE "{table}" SET sysid=%s WHERE sysid=%s', [uuid.uuid4().hex, row.pk.hex])
-        with pytest.raises(IntegrityError), connection.cursor() as cursor:
+        with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
             cursor.execute(
                 f'INSERT INTO "{table}" (sysid,created_at,updated_at,organization_id,state) VALUES (%s,%s,%s,%s,%s)',
                 ["not-a-uuid", row.created_at, row.created_at, alpha.pk.hex, "queued"],
@@ -151,8 +147,8 @@ def test_frozen_postgres_ddl_is_operational():
         assert "_sk_audit_fn() RETURNS trigger" not in sql
         assert "CREATE POLICY skeleton_tenant" in sql
         assert operation.runtime_privileges(PipelineDDL) == {"SELECT", "INSERT", "UPDATE", "DELETE"}
-    assert infrastructure_names("t", "postgresql", operational=True) == ("t_sk_guard",)
-    assert infrastructure_names("t", "sqlite", operational=True) == ("t_sk_guard_insert", "t_sk_guard_update")
+    assert infrastructure_names("t", operational=True) == ("t_sk_guard",)
+    assert infrastructure_names("t") == ("t_sk_guard", "t_sk_audit")
 
 
 def test_operational_model_cannot_be_exposed(monkeypatch):

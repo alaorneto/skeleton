@@ -1,6 +1,6 @@
 """Self-discovery of own rows across tenants through an explicit helper (#18).
 
-Runs on SQLite (Python filter) and, in the PostgreSQL job, with the runtime role
+Runs on PostgreSQL with the runtime role (RLS plus the Python filter as defense in depth)
 (RLS ``skeleton_self_*`` policies).
 """
 
@@ -57,8 +57,6 @@ def test_models_without_declaration_are_refused(two_tenants):
 
 def test_cross_tenant_write_to_own_row_fails(two_tenants):
     alice, alpha, _, beta = two_tenants
-    if connection.vendor != "postgresql":
-        pytest.skip("Write isolation across tenants is enforced by PostgreSQL RLS.")
     with tenant_context(organization_id=alpha.pk, actor=alice, source="test:discovery-write"):
         foreign = own_rows(Membership, alice).get(organization_id=beta.pk)
         with connection.cursor() as cursor:

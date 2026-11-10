@@ -4,7 +4,7 @@ import threading
 from datetime import UTC, datetime, time, timedelta
 
 import pytest
-from django.db import connection, connections
+from django.db import connections
 
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.jobs import periodic, registry
@@ -106,8 +106,6 @@ def test_global_periodic_jobs_and_declaration_checks(organizations):
 
 
 def test_two_concurrent_schedulers_produce_one_job_per_window(organizations):
-    if connection.vendor != "postgresql":
-        pytest.skip("Concurrent schedulers need PostgreSQL connections.")
     register_periodic("tick", "test.tick", every=timedelta(minutes=5))
     barrier = threading.Barrier(2)
     errors = []

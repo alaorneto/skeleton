@@ -1,6 +1,6 @@
 """AuditService of the core service API (#106).
 
-Runs on SQLite and, in the PostgreSQL job, with the runtime role (RLS of AuditEvent).
+Runs on PostgreSQL with the runtime role (RLS of AuditEvent).
 """
 
 import pytest

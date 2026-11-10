@@ -1,11 +1,11 @@
 """Database job queue: enqueue in the business transaction with typed payloads (#37).
 
-Runs on SQLite and, in the PostgreSQL job, with the runtime role (INSERT guard).
+Runs on PostgreSQL with the runtime role (INSERT guard).
 """
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import connection, transaction
+from django.db import transaction
 
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.jobs import registry
@@ -94,12 +94,11 @@ def test_tenant_a_cannot_enqueue_for_b_in_python_and_database(tenants):
             enqueue("test.ping", organization_id=beta.pk, payload={"record_id": str(alice.pk), "count": 1})
         with pytest.raises(ValidationError):
             enqueue("test.global", payload={})
-        if connection.vendor == "postgresql":
-            from django.db import ProgrammingError
+        from django.db import ProgrammingError
 
-            job = Job(job_type="test.ping", job_organization_id=beta.pk, payload={}, run_after=alice.created_at)
-            with pytest.raises(ProgrammingError), transaction.atomic():
-                job.save()
+        job = Job(job_type="test.ping", job_organization_id=beta.pk, payload={}, run_after=alice.created_at)
+        with pytest.raises(ProgrammingError), transaction.atomic():
+            job.save()
     assert jobs() == []
 
 

@@ -1,7 +1,12 @@
-"""Isolated real databases without Django flush/TRUNCATE of protected records."""
+"""Isolated real PostgreSQL databases without Django flush/TRUNCATE of protected records.
+
+The whole suite runs on PostgreSQL (#145): migrations as ``skeleton_owner``, assertions as
+``skeleton_runtime`` (NOSUPERUSER, NOBYPASSRLS). ``tools/dev_postgres.py start`` provides a
+disposable local server; ``eval "$(tools/dev_postgres.py env)"`` exports the variables.
+"""
 
 import os
-import sqlite3
+from contextlib import contextmanager
 
 import environ
 import pytest
@@ -34,26 +39,14 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
-@pytest.fixture(scope="session")
-def sqlite_template(tmp_path_factory, django_db_blocker):
-    path = tmp_path_factory.mktemp("schema") / "template.sqlite3"
-    original = connections["default"].settings_dict.copy()
-    with django_db_blocker.unblock():
-        _configure({"ENGINE": "django.db.backends.sqlite3", "NAME": str(path)})
-        call_command("migrate", verbosity=0, interactive=False)
-        connections.close_all()
-        _configure(original)
-    return path
-
-
-def _postgres_requested():
-    return os.environ.get("TEST_DATABASE_URL", "").startswith(("postgres://", "postgresql://"))
+def _postgres_config(dsn):
+    config = environ.Env.db_url_config(dsn)
+    config["OPTIONS"] = {"options": "-c search_path=skeleton,public"}
+    return config
 
 
 def _configure_postgres(dsn):
-    config = environ.Env.db_url_config(dsn)
-    config["OPTIONS"] = {"options": "-c search_path=skeleton,public"}
-    _configure(config)
+    _configure(_postgres_config(dsn))
 
 
 def _disposable_pair():
@@ -62,7 +55,10 @@ def _disposable_pair():
     try:
         return disposable_database_pair()
     except RuntimeError as exc:
-        raise pytest.UsageError(str(exc)) from exc
+        raise pytest.UsageError(
+            f"{exc} The suite runs on PostgreSQL only: start one with `tools/dev_postgres.py start` "
+            "and export `tools/dev_postgres.py env`."
+        ) from exc
 
 
 def _migrate_postgres(pair, stats):
@@ -90,7 +86,7 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
     """
     from tools.integration_database import dump_schema, template_enabled
 
-    if not _postgres_requested() or not template_enabled():
+    if not template_enabled():
         return None
     pair = _disposable_pair()
     original = connections["default"].settings_dict.copy()
@@ -108,31 +104,24 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
 @pytest.fixture
 def skeleton_db(request, tmp_path, django_db_blocker):
     """Real committed per-test DB; protected rows are never flushed/deleted."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from tools.integration_database import restore_schema
+
     original = connections["default"].settings_dict.copy()
     with django_db_blocker.unblock():
-        if _postgres_requested():
-            from django.contrib.contenttypes.models import ContentType
-
-            from tools.integration_database import restore_schema
-
-            pair = _disposable_pair()
-            template = request.getfixturevalue("postgres_template")
-            stats = request.getfixturevalue("postgres_schema_stats")
-            if template is None:
-                _migrate_postgres(pair, stats)
-            else:
-                # Same starting point as migrate: a recreated schema, never a flushed one.
-                restore_schema(pair, template)
-                stats["restore"] += 1
-            # migrate's post_migrate handlers clear this cache; the restore does not run them.
-            ContentType.objects.clear_cache()
-            _configure_postgres(pair.runtime)
+        pair = _disposable_pair()
+        template = request.getfixturevalue("postgres_template")
+        stats = request.getfixturevalue("postgres_schema_stats")
+        if template is None:
+            _migrate_postgres(pair, stats)
         else:
-            template = request.getfixturevalue("sqlite_template")
-            target = tmp_path / "test.sqlite3"
-            with sqlite3.connect(template) as source, sqlite3.connect(target) as dest:
-                source.backup(dest)
-            _configure({"ENGINE": "django.db.backends.sqlite3", "NAME": str(target)})
+            # Same starting point as migrate: a recreated schema, never a flushed one.
+            restore_schema(pair, template)
+            stats["restore"] += 1
+        # migrate's post_migrate handlers clear this cache; the restore does not run them.
+        ContentType.objects.clear_cache()
+        _configure_postgres(pair.runtime)
         try:
             # Do not clear a configured external cache or share rate limits across tests.
             with override_settings(
@@ -155,3 +144,27 @@ def skeleton_db(request, tmp_path, django_db_blocker):
         finally:
             connections.close_all()
             _configure(original)
+
+
+@pytest.fixture
+def owner_schema_editor(skeleton_db):
+    """DDL of a throwaway test table as ``skeleton_owner``, the role that migrates.
+
+    Only setup DDL runs as the owner; every assertion keeps the runtime connection. The next
+    test restores the schema from the template, so the table never outlives its test.
+    """
+    pair = _disposable_pair()
+
+    @contextmanager
+    def editor():
+        alias = "test_schema_owner"
+        connections.databases[alias] = ConnectionHandler({"default": _postgres_config(pair.owner)}).settings["default"]
+        try:
+            with connections[alias].schema_editor() as schema_editor:
+                yield schema_editor
+        finally:
+            connections[alias].close()
+            del connections[alias]
+            del connections.databases[alias]
+
+    return editor

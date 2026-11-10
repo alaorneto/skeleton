@@ -1,6 +1,6 @@
 """notify(): typed notifications created in the business transaction (#50).
 
-Runs on SQLite and, in the PostgreSQL job, with the runtime role (RLS and self-discovery).
+Runs on PostgreSQL with the runtime role (RLS and self-discovery).
 """
 
 import pytest

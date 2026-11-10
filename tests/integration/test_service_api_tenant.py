@@ -28,7 +28,7 @@ class NoteTitles(ServiceAPI):
 
 @pytest.fixture
 def records(skeleton_db):
-    assert connection.vendor == "sqlite", "Use the SQLite fixture for this suite."
+    assert connection.vendor == "postgresql"
     return build_security_fixture()
 
 

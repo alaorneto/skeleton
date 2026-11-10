@@ -14,7 +14,12 @@ LABEL = "project_tasks"
 
 
 @pytest.fixture
-def project(tmp_path):
+def project(tmp_path, skeleton_db):
+    from tools.integration_database import disposable_database_pair
+
+    # The scratch project migrates the disposable schema as the owner (the role that migrates);
+    # the next test restores the schema template, so nothing of it survives this test.
+    owner = disposable_database_pair().owner
     target = tmp_path / "project"
     shutil.copytree(ROOT / "config", target / "config", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copy(ROOT / "manage.py", target / "manage.py")
@@ -25,7 +30,7 @@ def project(tmp_path):
         "PYTHONPATH": os.pathsep.join([str(target), str(ROOT)]),
         "DJANGO_SETTINGS_MODULE": "config.settings.test",
         "SKELETON_PROJECT_ROOT": str(target),
-        "TEST_DATABASE_URL": f"sqlite:///{(tmp_path / 'db.sqlite3').as_posix()}",
+        "TEST_DATABASE_URL": owner,
         "SKELETON_ENABLE_EXAMPLE_APP": "false",
     }
     environment.pop("SKELETON_DEPLOYMENT_INVENTORY", None)

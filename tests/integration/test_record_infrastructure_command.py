@@ -45,7 +45,9 @@ def test_command_rejects_unknown_app_and_core_write():
     call_command("record_infrastructure", "sk_tenancy", "--write", stdout=StringIO())
 
 
-def test_write_creates_new_valid_migration_for_model_without_infrastructure(skeleton_db, tmp_path, monkeypatch):
+def test_write_creates_new_valid_migration_for_model_without_infrastructure(
+    skeleton_db, owner_schema_editor, tmp_path, monkeypatch
+):
     package = tmp_path / "sk_record_infra_probe"
     package.mkdir()
     (package / "__init__.py").write_text("")
@@ -85,21 +87,31 @@ def test_write_creates_new_valid_migration_for_model_without_infrastructure(skel
         assert isinstance(operation, InstallRecordInfrastructure)
         assert (operation.app_label, operation.model_name) == ("example_notes", "note")
         assert operation.specification == _notes_frozen_operation().specification
-        # Applied with historical states on a real SQLite schema, it reinstalls the exact triggers.
+        # Applied with historical states on the real PostgreSQL schema (as the owner, the role
+        # that migrates), it reinstalls the exact triggers.
         before = loader.project_state(("example_notes", "0001_initial"))
         after = loader.project_state(("example_notes", "0002_record_infrastructure"))
         table = after.apps.get_model("example_notes", "note")._meta.db_table
-        names = set(infrastructure_names(table, "sqlite"))
+        names = set(infrastructure_names(table))
+        triggers = (
+            "SELECT t.tgname, pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='skeleton' AND c.relname=%s "
+            "AND NOT t.tgisinternal"
+        )
         with connection.cursor() as cursor:
-            cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=%s", [table])
+            cursor.execute(triggers, [table])
             original = dict(cursor.fetchall())
-            assert set(original) == names
+        assert set(original) == names
+        with owner_schema_editor() as editor:
             for name in names:
-                cursor.execute(f"DROP TRIGGER {connection.ops.quote_name(name)}")
-        with connection.schema_editor() as editor:
+                editor.execute(f"DROP TRIGGER {editor.quote_name(name)} ON skeleton.{editor.quote_name(table)}")
+        with connection.cursor() as cursor:
+            cursor.execute(triggers, [table])
+            assert cursor.fetchall() == []
+        with owner_schema_editor() as editor:
             operation.database_forwards("example_notes", editor, before, after)
         with connection.cursor() as cursor:
-            cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=%s", [table])
+            cursor.execute(triggers, [table])
             assert dict(cursor.fetchall()) == original
 
         out = StringIO()

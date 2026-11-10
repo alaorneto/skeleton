@@ -17,8 +17,8 @@ OLD, NEW = Fernet.generate_key().decode(), Fernet.generate_key().decode()
 
 @pytest.fixture
 def provider_table(monkeypatch):
-    if connection.vendor != "sqlite":
-        pytest.skip("The throwaway table is created by the SQLite owner; provider models arrive with #29.")
+    # Provider models arrive with #29: a TEMP table of the runtime session (TEMP is granted to
+    # PUBLIC) stands in for them, so no owner credential and no DDL in the skeleton schema.
     with isolate_apps("skeleton.accounts.apps.AccountsConfig"):
 
         class ProviderSecret(models.Model):
@@ -29,8 +29,11 @@ def provider_table(monkeypatch):
                 app_label = "sk_accounts"
                 db_table = "sk_test_providersecret"
 
-        with connection.schema_editor() as editor:
-            editor.create_model(ProviderSecret)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "CREATE TEMPORARY TABLE sk_test_providersecret "
+                "(id serial PRIMARY KEY, name varchar(50) NOT NULL, client_secret text NULL)"
+            )
         from skeleton.accounts.management.commands import rotate_identity_provider_keys
         from skeleton.common.crypto import IDENTITY_PROVIDER_KEYS
 
@@ -44,8 +47,8 @@ def provider_table(monkeypatch):
         try:
             yield ProviderSecret
         finally:
-            with connection.schema_editor() as editor:
-                editor.delete_model(ProviderSecret)
+            with connection.cursor() as cursor:
+                cursor.execute("DROP TABLE IF EXISTS pg_temp.sk_test_providersecret")
 
 
 def raw_values(model):
@@ -95,8 +98,13 @@ def test_rotation_without_the_old_key_changes_nothing(provider_table):
         call_command("rotate_identity_provider_keys", stdout=io.StringIO())
 
 
-def test_stored_secrets_without_keys_fail_the_checks(provider_table):
+def test_stored_secrets_without_keys_fail_the_checks(provider_table, monkeypatch):
+    from skeleton.system import checks
     from skeleton.system.checks import stored_secret_key_checks, stored_secrets_without_keys
+
+    # The stand-in is a TEMP table (pg_temp), outside the skeleton schema that physical_tables lists.
+    listed = checks.physical_tables
+    monkeypatch.setattr(checks, "physical_tables", lambda connection: [*listed(connection), "sk_test_providersecret"])
 
     with override_settings(IDENTITY_PROVIDER_ENCRYPTION_KEYS=[OLD]):
         provider_table.objects.create(name="a", client_secret="secret-a")

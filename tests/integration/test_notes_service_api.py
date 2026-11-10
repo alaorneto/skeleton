@@ -1,4 +1,4 @@
-"""NoteService through the contract kit (#100, #101): runs on SQLite and on PostgreSQL runtime role.
+"""NoteService through the contract kit (#100, #101): runs on PostgreSQL with the runtime role.
 
 The PostgreSQL job runs this module with TEST_DATABASE_URL pointing at the runtime role.
 """
@@ -231,11 +231,8 @@ class LeakyNotes(NoteService):
 
 
 def test_kit_rejects_a_service_that_leaks_another_organization(scenario, foreign):
-    from django.db import connection
-
-    if connection.vendor == "postgresql":
-        pytest.skip("RLS of the runtime role already hides B from A; the leak cannot be produced here.")
+    # RLS of the runtime role hides B from A, so the leaky service returns nothing foreign here...
+    assert_tenant_isolated(scenario.caller(lambda actor: LeakyNotes().every_title(actor=actor)), foreign=[foreign])
+    # ...and the kit still rejects a result that carries another organization's data.
     with pytest.raises(AssertionError, match="leaks"):
-        assert_tenant_isolated(
-            scenario.caller(lambda actor: LeakyNotes().every_title(actor=actor)), foreign=["Foreign title"]
-        )
+        assert_tenant_isolated(lambda: ("Foreign title",), foreign=["Foreign title"])

@@ -4,7 +4,7 @@ import threading
 from datetime import timedelta
 
 import pytest
-from django.db import connection, connections
+from django.db import connections
 from django.utils import timezone
 
 from skeleton.accounts.services import bootstrap_identity
@@ -172,8 +172,6 @@ def test_expired_lease_is_requeued_once(tenant):
 
 
 def test_two_postgres_workers_never_run_the_same_job(tenant):
-    if connection.vendor != "postgresql":
-        pytest.skip("SKIP LOCKED concurrency requires PostgreSQL; SQLite runs a single worker.")
     _, organization = tenant
     for index in range(12):
         queue(organization, f"parallel-{index}")
