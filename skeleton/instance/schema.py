@@ -149,6 +149,14 @@ _SPECS = (
     SettingSpec(
         "webhook_retention_days", "SKELETON_WEBHOOK_RETENTION_DAYS", "int", "Retenção das entregas de webhook", _int(1)
     ),
+    SettingSpec("files_scanner", "SKELETON_FILES_SCANNER", "str", "Antivírus dos anexos", _choice("none", "clamav")),
+    SettingSpec(
+        "files_clamav_address",
+        "SKELETON_FILES_CLAMAV_ADDRESS",
+        "str",
+        "Endereço do clamd (tcp://host:3310 ou unix:///caminho)",
+        _required_text,
+    ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),
     SettingSpec("files_s3_bucket", "SKELETON_FILES_S3_BUCKET", "str", "Bucket S3 dos anexos", _required_text),

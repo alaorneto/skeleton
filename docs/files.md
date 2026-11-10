@@ -41,7 +41,7 @@ TableSpec(..., attachments=AttachmentPolicy(max_bytes=5 * 1024 * 1024, types=("a
 
 O tipo é detectado pelos primeiros bytes (PDF, PNG, JPEG, GIF, WebP, ZIP/DOCX/XLSX e texto UTF-8 para `.txt`/`.csv`), numa tabela de assinaturas no código, e precisa coincidir com a extensão; o `Content-Type` enviado pelo cliente é ignorado. A tabela própria substituiu a dependência `filetype` prevista no plano: reconhece só os tipos que uma política pode permitir e não acrescenta pacote aos locks. HTML e SVG nunca são aceitos.
 
-Sem antivírus configurado (`SKELETON_FILES_SCAN`, #62), o anexo nasce `available`; com ele, nasce `pending`. Se a gravação da linha falhar, o objeto já gravado é apagado. Remover é exclusão lógica: os bytes ficam até a limpeza de órfãos, para que restaurar funcione.
+Sem antivírus configurado, o anexo nasce `available`; com ele, nasce `pending` (veja [Antivírus](#antivírus)). Se a gravação da linha falhar, o objeto já gravado é apagado. Remover é exclusão lógica: os bytes ficam, para que restaurar funcione, e só o expurgo do epic de LGPD os removerá.
 
 | Superfície | Rota |
 |---|---|
@@ -73,3 +73,20 @@ O contador fica em `StorageUsage` ([tabela operacional](data-model.md#tabelas-op
 - **Plataforma:** o detalhe da organização em `/platform/organizations/<id>/` mostra o uso, a cota e a última recontagem, e o formulário "Armazenamento" (`POST .../storage/`, autenticação recente, CAS pela revisão) escolhe entre o padrão da instância, um limite próprio em MiB ou ilimitada. A plataforma vê só a soma, nunca os anexos.
 
 Cobrança fica fora do escopo.
+## Antivírus
+
+`SKELETON_FILES_SCANNER` escolhe o scanner: `none` (padrão, o anexo nasce `available`) ou `clamav`, que fala o protocolo `INSTREAM` do `clamd` em `SKELETON_FILES_CLAMAV_ADDRESS` (`tcp://clamav:3310` ou `unix:///run/clamav/clamd.ctl`).
+
+Com scanner, o upload nasce `pending` e enfileira o job `files.scan` na mesma transação. O job lê os bytes do armazenamento privado e envia ao `clamd`:
+
+| Resposta | Estado |
+|---|---|
+| `stream: OK` | `available`, `scan_result_code=clean` |
+| `stream: <assinatura> FOUND` (o EICAR, por exemplo) | `quarantined`, `scan_result_code=infected:<assinatura>` |
+| `clamd` fora do ar, timeout ou resposta sem veredito | o job falha e é retentado com backoff, até 10 vezes; o anexo continua `pending` |
+
+O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` até uma nova verificação.
+
+## Objetos órfãos
+
+O upload grava os bytes antes de a linha comitar. Um rollback ou uma queda entre as duas etapas deixa um objeto sem metadado. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e apaga só os objetos **sem nenhuma linha `Attachment`** e mais antigos que o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não pegar um upload em andamento). Objetos de linhas vivas ou excluídas logicamente nunca são apagados: restaurar continua funcionando, e o expurgo de anexos excluídos é do epic de LGPD.

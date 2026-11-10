@@ -18,6 +18,7 @@ from django.http import Http404
 from skeleton.common.exceptions import ConcurrentUpdate
 
 from .quota import QuotaExceeded, release, reserve
+from .scanning import enqueue_scan, scanning_enabled
 from .sniffing import HEAD_BYTES, detect
 from .storage import StorageError, object_key, put_stream
 
@@ -139,7 +140,7 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
 
         delete(key)
         raise
-    scan = getattr(settings, "SKELETON_FILES_SCAN", False)
+    scan = scanning_enabled()
     attachment = Attachment(
         sysid=attachment_id,
         organization_id=record.organization_id,
@@ -159,6 +160,8 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
 
         delete(key)  # The row did not persist: never keep its bytes.
         raise
+    if scan:
+        enqueue_scan(attachment)  # Same transaction: a rollback leaves neither row nor job.
     return attachment
 
 
