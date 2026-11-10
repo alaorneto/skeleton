@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import Q
 
-from skeleton.common.models import OrganizationRecord
+from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
 
 
 class Attachment(OrganizationRecord):
@@ -38,3 +38,44 @@ class Attachment(OrganizationRecord):
 
     def __str__(self):
         return self.filename
+
+
+class StorageUsage(OperationalRecord):
+    """Bytes of live attachments of one organization, the counter the quota checks (#61).
+
+    Writers lock the organization row first and this row second, inside the upload, delete
+    or restore transaction; the recount job corrects any drift from the attachments.
+    """
+
+    organization = models.OneToOneField(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_files_storage_usage"
+    )
+    bytes_used = models.PositiveBigIntegerField(default=0)
+    recounted_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.organization_id} {self.bytes_used}"
+
+
+class StorageQuota(SystemRecord):
+    """Platform override of the storage quota of one organization; without it the setting applies."""
+
+    quota_organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_files_storage_quotas"
+    )
+    # NULL means unlimited for this organization, whatever the default setting says.
+    quota_bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    immutable_fields = ("quota_organization_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("quota_organization",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_files_quota_organization_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.quota_organization_id} {self.quota_bytes}"

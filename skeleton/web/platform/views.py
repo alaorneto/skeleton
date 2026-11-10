@@ -316,9 +316,12 @@ def _organization_form(organization, data=None):
     )
 
 
-def _organization_page(request, organization, *, form=None, admin_form=None, status=200):
+def _organization_page(request, organization, *, form=None, admin_form=None, quota_form=None, status=200):
+    from skeleton.files.quota import platform_usage
+
     # One organization per request: the overview opens a read-only system context for it.
     overview = organization_overview(actor=request.user, organization=organization)
+    storage = platform_usage(actor=request.user, organization=organization)
     if admin_form is None and organization.is_active:
         admin_form = OrganizationAdministratorForm(
             administrators=overview.administrators,
@@ -333,6 +336,8 @@ def _organization_page(request, organization, *, form=None, admin_form=None, sta
             "form": form or _organization_form(organization),
             "overview": overview,
             "admin_form": admin_form,
+            "storage": storage,
+            "quota_form": quota_form or _quota_form(organization),
         },
         status=status,
     )
@@ -606,3 +611,52 @@ def app_screen(request, app_label, screen_id):
 
         return sensitive_handler(request)
     return handler(request)
+
+
+# --------------------------------------------------------------------------- storage quota
+
+
+def _quota_form(organization, data=None):
+    from skeleton.files.models import StorageQuota
+
+    from .forms import StorageQuotaForm
+
+    row = StorageQuota.objects.filter(quota_organization_id=organization.pk).first()
+    if row is None:
+        initial = {"mode": "default"}
+    elif row.quota_bytes is None:
+        initial = {"mode": "unlimited", "expected_revision": row.revision}
+    else:
+        initial = {
+            "mode": "limited",
+            "quota_mib": row.quota_bytes // StorageQuotaForm.MiB,
+            "expected_revision": row.revision,
+        }
+    return StorageQuotaForm(data, initial=initial)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def organization_storage(request, sysid):
+    """Set the organization's storage quota; never reads its attachments."""
+    from skeleton.files.quota import clear_quota, set_quota
+
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
+    form = _quota_form(organization, request.POST)
+    if not form.is_valid():
+        return _organization_page(request, organization, quota_form=form, status=400)
+    data = form.cleaned_data
+    try:
+        with transaction.atomic():
+            if data["mode"] == "default":
+                if data["expected_revision"] is not None:
+                    clear_quota(organization, expected_revision=data["expected_revision"])
+            else:
+                set_quota(organization, quota_bytes=form.quota_bytes(), expected_revision=data["expected_revision"])
+    except (ConcurrentUpdate, IntegrityError):
+        form.add_error(None, "A cota foi alterada por outra operação. Revise e salve de novo.")
+        return _organization_page(request, organization, quota_form=form, status=409)
+    messages.success(request, "Cota de armazenamento atualizada.")
+    return redirect("platform:organization", sysid=organization.pk)

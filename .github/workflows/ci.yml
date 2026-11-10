@@ -217,6 +217,7 @@ jobs:
             tests/integration_sqlite/test_notifications_inbox.py \
             tests/integration_sqlite/test_attachments.py \
             tests/integration_sqlite/test_attachment_downloads.py \
+            tests/integration_sqlite/test_storage_quota.py \
             tests/integration_sqlite/test_core_identity_service.py \
             tests/integration_sqlite/test_core_organization_service.py \
             tests/integration_sqlite/test_core_access_service.py \

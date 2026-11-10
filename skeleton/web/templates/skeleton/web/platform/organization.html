@@ -50,6 +50,21 @@
     <p class="mt-4 text-sm/6 text-body-subtle">Reative a organização para designar administradores.</p>
     {% endif %}
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="organization-storage">
+    <h2 id="organization-storage">Armazenamento</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador.</p>
+    <dl class="meta-list mt-4">
+      <div><dt>Em uso</dt><dd>{{ storage.bytes_used|filesizeformat }}</dd></div>
+      <div><dt>Cota</dt><dd>{% if storage.quota_bytes is None %}Ilimitada{% else %}{{ storage.quota_bytes|filesizeformat }}{% endif %}{% if not storage.overridden %} <span class="badge">padrão da instância</span>{% endif %}</dd></div>
+      <div><dt>Última recontagem</dt><dd>{{ storage.recounted_at|default:"Ainda não recontado" }}</dd></div>
+    </dl>
+    <form method="post" action="{% url 'platform:organization-storage' subject.pk %}" class="mt-5">
+      {% csrf_token %}
+      {% with form=quota_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+      <p class="mt-2 text-sm/6 text-body-subtle">A alteração é auditada e exige autenticação recente.</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar cota</button></div>
+    </form>
+  </section>
 </div>
 </div>
 {% endblock %}
