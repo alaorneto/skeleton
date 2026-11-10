@@ -222,6 +222,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 
 ### IdentityService
 
@@ -324,6 +325,14 @@ NotificationService().notify(
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
 Apps não acessam o armazenamento diretamente.
+
+### SequenceService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto | `Forbidden` (sequência de outra app); `InvalidInput` (sequência não declarada, data sem fuso) |
+
+`SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
 
 ### Superfícies do núcleo sobre os serviços
 

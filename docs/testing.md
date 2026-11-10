@@ -167,6 +167,49 @@ Cobertura nova em `tests/unit/test_outbound_http.py` (45 casos):
 
 **Não verificado:** uma requisição HTTPS real a um destino público (a suíte não sai para a internet), deployments atrás de proxy de saída corporativo (sem suporte, documentado) e o PostgreSQL 16.15 do CI.
 
+## Campos de sequência no formulário genérico (#156)
+
+Rodada de 2026-11-10 para [#156](https://github.com/alaorneto/skeleton/issues/156) (epic #89): `TableSpec.sequence_fields`, preenchimento na criação genérica e o check no `skeleton.E028`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 916 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_sequence_fields.py`) | 350 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_sequence_fields.py` (SQLite e PostgreSQL), com a spec do Notes trocada no teste para numerar `code`:
+- a API e o formulário preenchem o código com números consecutivos (`NT-<ano>-001`, `-002`); o formulário não mostra o campo; B numera de forma independente;
+- enviar o código na criação ou no `PATCH` responde 400, sem consumir número nem mudar o código;
+- uma criação recusada pela validação, ou por quem não é membro, não consome número;
+- o check reprova campo inexistente, campo gravável e sequência não declarada.
+
+**Não verificado:** smoke manual no navegador (o exemplo Notes não liga a sequência por padrão); o PostgreSQL 16.15 do CI.
+
+## Sequências sem lacunas (#155)
+
+Rodada de 2026-11-10 para [#155](https://github.com/alaorneto/skeleton/issues/155) (epic #89): app `skeleton.sequences` (`sk_sequences.0001`), registro em código com o check `skeleton.E028`, `next_number` e `SequenceService`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 912 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `tests/integration_postgres/test_sequence_concurrency.py` e `test_sequences.py`) | 346 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui a tabela nova); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_sequence_registry.py`: declarações válidas; recusas de chave, período, modelo sem `{number}`, campo desconhecido, formato inválido e duplicata; períodos de calendário em UTC.
+- `tests/integration_sqlite/test_sequences.py` (SQLite e PostgreSQL):
+  - números consecutivos no modelo `AT-{year}-{number:04d}`;
+  - um rollback devolve o número, sem lacuna;
+  - organizações, anos, meses e sequências sem período são independentes;
+  - sem tenant, sequência não declarada e data sem fuso são recusadas sem gravar;
+  - os contadores são auditados (criação e incremento) e isolados por organização;
+  - `SequenceService` passa no `assert_service_contract`, só a app dona numera, e ator divergente, ator ausente e contexto global são recusados.
+- `tests/integration_postgres/test_sequence_concurrency.py`: seis alocações simultâneas recebem números distintos e consecutivos, tanto na criação do contador quanto com o contador existente, sem deadlock; B não vê o contador de A.
+
+**Não verificado:** o PostgreSQL 16.15 do CI.
+
 ## Apps fechadas por padrão e upgrade da ativação (#22)
 
 Rodada de 2026-11-10 para [#22](https://github.com/alaorneto/skeleton/issues/22): disponibilidade e ativação fechadas por padrão, `upgrade_app_activation`, `set_app_availability`, aviso de `check_skeleton_schema` e de `package doctor`, e agente/núcleo 0.5.0. Somente o que rodou:

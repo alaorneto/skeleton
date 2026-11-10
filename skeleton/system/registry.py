@@ -20,6 +20,8 @@ class TableSpec:
     sensitive_fields: tuple = ()
     expose_api: bool = False
     attachments: AttachmentPolicy | None = None
+    # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
+    sequence_fields: tuple = ()
 
 
 _registry = {}
@@ -211,6 +213,12 @@ def register_core_specs():
         "sk_integrations.webhookendpointhealth": (
             "Saúde dos webhooks",
             "Falhas seguidas por endpoint; o limite desativa o endpoint.",
+            "organization",
+            (),
+        ),
+        "sk_sequences.sequencecounter": (
+            "Sequências",
+            "Último número entregue de cada sequência declarada, por organização e período.",
             "organization",
             (),
         ),

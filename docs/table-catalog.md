@@ -4,7 +4,7 @@ O catálogo responde **“quais tabelas e colunas existem neste banco?”**. O r
 
 ## Duas fontes com responsabilidades diferentes
 
-**Registry, ou registro de especificações em código:** cada `TableSpec` imutável descreve um modelo, com registro único por `_meta.label_lower`. Declara explicitamente campos de leitura (`read_fields`), escrita (`write_fields`) e sensibilidade (`sensitive_fields`): listas de permissão, não “todos os campos”. `expose_api=False` é o padrão. Só uma spec exposta de `SecuredRecord` pode usar o gateway, a entrada genérica da API para registros de negócio. O cliente nunca fornece classe Python, nome físico/SQL ou `__all__`.
+**Registry, ou registro de especificações em código:** cada `TableSpec` imutável descreve um modelo, com registro único por `_meta.label_lower`. Declara explicitamente campos de leitura (`read_fields`), escrita (`write_fields`) e sensibilidade (`sensitive_fields`): listas de permissão, não “todos os campos”. `sequence_fields` lista os campos preenchidos por uma [sequência](sequences.md) na criação genérica; eles nunca estão em `write_fields`. `expose_api=False` é o padrão. Só uma spec exposta de `SecuredRecord` pode usar o gateway, a entrada genérica da API para registros de negócio. O cliente nunca fornece classe Python, nome físico/SQL ou `__all__`.
 
 **Catálogo no banco:** inventaria tabelas reais e colunas/restrições encontradas por introspecção, isto é, consulta da estrutura do banco. Cada `TableDefinition`/`FieldDefinition` tem UUID próprio, mesmo quando descreve uma tabela técnica com chave primária inteira. O operador só edita `label`/`description`. O catálogo não habilita o gateway nem executa DDL (SQL de criação/alteração de estrutura). Não construa um mecanismo de schema dinâmico a partir dele.
 

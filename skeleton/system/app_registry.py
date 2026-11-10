@@ -151,6 +151,7 @@ CORE_APP_LABELS = frozenset(
         "sk_notifications",
         "sk_files",
         "sk_integrations",
+        "sk_sequences",
     }
 )
 
