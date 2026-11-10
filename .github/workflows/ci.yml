@@ -222,6 +222,7 @@ jobs:
             tests/integration_sqlite/test_core_access_service.py \
             tests/integration_sqlite/test_core_application_service.py \
             tests/integration_sqlite/test_core_audit_service.py \
+            tests/integration_sqlite/test_core_audit_log_service.py \
             tests/integration_sqlite/test_core_notification_service.py \
             tests/integration_sqlite/test_core_job_event_services.py \
             tests/integration_sqlite/test_core_file_service.py \
