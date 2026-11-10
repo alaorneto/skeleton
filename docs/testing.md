@@ -54,6 +54,29 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Cliente HTTP de saída com proteção contra SSRF (#49)
+
+Rodada de 2026-11-10 para [#49](https://github.com/alaorneto/skeleton/issues/49): `skeleton/common/outbound_http.py`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 941 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (sem teste novo: o cliente não usa banco) | 337 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com o módulo em modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/unit/test_outbound_http.py` (45 casos):
+- tabela de faixas bloqueadas: loopback, `169.254.169.254`, 10/8, 172.16/12, 192.168/16, CGNAT 100.64/10, `0.0.0.0`, multicast, reservados, documentação, `::1`, `::`, link-local e ULA IPv6, `::ffff:127.0.0.1`, NAT64 e 6to4. Endereços públicos IPv4 e IPv6 passam;
+- URLs internas são recusadas sem nenhuma tentativa de conexão;
+- um nome com qualquer endereço interno é recusado;
+- só HTTPS, portas permitidas (configuráveis) e nenhuma credencial na URL;
+- um resolver que responde público e depois privado é consultado uma vez, e a conexão vai ao endereço público validado;
+- o TLS usa o nome no SNI e no certificado;
+- o override de desenvolvimento é recusado com `DEBUG=False`;
+- com um receptor HTTP local e o override ligado: redirect 302 devolvido sem ser seguido, corpo truncado em 64 KB, `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` ignorados, e exatamente três requisições recebidas.
+
+**Não verificado:** uma requisição HTTPS real a um destino público (a suíte não sai para a internet), deployments atrás de proxy de saída corporativo (sem suporte, documentado) e o PostgreSQL 16.15 do CI.
+
 ## Apps fechadas por padrão e upgrade da ativação (#22)
 
 Rodada de 2026-11-10 para [#22](https://github.com/alaorneto/skeleton/issues/22): disponibilidade e ativação fechadas por padrão, `upgrade_app_activation`, `set_app_availability`, aviso de `check_skeleton_schema` e de `package doctor`, e agente/núcleo 0.5.0. Somente o que rodou:

@@ -97,6 +97,7 @@ files = [
     "skeleton/service_api",
     "skeleton/testing",
     "skeleton/system/import_boundary.py",
+    "skeleton/common/outbound_http.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -114,6 +115,7 @@ module = [
     "skeleton.service_api.*",
     "skeleton.testing.*",
     "skeleton.system.import_boundary",
+    "skeleton.common.outbound_http",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
