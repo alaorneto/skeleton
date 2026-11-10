@@ -3,10 +3,12 @@ from pathlib import Path
 import environ
 
 from skeleton.conf.paths import project_root
+from skeleton.instance.resolve import instance_env
 
 BASE_DIR = project_root()
-env = environ.Env()
 environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
+# Catalog keys resolve environment > instance SQLite > default (#143); other names read the environment.
+env = instance_env(BASE_DIR)
 SECRET_KEY = env("DJANGO_SECRET_KEY", default="development-only-not-for-deployment")
 DEBUG = False
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1", "testserver"])
@@ -40,6 +42,7 @@ INSTALLED_APPS = [
     "skeleton.files.apps.FilesConfig",
     "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.sequences.apps.SequencesConfig",
+    "skeleton.instance.apps.InstanceConfig",
     "skeleton.web",
     "skeleton.api",
 ]
