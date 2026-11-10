@@ -132,6 +132,7 @@ O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 
 | `SKELETON_ENABLE_EXAMPLE_APP` | `false` por padrão |
 | `SKELETON_REQUIRE_ADMIN_MFA` | `false` em dev; `true` por padrão em produção |
 | `MFA_ENCRYPTION_KEYS` | Chaves Fernet ordenadas, nova primeira, antigas para leitura |
+| `IDENTITY_PROVIDER_ENCRYPTION_KEYS` | Keyring separado, no mesmo formato, para segredos de provedores de identidade gravados no banco; obrigatório quando houver esses segredos |
 | `SSO_PROVIDER_CONFIG_PATH` | JSON privado dos provedores autorizados |
 | `SKELETON_BOOTSTRAP_PASSWORD` | Secret apenas para o comando de bootstrap |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Origens HTTPS explícitas quando necessário |

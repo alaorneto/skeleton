@@ -38,6 +38,8 @@ def production_settings(base):
     MFA_ENCRYPTION_KEYS = env.list("MFA_ENCRYPTION_KEYS")
     if not MFA_ENCRYPTION_KEYS or not ALLOWED_HOSTS or "*" in ALLOWED_HOSTS:
         raise ImproperlyConfigured("Chaves MFA e hosts explícitos são obrigatórios.")
+    # Required as soon as an identity provider stores a secret (check skeleton.E027 on the database).
+    IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS", default=[])
     SKELETON_REQUIRE_ADMIN_MFA = env.bool("SKELETON_REQUIRE_ADMIN_MFA", default=True)
     SECURE_SSL_REDIRECT = True
     SECURE_REDIRECT_EXEMPT = [r"^health/(live|ready|release)/$"]

@@ -194,6 +194,21 @@ DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py rotate
 4. O comando trava Authenticator, pré-valida estruturas do release e usa MultiFernet.rotate em `data.secret` (TOTP), `data.seed` e cada `data.migrated_codes` (recovery). Não cifra JSON inteiro; mantém type/used_mask/viewed_at. Estrutura desconhecida falha antes de alterar linhas. Saída só contagem/IDs, nunca segredo/código.
 5. Comprove login TOTP e que recovery já usado continua consumido em fixture; só então remova chaves antigas do runtime. Backup antigo ainda requer chaves antigas, portanto mantenha-as em custódia compatível com retenção.
 
+### Segredos de provedores de identidade
+
+Client secrets, chaves privadas SAML e senhas de service account LDAP gravados no banco usam um keyring próprio, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`, separado de `MFA_ENCRYPTION_KEYS`: rotacionar um não afeta o outro. A regra é a mesma: lista ordenada de chaves Fernet, a primeira cifra e todas decifram, nunca derivada de `SECRET_KEY`, sem fallback em texto claro. O cipher comum fica em `skeleton/common/crypto.py`; o MFA usa o mesmo módulo, com o mesmo formato de dados de antes.
+
+- **Campo cifrado:** modelos declaram `EncryptedTextField` (keyring padrão `IDENTITY_PROVIDER_ENCRYPTION_KEYS`). Atribuir um texto o cifra antes de chegar ao banco; ler devolve um `SealedSecret`, cujo `repr`/`str` nunca mostra o valor. O texto claro só existe no processo, na hora do uso, por `reveal()`. `dumpdata` leva o texto cifrado.
+- **Auditoria:** o campo precisa estar em `TableSpec.sensitive_fields` (check `skeleton.E026`), para a auditoria redigir o valor inteiro. O núcleo não detecta segredos desconhecidos automaticamente.
+- **Chaves ausentes:** com segredos gravados e o keyring vazio, `check --database default` reprova (`skeleton.E027`), `check_skeleton_schema` também, e qualquer leitura ou escrita levanta `ImproperlyConfigured`. Uma chave mal formada reprova o check `skeleton.E026` já na subida.
+- **Rotação offline:** o mesmo roteiro do MFA, com `nova,antiga`:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py rotate_identity_provider_keys
+```
+
+O comando trava as linhas, decifra todas antes da primeira escrita (sem a chave antiga, nada muda) e imprime só contagens e IDs. Depois dele, a chave antiga pode sair do runtime; backups anteriores continuam exigindo-a em custódia.
+
 ## Admin, mensagens e logs
 
 Identidades, organizações e demais registros globais são administrados em `/platform/`, por views explícitas que exigem administrador da plataforma (`is_platform_admin`: staff+superuser ativo e não excluído), sessão allauth (sem senha paralela Django), MFA quando configurado, CSRF e CAS. Não existe login paralelo do Django admin: `/admin/` e `/admin/login/` respondem 404. Não se registram recursos tenant ou edição genérica de SocialToken/Authenticator/SocialApp/auth.Group. Operações de identidade usam lifecycle para não esquecer `auth_version`. Org admin configura apps no painel de parâmetros tenant e usa as páginas empresariais para registros.

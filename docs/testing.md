@@ -68,6 +68,21 @@ Antes das correções, a mesma suíte teve 13 falhas: API interna de reautentica
 
 **Não verificado nesta rodada:** PostgreSQL com role runtime, os testes POSIX (pacotes, `test_core_distribution`, agente), `pip install --require-hashes` dos locks e build da imagem; ficam a cargo do CI do PR. A suíte emite `RemovedInDjango2028Warning` para as settings `EMAIL_*` (substituídas por `MAILERS` no Django 6.1); a migração fica para uma issue própria.
 
+## Segredos de provedores de identidade cifrados (#19)
+
+Rodada de 2026-11-09 para [#19](https://github.com/alaorneto/skeleton/issues/19): `skeleton/common/crypto.py` (keyrings Fernet por setting, `EncryptedTextField`, `SealedSecret`), MFA sobre o módulo comum, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`, checks E026/E027 e `rotate_identity_provider_keys`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 869 passed, 111 skipped (marcados `posix` e os que exigem Docker) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI mais `tests/unit/test_crypto.py` e `tests/accounts/test_identity_provider_secrets.py` | 312 passed, 5 skipped: os 4 testes com tabela descartável de `test_identity_provider_secrets.py` (criada pelo owner do SQLite; os modelos de provedor chegam com #29) e o teste do serviço que vaza |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .`, `python -m mypy`, `manage.py check --fail-level WARNING` | sem problemas |
+
+Cobertura nova: `tests/unit/test_crypto.py` (keyring vazio ou inválido, cifra e decifra, `repr` sem segredo, rotação com `nova,antiga` e leitura só com `nova`, keyrings separados, E026) e `tests/accounts/test_identity_provider_secrets.py` (só texto cifrado no banco, `SealedSecret` na leitura, comando de rotação com saída só de contagens e IDs, rotação sem a chave antiga sem nenhuma escrita, E027). As regressões do MFA (`tests/accounts/test_identity.py`, `test_flows.py`, `test_providers.py`) continuam passando com os dados no formato anterior.
+
+**Não verificado:** testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
 ## API de serviços do núcleo e subsistemas (epic #113)
 
 Rodada de 2026-11-09 para o epic [#113](https://github.com/alaorneto/skeleton/issues/113) (#102 a #110) e as dependências implementadas no mesmo branch: #17, #21, #18, #36, #37, #38, #39, #41, #42, #50, #51, #52, #58, #59 e #60. Cada commit de issue foi verificado em seguida num worktree separado; a tabela registra a rodada final no commit `27f9e8e`. Somente o que rodou:
