@@ -6,6 +6,7 @@ from skeleton.accounts.models import User
 
 __all__ = [
     "CatalogLabelForm",
+    "OrganizationAdministratorForm",
     "OrganizationCreateForm",
     "OrganizationForm",
     "PlatformUserCreateForm",
@@ -72,6 +73,42 @@ class OrganizationForm(forms.Form):
         label="Organização ativa", required=False, help_text="Inativa, ninguém consegue abrir a organização."
     )
     expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
+class OrganizationAdministratorForm(forms.Form):
+    """Designate an administrator by email; ``replace`` lists only current direct administrators."""
+
+    email = forms.EmailField(
+        label="Email da pessoa",
+        max_length=254,
+        help_text="Identidade ativa que recebe o papel de administrador da organização.",
+    )
+    replace = forms.TypedChoiceField(
+        label="Substituir",
+        required=False,
+        empty_value=None,
+        help_text="Opcional: retira o papel de administrador direto desta pessoa.",
+    )
+    expected_version = forms.CharField(max_length=64, widget=forms.HiddenInput)
+
+    def __init__(self, *args, administrators=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["replace"].choices = [("", "Ninguém (adicionar)")] + [
+            (str(admin.user_id), admin.email) for admin in administrators if admin.direct
+        ]
+
+    def clean_email(self):
+        from skeleton.accounts.services import normalized_email
+
+        email = normalized_email(self.cleaned_data["email"])
+        user = User.objects.filter(email=email, is_active=True).first()
+        if user is None:
+            raise forms.ValidationError("Não há identidade ativa com este email.")
+        return user
+
+    def clean_replace(self):
+        value = self.cleaned_data.get("replace")
+        return User.objects.filter(pk=value).first() if value else None
 
 
 class CatalogLabelForm(forms.Form):

@@ -2,14 +2,15 @@
 
 Identity changes go through ``skeleton.accounts.services`` (CAS, lifecycle guards,
 ``auth_version``); catalog edits only touch label/description. Tenant data is never
-read here: platform administration does not grant organization access.
+read here, except ``organization_overview`` (member count and administrator emails, read
+only): platform administration does not grant organization access.
 """
 
 from pathlib import Path
 
 from django.apps import apps
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import Http404
@@ -25,6 +26,8 @@ from skeleton.accounts.services import (
     create_identity,
     create_organization,
     deactivate_user,
+    designate_organization_admin,
+    organization_overview,
     update_organization,
     update_platform_user,
 )
@@ -33,6 +36,7 @@ from skeleton.web.views import form_error, pagination
 
 from .forms import (
     CatalogLabelForm,
+    OrganizationAdministratorForm,
     OrganizationCreateForm,
     OrganizationForm,
     PlatformUserCreateForm,
@@ -49,6 +53,7 @@ __all__ = [
     "catalog",
     "catalog_field",
     "catalog_table",
+    "organization_administrators",
     "organization_create",
     "organization_detail",
     "organizations",
@@ -295,19 +300,45 @@ def organization_create(request):
     )
 
 
-@platform_page
-@require_http_methods(["GET", "POST"])
-@transaction.atomic
-def organization_detail(request, sysid):
-    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
-    form = OrganizationForm(
-        request.POST or None,
+def _organization_form(organization, data=None):
+    return OrganizationForm(
+        data,
         initial={
             "name": organization.name,
             "is_active": organization.is_active,
             "expected_revision": organization.revision,
         },
     )
+
+
+def _organization_page(request, organization, *, form=None, admin_form=None, status=200):
+    # One organization per request: the overview opens a read-only system context for it.
+    overview = organization_overview(actor=request.user, organization=organization)
+    if admin_form is None and organization.is_active:
+        admin_form = OrganizationAdministratorForm(
+            administrators=overview.administrators,
+            initial={"expected_version": overview.administrators_version},
+        )
+    return render(
+        request,
+        "skeleton/web/platform/organization.html",
+        {
+            "platform_section": "organizations",
+            "subject": organization,
+            "form": form or _organization_form(organization),
+            "overview": overview,
+            "admin_form": admin_form,
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def organization_detail(request, sysid):
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
+    form = _organization_form(organization, request.POST or None)
     status = 200
     if request.method == "POST":
         if form.is_valid():
@@ -323,12 +354,41 @@ def organization_detail(request, sysid):
                 return redirect("platform:organization", sysid=organization.pk)
         else:
             status = 400
-    return render(
-        request,
-        "skeleton/web/platform/organization.html",
-        {"platform_section": "organizations", "subject": organization, "form": form},
-        status=status,
-    )
+    return _organization_page(request, organization, form=form, status=status)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def organization_administrators(request, sysid):
+    """Designate or replace an organization administrator; never reads the organization's data."""
+    organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid, is_active=True)
+    overview = organization_overview(actor=request.user, organization=organization)
+    admin_form = OrganizationAdministratorForm(request.POST, administrators=overview.administrators)
+    if not admin_form.is_valid():
+        return _organization_page(request, organization, admin_form=admin_form, status=400)
+    data = admin_form.cleaned_data
+    try:
+        with transaction.atomic():
+            designate_organization_admin(
+                actor=request.user,
+                organization=organization,
+                user=data["email"],
+                replace=data["replace"],
+                expected_version=data["expected_version"],
+            )
+    except PermissionDenied:
+        admin_form.add_error("email", "A administração da plataforma não designa a si mesma para uma organização.")
+        return _organization_page(request, organization, admin_form=admin_form, status=403)
+    except (ValidationError, ConcurrentUpdate, LastAdministrator) as exc:
+        status = form_error(admin_form, exc)
+        return _organization_page(request, organization, admin_form=admin_form, status=status)
+    if data["replace"] is not None:
+        messages.success(request, f"{data['email'].email} substituiu {data['replace'].email} na administração.")
+    else:
+        messages.success(request, f"{data['email'].email} agora administra a organização.")
+    return redirect("platform:organization", sysid=organization.pk)
 
 
 # --------------------------------------------------------------------------- catalog

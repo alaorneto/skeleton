@@ -70,6 +70,21 @@ Cobertura nova em `tests/integration_sqlite/test_app_activation_upgrade.py` (SQL
 
 **Não verificado:** os testes do agente (`fcntl`) e de pacotes (`posix`), inclusive o passo novo do `finish()` e a remoção de `activation_default_upgrade_requires_review`; uma atualização real pelo agente; Docker e SSO real; o PostgreSQL 16.15 do CI.
 
+## Designação de administrador pela plataforma (#20)
+
+Rodada de 2026-11-10 para [#20](https://github.com/alaorneto/skeleton/issues/20): `designate_organization_admin`, `organization_overview`, as razões fechadas de `HTTP_SYSTEM_REASONS` e o card "Administradores" em `/platform/organizations/<id>/`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 875 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 315 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/integration_sqlite/test_platform_boundary.py` (SQLite e PostgreSQL): lista fechada das razões aceitas por HTTP e recusa para quem não é administrador de plataforma; designar e substituir pelo formulário, com eventos de `MemberRole` com `source` `system:organization:designate-admin` e o administrador de plataforma como ator; a página mostra só contagem e emails dos administradores, não o membro comum; formulário com versão antiga (409), substituir alguém por ele mesmo (400), designar a si mesmo (403), email sem identidade (400); último administrador protegido (409, sem escrita); GET 405, POST sem CSRF 403, autenticação vencida redireciona para reautenticar, não administrador 403; depois de designar, o administrador de plataforma continua com 404 em `/o/<org>/`. Em `tests/integration_postgres/test_admin_concurrency.py`: a designação sob o contexto de A não lê nem altera linhas de B (RLS com a role runtime), e designação concorrente com a remoção de um administrador serializa no lock da organização, sem deadlock.
+
+**Não verificado:** smoke manual no navegador; testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
 ## Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122)
 
 Rodada de 2026-11-09 em Windows 11 com Python 3.14 e os locks regenerados por `uv pip compile`. O venv local foi instalado com as versões do novo `requirements-dev.txt` usadas como constraints (sem `--require-hashes`, porque os hashes são de wheels Linux). Para comparação, os testes que falharam também rodaram num venv com os locks anteriores (Django 5.2.18, allauth 65.19.7): passaram nos dois casos, o que confirma que as falhas eram regressões da atualização e não do ambiente.
