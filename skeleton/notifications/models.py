@@ -2,7 +2,10 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
+from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.models import OperationalRecord, SystemRecord
+
+INTEGRATION_KEYS = "INTEGRATION_ENCRYPTION_KEYS"
 
 DEFAULT_TYPE = "*"
 
@@ -196,3 +199,34 @@ class NotificationDelivery(OperationalRecord):
 
     def __str__(self):
         return f"{self.channel} {self.user_id} {self.state}"
+
+
+class WebPushSubscription(SystemRecord):
+    """One browser's push subscription for one person (#56).
+
+    The endpoint is a capability URL and the keys decrypt the payload: all three are
+    encrypted at rest (integration keyring) and redacted in the audit trail.
+    ``endpoint_digest`` (SHA-256) finds a subscription without decrypting every row.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    endpoint = EncryptedTextField(keyring=INTEGRATION_KEYS)
+    endpoint_digest = models.CharField(max_length=64)
+    p256dh = EncryptedTextField(keyring=INTEGRATION_KEYS)
+    auth_secret = EncryptedTextField(keyring=INTEGRATION_KEYS)
+    user_agent = models.CharField(max_length=200, blank=True, default="")
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("user_id", "endpoint_digest")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("endpoint_digest",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_notif_push_endpoint_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} push"

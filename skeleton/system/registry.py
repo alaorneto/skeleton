@@ -204,6 +204,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_notifications.webpushsubscription": (
+            "Assinaturas de push",
+            "Assinatura de web push de um navegador da pessoa; endpoint e chaves cifrados.",
+            "global",
+            ("endpoint", "endpoint_digest", "p256dh", "auth_secret"),
+        ),
         "sk_files.attachment": (
             "Anexos",
             "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",

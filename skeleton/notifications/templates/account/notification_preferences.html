@@ -23,4 +23,10 @@
 </tbody></table></div>
 <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button></div>
 </form>
+{% if push_key %}<section class="mt-8" data-push-optin data-push-key="{{ push_key }}" data-worker="{% url 'notifications:service-worker' %}" data-subscribe-url="{% url 'notifications:api-push-subscribe' %}" data-unsubscribe-url="{% url 'notifications:api-push-unsubscribe' %}" hidden>
+<h2 class="text-lg font-semibold text-heading">Push neste navegador</h2>
+<p class="mt-1 text-sm/6 text-body">O push mostra só o tipo do aviso e um link; o conteúdo continua protegido pelo login. Ative em cada navegador em que quiser receber.</p>
+<div class="form-actions"><button type="button" class="btn btn-secondary" data-push-enable>Ativar neste navegador</button><button type="button" class="btn btn-secondary" data-push-disable hidden>Desativar neste navegador</button></div>
+<p class="mt-2 text-sm text-body-subtle" data-push-status role="status"></p>
+</section>{% endif %}
 {% endblock %}

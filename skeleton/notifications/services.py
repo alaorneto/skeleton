@@ -188,6 +188,22 @@ def register_notification_jobs() -> None:
             owner_app="sk_notifications",
         )
     )
+    from .channels.delivery import PUSH_JOB
+    from .channels.push import send_push
+
+    register_job_type(
+        JobType(
+            PUSH_JOB,
+            send_push,
+            {"delivery_id": "uuid"},
+            run_as="system",
+            # Crashes only: push outcomes never raise and follow RETRY_SCHEDULE through new jobs.
+            max_attempts=3,
+            backoff=60.0,
+            timeout_s=120,
+            owner_app="sk_notifications",
+        )
+    )
     from datetime import timedelta
 
     from skeleton.jobs.periodic import register_periodic

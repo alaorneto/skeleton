@@ -121,3 +121,22 @@ Quem escolhe `daily` ou `weekly` no canal `email` recebe um resumo em vez de um 
 - Resumo vazio não é criado. Itens lidos ou arquivados entre a criação e o envio saem do email; se nenhum sobrar, a entrega fica `skipped` (`empty_digest`).
 
 Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. Se o worker atrasar além da hora local, o resumo daquele dia é pulado e os itens seguem para o próximo.
+
+## Web push
+
+Com o push configurado, a página `/profile/notifications/` mostra a seção "Push neste navegador". Ela fica oculta sem JavaScript ou sem suporte do navegador, e o resto da página funciona igual. Ao ativar, o `site.js` registra o service worker `/sw.js` (escopo `/`) e envia a assinatura do navegador (sessão e CSRF):
+
+| Rota | O que faz |
+|---|---|
+| `POST /api/v1/me/push-subscriptions/` | `{"endpoint", "keys": {"p256dh", "auth"}}` registra o navegador para a pessoa logada (201). Endpoint fora de `WEBPUSH_ALLOWED_HOSTS`, sem HTTPS, com porta ou credencial na URL: 400. Se o mesmo endpoint era de outra pessoa (outro login no mesmo navegador), a assinatura antiga é excluída |
+| `POST /api/v1/me/push-subscriptions/unsubscribe/` | `{"endpoint"}` exclui logicamente a assinatura da própria pessoa (204) |
+| `GET /sw.js` | O service worker, só com o push configurado (404 sem ele) |
+
+`WebPushSubscription` é um `SystemRecord` global: o endpoint (uma URL de capacidade) e as duas chaves ficam cifrados com o keyring `INTEGRATION_ENCRYPTION_KEYS` e são `sensitive_fields`, redigidos na auditoria; `endpoint_digest` (SHA-256) localiza a assinatura sem decifrar.
+
+Quem tem `push` em `immediate` recebe, a cada notificação, uma `NotificationDelivery` (canal `push`) e o job `notifications.push`:
+
+- O job repete as checagens do email (pessoa ativa, preferência, leitura do alvo) e envia a cada assinatura viva da pessoa.
+- Payload mínimo: `{"title": <rótulo do tipo>, "url": <link de abertura>}`. O snapshot do alvo (o título, por exemplo) só entra quando o tipo declara `push_snapshot=True`.
+- O corpo é cifrado com `aes128gcm` (RFC 8291) e assinado com VAPID ES256 (RFC 8292). Os dois são implementados com `cryptography`, que já está no lock, e não com `pywebpush`, para não trazer `aiohttp`, `requests` e outras dependências. A saída é só pelo `skeleton.common.outbound_http` (anti-SSRF), e de novo só para hosts da allowlist.
+- 2xx conta como enviado. 404 ou 410 exclui logicamente a assinatura, sem retentativa. 429 e 5xx seguem o mesmo calendário de retentativas do email até `dead`.

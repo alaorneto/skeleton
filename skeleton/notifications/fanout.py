@@ -155,8 +155,11 @@ def _channels(notification, people: list[UUID]) -> tuple[list[UUID], dict[str, l
         return people, {}
     rows = rows_by_user(people)
     inbox = [user for user in people if wants(user, kind, "in_app", rows) != "off"]
+    from .channels.push import push_configured
+
+    names = ("email", "push") if push_configured() else ("email",)
     channels = {
-        channel: [user for user in people if wants(user, kind, channel, rows) == "immediate"] for channel in ("email",)
+        channel: [user for user in people if wants(user, kind, channel, rows) == "immediate"] for channel in names
     }
     return inbox, channels
 

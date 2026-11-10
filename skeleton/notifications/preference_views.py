@@ -17,6 +17,7 @@ from skeleton.api.views import SessionAPI, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 
 from . import preferences
+from .channels.push import public_key as push_public_key
 from .models import DEFAULT_TYPE
 
 HOURS = tuple(range(24))
@@ -195,6 +196,7 @@ def preferences_page(request):
             "hours": HOURS,
             "mode_labels": dict(preferences.MODE_LABELS),
             "channel_labels": dict(preferences.CHANNEL_LABELS),
+            "push_key": push_public_key(),
         },
         status=status,
     )

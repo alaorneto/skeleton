@@ -27,6 +27,8 @@ class NotificationType:
     templates: Mapping[str, str] = field(default_factory=dict)
     group_key: str = ""
     owner_app: str = ""
+    # Web push carries only the type label and a link; True also sends the snapshot (#56).
+    push_snapshot: bool = False
 
 
 _types: dict[str, NotificationType] = {}

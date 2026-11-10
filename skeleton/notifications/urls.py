@@ -1,9 +1,16 @@
 from django.urls import path
 
-from . import preference_views, views
+from . import preference_views, push_views, views
 
 app_name = "notifications"
 urlpatterns = [
+    path("sw.js", push_views.service_worker, name="service-worker"),
+    path("api/v1/me/push-subscriptions/", push_views.PushSubscriptionsAPI.as_view(), name="api-push-subscribe"),
+    path(
+        "api/v1/me/push-subscriptions/unsubscribe/",
+        push_views.PushUnsubscribeAPI.as_view(),
+        name="api-push-unsubscribe",
+    ),
     path("profile/notifications/", preference_views.preferences_page, name="preferences"),
     path(
         "api/v1/me/notification-preferences/",
