@@ -202,6 +202,7 @@ jobs:
             tests/integration_sqlite/test_app_availability.py \
             tests/integration_sqlite/test_app_activation_upgrade.py \
             tests/integration_sqlite/test_service_accounts.py \
+            tests/integration_sqlite/test_webhook_endpoints.py \
             tests/integration_sqlite/test_self_discovery.py \
             tests/integration_sqlite/test_jobs_queue.py \
             tests/integration_sqlite/test_jobs_worker.py \

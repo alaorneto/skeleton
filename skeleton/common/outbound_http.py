@@ -115,7 +115,7 @@ class Destination:
     address: Address  # the validated address the connection goes to
 
 
-def validate_url(url: str, *, resolver: Resolver = socket.getaddrinfo) -> Destination:
+def validate_url(url: str, *, resolver: Resolver | None = None) -> Destination:
     """Parse, resolve and validate a URL; refuses before any connection is attempted."""
     ports, override = _settings()
     try:
@@ -131,7 +131,8 @@ def validate_url(url: str, *, resolver: Resolver = socket.getaddrinfo) -> Destin
     port = port or (443 if parts.scheme == "https" else 80)
     if port not in ports and not override:
         raise OutboundRequestRefused("port", "Porta de destino não permitida.")
-    addresses = _addresses(parts.hostname, port, resolver)
+    # Looked up at call time, so tests and callers may replace the module-level resolver.
+    addresses = _addresses(parts.hostname, port, resolver or socket.getaddrinfo)
     if not override and any(blocked_address(address) for address in addresses):
         raise OutboundRequestRefused("blocked_address", "O destino aponta para um endereço interno ou reservado.")
     target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
@@ -174,7 +175,7 @@ def request(
     *,
     headers: Mapping[str, str] | None = None,
     body: bytes | None = None,
-    resolver: Resolver = socket.getaddrinfo,
+    resolver: Resolver | None = None,
 ) -> OutboundResponse:
     """Send one request to a validated destination; redirects come back as plain 3xx responses."""
     destination = validate_url(url, resolver=resolver)

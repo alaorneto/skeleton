@@ -196,6 +196,12 @@ def register_core_specs():
             "organization",
             ("storage_key",),
         ),
+        "sk_integrations.webhookendpoint": (
+            "Webhooks",
+            "URLs HTTPS que recebem eventos da organização, assinadas com segredo cifrado.",
+            "organization",
+            ("secret_ciphertext", "previous_secret_ciphertext"),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",

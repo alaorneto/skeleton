@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "skeleton.events.apps.EventsConfig",
     "skeleton.notifications.apps.NotificationsConfig",
     "skeleton.files.apps.FilesConfig",
+    "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.web",
     "skeleton.api",
 ]
@@ -179,6 +180,8 @@ MFA_ENCRYPTION_KEYS = env.list("MFA_ENCRYPTION_KEYS", default=[])
 # Separate keyring for identity provider secrets (client secrets, SAML keys, LDAP passwords):
 # the first key encrypts, all decrypt; never derived from SECRET_KEY.
 IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS", default=[])
+# Separate keyring for integration secrets (webhook signing secrets, #63); never derived from SECRET_KEY.
+INTEGRATION_ENCRYPTION_KEYS = env.list("INTEGRATION_ENCRYPTION_KEYS", default=[])
 MFA_ADAPTER = "skeleton.accounts.adapters.EncryptedMFAAdapter"
 MFA_SUPPORTED_TYPES = ["totp", "recovery_codes"]
 MFA_ALLOW_UNVERIFIED_EMAIL = False

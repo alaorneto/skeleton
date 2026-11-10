@@ -54,6 +54,30 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Endpoints de webhook por organização (#63)
+
+Rodada de 2026-11-10 para [#63](https://github.com/alaorneto/skeleton/issues/63): app `skeleton.integrations` (`sk_integrations.0001`), `WebhookEndpoint` com segredo cifrado (`INTEGRATION_ENCRYPTION_KEYS`), serviços, páginas e API. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 962 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_webhook_endpoints.py`) | 357 passed, 1 skipped, 1 failed: a consulta crua do teste rodava fora do tenant, e a RLS escondia as linhas. Com a leitura dentro do contexto da organização, `test_webhook_endpoints.py` repetido no PostgreSQL e no SQLite: 13 passed em cada. A lista inteira não foi repetida |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui a infraestrutura nova); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_webhook_endpoints.py` (SQLite e PostgreSQL):
+- a criação devolve o segredo uma vez, com `no-store`; a leitura, a lista e a página não o mostram; a coluna guarda só o token Fernet; a auditoria não traz nem o segredo nem o texto cifrado;
+- recusas com 400: `http://`, IP privado, nome que resolve para endereço interno, metadados de nuvem, tipo de evento não exposto, desconhecido ou vazio;
+- o principal precisa ser conta de serviço ativa da mesma organização (conta de B e pessoa: 400); campo desconhecido é recusado;
+- sem `integrations.manage` (gestor de pessoas, membro), lista, detalhe e página respondem 404; B não vê o endpoint de A;
+- a rotação exige `If-Match` (428/412), devolve segredo novo e mantém o anterior por 24 horas;
+- `PATCH` e `DELETE` usam CAS, e a URL interna também é recusada na alteração;
+- as páginas HTML exigem CSRF e autenticação recente (redireciona; na API, 403 `reauthentication_required`).
+
+O módulo `outbound_http` passou a resolver o DNS no momento da chamada, para o resolver poder ser substituído; os 45 testes da #49 continuam passando.
+
+**Não verificado:** smoke manual no navegador; o PostgreSQL 16.15 do CI. `INTEGRATION_ENCRYPTION_KEYS` ainda não está no catálogo da configuração da instância (#143, outra branch).
+
 ## Contas de serviço (#44)
 
 Rodada de 2026-11-10 para [#44](https://github.com/alaorneto/skeleton/issues/44): `User.account_type`/`service_organization` (`sk_accounts.0002`, com a infraestrutura do `User` reinstalada), `integrations.manage`, `create_service_account`/`deactivate_service_account`, recusa de login e o diretório. Somente o que rodou:

@@ -66,6 +66,8 @@ Cada recurso administrativo exige uma capacidade: vínculos pedem `members.view`
 
 ### Contas de serviço
 
+A capacidade `integrations.manage` também governa os [webhooks](webhooks.md) da organização.
+
 Uma **conta de serviço** é um membro sem pessoa, para integrações (webhooks, ERPs, scripts). É um `User` com `account_type=service`, para reutilizar owner, políticas e ator de auditoria, mas presa a uma organização (`service_organization`). `create_service_account(*, actor, name)` e `deactivate_service_account(*, actor, user)`, em `skeleton.accounts.services`, exigem `integrations.manage` sob `organization_lock`; só o administrador tem essa capacidade, e o gestor de pessoas não cria, desativa nem altera o vínculo de uma conta de serviço (403).
 
 - A conta recebe email sintético `svc-<uuid>@service.invalid`, senha inutilizável e `local_password_allowed=False`. Um CHECK no banco impede `is_staff`, `is_superuser` ou senha local numa conta de serviço, e `account_type`/`service_organization` são imutáveis (trigger da infraestrutura do `User`).
