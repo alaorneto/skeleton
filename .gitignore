@@ -19,3 +19,4 @@ dist/
 .omp/
 frontend/node_modules/
 var/
+.env.instance

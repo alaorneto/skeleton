@@ -26,6 +26,8 @@ COPY examples ./examples
 COPY manage.py ./
 COPY --from=project-assets /project-assets/templates ./templates
 RUN DJANGO_SETTINGS_MODULE=config.settings.build python manage.py collectstatic --noinput && useradd --uid 10001 --create-home skeleton && chown -R skeleton:skeleton /app/staticfiles
+# Instance SQLite and master key (#148): a private named volume mounted here keeps them across containers.
+RUN mkdir -p /instance/keys && chown -R skeleton:skeleton /instance && chmod 700 /instance /instance/keys
 USER skeleton
 EXPOSE 8000
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

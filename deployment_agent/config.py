@@ -13,6 +13,28 @@ from .storage import AgentError, private_file
 ENV_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
+def effective_runtime_database(runtime):
+    """The runtime DATABASE_URL the web will use: the env file, else the instance SQLite (#148).
+
+    A setup-configured instance keeps its configuration in the instance SQLite (secrets
+    encrypted with its master key); the runtime env file then carries only the bootstrap paths
+    ``SKELETON_INSTANCE_DB`` and ``SKELETON_INSTANCE_KEY_FILE``.
+    """
+    if runtime.get("DATABASE_URL"):
+        return runtime["DATABASE_URL"]
+    database, key = runtime.get("SKELETON_INSTANCE_DB"), runtime.get("SKELETON_INSTANCE_KEY_FILE")
+    if not database or not key:
+        return None
+    from skeleton.instance.resolve import LayeredEnviron
+    from skeleton.instance.store import InstanceStore
+
+    try:
+        stored = InstanceStore(Path(database)).settings()
+        return LayeredEnviron({}, stored, Path(key)).get("DATABASE_URL")
+    except Exception as exc:  # noqa: BLE001 - unreadable store or key: refuse, never guess
+        raise AgentError("instance_configuration_unreadable") from exc
+
+
 def read_environment(path):
     result = {}
     for line in private_file(path).read_text().splitlines():
@@ -131,11 +153,12 @@ class Config:
             raise AgentError("migration_secret_in_runtime")
         if not migration.get("MIGRATION_DATABASE_URL"):
             raise AgentError("missing_migration_credentials")
-        if migration.get("MIGRATION_DATABASE_URL") == runtime.get("DATABASE_URL"):
+        runtime_url = effective_runtime_database(runtime)
+        if migration.get("MIGRATION_DATABASE_URL") == runtime_url:
             raise AgentError("shared_database_credentials")
-        if not runtime.get("DATABASE_URL"):
+        if not runtime_url:
             raise AgentError("missing_runtime_credentials")
-        for url in (runtime["DATABASE_URL"], migration["MIGRATION_DATABASE_URL"]):
+        for url in (runtime_url, migration["MIGRATION_DATABASE_URL"]):
             if urlsplit(url).scheme not in ("postgres", "postgresql"):
                 raise AgentError("unsupported_database")  # PostgreSQL only (#144).
         if values.get("backup_env_file"):
