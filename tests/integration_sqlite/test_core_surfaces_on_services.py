@@ -11,6 +11,7 @@ from skeleton.service_api.identity import IdentityService
 from skeleton.system import application_views
 from skeleton.testing.service_api import acting_as, assert_service_contract, build_service_scenario
 from skeleton.web import views as web_views
+from skeleton.web.platform import views as platform_views
 
 INTERNAL_PATHS = (
     "get_model",
@@ -19,14 +20,19 @@ INTERNAL_PATHS = (
     "application_state(",
     "configure_application(",
     ".objects.",
+    "authorized_audit_queryset",
+    "AuditEvent",
 )
 MIGRATED = (
     api_views.MeView,
     api_views.OrganizationsView,
+    api_views.AuditView,
     application_views.ApplicationAPI,
     web_views.home,
     web_views.profile,
     web_views.dashboard,
+    web_views.audit,
+    platform_views.audit,
 )
 
 

@@ -18,7 +18,7 @@ from skeleton.access.capabilities import (
     require_resource_capability,
     resource_capability,
 )
-from skeleton.access.policies import authorized_audit_queryset, require_record_action
+from skeleton.access.policies import require_record_action
 from skeleton.accounts.mfa import mfa_required
 from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
@@ -136,18 +136,49 @@ def tenant_page(*, admin=False, capability=None):
     return decorator
 
 
-def pagination(request, queryset, *, validated_filters=None):
-    from urllib.parse import urlencode
+PAGE_SIZE = 25
 
-    from django.core.paginator import Paginator
 
+def _page_number(request):
     try:
         page = int(request.GET.get("page", "1"))
         if page < 1:
             raise ValueError
     except ValueError:
         raise ValidationError("Página inválida.") from None
-    rows = Paginator(queryset, 25).get_page(page)
+    return page
+
+
+def pagination(request, queryset, *, validated_filters=None):
+    from django.core.paginator import Paginator
+
+    rows = Paginator(queryset, PAGE_SIZE).get_page(_page_number(request))
+    return _page_links(rows, validated_filters)
+
+
+def service_pagination(request, fetch, *, validated_filters=None):
+    """Same page object as ``pagination`` for a service that returns a numbered page.
+
+    ``fetch(page=..., page_size=...)`` returns an object with ``items`` and ``count``. A page
+    past the end shows the last one, as ``Paginator.get_page`` does.
+    """
+    from django.core.paginator import Page, Paginator
+
+    number = _page_number(request)
+    result = fetch(page=number, page_size=PAGE_SIZE)
+    paginator = Paginator((), PAGE_SIZE)
+    paginator.count = result.count
+    if number > paginator.num_pages:
+        number = paginator.num_pages
+        result = fetch(page=number, page_size=PAGE_SIZE)
+        paginator = Paginator((), PAGE_SIZE)
+        paginator.count = result.count
+    return _page_links(Page(list(result.items), number, paginator), validated_filters)
+
+
+def _page_links(rows, validated_filters):
+    from urllib.parse import urlencode
+
     params = dict(validated_filters or {})
     params.pop("page", None)
     if rows.has_previous():
@@ -480,15 +511,20 @@ def catalog(request, organization_id):
 
 @tenant_page()
 def audit(request, organization_id):
-    queryset = authorized_audit_queryset(request.user).order_by("-created_at", "sysid")
+    from skeleton.api.serializers import audit_data
+    from skeleton.service_api.audit import AuditLogService
+
     if set(request.GET) - {"page", "record_sysid", "model_label"}:
         raise ValidationError("Filtro não permitido.")
-    for name in ("record_sysid", "model_label"):
-        if request.GET.get(name):
-            queryset = queryset.filter(**{name: request.GET[name]})
-    from skeleton.api.serializers import audit_data
-
-    rows = pagination(request, queryset, validated_filters=request.GET.dict())
+    filters = {
+        "model_label": request.GET.get("model_label") or None,
+        "record_id": request.GET.get("record_sysid") or None,
+    }
+    rows = service_pagination(
+        request,
+        lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
+        validated_filters=request.GET.dict(),
+    )
     rows.object_list = [audit_data(event) for event in rows]
     return render(
         request, "skeleton/web/audit.html", {"title": "Auditoria", "rows": rows, "organization_id": organization_id}

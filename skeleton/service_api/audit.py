@@ -12,7 +12,7 @@ from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
 
 from .base import ServiceAPI, service_method
-from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate
+from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate, validate_page_size
 from .errors import InvalidInput, NotFound
 from .identity import _user
 
@@ -130,3 +130,122 @@ class AuditService(ServiceAPI):
             .order_by("-created_at", "-record_revision", "sysid")
         )
         return paginate(events, convert=_entry, page_size=page_size, cursor=cursor)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditLogEvent:
+    """One event of the organization audit log, as the audit page and ``/audit/`` show it.
+
+    ``changes_json`` is the JSON object of the visible columns (``visible_audit_changes``):
+    values keep their JSON types and redacted columns keep the marker written by the trigger.
+    """
+
+    sysid: UUID
+    created_at: datetime
+    organization_id: UUID | None
+    table_name: str
+    model_label: str
+    record_sysid: UUID
+    record_revision: int
+    operation: str
+    actor_sysid: UUID | None
+    request_id: UUID | None
+    source: str
+    db_principal: str
+    changes_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class AuditLogPage:
+    """A numbered page of the audit log: ``count`` is the total of authorized events."""
+
+    items: tuple[AuditLogEvent, ...]
+    count: int
+    page: int
+    page_size: int
+
+
+def _log_event(event: Any) -> AuditLogEvent:
+    from skeleton.audit.presentation import visible_audit_changes
+
+    return AuditLogEvent(
+        sysid=event.pk,
+        created_at=as_utc(event.created_at),
+        organization_id=event.organization_id,
+        table_name=event.table_name,
+        model_label=event.model_label,
+        record_sysid=event.record_sysid,
+        record_revision=event.record_revision,
+        operation=event.operation,
+        actor_sysid=event.actor_sysid,
+        request_id=event.request_id,
+        source=event.source,
+        db_principal=event.db_principal,
+        changes_json=json.dumps(visible_audit_changes(event)),
+    )
+
+
+def _authorized_log(actor: AbstractBaseUser) -> Any:
+    from skeleton.access.policies import authorized_audit_queryset
+
+    return authorized_audit_queryset(_user(actor)).order_by("-created_at", "sysid")
+
+
+class AuditLogService(ServiceAPI):
+    """The audit log of the core surfaces, filtered before counting.
+
+    In an organization (``/o/<org>/audit/``) it lists that organization's events; without one
+    (``/platform/audit/``) it lists the global events, for platform administrators only.
+    """
+
+    @service_method(read_only=True, since="0.5.0", tenant=False)
+    def events(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        model_label: str | None = None,
+        record_id: UUID | str | None = None,
+        page: int = 1,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> AuditLogPage:
+        """Return one numbered page of the events the actor may read, most recent first.
+
+        Autorização: as regras de ``authorized_audit_queryset``: administrador da organização vê
+        todos os eventos dela; os demais, os eventos dos registros que leem (ou restauram) nas
+        tabelas em que têm TablePermission ``audit``. Só eventos da organização atual; sem
+        organização no contexto, os eventos globais, só para o administrador da plataforma.
+        Erros: InvalidInput para filtro, página ou tamanho inválidos; Forbidden sem vínculo ativo
+        ou, sem organização, para quem não administra a plataforma.
+        Efeitos: nenhum.
+        """
+        if model_label is not None and not isinstance(model_label, str):
+            raise InvalidInput({"model_label": ["Use o rótulo do modelo."]})
+        size = validate_page_size(page_size)
+        if type(page) is not int or page < 1:
+            raise InvalidInput({"page": ["Use um inteiro maior que zero."]})
+        events = _authorized_log(actor)
+        if model_label is not None:
+            events = events.filter(model_label=model_label)
+        if record_id is not None:
+            events = events.filter(record_sysid=as_uuid(record_id, field="record_id"))
+        offset = (page - 1) * size
+        return AuditLogPage(
+            items=tuple(_log_event(event) for event in events[offset : offset + size]),
+            count=events.count(),
+            page=page,
+            page_size=size,
+        )
+
+    @service_method(read_only=True, since="0.5.0", tenant=False)
+    def event(self, *, actor: AbstractBaseUser, event_id: UUID | str) -> AuditLogEvent:
+        """Return one event of the log.
+
+        Autorização: as mesmas de ``events``.
+        Erros: NotFound para evento inexistente, de outra organização ou não autorizado;
+        InvalidInput para identificador inválido.
+        Efeitos: nenhum.
+        """
+        event = _authorized_log(actor).filter(pk=as_uuid(event_id, field="event_id")).first()
+        if event is None:
+            raise NotFound()
+        return _log_event(event)
