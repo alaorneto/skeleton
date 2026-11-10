@@ -110,3 +110,14 @@ O job, em `system_context` da organização:
 3. Envia com `List-Unsubscribe: <…/profile/notifications/>`. Uma falha conta uma tentativa e agenda outra em 1 min, 5 min, 30 min e 2 h; depois da quinta, a entrega fica `dead`. Uma entrega `sent` nunca sai de novo: a entrega é pelo menos uma vez, idempotente por linha.
 
 Os links usam `SKELETON_PUBLIC_URL`. Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês; os rótulos dos tipos continuam em português até o epic de i18n.
+
+## Resumo diário ou semanal
+
+Quem escolhe `daily` ou `weekly` no canal `email` recebe um resumo em vez de um email por notificação. O job periódico `notifications.digest` roda a cada hora, por organização e numa transação própria:
+
+- Seleciona os membros ativos cuja `digest_hour` é a hora atual **no fuso do perfil**; o semanal só às segundas-feiras.
+- Reúne as linhas da caixa (`NotificationRecipient`) não lidas, não arquivadas e ainda fora de resumo, dos tipos em resumo, até 50 por email, e marca `digest_sent_at`: uma linha nunca entra em dois resumos.
+- Cria uma `NotificationDelivery` (canal `digest`) por pessoa e hora local, com `dedupe_key` `digest:<pessoa>:<AAAAMMDDHH>`, e o mesmo job `notifications.email` envia com as mesmas retentativas. Rodar a mesma janela de novo não cria outro resumo.
+- Resumo vazio não é criado. Itens lidos ou arquivados entre a criação e o envio saem do email; se nenhum sobrar, a entrega fica `skipped` (`empty_digest`).
+
+Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. Se o worker atrasar além da hora local, o resumo daquele dia é pulado e os itens seguem para o próximo.

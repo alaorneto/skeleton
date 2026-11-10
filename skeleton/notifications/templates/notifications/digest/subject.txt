@@ -1,0 +1,1 @@
+{% autoescape off %}Resumo: {{ total }} notificaç{{ total|pluralize:"ão,ões" }} não lida{{ total|pluralize }}{% endautoescape %}

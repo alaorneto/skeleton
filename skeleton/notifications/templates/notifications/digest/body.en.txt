@@ -1,0 +1,9 @@
+{% autoescape off %}Unread notifications since the last digest:
+{% for entry in entries %}
+- {{ entry.label }}{% if entry.count > 1 %} ({{ entry.count }}){% endif %}{% for key, value in entry.snapshot.items %} · {{ value }}{% endfor %}
+  {{ entry.open_url }}{% endfor %}
+
+Notification inbox: {{ inbox_url }}
+
+You receive this digest because of your notification preferences: {{ preferences_url }}
+{% endautoescape %}

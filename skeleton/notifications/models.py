@@ -77,6 +77,8 @@ class NotificationRecipient(OperationalRecord):
     count = models.PositiveIntegerField(default=1)
     read_at = models.DateTimeField(null=True, blank=True)
     archived_at = models.DateTimeField(null=True, blank=True)
+    # Set when the row joins a daily or weekly digest (#55): it never joins another one.
+    digest_sent_at = models.DateTimeField(null=True, blank=True)
     immutable_fields = ("user_id",)
     # Frozen as self_discovery_column: a person lists their own rows of every organization.
     self_discovery_field = "user"
