@@ -54,6 +54,26 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Notificações: preferências, email, resumo, push e retenção (epic #80)
+
+Rodada de 2026-11-10 na branch do epic [#80](https://github.com/alaorneto/skeleton/issues/80), com um commit por issue: [#53](https://github.com/alaorneto/skeleton/issues/53) (preferências, `sk_notifications.0003`), [#54](https://github.com/alaorneto/skeleton/issues/54) (email imediato, `NotificationDelivery`, `0004`), [#55](https://github.com/alaorneto/skeleton/issues/55) (resumo, `0005`), [#56](https://github.com/alaorneto/skeleton/issues/56) (web push, `WebPushSubscription`, `0006`) e [#57](https://github.com/alaorneto/skeleton/issues/57) (retenção). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1052 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com os seis arquivos novos de notificação | 407 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_notification_preference_resolution.py`: linha do tipo > linha `*` > padrão do tipo; tipo obrigatório sempre in-app.
+- `tests/integration_sqlite/test_notification_preferences.py`: sem linha valem os padrões; a API cria, altera com `If-Match` (428 sem ele, 412 com revisão antiga) e exclui logicamente; desligar in-app de tipo obrigatório, modo inválido, hora fora de 0–23 e campo `user` no corpo respondem 400; tipo ou canal desconhecido 404; anônimo 403; a página salva sem JavaScript, mostra o tipo obrigatório travado, responde 409 a um formulário com revisão antiga sem gravar, 400 a campo estranho e 403 sem CSRF; outra pessoa não vê a linha alheia.
+- `tests/unit/test_notification_email_render.py` e `tests/integration_sqlite/test_notification_email.py`: email em inglês para perfil `en` com hora no fuso (12:00 UTC → 09:00 em São Paulo) e em português por padrão; `List-Unsubscribe`; nada sai na transação do `notify()`; entrega `sent` não sai de novo; opt-out antes do fan-out não cria entrega; opt-out e desativação depois do fan-out viram `skipped` (`opted_out`, `recipient_inactive`); SMTP recusando vira cinco tentativas e `dead`; rollback não envia; entregas de A não aparecem em B.
+- `tests/unit/test_notification_digest_schedule.py` e `tests/integration_sqlite/test_notification_digest.py`: hora local do resumo (diário e semanal às segundas, inclusive com virada de dia em Tóquio); a mesma janela não duplica; lidas ficam fora; resumo vazio não é criado; itens lidos entre a criação e o envio viram `skipped` (`empty_digest`); um resumo por organização; tipos imediatos fora do resumo.
+- `tests/unit/test_web_push_encoding.py`: o vetor de teste do apêndice A da RFC 8291 byte a byte; ida e volta com chaves aleatórias; allowlist (HTTP, porta, credenciais na URL, IP, host parecido e subdomínio); JWT VAPID ES256 verificado com a chave pública.
+- `tests/integration_sqlite/test_web_push.py`: assinatura exige sessão e CSRF e recusa metadados de nuvem, host fora da lista e chaves inválidas; endpoint cifrado no banco; o mesmo navegador com outra pessoa move a assinatura; payload decifrado pelo "navegador" só com rótulo e link (o snapshot só com `push_snapshot`); 410 exclui logicamente e não reenvia; 503 retentado até `dead`; seção de push oculta sem JavaScript e ausente sem chave VAPID, `/sw.js` 404 sem configuração.
+- `tests/integration_sqlite/test_notification_retention.py`: prazos por setting; só linhas vencidas saem e o contador continua igual às não lidas restantes; outra organização intocada; entregas `retrying` ficam; notificações órfãs saem só depois das linhas e entregas.
+
+**Não verificado:** envio real por SMTP, push real a um serviço do navegador (a suíte usa um serviço falso no lugar do `outbound_http`), o `run_worker` real, smoke manual no navegador (opt-in de push e página de preferências) e o PostgreSQL 16.15 do CI.
 ## Rodada combinada: instância, webhooks e sequências
 
 Rodada de 2026-11-10 na branch que junta #143, #49, #44, #63, #64, #65, #155 e #156 (um commit por issue e o ajuste final do catálogo da instância e do mapa de pacotes). Somente o que rodou:
