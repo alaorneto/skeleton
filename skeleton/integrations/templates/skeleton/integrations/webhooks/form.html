@@ -5,6 +5,7 @@
   <div class="min-w-0">
     <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'integrations:webhooks' organization_id %}">Webhooks</a></li><li><span aria-current="page">{% if endpoint %}{{ endpoint.name }}{% else %}Novo{% endif %}</span></li></ol></nav>
     <h1>{% if endpoint %}{{ endpoint.name }}{% else %}Novo webhook{% endif %}</h1>
+    {% if endpoint %}<p class="mt-2"><a href="{% url 'integrations:webhook-deliveries' organization_id endpoint.pk %}">Ver entregas e enviar teste</a></p>{% endif %}
     {% if endpoint and not endpoint.is_enabled and endpoint.disabled_reason %}<p class="mt-2"><span class="badge badge-dot">Desativado automaticamente ({{ endpoint.disabled_reason }})</span></p>{% endif %}
   </div>
 </div>

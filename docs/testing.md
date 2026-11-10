@@ -54,6 +54,26 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Log, reenvio e teste de webhooks (#65)
+
+Rodada de 2026-11-10 para [#65](https://github.com/alaorneto/skeleton/issues/65): log de entregas (HTML e API), reenvio com `resend_of` (`sk_integrations.0003`), `webhook.ping` e o job periódico `webhooks.retention`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 977 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 369 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run build` e `npm run check` | sem problemas, sem migrations pendentes; o Tailwind passou a ler `skeleton/integrations/templates` |
+
+Cobertura nova em `tests/integration_sqlite/test_webhook_delivery.py` (SQLite e PostgreSQL):
+- o log guarda e mostra no máximo 1 KB da resposta, escapado na página e igual na API;
+- o reenvio exige `If-Match` do endpoint (428/412; no HTML, revisão antiga não cria nada), cria uma entrega nova com `resend_of`, o mesmo evento e o mesmo corpo, e a original continua `failed` com a mesma tentativa e o mesmo status;
+- o `webhook.ping` chega assinado, com `data: {}` e sem registro;
+- membro sem a capacidade e administrador de B recebem 404 na página, na lista, no detalhe e no reenvio, inclusive pela URL de B;
+- a retenção apaga só a entrega final expirada, mantém a que tem retentativa agendada e a original de um reenvio vivo.
+
+**Não verificado:** smoke manual no navegador da página de entregas; o PostgreSQL 16.15 do CI.
+
 ## Entrega assinada de webhooks (#64)
 
 Rodada de 2026-11-10 para [#64](https://github.com/alaorneto/skeleton/issues/64): `WebhookDelivery` e `WebhookEndpointHealth` (`sk_integrations.0002`, operacionais), o consumidor `webhooks.fanout`, o job `webhooks.deliver` e a notificação `webhooks.endpoint_disabled`. Somente o que rodou:

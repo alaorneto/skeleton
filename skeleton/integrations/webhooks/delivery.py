@@ -108,7 +108,9 @@ def fanout(envelope: Any) -> None:
     for endpoint in WebhookEndpoint.objects.filter(is_enabled=True).order_by("sysid"):
         if envelope.event_type not in endpoint.event_types:
             continue
-        delivery = WebhookDelivery.objects.filter(endpoint=endpoint, event_id=envelope.event_id).first()
+        delivery = WebhookDelivery.objects.filter(
+            endpoint=endpoint, event_id=envelope.event_id, resend_of__isnull=True
+        ).first()
         if delivery is None:
             delivery = WebhookDelivery(
                 organization_id=envelope.organization_id,
@@ -254,6 +256,18 @@ def register_webhook_delivery() -> None:
         )
     )
     register_consumer(WILDCARD, FANOUT_CONSUMER, fanout)
+    from datetime import timedelta as every
+
+    from skeleton.jobs.periodic import register_periodic
+
+    from .log import RETENTION_JOB, purge_expired_deliveries
+
+    register_job_type(
+        JobType(
+            RETENTION_JOB, purge_expired_deliveries, {}, run_as="system", max_attempts=3, owner_app="sk_integrations"
+        )
+    )
+    register_periodic(RETENTION_JOB, RETENTION_JOB, every=every(hours=6))
     register_notification_type(
         NotificationType(
             DISABLED_NOTIFICATION,

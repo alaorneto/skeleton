@@ -65,7 +65,17 @@ class WebhookDelivery(OperationalRecord):
     next_attempt_at = models.DateTimeField(null=True, blank=True)
     last_attempt_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
-    immutable_fields = ("endpoint_id", "event_id", "event_type", "table_key", "record_sysid", "payload")
+    # A manual resend (#65) is a new delivery of the same event; the original never changes.
+    resend_of = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="resends")
+    immutable_fields = (
+        "endpoint_id",
+        "event_id",
+        "event_type",
+        "table_key",
+        "record_sysid",
+        "payload",
+        "resend_of_id",
+    )
 
     class Meta(OperationalRecord.Meta):
         constraints = [
@@ -75,7 +85,10 @@ class WebhookDelivery(OperationalRecord):
                 violation_error_code="unique",
             ),
             models.UniqueConstraint(
-                fields=("endpoint", "event_id"), name="sk_integrations_delivery_event", violation_error_code="unique"
+                fields=("endpoint", "event_id"),
+                condition=models.Q(resend_of__isnull=True),
+                name="sk_integrations_delivery_event",
+                violation_error_code="unique",
             ),
             models.CheckConstraint(
                 condition=models.Q(state__in=("pending", "retrying", "succeeded", "failed", "unauthorized", "skipped")),

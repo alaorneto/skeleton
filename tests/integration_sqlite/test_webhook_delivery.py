@@ -31,7 +31,7 @@ class Receiver(BaseHTTPRequestHandler):
         self.server.received.append({"headers": dict(self.headers), "body": body})
         status = self.server.statuses.pop(0) if self.server.statuses else 200
         self.send_response(status)
-        answer = b"received " + str(status).encode() + b" \x00<b>"
+        answer = self.server.answer or (b"received " + str(status).encode() + b" \x00<b>")
         self.send_header("Content-Length", str(len(answer)))
         self.end_headers()
         self.wfile.write(answer)
@@ -40,7 +40,7 @@ class Receiver(BaseHTTPRequestHandler):
 @pytest.fixture
 def receiver():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Receiver)
-    server.received, server.statuses = [], []
+    server.received, server.statuses, server.answer = [], [], b""
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -229,3 +229,164 @@ def test_fifteen_consecutive_failures_disable_the_endpoint_and_notify(pipeline, 
     drain()
     assert len(receiver.received) == 15
     assert all(item.record_sysid != notes[15].pk for item in deliveries(fixture))
+
+
+# --------------------------------------------------------------------------- log, resend, ping, retention (#65)
+
+
+def login(user):
+    from django.test import Client
+    from django.urls import reverse
+
+    client = Client(enforce_csrf_checks=True)
+    client.get(reverse("account_login"))
+    response = client.post(
+        reverse("account_login"),
+        {
+            "login": user.email,
+            "password": "Fixture-only-password-2026!",
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
+    assert response.status_code == 302
+    return client
+
+
+def api_post(client, url, revision=None):
+    headers = {"HTTP_X_CSRFTOKEN": client.cookies["csrftoken"].value}
+    if revision is not None:
+        headers["HTTP_IF_MATCH"] = f'"{revision}"'
+    return client.post(url, data="{}", content_type="application/json", **headers)
+
+
+def urls(fixture, endpoint, delivery=None):
+    from django.urls import reverse
+
+    base = {"organization_id": fixture.a.pk, "sysid": endpoint.pk}
+    result = {
+        "page": reverse("integrations:webhook-deliveries", kwargs=base),
+        "list": reverse("integrations:api-webhook-deliveries", kwargs=base),
+        "ping": reverse("integrations:api-webhook-ping", kwargs=base),
+    }
+    if delivery is not None:
+        item = {**base, "delivery_id": delivery.pk}
+        result["detail"] = reverse("integrations:api-webhook-delivery", kwargs=item)
+        result["resend"] = reverse("integrations:api-webhook-delivery-resend", kwargs=item)
+        result["html_resend"] = reverse("integrations:webhook-delivery-resend", kwargs=item)
+    return result
+
+
+def test_log_shows_bounded_escaped_answers(pipeline, receiver):
+    fixture, _, issued = pipeline
+    receiver.answer = b"<script>alert(1)</script>" + b"y" * 4000
+    publish(fixture, fixture.shared)
+    drain()
+    [delivery] = deliveries(fixture)
+    assert len(delivery.response_snippet) == 1024 and delivery.response_snippet.startswith("<script>")
+    client = login(fixture.admin)
+    paths = urls(fixture, issued.endpoint, delivery)
+    page = client.get(paths["page"]).content.decode()
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
+    listed = client.get(paths["list"]).json()
+    assert listed["count"] == 1 and listed["results"][0]["state"] == "succeeded"
+    assert len(listed["results"][0]["response_snippet"]) == 1024
+
+
+def test_resend_creates_a_new_attempt_and_keeps_the_history(pipeline, receiver):
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(400)
+    publish(fixture, fixture.shared)
+    drain()
+    [original] = deliveries(fixture)
+    assert original.state == "failed"
+    client = login(fixture.admin)
+    paths = urls(fixture, issued.endpoint, original)
+    with actor_tenant(fixture.admin, fixture.a):
+        revision = WebhookEndpoint.objects.get(pk=issued.endpoint.pk).revision
+    assert api_post(client, paths["resend"]).status_code == 428
+    assert api_post(client, paths["resend"], revision + 1).status_code == 412
+    response = api_post(client, paths["resend"], revision)
+    assert response.status_code == 202 and response.json()["resend_of"] == str(original.pk)
+    drain()
+    after = {item.pk: item for item in deliveries(fixture)}
+    unchanged = after[original.pk]
+    assert (unchanged.state, unchanged.attempts, unchanged.status_code) == ("failed", 1, 400)
+    [retry] = [item for item in after.values() if item.pk != original.pk]
+    assert retry.state == "succeeded" and retry.event_id == original.event_id and retry.payload == original.payload
+    assert len(receiver.received) == 2
+    assert receiver.received[0]["body"] == receiver.received[1]["body"]
+    # The HTML form takes the same revision; a stale one changes nothing.
+    token = client.cookies["csrftoken"].value
+    html = client.post(paths["html_resend"], {"revision": revision - 1, "csrfmiddlewaretoken": token})
+    assert html.status_code == 302 and len(deliveries(fixture)) == 2
+
+
+def test_ping_sends_the_reserved_event_without_a_record(pipeline, receiver):
+    fixture, _, issued = pipeline
+    client = login(fixture.admin)
+    response = api_post(client, urls(fixture, issued.endpoint)["ping"], issued.endpoint.revision)
+    assert response.status_code == 202 and response.json()["event_type"] == "webhook.ping"
+    drain()
+    [request] = receiver.received
+    body = json.loads(request["body"])
+    assert body["type"] == "webhook.ping" and body["data"] == {}
+    assert verify(request["headers"], request["body"], issued.secret)
+    [ping] = deliveries(fixture)
+    assert ping.state == "succeeded" and ping.record_sysid is None
+
+
+def test_deliveries_of_another_organization_do_not_exist(pipeline, receiver):
+    from django.urls import reverse
+
+    fixture, _, issued = pipeline
+    publish(fixture, fixture.shared)
+    drain()
+    [delivery] = deliveries(fixture)
+    paths = urls(fixture, issued.endpoint, delivery)
+    for user in (fixture.alice, fixture.bob):  # Member of A without the capability; B's administrator.
+        client = login(user)
+        for key in ("page", "list", "detail"):
+            assert client.get(paths[key]).status_code == 404, (user.email, key)
+        assert api_post(client, paths["resend"], issued.endpoint.revision).status_code == 404
+    in_b = reverse(
+        "integrations:api-webhook-delivery",
+        kwargs={"organization_id": fixture.b.pk, "sysid": issued.endpoint.pk, "delivery_id": delivery.pk},
+    )
+    assert login(fixture.bob).get(in_b).status_code == 404
+    assert len(deliveries(fixture)) == 1
+
+
+def test_retention_deletes_only_expired_final_deliveries(pipeline, receiver):
+    from datetime import timedelta
+
+    from examples.notes.models import Note
+    from skeleton.integrations.models import WebhookDelivery
+    from skeleton.integrations.webhooks.log import purge_expired_deliveries, resend_delivery
+
+    fixture, _, issued = pipeline
+    receiver.statuses.extend([400, 400, 503])
+    with actor_tenant(fixture.admin, fixture.a):
+        notes = [
+            Note(organization=fixture.a, owner=fixture.alice, code=f"r{index}", title="R", visibility="organization")
+            for index in range(3)
+        ]
+        for note in notes:
+            note.save()
+    for note in notes:
+        publish(fixture, note)
+    drain()
+    by_note = {item.record_sysid: item for item in deliveries(fixture)}
+    old, referenced, retrying = by_note[notes[0].pk], by_note[notes[1].pk], by_note[notes[2].pk]
+    assert (old.state, referenced.state, retrying.state) == ("failed", "failed", "retrying")
+    with actor_tenant(fixture.admin, fixture.a):
+        resend = resend_delivery(referenced, actor=fixture.admin, expected_revision=issued.endpoint.revision)
+    boundary = timezone.now()
+    later = boundary + timedelta(days=31)
+    with system_context(reason="test:webhook-retention", organization_id=fixture.a.pk):
+        # Deliveries are immutable in time: run retention 31 days later instead of backdating rows.
+        assert purge_expired_deliveries(now=later, created_before=boundary) == 1
+        remaining = set(WebhookDelivery.objects.values_list("pk", flat=True))
+    # Not final yet, or the original of a live resend: both wait.
+    assert remaining == {referenced.pk, retrying.pk, resend.pk}

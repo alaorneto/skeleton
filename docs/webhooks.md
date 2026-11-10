@@ -76,3 +76,19 @@ def verify(secret: str, header: str, body: bytes, tolerance: int = 300) -> bool:
 ```
 
 Vetor de teste (`tests/unit/test_webhook_signature.py`): segredo `whsec_test_current`, `t=1700000000`, corpo `{"id":"evt_1","type":"notes.webhook_ready"}` → `v1=42a3634c4a23b13b6b9711dc81fb1424a540673f5363b94294dc2c2da727f1b1`.
+
+## Log, reenvio e teste (#65)
+
+| HTML | API (`/api/v1/`) | O que faz |
+|---|---|---|
+| `GET /o/<org>/integrations/webhooks/<id>/deliveries/` | `GET o/<org>/webhooks/<id>/deliveries/` (paginado) e `GET …/deliveries/<entrega>/` | Entregas do endpoint, das mais novas para as mais antigas: evento, estado, tentativas, próxima tentativa, status, código de erro e até **1 KB** da resposta |
+| `POST …/deliveries/<entrega>/resend/` | `POST o/<org>/webhooks/<id>/deliveries/<entrega>/resend/` | Reenvia (202) |
+| `POST …/webhooks/<id>/ping/` | `POST o/<org>/webhooks/<id>/ping/` | Envia o evento reservado `webhook.ping` (202) |
+
+Valem as mesmas regras dos endpoints: só quem tem `integrations.manage`, e entregas de outra organização ou de outro endpoint respondem 404. O trecho da resposta é texto imprimível (caracteres de controle viram `�`) e a página o mostra escapado, nunca como HTML.
+
+**Reenvio** cria uma entrega **nova** do mesmo evento, com o mesmo corpo e o mesmo `event_id`, ligada à original por `resend_of` (sempre a primeira entrega do evento). A original, suas tentativas e seu resultado não mudam. A entrega nova passa por todas as verificações da entrega normal, inclusive a leitura do registro pelo principal. Reenvio e teste exigem a revisão atual do **endpoint**: `If-Match` na API (428 sem ele, 412 se mudou) ou o campo `revision` no HTML. Um endpoint desativado recusa os dois (400 `endpoint_disabled`).
+
+**Teste** (`webhook.ping`) usa o mesmo corpo, assinatura e cabeçalhos, com `type: "webhook.ping"`, `data: {}` e sem registro, por isso não depende de leitura.
+
+**Retenção:** o job periódico `webhooks.retention` (a cada 6 horas, por organização) é o único caminho que apaga entregas. Ele remove as que estão num estado final (`succeeded`, `failed`, `unauthorized`, `skipped`) e foram criadas há mais de `SKELETON_WEBHOOK_RETENTION_DAYS` dias (30 por padrão). Uma entrega com retentativa agendada fica, e a original de um reenvio ainda vivo espera o reenvio expirar.

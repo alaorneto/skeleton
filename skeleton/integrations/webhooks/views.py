@@ -212,3 +212,68 @@ def endpoint_delete(request, organization_id, sysid):
         return redirect("integrations:webhook", organization_id=organization_id, sysid=endpoint.pk)
     messages.success(request, f"Webhook {endpoint.name} removido.")
     return redirect(reverse("integrations:webhooks", kwargs={"organization_id": organization_id}))
+
+
+@integrations_page
+def delivery_list(request, organization_id, sysid):
+    """The endpoint's deliveries, newest first; the receiver's answer is shown escaped and at most 1 KB."""
+    from skeleton.web.views import pagination
+
+    from .models import WebhookDelivery
+
+    endpoint = _endpoint(sysid)
+    rows = pagination(request, WebhookDelivery.objects.filter(endpoint=endpoint).order_by("-created_at", "sysid"))
+    return render(
+        request,
+        TEMPLATES + "deliveries.html",
+        {"organization_id": organization_id, "endpoint": endpoint, "rows": rows},
+    )
+
+
+def _log_action(request, organization_id, endpoint, action):
+    from django.core.exceptions import ValidationError
+
+    try:
+        with transaction.atomic():
+            action()
+    except ConcurrentUpdate:
+        messages.error(request, "O webhook mudou. Atualize a página antes de tentar novamente.")
+    except ValidationError:
+        messages.error(request, "O webhook está desativado: reative-o antes de reenviar ou testar.")
+    else:
+        messages.success(request, "Entrega enfileirada.")
+    return redirect("integrations:webhook-deliveries", organization_id=organization_id, sysid=endpoint.pk)
+
+
+@integrations_page
+@require_POST
+@transaction.atomic
+def delivery_resend(request, organization_id, sysid, delivery_id):
+    from .log import resend_delivery
+    from .models import WebhookDelivery
+
+    endpoint = _endpoint(sysid)
+    delivery = WebhookDelivery.objects.filter(pk=delivery_id, endpoint=endpoint).first()
+    if delivery is None:
+        raise Http404
+    return _log_action(
+        request,
+        organization_id,
+        endpoint,
+        lambda: resend_delivery(delivery, actor=request.user, expected_revision=_revision(request)),
+    )
+
+
+@integrations_page
+@require_POST
+@transaction.atomic
+def endpoint_ping(request, organization_id, sysid):
+    from .log import ping_endpoint
+
+    endpoint = _endpoint(sysid)
+    return _log_action(
+        request,
+        organization_id,
+        endpoint,
+        lambda: ping_endpoint(endpoint, actor=request.user, expected_revision=_revision(request)),
+    )

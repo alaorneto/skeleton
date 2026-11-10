@@ -127,3 +127,78 @@ class WebhookRotateView(WebhookAPI):
             endpoint, actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
         )
         return _with_secret(issued, 200)
+
+
+def delivery_data(delivery):
+    return {
+        "sysid": delivery.sysid,
+        "event_id": delivery.event_id,
+        "event_type": delivery.event_type,
+        "table_key": delivery.table_key,
+        "record_sysid": delivery.record_sysid,
+        "state": delivery.state,
+        "attempts": delivery.attempts,
+        "status_code": delivery.status_code,
+        "error_code": delivery.error_code,
+        "response_snippet": delivery.response_snippet,
+        "next_attempt_at": delivery.next_attempt_at,
+        "last_attempt_at": delivery.last_attempt_at,
+        "delivered_at": delivery.delivered_at,
+        "resend_of": delivery.resend_of_id,
+        "created_at": delivery.created_at,
+    }
+
+
+class DeliveriesView(WebhookAPI):
+    def get(self, request, organization_id, sysid):
+        from .models import WebhookDelivery
+
+        endpoint = self.endpoint(sysid)
+        if set(request.query_params) - {"page", "page_size"}:
+            raise BoundaryError("invalid_filter", "Filtro não permitido.")
+        rows = WebhookDelivery.objects.filter(endpoint=endpoint).order_by("-created_at", "sysid")
+        return page(rows, request, delivery_data)
+
+
+class DeliveryDetailView(WebhookAPI):
+    def delivery(self, sysid, delivery_id):
+        from .models import WebhookDelivery
+
+        delivery = WebhookDelivery.objects.filter(pk=delivery_id, endpoint=self.endpoint(sysid)).first()
+        if delivery is None:
+            raise Http404
+        return delivery
+
+    def get(self, request, organization_id, sysid, delivery_id):
+        return Response(delivery_data(self.delivery(sysid, delivery_id)))
+
+
+class DeliveryResendView(DeliveryDetailView):
+    """``POST`` with ``If-Match`` of the endpoint revision: a new delivery of the same event."""
+
+    @transaction.atomic
+    def post(self, request, organization_id, sysid, delivery_id):
+        from .log import resend_delivery
+
+        if request_fields(request):
+            raise BoundaryError("invalid_request", "O reenvio não aceita campos.")
+        delivery = self.delivery(sysid, delivery_id)
+        retry = resend_delivery(
+            delivery, actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
+        )
+        return Response(delivery_data(retry), status=202)
+
+
+class WebhookPingView(WebhookAPI):
+    """``POST`` with ``If-Match`` of the endpoint revision: sends the reserved ``webhook.ping`` event."""
+
+    @transaction.atomic
+    def post(self, request, organization_id, sysid):
+        from .log import ping_endpoint
+
+        if request_fields(request):
+            raise BoundaryError("invalid_request", "O teste não aceita campos.")
+        ping = ping_endpoint(
+            self.endpoint(sysid), actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
+        )
+        return Response(delivery_data(ping), status=202)
