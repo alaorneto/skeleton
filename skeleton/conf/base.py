@@ -199,6 +199,8 @@ globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
+# API tokens (#45): maximum validity in days of a newly issued token.
+SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Notification retention (#57): read/archived rows, unread rows and finished deliveries.

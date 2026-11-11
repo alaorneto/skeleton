@@ -116,3 +116,20 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 ```
 
 `ETAG` inclui aspas do header atual. Releia após cada mutação antes de DELETE/restore. Em HTTPS use URL/origin/referer HTTPS exatos. Cookies/recovery codes não pertencem ao histórico de shell nem arquivos compartilhados. API não oferece export global de Users, hard delete ou bypass de tenant.
+
+## Tokens de API
+
+Além da sessão, a API aceita tokens de API (epic #79). Esta seção descreve o token em si (#45); a autenticação nas requisições está em [Autenticação por token](#autenticação-por-token).
+
+| Item | Regra |
+|---|---|
+| Formato | `skt_<prefixo>_<segredo>`: prefixo de 8 caracteres hexadecimais (único, localiza a linha) e segredo de 43 caracteres (`secrets.token_urlsafe(32)`, 256 bits) |
+| Armazenamento | `sk_integrations.ApiToken` (`SystemRecord` global) guarda só o prefixo e o SHA-256 do segredo (`digest`, campo sensível, redigido na auditoria). O texto do token aparece **uma vez**, na emissão, e não pode ser recuperado |
+| Tipos | `personal` (da própria pessoa, vale em todas as organizações dela), `service` (de uma conta de serviço, preso à organização da conta) e `feed` (só escopos de feed, como a assinatura da agenda) |
+| Validade | Obrigatória e no futuro, até `SKELETON_API_TOKEN_MAX_DAYS` dias (padrão 365, no catálogo da instância). Validade ausente, passada ou acima do limite é recusada (400) |
+| Escopos | `<table_key>:<ação>` para uma tabela exposta no gateway (`expose_api`) e `read`, `create`, `update`, `delete` ou `restore`; ou um escopo nomeado registrado em código (`register_token_scope`). Escopo desconhecido, de tabela não exposta ou de feed num token comum é recusado (400). O escopo só **restringe** o papel da pessoa: nunca concede permissão que ela não tenha |
+| Emissão | Pela própria pessoa autenticada (pessoal ou feed) ou por quem tem `integrations.manage` na organização da conta de serviço. Com `SKELETON_REQUIRE_ADMIN_MFA`, exige MFA cadastrada. Contas de serviço não emitem tokens pessoais, e um token nunca emite outro token |
+| Revogação | `revoked_at` e soft delete, com `If-Match`/revisão. Quem não pode gerir o token recebe o mesmo "inexistente" de um token que não existe |
+| Invalidação | Um token deixa de valer na próxima requisição quando expira, é revogado, a pessoa é desativada ou excluída, ou o `auth_version` dela muda (troca de senha, desativação, revogação de sessões) |
+
+Os serviços ficam em `skeleton.integrations.tokens.services`: `issue_personal_token`, `issue_service_token`, `revoke_token`, `personal_tokens`, `service_tokens` e `verify_token`. Erros de validação são `ValidationError` por campo (`scopes`, `expires_at`, `name`); a falta de capacidade é `PermissionDenied`.
