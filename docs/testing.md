@@ -89,6 +89,18 @@ Cobertura nova:
 
 **Não verificado:** os testes do agente que exigem `fcntl` nesta máquina (rodam no CI), `docker compose up` com os serviços `worker` e `scheduler`, as units systemd num host real, smoke de `/platform/jobs/` no navegador (o template é renderizado e conferido pelos testes de integração) e o PostgreSQL 16.15 do CI.
 
+## i18n: idioma, fuso, textos traduzíveis e emails (epic #85)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#169, origem pública do convite:**
+
+- `tests/integration/test_invitation_public_url.py`: 3 passed com a correção e 2 failed sem ela. O patch foi desfeito e reaplicado com `git apply -R`/`git apply`.
+- Os casos cobertos:
+  - sem requisição, o link usa `SKELETON_PUBLIC_URL`;
+  - sem requisição e sem o setting, o erro cita `SKELETON_PUBLIC_URL`;
+  - com requisição, continua valendo o host da requisição.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

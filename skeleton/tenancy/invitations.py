@@ -97,9 +97,9 @@ def issue_invitation(*, user, email, role, request=None):
         if request is not None:
             url = request.build_absolute_uri(path)
         else:
-            origin = getattr(settings, "SKELETON_PUBLIC_ORIGIN", "")
+            origin = getattr(settings, "SKELETON_PUBLIC_URL", "")
             if not origin:
-                raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_ORIGIN.")
+                raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_URL.")
             url = origin.rstrip("/") + path
         subject_name = " ".join(organization.name.splitlines())
         message = EmailMultiAlternatives(
