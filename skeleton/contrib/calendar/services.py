@@ -151,6 +151,9 @@ def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: in
         setattr(event, name, value)
     event.sequence += 1
     event.save(update_fields={*values, "sequence", "recurrence_end"})
+    from .attendees import CANCELLED, UPDATED, notify_attendees
+
+    notify_attendees(event, CANCELLED if values.get("status") == "cancelled" else UPDATED, actor=actor)
     return event
 
 

@@ -20,7 +20,7 @@
     "documentation_root": "docs",
     "service_api": {"module": "skeleton.contrib.calendar.service_api", "classes": ["CalendarService"]}
   },
-  "migrations": {"leaves": ["0003_recurrence"], "from_versions": ">=0.0.0", "labels": ["skeleton_calendar"]},
+  "migrations": {"leaves": ["0004_attendees"], "from_versions": ">=0.0.0", "labels": ["skeleton_calendar"]},
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},

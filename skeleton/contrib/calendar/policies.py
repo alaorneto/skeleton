@@ -31,8 +31,12 @@ def writable_calendars(user: Any) -> QuerySet:
 
 
 def attendee_event_ids(user: Any) -> QuerySet | None:
-    """Events the user is invited to (#72); ``None`` until attendees exist."""
-    return None
+    """Events the user is invited to (#72), with an active membership; overrides follow their master."""
+    from .models import EventAttendee
+
+    return EventAttendee.objects.filter(
+        membership__user_id=user.pk, membership__is_active=True, membership__deleted_at__isnull=True
+    ).values("event_id")
 
 
 def readable_events(user: Any) -> QuerySet:
@@ -40,7 +44,7 @@ def readable_events(user: Any) -> QuerySet:
     condition = Q(calendar__in=readable_calendars(user).values("pk"))
     invited = attendee_event_ids(user)
     if invited is not None:
-        condition |= Q(pk__in=invited)
+        condition |= Q(pk__in=invited) | Q(series__in=invited)
     return Event.objects.filter(condition)
 
 
@@ -99,4 +103,4 @@ def is_delegate(user: Any, calendar: Calendar, *, action: str = "read") -> bool:
 
 def is_attendee(user: Any, event: Event) -> bool:
     invited = attendee_event_ids(user)
-    return invited is not None and invited.filter(pk=event.pk).exists()
+    return invited is not None and invited.filter(event_id=event.series_id or event.pk).exists()

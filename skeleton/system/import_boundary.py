@@ -26,6 +26,13 @@ PUBLIC_CORE_MODULES = frozenset(
         "skeleton.tenancy.context",
         "skeleton.web.views",
         "skeleton.api.views",
+        # Registration in AppConfig.ready() (#84): the documented way to declare types of an app.
+        "skeleton.jobs.registry",
+        "skeleton.jobs.periodic",
+        "skeleton.events.registry",
+        "skeleton.notifications.registry",
+        "skeleton.integrations.tokens.scopes",
+        "skeleton.tenancy.aggregate",
         # Transitional until ApplicationService (#105) exists.
         "skeleton.system.applications",
     }

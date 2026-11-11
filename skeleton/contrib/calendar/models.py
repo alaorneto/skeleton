@@ -192,3 +192,38 @@ class Event(OrganizationRecord):
 
     def __str__(self):
         return self.title
+
+
+class EventAttendee(OrganizationRecord):
+    """A member of the organization invited to an event (#72); being invited grants reading it."""
+
+    class Response(models.TextChoices):
+        NEEDS_ACTION = "needs_action", "Sem resposta"
+        ACCEPTED = "accepted", "Aceito"
+        DECLINED = "declined", "Recusado"
+        TENTATIVE = "tentative", "Talvez"
+
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name="attendees")
+    membership = models.ForeignKey(
+        "sk_tenancy.Membership", on_delete=models.PROTECT, related_name="skeleton_calendar_invitations"
+    )
+    response = models.CharField(max_length=16, choices=Response.choices, default=Response.NEEDS_ACTION)
+    optional = models.BooleanField(default=False)
+    immutable_fields = ("event_id", "membership_id")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("event", "membership"),
+                condition=Q(deleted_at__isnull=True),
+                name="skeleton_calendar_attendee_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(response__in=("needs_action", "accepted", "declined", "tentative")),
+                name="skeleton_calendar_attendee_response",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.event_id} {self.membership_id}"

@@ -28,6 +28,15 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - Edição de uma ocorrência: "só esta" cria ou altera a substituição; "esta e as seguintes" divide a série (a primeira parte termina antes da ocorrência, um novo mestre com `uid` novo começa nela e as substituições posteriores passam para ele mantendo os IDs); "todas" altera o mestre. Cancelar uma ocorrência acrescenta um EXDATE.
 - `recurrence_end` guarda o fim da série para consultas por janela.
 
+### Participantes (#72)
+`EventAttendee` liga um evento a um vínculo da mesma organização (`response`: `needs_action`, `accepted`, `declined`, `tentative`; `optional`).
+
+- Só pessoas ativas da organização podem ser convidadas: um membro de outra organização ou uma conta de serviço responde 400.
+- O convite dá leitura do evento (inclusive em calendário pessoal) e das substituições da série; não dá escrita.
+- Cada pessoa responde só ao próprio convite: o de outra pessoa, ou nenhum, é 404.
+- Remover o participante revoga a leitura na próxima requisição; um vínculo inativo deixa de ler e de ser notificado.
+- Convidar, alterar e cancelar notificam os participantes (`calendar.invited`, `calendar.updated`, `calendar.cancelled`) pela API de notificações, na transação da mudança; o payload leva o título (ou "Ocupado", se o evento for privado) e o UUID do evento.
+
 ## Acceptance
 - Um calendário pessoal padrão por membro, inclusive com criação concorrente.
 - Mudar a visibilidade de calendário pessoal responde 400.
@@ -40,3 +49,4 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - EXDATE remove uma ocorrência; uma substituição move uma.
 - `FREQ=SECONDLY` responde 400; uma expansão acima do limite é truncada e sinalizada.
 - "Esta e as seguintes" divide a série sem perder IDs.
+- Membro de outra organização ou conta de serviço como participante responde 400; o participante não edita; RSVP de outra pessoa é 404; remover o participante revoga a leitura.

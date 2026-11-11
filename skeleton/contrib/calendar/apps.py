@@ -16,7 +16,7 @@ class CalendarConfig(AppConfig):
 
         register_app(AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self))
         from . import services
-        from .models import Calendar, Event
+        from .models import Calendar, Event, EventAttendee
 
         register(
             TableSpec(
@@ -53,6 +53,18 @@ class CalendarConfig(AppConfig):
                 write_fields=(),
                 # Redacted in the audit: an administrator reading it must not see private content.
                 sensitive_fields=("title", "description", "location"),
+                expose_api=False,
+            )
+        )
+        register(
+            TableSpec(
+                model=EventAttendee,
+                description="Membros convidados para um evento e a resposta deles.",
+                label="Participantes",
+                scope="organization",
+                read_fields=("event", "membership", "response", "optional"),
+                write_fields=(),
+                sensitive_fields=(),
                 expose_api=False,
             )
         )
