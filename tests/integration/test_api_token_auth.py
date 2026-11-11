@@ -157,6 +157,23 @@ def test_invalid_tokens_answer_401_with_a_challenge(access, caplog):
     assert revoked.text not in caplog.text
 
 
+def test_feed_tokens_are_not_api_credentials(access):
+    from skeleton.integrations.tokens.scopes import _named, register_token_scope
+
+    if "test.feed" not in _named:
+        register_token_scope("test.feed", "Feed de teste", feed=True)
+    with request_context(actor=access.alice, request_id=uuid4(), source="test:tokens"):
+        feed = issue_personal_token(
+            actor=access.alice,
+            name="Feed",
+            scopes=["test.feed"],
+            expires_at=timezone.now() + timedelta(days=7),
+            feed=True,
+        )
+    response = bearer(feed.text).get(reverse("api:me"))
+    assert response.status_code == 401 and response.json()["code"] == "invalid_token"
+
+
 def test_html_routes_ignore_the_bearer_header(access):
     client = bearer(token_for(access.alice, [f"{NOTE}:read"]).text)
     response = client.get(reverse("web:dashboard", kwargs={"organization_id": access.a.pk}))
