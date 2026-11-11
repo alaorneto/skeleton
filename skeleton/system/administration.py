@@ -197,3 +197,50 @@ def tenant_screen_url(manifest, screen, organization_id):
     if not url.startswith(prefix) or url.startswith("//") or resolve(url).view_name != screen.url_name:
         raise Http404
     return url
+
+
+def guard_user_urls(patterns):
+    """Global user routes of a first-party app (``/me/apps/<label>/``, #66): login and no cache.
+
+    They have no organization in the URL, so they cannot check activation here: each view reads
+    the person's organizations one transaction at a time (``for_each_organization``) and skips
+    those where the app is not active.
+    """
+    from functools import wraps
+
+    from django.contrib.auth.views import redirect_to_login
+    from django.urls.resolvers import URLPattern, URLResolver
+    from django.views.decorators.cache import never_cache
+
+    result = []
+    for pattern in patterns:
+        if isinstance(pattern, URLResolver):
+            result.append(
+                URLResolver(
+                    pattern.pattern,
+                    guard_user_urls(pattern.url_patterns),
+                    default_kwargs=pattern.default_kwargs,
+                    app_name=pattern.app_name,
+                    namespace=pattern.namespace,
+                )
+            )
+        elif isinstance(pattern, URLPattern):
+
+            def protect(callback):
+                @never_cache
+                @wraps(callback)
+                def guarded(request, *args, **kwargs):
+                    if not request.user.is_authenticated:
+                        return redirect_to_login(request.get_full_path())
+                    return callback(request, *args, **kwargs)
+
+                return guarded
+
+            result.append(
+                URLPattern(
+                    pattern.pattern, protect(pattern.callback), default_args=pattern.default_args, name=pattern.name
+                )
+            )
+        else:
+            raise TypeError("Unsupported user URL declaration.")
+    return result

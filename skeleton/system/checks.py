@@ -574,6 +574,11 @@ def check_deployed_schema(*, using="default"):
     errors.extend(f"Unclassified physical table: {name}" for name in sorted(unknown))
     if TableDefinition._meta.db_table in tables:
         errors.extend(stored_secrets_without_keys(using=using, tables=tables))
+    from .bundled import bundled_divergences
+    from .models import ComponentInstallation
+
+    if ComponentInstallation._meta.db_table in tables:
+        errors.extend(bundled_divergences(using=using))
     if TableDefinition._meta.db_table not in tables:
         errors.append("Catalog migrations are missing.")
     else:

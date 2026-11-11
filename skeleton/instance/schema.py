@@ -175,6 +175,16 @@ _SPECS = (
     ),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
     SettingSpec(
+        "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list
+    ),
+    SettingSpec(
+        "bundled_retained",
+        "SKELETON_BUNDLED_RETAINED",
+        "list",
+        "Apps first-party retiradas com dados preservados (nomes)",
+        _list,
+    ),
+    SettingSpec(
         "api_token_max_days", "SKELETON_API_TOKEN_MAX_DAYS", "int", "Validade máxima dos tokens de API (dias)", _int(1)
     ),
     SettingSpec(

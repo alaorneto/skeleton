@@ -158,6 +158,26 @@ Cobertura nova:
 
 **Não verificado:** um `clamd` real (a suíte usa um `clamd` falso e um scanner falso), armazenamento S3, o `run_worker` real, smoke manual no navegador da página da plataforma e o PostgreSQL 16.15 do CI.
 
+## Apps first-party no wheel do núcleo (epic #83)
+
+Rodada de 2026-11-11 na branch `feat/83-bundled-apps`: [#66](https://github.com/alaorneto/skeleton/issues/66) (contrato, mais duas correções) e a parte de estado de [#67](https://github.com/alaorneto/skeleton/issues/67). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, no commit `2735c0c` | 1179 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker). O commit seguinte só troca o namespace das rotas `/me/apps/`, que não existem sem app first-party |
+| mesmo PostgreSQL | `tests/unit/test_bundled_apps.py`, `tests/integration/test_bundled_lifecycle.py`, `tests/unit/test_presentation.py`, `tests/unit/test_packages.py` | 12, 4 e 137 passed (97 skipped `posix`) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+A primeira rodada completa teve 1 falha (`test_presentation.py::test_v2_rejects_unsafe_specs_before_import[old-core]`): a validação de first-party tinha capturado a checagem do piso do core do manifesto v2. Corrigido em `2735c0c`; a rodada acima é a de depois.
+
+Cobertura nova:
+- `tests/unit/test_bundled_apps.py` (#66): manifesto `bundled_app` válido; fora de `skeleton.contrib`, sem o prefixo `skeleton_`, v1 e com arquivos próprios recusados; app de terceiro com `skeleton_*` ou `runtime.user_urls` recusada; manifest fora do pacote instalado recusado; versão divergente para o startup; o namespace `skeleton.contrib` é só de first-party; opt-in só por nome do mapa fixo; a suíte roda sem app first-party; o núcleo nunca importa `skeleton.contrib` (análise `ast`).
+- `tests/integration/test_bundled_lifecycle.py` (#67, estado): app nova registrada `kind=bundled` com disponibilidade `selected` e nenhuma ativação; retirada sem declaração é divergência; com `SKELETON_BUNDLED_RETAINED` vira `schema_retained` e desativa as organizações; reinstalada volta a `bundled` com a mesma linha e configuração; instalada sem registro é divergência; nomes retidos vêm do mapa fixo.
+
+A retirada com tabelas de verdade (schema retido validado pelo snapshot do wheel) exige uma app first-party com tabelas, a agenda; ela é verificada no PR do epic #84, que fecha o #67.
+
+**Não verificado:** o PostgreSQL 16.15 do CI e um deployment real com `SKELETON_BUNDLED_APPS`.
+
 ## Notificações: preferências, email, resumo, push e retenção (epic #80)
 
 Rodada de 2026-11-10 na branch do epic [#80](https://github.com/alaorneto/skeleton/issues/80), com um commit por issue: [#53](https://github.com/alaorneto/skeleton/issues/53) (preferências, `sk_notifications.0003`), [#54](https://github.com/alaorneto/skeleton/issues/54) (email imediato, `NotificationDelivery`, `0004`), [#55](https://github.com/alaorneto/skeleton/issues/55) (resumo, `0005`), [#56](https://github.com/alaorneto/skeleton/issues/56) (web push, `WebPushSubscription`, `0006`) e [#57](https://github.com/alaorneto/skeleton/issues/57) (retenção). Somente o que rodou:

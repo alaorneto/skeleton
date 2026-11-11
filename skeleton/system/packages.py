@@ -50,6 +50,10 @@ MAX_MEMBERS = 4096
 MAX_WHEELHOUSE_MEMBERS = 65536
 MAX_METADATA_BYTES = 2 * 1024 * 1024
 MAX_EXPANSION_RATIO = 200
+# First-party apps distributed inside the core wheel (#66): kind, package and label namespace.
+BUNDLED_KIND = "bundled_app"
+BUNDLED_PACKAGE = "skeleton.contrib"
+BUNDLED_LABEL_PREFIX = "skeleton_"
 RESERVED_NAMES = frozenset(
     {"skeleton", "config", "applications", "examples", "django", "deployment_agent", "site", "os", "sys"}
 )
@@ -227,7 +231,7 @@ def _validate_manifest(value):
     if (
         type(m["manifest_version"]) is not int
         or m["manifest_version"] not in (1, 2)
-        or m["kind"] not in ("app", "core")
+        or m["kind"] not in ("app", "core", BUNDLED_KIND)
     ):
         _fail("Unsupported manifest format.")
     _string(m["name"], 200)
@@ -235,14 +239,20 @@ def _validate_manifest(value):
     _stable_id(m["publisher"])
     m["version"] = _version(m["version"])
     m["compatibility"] = _compatibility(m["compatibility"])
-    if m["kind"] == "app":
+    if m["kind"] in ("app", BUNDLED_KIND):
+        bundled = m["kind"] == BUNDLED_KIND
         if set(("app_id", "app_label", "package_name", "app_config", "runtime")) - set(m) or "component_id" in m:
             _fail("Application identity/runtime is required.")
         _stable_id(m["app_id"])
         label, package = _identifier(m["app_label"]), _identifier(m["package_name"])
         if label.startswith("sk_") or label in RESERVED_NAMES or package in RESERVED_NAMES:
             _fail("Reserved core namespace.")
-        prefix = f"applications.{package}."
+        # skeleton_* belongs to the first-party apps shipped inside the core wheel (#66).
+        if label.startswith(BUNDLED_LABEL_PREFIX) != bundled:
+            _fail("The skeleton_ label prefix is reserved to first-party apps of the core.")
+        if bundled and (m["files"] or m["python_dependencies"]):
+            _fail("First-party apps ship inside the core wheel, without files or wheels of their own.")
+        prefix = f"{BUNDLED_PACKAGE}.{package}." if bundled else f"applications.{package}."
         if not isinstance(m["app_config"], str) or not re.fullmatch(
             re.escape(prefix) + r"apps\.[A-Za-z][A-Za-z0-9_]*", m["app_config"]
         ):
@@ -259,6 +269,10 @@ def _validate_manifest(value):
             runtime_fields += ("administration", "model_ui", "service_api")
             if not _core_floor_at_least(m["compatibility"]["skeleton"], MANIFEST_V2_CORE_MINIMUM):
                 _fail("Manifest v2 requires a core minimum of " + MANIFEST_V2_CORE_MINIMUM + ".")
+        if bundled:
+            if m["manifest_version"] != 2:
+                _fail("First-party apps use manifest v2.")
+            runtime_fields += ("user_urls",)
         r = _object(
             m["runtime"],
             runtime_fields,
@@ -266,7 +280,7 @@ def _validate_manifest(value):
         )
         if type(r["default_enabled"]) is not bool:
             _fail("default_enabled must be boolean.")
-        for key in ("urls", "api_urls"):
+        for key in ("urls", "api_urls", "user_urls"):
             if r.get(key) is not None and (
                 not isinstance(r[key], str)
                 or not re.fullmatch(re.escape(prefix) + r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*", r[key])
@@ -330,7 +344,7 @@ def _validate_manifest(value):
         _stable_id(dependency)
         if dependency == identity:
             _fail("Self dependency.")
-        if m["kind"] == "app" and dependency == "django-skeleton":
+        if m["kind"] in ("app", BUNDLED_KIND) and dependency == "django-skeleton":
             _fail("Applications declare the core range in compatibility.skeleton, not dependencies.")
         _specifier(spec)
     conflicts = m.get("conflicts", {})
@@ -351,7 +365,7 @@ def _validate_manifest(value):
             _fail("Invalid migration labels.")
         for label in migrations["labels"]:
             _identifier(label)
-        if m["kind"] == "app" and migrations["labels"] != [m["app_label"]]:
+        if m["kind"] in ("app", BUNDLED_KIND) and migrations["labels"] != [m["app_label"]]:
             _fail("Application migrations must use its own label.")
     lifecycle = _object(
         m["lifecycle"], ("data_retention", "maintenance", "backup"), ("data_retention", "maintenance", "backup")
