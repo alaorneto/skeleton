@@ -7,7 +7,6 @@ calendar without delegation, or the "busy only" option) carries only DTSTART/DTE
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from icalendar import Calendar as ICalendar
@@ -72,9 +71,3 @@ def calendar_components(reader: Any, events: Any, *, busy_only: bool = False) ->
         for override in Event.objects.filter(series=master).select_related("calendar"):
             rows.append(vevent(reader, override, busy_only=busy_only))
     return rows
-
-
-def stamp() -> datetime:
-    from django.utils import timezone
-
-    return timezone.now()

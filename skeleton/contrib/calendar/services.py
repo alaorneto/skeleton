@@ -202,9 +202,8 @@ def _occurrence(master: Any, recurrence_id: Any) -> Any:
     from .recurrence import expand
 
     window = expand(master, recurrence_id - timedelta(days=1), recurrence_id + timedelta(days=1))
-    if not any(occurrence.recurrence_id == recurrence_id for occurrence in window.occurrences):
-        if recurrence_id not in {o.recurrence_id for o in window.occurrences}:
-            raise ValidationError({"recurrence_id": "A série não tem ocorrência nesse instante."})
+    if recurrence_id not in {occurrence.recurrence_id for occurrence in window.occurrences}:
+        raise ValidationError({"recurrence_id": "A série não tem ocorrência nesse instante."})
     return recurrence_id
 
 

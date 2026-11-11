@@ -143,6 +143,25 @@ Cobertura nova:
 
 **Não verificado:** envio real por SMTP, push real a um serviço do navegador (a suíte usa um serviço falso no lugar do `outbound_http`), o `run_worker` real, smoke manual no navegador (opt-in de push e página de preferências) e o PostgreSQL 16.15 do CI.
 
+## Agenda, app first-party (epic #84)
+
+Rodada de 2026-11-11 na branch `feat/84-calendar`, que mescla as branches dos epics #79 e #83; um commit por issue ([#74](https://github.com/alaorneto/skeleton/issues/74), [#68](https://github.com/alaorneto/skeleton/issues/68) a [#73](https://github.com/alaorneto/skeleton/issues/73), [#111](https://github.com/alaorneto/skeleton/issues/111), [#71](https://github.com/alaorneto/skeleton/issues/71), [#75](https://github.com/alaorneto/skeleton/issues/75), [#76](https://github.com/alaorneto/skeleton/issues/76) e o fechamento de [#67](https://github.com/alaorneto/skeleton/issues/67)). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_BUNDLED_APPS="" SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` (núcleo, sem a agenda) | 1218 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `SKELETON_BUNDLED_APPS=calendar python -m pytest tests/contrib/calendar -q` | 59 passed |
+| Windows | `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`, com e sem `SKELETON_BUNDLED_APPS=calendar`; Ruff 0.17.4 `check .` e `format --check .`; `python -m mypy`; `npm run check`; `uv 0.12.7 pip compile` dos dois locks | sem problemas, sem migrations pendentes, assets e locks sem diff |
+
+Cobertura nova:
+- `tests/integration/test_aggregate.py` (#74): cada organização com a própria autorização e RLS (contagem pelo manager sem filtro), escrita no callback falha (`READ ONLY`), resultado preguiçoso recusado, vínculo inativo, app desativada e negação pulam a organização, limite e aninhamento, rota marcada fora da transação do middleware.
+- `tests/contrib/calendar/test_calendars.py` (#68): um calendário pessoal padrão (restrição no banco e corrida que lê o vencedor), visibilidade travada (400 pela gestão de acesso), padrão não excluível, gateway cria compartilhado, fuso inválido 400, sem TablePermission 404, B isolada, ação de admin.
+- `test_events.py` (#69): leitura sem update lê e não cria, privado é "Ocupado", admin vê só ocupado e não escreve no pessoal alheio, horários e dia inteiro, CAS e `sequence`.
+- `test_recurrence.py` (#70): 09:00 locais através do horário de verão em Europe/Berlin (2026) e America/Sao_Paulo (2018), EXDATE e substituição, regras fora do subconjunto (inclusive `FREQ=SECONDLY`) recusadas, truncamento sinalizado, divisão "esta e as seguintes" preservando IDs.
+- `test_attendees.py` (#72), `test_reminders.py` (#73), `test_service_api.py` (#111, kit de contrato), `test_views.py` (#71), `test_my_agenda.py` (#75), `test_ics_feed.py` (#76: parser `icalendar` com RRULE, EXDATE e RECURRENCE-ID, feed com a autorização atual, 404 para token revogado, expirado ou desconhecido, token de feed recusado na API) e `test_retention.py` (#67: snapshot do wheel igual aos modelos; retirada sem declaração reprovada pelo `check_skeleton_schema`; com `SKELETON_BUNDLED_RETAINED` as tabelas passam no check, as organizações ficam desativadas e os dados ficam; reinstalação com os mesmos UUIDs).
+
+**Não verificado:** clientes de calendário reais assinando o feed, smoke das telas no navegador, um deployment real com `SKELETON_BUNDLED_APPS=calendar` e o PostgreSQL 16.15 do CI.
+
 ## Superfícies do núcleo sobre a API de serviços (#110)
 
 Rodada de 2026-11-10 para [#110](https://github.com/alaorneto/skeleton/issues/110), que fecha o epic [#113](https://github.com/alaorneto/skeleton/issues/113): a auditoria (`/o/<org>/audit/`, a REST `/api/v1/o/<org>/audit/` com o filtro por registro e `/platform/audit/`) passou a usar o `AuditLogService`, com a paginação numerada e os campos publicados. Somente o que rodou:

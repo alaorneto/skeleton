@@ -190,6 +190,8 @@ A **instalação global** diz qual código existe no deployment. `ComponentInsta
 
 Todas as organizações usam a mesma versão de código por deployment. Reinstalar uma app preserva registros e exige ativação explícita, em vez de ressuscitar acesso só porque o pacote voltou.
 
+Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`; a agenda é a primeira). Elas seguem o mesmo ciclo de qualquer app, mas não chegam por `.skapp`: o operador as instala por nome com `SKELETON_BUNDLED_APPS`, e retirá-las preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
+
 ### Release, preparação e troca
 
 **Deployment** é a instalação operacional que atende usuários. Um **release** é um conjunto preparado de core, apps, ambiente e recursos. **Staging** é sua preparação em diretório ou imagem separado do conjunto ativo.
