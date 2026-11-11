@@ -16,7 +16,7 @@ class CalendarConfig(AppConfig):
 
         register_app(AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self))
         from . import services
-        from .models import Calendar
+        from .models import Calendar, Event
 
         register(
             TableSpec(
@@ -28,6 +28,32 @@ class CalendarConfig(AppConfig):
                 write_fields=("name", "color", "timezone", "description"),
                 sensitive_fields=(),
                 expose_api=True,
+            )
+        )
+        register(
+            TableSpec(
+                model=Event,
+                description="Eventos dos calendários; leitura e escrita derivadas do calendário.",
+                label="Eventos",
+                scope="organization",
+                read_fields=(
+                    "calendar",
+                    "uid",
+                    "all_day",
+                    "starts_at",
+                    "ends_at",
+                    "start_date",
+                    "end_date",
+                    "tzid",
+                    "is_private",
+                    "status",
+                    "organizer",
+                    "sequence",
+                ),
+                write_fields=(),
+                # Redacted in the audit: an administrator reading it must not see private content.
+                sensitive_fields=("title", "description", "location"),
+                expose_api=False,
             )
         )
         register_record_operations(

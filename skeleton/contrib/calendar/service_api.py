@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -52,3 +53,47 @@ class CalendarService(ServiceAPI):
         ensure_personal_calendar(actor)
         rows = authorized_queryset(Calendar, user=actor, action="read").order_by("-is_default", "name", "sysid")
         return tuple(calendar_info(calendar) for calendar in rows)
+
+
+@dataclass(frozen=True, slots=True)
+class EventInfo:
+    """An event as the actor may see it: a busy block hides title, description and location."""
+
+    sysid: UUID
+    calendar_id: UUID
+    title: str
+    description: str
+    location: str
+    busy_only: bool
+    all_day: bool
+    starts_at: datetime | None
+    ends_at: datetime | None
+    start_date: date | None
+    end_date: date | None
+    tzid: str
+    status: str
+    organizer_id: UUID
+    revision: int
+
+
+def event_info(actor: Any, event: Any) -> EventInfo:
+    from .policies import BUSY_TITLE, sees_details
+
+    details = sees_details(actor, event)
+    return EventInfo(
+        sysid=event.pk,
+        calendar_id=event.calendar_id,
+        title=event.title if details else BUSY_TITLE,
+        description=event.description if details else "",
+        location=event.location if details else "",
+        busy_only=not details,
+        all_day=event.all_day,
+        starts_at=event.starts_at,
+        ends_at=event.ends_at,
+        start_date=event.start_date,
+        end_date=event.end_date,
+        tzid=event.tzid,
+        status=event.status,
+        organizer_id=event.organizer_id,
+        revision=event.revision,
+    )
