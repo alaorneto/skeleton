@@ -71,6 +71,20 @@ Cobertura nova:
 
 **Não verificado:** a coleta por um Prometheus real e o modo multiprocess do gunicorn (`PROMETHEUS_MULTIPROC_DIR`) com vários workers.
 
+### Tracing OpenTelemetry (#176)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime`, `opentelemetry-sdk` 1.45.2 e instrumentações 0.66b2 | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k tracing` | 15 passed, 5 skipped (agente sem `fcntl`) |
+| mesmo PostgreSQL | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k "job or worker or logging or tracing or observability"` (jobs e logs, pelo `request_id` novo nos logs do worker) | 77 passed, 6 skipped |
+| mesmo | `pytest tests/unit/test_observability_optional.py` | 1 passed |
+
+Cobertura nova:
+- `tests/integration/test_tracing.py`, com as instrumentações oficiais de Django e psycopg e um exportador em memória atrás do `RedactingSpanExporter`: um GET autenticado gera um único span `SERVER` `GET o/<uuid:organization_id>/` com `skeleton.request_id` igual ao `X-Request-ID`, e todos os spans de SQL são descendentes dele, no mesmo trace e com o mesmo `request_id`; um job executado pelo worker gera o span `CONSUMER` `job test.tracing` com `skeleton.job_id` e `skeleton.job_state`, e os spans de SQL do handler são filhos dele com o `request_id` da execução; um job que falha registra só `error.type`; **negativos de segurança**: o login (consulta por email) e o GET com email, nome e slug na query não deixam email, senha, nome, slug, sysid de organização ou de pessoa, `db.statement`, `db.query.text` nem `http.url` em nenhum span.
+- `tests/unit/test_observability_tracing.py`: o tracing só liga com endpoint OTLP e respeita `OTEL_SDK_DISABLED`; sem configuração, `job_span` não faz nada; o exportador descarta texto e parâmetros SQL, usuário e host do banco, URL, alvo, query, user agent, IP, `enduser.id`, cookie e `Authorization`, mantém do evento de exceção só o tipo e tira a descrição do status; nomes de SQL viram a palavra-chave ou `SQL`; o `request_id` só entra em spans iniciados dentro do bloco; o check `skeleton.W030` avisa endpoint sem o extra.
+
+**Não verificado:** o envio a um coletor OTLP real (o exportador OTLP/HTTP não foi exercitado contra rede) e o tracing sob gunicorn com vários workers.
+
 ## Operação do worker de jobs (#40, epic #77)
 
 Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:

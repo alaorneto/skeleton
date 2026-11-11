@@ -90,6 +90,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 | SIGTERM/SIGINT | Para de reivindicar, termina o job atual e sai |
 | Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker pausa (heartbeat `paused`) |
 | Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload |
+| Correlação | Cada execução recebe um `request_id` próprio, gerado pelo worker: vai em `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` e, com tracing ligado, no span `job <code>` e nos spans de SQL abaixo dele (#176). Veja [deployment](deployment.md#tracing-opentelemetry-176) |
 
 Efeitos externos (SMTP, HTTP, push) são **pelo menos uma vez**: precisam de registro de entrega e chave de idempotência próprios.
 

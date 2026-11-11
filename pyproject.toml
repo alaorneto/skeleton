@@ -31,6 +31,13 @@ s3 = ["django-storages[s3]>=1.14,<2", "boto3>=1.34,<2"]
 # Observability (#87): each extra is off by default and imported only when configured.
 # Prometheus metrics at /metrics, behind SKELETON_METRICS_TOKEN (#175).
 metrics = ["prometheus-client>=0.21,<1"]
+# OpenTelemetry traces over OTLP/HTTP, configured by the standard OTEL_* variables (#176).
+otel = [
+    "opentelemetry-sdk>=1.30,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30,<2",
+    "opentelemetry-instrumentation-django>=0.51b0,<1",
+    "opentelemetry-instrumentation-psycopg>=0.51b0,<1",
+]
 
 [project.scripts]
 skeleton-core = "skeleton.distribution:main"
@@ -112,6 +119,8 @@ files = [
     "skeleton/observability/__init__.py",
     "skeleton/observability/checks.py",
     "skeleton/observability/metrics.py",
+    "skeleton/observability/otel.py",
+    "skeleton/observability/tracing.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true

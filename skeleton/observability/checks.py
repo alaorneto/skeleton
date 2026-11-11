@@ -5,7 +5,7 @@ from typing import Any
 from django.conf import settings
 from django.core.checks import CheckMessage, Error, Tags, Warning, register
 
-from . import METRICS_DISTRIBUTIONS, installed
+from . import METRICS_DISTRIBUTIONS, OTEL_DISTRIBUTIONS, installed
 
 METRICS_TOKEN_MIN_LENGTH = 32
 
@@ -46,6 +46,14 @@ def metrics_problems() -> list[CheckMessage]:
     return problems
 
 
+def tracing_problems() -> list[CheckMessage]:
+    from .tracing import tracing_requested
+
+    if tracing_requested() and not installed(OTEL_DISTRIBUTIONS):
+        return [_missing_extra("OTEL_EXPORTER_OTLP_ENDPOINT", "otel", "no span is exported")]
+    return []
+
+
 @register(Tags.security)
 def observability_checks(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
-    return metrics_problems()
+    return [*metrics_problems(), *tracing_problems()]
