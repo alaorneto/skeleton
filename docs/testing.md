@@ -71,6 +71,21 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - `tests/integration_postgres/test_organization_settings_schema.py`: 4 passed. RLS forçada, policy de tenant e triggers instalados; sem o guard, sem o trigger de auditoria ou sem a policy de tenant, `check_deployed_schema` falha.
 - Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
 
+**#168, logo e cor da organização:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1280 passed, 111 skipped. A rodada usou um PostgreSQL só deste worktree, enquanto outras suítes rodavam em servidores próprios.
+- `tests/unit/test_branding_palette.py`, `tests/integration/test_organization_branding.py` e `tests/integration/test_organization_settings.py`: 42 passed. Cobrem:
+  - contraste WCAG contra valores de referência;
+  - cores abaixo de AA recusadas e a paleta mantendo AA nos dois temas;
+  - CSS só com hex;
+  - o logo inline só para membros (outra organização recebe 404, sem login há redirecionamento), com `private`, `nosniff`, ETag e 304;
+  - recusa de SVG (também disfarçado de PNG), de GIF, de nome e conteúdo divergentes e de arquivos acima de 512 KB;
+  - a troca e a remoção apagando o objeto anterior depois do commit, com CAS;
+  - a marca aplicada só nas telas da própria organização;
+  - `files.orphans` mantendo o logo atual e removendo objetos de logo abandonados.
+- `npm run check`, Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+- Não verificado: o smoke visual no navegador, porque a renderização da marca foi provada pelo HTML nos testes de integração.
+
 ## Operação do worker de jobs (#40, epic #77)
 
 Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:
