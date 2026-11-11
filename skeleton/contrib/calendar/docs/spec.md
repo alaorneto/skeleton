@@ -19,6 +19,15 @@ A agenda (`skeleton_calendar`) é a primeira app first-party do núcleo ([extens
 - Título, descrição e local são redigidos na auditoria, para que o histórico não revele o que a tela esconde.
 - Fim igual ou anterior ao início responde 400, no modelo e por restrição no banco. Alterações usam CAS pela revisão.
 
+### Recorrência (#70)
+O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de substituição aponta para o mestre (`series`) e nomeia a ocorrência que substitui (`recurrence_id`, o início original, como o RECURRENCE-ID do iCalendar, com o mesmo `uid`).
+
+- Subconjunto aceito: `FREQ` DAILY, WEEKLY, MONTHLY ou YEARLY, com `INTERVAL`, `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `BYSETPOS` e `WKST`, sempre limitado por `COUNT` (até 1000) ou `UNTIL`. Qualquer outra parte (`FREQ=SECONDLY`, `BYHOUR`) responde 400.
+- A regra roda no relógio local do `tzid` (`python-dateutil` + `zoneinfo`): um evento semanal às 09:00 continua às 09:00 locais na troca de horário, e o instante UTC muda.
+- `expand()` lê uma janela de até 400 dias e devolve até 1000 ocorrências, com `truncated` quando para antes.
+- Edição de uma ocorrência: "só esta" cria ou altera a substituição; "esta e as seguintes" divide a série (a primeira parte termina antes da ocorrência, um novo mestre com `uid` novo começa nela e as substituições posteriores passam para ele mantendo os IDs); "todas" altera o mestre. Cancelar uma ocorrência acrescenta um EXDATE.
+- `recurrence_end` guarda o fim da série para consultas por janela.
+
 ## Acceptance
 - Um calendário pessoal padrão por membro, inclusive com criação concorrente.
 - Mudar a visibilidade de calendário pessoal responde 400.
@@ -27,3 +36,7 @@ A agenda (`skeleton_calendar`) é a primeira app first-party do núcleo ([extens
 - Quem lê o calendário sem `update` lê os eventos e não os cria.
 - Evento privado aparece só como "Ocupado" para os demais leitores; o administrador vê só blocos ocupados no calendário pessoal de outra pessoa.
 - Fim igual ou anterior ao início responde 400; dia inteiro é guardado como datas.
+- Um evento semanal às 09:00 continua às 09:00 locais na troca de horário (Europe/Berlin e o histórico de America/Sao_Paulo).
+- EXDATE remove uma ocorrência; uma substituição move uma.
+- `FREQ=SECONDLY` responde 400; uma expansão acima do limite é truncada e sinalizada.
+- "Esta e as seguintes" divide a série sem perder IDs.

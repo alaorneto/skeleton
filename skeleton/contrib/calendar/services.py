@@ -105,7 +105,11 @@ EVENT_FIELDS = (
     "tzid",
     "is_private",
     "status",
+    "rrule",
+    "rdates",
+    "exdates",
 )
+COPIED_FIELDS = (*EVENT_FIELDS[:-3], "tzid")
 
 
 def _event_values(data: dict) -> dict:
@@ -146,7 +150,7 @@ def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: in
     for name, value in values.items():
         setattr(event, name, value)
     event.sequence += 1
-    event.save(update_fields={*values, "sequence"})
+    event.save(update_fields={*values, "sequence", "recurrence_end"})
     return event
 
 
@@ -167,3 +171,109 @@ def delete_event(*, actor: Any, event_id: Any, expected_revision: int) -> None:
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise ConcurrentUpdate("The event changed.")
     event.delete()
+
+
+# --------------------------------------------------------------------------- recurrence edits (#70)
+
+EDIT_MODES = ("this", "following", "all")
+
+
+def _master(actor: Any, event_id: Any, expected_revision: int) -> Any:
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    from .policies import require_writable_event
+
+    event = require_writable_event(actor, event_id)
+    if event.series_id is not None or not event.rrule:
+        raise ValidationError({"event": "Use o evento mestre de uma série recorrente."})
+    if type(expected_revision) is not int or event.revision != expected_revision:
+        raise ConcurrentUpdate("The series changed.")
+    return event
+
+
+def _occurrence(master: Any, recurrence_id: Any) -> Any:
+    from datetime import timedelta
+
+    from .recurrence import expand
+
+    window = expand(master, recurrence_id - timedelta(days=1), recurrence_id + timedelta(days=1))
+    if not any(occurrence.recurrence_id == recurrence_id for occurrence in window.occurrences):
+        if recurrence_id not in {o.recurrence_id for o in window.occurrences}:
+            raise ValidationError({"recurrence_id": "A série não tem ocorrência nesse instante."})
+    return recurrence_id
+
+
+def _copy(master: Any, **changes: Any) -> Any:
+    from .models import Event
+
+    values = {name: getattr(master, name) for name in COPIED_FIELDS}
+    values.update(changes)
+    return Event(
+        organization_id=master.organization_id,
+        calendar_id=master.calendar_id,
+        organizer_id=master.organizer_id,
+        **values,
+    )
+
+
+def _shifted(master: Any, recurrence_id: Any) -> dict:
+    """Start/end fields of the occurrence that starts at ``recurrence_id`` (same duration)."""
+    if master.all_day:
+        days = master.end_date - master.start_date
+        return {"start_date": recurrence_id.date(), "end_date": recurrence_id.date() + days}
+    return {"starts_at": recurrence_id, "ends_at": recurrence_id + (master.ends_at - master.starts_at)}
+
+
+def edit_occurrence(
+    *, actor: Any, event_id: Any, recurrence_id: Any, mode: str, data: dict, expected_revision: int
+) -> Any:
+    """Change one occurrence, this and the following ones, or the whole series."""
+    from .models import Event
+
+    if mode not in EDIT_MODES:
+        raise ValidationError({"mode": "Use this, following ou all."})
+    master = _master(actor, event_id, expected_revision)
+    if mode == "all":
+        return update_event(actor=actor, event_id=master.pk, data=data, expected_revision=expected_revision)
+    _occurrence(master, recurrence_id)
+    values = _event_values({key: value for key, value in data.items() if key not in ("rrule", "rdates", "exdates")})
+    if mode == "this":
+        override = Event.objects.filter(series=master, recurrence_id=recurrence_id).first()
+        if override is None:
+            override = _copy(master, **{**_shifted(master, recurrence_id), **values})
+            override.uid, override.series, override.recurrence_id = master.uid, master, recurrence_id
+            override.rrule, override.rdates, override.exdates = "", [], []
+            override.save()
+        else:
+            for name, value in values.items():
+                setattr(override, name, value)
+            override.sequence += 1
+            override.save(update_fields={*values, "sequence"})
+        return override
+    from .recurrence import split_parts
+
+    first, second = split_parts(master, recurrence_id)
+    master.rrule = first
+    master.sequence += 1
+    master.save(update_fields={"rrule", "sequence", "recurrence_end"})
+    following = _copy(master, **{**_shifted(master, recurrence_id), **values})
+    following.rrule = second
+    following.exdates = [value for value in master.exdates if value >= recurrence_id.isoformat()]
+    following.save()
+    # Later overrides now belong to the new series, keeping their IDs and content.
+    for override in Event.objects.filter(series=master, recurrence_id__gte=recurrence_id):
+        override.series = following
+        override.save(update_fields={"series"})
+    return following
+
+
+def cancel_occurrence(*, actor: Any, event_id: Any, recurrence_id: Any, expected_revision: int) -> Any:
+    """Remove one occurrence (EXDATE); the rest of the series is untouched."""
+    master = _master(actor, event_id, expected_revision)
+    _occurrence(master, recurrence_id)
+    key = recurrence_id.isoformat()
+    if key not in master.exdates:
+        master.exdates = [*master.exdates, key]
+        master.sequence += 1
+        master.save(update_fields={"exdates", "sequence", "recurrence_end"})
+    return master

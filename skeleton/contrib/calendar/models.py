@@ -108,13 +108,23 @@ class Event(OrganizationRecord):
         "sk_accounts.User", on_delete=models.PROTECT, related_name="skeleton_calendar_organized_events"
     )
     sequence = models.PositiveIntegerField(default=0)
+    # Recurrence (#70): a series master carries the rule; an override row points to its master
+    # (``series``) and names the occurrence it replaces (``recurrence_id``, its original start).
+    rrule = models.CharField(max_length=500, blank=True)
+    rdates = models.JSONField(default=list, blank=True)
+    exdates = models.JSONField(default=list, blank=True)
+    recurrence_end = models.DateTimeField(null=True, blank=True)
+    series = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="overrides")
+    recurrence_id = models.DateTimeField(null=True, blank=True)
+    is_cancelled = models.BooleanField(default=False)
     immutable_fields = ("calendar_id", "uid", "organizer_id")
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
             models.UniqueConstraint(
                 fields=("organization", "uid"),
-                condition=Q(deleted_at__isnull=True),
+                # Overrides share the UID of their master, as RECURRENCE-ID rows do in iCalendar.
+                condition=Q(deleted_at__isnull=True, series__isnull=True),
                 name="skeleton_calendar_event_live_uid",
                 violation_error_code="unique",
             ),
@@ -136,6 +146,17 @@ class Event(OrganizationRecord):
             models.CheckConstraint(
                 condition=Q(status__in=("confirmed", "tentative", "cancelled")), name="skeleton_calendar_event_status"
             ),
+            models.CheckConstraint(
+                condition=Q(series__isnull=True, recurrence_id__isnull=True)
+                | Q(series__isnull=False, recurrence_id__isnull=False, rrule=""),
+                name="skeleton_calendar_event_override_shape",
+            ),
+            models.UniqueConstraint(
+                fields=("series", "recurrence_id"),
+                condition=Q(deleted_at__isnull=True, series__isnull=False),
+                name="skeleton_calendar_event_one_override",
+                violation_error_code="unique",
+            ),
         ]
         indexes = [models.Index(fields=("calendar", "starts_at"), name="skeleton_cal_event_start")]
         ordering = ("starts_at", "start_date", "sysid")
@@ -152,8 +173,22 @@ class Event(OrganizationRecord):
                 raise ValidationError({"starts_at": "Informe início e fim do evento."})
             if self.ends_at <= self.starts_at:
                 raise ValidationError({"ends_at": "O fim precisa ser depois do início."})
+        if self.rrule:
+            from .recurrence import validate_rule
+
+            self.rrule = validate_rule(self.rrule)
+        for name in ("rdates", "exdates"):
+            values = getattr(self, name)
+            if not isinstance(values, list) or len(values) > 1000 or not all(isinstance(v, str) for v in values):
+                raise ValidationError({name: "Use uma lista de até 1000 datas ISO 8601."})
+        if self.series_id and self.series_id == self.pk:
+            raise ValidationError({"series": "Um evento não substitui a si mesmo."})
         if self.calendar_id and self.organization_id and self.calendar.organization_id != self.organization_id:
             raise ValidationError({"calendar": "O calendário é de outra organização."})
+        if self.series_id is None and (self.starts_at or self.start_date):
+            from .recurrence import series_end
+
+            self.recurrence_end = series_end(self)
 
     def __str__(self):
         return self.title
