@@ -39,11 +39,13 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py che
 
 ## Settings e serviços
 
-- `development`: SQLite local se DATABASE_URL ausente; email console, cache LocMem; PostgreSQL opcional.
+- `development`: PostgreSQL (`DATABASE_URL`, ou `tools/dev_postgres.py` para um banco local descartável), email console, cache LocMem. Sem configuração, o `runserver` abre o [setup](#primeira-instalação-pelo-setup-146).
 - `production`: PostgreSQL, Redis compartilhado, SMTP, SECRET_KEY, hosts explícitos, remetente e chaves MFA obrigatórios; DEBUG=False. Cookies secure, HTTPS redirect/HSTS, password validators, CSRF origins explícitas. Live/ready são exceções ao redirect para healthcheck interno, sem inventário/segredos.
-- `migrate`: conexão exclusivamente MIGRATION_DATABASE_URL; fallback SQLite existe apenas para setup local. Em produção declare URL owner explicitamente antes de executar.
-- `test`: TEST_DATABASE_URL ou SQLite isolado; não apontar ao banco de produção.
+- `migrate`: conexão exclusivamente `MIGRATION_DATABASE_URL` (PostgreSQL, role owner), só no ambiente; não há fallback.
+- `test`: `TEST_DATABASE_URL` (runtime) e `TEST_MIGRATION_DATABASE_URL` (owner) de um PostgreSQL descartável; nunca o banco de produção.
 - `build`: collectstatic com manifest storage sem exigir credenciais de produção. Não é settings para servir requests.
+- `setup`: o [primeiro acesso](#primeira-instalação-pelo-setup-146), sem banco.
+- **Só PostgreSQL (#144):** todos os dados (usuários, negócio, auditoria, eventos, jobs, notificações, anexos) vivem no PostgreSQL. O check `skeleton.E025` reprova qualquer outro backend em `DATABASES` e um `DATABASES` vazio fora do setup; as migrations de infraestrutura falham explicitamente fora do PostgreSQL. O SQLite da instância guarda só configuração e o estado do setup.
 - Arquivos: `STORAGES["skeleton_files"]` é privado em todos os perfis. Em produção, defina `SKELETON_FILES_ROOT` fora de `STATIC_ROOT` num volume persistente, ou `SKELETON_FILES_BACKEND=s3` com o extra `[s3]` e um bucket sem acesso público. `check --deploy` (E024) recusa armazenamento público ou ausente. Para entregar downloads pelo proxy, use `SKELETON_FILES_ACCEL=nginx` com uma `location` **interna** (`internal;`) em `SKELETON_FILES_ACCEL_PREFIX` apontando para a raiz privada, ou `SKELETON_FILES_ACCEL=sendfile` no Apache; o Django continua autorizando cada pedido. Veja [arquivos](files.md#download).
 
 ### Configuração da instância (#143)
@@ -55,9 +57,26 @@ As chaves do catálogo (`skeleton/instance/schema.py`: `DJANGO_SECRET_KEY`, `DJA
 - **Migração de uma instalação existente:** ela continua funcionando só com o ambiente, porque o ambiente vence. `manage.py instance import-env` grava no SQLite as chaves do catálogo presentes no ambiente atual (`--keep-existing` preserva as já gravadas); depois, remova-as do ambiente.
 - **Chave mestra:** gerada na primeira gravação de um segredo, com permissão 0600 (o SQLite também é criado 0600), num arquivo separado do SQLite. Sem ela, ou com outra, a leitura de um segredo falha com erro explícito na partida, sem cair para o default. **Faça backup da chave mestra separado do SQLite:** perdê-la torna os segredos ilegíveis, e eles terão de ser gravados de novo.
 
+### Primeira instalação pelo setup (#146)
+
+Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio).
+
+1. **Token:** no primeiro start, o processo gera um token de uso único (24 h), grava só o SHA-256 no SQLite, imprime o token uma vez no log e o escreve em `setup-token` (0600, ao lado do SQLite). Token errado, reutilizado ou expirado é recusado (403), com limite de 5 tentativas por IP em 15 minutos (429). Um reinício sem token aberto gera outro.
+2. **Instância:** hosts, origens CSRF, proxy e origem pública. O setup gera `SECRET_KEY` e os keyrings MFA, de provedores e de integração, cifrados no SQLite e nunca exibidos.
+3. **Banco runtime:** a URL da role runtime é recusada se for superuser, tiver `BYPASSRLS`, for dona do schema `skeleton` ou tiver `CREATE` nele, ou se o schema não existir (provisione com `deploy/postgres/bootstrap.sql`).
+4. **Schema:** a credencial owner (dona do schema, mesmo banco, outra role) roda `migrate`, `sync_table_catalog` e o check do schema **só na memória dessa requisição**: ela não vai para o SQLite, o log nem a sessão.
+5. **Email** (com envio de teste), **cache e arquivos** (validações do E024 e pasta gravável) e **administrador e organização** (`bootstrap_identity`, senha pelos validadores do Django).
+6. **Conclusão:** marca o setup como concluído (`/setup/` passa a responder 404) e pede o reinício: `SKELETON_SETUP_RESTART=exit` encerra o processo para a política de reinício do container, o Gunicorn recebe `SIGHUP` e o `runserver` recarrega. Sem supervisor conhecido, a página pede para reiniciar o serviço.
+
+Todas as telas são formulários comuns com CSRF, sem JavaScript. Em modo setup, `SKELETON_SETUP_ALLOWED_HOSTS` (padrão `localhost,127.0.0.1`) define os hosts aceitos e `SKELETON_SETUP_SECURE_COOKIES` controla os cookies secure (padrão: ligado fora de `DJANGO_DEBUG`).
+
+### Alterar a configuração depois do setup (#147)
+
+`/platform/instance/` lista cada chave do catálogo com a origem efetiva (ambiente, SQLite da instância, padrão) e o valor; segredos aparecem só como definidos ou não. Só o administrador da plataforma acessa (403 para os demais, MFA quando configurada), e cada alteração exige autenticação recente. Chaves vindas do ambiente ficam somente leitura (409 ao tentar gravar). A URL do banco passa pela mesma validação de privilégios do setup. Cada mudança entra no `change_log` do SQLite (chave, ação e `platform:<usuário>`) e gera o evento de segurança `instance.setting_changed`, sempre sem o valor. As mudanças valem depois do reinício; o botão "Pedir reinício" usa o mesmo mecanismo da conclusão do setup.
+
 Docker usa Python 3.14-slim, bibliotecas XML/xmlsec, usuário não-root e Gunicorn WSGI. Collectstatic é parte do build; WhiteNoise segue SecurityMiddleware. Produção usa CompressedManifestStaticFilesStorage e STATIC_ROOT=staticfiles; dev usa runserver/staticfiles. Não inicie migrations em cada worker.
 
-Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente; web exige DSN runtime, nunca migrator. `${...:?}` de Compose pode exigir secrets web mesmo ao selecionar serviços: use arquivo de env privado completo. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
+Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente. O `web` (#148) recebe só variáveis de bootstrap: o SQLite da instância e a chave mestra ficam no volume nomeado privado `instance` (`/instance/instance.sqlite3`, `/instance/keys/master.key`), preservado ao recriar o container. Numa instalação nova, `docker compose up` sobe em modo setup (o token aparece em `docker compose logs web`). Depois do setup, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal. O healthcheck (`python -m skeleton.api.healthcheck`) descobre sozinho um Host aceito, nos dois modos. Sobrescritas pontuais da configuração vão no arquivo opcional `.env.instance` (`SKELETON_INSTANCE_ENV_FILE`), que vence o SQLite. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
 
 ```sh
 # .env privado contém todos os valores exigidos, nunca é versionado.
@@ -128,89 +147,9 @@ Os logs da aplicação e do Django usam `SecurityJSONFormatter`, com um evento d
 
 Backups PostgreSQL devem incluir entidades, audit e estado de migrations; proteja DSNs e chaves Fernet separadamente. Teste restore em DB vazio com mesmas versões/apps, check de schema e contagens/IDs. Backups de Authenticator exigem chaves antigas; não exclua chave só porque runtime novo deixou de usá-la. Banco/audit não é WORM contra DBA. Nunca use purge/flush/TRUNCATE no runtime protegido.
 
-## Transportar SQLite existente para PostgreSQL — offline
+## Instalações antigas com SQLite
 
-**Trocar DATABASE_URL não migra dados.** O procedimento é manutenção explícita, primeiro ensaiado em cópia descartável. Não aponta a produção existente, não sobrescreve automaticamente tabelas. Não existe conversor automático do produto. Mantenha rollback SQLite intacto até aceite.
-
-### 1. Congelar e inventariar
-
-Objetivo desta etapa: obter uma fonte que não mudará durante a comparação e a carga. Sem parar **todos** os escritores (web, jobs e integrações), contagens e export podem descrever momentos diferentes. A cópia congelada é o ponto de retorno; não a reabra enquanto o destino estiver recebendo escritas.
-
-Pare web/jobs/escritas; faça backup consistente do SQLite e dos arquivos privados/chaves. Registre commit, locks, apps habilitados, schema check, UUIDs/contagens por tabela própria (incluindo tombstones), relações e revision. Use o mesmo enable-example/PROJECT_APPS nos dois lados. Proteja export com `umask 077`.
-
-Export por base manager (`--all`) é permitido **somente offline**, para incluir tombstones. Selecione todos os app labels próprios; inclua labels dos apps derivados. Técnicas escolhidas são apenas identidade necessária, nunca sessão/token social/confirmation pendente. Exemplo núcleo + notes:
-
-```sh
-umask 077
-DJANGO_SETTINGS_MODULE=config.settings.development SKELETON_ENABLE_EXAMPLE_APP=true \
-  .venv/bin/python manage.py dumpdata --all --indent 2 \
-  sk_accounts sk_tenancy sk_access sk_system sk_audit example_notes \
-  account.emailaddress socialaccount.socialaccount mfa.authenticator \
-  --output /caminho/privado/sqlite-export.json
-```
-
-Não exporte django_session, admin_log, socialtoken, emailconfirmation, auth/contenttypes/migrations/site gerados. Preserve emails verificados, subjects e Authenticator cifrado; mantenha chaves Fernet. Reemita provas pendentes após cutover; login cria novas sessões. JSON contém password hashes/digests/dados privados: não versionar/enviar para logs.
-
-### 2. Preparar destino novo
-
-Operador cria DB **novo vazio** (por exemplo nome terminado `_skeleton_import`), provisiona roles/schema, configura MIGRATION_DATABASE_URL owner e aplica migrations completas com as mesmas apps. Sem runtime/workers ainda. O post_migrate cria catálogo/audit de bootstrap; não importe sobre usuários/dados reais.
-
-Guard INSERT exige revision=1, portanto fixture com revisão histórica não pode ser carregada por runtime/loaddata normal. A manutenção offline precisa remover temporariamente **somente triggers USER das tabelas próprias** durante carga owner, preservando depois o conjunto exato. Isto é bypass privilegiado de importação, não feature HTTP. Audits históricos são preservados da fonte; não fabrique eventos create para todas as linhas importadas.
-
-O bloco abaixo é um exemplo concreto de manutenção no banco novo; requer env `SKELETON_OFFLINE_IMPORT=1`, DSN owner e export privado. Revise labels/import antes de executar; nunca cole num shell com DSN de produção. A transação confirma que não existe usuário no destino, limita nomes de tabelas aos modelos próprios e exige sufixo do DB. O TRUNCATE só descarta catálogo/audits recém-gerados e tabelas técnicas vazias dependentes do banco **novo**, não dados de instalação existente.
-
-```sh
-DJANGO_SETTINGS_MODULE=config.settings.migrate SKELETON_OFFLINE_IMPORT=1 \
-  .venv/bin/python manage.py shell <<'PY'
-import os
-from django.apps import apps
-from django.core.management import call_command
-from django.db import connection, transaction
-from skeleton.common.models import SystemRecord
-from skeleton.tenancy.context import system_context
-assert os.environ.get('SKELETON_OFFLINE_IMPORT') == '1'
-assert connection.vendor == 'postgresql'
-assert connection.settings_dict['NAME'].endswith('_skeleton_import')
-assert connection.settings_dict['USER'] == 'skeleton_owner'
-User = apps.get_model('sk_accounts', 'User')
-assert not User.all_objects.exists(), 'Destino não vazio: abortar, nunca sobrescrever'
-models = [m for m in apps.get_models() if issubclass(m, SystemRecord) and not m._meta.proxy]
-tables = sorted({m._meta.db_table for m in models})
-q = connection.ops.quote_name
-with system_context(reason='maintenance:sqlite-import'):
-    with connection.cursor() as cursor:
-        for table in tables:
-            cursor.execute(f'ALTER TABLE skeleton.{q(table)} DISABLE TRIGGER USER')
-        cursor.execute('TRUNCATE ' + ','.join('skeleton.' + q(t) for t in tables) + ' CASCADE')
-    call_command('loaddata', '/caminho/privado/sqlite-export.json', verbosity=0)
-    with connection.cursor() as cursor:
-        for table in tables:
-            cursor.execute(f'ALTER TABLE skeleton.{q(table)} ENABLE TRIGGER USER')
-    # Antes do sync: preservar UUID de catálogo e FKs de permissions/grants.
-    Table = apps.get_model('sk_system', 'TableDefinition')
-    for row in Table.all_objects.filter(database_alias='default', schema_name='main'):
-        assert not Table.all_objects.filter(database_alias='default', schema_name='skeleton', db_table=row.db_table).exists(), 'Chave de catálogo ambígua: abortar'
-        row.schema_name = 'skeleton'
-        row.save(update_fields=['schema_name'])
-PY
-```
-
-Há uma janela offline privilegiada sem guards/auditoria; mantenha destino inacessível e execute tudo num atomic (system_context). Qualquer erro aborta import e restaura DDL transacional. Se projeto tem signals técnicos que consultam tenant no raw load, revise-os para ignorar raw conforme contrato Django; não habilite runtime como workaround. Não desabilite FK/constraint permanente. SQLite pode conter violações legadas que PostgreSQL rejeita; corrija em cópia/serviços, não remova constraints para cutover.
-
-### 3. Reconciliar, verificar e cortar
-
-**Cutover** é o momento de trocar o destino usado pelos processos e liberar tráfego. Até esse momento, o PostgreSQL deve permanecer inacessível aos escritores normais. Execute primeiro a reconciliação com owner e depois a verificação com runtime; os ambientes são distintos mesmo quando os comandos aparecem no mesmo bloco.
-
-```sh
-DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py sync_table_catalog
-DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py check_skeleton_schema
-```
-
-As atualizações main→skeleton no bloco de carga acontecem **com triggers já restaurados**, por save/CAS, preservam UUIDs de catálogo e geram audit legítimo de manutenção. Assim TablePermission/RecordGrant continuam apontando à mesma TableDefinition; sync pode reconciliar físicos/admin sem criar uma segunda identidade por tabela. Se a fonte contém entradas anteriores skeleton com mesma chave, o assert aborta: revise o inventário em cópia antes da importação, não escolha silenciosamente qual UUID descartar. Aliases adicionais exigem mapeamento explícito próprio. Builtin admin é reconciliado; permissões manuais precisam de comparação, e tabelas ausentes não devem continuar autorizadas.
-
-Compare contagens e conjuntos de sysids próprios antes/depois (catálogo pode ganhar novas entradas, audit pode ganhar eventos legítimos de manutenção), revisions/timestamps/hashes, tombstones, memberships/roles/grants, vínculos sociais e IDs de audit. Confirme FK tenant/guards/RLS/roles runtime e testes A/B, login real/MFA/recovery/política de reset. Não imprima segredos ao comparar. Ajuste callbacks/domínio/proxy/SMTP; não copie sessões. Revogue versões de auth quando necessário via serviços de lifecycle.
-
-Somente depois de aceite altere DATABASE_URL runtime do web e abra tráfego. Preserve backup/export/chaves em custódia; se falhar antes de abrir tráfego volte ao SQLite congelado. Depois de novas escritas no PostgreSQL, rollback exige reconciliação explícita, não simples troca de URL. Este runbook precisa ser ensaiado e verificado para os apps derivados; não é alegação de conversão já executada.
+Produção sempre exigiu PostgreSQL. Bancos SQLite de desenvolvimento deixam de ser suportados (#144) e não são migrados: recrie o ambiente local com `tools/dev_postgres.py start` e os comandos do README. O transporte de dados SQLite para PostgreSQL foi retirado deste guia.
 
 ## Distribuição do core e adoção de projetos derivados
 
@@ -389,7 +328,7 @@ MIGRATION_DATABASE_URL=postgres://skeleton_owner:SENHA_OWNER@127.0.0.1:5432/skel
 DJANGO_SETTINGS_MODULE=config.settings.build
 ```
 
-DSNs runtime e owner apontam para o **mesmo banco** com roles diferentes. URL-encode caracteres especiais de credenciais. Arquivos Fernet/SSO/uploads permanecem externos; monte-os/read-only quando necessário, e preserve as chaves antigas. O agente monta ambientes sem herdar env do seu daemon e injeta paths de release/inventário/static/archives; `MIGRATION_DATABASE_URL` em runtime ou build é rejeitada. SQLite só é aceito com `"allow_sqlite": true`, DSN absoluto `sqlite:////srv/skeleton/data/smoke.sqlite3` nos dois perfis e settings runtime de desenvolvimento; isso não constitui deployment de produção.
+DSNs runtime e owner apontam para o **mesmo banco** com roles diferentes. URL-encode caracteres especiais de credenciais. Arquivos Fernet/SSO/uploads permanecem externos; monte-os/read-only quando necessário, e preserve as chaves antigas. O agente monta ambientes sem herdar env do seu daemon e injeta paths de release/inventário/static/archives; `MIGRATION_DATABASE_URL` em runtime ou build é rejeitada. DSNs que não sejam PostgreSQL são recusados (`unsupported_database`); sem `DATABASE_URL` no arquivo runtime, o agente lê a URL efetiva do SQLite da instância pelos caminhos `SKELETON_INSTANCE_DB` e `SKELETON_INSTANCE_KEY_FILE` desse arquivo (#148).
 
 Opcionalmente acrescente `"smoke_token_file": "/srv/skeleton/private/smoke.token"` e URLs exatas da aplicação/login em `health_urls`. Em produção use URLs HTTPS do proxy (com trust de cabeçalhos corretamente provisionado), pois login HTTP redireciona. O token permite somente GET/HEAD dos paths explicitamente listados em `SKELETON_DEPLOYMENT_SMOKE_PATHS` durante manutenção; não autentica um usuário. Live/ready/release continuam internos. O smoke de login autenticado/SSO precisa de verificação operacional separada; uma página login 200 não prova autenticação.
 
@@ -607,7 +546,7 @@ Antes de escolher recuperação, identifique no journal a primeira migration e a
 
 Adicione `recovery_paths`, por exemplo `["/srv/skeleton/uploads","/srv/skeleton/private/mfa-keys.json"]`, para recursos mutáveis/chaves que precisam acompanhar o DB. Eles devem existir, ser externos a releases e não conter symlinks. Pare todos os escritores antes do snapshot. Não inclua diretório de estado/journal do agente, o marker ou o próprio backup em `recovery_paths`.
 
-Antes da primeira migration, o journal registra `backup` apontando para `agent-state/backups/.../backup.json`: PostgreSQL custom dump do schema `skeleton` inteiro (negócio, tabelas técnicas, migrations e auditoria) ou SQLite online backup, hashes e snapshots exatos dos recursos. Extensões/roles PostgreSQL são provisionadas separadamente; dados fora de `skeleton` exigem procedimento offline específico. Um backup parcial de crash é preservado; uma nova tentativa usa outro diretório. Backup/journal/uploads/plans permanecem privados e fora do DB da aplicação. Nunca apague o release anterior, os artefatos aprovados ou esses snapshots enquanto houver recuperação/retention pendente.
+Antes da primeira migration, o journal registra `backup` apontando para `agent-state/backups/.../backup.json`: PostgreSQL custom dump do schema `skeleton` inteiro (negócio, tabelas técnicas, migrations e auditoria; o agente recusa outro backend), hashes e snapshots exatos dos recursos. Extensões/roles PostgreSQL são provisionadas separadamente; dados fora de `skeleton` exigem procedimento offline específico. Um backup parcial de crash é preservado; uma nova tentativa usa outro diretório. Backup/journal/uploads/plans permanecem privados e fora do DB da aplicação. Nunca apague o release anterior, os artefatos aprovados ou esses snapshots enquanto houver recuperação/retention pendente.
 
 Falha/crash sob manutenção mantém o marker; ao reiniciar `serve`, queued/running/commit interrompidos tornam-se `interrupted`. **Não remova o marker à mão para esconder divergência.** Pare o daemon, consulte `journal`, escolha a operação e execute como conta do agente:
 

@@ -131,3 +131,61 @@ class InstanceStore:
                 return dict(connection.execute("SELECT key, value FROM setup_state").fetchall())
             except sqlite3.OperationalError:
                 return {}
+
+    def put_setup_state(self, key: str, value: str) -> None:
+        """Progress of the first-access setup (#146); never secrets or credentials."""
+        self.initialize()
+        with closing(self._connect(create=False)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "INSERT INTO setup_state (key, value, updated_at) VALUES (?, ?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                (key, value, _now()),
+            )
+            connection.execute("COMMIT")
+
+    def add_setup_token(self, token_hash: str, *, now: datetime, expires_at: datetime) -> bool:
+        """Insert a token only when no unused, unexpired one exists (one transaction): True if added.
+
+        Several workers starting at once race here; exactly one of them issues the token.
+        """
+        self.initialize()
+        with closing(self._connect(create=False)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            open_token = connection.execute(
+                "SELECT 1 FROM setup_token WHERE used_at IS NULL AND expires_at > ?",
+                (now.astimezone(UTC).isoformat(),),
+            ).fetchone()
+            if open_token is None:
+                connection.execute(
+                    "INSERT INTO setup_token (token_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, NULL)",
+                    (token_hash, _now(), expires_at.astimezone(UTC).isoformat()),
+                )
+            connection.execute("COMMIT")
+        return open_token is None
+
+    def has_open_setup_token(self, *, now: datetime) -> bool:
+        if not self.exists():
+            return False
+        with closing(self._connect(create=False)) as connection:
+            try:
+                row = connection.execute(
+                    "SELECT 1 FROM setup_token WHERE used_at IS NULL AND expires_at > ?",
+                    (now.astimezone(UTC).isoformat(),),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return False
+        return row is not None
+
+    def consume_setup_token(self, token_hash: str, *, now: datetime) -> bool:
+        """Mark the token used if it exists, is unused and not expired; True exactly once."""
+        if not self.exists():
+            return False
+        with closing(self._connect(create=False)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE setup_token SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+                (now.astimezone(UTC).isoformat(), token_hash, now.astimezone(UTC).isoformat()),
+            ).rowcount
+            connection.execute("COMMIT")
+        return changed == 1

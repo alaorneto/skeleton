@@ -125,7 +125,8 @@ def record_contract_checks(app_configs=None, **kwargs):
     auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
     account = "allauth.account.middleware.AccountMiddleware"
     messages = "django.contrib.messages.middleware.MessageMiddleware"
-    if (
+    setup = getattr(settings, "SKELETON_SETUP_MODE", False)  # Setup mode has no tenant at all (#146).
+    if not setup and (
         tenant not in middleware
         or any(item not in middleware or middleware.index(item) > middleware.index(tenant) for item in (auth, messages))
         or (account in middleware and middleware.index(account) < middleware.index(tenant))
@@ -135,6 +136,40 @@ def record_contract_checks(app_configs=None, **kwargs):
         )
     if any(db.get("ATOMIC_REQUESTS") for db in settings.DATABASES.values()):
         errors.append(Error("ATOMIC_REQUESTS must be False; tenant middleware owns transactions.", id="skeleton.E010"))
+    return errors
+
+
+POSTGRESQL_ENGINE = "django.db.backends.postgresql"
+
+
+@register()
+def postgresql_only_checks(app_configs=None, **kwargs):
+    """skeleton.E025: every DATABASES alias is PostgreSQL (#144); data never lives in SQLite.
+
+    The instance configuration store is a separate SQLite file read before Django, never an alias.
+    """
+    from django.conf import settings
+
+    dummy = "django.db.backends.dummy"  # What Django makes of an empty DATABASES.
+    setup = getattr(settings, "SKELETON_SETUP_MODE", False)
+    errors = [
+        Error(
+            f"DATABASES[{alias!r}] uses {config.get('ENGINE', '')!r}: the data layer is PostgreSQL only.",
+            hint="Point DATABASE_URL at PostgreSQL (postgres://...); SQLite is only the instance configuration store.",
+            id="skeleton.E025",
+        )
+        for alias, config in settings.DATABASES.items()
+        if config.get("ENGINE") not in (POSTGRESQL_ENGINE, dummy)
+    ]
+    configured = [config for config in settings.DATABASES.values() if config.get("ENGINE") != dummy]
+    if not configured and not setup:
+        errors.append(
+            Error(
+                "No database is configured: DATABASE_URL (PostgreSQL) is required outside the setup.",
+                hint="Run the first-access setup, `manage.py instance set database_url ...` or set DATABASE_URL.",
+                id="skeleton.E025",
+            )
+        )
     return errors
 
 
@@ -484,10 +519,7 @@ def _expected_sql(operation, model, connection):
             self.statements.append(sql)
 
     capture = Capture()
-    if connection.vendor == "sqlite":
-        operation._sqlite(capture, model)
-    else:
-        operation._postgres(capture, model)
+    operation._postgres(capture, model)
     return capture.statements
 
 
@@ -517,8 +549,8 @@ def check_deployed_schema(*, using="default"):
     from .models import TableDefinition
 
     connection = connections[using]
-    if connection.vendor not in ("sqlite", "postgresql"):
-        return ["Unsupported backend: only SQLite/PostgreSQL have record infrastructure."]
+    if connection.vendor != "postgresql":
+        return ["Unsupported backend: the data layer is PostgreSQL only (skeleton.E025)."]
     errors = []
     tables = set(physical_tables(connection))
     specs = {spec.model._meta.db_table: spec for spec in all_specs()}
@@ -549,67 +581,55 @@ def check_deployed_schema(*, using="default"):
         )
         errors.extend(f"Physical table missing from synchronized catalog: {name}" for name in sorted(tables - catalog))
     with connection.cursor() as cursor:
-        if connection.vendor == "sqlite":
-            try:
-                cursor.execute(
-                    "SELECT skeleton_uuid(), skeleton_actor(), skeleton_request_id(), skeleton_source(), skeleton_now(), json_valid('{}')"
-                )
-                if not cursor.fetchone()[-1]:
-                    errors.append("SQLite JSON support is missing.")
-            except Exception as exc:
-                errors.append(f"SQLite audit functions unavailable: {type(exc).__name__}")
-            cursor.execute("SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger'")
-            triggers = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT rolname,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb,rolcanlogin FROM pg_roles WHERE rolname IN ('skeleton_owner','skeleton_runtime','skeleton_audit_writer')"
+        )
+        roles = {row[0]: row[1:] for row in cursor.fetchall()}
+        if roles.get("skeleton_runtime") != (False, False, False, False, True):
+            errors.append("Runtime role must be LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB.")
+        if roles.get("skeleton_audit_writer") != (False, False, False, False, False):
+            errors.append("Audit writer role must be NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB.")
+        if roles.get("skeleton_owner") != (False, True, False, False, True):
+            errors.append("Migration owner must be LOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB.")
+        cursor.execute(
+            "SELECT pg_has_role('skeleton_runtime','skeleton_owner','MEMBER'),pg_has_role('skeleton_runtime','skeleton_audit_writer','MEMBER'),has_schema_privilege('skeleton_runtime','skeleton','CREATE'),has_schema_privilege('skeleton_runtime','public','CREATE')"
+        )
+        if any(cursor.fetchone()):
+            errors.append("Runtime has privileged role reachability or schema CREATE privileges.")
+        cursor.execute(
+            "SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity,r.rolname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner WHERE n.nspname='skeleton' AND c.relkind='r'"
+        )
+        relations = {row[0]: row[1:] for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid),pn.nspname,p.proname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace WHERE n.nspname='skeleton' AND NOT t.tgisinternal"
+        )
+        triggers = {(row[0], row[1]): row[2:] for row in cursor.fetchall()}
+        cursor.execute(
+            "SELECT c.relname,p.polname,p.polcmd,ARRAY(SELECT rolname FROM pg_roles WHERE oid=ANY(p.polroles) ORDER BY rolname),pg_get_expr(p.polqual,p.polrelid),pg_get_expr(p.polwithcheck,p.polrelid),p.polpermissive FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='skeleton'"
+        )
+        policies = {}
+        for row in cursor.fetchall():
+            policies.setdefault(row[0], {})[row[1]] = row[2:]
+        if lifecycle is None:
+            errors.append("assert_user_deactivation: migration-owned lifecycle inventory missing.")
         else:
+            errors.extend(_check_lifecycle(cursor, lifecycle, connection))
+        for name in sorted(tables & set(technical)):
+            expected = technical_privileges.get(name)
+            if expected is None:
+                errors.append(f"{name}: frozen technical privilege inventory missing.")
+                continue
             cursor.execute(
-                "SELECT rolname,rolsuper,rolbypassrls,rolcreaterole,rolcreatedb,rolcanlogin FROM pg_roles WHERE rolname IN ('skeleton_owner','skeleton_runtime','skeleton_audit_writer')"
+                "SELECT privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND table_name=%s AND grantee='skeleton_runtime'",
+                [name],
             )
-            roles = {row[0]: row[1:] for row in cursor.fetchall()}
-            if roles.get("skeleton_runtime") != (False, False, False, False, True):
-                errors.append("Runtime role must be LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB.")
-            if roles.get("skeleton_audit_writer") != (False, False, False, False, False):
-                errors.append("Audit writer role must be NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB.")
-            if roles.get("skeleton_owner") != (False, True, False, False, True):
-                errors.append("Migration owner must be LOGIN NOSUPERUSER BYPASSRLS NOCREATEROLE NOCREATEDB.")
-            cursor.execute(
-                "SELECT pg_has_role('skeleton_runtime','skeleton_owner','MEMBER'),pg_has_role('skeleton_runtime','skeleton_audit_writer','MEMBER'),has_schema_privilege('skeleton_runtime','skeleton','CREATE'),has_schema_privilege('skeleton_runtime','public','CREATE')"
-            )
-            if any(cursor.fetchone()):
-                errors.append("Runtime has privileged role reachability or schema CREATE privileges.")
-            cursor.execute(
-                "SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity,r.rolname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_roles r ON r.oid=c.relowner WHERE n.nspname='skeleton' AND c.relkind='r'"
-            )
-            relations = {row[0]: row[1:] for row in cursor.fetchall()}
-            cursor.execute(
-                "SELECT c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid),pn.nspname,p.proname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace WHERE n.nspname='skeleton' AND NOT t.tgisinternal"
-            )
-            triggers = {(row[0], row[1]): row[2:] for row in cursor.fetchall()}
-            cursor.execute(
-                "SELECT c.relname,p.polname,p.polcmd,ARRAY(SELECT rolname FROM pg_roles WHERE oid=ANY(p.polroles) ORDER BY rolname),pg_get_expr(p.polqual,p.polrelid),pg_get_expr(p.polwithcheck,p.polrelid),p.polpermissive FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='skeleton'"
-            )
-            policies = {}
-            for row in cursor.fetchall():
-                policies.setdefault(row[0], {})[row[1]] = row[2:]
-            if lifecycle is None:
-                errors.append("assert_user_deactivation: migration-owned lifecycle inventory missing.")
-            else:
-                errors.extend(_check_lifecycle(cursor, lifecycle, connection))
-            for name in sorted(tables & set(technical)):
-                expected = technical_privileges.get(name)
-                if expected is None:
-                    errors.append(f"{name}: frozen technical privilege inventory missing.")
-                    continue
-                cursor.execute(
-                    "SELECT privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND table_name=%s AND grantee='skeleton_runtime'",
-                    [name],
-                )
-                grants = cursor.fetchall()
-                if {row[0] for row in grants} != expected or any(row[1] != "NO" for row in grants):
-                    errors.append(f"{name}: exact technical runtime grant inventory mismatch.")
-                for action in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
-                    cursor.execute("SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, action])
-                    if cursor.fetchone()[0] != (action in expected):
-                        errors.append(f"{name}: unexpected effective technical privilege {action}.")
+            grants = cursor.fetchall()
+            if {row[0] for row in grants} != expected or any(row[1] != "NO" for row in grants):
+                errors.append(f"{name}: exact technical runtime grant inventory mismatch.")
+            for action in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
+                cursor.execute("SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, action])
+                if cursor.fetchone()[0] != (action in expected):
+                    errors.append(f"{name}: unexpected effective technical privilege {action}.")
         for name, spec in specs.items():
             if name not in tables:
                 errors.append(f"Missing own table: {name}")
@@ -638,171 +658,143 @@ def check_deployed_schema(*, using="default"):
             operational = operation.operational()
             if operational != (getattr(model, "lifecycle", None) == "operational"):
                 errors.append(f"{name}: model lifecycle differs from the frozen operational specification.")
-            expected_triggers = set(infrastructure_names(name, connection.vendor, operational=operational))
+            expected_triggers = set(infrastructure_names(name, operational=operational))
             if append:
                 expected_triggers = {trigger for trigger in expected_triggers if "audit" not in trigger[len(name) :]}
-            if connection.vendor == "sqlite":
-                actual = {key for key, (table, sql) in triggers.items() if table == name}
-                if actual != expected_triggers:
-                    errors.append(
-                        f"{name}: exact trigger inventory mismatch: expected {sorted(expected_triggers)}, got {sorted(actual)}"
-                    )
-                expected_bodies = {}
-                for statement in expected_sql:
-                    match = re.match(r'CREATE TRIGGER "([^"]+)"', statement)
-                    if match:
-                        expected_bodies[match.group(1)] = statement
-                for trigger in expected_triggers & actual:
-                    if _sql_tokens(triggers[trigger][1]) != _sql_tokens(expected_bodies.get(trigger, "")):
-                        errors.append(f"{trigger}: exact guard/audit trigger definition mismatch.")
-                for field in InstallRecordInfrastructure(model._meta.app_label, model._meta.model_name, {})._org_refs(
-                    model
+            actual = {key[1] for key in triggers if key[0] == name}
+            if actual != expected_triggers or any(triggers[(name, trigger)][0] != "O" for trigger in actual):
+                errors.append(f"{name}: exact enabled trigger inventory mismatch.")
+            for trigger in expected_triggers & actual:
+                definition = next(
+                    (
+                        sql
+                        for sql in expected_sql
+                        if sql.startswith("CREATE TRIGGER") and _sql_tokens(sql)[2] == trigger
+                    ),
+                    "",
+                )
+                # pg_get_triggerdef may omit the function schema under search_path.
+                actual_trigger = triggers[(name, trigger)]
+                qualified = re.sub(
+                    r"EXECUTE FUNCTION\s+[^\s(]+\(",
+                    f"EXECUTE FUNCTION {actual_trigger[2]}.{actual_trigger[3]}(",
+                    actual_trigger[1],
+                )
+                if _trigger_tokens(qualified) != _trigger_tokens(definition):
+                    errors.append(f"{trigger}: exact guard/audit trigger definition mismatch.")
+            expected = expected_policies(model, operation)
+            actual_policies = policies.get(name, {})
+            if set(actual_policies) != set(expected):
+                errors.append(f"{name}: exact RLS policy inventory mismatch.")
+            for policy, (command, role, qualifier, check) in expected.items():
+                actual_policy = actual_policies.get(policy)
+                if (
+                    actual_policy is None
+                    or actual_policy[0] != command
+                    or actual_policy[1] != role
+                    or _canonical(actual_policy[2]) != _canonical(qualifier)
+                    or _canonical(actual_policy[3]) != _canonical(check)
+                    or not actual_policy[4]
                 ):
-                    for suffix in ("guard_insert", "guard_update"):
-                        sql = triggers.get(name + "_sk_" + suffix, (None, ""))[1]
-                        if (
-                            field.column not in sql
-                            or field.related_model._meta.db_table not in sql
-                            or "cross-tenant reference" not in sql
-                        ):
-                            errors.append(f"{name}.{field.column}: same-tenant guard missing.")
-            else:
-                actual = {key[1] for key in triggers if key[0] == name}
-                if actual != expected_triggers or any(triggers[(name, trigger)][0] != "O" for trigger in actual):
-                    errors.append(f"{name}: exact enabled trigger inventory mismatch.")
-                for trigger in expected_triggers & actual:
-                    definition = next(
-                        (
-                            sql
-                            for sql in expected_sql
-                            if sql.startswith("CREATE TRIGGER") and _sql_tokens(sql)[2] == trigger
-                        ),
-                        "",
-                    )
-                    # pg_get_triggerdef may omit the function schema under search_path.
-                    actual_trigger = triggers[(name, trigger)]
-                    qualified = re.sub(
-                        r"EXECUTE FUNCTION\s+[^\s(]+\(",
-                        f"EXECUTE FUNCTION {actual_trigger[2]}.{actual_trigger[3]}(",
-                        actual_trigger[1],
-                    )
-                    if _trigger_tokens(qualified) != _trigger_tokens(definition):
-                        errors.append(f"{trigger}: exact guard/audit trigger definition mismatch.")
-                expected = expected_policies(model, operation)
-                actual_policies = policies.get(name, {})
-                if set(actual_policies) != set(expected):
-                    errors.append(f"{name}: exact RLS policy inventory mismatch.")
-                for policy, (command, role, qualifier, check) in expected.items():
-                    actual_policy = actual_policies.get(policy)
-                    if (
-                        actual_policy is None
-                        or actual_policy[0] != command
-                        or actual_policy[1] != role
-                        or _canonical(actual_policy[2]) != _canonical(qualifier)
-                        or _canonical(actual_policy[3]) != _canonical(check)
-                        or not actual_policy[4]
-                    ):
-                        errors.append(f"{name}.{policy}: RLS expression/command/role mismatch.")
-                relation = relations.get(name)
-                if not relation or relation[:2] != (bool(expected), bool(expected)) or relation[2] != "skeleton_owner":
-                    errors.append(f"{name}: RLS/FORCE/ownership mismatch.")
+                    errors.append(f"{name}.{policy}: RLS expression/command/role mismatch.")
+            relation = relations.get(name)
+            if not relation or relation[:2] != (bool(expected), bool(expected)) or relation[2] != "skeleton_owner":
+                errors.append(f"{name}: RLS/FORCE/ownership mismatch.")
+            cursor.execute(
+                "SELECT a.attname,t.typname FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid WHERE n.nspname='skeleton' AND c.relname=%s AND a.attname='sysid'",
+                [name],
+            )
+            if cursor.fetchone() != ("sysid", "uuid"):
+                errors.append(f"{name}: physical UUID sysid missing.")
+            cursor.execute(
+                "SELECT privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND table_name=%s AND grantee='skeleton_runtime'",
+                [name],
+            )
+            grants = cursor.fetchall()
+            privileges = {row[0] for row in grants}
+            allowed = operation.runtime_privileges(model)
+            if privileges != allowed or any(row[1] != "NO" for row in grants):
+                errors.append(f"{name}: exact runtime table grant inventory mismatch.")
+            for forbidden in {
+                "SELECT",
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "TRUNCATE",
+                "REFERENCES",
+                "TRIGGER",
+            } - allowed:
+                cursor.execute("SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, forbidden])
+                if cursor.fetchone()[0]:
+                    errors.append(f"{name}: runtime unexpectedly has {forbidden}.")
+            for kind in ("guard", "audit") if not (append or operational) else ("guard",):
+                function_name = name + "_sk_" + kind + "_fn"
                 cursor.execute(
-                    "SELECT a.attname,t.typname FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid WHERE n.nspname='skeleton' AND c.relname=%s AND a.attname='sysid'",
-                    [name],
+                    "SELECT r.rolname,p.prosecdef,p.proconfig,p.prosrc,has_function_privilege('skeleton_runtime',p.oid,'EXECUTE') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname='skeleton' AND p.proname=%s AND p.prokind='f' AND p.pronargs=0 AND p.prorettype='trigger'::regtype",
+                    [function_name],
                 )
-                if cursor.fetchone() != ("sysid", "uuid"):
-                    errors.append(f"{name}: physical UUID sysid missing.")
+                function = cursor.fetchone()
+                definition = next(
+                    (
+                        sql
+                        for sql in expected_sql
+                        if sql.startswith("CREATE OR REPLACE FUNCTION") and f'"{function_name}"()' in sql
+                    ),
+                    "",
+                )
+                delimiter = "$audit$" if kind == "audit" else "$guard$"
+                expected_body = definition.split(delimiter)[1] if delimiter in definition else ""
+                owner = "skeleton_audit_writer" if kind == "audit" else "skeleton_owner"
+                config = [item.replace(" ", "") for item in function[2] or []] if function else []
+                if (
+                    not function
+                    or function[0] != owner
+                    or function[1] != (kind == "audit")
+                    or config != ["search_path=pg_catalog,skeleton"]
+                    or _sql_tokens(function[3]) != _sql_tokens(expected_body)
+                    or function[4]
+                ):
+                    errors.append(
+                        f"{name}: exact {kind} function body/owner/security/search_path/EXECUTE inventory mismatch."
+                    )
+            if operational:
                 cursor.execute(
-                    "SELECT privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND table_name=%s AND grantee='skeleton_runtime'",
-                    [name],
+                    "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='skeleton' AND p.proname=%s",
+                    [name + "_sk_audit_fn"],
                 )
-                grants = cursor.fetchall()
-                privileges = {row[0] for row in grants}
-                allowed = operation.runtime_privileges(model)
-                if privileges != allowed or any(row[1] != "NO" for row in grants):
-                    errors.append(f"{name}: exact runtime table grant inventory mismatch.")
-                for forbidden in {
-                    "SELECT",
-                    "INSERT",
-                    "UPDATE",
-                    "DELETE",
-                    "TRUNCATE",
-                    "REFERENCES",
-                    "TRIGGER",
-                } - allowed:
-                    cursor.execute(
-                        "SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, forbidden]
-                    )
-                    if cursor.fetchone()[0]:
-                        errors.append(f"{name}: runtime unexpectedly has {forbidden}.")
-                for kind in ("guard", "audit") if not (append or operational) else ("guard",):
-                    function_name = name + "_sk_" + kind + "_fn"
-                    cursor.execute(
-                        "SELECT r.rolname,p.prosecdef,p.proconfig,p.prosrc,has_function_privilege('skeleton_runtime',p.oid,'EXECUTE') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname='skeleton' AND p.proname=%s AND p.prokind='f' AND p.pronargs=0 AND p.prorettype='trigger'::regtype",
-                        [function_name],
-                    )
-                    function = cursor.fetchone()
-                    definition = next(
-                        (
-                            sql
-                            for sql in expected_sql
-                            if sql.startswith("CREATE OR REPLACE FUNCTION") and f'"{function_name}"()' in sql
-                        ),
-                        "",
-                    )
-                    delimiter = "$audit$" if kind == "audit" else "$guard$"
-                    expected_body = definition.split(delimiter)[1] if delimiter in definition else ""
-                    owner = "skeleton_audit_writer" if kind == "audit" else "skeleton_owner"
-                    config = [item.replace(" ", "") for item in function[2] or []] if function else []
-                    if (
-                        not function
-                        or function[0] != owner
-                        or function[1] != (kind == "audit")
-                        or config != ["search_path=pg_catalog,skeleton"]
-                        or _sql_tokens(function[3]) != _sql_tokens(expected_body)
-                        or function[4]
-                    ):
-                        errors.append(
-                            f"{name}: exact {kind} function body/owner/security/search_path/EXECUTE inventory mismatch."
-                        )
-                if operational:
-                    cursor.execute(
-                        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='skeleton' AND p.proname=%s",
-                        [name + "_sk_audit_fn"],
-                    )
-                    if cursor.fetchone()[0]:
-                        errors.append(f"{name}: operational tables must not carry a row audit function.")
-                for field in operation._org_refs(model):
-                    constraint_name = name + "_sk_org_" + field.column
-                    cursor.execute(
-                        """
-                        SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH ORDINALITY k(num,position)
-                                     JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.position),
-                               tn.nspname, target.relname,
-                               ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY k(num,position)
-                                     JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num ORDER BY k.position),
-                               c.convalidated,c.condeferrable,c.condeferred,c.confupdtype,c.confdeltype,c.confmatchtype
-                        FROM pg_constraint c JOIN pg_class local ON local.oid=c.conrelid
-                        JOIN pg_namespace ln ON ln.oid=local.relnamespace
-                        JOIN pg_class target ON target.oid=c.confrelid JOIN pg_namespace tn ON tn.oid=target.relnamespace
-                        WHERE ln.nspname='skeleton' AND local.relname=%s AND c.conname=%s AND c.contype='f'
-                    """,
-                        [name, constraint_name],
-                    )
-                    expected_fk = (
-                        ["organization_id", field.column],
-                        "skeleton",
-                        field.related_model._meta.db_table,
-                        ["organization_id", "sysid"],
-                        True,
-                        False,
-                        False,
-                        "a",
-                        "a",
-                        "s",
-                    )
-                    if cursor.fetchone() != expected_fk:
-                        errors.append(f"{name}.{field.column}: exact composite tenant foreign key mismatch.")
+                if cursor.fetchone()[0]:
+                    errors.append(f"{name}: operational tables must not carry a row audit function.")
+            for field in operation._org_refs(model):
+                constraint_name = name + "_sk_org_" + field.column
+                cursor.execute(
+                    """
+                    SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH ORDINALITY k(num,position)
+                                 JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.position),
+                           tn.nspname, target.relname,
+                           ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY k(num,position)
+                                 JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num ORDER BY k.position),
+                           c.convalidated,c.condeferrable,c.condeferred,c.confupdtype,c.confdeltype,c.confmatchtype
+                    FROM pg_constraint c JOIN pg_class local ON local.oid=c.conrelid
+                    JOIN pg_namespace ln ON ln.oid=local.relnamespace
+                    JOIN pg_class target ON target.oid=c.confrelid JOIN pg_namespace tn ON tn.oid=target.relnamespace
+                    WHERE ln.nspname='skeleton' AND local.relname=%s AND c.conname=%s AND c.contype='f'
+                """,
+                    [name, constraint_name],
+                )
+                expected_fk = (
+                    ["organization_id", field.column],
+                    "skeleton",
+                    field.related_model._meta.db_table,
+                    ["organization_id", "sysid"],
+                    True,
+                    False,
+                    False,
+                    "a",
+                    "a",
+                    "s",
+                )
+                if cursor.fetchone() != expected_fk:
+                    errors.append(f"{name}.{field.column}: exact composite tenant foreign key mismatch.")
     return errors
 
 

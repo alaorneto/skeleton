@@ -1,6 +1,6 @@
 # Modelos da API de serviços
 
-Modelos para uma app hipotética `applications.tasks` (label `project_tasks`, app_id `com.example.tasks`) com o modelo `Task(SecuredRecord)`. Troque nomes e campos. O exemplo executável do repositório é `examples/notes/service_api.py`, com testes em `tests/integration_sqlite/test_notes_service_api.py`.
+Modelos para uma app hipotética `applications.tasks` (label `project_tasks`, app_id `com.example.tasks`) com o modelo `Task(SecuredRecord)`. Troque nomes e campos. O exemplo executável do repositório é `examples/notes/service_api.py`, com testes em `tests/integration/test_notes_service_api.py`.
 
 ## `service_api.py`
 
@@ -149,7 +149,7 @@ from skeleton.testing.service_api import (
 
 
 @pytest.fixture
-def scenario(skeleton_db):  # a fixture de banco isolado do projeto (SQLite ou PostgreSQL runtime)
+def scenario(skeleton_db):  # a fixture de banco isolado do projeto (PostgreSQL com a role runtime)
     return build_service_scenario(Task)
 
 

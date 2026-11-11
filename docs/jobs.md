@@ -8,7 +8,7 @@ O núcleo tem uma fila de trabalho em segundo plano no próprio banco (`skeleton
 |---|---|
 | Celery/Redis | Enqueue fora da transação do negócio; um rollback deixaria o job órfão, e um commit sem broker perderia o job |
 | Backport `django-tasks` | Não abre contexto tenant por job e resolve o handler por import path, que poderia vir de dados |
-| **PostgreSQL/SQLite (escolhida)** | Enqueue atômico com o negócio, contexto por organização no worker, handler só de código registrado |
+| **PostgreSQL (escolhida)** | Enqueue atômico com o negócio, contexto por organização no worker, handler só de código registrado |
 
 A API imita a de `django.tasks` (`JobType.enqueue(...)` devolve um recibo com `id` e `status`), para um adaptador futuro.
 
@@ -17,7 +17,7 @@ A API imita a de `django.tasks` (`JobType.enqueue(...)` devolve um recibo com `i
 `Job` é uma [tabela operacional](data-model.md#tabelas-operacionais-adr) **global**: o worker reivindica jobs de várias organizações sem GUC especial. Campos: `job_type`, `queue`, `job_organization` (FK PROTECT nula, nunca `organization`), `actor_id`, `payload`, `state` (`queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled`), `attempts`, `max_attempts`, `run_after`, `locked_by`, `locked_until`, `last_error_class`, `last_error_code`, `idempotency_key` e `finished_at`.
 
 - Tipo, organização, ator, payload e chave de idempotência são imutáveis (guard no banco).
-- No PostgreSQL, o guard de INSERT recusa um job de outra organização quando a GUC tenant está definida (`cross-tenant insert`, SQLSTATE 42501). No SQLite a mesma regra vale em Python.
+- No PostgreSQL, o guard de INSERT recusa um job de outra organização quando a GUC tenant está definida (`cross-tenant insert`, SQLSTATE 42501).
 - O payload não carrega dado de negócio nem segredo: só identificadores e escalares curtos. O handler relê o que precisar no próprio contexto.
 - A tabela nunca entra no gateway, e a exclusão física fica só para o serviço de retenção declarado em código.
 
@@ -79,7 +79,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 
 | Etapa | Comportamento |
 |---|---|
-| Reivindicar | PostgreSQL: `SELECT ... FOR UPDATE SKIP LOCKED` seguido de CAS `state='queued'`, seguro com vários workers. SQLite: o mesmo CAS, com um worker só. Cada claim incrementa `attempts` e define o lease `locked_until` (`timeout_s` + 30 s) |
+| Reivindicar | `SELECT ... FOR UPDATE SKIP LOCKED` seguido de CAS `state='queued'`, seguro com vários workers. Cada claim incrementa `attempts` e define o lease `locked_until` (`timeout_s` + 30 s) |
 | Heartbeat | `WorkerHeartbeat` (operacional, global) guarda `worker_id`, filas, estado e `last_seen` |
 | Lease vencido | O reaper recoloca na fila uma vez (`last_error_code=lease_expired`); sem tentativas restantes, o job vira `dead`. Um worker que perdeu o lease não consegue mais marcar o job |
 | Contexto | `run_as="system"` executa em `system_context(reason="job:<code>", organization_id=...)`, e a auditoria das escritas grava `source=system:job:<code>`. `run_as="actor"` abre `tenant_context` de topo como o ator, que revalida o vínculo; o handler recebe `actor` |

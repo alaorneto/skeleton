@@ -18,13 +18,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         using = options["database"]
         connection = connections[using]
-        if connection.vendor not in {"sqlite", "postgresql"}:
-            raise CommandError("Infrastructure recovery requires SQLite or PostgreSQL.")
-        if connection.vendor == "postgresql":
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT current_user")
-                if cursor.fetchone()[0] != "skeleton_owner":
-                    raise CommandError("Infrastructure recovery requires the offline skeleton_owner role.")
+        if connection.vendor != "postgresql":
+            raise CommandError("Infrastructure recovery requires PostgreSQL (skeleton.E025).")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_user")
+            if cursor.fetchone()[0] != "skeleton_owner":
+                raise CommandError("Infrastructure recovery requires the offline skeleton_owner role.")
         try:
             operations, technical, lifecycle = _frozen_operations()
             retained, retained_operations = load_retained_contracts()
@@ -35,15 +34,10 @@ class Command(BaseCommand):
                 raise CommandError("A frozen own table is missing; do not recreate data during recovery.")
             if any(label not in operations for label in models):
                 raise CommandError("Frozen record infrastructure is incomplete.")
-            # SQLite's schema editor must disable FK checks before entering atomic.
             with connection.schema_editor() as editor:
                 with system_context(reason="deployment:infrastructure-recovery", using=using):
                     for label, model in sorted(models.items()):
-                        operation = operations[label]
-                        if connection.vendor == "postgresql":
-                            operation._postgres(editor, model)
-                        else:
-                            operation._sqlite(editor, model)
+                        operations[label]._postgres(editor, model)
                     GrantTechnicalTablePrivileges(
                         {name: sorted(actions) for name, actions in technical.items()}
                     ).database_forwards("sk_system", editor, None, None)

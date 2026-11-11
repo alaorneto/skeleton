@@ -357,7 +357,7 @@ Para cada método público, prove:
   - rollback do chamador não deixa efeitos nem eventos.
 - **Contrato:** `assert_service_contract(ServiceClass)` do kit.
 
-Rode em SQLite e em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre em [testing](testing.md) somente o que rodou de fato.
+Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre em [testing](testing.md) somente o que rodou de fato.
 
 ### Kit de testes de contrato
 
@@ -374,7 +374,7 @@ Rode em SQLite e em PostgreSQL com a role runtime, como exige o [AGENTS.md](../A
 | `assert_rejects_other_actor(call)` | `actor` diferente do contexto, `Forbidden` |
 | `assert_cas_conflict(first, second)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")` |
 
-O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado do projeto, nunca num banco compartilhado. `tests/integration_sqlite/test_notes_service_api.py` é o exemplo completo, executado também no job PostgreSQL com a role runtime. O gerador cria `tests/test_service_api.py` com o teste de contrato, que não usa banco.
+O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado do projeto, nunca num banco compartilhado. `tests/integration/test_notes_service_api.py` é o exemplo completo, executado em PostgreSQL com a role runtime. O gerador cria `tests/test_service_api.py` com o teste de contrato, que não usa banco.
 
 ### Limites da verificação
 

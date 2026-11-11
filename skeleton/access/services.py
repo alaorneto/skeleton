@@ -406,11 +406,6 @@ def reconcile_builtin_roles(*, organization_id, using="default"):
 def assert_user_deactivation(user, *, using="default"):
     """Narrow global identity guard, retaining organization locks until caller commit."""
     from django.db import IntegrityError, connections
-    from django.db.models import Q
-
-    from skeleton.tenancy.models import Membership, Organization
-
-    from .models import GroupMember, GroupRole, MemberRole
 
     context = current_context()
     connection = connections[using]
@@ -418,72 +413,11 @@ def assert_user_deactivation(user, *, using="default"):
         raise PermissionDenied("Platform control plane required.")
     if not connection.in_atomic_block:
         raise RuntimeError("Identity lifecycle guard requires the caller's atomic transaction.")
-    if connection.vendor == "postgresql":
-        try:
-            with transaction.atomic(using=using), connection.cursor() as cursor:
-                cursor.execute("SELECT skeleton.assert_user_deactivation(%s::uuid)", [str(user.pk)])
-        except IntegrityError as exc:
-            if getattr(exc.__cause__, "sqlstate", None) == "23514":
-                raise LastAdministrator("An organization must retain an active administrator.") from exc
-            raise
-        return
-    if connection.vendor != "sqlite":
-        raise NotImplementedError("Identity lifecycle requires SQLite or PostgreSQL.")
-    ids = (
-        Membership.all_objects.using(using)
-        .filter(user=user, is_active=True, deleted_at__isnull=True)
-        .values_list("organization_id", flat=True)
-    )
-    organizations = (
-        Organization.all_objects.using(using)
-        .filter(pk__in=ids, is_active=True, deleted_at__isnull=True)
-        .order_by("sysid")
-        .select_for_update()
-    )
-    for organization in organizations:
-        org_id = organization.pk
-        direct = (
-            MemberRole.all_objects.using(using)
-            .filter(
-                organization_id=org_id,
-                deleted_at__isnull=True,
-                role__organization_id=org_id,
-                role__code="organization_admin",
-                role__is_builtin=True,
-                role__deleted_at__isnull=True,
-            )
-            .values_list("membership_id", flat=True)
-        )
-        groups = (
-            GroupRole.all_objects.using(using)
-            .filter(
-                organization_id=org_id,
-                deleted_at__isnull=True,
-                role__organization_id=org_id,
-                role__code="organization_admin",
-                role__is_builtin=True,
-                role__deleted_at__isnull=True,
-                group__organization_id=org_id,
-                group__deleted_at__isnull=True,
-            )
-            .values_list("group_id", flat=True)
-        )
-        indirect = (
-            GroupMember.all_objects.using(using)
-            .filter(organization_id=org_id, deleted_at__isnull=True, group_id__in=groups)
-            .values_list("membership_id", flat=True)
-        )
-        if (
-            not Membership.all_objects.using(using)
-            .filter(
-                Q(pk__in=direct) | Q(pk__in=indirect),
-                organization_id=org_id,
-                is_active=True,
-                deleted_at__isnull=True,
-                user__is_active=True,
-                user__deleted_at__isnull=True,
-            )
-            .exclude(user=user)
-            .exists()
-        ):
-            raise LastAdministrator("An organization must retain an active administrator.")
+    # The migration-owned SECURITY DEFINER function checks every organization (PostgreSQL only).
+    try:
+        with transaction.atomic(using=using), connection.cursor() as cursor:
+            cursor.execute("SELECT skeleton.assert_user_deactivation(%s::uuid)", [str(user.pk)])
+    except IntegrityError as exc:
+        if getattr(exc.__cause__, "sqlstate", None) == "23514":
+            raise LastAdministrator("An organization must retain an active administrator.") from exc
+        raise

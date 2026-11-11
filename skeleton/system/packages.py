@@ -1104,7 +1104,8 @@ def _scan_application_root(root, manifest_source):
                 continue
             if (
                 any(part.startswith(".") for part in source.relative_to(root).parts)
-                or name in (".env", "db.sqlite3")
+                or name == ".env"
+                or name.endswith(".sqlite3")  # the instance configuration store and its copies
                 or name.endswith((".pem", ".key"))
             ):
                 violations.append(("private_file", "Private files must not be packaged.", relative))

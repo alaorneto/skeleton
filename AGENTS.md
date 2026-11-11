@@ -32,7 +32,8 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log); saídas HTTP só por `skeleton.common.outbound_http`.
 - `skeleton/sequences`: sequências sem lacunas por organização e período.
-- `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação.
+- `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
+- `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
 - `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos e arquivos; epic #113).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
@@ -52,7 +53,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 - O serviço autoriza internamente (`authorized_queryset`, `require_record_action`, capacidades) e exige a app ativa. Ser chamado por código não concede permissão. Inexistente e não autorizado respondem igual.
 - O serviço participa da transação do chamador: não faz commit, não abre `system_context` para ampliar acesso, não troca de organização e não executa efeito externo dentro do método (use jobs, eventos ou `on_commit` com valores prontos).
 - Alterações recebem `expected_revision`; criações repetíveis aceitam `idempotency_key`. Mudança incompatível em método público é versão *major* da app, precedida de depreciação.
-- Testes de cada método cobrem caminho autorizado, default deny, A/B, app desativada, ator divergente e, em comandos, CAS e idempotência, em SQLite e PostgreSQL runtime, com `assert_service_contract` e os helpers de `skeleton.testing.service_api`.
+- Testes de cada método cobrem caminho autorizado, default deny, A/B, app desativada, ator divergente e, em comandos, CAS e idempotência, em PostgreSQL com a role runtime, com `assert_service_contract` e os helpers de `skeleton.testing.service_api`.
 
 ## Contrato de cada tabela própria
 
@@ -77,7 +78,7 @@ Não aceite actor/tenant/sysid/revision/flags de usuário por mass assignment. P
 
 `delete` é soft delete. `restore` valida unicidade/referências ativas; não recria UUID. `bulk_update` e bulk conflict upsert são proibidos. User/Organization retêm vínculos históricos; os demais registros protegem referências vivas. Use serviços de lifecycle/revogação para não esquecer `auth_version`, último admin e relações de acesso.
 
-Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only, inclusive no SQLite. DBA/owner e quem controla arquivo SQLite permanecem fronteiras privilegiadas, não WORM.
+Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
 
 ## Checklist mínimo de nova tabela
 
@@ -89,6 +90,6 @@ Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesm
 - CAS com duas revisões iguais tem um vencedor; update_fields vazio não escreve.
 - Auditoria create/save/queryset/bulk/SQL/delete/restore correta, segredos redigidos, rollback/savepoint sem eventos residuais.
 - Soft delete/restore/conflito/referências preservam IDs e dados.
-- SQLite real e PostgreSQL com **role runtime**, sem usar owner para provar RLS. Fixtures protegidas, sem flush/TRUNCATE de tabelas próprias.
+- PostgreSQL com **role runtime** (toda a suíte; `tools/dev_postgres.py` localmente), sem usar owner para provar RLS; o owner só migra ou monta DDL de fixture. Fixtures protegidas, sem flush/TRUNCATE de tabelas próprias.
 
 Atualize documentação afetada. Registre somente testes realmente executados; serviços indisponíveis são bloqueios de verificação, nunca aprovação por inferência.

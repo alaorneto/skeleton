@@ -1,0 +1,175 @@
+"""First-access setup end to end with the Django client, against the test PostgreSQL (#146).
+
+The runtime DSN is ``TEST_DATABASE_URL`` (skeleton_runtime) and the transient owner is
+``TEST_MIGRATION_DATABASE_URL`` (skeleton_owner), as provisioned by deploy/postgres/bootstrap.sql.
+"""
+
+import logging
+import os
+
+import pytest
+from django.core import mail, signing
+from django.test import Client, override_settings
+from django.urls import reverse
+
+from skeleton.conf.profiles import setup_settings
+from skeleton.instance.store import InstanceStore
+from skeleton.setup import tokens
+
+pytestmark = pytest.mark.usefixtures("skeleton_db")
+PASSWORD = "Setup-admin-Password-2026!"
+
+
+@pytest.fixture
+def setup_mode(tmp_path, monkeypatch, settings):
+    from django.conf import settings as django_settings
+
+    monkeypatch.setenv("SKELETON_INSTANCE_DB", str(tmp_path / "instance" / "instance.sqlite3"))
+    monkeypatch.setenv("SKELETON_INSTANCE_KEY_FILE", str(tmp_path / "keys" / "master.key"))
+    import environ
+
+    profile = setup_settings({"env": environ.Env(), "BASE_DIR": django_settings.BASE_DIR})
+    overrides = {
+        name: profile[name]
+        for name in (
+            "ROOT_URLCONF",
+            "MIDDLEWARE",
+            "SESSION_ENGINE",
+            "SESSION_COOKIE_SAMESITE",
+            "MESSAGE_STORAGE",
+            "SECRET_KEY",
+            "SKELETON_SETUP_MODE",
+        )
+    }
+    overrides["SESSION_COOKIE_SECURE"] = False
+    overrides["CSRF_COOKIE_SECURE"] = False
+    with override_settings(**overrides):
+        yield InstanceStore(tmp_path / "instance" / "instance.sqlite3")
+
+
+def token(store):
+    return tokens.token_file(store).read_text().strip()
+
+
+def enter(store):
+    client = Client(enforce_csrf_checks=True)
+    client.get("/setup/")
+    response = client.post("/setup/", {"token": token(store), "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    assert response.status_code == 302
+    return client
+
+
+def post(client, url, data):
+    return client.post(url, {**data, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+
+
+def test_every_route_leads_to_the_setup_and_the_token_is_single_use(setup_mode):
+    store = setup_mode
+    anonymous = Client(enforce_csrf_checks=True)
+    assert anonymous.get("/o/whatever/")["Location"] == "/setup/"
+    assert anonymous.get("/setup/database/")["Location"] == reverse("setup:start")
+    assert anonymous.get("/health/live/").status_code == 200
+    anonymous.get("/setup/")
+    csrf = anonymous.cookies["csrftoken"].value
+    assert anonymous.post("/setup/", {"token": "x" * 32, "csrfmiddlewaretoken": csrf}).status_code == 403
+    assert Client(enforce_csrf_checks=True).post("/setup/", {"token": token(store)}).status_code == 403  # CSRF.
+    value = token(store)
+    client = enter(store)
+    assert client.get("/setup/").status_code == 200
+    again = Client(enforce_csrf_checks=True)
+    again.get("/setup/")
+    reused = again.post("/setup/", {"token": value, "csrfmiddlewaretoken": again.cookies["csrftoken"].value})
+    assert reused.status_code == 403
+
+
+def test_repeated_wrong_tokens_are_rate_limited(setup_mode):
+    client = Client(enforce_csrf_checks=True)
+    client.get("/setup/")
+    csrf = client.cookies["csrftoken"].value
+    statuses = [client.post("/setup/", {"token": "y" * 32, "csrfmiddlewaretoken": csrf}).status_code for _ in range(6)]
+    assert statuses[:5] == [403] * 5 and statuses[5] == 429
+
+
+def test_privileged_runtime_dsn_is_refused_with_a_clear_message(setup_mode):
+    client = enter(setup_mode)
+    response = post(client, "/setup/database/", {"database_url": os.environ["TEST_MIGRATION_DATABASE_URL"]})
+    assert response.status_code == 400
+    assert "BYPASSRLS" in response.content.decode()
+    assert "database_url" not in setup_mode.settings()
+
+
+def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_path):
+    store = setup_mode
+    owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
+    owner_password = owner.split(":")[2].split("@")[0]
+    client = enter(store)
+    with caplog.at_level(logging.DEBUG):
+        assert post(
+            client,
+            "/setup/instance/",
+            {"allowed_hosts": "app.example.test,testserver", "public_url": "https://app.example.test"},
+        )["Location"] == reverse("setup:database")
+        assert post(client, "/setup/database/", {"database_url": os.environ["TEST_DATABASE_URL"]}).status_code == 302
+        refused = post(client, "/setup/schema/", {"owner_url": os.environ["TEST_DATABASE_URL"]})
+        assert refused.status_code == 400  # The runtime role is not a migration owner.
+        assert post(client, "/setup/schema/", {"owner_url": owner})["Location"] == reverse("setup:email")
+        assert (
+            post(
+                client,
+                "/setup/email/",
+                {
+                    "email_url": "memorymail://",
+                    "default_from_email": "noreply@example.test",
+                    "test_recipient": "ops@example.test",
+                },
+            ).status_code
+            == 302
+        )
+        assert mail.outbox[-1].to == ["ops@example.test"]
+        assert (
+            post(
+                client, "/setup/storage/", {"files_backend": "local", "files_root": str(tmp_path / "files")}
+            ).status_code
+            == 302
+        )
+        weak = post(
+            client,
+            "/setup/admin/",
+            {
+                "email": "root@example.test",
+                "password1": "123",
+                "password2": "123",
+                "organization_name": "Primeira",
+                "organization_slug": "primeira",
+            },
+        )
+        assert weak.status_code == 400
+        created = post(
+            client,
+            "/setup/admin/",
+            {
+                "email": "root@example.test",
+                "password1": PASSWORD,
+                "password2": PASSWORD,
+                "organization_name": "Primeira",
+                "organization_slug": "primeira",
+            },
+        )
+        assert created.get("Location") == reverse("setup:finish"), created.content.decode()[-1500:]
+        # The owner credential is nowhere: not in the store, the logs or the signed session.
+        assert owner_password not in store.path.read_bytes().decode("latin-1")
+        assert owner_password not in caplog.text
+        session = signing.loads(
+            client.cookies["sessionid"].value, salt="django.contrib.sessions.backends.signed_cookies"
+        )
+        assert owner_password not in repr(session)
+        stored = store.settings()
+        assert stored["database_url"][1] and os.environ["TEST_DATABASE_URL"] not in stored["database_url"][0]
+        assert {"secret_key", "mfa_encryption_keys", "integration_encryption_keys"} <= set(stored)
+        done = post(client, "/setup/finish/", {})
+    assert done.status_code == 200 and "reinicie o serviço" in done.content.decode().lower()
+    assert store.setup_state()["status"] == "completed"
+    assert Client().get("/setup/").status_code == 404
+    from skeleton.accounts.models import User
+
+    assert User.objects.filter(email="root@example.test", is_superuser=True).exists()

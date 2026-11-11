@@ -34,7 +34,7 @@ body:
     id: ambiente
     attributes:
       label: "Ambiente"
-      description: "Branch/commit, banco (SQLite/PostgreSQL), settings, navegador, versão do core/agente."
+      description: "Branch/commit, versão do PostgreSQL, settings, navegador, versão do core/agente."
     validations:
       required: true
   - type: textarea

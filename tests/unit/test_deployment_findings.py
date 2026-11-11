@@ -86,10 +86,13 @@ def test_rd07_rendered_redis_health_authenticates_real_server(composition, tmp_p
 
 def test_rd08_compose_forwarding_enables_https_and_trusted_csrf_origin(composition):
     config, env = composition
-    env.update(config["services"]["web"]["environment"])
-    for key in ("DJANGO_TRUST_PROXY", "DJANGO_CSRF_TRUSTED_ORIGINS"):
-        if key not in config["services"]["web"]["environment"]:
-            env.pop(key, None)
+    # Proxy and CSRF origins come from the instance configuration or, as here, from the
+    # optional env_file overrides; the rendered environment carries only bootstrap values.
+    web = config["services"]["web"]["environment"]
+    assert "DJANGO_TRUST_PROXY" not in web and web["DJANGO_SETTINGS_MODULE"] == "config.settings.production"
+    env.update(web)
+    env.pop("SKELETON_INSTANCE_DB")
+    env.pop("SKELETON_INSTANCE_KEY_FILE")
     code = """
 import django; django.setup()
 from django.http import HttpResponse

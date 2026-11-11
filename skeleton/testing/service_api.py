@@ -1,7 +1,7 @@
 """Contract test kit for service APIs (docs/service-api.md, "Testes obrigatórios").
 
 The helpers are plain functions that raise ``AssertionError``: they work with pytest or unittest
-and in SQLite or PostgreSQL with the runtime role, because they only call public services.
+and in PostgreSQL with the runtime role, because they only call public services.
 
 - ``assert_service_contract(ServiceClass)``: keyword-only signatures, DTO/``Page``/primitive
   return annotations and docstrings with Autorização, Erros and Efeitos.

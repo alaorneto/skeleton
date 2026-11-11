@@ -62,7 +62,7 @@ body:
       description: "Camadas, negativos de segurança e comandos. Use \"Não se aplica — motivo\" quando for o caso."
       placeholder: |
         - [ ] Unitários (tests/unit): 
-        - [ ] Integração SQLite: 
+        - [ ] Integração em PostgreSQL com a role runtime (`tests/integration/...`): 
         - [ ] PostgreSQL com role runtime: 
         - [ ] Negativos de segurança (tenant A/B, default deny, CAS, auditoria): 
         - [ ] Smoke manual/navegador: 

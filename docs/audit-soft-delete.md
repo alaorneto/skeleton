@@ -20,8 +20,6 @@ No PostgreSQL, actor/request/source vêm dos parâmetros locais do contexto (GUC
 
 O escritor de auditoria é um trigger `SECURITY DEFINER`: executa com os privilégios de seu proprietário, tem `search_path` fixo e não recebe escrita em negócio. INSERT de auditoria organizacional deve satisfazer a policy; o audit writer não tem `BYPASSRLS`. Isso não é o papel empresarial de administrador.
 
-No SQLite, `connection_created` registra as funções de conexão (UDFs) `skeleton_actor`, `skeleton_request_id`, `skeleton_source`, `skeleton_uuid`, `skeleton_now`; UUID retornado respeita o armazenamento hexadecimal. Os triggers usam JSON SQLite. Um cliente externo sem essas funções falha ao escrever, em vez de pular a auditoria. Não há alteração de schema (DDL) no startup nem variável global mutável para controlar recursão.
-
 ## Metadados e CAS
 
 **Compare-and-swap (CAS)** significa “grave somente se a revisão ainda for aquela que eu li”. Alice e Bob abrem uma nota de Alfa na revisão 4. Alice salva e a revisão vira 5; Bob tenta salvar a revisão 4 e recebe `ConcurrentUpdate`, em vez de apagar a edição de Alice. Ele precisa reler e decidir como conciliar. Uma nota de Beta com revisão 4 é outra linha: a comparação usa identificador e revisão juntos. Não retente silenciosamente com a revisão nova.
@@ -30,7 +28,7 @@ No SQLite, `connection_created` registra as funções de conexão (UDFs) `skelet
 
 `QuerySet.update` preenche `updated_at`/`updated_by` e usa `F('revision')+1`; mudanças de `sysid`, organização e autoria de criação são proibidas. Esse incremento por lote não é, sozinho, uma comparação com a revisão que um cliente leu: endpoints continuam exigindo os serviços e o contrato de concorrência. `bulk_create` prepara metadados e valida cada objeto. `ignore_conflicts`/`update_conflicts` são rejeitados; `bulk_update` lança `UnsafeBulkMutation`. Não use operações em lote para contornar serviços/autorização.
 
-SQL direto também precisa fornecer `revision=OLD.revision+1`, datas e valores coerentes. Proteções no banco (guards), independentes do modelo Python, bloqueiam revisão incorreta, mudança de `sysid`/organização e DELETE físico. Chaves estrangeiras compostas no PostgreSQL e guards no SQLite bloqueiam relações entre organizações em INSERT/UPDATE.
+SQL direto também precisa fornecer `revision=OLD.revision+1`, datas e valores coerentes. Proteções no banco (guards), independentes do modelo Python, bloqueiam revisão incorreta, mudança de `sysid`/organização e DELETE físico. Chaves estrangeiras compostas no PostgreSQL bloqueiam relações entre organizações em INSERT/UPDATE.
 
 ## Soft delete e restore
 
@@ -56,4 +54,4 @@ A auditoria é somente leitura. Administradores organizacionais só veem sua org
 
 Na API, HTML e admin, a apresentação da auditoria de negócio segue `TableSpec.read_fields`, inclusive nomes físicos de FKs. Um campo omitido da leitura comum não reaparece no histórico; a captura persistida continua íntegra e redigida. Eventos administrativos do núcleo são uma superfície privilegiada separada, com segredos ocultados. Uma spec desconhecida não apresenta `changes`. Ter audit-sem-read em uma tabela exclui apenas essa tabela inelegível, sem abortar os eventos permitidos de outras tabelas.
 
-**Append-only** significa que a conexão runtime só acrescenta eventos, não os altera ou exclui. Não significa **WORM** (armazenamento que impede reescrita): DBA/migration owner pode alterar o schema; o dono do arquivo SQLite pode editá-lo ou removê-lo. Retenção, backup, criptografia e credenciais privilegiadas exigem proteção operacional. Não prometa imutabilidade contra esses atores.
+**Append-only** significa que a conexão runtime só acrescenta eventos, não os altera ou exclui. Não significa **WORM** (armazenamento que impede reescrita): DBA/migration owner pode alterar o schema; quem controla o servidor PostgreSQL pode editar ou remover dados. Retenção, backup, criptografia e credenciais privilegiadas exigem proteção operacional. Não prometa imutabilidade contra esses atores.

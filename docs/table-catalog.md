@@ -17,7 +17,7 @@ Por exemplo, o catálogo pode descrever a tabela de notas usada por Alfa e Beta 
 .venv/bin/python manage.py check_skeleton_schema --database default
 ```
 
-O serviço público `sync_table_catalog(*, using='default', apps_registry=None)` cruza apps/modelos, incluindo modelos criados automaticamente (`auto-created`), com a estrutura física: schema `skeleton` no PostgreSQL e `main` no SQLite. Deduplica modelos proxy, substituídos (`swapped`) e modelos que apontam à mesma tabela. Não inventaria sequências nem catálogos internos do banco como entidades de negócio.
+O serviço público `sync_table_catalog(*, using='default', apps_registry=None)` cruza apps/modelos, incluindo modelos criados automaticamente (`auto-created`), com a estrutura física: schema `skeleton` do PostgreSQL (o único backend, E025). Deduplica modelos proxy, substituídos (`swapped`) e modelos que apontam à mesma tabela. Não inventaria sequências nem catálogos internos do banco como entidades de negócio.
 
 A reconciliação altera **somente dados**, em uma transação `atomic`. Usa as chaves `(database_alias,schema_name,db_table)` e `(table,column)`, preserva UUIDs/textos humanos, atualiza informações físicas e marca `available=False` quando uma tabela/coluna desaparece. Não apaga entradas. Se não houver diferenças, não aumenta revisão nem gera auditoria extra.
 

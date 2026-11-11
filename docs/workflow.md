@@ -35,7 +35,7 @@ Os formulários em [.github/ISSUE_TEMPLATE](../.github/ISSUE_TEMPLATE) e os mode
 - **Escopo**, com o que fica fora dele.
 - **Abordagem técnica**: módulos e arquivos, decisões, fronteiras do AGENTS.md envolvidas.
 - **Critérios de aceite** verificáveis, incluindo os negativos.
-- **Plano de testes**: unitários, integração SQLite, PostgreSQL com a role runtime, negativos de segurança, smoke manual e os comandos. Bugs incluem um teste de regressão.
+- **Plano de testes**: unitários, integração em PostgreSQL com a role runtime, negativos de segurança, smoke manual e os comandos. Bugs incluem um teste de regressão.
 - **Documentação a atualizar**, incluindo a evidência em [testing](testing.md).
 - **Segurança e contrato do AGENTS.md**.
 - **Riscos e dependências**: epic, issues bloqueantes, migrations, rollback. O epic e as bloqueantes também ficam registrados como parent e "blocked by" nativos.

@@ -19,7 +19,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -96,19 +96,13 @@ def reap_expired_leases(*, using: str = "default") -> int:
 
 
 def claim(worker_id: str, *, queues: tuple[str, ...] = ("default",), using: str = "default") -> Job | None:
-    """Take one due job; SKIP LOCKED on PostgreSQL, a CAS on SQLite (single worker)."""
+    """Take one due job with ``FOR UPDATE SKIP LOCKED``: concurrent workers never take the same job."""
     now = timezone.now()
-    connection = connections[using]
     due = Job.all_objects.using(using).filter(state=Job.State.QUEUED, run_after__lte=now, queue__in=queues)
     with transaction.atomic(using=using):
-        if connection.vendor == "postgresql":
-            job = due.order_by("run_after", "created_at").select_for_update(skip_locked=True).first()
-            if job is None:
-                return None
-        else:
-            job = due.order_by("run_after", "created_at").first()
-            if job is None:
-                return None
+        job = due.order_by("run_after", "created_at").select_for_update(skip_locked=True).first()
+        if job is None:
+            return None
         try:
             timeout = get_job_type(job.job_type).timeout_s
         except KeyError:

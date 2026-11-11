@@ -2,7 +2,7 @@
 
 Base reutilizável de Django 6.1 para construir sistemas com login, várias organizações e controle de acesso aos dados. Ela resolve a infraestrutura comum: identificar a pessoa, separar dados de empresas/equipes, decidir quem pode ler ou alterar cada registro e conservar a história das mudanças. As regras do seu negócio ficam no projeto derivado, não no núcleo `skeleton`.
 
-**Desenvolvimento não é produção.** SQLite permite começar sem serviços externos, mas não oferece RLS, a proteção PostgreSQL por linha, nem defesa contra quem controla o arquivo. Produção usa PostgreSQL com credenciais distintas para atender usuários e alterar a estrutura do banco, além de Redis compartilhado, SMTP e HTTPS. Trocar `DATABASE_URL` só troca a conexão: não transporta dados.
+**Só PostgreSQL.** Todos os dados vivem no PostgreSQL, também no desenvolvimento e nos testes; o SQLite da instância guarda só a configuração (com segredos cifrados) e o estado do setup. Produção usa credenciais distintas para atender usuários (role runtime, sem `BYPASSRLS`) e alterar a estrutura do banco (owner, só nas migrations), além de Redis compartilhado, SMTP e HTTPS.
 
 ## Por onde começar
 
@@ -45,12 +45,19 @@ Esse roteiro é para um checkout novo. Se já existe um `.env` configurado, pres
 ```sh
 python3.14 -m venv .venv
 .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
-cp .env.example .env
-.venv/bin/python manage.py migrate
+.venv/bin/python tools/dev_postgres.py start   # PostgreSQL local descartável, sem Docker (usa uv)
+.venv/bin/python manage.py runserver 127.0.0.1:8000
+```
+
+Sem configuração, o `runserver` abre o **setup** em <http://127.0.0.1:8000/setup/>: copie o token que o processo imprimiu no terminal e siga as etapas. Use como runtime `postgres://skeleton_runtime:local-runtime@127.0.0.1:<porta>/local_skeleton_test` e como owner `postgres://skeleton_owner:local-owner@127.0.0.1:<porta>/local_skeleton_test` (a porta aparece no `start`). O setup migra, sincroniza o catálogo, confere o schema, cria o administrador e a organização e reinicia o `runserver` em modo normal ([deployment](docs/deployment.md#primeira-instalação-pelo-setup-146)).
+
+Quem prefere a linha de comando continua podendo configurar pelo ambiente (o ambiente vence o SQLite da instância) e rodar, com `MIGRATION_DATABASE_URL` só nesse terminal:
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py migrate
 .venv/bin/python manage.py sync_table_catalog
 .venv/bin/python manage.py check_skeleton_schema
 .venv/bin/python manage.py bootstrap_skeleton --email admin@example.test --organization demo --name Demo
-.venv/bin/python manage.py runserver 127.0.0.1:8000
 ```
 
 `migrate` aplica mudanças versionadas de estrutura; `sync_table_catalog` descreve as tabelas existentes; `check_skeleton_schema` verifica os controles de integridade/segurança instalados. São tarefas diferentes: sincronizar o catálogo não substitui migrations ou checks.
@@ -96,14 +103,15 @@ uvx ruff@0.17.4 check
 uvx ruff@0.17.4 format
 uv tool install pre-commit && pre-commit install  # hooks pre-commit e commit-msg
 .venv/bin/python -m mypy
-SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/unit tests/integration_sqlite tests/accounts --cov
+eval "$(.venv/bin/python tools/dev_postgres.py env)"
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests --cov
 ```
 
 A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
 
 O hook `commit-msg` exige que cada commit referencie uma issue (`Refs #N`), e o workflow `.github/workflows/issue-link.yml` exige que o PR cite uma issue classificada; ver [fluxo de trabalho](docs/workflow.md).
 
-O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compilado, a suíte SQLite (Python 3.12 e 3.14), `check --deploy`, a suíte PostgreSQL com a role runtime, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
+O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compilado, a suíte inteira em PostgreSQL com a role runtime (Python 3.12 e 3.14), o smoke do runtime, `check --deploy`, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
 
 
 ### Atualizar locks (manutenção, não todo startup)
@@ -125,7 +133,7 @@ O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 
 | `DJANGO_SETTINGS_MODULE` | `config.settings.development`, `.test`, `.production` ou `.migrate` |
 | `DJANGO_SECRET_KEY` | Segredo Django privado; obrigatório em produção |
 | `DJANGO_ALLOWED_HOSTS` | Lista de hosts explícitos, sem `*` em produção |
-| `DATABASE_URL` | SQLite local por padrão no desenvolvimento; PostgreSQL runtime em produção |
+| `DATABASE_URL` | PostgreSQL, role runtime (sem fallback); normalmente gravado pelo setup no SQLite da instância |
 | `MIGRATION_DATABASE_URL` | Credencial offline do schema; nunca entregue ao processo web |
 | `CACHE_URL` | LocMem local; Redis compartilhado em produção |
 | `EMAIL_URL`, `DEFAULT_FROM_EMAIL` | Console local; SMTP e remetente em produção |
@@ -142,7 +150,7 @@ O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 
 | `DJANGO_TRUSTED_PROXY_COUNT`, `DJANGO_TRUSTED_CLIENT_IP_HEADER` | Topologia explícita de IP para rate limit; defaults não confiam em headers |
 | `SKELETON_JSON_MAX_BYTES` | Limite efetivo do JSON API em bytes; default 1048576 |
 
-Leia [deployment](docs/deployment.md) antes de usar PostgreSQL/Compose. `settings.migrate` separa a conexão de migração; a configuração produtiva deve garantir `MIGRATION_DATABASE_URL` PostgreSQL explicitamente. O fallback SQLite dessa configuração existe para uso local, não para produção.
+Leia [deployment](docs/deployment.md) antes de usar PostgreSQL/Compose. `settings.migrate` separa a conexão de migração, que vem só de `MIGRATION_DATABASE_URL` no ambiente. Depois do setup, a configuração muda em `/platform/instance/` ou com `manage.py instance set`.
 
 Após configuração/migrations de SSO, rode `validate_provider_bindings --database default` com settings runtime. Extensões carregam `manifest.json` canônico e registram specs/ADRs; `/o/<org>/apps/` administra versão declarada, ativação e configuração sem executar DDL. Desativar preserva dados e bloqueia navegação/gateway.
 
@@ -176,4 +184,4 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Fluxo de trabalho](docs/workflow.md): plano → issues classificadas → branch/commits → PR → fechamento aprovado.
 - [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.
 
-Os resultados observados da integração e os comandos para reproduzi-los estão em [testing](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; SQLite ou mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.
+Os resultados observados da integração e os comandos para reproduzi-los estão em [testing](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.

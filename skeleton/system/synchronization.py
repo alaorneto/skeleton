@@ -16,10 +16,8 @@ def technical_manifest():
 
 def physical_tables(connection):
     with connection.cursor() as cursor:
-        if connection.vendor == "postgresql":
-            cursor.execute("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='skeleton' ORDER BY tablename")
-            return [row[0] for row in cursor.fetchall()]
-        return connection.introspection.table_names(cursor)
+        cursor.execute("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='skeleton' ORDER BY tablename")
+        return [row[0] for row in cursor.fetchall()]
 
 
 def _reconcile(model, lookup, physical, defaults, using):
@@ -45,14 +43,14 @@ def sync_table_catalog(*, using="default", apps_registry=None):
 
     registry = apps_registry or apps
     connection = connections[using]
-    if connection.vendor not in ("sqlite", "postgresql"):
-        raise ValueError("Catalog supports SQLite and PostgreSQL only.")
+    if connection.vendor != "postgresql":
+        raise ValueError("The table catalog requires PostgreSQL (skeleton.E025).")
     if not router.allow_migrate_model(using, TableDefinition):
         return {"tables": 0, "fields": 0}
     names = physical_tables(connection)
     if TableDefinition._meta.db_table not in names or FieldDefinition._meta.db_table not in names:
         return {"tables": 0, "fields": 0}
-    schema = "skeleton" if connection.vendor == "postgresql" else "main"
+    schema = "skeleton"
     specs = {spec.model._meta.db_table: spec for spec in all_specs()}
     from .retained_schema import load_retained_contracts
 

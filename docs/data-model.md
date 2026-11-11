@@ -113,6 +113,6 @@ Este é o registro histórico de uma alteração, não o próprio objeto alterad
 
 ## Nomes e exceções
 
-Um label como `example_notes.note` identifica o modelo no ORM e no registro de especificações em código; não garante o nome da tabela SQL. O nome físico efetivo vem de `_meta.db_table` e do catálogo. APIs representam UUIDs com hífens; SQLite armazena UUIDField como hexadecimal e PostgreSQL como tipo `uuid` nativo.
+Um label como `example_notes.note` identifica o modelo no ORM e no registro de especificações em código; não garante o nome da tabela SQL. O nome físico efetivo vem de `_meta.db_table` e do catálogo. APIs representam UUIDs com hífens; PostgreSQL armazena UUIDField como tipo `uuid` nativo.
 
 Tabelas técnicas de Django/allauth mantêm chaves primárias, campos e ciclo de vida oficiais. Elas guardam infraestrutura — por exemplo, sessão e confirmação de email —, não entidades próprias de negócio. Isso não viola o contrato de UUID das entidades **próprias**; as exceções são nominais em [catálogo](table-catalog.md#exceções-técnicas-nominais). Não converta estruturas de terceiros por migration improvisada.
