@@ -53,6 +53,24 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_s
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Operação do worker de jobs (#40, epic #77)
+
+Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1172 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_jobs_operations.py` | 9 passed |
+| Windows, com `fcntl`, `os.O_DIRECTORY` e `UnixStreamServer` substituídos só no processo do teste | os três testes de backend de `tests/unit/test_agent_worker_lifecycle.py` | 3 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` em `frontend/` | sem problemas, sem migrations pendentes, assets atualizados |
+
+Cobertura nova:
+- `tests/integration/test_jobs_operations.py`: a lista de `/platform/jobs/` mostra tipo, organização e código de erro e nunca o payload; filtro inválido é ignorado; anônimo vai ao login e quem não é da plataforma recebe 403 (GET e POST); GET na ação é 405 e POST sem CSRF é 403, sem mudar o job; reenviar zera as tentativas uma vez (o segundo envio com o `updated_at` antigo não muda nada, e o serviço levanta `ConcurrentUpdate`); uma mudança concorrente vence um reenvio desatualizado; descartar deixa `cancelled`/`discarded` e um job na fila não é acionável; sem autenticação recente a ação vai à reautenticação; a retenção, pelo job registrado executado pelo worker com a role runtime, apaga só `succeeded`/`cancelled` acima de 7 dias e `dead` acima de 30, nunca `queued`/`running`, e os heartbeats `stopped` antigos; `check_jobs` falha por atraso, por esgotados e sem worker vivo.
+- `tests/unit/test_agent_worker_lifecycle.py`: com um runner falso, o backend de diretório executa `drain` → `worker_stop` e `restart` → `worker_restart` (no release novo), e sem os hooks o comportamento antigo; o backend Compose gera o override do `worker`/`scheduler` com a imagem do release, sem trocar o comando, para os workers depois do web e os recria depois do web, e recusa `MIGRATION_DATABASE_URL` num worker; a configuração recusa `worker_stop` sem `worker_restart`, comando relativo e `worker_services` inválidos. Os testes de configuração só rodam em Linux/macOS (CI).
+- `tests/unit/test_deployment_journal.py::test_execution_stops_workers_before_migrations_and_restarts_them_after_cutover`: num plano aprovado, `drain-web` → `stop-worker` → `migrate` → `cutover` → `restart-web` → `start-worker` → health. Só roda em Linux/macOS (CI).
+
+**Não verificado:** os testes do agente que exigem `fcntl` nesta máquina (rodam no CI), `docker compose up` com os serviços `worker` e `scheduler`, as units systemd num host real, smoke de `/platform/jobs/` no navegador (o template é renderizado e conferido pelos testes de integração) e o PostgreSQL 16.15 do CI.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

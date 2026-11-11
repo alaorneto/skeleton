@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import instance_views, updates, views
+from . import instance_views, jobs_views, updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -25,6 +25,8 @@ urlpatterns = [
     path("catalog/<uuid:sysid>/", views.catalog_table, name="catalog-table"),
     path("catalog/fields/<uuid:sysid>/", views.catalog_field, name="catalog-field"),
     path("audit/", views.audit, name="audit"),
+    path("jobs/", jobs_views.jobs, name="jobs"),
+    path("jobs/<uuid:sysid>/", jobs_views.job_action, name="job-action"),
     path("apps/", views.app_list, name="apps"),
     path("apps/<str:app_label>/", views.app_detail, name="app"),
     path("apps/<str:app_label>/documentation/", views.app_documentation, name="app-documentation"),

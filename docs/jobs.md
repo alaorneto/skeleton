@@ -114,3 +114,30 @@ register_periodic("events.retention", "events.purge", every=timedelta(hours=6), 
 - Só a janela em curso é agendada: um agendador parado recupera no máximo uma janela, nunca um acúmulo.
 - Mudar o agendamento vale a partir da próxima janela calculada com a nova cadência.
 - Jobs periódicos rodam como sistema; o tipo precisa ter `scope` coerente com `per_organization` (check `skeleton.E021`).
+
+## Operar a fila: `/platform/jobs/`
+
+A administração da plataforma tem uma tela da fila (#40), com contagens por estado, atraso do job vencido mais antigo, workers vivos e a lista dos jobs filtrável por estado, fila e tipo. A tela mostra tipo, fila, organização, estado, tentativas, código e classe do erro e datas; **nunca o payload**.
+
+| Regra | Comportamento |
+|---|---|
+| Acesso | Anônimo vai ao login; quem não é administrador da plataforma recebe 403, como no resto de `/platform/` |
+| GET | Só lê. Nenhuma ação acontece por GET |
+| Reenviar | Só um job `dead`. Volta para `queued` com `attempts=0`, `run_after=agora` e erro limpo |
+| Descartar | Só um job `dead`. Fica `cancelled` com `last_error_code=discarded`, e a retenção o apaga depois |
+| Proteções | POST com CSRF, autenticação recente e o `updated_at` que a pessoa viu (CAS): um segundo envio ou uma mudança concorrente não reenvia de novo, e a tela avisa que o job mudou |
+| Registro | `job.resent` e `job.discarded` em `security_event`, com o UUID do job e a origem `platform:<usuário>` |
+
+As operações ficam em `skeleton.jobs.operations` (`resend_dead_job`, `discard_dead_job`, `queue_health`), e o probe `manage.py check_jobs` usa as mesmas contagens. Veja [deployment](deployment.md#worker-de-jobs-e-agendador) para o serviço do worker e a drenagem pelo agente.
+
+## Retenção
+
+O job periódico global `jobs.retention` roda a cada 6 horas e é o único caminho que apaga fisicamente linhas de `Job`:
+
+| Estado | Apagado depois de `finished_at` além de |
+|---|---|
+| `succeeded`, `cancelled` | `SKELETON_JOB_SUCCEEDED_RETENTION_DAYS` (padrão 7) |
+| `dead`, `failed` | `SKELETON_JOB_DEAD_RETENTION_DAYS` (padrão 30) |
+| `queued`, `running` | nunca, qualquer que seja a idade |
+
+Heartbeats de workers `stopped` há mais que a janela dos esgotados também são apagados. As duas chaves estão no catálogo da instância e podem ser editadas em `/platform/instance/`.
