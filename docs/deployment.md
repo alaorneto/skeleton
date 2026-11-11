@@ -334,6 +334,8 @@ Opcionalmente acrescente `"smoke_token_file": "/srv/skeleton/private/smoke.token
 
 ### Apps first-party
 
+**Feed da agenda:** o link de assinatura (`/me/apps/skeleton_calendar/feed/<token>.ics`) leva o token no caminho, porque clientes de calendário não enviam cabeçalhos. Configure o proxy para **não registrar** esse caminho (ou redigir o segmento depois de `feed/`), como faria com uma senha: quem lê o log lê a agenda até o token expirar ou ser revogado em `/profile/tokens/`. O Django não registra o caminho no log de requisições do núcleo além do status.
+
 As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo e não passam pelo agente nem por `.skapp`. O operador as instala por nome ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)):
 
 | Passo | O que fazer | Resultado |

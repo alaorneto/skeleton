@@ -253,3 +253,24 @@ def member_access(request, organization_id):
         request, "Acesso básico concedido ao papel member." if granted else "O papel member já tinha acesso."
     )
     return redirect("skeleton_calendar:home", organization_id=organization_id)
+
+
+def calendar_ics(request, organization_id, sysid):
+    """Download one calendar as .ics (session), masked like the pages."""
+    from django.http import HttpResponse
+
+    from .ics import calendar_bytes, calendar_components
+    from .policies import readable_calendars, readable_events
+
+    calendar = readable_calendars(request.user).filter(pk=sysid).first()
+    if calendar is None:
+        raise Http404
+    busy_only = request.GET.get("busy") == "1"
+    body = calendar_bytes(
+        calendar.name,
+        calendar_components(request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only),
+    )
+    response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="agenda-{calendar.pk}.ics"'
+    response["Cache-Control"] = "no-store"
+    return response

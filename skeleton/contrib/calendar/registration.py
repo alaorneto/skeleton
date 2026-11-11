@@ -8,3 +8,6 @@ def register_calendar_extensions() -> None:
     from .reminders import register_reminders
 
     register_reminders()
+    from .feed import register_feed_scope
+
+    register_feed_scope()

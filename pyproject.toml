@@ -21,6 +21,8 @@ dependencies = [
     "packaging>=24.2,<27",
     # Calendar recurrence (skeleton/contrib/calendar, #70).
     "python-dateutil>=2.9,<3",
+    # Calendar export and feed (skeleton/contrib/calendar, #76).
+    "icalendar>=6.1,<8",
 ]
 
 [project.optional-dependencies]

@@ -3,6 +3,7 @@
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">Agenda</p><h1>Minha agenda</h1><p class="page-description">Próximos 14 dias em todas as suas organizações, no fuso {{ zone }}. Cada organização mostra só o que você pode ler nela.</p></div>
 </div>
+<p class="mb-4"><a href="{% url 'skeleton_calendar_me:feed-token' %}">Assinar a agenda num cliente de calendário</a></p>
 {% if organizations %}
 <nav class="mb-4" aria-label="Novo evento por organização"><p class="text-sm text-body-subtle">Novo evento em:</p><ul class="mt-1 flex flex-wrap gap-2">{% for organization in organizations %}<li><a class="btn btn-secondary" href="{{ organization.new_url }}">{{ organization.name }}</a></li>{% endfor %}</ul></nav>
 {% endif %}

@@ -50,6 +50,11 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 ### Minha agenda (#75)
 `/me/apps/skeleton_calendar/` (rota global da pessoa, `runtime.user_urls`) lista os próximos 14 dias de todas as organizações da pessoa onde a agenda está ativa, cada uma lida no próprio contexto somente leitura (`for_each_organization`). Uma TablePermission revogada, um vínculo inativo ou a app desativada tiram os itens daquela organização na requisição seguinte. A página só lê; "Novo evento" pede a organização e leva ao formulário dela.
 
+### ICS e feed (#76)
+- `calendars/<id>.ics` baixa um calendário legível (sessão) em iCalendar (`icalendar`): um VEVENT por mestre, com RRULE, RDATE e EXDATE, e um por substituição, com RECURRENCE-ID e o mesmo UID. `?busy=1` exporta só blocos ocupados.
+- O feed `/me/apps/skeleton_calendar/feed/<token>.ics` usa um token de API `kind=feed` com o escopo `calendar.feed`, criado em `/me/apps/skeleton_calendar/feed-token/` e revogável em `/profile/tokens/`. Token desconhecido, expirado, revogado ou acima do limite de taxa responde 404. Cada pedido relê todas as organizações com a autorização atual (`for_each_organization`). Um token de feed não autentica `/api/v1/`.
+- O que é bloco ocupado para a pessoa (privado, calendário pessoal de outra pessoa sem delegação) sai só com horário, `SUMMARY:Ocupado` e `CLASS:PRIVATE`.
+
 ## Acceptance
 - Um calendário pessoal padrão por membro, inclusive com criação concorrente.
 - Mudar a visibilidade de calendário pessoal responde 400.
@@ -66,3 +71,4 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - Cada lembrete dispara uma vez por ocorrência, mesmo com o job reexecutado; participante removido não recebe; ocorrência cancelada não gera lembrete.
 - Parâmetro de data ou visão inválido responde 400; evento não legível nunca é renderizado; as telas funcionam sem JavaScript.
 - Em Minha agenda, TablePermission revogada em A some com os itens de A na próxima requisição; não há itens de organizações com vínculo inativo.
+- Token revogado ou expirado responde 404; o feed respeita a autorização atual; eventos privados aparecem só como ocupado; a saída passa por um parser RFC 5545 com RRULE, EXDATE e RECURRENCE-ID.
