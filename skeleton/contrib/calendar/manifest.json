@@ -14,6 +14,7 @@
   "conflicts": {},
   "runtime": {
     "urls": "skeleton.contrib.calendar.urls",
+    "user_urls": "skeleton.contrib.calendar.user_urls",
     "default_enabled": false,
     "configuration_fields": [],
     "navigation": [{"label": "Agenda", "url_name": "skeleton_calendar:home", "table_key": "skeleton_calendar.calendar", "action": "read"}],

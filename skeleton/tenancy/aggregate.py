@@ -11,7 +11,8 @@ once per organization in a **full context of its own**:
 - each organization runs in its own ``request_context`` + ``tenant_context`` transaction, so
   TablePermission, record visibility, app activation and RLS apply exactly as in a normal
   request; on PostgreSQL the transaction is ``READ ONLY``, so a write inside ``fn`` fails;
-- an organization whose membership became inactive, or where ``app_label`` is not active, is
+- an organization whose membership became inactive, where ``app_label`` is not active, or where
+  ``fn`` is denied (``PermissionDenied``, or ``Forbidden``/``Unavailable`` of a service API), is
   skipped silently;
 - ``fn`` must return materialized values (no queryset, iterator or generator), because nothing
   may be read after its transaction ends.
@@ -32,6 +33,7 @@ from django.db import connections
 from django.db.models.query import QuerySet
 
 from skeleton.common.exceptions import ApplicationUnavailable
+from skeleton.service_api.errors import Forbidden, Unavailable
 
 from .context import InvalidContext, in_context, request_context, tenant_context
 
@@ -115,7 +117,7 @@ def for_each_organization(
 
                         require_application_enabled(app_label)
                     value = _materialized(fn(organization_id))
-        except (PermissionDenied, ApplicationUnavailable):
-            continue  # Membership inactive since the listing, or the app is off here: skip it.
+        except (PermissionDenied, ApplicationUnavailable, Forbidden, Unavailable):
+            continue  # Membership inactive since the listing, the app is off, or access is denied here.
         results.append(OrganizationResult(organization_id, name, value))
     return results

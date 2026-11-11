@@ -47,6 +47,9 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 ### Telas (#71)
 `/o/<org>/apps/skeleton_calendar/` mostra mês, semana, dia ou lista (30 dias) em grade CSS, sem JavaScript, com `?view=` e `?date=` (AAAA-MM-DD) validados: valor desconhecido ou data inválida respondem 400. Os horários aparecem no fuso do perfil. Tudo passa pelo `CalendarService`, então um evento ilegível nunca é renderizado e um privado aparece como "Ocupado". O formulário de evento (`events/new/`) aceita dia inteiro ou início e fim, privado, e os presets de repetição diária, semanal, mensal e anual com quantidade de vezes. A navegação tem landmarks (`nav` com rótulo, títulos por dia, `time datetime`).
 
+### Minha agenda (#75)
+`/me/apps/skeleton_calendar/` (rota global da pessoa, `runtime.user_urls`) lista os próximos 14 dias de todas as organizações da pessoa onde a agenda está ativa, cada uma lida no próprio contexto somente leitura (`for_each_organization`). Uma TablePermission revogada, um vínculo inativo ou a app desativada tiram os itens daquela organização na requisição seguinte. A página só lê; "Novo evento" pede a organização e leva ao formulário dela.
+
 ## Acceptance
 - Um calendário pessoal padrão por membro, inclusive com criação concorrente.
 - Mudar a visibilidade de calendário pessoal responde 400.
@@ -62,3 +65,4 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - Membro de outra organização ou conta de serviço como participante responde 400; o participante não edita; RSVP de outra pessoa é 404; remover o participante revoga a leitura.
 - Cada lembrete dispara uma vez por ocorrência, mesmo com o job reexecutado; participante removido não recebe; ocorrência cancelada não gera lembrete.
 - Parâmetro de data ou visão inválido responde 400; evento não legível nunca é renderizado; as telas funcionam sem JavaScript.
+- Em Minha agenda, TablePermission revogada em A some com os itens de A na próxima requisição; não há itens de organizações com vínculo inativo.
