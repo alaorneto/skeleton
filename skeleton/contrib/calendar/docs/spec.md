@@ -44,6 +44,9 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - A chave `reminder:<evento>:<ocorrência>:<minutos>` faz cada lembrete disparar uma única vez por ocorrência, mesmo com o job reexecutado.
 - Evento cancelado, ocorrência excluída (EXDATE) ou substituição cancelada não geram lembrete; um participante removido não recebe.
 
+### Telas (#71)
+`/o/<org>/apps/skeleton_calendar/` mostra mês, semana, dia ou lista (30 dias) em grade CSS, sem JavaScript, com `?view=` e `?date=` (AAAA-MM-DD) validados: valor desconhecido ou data inválida respondem 400. Os horários aparecem no fuso do perfil. Tudo passa pelo `CalendarService`, então um evento ilegível nunca é renderizado e um privado aparece como "Ocupado". O formulário de evento (`events/new/`) aceita dia inteiro ou início e fim, privado, e os presets de repetição diária, semanal, mensal e anual com quantidade de vezes. A navegação tem landmarks (`nav` com rótulo, títulos por dia, `time datetime`).
+
 ## Acceptance
 - Um calendário pessoal padrão por membro, inclusive com criação concorrente.
 - Mudar a visibilidade de calendário pessoal responde 400.
@@ -58,3 +61,4 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - "Esta e as seguintes" divide a série sem perder IDs.
 - Membro de outra organização ou conta de serviço como participante responde 400; o participante não edita; RSVP de outra pessoa é 404; remover o participante revoga a leitura.
 - Cada lembrete dispara uma vez por ocorrência, mesmo com o job reexecutado; participante removido não recebe; ocorrência cancelada não gera lembrete.
+- Parâmetro de data ou visão inválido responde 400; evento não legível nunca é renderizado; as telas funcionam sem JavaScript.
