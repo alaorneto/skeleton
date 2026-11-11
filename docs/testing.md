@@ -130,6 +130,15 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - `<html lang>` dinâmico.
 - Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
 
+**#172, templates traduzíveis:**
+
+- 93 templates convertidos por um script que usa o lexer do Django. O texto entre tags e os atributos visíveis viraram `{% translate %}`, e os literais de rótulo nas tags viraram `_("…")`.
+- Ficaram de fora os templates `.en.` de email (eles já são a tradução) e os elementos `script`, `style`, `code` e `pre`.
+- Todos os templates de `skeleton/` e `examples/` compilam: 0 erros.
+- `tests/accounts`, `tests/unit` e os testes de integração que renderizam telas e emails: 816 passed, 111 skipped. São navegação, superfícies recuperadas, apresentação de registros, `/platform/`, email, resumo, configurações e marca, administração de apps, webhooks, tokens, anexos, fronteiras HTTP e setup.
+- A suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- A cobertura sem texto fora do gettext é verificada pela pseudolocalização do #174.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

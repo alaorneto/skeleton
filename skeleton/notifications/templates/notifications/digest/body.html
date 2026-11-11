@@ -1,4 +1,4 @@
-<p>Notificações não lidas desde o último resumo:</p>
+{% load i18n %}<p>{% translate "Notificações não lidas desde o último resumo:" %}</p>
 <ul>{% for entry in entries %}<li><a href="{{ entry.open_url }}">{{ entry.label }}</a>{% if entry.count > 1 %} ({{ entry.count }}){% endif %}{% for key, value in entry.snapshot.items %} · {{ value }}{% endfor %}</li>{% endfor %}</ul>
-<p><a href="{{ inbox_url }}">Caixa de notificações</a></p>
-<p style="color:#6b7280;font-size:12px">Você recebe este resumo pelas suas <a href="{{ preferences_url }}">preferências de notificação</a>.</p>
+<p><a href="{{ inbox_url }}">{% translate "Caixa de notificações" %}</a></p>
+<p style="color:#6b7280;font-size:12px">{% translate "Você recebe este resumo pelas suas" %} <a href="{{ preferences_url }}">{% translate "preferências de notificação" %}</a>.</p>

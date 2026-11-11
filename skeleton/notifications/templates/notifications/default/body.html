@@ -1,4 +1,4 @@
-<p><strong>{{ label }}</strong></p>
+{% load i18n %}<p><strong>{{ label }}</strong></p>
 {% for key, value in snapshot.items %}<p>{{ value }}</p>{% endfor %}
-<p><a href="{{ open_url }}">Abrir</a> · recebido em {{ created_at|date:"d/m/Y H:i" }}</p>
-<p style="color:#6b7280;font-size:12px">Você recebe este email pelas suas <a href="{{ preferences_url }}">preferências de notificação</a>.</p>
+<p><a href="{{ open_url }}">{% translate "Abrir" %}</a> · {% translate "recebido em" %} {{ created_at|date:"d/m/Y H:i" }}</p>
+<p style="color:#6b7280;font-size:12px">{% translate "Você recebe este email pelas suas" %} <a href="{{ preferences_url }}">{% translate "preferências de notificação" %}</a>.</p>

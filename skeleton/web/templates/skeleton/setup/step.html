@@ -1,12 +1,12 @@
 {% extends "skeleton/setup/base.html" %}
-{% block content %}
-{% if step == "schema" %}<p class="mt-2 text-sm/6 text-body">A credencial de migração (dona do schema <code>skeleton</code>) é usada só nesta requisição para rodar <code>migrate</code>, <code>sync_table_catalog</code> e o check do schema. Ela não é gravada, não vai para o log nem para a sessão.</p>{% endif %}
-{% if step == "admin" %}<p class="mt-2 text-sm/6 text-body">Cria o administrador da plataforma e a primeira organização, com a role runtime.</p>{% endif %}
-{% if problems %}<div class="error-summary mt-4" role="alert"><h2>O schema não passou no check</h2><ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>{% endif %}
+{% load i18n %}{% block content %}
+{% if step == "schema" %}<p class="mt-2 text-sm/6 text-body">{% translate "A credencial de migração (dona do schema" %} <code>skeleton</code>) {% translate "é usada só nesta requisição para rodar" %} <code>migrate</code>, <code>sync_table_catalog</code> {% translate "e o check do schema. Ela não é gravada, não vai para o log nem para a sessão." %}</p>{% endif %}
+{% if step == "admin" %}<p class="mt-2 text-sm/6 text-body">{% translate "Cria o administrador da plataforma e a primeira organização, com a role runtime." %}</p>{% endif %}
+{% if problems %}<div class="error-summary mt-4" role="alert"><h2>{% translate "O schema não passou no check" %}</h2><ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul></div>{% endif %}
 <form method="post" class="mt-6 record-form">
 {% csrf_token %}
 {% include "skeleton/web/components/form-errors.html" %}
 {% include "skeleton/web/components/form-fields.html" %}
-<div class="form-actions"><button type="submit" class="btn btn-primary">Validar e salvar</button></div>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Validar e salvar" %}</button></div>
 </form>
 {% endblock %}

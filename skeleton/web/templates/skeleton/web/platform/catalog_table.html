@@ -1,38 +1,38 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}{{ table.label }}{% endblock %}
+{% load i18n %}{% block page_title %}{{ table.label }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
-    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:catalog' %}">Catálogo de tabelas</a></li><li><span aria-current="page">{{ table.label }}</span></li></ol></nav>
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:catalog' %}">{% translate "Catálogo de tabelas" %}</a></li><li><span aria-current="page">{{ table.label }}</span></li></ol></nav>
     <h1>{{ table.label }}</h1>
     <p class="page-description"><code class="uuid">{{ table.database_alias }} / {{ table.schema_name }} / {{ table.db_table }}</code></p>
   </div>
 </div>
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
   <section class="card" aria-labelledby="table-labels">
-    <h2 id="table-labels">Rótulo e descrição</h2>
+    <h2 id="table-labels">{% translate "Rótulo e descrição" %}</h2>
     <form method="post" class="mt-5">
       {% csrf_token %}
       {% include "skeleton/web/components/form-errors.html" %}
       {% include "skeleton/web/components/form-fields.html" %}
-      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button></div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div>
     </form>
   </section>
   <section class="card" aria-labelledby="table-meta">
-    <h2 id="table-meta" class="mb-4">Estrutura</h2>
+    <h2 id="table-meta" class="mb-4">{% translate "Estrutura" %}</h2>
     <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>Modelo</dt><dd>{{ table.model_label|default_if_none:"—" }}</dd></div>
-      <div><dt>Origem / escopo</dt><dd>{{ table.origin }} / {{ table.scope }}</dd></div>
-      <div><dt>Classe base</dt><dd>{{ table.base_class|default:"—" }}</dd></div>
-      <div><dt>Auditoria</dt><dd>{{ table.audit_mode }}</dd></div>
-      <div><dt>UUID gerenciado · exclusão lógica · API</dt><dd>{{ table.uuid_managed|yesno:"Sim,Não" }} · {{ table.soft_delete|yesno:"Sim,Não" }} · {{ table.api_exposed|yesno:"Sim,Não" }}</dd></div>
-      <div><dt>Disponível</dt><dd>{{ table.available|yesno:"Sim,Não" }}</dd></div>
+      <div><dt>{% translate "Modelo" %}</dt><dd>{{ table.model_label|default_if_none:"—" }}</dd></div>
+      <div><dt>{% translate "Origem / escopo" %}</dt><dd>{{ table.origin }} / {{ table.scope }}</dd></div>
+      <div><dt>{% translate "Classe base" %}</dt><dd>{{ table.base_class|default:"—" }}</dd></div>
+      <div><dt>{% translate "Auditoria" %}</dt><dd>{{ table.audit_mode }}</dd></div>
+      <div><dt>{% translate "UUID gerenciado · exclusão lógica · API" %}</dt><dd>{{ table.uuid_managed|yesno:"Sim,Não" }} · {{ table.soft_delete|yesno:"Sim,Não" }} · {{ table.api_exposed|yesno:"Sim,Não" }}</dd></div>
+      <div><dt>{% translate "Disponível" %}</dt><dd>{{ table.available|yesno:"Sim,Não" }}</dd></div>
     </dl>
   </section>
 </div>
-<h2 class="section-heading mt-10">Campos</h2>
-<div class="table-scroll"><table><thead><tr><th scope="col">Campo</th><th scope="col">Rótulo</th><th scope="col">Tipo</th><th scope="col">Atributos</th></tr></thead><tbody>
-{% for field in fields %}<tr><td><a href="{% url 'platform:catalog-field' field.pk %}">{{ field.name }}</a><br><span class="uuid">{{ field.column }}</span></td><td>{{ field.label }}{% if field.description %}<br><span class="text-body-subtle">{{ field.description }}</span>{% endif %}</td><td>{{ field.type_name }}{% if field.relation_target %} → {{ field.relation_target }}{% endif %}</td><td><span class="flex flex-wrap gap-1">{% if field.primary_key %}<span class="badge badge-brand">PK</span>{% endif %}{% if field.nullable %}<span class="badge">nulo</span>{% endif %}{% if field.sensitive %}<span class="badge badge-warning">sensível</span>{% endif %}{% if not field.available %}<span class="badge">indisponível</span>{% endif %}</span></td></tr>
-{% empty %}<tr><td colspan="4" class="empty-state">Nenhum campo catalogado.</td></tr>{% endfor %}
+<h2 class="section-heading mt-10">{% translate "Campos" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Campo" %}</th><th scope="col">{% translate "Rótulo" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Atributos" %}</th></tr></thead><tbody>
+{% for field in fields %}<tr><td><a href="{% url 'platform:catalog-field' field.pk %}">{{ field.name }}</a><br><span class="uuid">{{ field.column }}</span></td><td>{{ field.label }}{% if field.description %}<br><span class="text-body-subtle">{{ field.description }}</span>{% endif %}</td><td>{{ field.type_name }}{% if field.relation_target %} → {{ field.relation_target }}{% endif %}</td><td><span class="flex flex-wrap gap-1">{% if field.primary_key %}<span class="badge badge-brand">{% translate "PK" %}</span>{% endif %}{% if field.nullable %}<span class="badge">{% translate "nulo" %}</span>{% endif %}{% if field.sensitive %}<span class="badge badge-warning">{% translate "sensível" %}</span>{% endif %}{% if not field.available %}<span class="badge">{% translate "indisponível" %}</span>{% endif %}</span></td></tr>
+{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum campo catalogado." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% endblock %}

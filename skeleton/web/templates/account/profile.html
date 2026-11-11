@@ -1,15 +1,15 @@
 {% extends "account/base_manage.html" %}
-{% load crud_forms %}
-{% block head_title %}Perfil{% endblock %}
+{% load crud_forms i18n %}
+{% block head_title %}{% translate "Perfil" %}{% endblock %}
 {% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
 {% block content %}
-<h1>Perfil</h1>
-<p class="mt-2 text-sm/6 text-body">Nome e preferências usados em todas as organizações.</p>
+<h1>{% translate "Perfil" %}</h1>
+<p class="mt-2 text-sm/6 text-body">{% translate "Nome e preferências usados em todas as organizações." %}</p>
 <form method="post" class="record-form account-form mt-6" data-record-form>
 {% csrf_token %}
 {% include 'skeleton/web/components/form-errors.html' %}
 {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
 {% crud_form_fields form %}
-<div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button></div>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div>
 </form>
 {% endblock %}

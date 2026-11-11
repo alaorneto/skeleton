@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% block title %}{% block head_title %}Conta{% endblock %} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{% block head_title %}{% translate "Conta" %}{% endblock %} · Skeleton{% endblock %}
 {% block main %}
 <main id="conteudo" tabindex="-1" class="entrance relative isolate flex min-h-[calc(100dvh-10rem)] w-full min-w-0 justify-center px-4 py-10 focus:outline-none sm:items-center sm:py-16">
   <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(60%_100%_at_50%_0%,color-mix(in_oklab,var(--color-brand)_14%,transparent),transparent)]"></div>
