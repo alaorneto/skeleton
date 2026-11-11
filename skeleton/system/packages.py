@@ -267,12 +267,12 @@ def _validate_manifest(value):
         )
         if m["manifest_version"] == 2:
             runtime_fields += ("administration", "model_ui", "service_api")
+            if not _core_floor_at_least(m["compatibility"]["skeleton"], MANIFEST_V2_CORE_MINIMUM):
+                _fail("Manifest v2 requires a core minimum of " + MANIFEST_V2_CORE_MINIMUM + ".")
         if bundled:
             if m["manifest_version"] != 2:
                 _fail("First-party apps use manifest v2.")
             runtime_fields += ("user_urls",)
-            if not _core_floor_at_least(m["compatibility"]["skeleton"], MANIFEST_V2_CORE_MINIMUM):
-                _fail("Manifest v2 requires a core minimum of " + MANIFEST_V2_CORE_MINIMUM + ".")
         r = _object(
             m["runtime"],
             runtime_fields,
