@@ -89,8 +89,14 @@ def role_capabilities(code: str, *, is_builtin: bool) -> frozenset[str]:
 
 
 def capabilities_for(user: User) -> frozenset[str]:
-    """Effective capabilities in the current tenant, recomputed on every call (no cache)."""
-    from .policies import effective_roles
+    """Effective capabilities in the current tenant, recomputed on every call (no cache).
+
+    A request authenticated by an API token has none (#46): tokens never administer.
+    """
+    from .policies import credential_scopes, effective_roles
+
+    if credential_scopes() is not None:
+        return frozenset()
 
     try:
         rows = effective_roles(user).filter(is_builtin=True).values_list("code", flat=True)

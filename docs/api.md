@@ -1,6 +1,6 @@
-# API REST de sessão
+# API REST
 
-Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. `SessionAuthentication` e `IsAuthenticated` são os únicos mecanismos: não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
+Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML, por sessão ou por [token de API](#tokens-de-api). Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. Os mecanismos são a sessão (`SessionAuthentication`) e, nas views que os aceitam, [tokens de API](#autenticação-por-token); não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
 
 Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
 
@@ -116,3 +116,84 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 ```
 
 `ETAG` inclui aspas do header atual. Releia após cada mutação antes de DELETE/restore. Em HTTPS use URL/origin/referer HTTPS exatos. Cookies/recovery codes não pertencem ao histórico de shell nem arquivos compartilhados. API não oferece export global de Users, hard delete ou bypass de tenant.
+
+## Tokens de API
+
+Além da sessão, a API aceita tokens de API (epic #79). Esta seção descreve o token em si (#45); a autenticação nas requisições está em [Autenticação por token](#autenticação-por-token).
+
+| Item | Regra |
+|---|---|
+| Formato | `skt_<prefixo>_<segredo>`: prefixo de 8 caracteres hexadecimais (único, localiza a linha) e segredo de 43 caracteres (`secrets.token_urlsafe(32)`, 256 bits) |
+| Armazenamento | `sk_integrations.ApiToken` (`SystemRecord` global) guarda só o prefixo e o SHA-256 do segredo (`digest`, campo sensível, redigido na auditoria). O texto do token aparece **uma vez**, na emissão, e não pode ser recuperado |
+| Tipos | `personal` (da própria pessoa, vale em todas as organizações dela), `service` (de uma conta de serviço, preso à organização da conta) e `feed` (só escopos de feed, como a assinatura da agenda) |
+| Validade | Obrigatória e no futuro, até `SKELETON_API_TOKEN_MAX_DAYS` dias (padrão 365, no catálogo da instância). Validade ausente, passada ou acima do limite é recusada (400) |
+| Escopos | `<table_key>:<ação>` para uma tabela exposta no gateway (`expose_api`) e `read`, `create`, `update`, `delete` ou `restore`; ou um escopo nomeado registrado em código (`register_token_scope`). Escopo desconhecido, de tabela não exposta ou de feed num token comum é recusado (400). O escopo só **restringe** o papel da pessoa: nunca concede permissão que ela não tenha |
+| Emissão | Pela própria pessoa autenticada (pessoal ou feed) ou por quem tem `integrations.manage` na organização da conta de serviço. Com `SKELETON_REQUIRE_ADMIN_MFA`, exige MFA cadastrada. Contas de serviço não emitem tokens pessoais, e um token nunca emite outro token |
+| Revogação | `revoked_at` e soft delete, com `If-Match`/revisão. Quem não pode gerir o token recebe o mesmo "inexistente" de um token que não existe |
+| Invalidação | Um token deixa de valer na próxima requisição quando expira, é revogado, a pessoa é desativada ou excluída, ou o `auth_version` dela muda (troca de senha, desativação, revogação de sessões) |
+
+Os serviços ficam em `skeleton.integrations.tokens.services`: `issue_personal_token`, `issue_service_token`, `revoke_token`, `personal_tokens`, `service_tokens` e `verify_token`. Erros de validação são `ValidationError` por campo (`scopes`, `expires_at`, `name`); a falta de capacidade é `PermissionDenied`.
+
+## Autenticação por token
+
+Em `/api/v1/`, `Authorization: Bearer skt_...` autentica a requisição como a pessoa (ou conta de serviço) do token (#46). As rotas HTML ignoram o cabeçalho.
+
+| Situação | Resposta |
+|---|---|
+| Token válido numa view que aceita o método | A requisição roda como o usuário do token, **sem CSRF**; o contexto guarda os escopos, e o `skeleton.source` (GUC e auditoria) é `http:token:<prefixo>` |
+| Sessão e Bearer na mesma requisição | 400 `ambiguous_credentials` |
+| Token malformado, desconhecido, expirado, revogado, de usuário inativo, com `auth_version` mudado ou de feed (`kind=feed`, que só abre as views de feed) | 401 `invalid_token`, com `WWW-Authenticate: Bearer realm="api", error="invalid_token"`, e `security_event("api_token.rejected")` sem o token |
+| View sem o método em `token_methods` | 403 `token_not_allowed` |
+| Escopo ausente para a tabela e ação | 403, mesmo que o papel permita |
+| Token de conta de serviço (preso à organização) na URL de outra organização | 404 |
+| Pessoa sem vínculo na organização da URL | 404, como para a sessão |
+
+Views que aceitam token, com os métodos:
+
+| Recurso | Métodos | Escopo |
+|---|---|---|
+| `me/` | GET (nunca PATCH) | nenhum |
+| `organizations/`, `o/<org>/membership/`, `o/<org>/catalog/` | GET | nenhum |
+| `o/<org>/tables/<tabela>/records/`, `<id>/` | GET, POST, PATCH, DELETE | `<tabela>:read`, `create`, `update`, `delete` |
+| `.../records/<id>/restore/` | POST | `<tabela>:restore` |
+| `o/<org>/tables/<tabela>/references/<campo>/` | GET | `read` da tabela referenciada |
+| `.../records/<id>/attachments/` | GET, POST | `files:read` ou `files:write`, além do `read`/`update` do registro que o serviço já exige |
+| `.../attachments/<id>/`, `.../restore/` | DELETE, POST | `files:write` |
+
+Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de apps, webhooks, auditoria, saída da organização e a gestão de tokens) só aceita sessão. Uma view de app que estende `SessionAPI` também só aceita token se declarar `token_methods`.
+
+```sh
+# TOKEN vem da tela de tokens e fica só no ambiente local; não o coloque em histórico ou log.
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
+curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'   -d '{"code":"n1","title":"Nota","body":"texto"}' "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
+```
+
+## Gestão de tokens
+
+A gestão de tokens (#47) só aceita sessão: um token não emite, lista nem revoga tokens (403 `token_not_allowed`).
+
+| Interface | Quem | O que faz |
+|---|---|---|
+| `/profile/tokens/` | A própria pessoa | Lista os tokens pessoais e de feed dela (prefixo, nome, escopos, validade), cria um token com nome, escopos e validade em dias e revoga. Contas de serviço não têm esta página |
+| `/o/<org>/integrations/service-accounts/` e `<conta>/` | `integrations.manage` (404 para os demais) | Cria e desativa contas de serviço, lista e emite os tokens de cada uma e os revoga |
+| `GET`, `POST /api/v1/me/tokens/`; `DELETE /api/v1/me/tokens/<id>/` | A própria pessoa | Mesmo que a página. `POST` recebe `name`, `scopes` e `expires_at` (ISO 8601 com fuso) |
+| `GET`, `POST /api/v1/o/<org>/service-accounts/`; `DELETE .../<conta>/` | `integrations.manage` | Lista e cria contas (`{"name": ...}`); `DELETE` desativa a conta |
+| `GET`, `POST .../service-accounts/<conta>/tokens/`; `DELETE .../tokens/<id>/` | `integrations.manage` | Tokens da conta |
+
+- Criar exige autenticação recente (`reauthentication_required`, 403, na API; a página pede a reautenticação) e, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA cadastrada (`mfa_required`).
+- A resposta da criação (página ou `201`) é a única que traz o texto do token, com `Cache-Control: no-store`. As listas e o resto da API nunca trazem o segredo nem o digest.
+- Revogar exige `If-Match` com a revisão (`428` sem ele, `412` desatualizado). Um token de outra pessoa ou de outra organização responde 404, como um inexistente.
+- Desativar a conta de serviço invalida todos os tokens dela na hora (`auth_version`).
+
+## Limites e registro de uso dos tokens
+
+Os limites (#48) usam o cache compartilhado (`skeleton.common.ratelimit`, janela fixa de 60 s). Em produção o cache é Redis; com `DEBUG=False` e cache local, `manage.py check --deploy` avisa (`skeleton.W029`), porque cada worker contaria sozinho.
+
+| Limite | Padrão | Ao passar |
+|---|---|---|
+| Requisições por token (`SKELETON_API_TOKEN_RATE_PER_MINUTE`) | 600 por minuto | 429 `rate_limited` com `Retry-After`, antes da view: nada é gravado |
+| Falhas de autenticação por token, por IP (`SKELETON_API_TOKEN_FAILURES_PER_MINUTE`) | 20 por minuto | 429 com `Retry-After` para qualquer Bearer desse IP, sem consultar o banco (força bruta de prefixos e segredos) |
+
+O IP vem da mesma topologia de proxies do allauth (`DJANGO_TRUSTED_PROXY_COUNT` ou `DJANGO_TRUSTED_CLIENT_IP_HEADER`). Se o cache cair, as requisições passam: o limitador freia abuso e não é a autorização. Cada 429 gera `security_event("api_token.rate_limited")`.
+
+O último uso de cada token fica em `sk_integrations.ApiTokenActivity`, uma tabela operacional: gravada no máximo uma vez a cada 5 minutos por token (marcador no cache e janela no banco), sem revisão e **sem `AuditEvent`**. As listas de tokens e a API mostram `last_used_at`. Não há, por ora, limite geral da API por usuário de sessão.

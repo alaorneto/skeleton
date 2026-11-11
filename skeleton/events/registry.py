@@ -23,11 +23,16 @@ class EventType:
 
 @dataclass(frozen=True)
 class Consumer:
-    """A reaction to events; ``handler(envelope)`` re-authorizes whatever it reads."""
+    """A reaction to events; ``handler(envelope)`` re-authorizes whatever it reads.
+
+    ``accepts`` narrows a ``"*"`` consumer to the event types it reacts to, so no delivery
+    job is enqueued for the others (the webhook fan-out takes only ``webhook=True`` types).
+    """
 
     event_code: str
     code: str
     handler: Callable[..., Any]
+    accepts: Callable[[EventType], bool] | None = None
 
 
 _types: dict[str, EventType] = {}
@@ -52,9 +57,11 @@ def all_event_types() -> tuple[EventType, ...]:
     return tuple(_types[code] for code in sorted(_types))
 
 
-def register_consumer(event_code: str, code: str, handler: Callable[..., Any]) -> Consumer:
+def register_consumer(
+    event_code: str, code: str, handler: Callable[..., Any], *, accepts: Callable[[EventType], bool] | None = None
+) -> Consumer:
     """Subscribe ``handler`` to one event code or to ``"*"``; one delivery job per event and consumer."""
-    consumer = Consumer(event_code, code, handler)
+    consumer = Consumer(event_code, code, handler, accepts)
     existing = _consumers.get(code)
     if existing is not None and existing != consumer:
         _duplicates.append(f"consumer {code}")
@@ -68,8 +75,15 @@ def get_consumer(code: str) -> Consumer:
 
 
 def consumers_for(event_code: str) -> tuple[Consumer, ...]:
+    event_type = _types.get(event_code)
     return tuple(
-        _consumers[code] for code in sorted(_consumers) if _consumers[code].event_code in (event_code, WILDCARD)
+        consumer
+        for consumer in (_consumers[code] for code in sorted(_consumers))
+        if consumer.event_code == event_code
+        or (
+            consumer.event_code == WILDCARD
+            and (consumer.accepts is None or (event_type is not None and consumer.accepts(event_type)))
+        )
     )
 
 

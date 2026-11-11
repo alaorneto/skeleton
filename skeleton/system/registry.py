@@ -234,6 +234,18 @@ def register_core_specs():
             "organization",
             ("secret_ciphertext", "previous_secret_ciphertext"),
         ),
+        "sk_integrations.apitoken": (
+            "Tokens de API",
+            "Credenciais Bearer de /api/v1/ com prefixo, escopos e validade; só o digest do segredo é guardado.",
+            "global",
+            ("digest",),
+        ),
+        "sk_integrations.apitokenactivity": (
+            "Uso de tokens de API",
+            "Último uso de cada token, gravado no máximo a cada 5 minutos; operacional, sem auditoria.",
+            "global",
+            (),
+        ),
         "sk_integrations.webhookdelivery": (
             "Entregas de webhook",
             "Corpo fixo com identificadores, tentativas e último resultado de cada evento por endpoint.",
@@ -259,9 +271,16 @@ def register_core_specs():
             (),
         ),
     }
+    # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
+    read_fields = {"sk_tenancy.membership": ("user",), "sk_system.appinstallation": ("app_label",)}
     for key, (label, description, scope, sensitive) in definitions.items():
         register(
             TableSpec(
-                model=apps.get_model(key), label=label, description=description, scope=scope, sensitive_fields=sensitive
+                model=apps.get_model(key),
+                label=label,
+                description=description,
+                scope=scope,
+                read_fields=read_fields.get(key, ()),
+                sensitive_fields=sensitive,
             )
         )

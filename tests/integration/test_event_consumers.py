@@ -8,6 +8,7 @@ from django.utils import timezone
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.events import registry
 from skeleton.events.consumers import consume
+from skeleton.events.core_events import CORE_EVENT_TYPES
 from skeleton.events.models import DomainEvent
 from skeleton.events.registry import EventType, event_problems, register_consumer, register_event_type
 from skeleton.events.retention import purge_expired_events
@@ -42,12 +43,13 @@ def declarations(monkeypatch):
     seen["stable"].clear()
     seen["flaky"].clear()
     seen["envelopes"].clear()
-    monkeypatch.setattr(registry, "_types", {})
+    monkeypatch.setattr(registry, "_types", dict(registry._types))  # Keeps the core lifecycle types (#43).
     monkeypatch.setattr(registry, "_consumers", {})
     monkeypatch.setattr(registry, "_duplicates", [])
     register_event_type(EventType("notes.note_created", "example_notes.note", ("code",)))
     register_consumer("notes.note_created", "test.stable", stable)
-    register_consumer("*", "test.flaky", flaky)
+    # The wildcard narrowed to the test types: the fixture's membership events (#43) stay out.
+    register_consumer("*", "test.flaky", flaky, accepts=lambda event_type: event_type.code.startswith("notes."))
 
 
 @pytest.fixture
@@ -127,7 +129,8 @@ def test_retention_deletes_only_expired_events(tenant):
         )
         old.save()
         assert purge_expired_events() == 1
-        assert list(DomainEvent.objects.values_list("pk", flat=True)) == [fresh.pk]
+        remaining = DomainEvent.objects.exclude(event_type__in=CORE_EVENT_TYPES)  # Fixture memberships (#43).
+        assert list(remaining.values_list("pk", flat=True)) == [fresh.pk]
         # A delivery of a purged event is a no-op.
         consume(event_id=str(old.pk), consumer="test.stable")
     assert seen["stable"] == set()

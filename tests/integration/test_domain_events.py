@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.events import registry
+from skeleton.events.core_events import CORE_EVENT_TYPES
 from skeleton.events.models import DomainEvent
 from skeleton.events.registry import EventType, event_problems, register_event_type
 from skeleton.events.services import publish_event
@@ -28,7 +29,7 @@ def require_notes():
 @pytest.fixture(autouse=True)
 def event_types(monkeypatch):
     require_notes()
-    monkeypatch.setattr(registry, "_types", {})
+    monkeypatch.setattr(registry, "_types", dict(registry._types))  # Keeps the core lifecycle types (#43).
     monkeypatch.setattr(registry, "_duplicates", [])
     register_event_type(EventType("notes.note_created", "example_notes.note", ("code", "title")))
 
@@ -50,7 +51,9 @@ def note(organization, owner, code):
 
 def events(organization, actor):
     with tenant_context(organization_id=organization.pk, actor=actor, source="test:events-read"):
-        return list(DomainEvent.objects.values_list("event_type", "record_sysid", "data"))
+        # Core lifecycle events (#43) of the fixture's memberships are not what these tests publish.
+        rows = DomainEvent.objects.exclude(event_type__in=CORE_EVENT_TYPES).order_by("occurred_at", "sysid")
+        return list(rows.values_list("event_type", "record_sysid", "data"))
 
 
 def test_event_carries_declared_fields_and_correlation(tenants):

@@ -36,6 +36,8 @@ class Context:
     platform_admin: bool = False
     system: bool = False
     using: str = "default"
+    # Scopes of the API token that authenticated the request (#46); None for a session.
+    credential_scopes: frozenset[str] | None = None
 
 
 # The only system contexts an HTTP request may open (docs/access-control.md). Each is chosen by
@@ -107,7 +109,12 @@ def _enter(context: Context) -> Iterator[Context]:
 
 @contextmanager
 def request_context(
-    *, actor: IdentityRef, request_id: IdentityRef, source: str, using: str = "default"
+    *,
+    actor: IdentityRef,
+    request_id: IdentityRef,
+    source: str,
+    using: str = "default",
+    credential_scopes: frozenset[str] | None = None,
 ) -> Iterator[Context]:
     if _context.get() is not None:
         raise InvalidContext("Requests cannot nest.")
@@ -117,8 +124,10 @@ def request_context(
         actor=actor_id,
         request_id=_uuid(request_id),
         source=source,
-        platform_admin=is_platform_admin(actor),
+        # A token never carries the platform role: platform pages and GUC stay session-only.
+        platform_admin=is_platform_admin(actor) and credential_scopes is None,
         using=using,
+        credential_scopes=frozenset(credential_scopes) if credential_scopes is not None else None,
     )
     try:
         with _enter(context) as active:

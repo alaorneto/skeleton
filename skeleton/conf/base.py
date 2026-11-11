@@ -61,6 +61,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "skeleton.accounts.middleware.AuthVersionMiddleware",
+    "skeleton.integrations.tokens.middleware.ApiTokenMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",
     "allauth.account.middleware.AccountMiddleware",
@@ -199,6 +200,14 @@ globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
+# API tokens (#45): maximum validity in days of a newly issued token.
+SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
+# Rate limits (#48): requests per token per minute and failed token authentications per IP per minute.
+SKELETON_API_TOKEN_RATE_PER_MINUTE = env.int("SKELETON_API_TOKEN_RATE_PER_MINUTE", default=600)
+SKELETON_API_TOKEN_FAILURES_PER_MINUTE = env.int("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", default=20)
+# Job retention (#40): finished and dead jobs are physically deleted after these windows.
+SKELETON_JOB_SUCCEEDED_RETENTION_DAYS = env.int("SKELETON_JOB_SUCCEEDED_RETENTION_DAYS", default=7)
+SKELETON_JOB_DEAD_RETENTION_DAYS = env.int("SKELETON_JOB_DEAD_RETENTION_DAYS", default=30)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Notification retention (#57): read/archived rows, unread rows and finished deliveries.
