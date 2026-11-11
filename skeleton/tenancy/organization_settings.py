@@ -41,6 +41,9 @@ def _clean(data: dict[str, Any]) -> dict[str, str]:
             raise ValidationError({name: "Use um texto."})
         values[name] = value.strip()
     values["brand_color"] = values["brand_color"].lower()
+    from .branding import validate_brand_color
+
+    validate_brand_color(values["brand_color"])
     return values
 
 
