@@ -391,7 +391,7 @@ def application_urlpatterns():
             result.append(
                 path(
                     f"me/apps/{manifest.app_label}/",
-                    include((guard_user_urls(patterns), app_name), namespace=f"{namespace or app_name}-me"),
+                    include((guard_user_urls(patterns), app_name), namespace=namespace or app_name),
                 )
             )
         if manifest.api_urls:
