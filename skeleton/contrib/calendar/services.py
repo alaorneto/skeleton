@@ -124,7 +124,7 @@ def _event_values(data: dict) -> dict:
     return values
 
 
-def create_event(*, actor: Any, calendar_id: Any, data: dict) -> Any:
+def create_event(*, actor: Any, calendar_id: Any, data: dict, uid: str | None = None) -> Any:
     """Create an event in a calendar the actor may update; the actor is the organizer."""
     from .models import Event
     from .policies import require_writable_calendar
@@ -132,6 +132,8 @@ def create_event(*, actor: Any, calendar_id: Any, data: dict) -> Any:
     calendar = require_writable_calendar(actor, calendar_id)
     values = _event_values(data)
     values.setdefault("tzid", calendar.timezone)
+    if uid is not None:
+        values["uid"] = uid
     event = Event(organization_id=current_context().organization_id, calendar=calendar, organizer_id=actor.pk, **values)
     event.save()
     return event
