@@ -15,7 +15,45 @@ def sanitized_stack(tb, *, limit=STACK_FRAME_LIMIT):
     may carry request data or secrets.
     """
     frames = traceback.extract_tb(tb)[-limit:]
-    return [f"{PurePath(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames]
+    return [frame_location(frame.filename, frame.lineno, frame.name) for frame in frames]
+
+
+def frame_location(filename, lineno, function):
+    """``file:line:function`` with the bare file name: no directory (it may name a user or host)."""
+    return f"{safe_file_name(filename)}:{lineno}:{function}"
+
+
+def safe_file_name(filename):
+    return PurePath(str(filename or "")).name
+
+
+def safe_event_name(event):
+    """An event name made of letters, digits, ``_`` and ``.``; anything else is replaced."""
+    if not isinstance(event, str) or not event.replace("_", "").replace(".", "").isalnum():
+        return "application_event"
+    return event
+
+
+def safe_fields(fields):
+    """The structured values that may leave the process: logs and Sentry share this allowlist.
+
+    Only the enumerated keys survive, and only as short scalars; ``target_sysid`` must be a
+    UUID and ``error_class`` an identifier. Messages and arbitrary extras never pass.
+    """
+    allowed = {}
+    for key in SecurityJSONFormatter.extra_fields:
+        value = fields.get(key)
+        if value is None or not isinstance(value, (str, int, bool)):
+            continue
+        if key == "target_sysid":
+            try:
+                value = str(UUID(str(value)))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        if key == "error_class" and (not isinstance(value, str) or not value.isidentifier()):
+            continue
+        allowed[key] = value[:128] if isinstance(value, str) else value
+    return allowed
 
 
 class SecurityJSONFormatter(logging.Formatter):
@@ -39,9 +77,7 @@ class SecurityJSONFormatter(logging.Formatter):
         from skeleton.tenancy.context import current_context
 
         context = getattr(record, "security_context", None) or current_context()
-        event = getattr(record, "event", "application_event")
-        if not isinstance(event, str) or not event.replace("_", "").replace(".", "").isalnum():
-            event = "application_event"
+        event = safe_event_name(getattr(record, "event", "application_event"))
         payload = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
@@ -56,17 +92,7 @@ class SecurityJSONFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[0]:
             payload["error_class"] = record.exc_info[0].__name__
             payload["error_stack"] = sanitized_stack(record.exc_info[2])
-        for key in self.extra_fields:
-            value = getattr(record, key, None)
-            if value is not None and isinstance(value, (str, int, bool)):
-                if key == "target_sysid":
-                    try:
-                        value = str(UUID(str(value)))
-                    except (ValueError, TypeError, AttributeError):
-                        continue
-                if key == "error_class" and (not isinstance(value, str) or not value.isidentifier()):
-                    continue
-                payload[key] = value[:128] if isinstance(value, str) else value
+        payload.update(safe_fields({key: getattr(record, key, None) for key in self.extra_fields}))
         return json.dumps(payload, ensure_ascii=False)
 
 

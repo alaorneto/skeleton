@@ -85,6 +85,30 @@ Cobertura nova:
 
 **Não verificado:** o envio a um coletor OTLP real (o exportador OTLP/HTTP não foi exercitado contra rede) e o tracing sob gunicorn com vários workers.
 
+### Sentry (#177)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, `sentry-sdk` 2.74.0 | `pytest tests/unit/test_observability_sentry.py` e `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k sentry` | 9 passed (5 skipped do agente sem `fcntl` no `-k`) |
+| mesmo, PostgreSQL local de `tools/dev_postgres.py` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k "sentry or logging or instance_config or observability"` (inclui os testes do `SecurityJSONFormatter`, que passou a usar `safe_fields`) | 46 passed, 6 skipped |
+
+Cobertura nova, em `tests/unit/test_observability_sentry.py`:
+- **Negativo de segurança:** um evento sintético com corpo, cookies, `Authorization`, query string com token e email, usuário, IP, user agent, variáveis locais, linhas de código, caminho absoluto, mensagem da exceção, mensagem e parâmetros do log, breadcrumbs de SQL com parâmetros, tags e `extra` arbitrários, threads e contextos sai sem nenhum desses valores; o teste falha se qualquer um sobreviver. Ficam o tipo e os frames (nome do arquivo, linha, função, módulo), o método, o nome do evento, os campos de `safe_fields`, a tag `skeleton.request_id`, os IDs de trace e o runtime.
+- O cliente real do `sentry-sdk`, com as opções do núcleo e um transporte em memória (sem rede), captura uma exceção com email e token na mensagem, usuário, tag, `extra` e breadcrumb sensíveis: o envelope enviado não tem nenhum deles, não tem `user` e traz o `request_id` do request em curso.
+- Transações com UUID, email ou query são descartadas; a pilha é cortada nos mesmos 25 frames dos logs; `send_default_pii=False`, corpo nunca lido, sem variáveis locais nem código-fonte, transações descartadas; sem DSN ou sem o extra, `sentry_sdk.init` não é chamado, e com eles é chamado uma vez; `skeleton.W030` para DSN sem extra; `sentry_dsn` é segredo do catálogo e recusa DSN sem chave ou sem projeto.
+
+**Não verificado:** o envio a um projeto Sentry real e a integração do SDK com o Django num request que falha (o `before_send` foi exercitado com eventos sintéticos e com o cliente real fora do Django).
+
+### Verificação conjunta do epic
+
+Com os três commits na branch, no mesmo PostgreSQL local:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1282 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) em 40 min |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com `skeleton/observability` no modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+| Windows | `uv 0.12.7 pip compile` dos dois locks (comandos do `README.md`) e `pip-audit 2.9.0 --strict --require-hashes --disable-pip` de `requirements.txt` e `requirements-dev.txt` | locks regenerados; nenhuma vulnerabilidade conhecida |
+
 ## Operação do worker de jobs (#40, epic #77)
 
 Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:

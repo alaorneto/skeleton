@@ -38,6 +38,8 @@ otel = [
     "opentelemetry-instrumentation-django>=0.51b0,<1",
     "opentelemetry-instrumentation-psycopg>=0.51b0,<1",
 ]
+# Error reporting to Sentry with PII and secrets removed, behind SKELETON_SENTRY_DSN (#177).
+sentry = ["sentry-sdk>=2.20,<3"]
 
 [project.scripts]
 skeleton-core = "skeleton.distribution:main"
@@ -120,6 +122,7 @@ files = [
     "skeleton/observability/checks.py",
     "skeleton/observability/metrics.py",
     "skeleton/observability/otel.py",
+    "skeleton/observability/sentry.py",
     "skeleton/observability/tracing.py",
 ]
 follow_imports = "silent"

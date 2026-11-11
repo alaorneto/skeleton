@@ -1,11 +1,11 @@
-"""skeleton.W030 / skeleton.E030: an observability setting without its extra, or a weak token."""
+"""skeleton.W030 / skeleton.E030: an observability setting without its extra, or a weak metrics token."""
 
 from typing import Any
 
 from django.conf import settings
 from django.core.checks import CheckMessage, Error, Tags, Warning, register
 
-from . import METRICS_DISTRIBUTIONS, OTEL_DISTRIBUTIONS, installed
+from . import METRICS_DISTRIBUTIONS, OTEL_DISTRIBUTIONS, SENTRY_DISTRIBUTIONS, installed
 
 METRICS_TOKEN_MIN_LENGTH = 32
 
@@ -54,6 +54,12 @@ def tracing_problems() -> list[CheckMessage]:
     return []
 
 
+def sentry_problems() -> list[CheckMessage]:
+    if getattr(settings, "SKELETON_SENTRY_DSN", "") and not installed(SENTRY_DISTRIBUTIONS):
+        return [_missing_extra("SKELETON_SENTRY_DSN", "sentry", "no error is reported")]
+    return []
+
+
 @register(Tags.security)
 def observability_checks(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
-    return [*metrics_problems(), *tracing_problems()]
+    return [*metrics_problems(), *tracing_problems(), *sentry_problems()]

@@ -97,6 +97,15 @@ def _token(minimum: int) -> Callable[[str], str]:
     return validate
 
 
+def _sentry_dsn(value: str) -> str:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(_required_text(value).strip())
+    if parts.scheme not in {"http", "https"} or not parts.username or not parts.hostname or parts.path in {"", "/"}:
+        raise ValueError("Use o DSN do projeto, como https://<chave>@o0.ingest.sentry.io/<projeto>.")
+    return value.strip()
+
+
 def _choice(*choices: str) -> Callable[[str], str]:
     def validate(value: str) -> str:
         if value not in choices:
@@ -258,6 +267,14 @@ _SPECS = (
         "secret",
         "Token Bearer do endpoint /metrics (extra [metrics])",
         _token(32),
+        True,
+    ),
+    SettingSpec(
+        "sentry_dsn",
+        "SKELETON_SENTRY_DSN",
+        "url",
+        "DSN do projeto Sentry (extra [sentry])",
+        _sentry_dsn,
         True,
     ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
