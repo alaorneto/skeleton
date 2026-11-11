@@ -117,6 +117,8 @@ class Config:
         commands = values["commands"]
         if not isinstance(commands, dict) or any(name not in commands for name in ("drain", "restart", "stop")):
             raise AgentError("missing_lifecycle_commands")
+        if ("worker_stop" in commands) != ("worker_restart" in commands):
+            raise AgentError("incomplete_worker_commands")
         for command in commands.values():
             if (
                 not isinstance(command, list)
@@ -138,6 +140,14 @@ class Config:
             for key in ("project", "web_service", "migrator_service"):
                 if not re.fullmatch(r"[a-zA-Z0-9_-]+", compose.get(key, "")):
                     raise AgentError("invalid_compose_service")
+            workers = compose.get("worker_services", [])
+            if (
+                not isinstance(workers, list)
+                or len(set(workers)) != len(workers)
+                or not all(isinstance(name, str) and re.fullmatch(r"[a-zA-Z0-9_-]+", name) for name in workers)
+                or any(name in (compose.get("web_service"), compose.get("migrator_service")) for name in workers)
+            ):
+                raise AgentError("invalid_compose_worker_services")
             if not isinstance(compose.get("base_image"), str) or not compose["base_image"]:
                 raise AgentError("missing_compose_base_image")
             target = compose.get("target_environment")

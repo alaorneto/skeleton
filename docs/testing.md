@@ -53,6 +53,24 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_s
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Operação do worker de jobs (#40, epic #77)
+
+Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1172 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_jobs_operations.py` | 9 passed |
+| Windows, com `fcntl`, `os.O_DIRECTORY` e `UnixStreamServer` substituídos só no processo do teste | os três testes de backend de `tests/unit/test_agent_worker_lifecycle.py` | 3 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` em `frontend/` | sem problemas, sem migrations pendentes, assets atualizados |
+
+Cobertura nova:
+- `tests/integration/test_jobs_operations.py`: a lista de `/platform/jobs/` mostra tipo, organização e código de erro e nunca o payload; filtro inválido é ignorado; anônimo vai ao login e quem não é da plataforma recebe 403 (GET e POST); GET na ação é 405 e POST sem CSRF é 403, sem mudar o job; reenviar zera as tentativas uma vez (o segundo envio com o `updated_at` antigo não muda nada, e o serviço levanta `ConcurrentUpdate`); uma mudança concorrente vence um reenvio desatualizado; descartar deixa `cancelled`/`discarded` e um job na fila não é acionável; sem autenticação recente a ação vai à reautenticação; a retenção, pelo job registrado executado pelo worker com a role runtime, apaga só `succeeded`/`cancelled` acima de 7 dias e `dead` acima de 30, nunca `queued`/`running`, e os heartbeats `stopped` antigos; `check_jobs` falha por atraso, por esgotados e sem worker vivo.
+- `tests/unit/test_agent_worker_lifecycle.py`: com um runner falso, o backend de diretório executa `drain` → `worker_stop` e `restart` → `worker_restart` (no release novo), e sem os hooks o comportamento antigo; o backend Compose gera o override do `worker`/`scheduler` com a imagem do release, sem trocar o comando, para os workers depois do web e os recria depois do web, e recusa `MIGRATION_DATABASE_URL` num worker; a configuração recusa `worker_stop` sem `worker_restart`, comando relativo e `worker_services` inválidos. Os testes de configuração só rodam em Linux/macOS (CI).
+- `tests/unit/test_deployment_journal.py::test_execution_stops_workers_before_migrations_and_restarts_them_after_cutover`: num plano aprovado, `drain-web` → `stop-worker` → `migrate` → `cutover` → `restart-web` → `start-worker` → health. Só roda em Linux/macOS (CI).
+
+**Não verificado:** os testes do agente que exigem `fcntl` nesta máquina (rodam no CI), `docker compose up` com os serviços `worker` e `scheduler`, as units systemd num host real, smoke de `/platform/jobs/` no navegador (o template é renderizado e conferido pelos testes de integração) e o PostgreSQL 16.15 do CI.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:
@@ -68,6 +86,22 @@ Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skele
 Cobertura nova: `tests/unit/test_postgresql_only.py` (E025 com outro backend, `DATABASES` vazio fora e dentro do setup; migration recusada fora do PostgreSQL), `tests/unit/test_setup_mode.py` (token emitido uma vez, 0600, só o digest no SQLite; token errado, reutilizado e expirado; troca de modo e `SKELETON_SETUP=off`; URLs não PostgreSQL), `tests/integration/test_setup.py` (qualquer rota leva ao setup, CSRF, token de uso único, rate limit 429, DSN privilegiada recusada com mensagem de `BYPASSRLS`, setup completo contra o PostgreSQL de teste sem a senha do owner no SQLite, no log nem na sessão assinada, `/setup/` 404 depois de concluir e administrador criado), `tests/integration/test_platform_instance.py` (anônimo, não plataforma, segredo ausente do HTML, do log e do `change_log`, validação, chave do ambiente somente leitura com 409, autenticação recente), `tests/unit/test_container_healthcheck.py` (Host do healthcheck nos dois modos) e `tests/unit/test_agent_instance_configuration.py` (URL runtime do agente pelo SQLite da instância; só roda em Linux/macOS).
 
 **Não verificado:** `docker compose up` de uma instalação nova até o setup e o reinício pelo Compose (sem Docker nesta máquina; os testes de renderização do Compose rodam só no CI), o agente de deployment (exige `fcntl`), o reinício por `SIGHUP` do Gunicorn, a suíte SSO real e o PostgreSQL 16.15 do CI.
+## Eventos do núcleo para vínculos e ativação de apps (#43, epic #78)
+
+Rodada de 2026-11-11 na branch `feat/43-core-lifecycle-events`, um commit para [#43](https://github.com/alaorneto/skeleton/issues/43). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1170 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_core_lifecycle_events.py` | 7 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+A primeira rodada completa teve 1 falha e 33 erros: o fan-out de webhooks (consumidor `"*"`) enfileirava um job de entrega inócuo para cada evento de vínculo, e os testes que esvaziam o registro de jobs ou de eventos quebravam no bootstrap. A correção foi o filtro `accepts` dos consumidores `"*"` (o fan-out aceita só tipos `webhook=True`) e manter os tipos do núcleo nos fixtures desses testes; a rodada acima é a de depois da correção.
+
+Cobertura nova em `tests/integration/test_core_lifecycle_events.py`: os quatro tipos declarados com payload só de identificadores e fora dos webhooks; `update_membership`, `delete_membership`, `create_membership` (novo, restaurado, restaurado inativo, já ativo) publicam um evento por mudança efetiva e nada sem efeito; `provision_membership` e `leave_organization`; criação e desativação (repetida) de conta de serviço; `configure_application` publica só quando `enabled` muda (configuração sozinha não publica); um rollback do chamador não deixa evento, e a organização B não lê os eventos de A (RLS); os tipos do núcleo não geram job de entrega.
+
+**Não verificado:** o PostgreSQL 16.15 do CI.
+
 ## PostgreSQL local de desenvolvimento (#145)
 
 Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um servidor descartável sem Docker:
@@ -101,6 +135,8 @@ Cobertura nova:
 - `tests/integration/test_api_token_management.py` (#47): a página mostra o token uma vez com `no-store` e depois só o prefixo; validade e escopo inválidos são 400; Bob não revoga nem vê os tokens de Alice (404); a REST emite, lista sem segredo e revoga com `If-Match` (428 sem ele); um token recebe 403 nos endpoints de token; contas de serviço de A são 404 para quem não tem `integrations.manage` e pela URL de B; desativar a conta invalida o token.
 - `tests/integration/test_api_token_limits.py` e `tests/unit/test_ratelimit.py` (#48): acima do limite do token, 429 com `Retry-After` e nada gravado, e outro token segue livre; falhas de um IP bloqueiam qualquer Bearer desse IP e não de outro; `last_used_at` grava uma vez por janela, mesmo sem o cache, e não gera `AuditEvent`; janela fixa e cache fora do ar deixam passar.
 
+Depois da rodada completa, o trabalho da agenda (#76) achou que um token de feed autenticava `GET /api/v1/me/` como Bearer; o middleware passou a recusá-lo (`6794c1d`, com `test_feed_tokens_are_not_api_credentials`). Rodado depois da correção: `test_api_token_auth.py` e `test_api_tokens.py`, 20 passed; a suíte completa não foi repetida.
+
 **Não verificado:** clientes reais (curl com um token emitido pela página), Redis compartilhado entre vários workers (os testes usam o cache local), smoke das páginas no navegador e o PostgreSQL 16.15 do CI.
 
 ## Arquivos: cota por organização, antivírus e órfãos (epic #81)
@@ -121,6 +157,26 @@ Cobertura nova:
 - `tests/integration_sqlite/test_file_scanning_jobs.py`: com scanner, o anexo nasce `pending` e o download fica bloqueado; limpo vira `available`, EICAR vira `quarantined` com a assinatura; scanner fora deixa `pending`, o job volta à fila com `ScannerUnavailable` e o download continua 404; sem scanner, `available` na hora; o objeto de um upload revertido é apagado depois da carência, e os de linhas vivas e excluídas logicamente ficam.
 
 **Não verificado:** um `clamd` real (a suíte usa um `clamd` falso e um scanner falso), armazenamento S3, o `run_worker` real, smoke manual no navegador da página da plataforma e o PostgreSQL 16.15 do CI.
+
+## Apps first-party no wheel do núcleo (epic #83)
+
+Rodada de 2026-11-11 na branch `feat/83-bundled-apps`: [#66](https://github.com/alaorneto/skeleton/issues/66) (contrato, mais duas correções) e a parte de estado de [#67](https://github.com/alaorneto/skeleton/issues/67). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, no commit `2735c0c` | 1179 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker). O commit seguinte só troca o namespace das rotas `/me/apps/`, que não existem sem app first-party |
+| mesmo PostgreSQL | `tests/unit/test_bundled_apps.py`, `tests/integration/test_bundled_lifecycle.py`, `tests/unit/test_presentation.py`, `tests/unit/test_packages.py` | 12, 4 e 137 passed (97 skipped `posix`) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+A primeira rodada completa teve 1 falha (`test_presentation.py::test_v2_rejects_unsafe_specs_before_import[old-core]`): a validação de first-party tinha capturado a checagem do piso do core do manifesto v2. Corrigido em `2735c0c`; a rodada acima é a de depois.
+
+Cobertura nova:
+- `tests/unit/test_bundled_apps.py` (#66): manifesto `bundled_app` válido; fora de `skeleton.contrib`, sem o prefixo `skeleton_`, v1 e com arquivos próprios recusados; app de terceiro com `skeleton_*` ou `runtime.user_urls` recusada; manifest fora do pacote instalado recusado; versão divergente para o startup; o namespace `skeleton.contrib` é só de first-party; opt-in só por nome do mapa fixo; a suíte roda sem app first-party; o núcleo nunca importa `skeleton.contrib` (análise `ast`).
+- `tests/integration/test_bundled_lifecycle.py` (#67, estado): app nova registrada `kind=bundled` com disponibilidade `selected` e nenhuma ativação; retirada sem declaração é divergência; com `SKELETON_BUNDLED_RETAINED` vira `schema_retained` e desativa as organizações; reinstalada volta a `bundled` com a mesma linha e configuração; instalada sem registro é divergência; nomes retidos vêm do mapa fixo.
+
+A retirada com tabelas de verdade (schema retido validado pelo snapshot do wheel) exige uma app first-party com tabelas, a agenda; ela é verificada no PR do epic #84, que fecha o #67.
+
+**Não verificado:** o PostgreSQL 16.15 do CI e um deployment real com `SKELETON_BUNDLED_APPS`.
 
 ## Notificações: preferências, email, resumo, push e retenção (epic #80)
 

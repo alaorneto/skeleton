@@ -286,7 +286,9 @@ Gere tokens ASCII independentes com pelo menos 32 caracteres (por exemplo `opens
   "commands": {
     "drain": ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "stop", "skeleton-web.service"],
     "restart": ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "restart", "skeleton-web.service"],
-    "stop": ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "stop", "skeleton-web.service"]
+    "stop": ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "stop", "skeleton-web.service"],
+    "worker_stop": ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "stop", "skeleton-worker.service", "skeleton-scheduler.service"],
+    "worker_restart": ["/usr/bin/sudo", "-n", "/usr/bin/systemctl", "restart", "skeleton-worker.service", "skeleton-scheduler.service"]
   },
   "health_urls": ["http://127.0.0.1:8000/health/live/", "http://127.0.0.1:8000/health/ready/"],
   "health_host": "app.example.org"
@@ -348,7 +350,37 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 ### Supervisor e primeira adoção
 
-O JSON acima usa comandos fixos do supervisor. Autorize em sudoers **somente** as ações e a unit exatas, não shell genérico. Se há jobs, `drain` deve parar também os workers e aguardar todas as escritas pendentes; o marker HTTP sozinho não bloqueia produtores externos. Hooks aceitam substituições `{release}`, `{active}`, `{operation}` em argumentos, nunca comandos vindos do pacote.
+O JSON acima usa comandos fixos do supervisor. Autorize em sudoers **somente** as ações e a unit exatas, não shell genérico. O marker HTTP sozinho não bloqueia produtores externos: um worker ativo durante as migrations escreveria com o código antigo.
+
+### Worker de jobs e agendador
+
+O worker (`manage.py run_worker`) e o agendador de periódicos (`manage.py run_scheduler`) são serviços operados como o web (#40). Notificações por email e push, antivírus de anexos, cota, webhooks, consumidores de eventos e as retenções dependem deles. As units de exemplo estão em `deploy/systemd/skeleton-worker.service` e `deploy/systemd/skeleton-scheduler.service`; no Compose, são os serviços `worker` e `scheduler` de `compose.yaml`, com a mesma imagem, ambiente e volume da instância do `web`.
+
+| Momento | O que o agente faz |
+|---|---|
+| `drain` (antes do backup e das migrations) | Executa o hook `drain` e depois `worker_stop`. O SIGTERM termina o job atual e sai sem reivindicar outro; dê ao worker um `TimeoutStopSec` maior que o `timeout_s` dos seus jobs |
+| `start` (depois do cutover) | Executa o hook `restart` e depois `worker_restart`: o worker sobe com o código do release novo |
+| Compose | Liste os serviços em `"compose": {"worker_services": ["worker", "scheduler"]}`. O agente gera para eles o mesmo override de imagem e ambiente runtime do web (recusa `MIGRATION_DATABASE_URL`), para-os com `compose stop` no `drain` e os recria com `compose up --force-recreate` no `start` |
+
+`worker_stop` e `worker_restart` são opcionais, mas vêm juntos: só um deles é recusado (`incomplete_worker_commands`). Um nome inválido ou repetido em `worker_services`, ou igual ao do web ou do migrator, é recusado (`invalid_compose_worker_services`). Sem eles, o worker só pausa pelo marcador de manutenção (heartbeat `paused`), o que não interrompe um job em execução.
+
+**Deploy manual** (sem o agente): pare o worker e o agendador **antes** de `migrate` e suba-os depois do restart do web:
+
+```sh
+sudo systemctl stop skeleton-worker.service skeleton-scheduler.service
+# migrate, sync_table_catalog, check_skeleton_schema, restart do web
+sudo systemctl start skeleton-worker.service skeleton-scheduler.service
+```
+
+Um worker que morreu no meio de um job deixa o lease vencer: o próximo worker recoloca o job na fila uma vez (`lease_expired`). Para conferir a fila, use `manage.py check_jobs`:
+
+```sh
+python manage.py check_jobs --max-lag 300 --max-dead 0 --require-worker
+```
+
+O comando imprime só contagens (`due`, atraso do job vencido mais antigo, `dead`, workers vivos e sem heartbeat) e sai com 1 quando o atraso passa de `--max-lag` segundos, quando há mais jobs esgotados que `--max-dead` ou quando `--require-worker` não encontra worker com heartbeat recente. Use-o num probe do supervisor; o `compose.yaml` o usa como healthcheck do `worker`.
+
+A tela `/platform/jobs/` mostra a fila e os jobs esgotados; veja [jobs](jobs.md#operar-a-fila-platformjobs). A retenção dos jobs (`SKELETON_JOB_SUCCEEDED_RETENTION_DAYS`, padrão 7, e `SKELETON_JOB_DEAD_RETENTION_DAYS`, padrão 30) roda como job periódico global. Hooks aceitam substituições `{release}`, `{active}`, `{operation}` em argumentos, nunca comandos vindos do pacote.
 
 Exemplo de units provisionadas pelo operador (não pelos pacotes):
 
