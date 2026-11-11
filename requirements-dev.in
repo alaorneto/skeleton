@@ -10,3 +10,5 @@ pytest-cov
 mypy==2.4.1
 django-stubs[compatible-mypy]==6.1.2
 djangorestframework-stubs==3.18.2
+# Optional observability extras (#87), locked here so the suite, hashes and pip-audit cover them.
+prometheus-client>=0.21,<1

@@ -53,6 +53,24 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_s
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Observabilidade (epic #87)
+
+Rodada de 2026-11-11 na branch `feat/87-observability`, um commit por issue. Somente o que rodou.
+
+### Métricas Prometheus (#175)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime`, `prometheus-client` 0.26.0 | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k metrics` | 23 passed, 5 skipped (agente sem `fcntl`) |
+| mesmo PostgreSQL | `pytest tests/unit/test_observability_metrics.py tests/unit/test_observability_optional.py tests/integration/test_metrics_endpoint.py tests/unit/test_instance_config.py tests/unit/test_security_logging.py tests/integration/test_jobs_operations.py` | 46 passed, 1 skipped (`posix`) |
+
+Cobertura nova:
+- `tests/integration/test_metrics_endpoint.py`: sem `SKELETON_METRICS_TOKEN`, `/metrics` é 404; sem cabeçalho, sem token, token errado, esquema `Basic`/`Token` e token com sufixo respondem 401 sem corpo, com `WWW-Authenticate: Bearer` e `no-store`; POST é 405 e HEAD não tem corpo; a resposta não abre sessão nem grava cookie; `skeleton_jobs_due`, `skeleton_jobs_dead`, o atraso e os workers `live`/`stale` batem com `queue_health()` sobre jobs reais (um vencido, um futuro, um esgotado e uma entrega de webhook esgotada) e os heartbeats; o histograma usa o padrão de rota (inclusive em 404 de tenant, que responde antes da resolução de URL), `unresolved` e `health/live/`; **negativo de segurança**: depois de login por email e de requests com sysid, slug e email no caminho e na query, nenhum rótulo de nenhuma série tem UUID, `@`, o slug, o email ou os sysids, e nenhum deles aparece no texto da coleta.
+- `tests/unit/test_observability_metrics.py`: o Bearer é comparado com `hmac.compare_digest` sobre digests do mesmo tamanho em todas as tentativas, inclusive as de tamanho diferente; o rótulo de rota é o padrão; o histograma só tem `method`, `route` e `status`; o middleware se remove sem token ou sem o extra; o coletor agrupa entregas por canal, junta tipos não registrados em `other` e ignora estados desconhecidos; uma falha do banco devolve só `skeleton_queue_metrics_up 0`; os checks `skeleton.W030` (token sem extra, token sem middleware) e `skeleton.E030` (token curto); `metrics_token` é segredo do catálogo e recusa tokens curtos ou com espaço.
+- `tests/unit/test_observability_optional.py`: num processo novo, sem nenhum setting de observabilidade, `django.setup()`, `check`, `/health/live/` (200) e `/metrics` (404) não importam `prometheus_client`, `opentelemetry` nem `sentry_sdk`.
+
+**Não verificado:** a coleta por um Prometheus real e o modo multiprocess do gunicorn (`PROMETHEUS_MULTIPROC_DIR`) com vários workers.
+
 ## Operação do worker de jobs (#40, epic #77)
 
 Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:

@@ -28,6 +28,9 @@ dependencies = [
 [project.optional-dependencies]
 # Private attachment storage on S3 (STORAGES["skeleton_files"] with SKELETON_FILES_BACKEND=s3).
 s3 = ["django-storages[s3]>=1.14,<2", "boto3>=1.34,<2"]
+# Observability (#87): each extra is off by default and imported only when configured.
+# Prometheus metrics at /metrics, behind SKELETON_METRICS_TOKEN (#175).
+metrics = ["prometheus-client>=0.21,<1"]
 
 [project.scripts]
 skeleton-core = "skeleton.distribution:main"
@@ -106,6 +109,9 @@ files = [
     "skeleton/instance/store.py",
     "skeleton/instance/crypto.py",
     "skeleton/instance/resolve.py",
+    "skeleton/observability/__init__.py",
+    "skeleton/observability/checks.py",
+    "skeleton/observability/metrics.py",
 ]
 follow_imports = "silent"
 warn_unused_configs = true
@@ -128,6 +134,7 @@ module = [
     "skeleton.instance.store",
     "skeleton.instance.crypto",
     "skeleton.instance.resolve",
+    "skeleton.observability.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
