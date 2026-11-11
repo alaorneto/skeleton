@@ -101,6 +101,8 @@ Cobertura nova:
 - `tests/integration/test_api_token_management.py` (#47): a página mostra o token uma vez com `no-store` e depois só o prefixo; validade e escopo inválidos são 400; Bob não revoga nem vê os tokens de Alice (404); a REST emite, lista sem segredo e revoga com `If-Match` (428 sem ele); um token recebe 403 nos endpoints de token; contas de serviço de A são 404 para quem não tem `integrations.manage` e pela URL de B; desativar a conta invalida o token.
 - `tests/integration/test_api_token_limits.py` e `tests/unit/test_ratelimit.py` (#48): acima do limite do token, 429 com `Retry-After` e nada gravado, e outro token segue livre; falhas de um IP bloqueiam qualquer Bearer desse IP e não de outro; `last_used_at` grava uma vez por janela, mesmo sem o cache, e não gera `AuditEvent`; janela fixa e cache fora do ar deixam passar.
 
+Depois da rodada completa, o trabalho da agenda (#76) achou que um token de feed autenticava `GET /api/v1/me/` como Bearer; o middleware passou a recusá-lo (`6794c1d`, com `test_feed_tokens_are_not_api_credentials`). Rodado depois da correção: `test_api_token_auth.py` e `test_api_tokens.py`, 20 passed; a suíte completa não foi repetida.
+
 **Não verificado:** clientes reais (curl com um token emitido pela página), Redis compartilhado entre vários workers (os testes usam o cache local), smoke das páginas no navegador e o PostgreSQL 16.15 do CI.
 
 ## Arquivos: cota por organização, antivírus e órfãos (epic #81)
