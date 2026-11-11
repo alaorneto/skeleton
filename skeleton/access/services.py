@@ -24,7 +24,9 @@ class LastAdministrator(ValidationError):
 
 
 def require_organization_admin(user):
-    if not is_organization_admin(user):
+    from .policies import credential_scopes
+
+    if credential_scopes() is not None or not is_organization_admin(user):
         raise PermissionDenied("Organization administrator required.")
 
 

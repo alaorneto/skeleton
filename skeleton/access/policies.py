@@ -73,10 +73,28 @@ def table_definition(model: type[Model]) -> TableDefinition | None:
     return TableDefinition.objects.filter(model_label=model._meta.label_lower, available=True).first()
 
 
+def credential_scopes() -> frozenset[str] | None:
+    """Scopes of the API token of this request, or ``None`` for a session (#46)."""
+    from skeleton.tenancy.context import current_context
+
+    return current_context().credential_scopes
+
+
+def require_credential_scope(scope: str) -> None:
+    """A token must carry ``scope``; a session passes. The only other place scopes apply."""
+    scopes = credential_scopes()
+    if scopes is not None and scope not in scopes:
+        raise PermissionDenied("Token scope required.")
+
+
 def has_table_permission(model: type[Model], *, user: User, action: str) -> bool:
     from .models import TablePermission
 
     if action not in ACTIONS:
+        return False
+    scopes = credential_scopes()
+    if scopes is not None and f"{model._meta.label_lower}:{action}" not in scopes:
+        # The single point where a token scope applies: it narrows the role, never widens it.
         return False
     active_membership(user)
     table = table_definition(model)

@@ -185,6 +185,23 @@ _SPECS = (
         _list,
     ),
     SettingSpec(
+        "api_token_max_days", "SKELETON_API_TOKEN_MAX_DAYS", "int", "Validade máxima dos tokens de API (dias)", _int(1)
+    ),
+    SettingSpec(
+        "api_token_rate_per_minute",
+        "SKELETON_API_TOKEN_RATE_PER_MINUTE",
+        "int",
+        "Requisições por minuto de cada token de API",
+        _int(1),
+    ),
+    SettingSpec(
+        "api_token_failures_per_minute",
+        "SKELETON_API_TOKEN_FAILURES_PER_MINUTE",
+        "int",
+        "Falhas de autenticação por token por minuto e por IP",
+        _int(1),
+    ),
+    SettingSpec(
         "webhook_retention_days", "SKELETON_WEBHOOK_RETENTION_DAYS", "int", "Retenção das entregas de webhook", _int(1)
     ),
     SettingSpec("files_scanner", "SKELETON_FILES_SCANNER", "str", "Antivírus dos anexos", _choice("none", "clamav")),
