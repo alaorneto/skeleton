@@ -28,5 +28,9 @@
       <li><a class="sidebar-link" href="{% url 'platform:instance' %}"{% if platform_section == "instance" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Configuração da instância</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:audit' %}"{% if platform_section == "audit" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>
     </ul>
+    <p class="sidebar-heading" id="platform-operations">Operação</p>
+    <ul class="sidebar-list" aria-labelledby="platform-operations">
+      <li><a class="sidebar-link" href="{% url 'platform:jobs' %}"{% if platform_section == "jobs" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" %}Jobs</a></li>
+    </ul>
   </nav>
 </div>

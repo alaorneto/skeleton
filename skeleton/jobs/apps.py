@@ -9,3 +9,6 @@ class JobsConfig(AppConfig):
 
     def ready(self):
         from . import checks  # noqa: F401 - registra os system checks dos tipos de job
+        from .retention import register_retention_job
+
+        register_retention_job()

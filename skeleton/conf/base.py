@@ -199,6 +199,9 @@ globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
+# Job retention (#40): finished and dead jobs are physically deleted after these windows.
+SKELETON_JOB_SUCCEEDED_RETENTION_DAYS = env.int("SKELETON_JOB_SUCCEEDED_RETENTION_DAYS", default=7)
+SKELETON_JOB_DEAD_RETENTION_DAYS = env.int("SKELETON_JOB_DEAD_RETENTION_DAYS", default=30)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Notification retention (#57): read/archived rows, unread rows and finished deliveries.
