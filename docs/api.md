@@ -142,7 +142,7 @@ Em `/api/v1/`, `Authorization: Bearer skt_...` autentica a requisição como a p
 |---|---|
 | Token válido numa view que aceita o método | A requisição roda como o usuário do token, **sem CSRF**; o contexto guarda os escopos, e o `skeleton.source` (GUC e auditoria) é `http:token:<prefixo>` |
 | Sessão e Bearer na mesma requisição | 400 `ambiguous_credentials` |
-| Token malformado, desconhecido, expirado, revogado, de usuário inativo ou com `auth_version` mudado | 401 `invalid_token`, com `WWW-Authenticate: Bearer realm="api", error="invalid_token"`, e `security_event("api_token.rejected")` sem o token |
+| Token malformado, desconhecido, expirado, revogado, de usuário inativo, com `auth_version` mudado ou de feed (`kind=feed`, que só abre as views de feed) | 401 `invalid_token`, com `WWW-Authenticate: Bearer realm="api", error="invalid_token"`, e `security_event("api_token.rejected")` sem o token |
 | View sem o método em `token_methods` | 403 `token_not_allowed` |
 | Escopo ausente para a tabela e ação | 403, mesmo que o papel permita |
 | Token de conta de serviço (preso à organização) na URL de outra organização | 404 |

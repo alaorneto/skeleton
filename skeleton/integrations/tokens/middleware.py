@@ -117,7 +117,8 @@ class ApiTokenMiddleware:
             # Brute force of prefixes or secrets: refused before any database lookup.
             return _too_many(request, "failures", WINDOW_S)
         token = verify_token(text)
-        if token is None:
+        if token is None or token.kind == token.Kind.FEED:
+            # A feed token only opens the feed views that check its scope, never /api/v1/.
             return self._reject(request, "invalid_token")
         try:
             match = resolve(request.path_info)
