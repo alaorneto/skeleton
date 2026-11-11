@@ -125,11 +125,14 @@ def record_contract_checks(app_configs=None, **kwargs):
     auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
     account = "allauth.account.middleware.AccountMiddleware"
     messages = "django.contrib.messages.middleware.MessageMiddleware"
+    token = "skeleton.integrations.tokens.middleware.ApiTokenMiddleware"
     setup = getattr(settings, "SKELETON_SETUP_MODE", False)  # Setup mode has no tenant at all (#146).
     if not setup and (
         tenant not in middleware
         or any(item not in middleware or middleware.index(item) > middleware.index(tenant) for item in (auth, messages))
         or (account in middleware and middleware.index(account) < middleware.index(tenant))
+        # Bearer tokens (#46) replace request.user after authentication and before the tenant context.
+        or (token in middleware and not middleware.index(auth) < middleware.index(token) < middleware.index(tenant))
     ):
         errors.append(
             Error("Tenant middleware must follow authentication/messages and precede allauth.", id="skeleton.E009")

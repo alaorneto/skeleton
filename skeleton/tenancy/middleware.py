@@ -23,8 +23,14 @@ class TenantContextMiddleware:
 
     def _in_context(self, request):
         user = request.user
+        token = getattr(request, "api_token", None)
+        # The GUC skeleton.source names the token prefix, so audit rows show which credential wrote.
+        source = f"http:token:{token.prefix}" if token is not None else "http"
         with request_context(
-            actor=user if user.is_authenticated else None, request_id=request.request_id, source="http"
+            actor=user if user.is_authenticated else None,
+            request_id=request.request_id,
+            source=source,
+            credential_scopes=frozenset(token.scopes) if token is not None else None,
         ):
             try:
                 match = resolve(request.path_info)
@@ -43,7 +49,7 @@ class TenantContextMiddleware:
             try:
                 if organization_id and user.is_authenticated:
                     with tenant_context(
-                        organization_id=organization_id, actor=user if user.is_authenticated else None, source="http"
+                        organization_id=organization_id, actor=user if user.is_authenticated else None, source=source
                     ):
                         response = self._handle(request)
                 else:

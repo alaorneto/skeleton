@@ -1,6 +1,6 @@
 # API REST de sessão
 
-Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. `SessionAuthentication` e `IsAuthenticated` são os únicos mecanismos: não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
+Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. Os mecanismos são a sessão (`SessionAuthentication`) e, nas views que os aceitam, [tokens de API](#autenticação-por-token); não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
 
 Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
 
@@ -133,3 +133,37 @@ Além da sessão, a API aceita tokens de API (epic #79). Esta seção descreve o
 | Invalidação | Um token deixa de valer na próxima requisição quando expira, é revogado, a pessoa é desativada ou excluída, ou o `auth_version` dela muda (troca de senha, desativação, revogação de sessões) |
 
 Os serviços ficam em `skeleton.integrations.tokens.services`: `issue_personal_token`, `issue_service_token`, `revoke_token`, `personal_tokens`, `service_tokens` e `verify_token`. Erros de validação são `ValidationError` por campo (`scopes`, `expires_at`, `name`); a falta de capacidade é `PermissionDenied`.
+
+## Autenticação por token
+
+Em `/api/v1/`, `Authorization: Bearer skt_...` autentica a requisição como a pessoa (ou conta de serviço) do token (#46). As rotas HTML ignoram o cabeçalho.
+
+| Situação | Resposta |
+|---|---|
+| Token válido numa view que aceita o método | A requisição roda como o usuário do token, **sem CSRF**; o contexto guarda os escopos, e o `skeleton.source` (GUC e auditoria) é `http:token:<prefixo>` |
+| Sessão e Bearer na mesma requisição | 400 `ambiguous_credentials` |
+| Token malformado, desconhecido, expirado, revogado, de usuário inativo ou com `auth_version` mudado | 401 `invalid_token`, com `WWW-Authenticate: Bearer realm="api", error="invalid_token"`, e `security_event("api_token.rejected")` sem o token |
+| View sem o método em `token_methods` | 403 `token_not_allowed` |
+| Escopo ausente para a tabela e ação | 403, mesmo que o papel permita |
+| Token de conta de serviço (preso à organização) na URL de outra organização | 404 |
+| Pessoa sem vínculo na organização da URL | 404, como para a sessão |
+
+Views que aceitam token, com os métodos:
+
+| Recurso | Métodos | Escopo |
+|---|---|---|
+| `me/` | GET (nunca PATCH) | nenhum |
+| `organizations/`, `o/<org>/membership/`, `o/<org>/catalog/` | GET | nenhum |
+| `o/<org>/tables/<tabela>/records/`, `<id>/` | GET, POST, PATCH, DELETE | `<tabela>:read`, `create`, `update`, `delete` |
+| `.../records/<id>/restore/` | POST | `<tabela>:restore` |
+| `o/<org>/tables/<tabela>/references/<campo>/` | GET | `read` da tabela referenciada |
+| `.../records/<id>/attachments/` | GET, POST | `files:read` ou `files:write`, além do `read`/`update` do registro que o serviço já exige |
+| `.../attachments/<id>/`, `.../restore/` | DELETE, POST | `files:write` |
+
+Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de apps, webhooks, auditoria, saída da organização e a gestão de tokens) só aceita sessão. Uma view de app que estende `SessionAPI` também só aceita token se declarar `token_methods`.
+
+```sh
+# TOKEN vem da tela de tokens e fica só no ambiente local; não o coloque em histórico ou log.
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
+curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'   -d '{"code":"n1","title":"Nota","body":"texto"}' "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
+```

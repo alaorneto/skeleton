@@ -61,6 +61,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "skeleton.accounts.middleware.AuthVersionMiddleware",
+    "skeleton.integrations.tokens.middleware.ApiTokenMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",
     "allauth.account.middleware.AccountMiddleware",
