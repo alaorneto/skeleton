@@ -1,0 +1,5 @@
+{% extends "skeleton/web/base.html" %}{% block title %}Agenda · Skeleton{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Aplicativos</p><h1>Agenda</h1><p class="page-description">Seus calendários nesta organização.</p></div></div>
+<ul class="link-list">{% for calendar in calendars %}<li><span class="inline-block size-3 rounded-full" style="background: {{ calendar.color }}" aria-hidden="true"></span> {{ calendar.name }} <span class="badge">{{ calendar.kind }}</span></li>{% endfor %}</ul>
+{% endblock %}
