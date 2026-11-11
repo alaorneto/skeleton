@@ -1,0 +1,1 @@
+{% autoescape off %}Digest: {{ total }} unread notification{{ total|pluralize }}{% endautoescape %}

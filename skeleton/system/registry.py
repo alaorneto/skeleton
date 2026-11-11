@@ -192,6 +192,24 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_notifications.usernotificationpreference": (
+            "Preferências de notificação",
+            "Modo de cada canal (in-app, email, push) por tipo de notificação, escolhido pela própria pessoa.",
+            "global",
+            (),
+        ),
+        "sk_notifications.notificationdelivery": (
+            "Entregas de notificação",
+            "Email, resumo ou push de uma notificação a uma pessoa, com tentativas e último resultado.",
+            "organization",
+            (),
+        ),
+        "sk_notifications.webpushsubscription": (
+            "Assinaturas de push",
+            "Assinatura de web push de um navegador da pessoa; endpoint e chaves cifrados.",
+            "global",
+            ("endpoint", "endpoint_digest", "p256dh", "auth_secret"),
+        ),
         "sk_files.attachment": (
             "Anexos",
             "Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado.",

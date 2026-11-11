@@ -1,0 +1,9 @@
+{% autoescape off %}Notificações não lidas desde o último resumo:
+{% for entry in entries %}
+- {{ entry.label }}{% if entry.count > 1 %} ({{ entry.count }}){% endif %}{% for key, value in entry.snapshot.items %} · {{ value }}{% endfor %}
+  {{ entry.open_url }}{% endfor %}
+
+Caixa de notificações: {{ inbox_url }}
+
+Você recebe este resumo pelas suas preferências de notificação: {{ preferences_url }}
+{% endautoescape %}

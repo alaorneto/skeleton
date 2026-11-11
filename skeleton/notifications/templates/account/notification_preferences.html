@@ -1,0 +1,32 @@
+{% extends "account/base_manage.html" %}
+{% block head_title %}Notificações{% endblock %}
+{% block content %}
+<h1>Notificações</h1>
+<p class="mt-2 text-sm/6 text-body">Como você recebe cada tipo de aviso, em todas as organizações. Sem escolha própria, valem o padrão para todos os tipos e, depois, o padrão de cada tipo. Os resumos por email usam o seu fuso horário; o semanal sai às segundas-feiras.</p>
+{% if errors %}<div class="error-summary mt-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}Verifique as preferências</h2><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+<form method="post" class="mt-6">
+{% csrf_token %}
+<div class="table-scroll"><table><thead><tr><th scope="col">Tipo</th>{% for channel, label in channel_labels.items %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead><tbody>
+{% for row in rows %}<tr>
+  <th scope="row"><span class="font-medium text-heading">{{ row.label }}</span>{% if row.mandatory %} <span class="badge">Obrigatório</span>{% endif %}<br><code class="text-body-subtle">{{ row.type_code }}</code></th>
+  {% for cell in row.cells %}<td>
+    <label class="sr-only" for="{{ cell.mode_name }}">{{ row.label }}: {{ cell.channel }}</label>
+    <select id="{{ cell.mode_name }}" name="{{ cell.mode_name }}"{% if cell.locked %} disabled{% endif %}>
+      {% for mode in cell.modes %}<option value="{{ mode }}"{% if mode == cell.mode %} selected{% endif %}>{% for key, label in mode_labels.items %}{% if key == mode %}{{ label }}{% endif %}{% endfor %}</option>{% endfor %}
+    </select>
+    {% if cell.channel == "email" %}<label class="mt-1 block text-xs text-body-subtle" for="{{ cell.hour_name }}">Hora do resumo</label>
+    <select id="{{ cell.hour_name }}" name="{{ cell.hour_name }}">{% for hour in hours %}<option value="{{ hour }}"{% if hour == cell.hour %} selected{% endif %}>{{ hour|stringformat:"02d" }}:00</option>{% endfor %}</select>{% endif %}
+    <input type="hidden" name="{{ cell.revision_name }}" value="{{ cell.revision }}">
+    <p class="mt-1 text-xs text-body-subtle">{% if cell.source == "own" %}Escolha sua{% elif cell.source == "default" %}Seu padrão{% elif cell.source == "mandatory" %}Sempre ligado{% else %}Padrão do tipo{% endif %}</p>
+  </td>{% endfor %}
+</tr>{% endfor %}
+</tbody></table></div>
+<div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button></div>
+</form>
+{% if push_key %}<section class="mt-8" data-push-optin data-push-key="{{ push_key }}" data-worker="{% url 'notifications:service-worker' %}" data-subscribe-url="{% url 'notifications:api-push-subscribe' %}" data-unsubscribe-url="{% url 'notifications:api-push-unsubscribe' %}" hidden>
+<h2 class="text-lg font-semibold text-heading">Push neste navegador</h2>
+<p class="mt-1 text-sm/6 text-body">O push mostra só o tipo do aviso e um link; o conteúdo continua protegido pelo login. Ative em cada navegador em que quiser receber.</p>
+<div class="form-actions"><button type="button" class="btn btn-secondary" data-push-enable>Ativar neste navegador</button><button type="button" class="btn btn-secondary" data-push-disable hidden>Desativar neste navegador</button></div>
+<p class="mt-2 text-sm text-body-subtle" data-push-status role="status"></p>
+</section>{% endif %}
+{% endblock %}

@@ -1,7 +1,7 @@
 {% extends "skeleton/web/base.html" %}
 {% block title %}{% block head_title %}Minha conta{% endblock %} · Skeleton{% endblock %}
 {% block main %}
-{% url 'web:profile' as profile_url %}{% url 'account_email' as email_url %}{% url 'account_change_password' as password_url %}{% url 'mfa_index' as mfa_url %}
+{% url 'web:profile' as profile_url %}{% url 'notifications:preferences' as notifications_url %}{% url 'account_email' as email_url %}{% url 'account_change_password' as password_url %}{% url 'mfa_index' as mfa_url %}
 <main id="conteudo" tabindex="-1" class="app-main mx-auto w-full max-w-7xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8">
   <div class="grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10">
     <aside class="min-w-0">
@@ -9,6 +9,7 @@
       <nav aria-label="Minha conta">
         <ul class="flex gap-1 overflow-x-auto [&_a]:whitespace-nowrap md:flex-col md:[&_a]:whitespace-normal">
           <li><a class="sidebar-link" href="{{ profile_url }}"{% if request.path == profile_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="user" %}Perfil</a></li>
+          <li><a class="sidebar-link" href="{{ notifications_url }}"{% if request.path == notifications_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Notificações</a></li>
           <li><a class="sidebar-link" href="{{ email_url }}"{% if request.path == email_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" %}Email</a></li>
           <li><a class="sidebar-link" href="{{ password_url }}"{% if request.path == password_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}Senha</a></li>
           <li><a class="sidebar-link" href="{{ mfa_url }}"{% if request.path == mfa_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}Autenticação em dois fatores</a></li>
