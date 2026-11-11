@@ -3,6 +3,7 @@ from django.urls import path
 from skeleton.api.health import probe_response
 from skeleton.web import views
 from skeleton.web.invitation_views import resend
+from skeleton.web.organization_settings_views import organization_settings
 
 app_name = "web"
 urlpatterns = [
@@ -12,6 +13,7 @@ urlpatterns = [
     path("health/ready/", probe_response, name="health-ready"),
     path("o/<uuid:organization_id>/", views.dashboard, name="dashboard"),
     path("o/<uuid:organization_id>/leave/", views.leave_organization, name="leave-organization"),
+    path("o/<uuid:organization_id>/settings/", organization_settings, name="organization-settings"),
     path("o/<uuid:organization_id>/catalog/", views.catalog, name="catalog"),
     path("o/<uuid:organization_id>/audit/", views.audit, name="audit"),
     path("o/<uuid:organization_id>/invitations/<uuid:sysid>/resend/", resend, name="invitation-resend"),
