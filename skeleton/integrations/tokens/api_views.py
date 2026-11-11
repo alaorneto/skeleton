@@ -39,7 +39,18 @@ def token_data(token):
         "organization": token.bound_organization_id,
         "revision": token.revision,
         "created_at": token.created_at,
+        "last_used_at": getattr(token, "last_used_at", None),
     }
+
+
+def with_activity(tokens):
+    from .activity import last_used
+
+    rows = list(tokens)
+    used = last_used(token.pk for token in rows)
+    for token in rows:
+        token.last_used_at = used.get(token.pk)
+    return rows
 
 
 def account_data(user):
@@ -84,7 +95,9 @@ class MeTokensView(SessionAPI):
     def get(self, request):
         if request.user.account_type != "human":
             raise Http404
-        return Response({"results": [token_data(token) for token in services.personal_tokens(request.user)]})
+        return Response(
+            {"results": [token_data(token) for token in with_activity(services.personal_tokens(request.user))]}
+        )
 
     @transaction.atomic
     def post(self, request):
@@ -155,7 +168,7 @@ class ServiceAccountDetailView(ServiceAccountAPI):
 class ServiceAccountTokensView(ServiceAccountAPI):
     def get(self, request, organization_id, sysid):
         account = self.account(organization_id, sysid)
-        rows = services.service_tokens(organization_id, account=account)
+        rows = with_activity(services.service_tokens(organization_id, account=account))
         return Response({"results": [token_data(token) for token in rows]})
 
     @transaction.atomic

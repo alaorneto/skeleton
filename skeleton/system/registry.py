@@ -240,6 +240,12 @@ def register_core_specs():
             "global",
             ("digest",),
         ),
+        "sk_integrations.apitokenactivity": (
+            "Uso de tokens de API",
+            "Último uso de cada token, gravado no máximo a cada 5 minutos; operacional, sem auditoria.",
+            "global",
+            (),
+        ),
         "sk_integrations.webhookdelivery": (
             "Entregas de webhook",
             "Corpo fixo com identificadores, tentativas e último resultado de cada evento por endpoint.",

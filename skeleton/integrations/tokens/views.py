@@ -80,9 +80,13 @@ def _token_page(request, issued, *, done_url):
 
 def _rows(tokens, revoke_url):
     """Tokens for the table: never the digest, plus the revoke URL of each row."""
+    from .activity import last_used
+
     rows = list(tokens)
+    used = last_used(token.pk for token in rows)
     for token in rows:
         token.revoke_url = revoke_url(token)
+        token.last_used_at = used.get(token.pk)
     return rows
 
 

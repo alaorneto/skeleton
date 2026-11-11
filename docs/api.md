@@ -1,6 +1,6 @@
-# API REST de sessão
+# API REST
 
-Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. Os mecanismos são a sessão (`SessionAuthentication`) e, nas views que os aceitam, [tokens de API](#autenticação-por-token); não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
+Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML, por sessão ou por [token de API](#tokens-de-api). Faça login pelo allauth para obter uma sessão; o cookie `sessionid` identifica essa sessão mantida no servidor. Os mecanismos são a sessão (`SessionAuthentication`) e, nas views que os aceitam, [tokens de API](#autenticação-por-token); não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
 
 Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
 
@@ -184,3 +184,16 @@ A gestão de tokens (#47) só aceita sessão: um token não emite, lista nem rev
 - A resposta da criação (página ou `201`) é a única que traz o texto do token, com `Cache-Control: no-store`. As listas e o resto da API nunca trazem o segredo nem o digest.
 - Revogar exige `If-Match` com a revisão (`428` sem ele, `412` desatualizado). Um token de outra pessoa ou de outra organização responde 404, como um inexistente.
 - Desativar a conta de serviço invalida todos os tokens dela na hora (`auth_version`).
+
+## Limites e registro de uso dos tokens
+
+Os limites (#48) usam o cache compartilhado (`skeleton.common.ratelimit`, janela fixa de 60 s). Em produção o cache é Redis; com `DEBUG=False` e cache local, `manage.py check --deploy` avisa (`skeleton.W029`), porque cada worker contaria sozinho.
+
+| Limite | Padrão | Ao passar |
+|---|---|---|
+| Requisições por token (`SKELETON_API_TOKEN_RATE_PER_MINUTE`) | 600 por minuto | 429 `rate_limited` com `Retry-After`, antes da view: nada é gravado |
+| Falhas de autenticação por token, por IP (`SKELETON_API_TOKEN_FAILURES_PER_MINUTE`) | 20 por minuto | 429 com `Retry-After` para qualquer Bearer desse IP, sem consultar o banco (força bruta de prefixos e segredos) |
+
+O IP vem da mesma topologia de proxies do allauth (`DJANGO_TRUSTED_PROXY_COUNT` ou `DJANGO_TRUSTED_CLIENT_IP_HEADER`). Se o cache cair, as requisições passam: o limitador freia abuso e não é a autorização. Cada 429 gera `security_event("api_token.rate_limited")`.
+
+O último uso de cada token fica em `sk_integrations.ApiTokenActivity`, uma tabela operacional: gravada no máximo uma vez a cada 5 minutos por token (marcador no cache e janela no banco), sem revisão e **sem `AuditEvent`**. As listas de tokens e a API mostram `last_used_at`. Não há, por ora, limite geral da API por usuário de sessão.

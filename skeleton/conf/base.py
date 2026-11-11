@@ -202,6 +202,9 @@ SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # API tokens (#45): maximum validity in days of a newly issued token.
 SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
+# Rate limits (#48): requests per token per minute and failed token authentications per IP per minute.
+SKELETON_API_TOKEN_RATE_PER_MINUTE = env.int("SKELETON_API_TOKEN_RATE_PER_MINUTE", default=600)
+SKELETON_API_TOKEN_FAILURES_PER_MINUTE = env.int("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", default=20)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Notification retention (#57): read/archived rows, unread rows and finished deliveries.

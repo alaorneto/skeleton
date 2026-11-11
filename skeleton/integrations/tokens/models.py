@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
-from skeleton.common.models import SystemRecord
+from skeleton.common.models import OperationalRecord, SystemRecord
 
 
 class ApiToken(SystemRecord):
@@ -60,3 +60,14 @@ class ApiToken(SystemRecord):
 
     def __str__(self):
         return f"skt_{self.prefix}_… ({self.name})"
+
+
+class ApiTokenActivity(OperationalRecord):
+    """Last use of a token (#48), written at most once per window: operational, never audited."""
+
+    token = models.OneToOneField(ApiToken, on_delete=models.PROTECT, related_name="activity")
+    last_used_at = models.DateTimeField()
+    immutable_fields = ("token_id",)
+
+    def __str__(self):
+        return f"{self.token_id} {self.last_used_at}"

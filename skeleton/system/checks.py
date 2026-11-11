@@ -2,7 +2,7 @@ import re
 
 from django.apps import apps
 from django.conf import settings
-from django.core.checks import Error, Warning, register
+from django.core.checks import Error, Tags, Warning, register
 from django.db import connections, models
 
 from skeleton.common.lifecycle_operation import InstallUserLifecycleGuard
@@ -864,3 +864,20 @@ def stored_secret_key_checks(app_configs=None, databases=None, **kwargs):
     for alias in databases or ():
         errors.extend(Error(message, id="skeleton.E027") for message in stored_secrets_without_keys(using=alias))
     return errors
+
+
+@register(Tags.security, deploy=True)
+def shared_cache_checks(app_configs=None, **kwargs):
+    """skeleton.W029: rate limits (#48) need a cache shared by every worker."""
+    from django.conf import settings
+
+    backend = settings.CACHES.get("default", {}).get("BACKEND", "")
+    if not settings.DEBUG and backend.endswith(("locmem.LocMemCache", "dummy.DummyCache")):
+        return [
+            Warning(
+                "The default cache is local to each process: token rate limits are per worker, not global.",
+                hint="Set CACHE_URL to a shared Redis.",
+                id="skeleton.W029",
+            )
+        ]
+    return []

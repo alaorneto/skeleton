@@ -1,10 +1,11 @@
-<div class="table-scroll"><table><thead><tr><th scope="col">Nome</th><th scope="col">Prefixo</th><th scope="col">Escopos</th><th scope="col">Válido até</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+<div class="table-scroll"><table><thead><tr><th scope="col">Nome</th><th scope="col">Prefixo</th><th scope="col">Escopos</th><th scope="col">Válido até</th><th scope="col">Último uso</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
 {% for token in tokens %}<tr>
   <td>{{ token.name }}{% if token.kind == "feed" %} <span class="badge">Feed</span>{% endif %}</td>
   <td><code>skt_{{ token.prefix }}_…</code></td>
   <td class="break-all">{{ token.scopes|join:", " }}</td>
   <td class="whitespace-nowrap!">{{ token.expires_at }}</td>
+  <td class="whitespace-nowrap!">{{ token.last_used_at|default:"—" }}</td>
   <td>{% if token.expires_at < now %}<span class="badge badge-dot">Expirado</span>{% else %}<span class="badge badge-success badge-dot">Ativo</span>{% endif %}</td>
   <td><form method="post" action="{{ token.revoke_url }}">{% csrf_token %}<input type="hidden" name="revision" value="{{ token.revision }}"><button type="submit" class="btn btn-ghost btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}Revogar</button></form></td>
-</tr>{% empty %}<tr><td colspan="6" class="empty-state">Nenhum token.</td></tr>{% endfor %}
+</tr>{% empty %}<tr><td colspan="7" class="empty-state">Nenhum token.</td></tr>{% endfor %}
 </tbody></table></div>
