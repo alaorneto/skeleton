@@ -193,6 +193,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.tenancy.context` | `current_context` (leitura) |
 | `skeleton.web.views` | `tenant_page` |
 | `skeleton.api.views` | `TenantAPI` |
+| `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
 | `skeleton.jobs.registry`, `skeleton.jobs.periodic` | `JobType`, `register_job_type`, `register_periodic` em `ready()`; enfileirar é pelo `JobService` |
 | `skeleton.events.registry` | `EventType`, `register_event_type`, `register_consumer` em `ready()`; publicar é pelo `EventService` |
 | `skeleton.notifications.registry` | `NotificationType`, `register_notification_type` em `ready()`; notificar é pelo `NotificationService` |

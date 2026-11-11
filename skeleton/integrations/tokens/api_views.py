@@ -19,12 +19,44 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import add_never_cache_headers
 from rest_framework.response import Response
 
+from skeleton.access.capabilities import INTEGRATIONS_MANAGE as MANAGE
 from skeleton.api.errors import BoundaryError, parse_revision
+from skeleton.api.openapi import DATETIME, Operation, array, model_label_fields, nullable, obj, results, string
 from skeleton.api.views import SessionAPI, TenantAPI, etag, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 
 from . import services
 from .models import ApiToken
+
+TOKEN_FIELDS = {
+    "sysid": "sysid",
+    "name": "name",
+    "kind": "kind",
+    "prefix": "prefix",
+    "scopes": "scopes",
+    "expires_at": "expires_at",
+    "revoked_at": "revoked_at",
+    "organization": "bound_organization",
+    "revision": "revision",
+    "created_at": "created_at",
+}
+TOKEN = model_label_fields(
+    "sk_integrations.ApiToken", TOKEN_FIELDS, scopes=array(string()), last_used_at=nullable(DATETIME)
+)
+ISSUED = model_label_fields(
+    "sk_integrations.ApiToken",
+    TOKEN_FIELDS,
+    scopes=array(string()),
+    last_used_at=nullable(DATETIME),
+    token=string(description="Texto do token, mostrado só nesta resposta."),
+)
+ISSUE_INPUT = obj(
+    {"name": string(), "scopes": array(string()), "expires_at": DATETIME}, required=("name", "scopes", "expires_at")
+)
+ACCOUNT = model_label_fields(
+    "sk_accounts.User", {"sysid": "sysid", "name": "first_name", "email": "email", "is_active": "is_active"}
+)
+NEEDS_RECENT = "Exige autenticação recente (403 reauthentication_required) e MFA de quem administra."
 
 
 def token_data(token):
@@ -92,6 +124,13 @@ def _revoke(request, token_id):
 
 
 class MeTokensView(SessionAPI):
+    openapi = {
+        "GET": Operation("Tokens pessoais do ator", lambda: results(TOKEN())),
+        "POST": Operation(
+            "Emite um token pessoal", ISSUED, status=201, etag=True, request=ISSUE_INPUT, description=NEEDS_RECENT
+        ),
+    }
+
     def get(self, request):
         if request.user.account_type != "human":
             raise Http404
@@ -113,6 +152,8 @@ class MeTokensView(SessionAPI):
 
 
 class MeTokenDetailView(SessionAPI):
+    openapi = {"DELETE": Operation("Revoga um token pessoal", None, status=204, if_match=True)}
+
     @transaction.atomic
     def delete(self, request, sysid):
         return _revoke(request, sysid)
@@ -141,6 +182,13 @@ class ServiceAccountAPI(TenantAPI):
 
 
 class ServiceAccountsView(ServiceAccountAPI):
+    openapi = {
+        "GET": Operation("Contas de serviço da organização", lambda: results(ACCOUNT()), capability=MANAGE),
+        "POST": Operation(
+            "Cria uma conta de serviço", ACCOUNT, status=201, request=obj({"name": string()}), capability=MANAGE
+        ),
+    }
+
     def get(self, request, organization_id):
         return Response({"results": [account_data(user) for user in self.accounts(organization_id)]})
 
@@ -155,6 +203,8 @@ class ServiceAccountsView(ServiceAccountAPI):
 
 
 class ServiceAccountDetailView(ServiceAccountAPI):
+    openapi = {"DELETE": Operation("Desativa a conta de serviço", None, status=204, capability=MANAGE)}
+
     @transaction.atomic
     def delete(self, request, organization_id, sysid):
         from skeleton.accounts.services import deactivate_service_account
@@ -166,6 +216,19 @@ class ServiceAccountDetailView(ServiceAccountAPI):
 
 
 class ServiceAccountTokensView(ServiceAccountAPI):
+    openapi = {
+        "GET": Operation("Tokens da conta de serviço", lambda: results(TOKEN()), capability=MANAGE),
+        "POST": Operation(
+            "Emite um token da conta de serviço",
+            ISSUED,
+            status=201,
+            etag=True,
+            request=ISSUE_INPUT,
+            capability=MANAGE,
+            description=NEEDS_RECENT,
+        ),
+    }
+
     def get(self, request, organization_id, sysid):
         account = self.account(organization_id, sysid)
         rows = with_activity(services.service_tokens(organization_id, account=account))
@@ -186,6 +249,10 @@ class ServiceAccountTokensView(ServiceAccountAPI):
 
 
 class ServiceAccountTokenDetailView(ServiceAccountAPI):
+    openapi = {
+        "DELETE": Operation("Revoga um token da conta de serviço", None, status=204, if_match=True, capability=MANAGE)
+    }
+
     @transaction.atomic
     def delete(self, request, organization_id, sysid, token_id):
         account = self.account(organization_id, sysid)

@@ -4,6 +4,7 @@ from rest_framework.response import Response
 
 from skeleton.access.capabilities import INVITATIONS_MANAGE, require_resource_capability
 from skeleton.api.errors import BoundaryError, require_revision
+from skeleton.api.openapi import Operation, ref
 from skeleton.api.serializers import dedicated_data
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.tenancy.invitations import resend_invitation
@@ -11,6 +12,17 @@ from skeleton.tenancy.models import Invitation
 
 
 class ResendInvitationView(TenantAPI):
+    openapi = {
+        "POST": Operation(
+            "Reenvia o convite (um convite novo substitui o atual)",
+            ref("Dedicated.invitations"),
+            status=201,
+            etag=True,
+            if_match=True,
+            capability=INVITATIONS_MANAGE,
+        )
+    }
+
     @transaction.atomic
     def post(self, request, organization_id, sysid):
         require_resource_capability(request.user, INVITATIONS_MANAGE)

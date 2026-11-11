@@ -199,17 +199,29 @@ def restore(spec, target_sysid, attachment_id, *, user, revision: int) -> Any:
     return attachment
 
 
+ATTACHMENT_FIELDS = (
+    "sysid",
+    "revision",
+    "filename",
+    "content_type",
+    "size",
+    "sha256",
+    "state",
+    "created_at",
+    "created_by",
+    "deleted_at",
+)
+
+
+def attachment_schema() -> dict[str, Any]:
+    """OpenAPI schema of :func:`attachment_data` (#178), typed by ``_meta``."""
+    from skeleton.api.openapi import model_fields
+
+    from .models import Attachment
+
+    return model_fields(Attachment, ATTACHMENT_FIELDS)
+
+
 def attachment_data(attachment) -> dict[str, Any]:
     """Public metadata; ``storage_key`` never leaves the server."""
-    return {
-        "sysid": attachment.sysid,
-        "revision": attachment.revision,
-        "filename": attachment.filename,
-        "content_type": attachment.content_type,
-        "size": attachment.size,
-        "sha256": attachment.sha256,
-        "state": attachment.state,
-        "created_at": attachment.created_at,
-        "created_by": attachment.created_by,
-        "deleted_at": attachment.deleted_at,
-    }
+    return {name: getattr(attachment, name) for name in ATTACHMENT_FIELDS}

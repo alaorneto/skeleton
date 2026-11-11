@@ -10,6 +10,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
+| `openapi.json` | GET | [Schema OpenAPI 3.1](#schema-openapi) do que o ator alcança; sessão ou token |
 | `me/` | GET, PATCH | Própria identidade/perfil; ETag composto |
 | `organizations/` | GET | Apenas organizações dos próprios vínculos ativos |
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
@@ -116,6 +117,35 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 ```
 
 `ETAG` inclui aspas do header atual. Releia após cada mutação antes de DELETE/restore. Em HTTPS use URL/origin/referer HTTPS exatos. Cookies/recovery codes não pertencem ao histórico de shell nem arquivos compartilhados. API não oferece export global de Users, hard delete ou bypass de tenant.
+
+## Schema OpenAPI
+
+`GET /api/v1/openapi.json` devolve o contrato da API em [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0), só em JSON e sem página interativa ([#178](https://github.com/alaorneto/skeleton/issues/178)). Ele aceita sessão ou [token](#autenticação-por-token); sem nenhum dos dois, a resposta é 401 ou 403. O documento é gerado do código a cada requisição (`skeleton/api/openapi.py`), nunca mantido à mão:
+
+- **Gateway:** cada `TableSpec` exposto vira caminhos concretos, como `/api/v1/o/{organization_id}/tables/example_notes.note/records/`. As propriedades são os campos sistêmicos e `read_fields`; o corpo de POST/PATCH, os `write_fields`. Os tipos vêm do `_meta` do modelo, pelo mesmo mapeamento da especificação congelada (`field_internal_type`): relações são UUID, e numa leitura do gateway aceitam `null` (referência invisível). Os filtros de igualdade da lista e os pickers de `references/` também aparecem.
+- **Views dedicadas:** cada view de `/api/v1/` declara um atributo `openapi`, um mapa de método HTTP para `Operation` (resumo, schemas de corpo e resposta, paginação, ETag, `If-Match`, capacidade exigida). Isso vale para as rotas de fora de `skeleton/api/urls.py`, como notificações, apps, webhooks e tokens. As rotas vêm da árvore de URLs real, então uma view de app sob `api/v1/o/<org>/apps/<label>/` aparece onde está montada. Uma view sem `openapi` ainda aparece, com corpo livre e `x-skeleton-undocumented: true`.
+- **Componentes:** `Error` (`{code, detail, fields}`, também a resposta `default` de toda operação), `Page` e os parâmetros `page`/`page_size`, o header `ETag`, o parâmetro `If-Match` e as respostas `PreconditionFailed` (412) e `PreconditionRequired` (428). Os esquemas de segurança são `bearerAuth` e `sessionAuth`; cada operação lista `bearerAuth` só quando a view aceita token naquele método (`token_methods`).
+
+O schema descreve só o que o ator alcança. O servidor lê cada organização ativa do ator numa transação própria e somente leitura, como as [rotas agregadas](concepts.md#autorização-e-contexto) (`for_each_organization`), e junta o resultado:
+
+- uma tabela aparece só com TablePermission do ator, e cada operação só com a ação correspondente (`read` para GET, `create` para POST, e assim por diante); app desativada esconde as tabelas e as rotas dela;
+- uma permissão da organização B nunca aparece para quem não é membro de B: nada de outra organização é lido;
+- operações administrativas aparecem só com a capacidade exigida (`access.manage`, `integrations.manage`, administrador da organização);
+- com token, só os métodos de `token_methods` e as ações dos escopos: um token `example_notes.note:read` vê apenas os GET daquela tabela, nenhuma administração e nenhum endpoint de tokens; um token vinculado a uma organização lê só essa organização;
+- `sensitive_fields` nunca aparecem, nem pelo nome: não são propriedades, filtros nem pickers. Quando um campo sensível está em `read_fields`, a resposta real o traz e o objeto do schema fica aberto (sem `additionalProperties: false`), de modo que o campo não é nomeado; nos demais objetos, propriedades fora do schema são proibidas.
+
+O documento muda com permissões, apps e versões: não o grave como contrato fixo. A resposta leva `Cache-Control: private, no-store`. Apps documentam as próprias views da mesma forma (importe `Operation` e os construtores de `skeleton.api.openapi`, uma superfície pública do núcleo):
+
+```python
+from skeleton.api.openapi import INTEGER, Operation, nullable, obj, string
+from skeleton.api.views import TenantAPI
+
+
+class SummaryView(TenantAPI):
+    openapi = {"GET": Operation("Resumo das anotações", obj({"count": INTEGER, "heading": nullable(string())}))}
+```
+
+A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([testes](testing.md#openapi-da-api-epic-86)).
 
 ## Tokens de API
 
