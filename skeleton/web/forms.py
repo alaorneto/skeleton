@@ -8,10 +8,23 @@ class ProfileForm(forms.Form):
     first_name = forms.CharField(max_length=150, required=False, label="Nome")
     last_name = forms.CharField(max_length=150, required=False, label="Sobrenome")
     display_name = forms.CharField(max_length=150, required=False, label="Nome de exibição")
-    timezone = forms.CharField(max_length=64, label="Fuso horário")
-    language = forms.CharField(max_length=16, label="Idioma")
+    timezone = forms.ChoiceField(
+        label="Fuso horário", required=False, help_text="Em branco, vale o padrão da organização ou da instância."
+    )
+    language = forms.ChoiceField(
+        label="Idioma", required=False, help_text="Em branco, vale o padrão da organização ou da instância."
+    )
     user_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     profile_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+    def __init__(self, *args, **kwargs):
+        from zoneinfo import available_timezones
+
+        from django.conf import settings
+
+        super().__init__(*args, **kwargs)
+        self.fields["timezone"].choices = [("", "Padrão")] + [(zone, zone) for zone in sorted(available_timezones())]
+        self.fields["language"].choices = [("", "Padrão"), *settings.LANGUAGES]
 
 
 def _model_form_field(field):

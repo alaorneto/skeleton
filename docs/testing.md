@@ -101,6 +101,20 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - sem requisição e sem o setting, o erro cita `SKELETON_PUBLIC_URL`;
   - com requisição, continua valendo o host da requisição.
 
+**#170, idioma e fuso em todas as superfícies:**
+
+- Suíte completa `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, num PostgreSQL só deste worktree: 1257 passed, 3 failed, 111 skipped. As três falhas eram testes antigos que esperavam `UTC` no perfil novo, ou `en` em `LANGUAGES`, ou que o destinatário de email tivesse `is_authenticated`. Os testes foram ajustados e `preferences_for` passou a aceitar o destinatário sem sessão.
+- Depois da correção: `tests/accounts/test_lifecycle_findings.py`, `tests/unit/test_notification_email_render.py` e `tests/integration/test_locale_preferences.py`, 18 passed.
+- Antes, nesta rodada, `test_locale_preferences.py` com `test_core_identity_service.py`, `test_notification_email.py`, `test_notification_digest.py` e `test_organization_settings.py` tinham dado 34 passed.
+- Os testes cobrem a precedência perfil > organização > instância na web da organização, na API, fora de organização e em `/me`, além de:
+  - perfil explícito vencendo a organização;
+  - padrões da instância e `Accept-Language` antes do login (com `Vary`);
+  - organização vinda só do contexto (header ignorado; sem vínculo, 404);
+  - valores efetivos no `IdentityService.me`;
+  - idioma fora de `LANGUAGES` recusado;
+  - `<html lang>` dinâmico.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

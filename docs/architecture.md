@@ -70,7 +70,7 @@ flowchart TD
     L --> M
 ```
 
-`AccountMiddleware` do allauth vem depois do middleware de contexto. `ATOMIC_REQUESTS=False`: o contexto controla a transação explicitamente. Forms e API chamam os mesmos serviços; menus e campos ocultos são conveniência de interface, não barreiras de segurança.
+`AccountMiddleware` do allauth vem depois do middleware de contexto. Por último vem o `skeleton.common.locale.LocaleMiddleware`: ele ativa idioma e fuso (perfil, depois organização, depois instância) dentro do contexto de tenant, para ler as configurações da organização sob RLS, e renderiza a resposta preguiçosa dentro desses valores ([#170](https://github.com/alaorneto/skeleton/issues/170)). `ATOMIC_REQUESTS=False`: o contexto controla a transação explicitamente. Forms e API chamam os mesmos serviços; menus e campos ocultos são conveniência de interface, não barreiras de segurança.
 
 Não use streaming que dependa de consultas tenant depois do encerramento desse contexto. O runtime inicial é WSGI/Gunicorn síncrono; o entrypoint ASGI não promete transações ORM seguras em views async. Jobs abrem seu próprio contexto por organização, e callbacks `on_commit` recebem valores prontos ou abrem um novo contexto.
 

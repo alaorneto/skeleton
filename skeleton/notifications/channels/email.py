@@ -47,9 +47,11 @@ def render_message(*, type_code: str, language: str, context: dict[str, Any]) ->
 
 
 def build_message(user: Any, *, type_code: str, context: dict[str, Any]) -> EmailMultiAlternatives:
+    from skeleton.common.locale import preferences_for
+
     profile = getattr(user, "profile", None)
-    language = getattr(profile, "language", None) or settings.LANGUAGE_CODE
-    zone = getattr(profile, "timezone", None) or settings.TIME_ZONE
+    preferences = preferences_for(user)
+    language, zone = preferences.language, preferences.timezone
     unsubscribe = preferences_url()
     context = {**context, "preferences_url": unsubscribe, "user_display": getattr(profile, "display_name", "")}
     with translation.override(language), timezone.override(zone):

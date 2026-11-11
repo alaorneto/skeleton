@@ -73,11 +73,15 @@ def run_digest(*, now: datetime | None = None) -> int:
     organization_id = current_context().organization_id
     people = _digest_people(organization_id)
     rows = rows_by_user(people)
+    from skeleton.common.locale import instance_preferences, organization_preferences
+
     zones = dict(UserProfile.objects.filter(user_id__in=people).values_list("user_id", "timezone"))
+    # A blank profile zone follows the organization, then the instance (#170).
+    fallback = organization_preferences()[1] or instance_preferences().timezone
     kinds = all_notification_types()
     created = 0
     for user_id in people:
-        local = _local(now, zones.get(user_id, "UTC"))
+        local = _local(now, zones.get(user_id) or fallback)
         types = []
         for kind in kinds:
             effective = resolve(kind, "email", rows.get(user_id, {}))

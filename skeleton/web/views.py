@@ -7,7 +7,6 @@ from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
@@ -106,11 +105,11 @@ def tenant_page(*, admin=False, capability=None):
             if has_any_capability(request.user) and mfa_required(request.user):
                 return redirect("mfa_index")
             try:
-                with timezone.override(request.user.profile.timezone):
-                    if (admin or needed) and request.method not in {"GET", "HEAD", "OPTIONS"}:
-                        with access_services.organization_lock(request.user, capability=needed):
-                            return view(request, *args, **kwargs)
-                    return view(request, *args, **kwargs)
+                # Language and time zone come from skeleton.common.locale.LocaleMiddleware (#170).
+                if (admin or needed) and request.method not in {"GET", "HEAD", "OPTIONS"}:
+                    with access_services.organization_lock(request.user, capability=needed):
+                        return view(request, *args, **kwargs)
+                return view(request, *args, **kwargs)
             except (service_errors.NotFound, service_errors.Unavailable):
                 # Neutral like the REST mapping: a disabled integration looks like a missing page.
                 raise Http404 from None

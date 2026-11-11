@@ -97,6 +97,24 @@ def _choice(*choices: str) -> Callable[[str], str]:
     return validate
 
 
+def _language(value: str) -> str:
+    import re
+
+    if not re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})?", value):
+        raise ValueError("Use um código de idioma como pt-br.")
+    return value
+
+
+def _timezone(value: str) -> str:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError("Use um fuso IANA, como America/Sao_Paulo.") from None
+    return value
+
+
 @dataclass(frozen=True)
 class SettingSpec:
     key: str
@@ -173,6 +191,8 @@ _SPECS = (
     SettingSpec(
         "files_org_quota_bytes", "SKELETON_FILES_ORG_QUOTA_BYTES", "int", "Cota de anexos por organização", _int(0)
     ),
+    SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
+    SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
     SettingSpec(
         "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list

@@ -68,13 +68,14 @@ def update_profile(user, *, data, user_revision=None, profile_revision=None):
     allowed = {"first_name", "last_name", "display_name", "timezone", "language"}
     if set(data) - allowed:
         raise ValidationError("Unknown profile fields.")
-    if "timezone" in data:
+    if "timezone" in data and data["timezone"] != "":
         try:
             ZoneInfo(data["timezone"])
         except (ZoneInfoNotFoundError, TypeError, ValueError) as exc:
             raise ValidationError({"timezone": "Invalid timezone."}) from exc
     if "language" in data and (
-        not isinstance(data["language"], str) or data["language"] not in dict(settings.LANGUAGES)
+        not isinstance(data["language"], str)
+        or (data["language"] != "" and data["language"] not in dict(settings.LANGUAGES))
     ):
         raise ValidationError({"language": "Unsupported language."})
     with transaction.atomic():

@@ -44,6 +44,9 @@ class UserProfileInfo:
     user_revision: int = 0
     profile_sysid: UUID | None = None
     profile_display_name: str = ""
+    # What applies in the current context: profile, then organization, then instance (#170).
+    effective_language: str = ""
+    effective_timezone: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,9 +75,11 @@ def _profile(user: Any) -> Any:
 
 def _me(user: Any) -> UserProfileInfo:
     from skeleton.accounts.models import User
+    from skeleton.common.locale import preferences_for
 
     user = User.objects.get(pk=user.pk)
     profile = _profile(user)
+    effective = preferences_for(user)
     return UserProfileInfo(
         sysid=user.pk,
         email=user.email,
@@ -88,6 +93,8 @@ def _me(user: Any) -> UserProfileInfo:
         user_revision=user.revision,
         profile_sysid=profile.pk,
         profile_display_name=profile.display_name,
+        effective_language=effective.language,
+        effective_timezone=effective.timezone,
     )
 
 

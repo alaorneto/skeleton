@@ -18,7 +18,7 @@ MEMBER_ACTIONS = ("read", "create", "update", "delete")
 def _profile_timezone(user: Any) -> str:
     from skeleton.service_api.identity import IdentityService
 
-    return IdentityService().me(actor=user).timezone or "UTC"
+    return IdentityService().me(actor=user).effective_timezone or "UTC"
 
 
 def ensure_personal_calendar(user: Any) -> Calendar:
