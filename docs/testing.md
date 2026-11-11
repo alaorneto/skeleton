@@ -86,6 +86,22 @@ Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skele
 Cobertura nova: `tests/unit/test_postgresql_only.py` (E025 com outro backend, `DATABASES` vazio fora e dentro do setup; migration recusada fora do PostgreSQL), `tests/unit/test_setup_mode.py` (token emitido uma vez, 0600, só o digest no SQLite; token errado, reutilizado e expirado; troca de modo e `SKELETON_SETUP=off`; URLs não PostgreSQL), `tests/integration/test_setup.py` (qualquer rota leva ao setup, CSRF, token de uso único, rate limit 429, DSN privilegiada recusada com mensagem de `BYPASSRLS`, setup completo contra o PostgreSQL de teste sem a senha do owner no SQLite, no log nem na sessão assinada, `/setup/` 404 depois de concluir e administrador criado), `tests/integration/test_platform_instance.py` (anônimo, não plataforma, segredo ausente do HTML, do log e do `change_log`, validação, chave do ambiente somente leitura com 409, autenticação recente), `tests/unit/test_container_healthcheck.py` (Host do healthcheck nos dois modos) e `tests/unit/test_agent_instance_configuration.py` (URL runtime do agente pelo SQLite da instância; só roda em Linux/macOS).
 
 **Não verificado:** `docker compose up` de uma instalação nova até o setup e o reinício pelo Compose (sem Docker nesta máquina; os testes de renderização do Compose rodam só no CI), o agente de deployment (exige `fcntl`), o reinício por `SIGHUP` do Gunicorn, a suíte SSO real e o PostgreSQL 16.15 do CI.
+## Eventos do núcleo para vínculos e ativação de apps (#43, epic #78)
+
+Rodada de 2026-11-11 na branch `feat/43-core-lifecycle-events`, um commit para [#43](https://github.com/alaorneto/skeleton/issues/43). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1170 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_core_lifecycle_events.py` | 7 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+A primeira rodada completa teve 1 falha e 33 erros: o fan-out de webhooks (consumidor `"*"`) enfileirava um job de entrega inócuo para cada evento de vínculo, e os testes que esvaziam o registro de jobs ou de eventos quebravam no bootstrap. A correção foi o filtro `accepts` dos consumidores `"*"` (o fan-out aceita só tipos `webhook=True`) e manter os tipos do núcleo nos fixtures desses testes; a rodada acima é a de depois da correção.
+
+Cobertura nova em `tests/integration/test_core_lifecycle_events.py`: os quatro tipos declarados com payload só de identificadores e fora dos webhooks; `update_membership`, `delete_membership`, `create_membership` (novo, restaurado, restaurado inativo, já ativo) publicam um evento por mudança efetiva e nada sem efeito; `provision_membership` e `leave_organization`; criação e desativação (repetida) de conta de serviço; `configure_application` publica só quando `enabled` muda (configuração sozinha não publica); um rollback do chamador não deixa evento, e a organização B não lê os eventos de A (RLS); os tipos do núcleo não geram job de entrega.
+
+**Não verificado:** o PostgreSQL 16.15 do CI.
+
 ## PostgreSQL local de desenvolvimento (#145)
 
 Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um servidor descartável sem Docker:

@@ -160,8 +160,11 @@ def provision_membership(*, organization, user, role):
     _tenant_relation(role)
     if user.deleted_at is not None or not user.is_active:
         raise ValidationError("Identity is unavailable.")
+    from skeleton.events.core_events import membership_changed
+
     with organization_lock():
         membership = Membership.all_objects.filter(organization=organization, user=user).first()
+        was_active = membership is not None and membership.is_active and membership.deleted_at is None
         if membership is None:
             membership = Membership(organization=organization, user=user, is_active=True)
             membership.save()
@@ -174,6 +177,7 @@ def provision_membership(*, organization, user, role):
                 membership.save(update_fields={"is_active"})
         if not MemberRole.objects.filter(membership=membership, role=role).exists():
             MemberRole(organization=organization, membership=membership, role=role).save()
+        membership_changed(membership, was_active=was_active)
         return membership
 
 
@@ -186,17 +190,21 @@ def create_membership(*, user, data):
         identity = data["user"]
         if identity.deleted_at is not None or not identity.is_active:
             raise ValidationError("Identity unavailable.")
+        from skeleton.events.core_events import membership_changed
+
         existing = Membership.all_objects.filter(organization=organization, user=identity).first()
         if existing:
             if existing.deleted_at is not None:
                 existing.is_active = data.get("is_active", True)
                 existing.restore()
+                membership_changed(existing, was_active=False)
             else:
                 return update_membership(existing, user=user, data={"is_active": data.get("is_active", True)})
             ensure_last_admin()
             return existing
         record = Membership(organization=organization, **data)
         record.save()
+        membership_changed(record, was_active=False)
         return record
 
 
@@ -217,8 +225,12 @@ def update_membership(record, *, user, data):
         if data.get("is_active") is False:
             require_unprivileged_target(user, membership=record)
             _revoke_membership_links(record)
+        from skeleton.events.core_events import membership_changed
+
+        was_active = record.is_active
         record.is_active = data.get("is_active", record.is_active)
         record.save(update_fields={"is_active"})
+        membership_changed(record, was_active=was_active)
         ensure_last_admin()
         return record
 
@@ -230,9 +242,13 @@ def delete_membership(record, *, user):
         require_service_account_manager(user, record)
         require_unprivileged_target(user, membership=record)
         _revoke_membership_links(record)
+        from skeleton.events.core_events import membership_changed
+
+        was_active = record.is_active
         record.is_active = False
         record.save(update_fields={"is_active"})
         record.delete()
+        membership_changed(record, was_active=was_active)
         ensure_last_admin()
 
 
@@ -260,9 +276,12 @@ def leave_organization(user, *, expected_revision=None):
         if expected_revision is not None and membership.revision != expected_revision:
             raise ConcurrentUpdate("The membership changed.")
         _revoke_membership_links(membership)
+        from skeleton.events.core_events import membership_changed
+
         membership.is_active = False
         membership.save(update_fields={"is_active"})
         membership.delete()
+        membership_changed(membership, was_active=True)
         ensure_last_admin()
         return membership
 
