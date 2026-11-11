@@ -16,7 +16,7 @@ class CalendarConfig(AppConfig):
 
         register_app(AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self))
         from . import services
-        from .models import Calendar, Event, EventAttendee
+        from .models import Calendar, Event, EventAttendee, EventReminder
 
         register(
             TableSpec(
@@ -63,6 +63,18 @@ class CalendarConfig(AppConfig):
                 label="Participantes",
                 scope="organization",
                 read_fields=("event", "membership", "response", "optional"),
+                write_fields=(),
+                sensitive_fields=(),
+                expose_api=False,
+            )
+        )
+        register(
+            TableSpec(
+                model=EventReminder,
+                description="Lembretes de evento em minutos antes de cada ocorrência.",
+                label="Lembretes",
+                scope="organization",
+                read_fields=("event", "minutes_before", "channel_hint"),
                 write_fields=(),
                 sensitive_fields=(),
                 expose_api=False,

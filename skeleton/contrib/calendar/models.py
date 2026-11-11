@@ -227,3 +227,34 @@ class EventAttendee(OrganizationRecord):
 
     def __str__(self):
         return f"{self.event_id} {self.membership_id}"
+
+
+class EventReminder(OrganizationRecord):
+    """Remind the people of an event ``minutes_before`` each occurrence (#73)."""
+
+    class Channel(models.TextChoices):
+        DEFAULT = "default", "Preferências da pessoa"
+        EMAIL = "email", "Email"
+        PUSH = "push", "Push"
+
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name="reminders")
+    minutes_before = models.PositiveIntegerField()
+    channel_hint = models.CharField(max_length=16, choices=Channel.choices, default=Channel.DEFAULT)
+    immutable_fields = ("event_id",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=Q(minutes_before__gte=0, minutes_before__lte=40320),
+                name="skeleton_calendar_reminder_range",
+            ),
+            models.UniqueConstraint(
+                fields=("event", "minutes_before"),
+                condition=Q(deleted_at__isnull=True),
+                name="skeleton_calendar_reminder_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.event_id} -{self.minutes_before}min"

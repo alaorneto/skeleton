@@ -37,6 +37,13 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - Remover o participante revoga a leitura na próxima requisição; um vínculo inativo deixa de ler e de ser notificado.
 - Convidar, alterar e cancelar notificam os participantes (`calendar.invited`, `calendar.updated`, `calendar.cancelled`) pela API de notificações, na transação da mudança; o payload leva o título (ou "Ocupado", se o evento for privado) e o UUID do evento.
 
+### Lembretes (#73)
+`EventReminder` pede um aviso `minutes_before` (0 a 40320, 28 dias) cada ocorrência, com `channel_hint` indicativo: o canal final segue as preferências de notificação da pessoa.
+
+- O job periódico `calendar.reminders` roda a cada 5 minutos em cada organização (contexto de sistema dela), expande as ocorrências próximas e notifica (`calendar.reminder`) o organizador e os participantes ativos das que chegaram à hora do aviso, com até 30 minutos de tolerância para um agendador atrasado.
+- A chave `reminder:<evento>:<ocorrência>:<minutos>` faz cada lembrete disparar uma única vez por ocorrência, mesmo com o job reexecutado.
+- Evento cancelado, ocorrência excluída (EXDATE) ou substituição cancelada não geram lembrete; um participante removido não recebe.
+
 ## Acceptance
 - Um calendário pessoal padrão por membro, inclusive com criação concorrente.
 - Mudar a visibilidade de calendário pessoal responde 400.
@@ -50,3 +57,4 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - `FREQ=SECONDLY` responde 400; uma expansão acima do limite é truncada e sinalizada.
 - "Esta e as seguintes" divide a série sem perder IDs.
 - Membro de outra organização ou conta de serviço como participante responde 400; o participante não edita; RSVP de outra pessoa é 404; remover o participante revoga a leitura.
+- Cada lembrete dispara uma vez por ocorrência, mesmo com o job reexecutado; participante removido não recebe; ocorrência cancelada não gera lembrete.
