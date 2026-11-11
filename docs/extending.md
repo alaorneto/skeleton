@@ -161,7 +161,7 @@ Algumas apps genéricas (a agenda é a primeira, #84) vêm **dentro do wheel do 
 | Prefixo reservado | Uma app de terceiro com label `skeleton_*`, ou com AppConfig em `skeleton.contrib`, é recusada; `package build` recusa um manifest `bundled_app` |
 | Instalação | Opt-in pelo operador: `SKELETON_BUNDLED_APPS=calendar` (lista de nomes do mapa fixo de `skeleton/conf/bundled.py`; nome desconhecido é `ImproperlyConfigured`). O ambiente nunca fornece import path |
 | Rotas do usuário | Só first-party: `runtime.user_urls` monta rotas globais da pessoa em `/me/apps/<label>/`, com login obrigatório e sem cache. Como não há organização na URL, cada view lê as organizações da pessoa uma transação por vez (`for_each_organization`, #74) e pula as que não ativaram a app |
-| Ciclo de vida | Igual ao das demais apps: recém-instalada, fica indisponível e desativada em todas as organizações ([#67](https://github.com/alaorneto/skeleton/issues/67)) |
+| Ciclo de vida | Igual ao das demais apps ([#67](https://github.com/alaorneto/skeleton/issues/67)): recém-instalada, fica indisponível (`selected` sem concessão) e desativada em todas as organizações. Retirar com dados preservados e reinstalar estão em [deployment](deployment.md#apps-first-party) |
 
 O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` prova no CI), e a suíte do núcleo roda sem nenhuma app first-party instalada.
 

@@ -87,7 +87,7 @@ class ComponentInstallation(SystemRecord):
     """Global deployment state; unrelated to an organization's activation."""
 
     component_id = models.CharField(max_length=100, unique=True)
-    kind = models.CharField(max_length=8, choices=(("core", "Core"), ("app", "App")))
+    kind = models.CharField(max_length=8, choices=(("core", "Core"), ("app", "App"), ("bundled", "First-party")))
     app_label = models.CharField(max_length=100, blank=True)
     package_name = models.CharField(max_length=200, blank=True)
     version = models.CharField(max_length=64)
@@ -99,6 +99,7 @@ class ComponentInstallation(SystemRecord):
         choices=(
             ("installed", "Instalado"),
             ("project-local", "Local"),
+            ("bundled", "First-party"),
             ("schema_retained", "Dados preservados"),
         ),
     )
