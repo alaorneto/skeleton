@@ -175,6 +175,9 @@ _SPECS = (
     ),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
     SettingSpec(
+        "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list
+    ),
+    SettingSpec(
         "webhook_retention_days", "SKELETON_WEBHOOK_RETENTION_DAYS", "int", "Retenção das entregas de webhook", _int(1)
     ),
     SettingSpec("files_scanner", "SKELETON_FILES_SCANNER", "str", "Antivírus dos anexos", _choice("none", "clamav")),

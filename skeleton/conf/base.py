@@ -279,3 +279,8 @@ if SKELETON_PACKAGE_MAX_BYTES < 1:
 
     raise ImproperlyConfigured("SKELETON_PACKAGE_MAX_BYTES must be positive.")
 INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
+# First-party apps of the core wheel (#66): opt-in by name from the fixed map, never by import path.
+from skeleton.conf.bundled import bundled_app_configs
+
+SKELETON_BUNDLED_APPS = tuple(env.list("SKELETON_BUNDLED_APPS", default=[]))
+INSTALLED_APPS += bundled_app_configs(SKELETON_BUNDLED_APPS)
