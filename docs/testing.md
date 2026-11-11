@@ -53,6 +53,21 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_s
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Só PostgreSQL, setup e configuração da instância (epic #150)
+
+Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` (com as variáveis de `tools/dev_postgres.py env`) | 1093 passed, 110 skipped (marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows, PostgreSQL 16.2 local (outro servidor) | a mesma suíte numa branch que junta `main` (com #158), #159, #160 e esta | 1160 passed, 110 skipped, 3 failed (os três corrigidos depois nesta branch: o teste de reset desativava como sistema, sem o plano de plataforma que o guard PostgreSQL exige; o scaffold desligava o app de exemplo) e 25 erros da suíte SSO real sem Keycloak. Depois da correção, `test_flows.py`, `test_scaffold_end_to_end.py`, `test_setup.py` e `test_platform_instance.py` na junção: 18 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING` (settings de teste e `config.settings.setup`), `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+| navegador (painel do app) | `runserver` com SQLite da instância vazio | redirecionamento de qualquer rota para `/setup/`, token impresso uma vez (o processo filho do autoreload não emitiu outro), token aceito e páginas das etapas. O resto do fluxo não pôde ser clicado (painel oculto) e está coberto por `test_setup.py` |
+
+Cobertura nova: `tests/unit/test_postgresql_only.py` (E025 com outro backend, `DATABASES` vazio fora e dentro do setup; migration recusada fora do PostgreSQL), `tests/unit/test_setup_mode.py` (token emitido uma vez, 0600, só o digest no SQLite; token errado, reutilizado e expirado; troca de modo e `SKELETON_SETUP=off`; URLs não PostgreSQL), `tests/integration/test_setup.py` (qualquer rota leva ao setup, CSRF, token de uso único, rate limit 429, DSN privilegiada recusada com mensagem de `BYPASSRLS`, setup completo contra o PostgreSQL de teste sem a senha do owner no SQLite, no log nem na sessão assinada, `/setup/` 404 depois de concluir e administrador criado), `tests/integration/test_platform_instance.py` (anônimo, não plataforma, segredo ausente do HTML, do log e do `change_log`, validação, chave do ambiente somente leitura com 409, autenticação recente), `tests/unit/test_container_healthcheck.py` (Host do healthcheck nos dois modos) e `tests/unit/test_agent_instance_configuration.py` (URL runtime do agente pelo SQLite da instância; só roda em Linux/macOS).
+
+**Não verificado:** `docker compose up` de uma instalação nova até o setup e o reinício pelo Compose (sem Docker nesta máquina; os testes de renderização do Compose rodam só no CI), o agente de deployment (exige `fcntl`), o reinício por `SIGHUP` do Gunicorn, a suíte SSO real e o PostgreSQL 16.15 do CI.
 ## PostgreSQL local de desenvolvimento (#145)
 
 Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um servidor descartável sem Docker:
