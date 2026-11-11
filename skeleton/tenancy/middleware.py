@@ -15,6 +15,19 @@ class TenantContextMiddleware:
             raise InvalidContext("Tenant middleware requires synchronous views.")
 
     def __call__(self, request):
+        from .aggregate import is_aggregate_route
+
+        try:
+            callback = resolve(request.path_info).func
+        except Resolver404:
+            callback = None
+        if is_aggregate_route(callback):
+            # Reads many organizations (#74): the view opens one context per organization itself.
+            response = self.get_response(request)
+            if hasattr(response, "render") and not response.is_rendered:
+                response.render()
+            response["X-Request-ID"] = str(request.request_id)
+            return response
         response = self._in_context(request)
         if getattr(response, "detached", False):
             # The transaction committed and the contexts are gone: stream without the ORM.

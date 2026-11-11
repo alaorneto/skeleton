@@ -129,6 +129,18 @@ for org_id in materialized_organization_ids:
 
 O exemplo acima ilustra o contexto, não concede permissão HTTP nem `BYPASSRLS`. Não envolva todo o laço em uma `atomic` externa. `on_commit` recebe dados já materializados; consultas posteriores precisam de novo contexto. Um queryset Django é avaliado sob demanda: converta-o em dados dentro do bloco, não o devolva para consultar depois.
 
+### Leitura agregada entre organizações
+
+Uma requisição comum seleciona um tenant só. Para mostrar os itens de uma pessoa em todas as organizações dela (a visão "Minha agenda", o feed da agenda), o núcleo oferece `skeleton.tenancy.aggregate.for_each_organization(user, fn, *, source, app_label=None, limit=50)` (#74):
+
+- A view é marcada com `@aggregate_route`, e o `TenantContextMiddleware` não abre contexto nem transação para ela. `for_each_organization` recusa rodar dentro de um contexto (`InvalidContext`).
+- Os vínculos ativos da pessoa são listados numa transação curta, em ordem de nome, até `limit` (no máximo 50) organizações.
+- Para cada organização, `fn(organization_id)` roda num `request_context` + `tenant_context` próprios: TablePermission, visibilidade, ativação de apps e RLS valem como numa requisição comum. No PostgreSQL a transação é `READ ONLY`, então uma escrita dentro de `fn` falha.
+- Uma organização é pulada quando o vínculo ficou inativo, quando `app_label` não está ativa nela ou quando `fn` levanta `PermissionDenied` (por exemplo, sem TablePermission).
+- `fn` devolve valores materializados: queryset, iterador ou gerador levantam `LazyAggregateResult`, porque nada pode ler o banco depois da transação da organização.
+
+Não há escrita entre organizações: uma escrita sempre acontece numa organização escolhida pela pessoa.
+
 ### Ordem dos bloqueios administrativos
 
 Um bloqueio de linha (`SELECT ... FOR UPDATE`) impede outra transação de modificar aquela linha até o fim da transação atual. Para alterações administrativas, adquira primeiro o bloqueio de `Organization` com `skeleton.access.services.organization_lock(user, capability=...)` (sem `capability`, exige o administrador) e só depois carregue/bloqueie o vínculo, papel, grupo ou link a alterar. HTTP sempre passa o ator autenticado; a ausência de ator é reservada ao provisionamento interno.

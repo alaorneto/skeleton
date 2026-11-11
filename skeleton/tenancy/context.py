@@ -61,6 +61,11 @@ def current_context() -> Context:
     return _context.get() or Context()
 
 
+def in_context() -> bool:
+    """Whether any request, tenant or system context is open in this execution context."""
+    return _context.get() is not None
+
+
 def _uuid(value: IdentityRef) -> UUID | None:
     if value is None:
         return None
