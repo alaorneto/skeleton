@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from django.core.exceptions import ImproperlyConfigured
 
-# name -> AppConfig path. Empty until the first first-party app ships (the calendar, #84).
-BUNDLED_APPS: dict[str, str] = {}
+# name -> AppConfig path.
+BUNDLED_APPS: dict[str, str] = {"calendar": "skeleton.contrib.calendar.apps.CalendarConfig"}
 # name -> app label, and the frozen schema snapshot shipped in the wheel (relative to skeleton/),
 # used when the app is opted out after migrating (SKELETON_BUNDLED_RETAINED, #67).
-BUNDLED_LABELS: dict[str, str] = {}
-BUNDLED_SNAPSHOTS: dict[str, str] = {}
+BUNDLED_LABELS: dict[str, str] = {"calendar": "skeleton_calendar"}
+BUNDLED_SNAPSHOTS: dict[str, str] = {"calendar": "contrib/calendar/retained_schema.json"}
 
 
 def bundled_app_configs(names, *, available: dict[str, str] | None = None) -> list[str]:

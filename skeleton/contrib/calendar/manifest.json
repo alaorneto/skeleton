@@ -1,0 +1,29 @@
+{
+  "manifest_version": 2,
+  "kind": "bundled_app",
+  "app_id": "org.skeleton.calendar",
+  "app_label": "skeleton_calendar",
+  "package_name": "calendar",
+  "app_config": "skeleton.contrib.calendar.apps.CalendarConfig",
+  "name": "Agenda",
+  "description": "Calendários pessoais e compartilhados da organização, com eventos, recorrência, convites e lembretes",
+  "version": "0.5.0",
+  "publisher": "skeleton-core",
+  "compatibility": {"skeleton": ">=0.5.0,<0.6.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
+  "dependencies": {},
+  "conflicts": {},
+  "runtime": {
+    "urls": "skeleton.contrib.calendar.urls",
+    "user_urls": "skeleton.contrib.calendar.user_urls",
+    "default_enabled": false,
+    "configuration_fields": [],
+    "navigation": [{"label": "Agenda", "url_name": "skeleton_calendar:home", "table_key": "skeleton_calendar.calendar", "action": "read"}],
+    "documentation_root": "docs",
+    "service_api": {"module": "skeleton.contrib.calendar.service_api", "classes": ["CalendarService"]}
+  },
+  "migrations": {"leaves": ["0005_reminders"], "from_versions": ">=0.0.0", "labels": ["skeleton_calendar"]},
+  "files": [],
+  "python_dependencies": [],
+  "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},
+  "release_notes": "Primeira app first-party do núcleo: calendários pessoais e compartilhados."
+}

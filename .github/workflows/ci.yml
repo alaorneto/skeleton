@@ -128,6 +128,14 @@ jobs:
           .venv/bin/python manage.py makemigrations --check --dry-run
       - name: Suíte inteira com cobertura
         run: .venv/bin/python -m pytest tests -q --cov --cov-report=term --cov-report=xml
+      - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
+        # Its own suite and checks with the app installed; the core suite above runs without it.
+        env:
+          SKELETON_BUNDLED_APPS: calendar
+        run: |
+          .venv/bin/python manage.py check --fail-level WARNING
+          .venv/bin/python manage.py makemigrations --check --dry-run
+          .venv/bin/python -m pytest tests/contrib/calendar -q
       - name: Smoke de segurança do runtime
         if: matrix.python == '3.14'
         run: .venv/bin/python tools/smoke_postgres.py

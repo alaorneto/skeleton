@@ -121,3 +121,40 @@ class AccessService(ServiceAPI):
 
         groups = AccessGroup.objects.filter(pk__in=group_ids(_user(actor))).order_by("code", "sysid")
         return tuple(GroupSummary(group.pk, group.code, group.name) for group in groups)
+
+    @service_method(read_only=False, since="0.5.0")
+    def grant_member_table_access(
+        self, *, actor: AbstractBaseUser, table_key: str, actions: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        """Give the built-in ``member`` role ``actions`` on an exposed table; return what was added.
+
+        Autorização: ``access.manage`` (administrador da organização), pelo mesmo serviço de
+        concessão da gestão de acesso (lock da organização e auditoria). Ações que o papel já
+        tem são puladas, então repetir não muda nada.
+        Erros: InvalidInput para tabela não exposta ou ação inválida; Forbidden sem
+        ``access.manage``.
+        Efeitos: grava ``TablePermission`` na transação do chamador.
+        """
+        from skeleton.access.capabilities import ACCESS_MANAGE, has_capability
+        from skeleton.access.models import Role, TablePermission
+        from skeleton.access.policies import table_definition
+        from skeleton.access.services import grant_table_permission
+
+        if not has_capability(_user(actor), ACCESS_MANAGE):
+            raise Forbidden()
+        model = _model(table_key)
+        if model is None:
+            raise InvalidInput({"table_key": ["Tabela desconhecida ou não exposta."]})
+        if not isinstance(actions, tuple) or not actions:
+            raise InvalidInput({"actions": ["Informe as ações."]})
+        for action in actions:
+            _action(action)
+        table, role = table_definition(model), Role.objects.filter(code="member", is_builtin=True).first()
+        if table is None or role is None:
+            raise InvalidInput({"table_key": ["Catálogo ou papel member indisponível."]})
+        granted = []
+        for action in dict.fromkeys(actions):
+            if not TablePermission.objects.filter(role=role, table=table, action=action).exists():
+                grant_table_permission(user=_user(actor), data={"role": role, "table": table, "action": action})
+                granted.append(action)
+        return tuple(granted)

@@ -230,7 +230,8 @@ def guard_user_urls(patterns):
                 @never_cache
                 @wraps(callback)
                 def guarded(request, *args, **kwargs):
-                    if not request.user.is_authenticated:
+                    # A token route (a calendar feed) authenticates by its own token in the path.
+                    if not request.user.is_authenticated and not getattr(callback, "skeleton_token_route", False):
                         return redirect_to_login(request.get_full_path())
                     return callback(request, *args, **kwargs)
 
