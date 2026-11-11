@@ -70,6 +70,24 @@ def _url(parser: str) -> Callable[[str], str]:
     return validate
 
 
+def _origin(value: str) -> str:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(_required_text(value).strip())
+    if parts.scheme not in {"http", "https"} or not parts.netloc or parts.query or parts.fragment:
+        raise ValueError("Use uma origem http(s), como https://app.example.com.")
+    if parts.path not in {"", "/"}:
+        raise ValueError("Use só a origem, sem caminho.")
+    return value.strip().rstrip("/")
+
+
+def _subject(value: str) -> str:
+    value = _required_text(value).strip()
+    if not (value.startswith("mailto:") or value.startswith("https://")):
+        raise ValueError("Use mailto: ou uma URL https://.")
+    return value
+
+
 def _choice(*choices: str) -> Callable[[str], str]:
     def validate(value: str) -> str:
         if value not in choices:
@@ -119,6 +137,16 @@ _SPECS = (
     SettingSpec("cache_url", "CACHE_URL", "url", "Cache compartilhado", _url("cache_url_config"), True),
     SettingSpec("email_url", "EMAIL_URL", "url", "Servidor de email", _url("email_url_config"), True),
     SettingSpec("default_from_email", "DEFAULT_FROM_EMAIL", "str", "Remetente padrão dos emails", _required_text),
+    SettingSpec("public_url", "SKELETON_PUBLIC_URL", "url", "Origem pública dos links de notificação", _origin),
+    SettingSpec(
+        "webpush_vapid_private_key_file",
+        "WEBPUSH_VAPID_PRIVATE_KEY_FILE",
+        "path",
+        "Arquivo da chave privada VAPID (web push)",
+        _required_text,
+    ),
+    SettingSpec("webpush_vapid_subject", "WEBPUSH_VAPID_SUBJECT", "str", "Contato VAPID (mailto: ou https:)", _subject),
+    SettingSpec("webpush_allowed_hosts", "WEBPUSH_ALLOWED_HOSTS", "list", "Serviços de push permitidos", _list),
     SettingSpec("mfa_encryption_keys", "MFA_ENCRYPTION_KEYS", "list", "Chaves de cifra do MFA", _list, True),
     SettingSpec(
         "identity_provider_encryption_keys",
@@ -156,6 +184,27 @@ _SPECS = (
         "str",
         "Endereço do clamd (tcp://host:3310 ou unix:///caminho)",
         _required_text,
+    ),
+    SettingSpec(
+        "notification_read_retention_days",
+        "SKELETON_NOTIFICATION_READ_RETENTION_DAYS",
+        "int",
+        "Retenção das notificações lidas ou arquivadas",
+        _int(1),
+    ),
+    SettingSpec(
+        "notification_unread_retention_days",
+        "SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS",
+        "int",
+        "Retenção das notificações não lidas",
+        _int(1),
+    ),
+    SettingSpec(
+        "notification_delivery_retention_days",
+        "SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS",
+        "int",
+        "Retenção das entregas de notificação",
+        _int(1),
     ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),

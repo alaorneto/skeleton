@@ -115,3 +115,48 @@ for (const current of document.querySelectorAll(".link-tabs [aria-current]")) {
   const strip = current.parentElement;
   strip.scrollLeft = Math.max(0, current.offsetLeft - strip.offsetLeft - 16);
 }
+
+// Web push opt-in (#56): the section stays hidden without JavaScript or browser support.
+for (const section of document.querySelectorAll("[data-push-optin]")) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !window.isSecureContext) continue;
+  const enable = section.querySelector("[data-push-enable]");
+  const disable = section.querySelector("[data-push-disable]");
+  const status = section.querySelector("[data-push-status]");
+  const token = document.querySelector("input[name=csrfmiddlewaretoken]")?.value || "";
+  const post = (url, body) => fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {"Content-Type": "application/json", "X-CSRFToken": token},
+    body: JSON.stringify(body),
+  });
+  const key = section.dataset.pushKey.replace(/-/g, "+").replace(/_/g, "/");
+  const applicationServerKey = Uint8Array.from(atob(key + "=".repeat((4 - key.length % 4) % 4)), c => c.charCodeAt(0));
+  const show = subscribed => {
+    enable.hidden = subscribed;
+    disable.hidden = !subscribed;
+  };
+  section.hidden = false;
+  navigator.serviceWorker.register(section.dataset.worker, {scope: "/"}).then(registration => {
+    registration.pushManager.getSubscription().then(current => show(Boolean(current)));
+    enable.addEventListener("click", async () => {
+      try {
+        const subscription = await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey});
+        const response = await post(section.dataset.subscribeUrl, subscription.toJSON());
+        if (!response.ok) throw new Error(String(response.status));
+        status.textContent = "Push ativado neste navegador.";
+        show(true);
+      } catch (error) {
+        status.textContent = "Não foi possível ativar o push neste navegador.";
+      }
+    });
+    disable.addEventListener("click", async () => {
+      const current = await registration.pushManager.getSubscription();
+      if (current) {
+        await post(section.dataset.unsubscribeUrl, {endpoint: current.endpoint});
+        await current.unsubscribe();
+      }
+      status.textContent = "Push desativado neste navegador.";
+      show(false);
+    });
+  });
+}

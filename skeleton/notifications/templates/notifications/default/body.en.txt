@@ -1,0 +1,9 @@
+{% autoescape off %}{{ label }}
+{% for key, value in snapshot.items %}
+{{ value }}{% endfor %}
+
+Open: {{ open_url }}
+Received on {{ created_at|date:"Y-m-d H:i" }}.
+
+You receive this email because of your notification preferences: {{ preferences_url }}
+{% endautoescape %}
