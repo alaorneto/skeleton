@@ -81,8 +81,11 @@ def profile_data(user, profile):
 
 
 def audit_data(event):
-    # Audit identities are deliberately historical, never dereferenced to private objects.
-    from skeleton.audit.presentation import visible_audit_changes
+    """REST shape of one ``AuditLogEvent`` (``AuditLogService``).
+
+    Audit identities are deliberately historical, never dereferenced to private objects.
+    """
+    import json
 
     data = {
         name: getattr(event, name)
@@ -101,5 +104,5 @@ def audit_data(event):
             "db_principal",
         )
     }
-    data["changes"] = visible_audit_changes(event)
+    data["changes"] = json.loads(event.changes_json)
     return data

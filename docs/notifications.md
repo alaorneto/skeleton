@@ -78,3 +78,77 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 - O cabeçalho mostra o contador de não lidas de todas as organizações com vínculo ativo, limitado a `99+`. O número de consultas é constante (índice parcial `(user_id) WHERE read_at IS NULL AND archived_at IS NULL`).
 - Tudo funciona sem JavaScript: as ações são formulários comuns.
 - A raiz `notifications/` é reservada ao núcleo: uma app não pode capturá-la.
+
+## Preferências
+
+Cada pessoa escolhe, por tipo e canal, como recebe as notificações em todas as organizações (`UserNotificationPreference`, `SystemRecord` global, auditado e com revisão). A página fica em `/profile/notifications/` (formulário comum, sem JavaScript) e a API de sessão em `/api/v1/me/notification-preferences/`.
+
+| Canal | Modos |
+|---|---|
+| `in_app` | `off`, `immediate` |
+| `email` | `off`, `immediate`, `daily`, `weekly` (com `digest_hour`, de 0 a 23, no fuso da pessoa; o semanal sai às segundas-feiras) |
+| `push` | `off`, `immediate` |
+
+A resolução vai do mais específico ao mais geral: a linha da pessoa para o tipo, a linha `*` (padrão dela para todos os tipos) e, sem linha, o `default_channels` do tipo (canal listado é `immediate`, os demais `off`). Um tipo `mandatory=True` sempre chega à caixa in-app: desligá-lo responde 400, e a linha `*` não o desliga.
+
+| Rota | O que faz |
+|---|---|
+| `GET /api/v1/me/notification-preferences/` | Todos os tipos registrados e o `*`, com `mode`, `digest_hour`, `source` (`own`, `default`, `type`, `mandatory`), `sysid` e `revision` da linha, quando existe |
+| `GET`/`PUT /api/v1/me/notification-preferences/<tipo>/<canal>/` | `PUT {"mode": ..., "digest_hour": ...}`. Sem linha, cria (sem `If-Match`); com linha, exige `If-Match` com a revisão (428 sem ela, 412 desatualizada) |
+| `DELETE /api/v1/me/notification-preferences/<tipo>/<canal>/` | Exclusão lógica com `If-Match`: volta a valer o nível seguinte da resolução |
+
+A pessoa só lê e altera as próprias linhas: nenhuma rota recebe identificador de usuário. Um formulário com revisão antiga responde 409 sem gravar nada.
+
+## Email imediato
+
+Quem tem `email` em `immediate` (pela preferência ou pelo `default_channels` do tipo) recebe um email por notificação. O fan-out cria uma `NotificationDelivery` (canal `email`, [tabela operacional](data-model.md#tabelas-operacionais-adr) com RLS tenant) e enfileira o job `notifications.email` na mesma transação: um rollback não deixa nem a entrega nem o job, e nada sai durante o `notify()`.
+
+O job, em `system_context` da organização:
+
+1. Pula a entrega (`skipped`) se a pessoa foi desativada, saiu da organização (`recipient_inactive`), desligou o email (`opted_out`) ou perdeu a leitura do alvo (`target_unreadable`) desde o fan-out.
+2. Renderiza no idioma e no fuso do perfil (`translation.override`, `timezone.override`) os templates `notifications/<tipo>/subject.txt`, `body.txt` e `body.html` (opcional), procurando antes `<nome>.<idioma>.<ext>` (`body.en.txt`) e caindo em `notifications/default/`. O contexto traz `label`, `snapshot`, `payload`, `created_at`, `open_url` e `preferences_url`.
+3. Envia com `List-Unsubscribe: <…/profile/notifications/>`. Uma falha conta uma tentativa e agenda outra em 1 min, 5 min, 30 min e 2 h; depois da quinta, a entrega fica `dead`. Uma entrega `sent` nunca sai de novo: a entrega é pelo menos uma vez, idempotente por linha.
+
+Os links usam `SKELETON_PUBLIC_URL`. Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês; os rótulos dos tipos continuam em português até o epic de i18n.
+
+## Resumo diário ou semanal
+
+Quem escolhe `daily` ou `weekly` no canal `email` recebe um resumo em vez de um email por notificação. O job periódico `notifications.digest` roda a cada hora, por organização e numa transação própria:
+
+- Seleciona os membros ativos cuja `digest_hour` é a hora atual **no fuso do perfil**; o semanal só às segundas-feiras.
+- Reúne as linhas da caixa (`NotificationRecipient`) não lidas, não arquivadas e ainda fora de resumo, dos tipos em resumo, até 50 por email, e marca `digest_sent_at`: uma linha nunca entra em dois resumos.
+- Cria uma `NotificationDelivery` (canal `digest`) por pessoa e hora local, com `dedupe_key` `digest:<pessoa>:<AAAAMMDDHH>`, e o mesmo job `notifications.email` envia com as mesmas retentativas. Rodar a mesma janela de novo não cria outro resumo.
+- Resumo vazio não é criado. Itens lidos ou arquivados entre a criação e o envio saem do email; se nenhum sobrar, a entrega fica `skipped` (`empty_digest`).
+
+Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. Se o worker atrasar além da hora local, o resumo daquele dia é pulado e os itens seguem para o próximo.
+
+## Web push
+
+Com o push configurado, a página `/profile/notifications/` mostra a seção "Push neste navegador". Ela fica oculta sem JavaScript ou sem suporte do navegador, e o resto da página funciona igual. Ao ativar, o `site.js` registra o service worker `/sw.js` (escopo `/`) e envia a assinatura do navegador (sessão e CSRF):
+
+| Rota | O que faz |
+|---|---|
+| `POST /api/v1/me/push-subscriptions/` | `{"endpoint", "keys": {"p256dh", "auth"}}` registra o navegador para a pessoa logada (201). Endpoint fora de `WEBPUSH_ALLOWED_HOSTS`, sem HTTPS, com porta ou credencial na URL: 400. Se o mesmo endpoint era de outra pessoa (outro login no mesmo navegador), a assinatura antiga é excluída |
+| `POST /api/v1/me/push-subscriptions/unsubscribe/` | `{"endpoint"}` exclui logicamente a assinatura da própria pessoa (204) |
+| `GET /sw.js` | O service worker, só com o push configurado (404 sem ele) |
+
+`WebPushSubscription` é um `SystemRecord` global: o endpoint (uma URL de capacidade) e as duas chaves ficam cifrados com o keyring `INTEGRATION_ENCRYPTION_KEYS` e são `sensitive_fields`, redigidos na auditoria; `endpoint_digest` (SHA-256) localiza a assinatura sem decifrar.
+
+Quem tem `push` em `immediate` recebe, a cada notificação, uma `NotificationDelivery` (canal `push`) e o job `notifications.push`:
+
+- O job repete as checagens do email (pessoa ativa, preferência, leitura do alvo) e envia a cada assinatura viva da pessoa.
+- Payload mínimo: `{"title": <rótulo do tipo>, "url": <link de abertura>}`. O snapshot do alvo (o título, por exemplo) só entra quando o tipo declara `push_snapshot=True`.
+- O corpo é cifrado com `aes128gcm` (RFC 8291) e assinado com VAPID ES256 (RFC 8292). Os dois são implementados com `cryptography`, que já está no lock, e não com `pywebpush`, para não trazer `aiohttp`, `requests` e outras dependências. A saída é só pelo `skeleton.common.outbound_http` (anti-SSRF), e de novo só para hosts da allowlist.
+- 2xx conta como enviado. 404 ou 410 exclui logicamente a assinatura, sem retentativa. 429 e 5xx seguem o mesmo calendário de retentativas do email até `dead`.
+
+## Retenção
+
+As tabelas de notificação são operacionais, e a exclusão física só acontece no job periódico `notifications.retention` (diário, às 03:30 UTC, por organização e no `system_context` dela). Prazos (settings e chaves da configuração da instância):
+
+| Setting | Padrão | O que remove |
+|---|---|---|
+| `SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS` | 30 | Entregas finalizadas (`sent`, `skipped`, `dead`) criadas antes do prazo. Entregas `pending` e `retrying` ficam |
+| `SKELETON_NOTIFICATION_READ_RETENTION_DAYS` | 90 | Linhas da caixa lidas ou arquivadas há mais tempo que o prazo |
+| `SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS` | 180 | Linhas não lidas cuja última atualização (incluindo o agrupamento) é mais antiga que o prazo; e, depois delas, as `Notification` já distribuídas, mais antigas que o prazo, que nenhuma linha nem entrega referencia |
+
+A ordem respeita as referências `PROTECT`: primeiro as entregas, depois as linhas e por último as notificações órfãs. O contador de não lidas continua igual ao número de linhas não lidas que restam. Uma `dedupe_key` volta a aceitar uma notificação nova só depois que a antiga sai pela retenção. A retenção por LGPD (expurgo a pedido) fica para o epic do ciclo 2.

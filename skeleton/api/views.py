@@ -11,7 +11,6 @@ from rest_framework.views import APIView
 
 from skeleton.access import services as access_services
 from skeleton.access.capabilities import has_any_capability, require_resource_capability, resource_capability
-from skeleton.access.policies import authorized_audit_queryset
 from skeleton.accounts.mfa import mfa_required
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
 from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model
@@ -53,7 +52,7 @@ class TenantAPI(SessionAPI):
             raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403)
 
 
-def page(queryset, request, serialize=None, *, serialize_many=None):
+def page_numbers(request):
     try:
         number = int(request.query_params.get("page", "1"))
         size = int(request.query_params.get("page_size", "25"))
@@ -61,6 +60,11 @@ def page(queryset, request, serialize=None, *, serialize_many=None):
             raise ValueError
     except ValueError:
         raise BoundaryError("invalid_pagination", "Página ou tamanho inválido.") from None
+    return number, size
+
+
+def page(queryset, request, serialize=None, *, serialize_many=None):
+    number, size = page_numbers(request)
     offset = (number - 1) * size
     count = queryset.count()
     items = queryset[offset : offset + size]
@@ -273,21 +277,37 @@ class CatalogView(TenantAPI):
 
 class AuditView(TenantAPI):
     def get(self, request, organization_id, sysid=None):
-        queryset = authorized_audit_queryset(request.user).order_by("-created_at", "sysid")
+        from uuid import UUID
+
+        from skeleton.service_api.audit import AuditLogService
+
+        service = AuditLogService()
         if sysid:
-            event = queryset.filter(pk=sysid).first()
-            if event is None:
-                raise Http404
-            return Response(audit_data(event))
+            return Response(audit_data(service.event(actor=request.user, event_id=sysid)))
         if set(request.query_params) - {"page", "page_size", "record_sysid", "model_label"}:
             raise BoundaryError("invalid_filter", "Filtro não permitido.")
-        for name in ("record_sysid", "model_label"):
-            if name in request.query_params:
-                try:
-                    queryset = queryset.filter(**{name: request.query_params[name]})
-                except (ValidationError, ValueError):
-                    raise BoundaryError("invalid_filter", "Filtro inválido.") from None
-        return page(queryset, request, audit_data)
+        record_id = request.query_params.get("record_sysid")
+        if record_id is not None:
+            try:
+                record_id = UUID(record_id)
+            except ValueError:
+                raise BoundaryError("invalid_filter", "Filtro inválido.") from None
+        number, size = page_numbers(request)
+        log = service.events(
+            actor=request.user,
+            model_label=request.query_params.get("model_label"),
+            record_id=record_id,
+            page=number,
+            page_size=size,
+        )
+        return Response(
+            {
+                "count": log.count,
+                "page": log.page,
+                "page_size": log.page_size,
+                "results": [audit_data(e) for e in log.items],
+            }
+        )
 
 
 class RecordsView(TenantAPI):

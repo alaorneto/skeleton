@@ -1,0 +1,4 @@
+<p>Unread notifications since the last digest:</p>
+<ul>{% for entry in entries %}<li><a href="{{ entry.open_url }}">{{ entry.label }}</a>{% if entry.count > 1 %} ({{ entry.count }}){% endif %}{% for key, value in entry.snapshot.items %} · {{ value }}{% endfor %}</li>{% endfor %}</ul>
+<p><a href="{{ inbox_url }}">Notification inbox</a></p>
+<p style="color:#6b7280;font-size:12px">You receive this digest because of your <a href="{{ preferences_url }}">notification preferences</a>.</p>
