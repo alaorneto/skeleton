@@ -167,3 +167,20 @@ Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de a
 curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
 curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'   -d '{"code":"n1","title":"Nota","body":"texto"}' "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
 ```
+
+## Gestão de tokens
+
+A gestão de tokens (#47) só aceita sessão: um token não emite, lista nem revoga tokens (403 `token_not_allowed`).
+
+| Interface | Quem | O que faz |
+|---|---|---|
+| `/profile/tokens/` | A própria pessoa | Lista os tokens pessoais e de feed dela (prefixo, nome, escopos, validade), cria um token com nome, escopos e validade em dias e revoga. Contas de serviço não têm esta página |
+| `/o/<org>/integrations/service-accounts/` e `<conta>/` | `integrations.manage` (404 para os demais) | Cria e desativa contas de serviço, lista e emite os tokens de cada uma e os revoga |
+| `GET`, `POST /api/v1/me/tokens/`; `DELETE /api/v1/me/tokens/<id>/` | A própria pessoa | Mesmo que a página. `POST` recebe `name`, `scopes` e `expires_at` (ISO 8601 com fuso) |
+| `GET`, `POST /api/v1/o/<org>/service-accounts/`; `DELETE .../<conta>/` | `integrations.manage` | Lista e cria contas (`{"name": ...}`); `DELETE` desativa a conta |
+| `GET`, `POST .../service-accounts/<conta>/tokens/`; `DELETE .../tokens/<id>/` | `integrations.manage` | Tokens da conta |
+
+- Criar exige autenticação recente (`reauthentication_required`, 403, na API; a página pede a reautenticação) e, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA cadastrada (`mfa_required`).
+- A resposta da criação (página ou `201`) é a única que traz o texto do token, com `Cache-Control: no-store`. As listas e o resto da API nunca trazem o segredo nem o digest.
+- Revogar exige `If-Match` com a revisão (`428` sem ele, `412` desatualizado). Um token de outra pessoa ou de outra organização responde 404, como um inexistente.
+- Desativar a conta de serviço invalida todos os tokens dela na hora (`auth_version`).

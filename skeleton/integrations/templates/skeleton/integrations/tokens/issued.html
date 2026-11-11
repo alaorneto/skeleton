@@ -1,0 +1,13 @@
+{% extends 'skeleton/web/base.html' %}{% block title %}Token criado · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Tokens de API</p><h1>Token criado</h1></div></div>
+<section class="card" aria-labelledby="token-text">
+  <h2 id="token-text">{{ token.name }}</h2>
+  <p class="mt-1 text-sm/6">Copie agora: o token não aparece de novo. Envie-o no cabeçalho <code>Authorization: Bearer</code> das requisições a <code>/api/v1/</code> e guarde-o como uma senha.</p>
+  <p class="mt-4"><code class="break-all select-all" data-token>{{ text }}</code></p>
+  <p class="mt-2 text-sm/6 text-body-subtle">Válido até {{ token.expires_at }}. Escopos: {{ token.scopes|join:", " }}.</p>
+  <div class="form-actions"><a class="btn btn-primary" href="{{ done_url }}">Concluir</a></div>
+</section>
+</div>
+{% endblock %}

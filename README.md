@@ -29,7 +29,9 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
 | `/platform/updates/` | Administrador da plataforma, com agente provisionado | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
-| `/api/v1/` | Cliente com sessão Django válida | Operar recursos autorizados; não existe login independente por token |
+| `/profile/tokens/` | Pessoa autenticada | Criar e revogar tokens de API pessoais, com escopos e validade; o token aparece uma vez ([API](docs/api.md#gestão-de-tokens)) |
+| `/o/<org>/integrations/service-accounts/` | Quem tem `integrations.manage` | Contas de serviço da organização e os tokens delas |
+| `/api/v1/` | Cliente com sessão Django válida ou token de API | Operar recursos autorizados; o token só restringe o papel da pessoa e não alcança a administração ([autenticação por token](docs/api.md#autenticação-por-token)) |
 
 No caminho `/o/<org>/`, substitua `<org>` pelo UUID da organização. O servidor valida o vínculo: conhecer o UUID não concede acesso.
 
