@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
@@ -23,7 +23,9 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+from skeleton.common.http_logging import bound_request_id, current_request_id
 from skeleton.common.logging import security_event
+from skeleton.observability.tracing import job_span, record_job_outcome
 
 from .models import Job
 from .registry import get_job_type
@@ -45,6 +47,7 @@ def _log(event: str, job: Job, *, level: int = logging.INFO, **fields: Any) -> N
         level=level,
         source=f"job:{job.job_type}",
         target_sysid=str(job.pk),
+        request_id=current_request_id(),
         **fields,
     )
 
@@ -176,7 +179,18 @@ def _organization_active(job: Job, using: str) -> bool:
 
 
 def execute(job: Job, worker_id: str, *, using: str = "default") -> Outcome:
-    """Run a claimed job; the handler's writes and the success mark commit together."""
+    """Run a claimed job; the handler's writes and the success mark commit together.
+
+    Each execution gets its own ``request_id``: it correlates the job's log lines with its
+    trace span and the SQL spans under it (#176).
+    """
+    with bound_request_id(uuid4()), job_span(job) as span:
+        outcome = _execute(job, worker_id, using=using)
+        record_job_outcome(span, outcome.state, outcome.error_class)
+        return outcome
+
+
+def _execute(job: Job, worker_id: str, *, using: str) -> Outcome:
     try:
         job_type = get_job_type(job.job_type)
     except KeyError:
