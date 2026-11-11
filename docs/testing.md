@@ -53,6 +53,62 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_s
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Observabilidade (epic #87)
+
+Rodada de 2026-11-11 na branch `feat/87-observability`, um commit por issue. Somente o que rodou.
+
+### Métricas Prometheus (#175)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime`, `prometheus-client` 0.26.0 | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k metrics` | 23 passed, 5 skipped (agente sem `fcntl`) |
+| mesmo PostgreSQL | `pytest tests/unit/test_observability_metrics.py tests/unit/test_observability_optional.py tests/integration/test_metrics_endpoint.py tests/unit/test_instance_config.py tests/unit/test_security_logging.py tests/integration/test_jobs_operations.py` | 46 passed, 1 skipped (`posix`) |
+
+Cobertura nova:
+- `tests/integration/test_metrics_endpoint.py`: sem `SKELETON_METRICS_TOKEN`, `/metrics` é 404; sem cabeçalho, sem token, token errado, esquema `Basic`/`Token` e token com sufixo respondem 401 sem corpo, com `WWW-Authenticate: Bearer` e `no-store`; POST é 405 e HEAD não tem corpo; a resposta não abre sessão nem grava cookie; `skeleton_jobs_due`, `skeleton_jobs_dead`, o atraso e os workers `live`/`stale` batem com `queue_health()` sobre jobs reais (um vencido, um futuro, um esgotado e uma entrega de webhook esgotada) e os heartbeats; o histograma usa o padrão de rota (inclusive em 404 de tenant, que responde antes da resolução de URL), `unresolved` e `health/live/`; **negativo de segurança**: depois de login por email e de requests com sysid, slug e email no caminho e na query, nenhum rótulo de nenhuma série tem UUID, `@`, o slug, o email ou os sysids, e nenhum deles aparece no texto da coleta.
+- `tests/unit/test_observability_metrics.py`: o Bearer é comparado com `hmac.compare_digest` sobre digests do mesmo tamanho em todas as tentativas, inclusive as de tamanho diferente; o rótulo de rota é o padrão; o histograma só tem `method`, `route` e `status`; o middleware se remove sem token ou sem o extra; o coletor agrupa entregas por canal, junta tipos não registrados em `other` e ignora estados desconhecidos; uma falha do banco devolve só `skeleton_queue_metrics_up 0`; os checks `skeleton.W030` (token sem extra, token sem middleware) e `skeleton.E030` (token curto); `metrics_token` é segredo do catálogo e recusa tokens curtos ou com espaço.
+- `tests/unit/test_observability_optional.py`: num processo novo, sem nenhum setting de observabilidade, `django.setup()`, `check`, `/health/live/` (200) e `/metrics` (404) não importam `prometheus_client`, `opentelemetry` nem `sentry_sdk`.
+
+**Não verificado:** a coleta por um Prometheus real e o modo multiprocess do gunicorn (`PROMETHEUS_MULTIPROC_DIR`) com vários workers.
+
+### Tracing OpenTelemetry (#176)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime`, `opentelemetry-sdk` 1.45.2 e instrumentações 0.66b2 | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k tracing` | 15 passed, 5 skipped (agente sem `fcntl`) |
+| mesmo PostgreSQL | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k "job or worker or logging or tracing or observability"` (jobs e logs, pelo `request_id` novo nos logs do worker) | 77 passed, 6 skipped |
+| mesmo | `pytest tests/unit/test_observability_optional.py` | 1 passed |
+
+Cobertura nova:
+- `tests/integration/test_tracing.py`, com as instrumentações oficiais de Django e psycopg e um exportador em memória atrás do `RedactingSpanExporter`: um GET autenticado gera um único span `SERVER` `GET o/<uuid:organization_id>/` com `skeleton.request_id` igual ao `X-Request-ID`, e todos os spans de SQL são descendentes dele, no mesmo trace e com o mesmo `request_id`; um job executado pelo worker gera o span `CONSUMER` `job test.tracing` com `skeleton.job_id` e `skeleton.job_state`, e os spans de SQL do handler são filhos dele com o `request_id` da execução; um job que falha registra só `error.type`; **negativos de segurança**: o login (consulta por email) e o GET com email, nome e slug na query não deixam email, senha, nome, slug, sysid de organização ou de pessoa, `db.statement`, `db.query.text` nem `http.url` em nenhum span.
+- `tests/unit/test_observability_tracing.py`: o tracing só liga com endpoint OTLP e respeita `OTEL_SDK_DISABLED`; sem configuração, `job_span` não faz nada; o exportador descarta texto e parâmetros SQL, usuário e host do banco, URL, alvo, query, user agent, IP, `enduser.id`, cookie e `Authorization`, mantém do evento de exceção só o tipo e tira a descrição do status; nomes de SQL viram a palavra-chave ou `SQL`; o `request_id` só entra em spans iniciados dentro do bloco; o check `skeleton.W030` avisa endpoint sem o extra.
+
+**Não verificado:** o envio a um coletor OTLP real (o exportador OTLP/HTTP não foi exercitado contra rede) e o tracing sob gunicorn com vários workers.
+
+### Sentry (#177)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, `sentry-sdk` 2.74.0 | `pytest tests/unit/test_observability_sentry.py` e `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k sentry` | 9 passed (5 skipped do agente sem `fcntl` no `-k`) |
+| mesmo, PostgreSQL local de `tools/dev_postgres.py` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k "sentry or logging or instance_config or observability"` (inclui os testes do `SecurityJSONFormatter`, que passou a usar `safe_fields`) | 46 passed, 6 skipped |
+
+Cobertura nova, em `tests/unit/test_observability_sentry.py`:
+- **Negativo de segurança:** um evento sintético com corpo, cookies, `Authorization`, query string com token e email, usuário, IP, user agent, variáveis locais, linhas de código, caminho absoluto, mensagem da exceção, mensagem e parâmetros do log, breadcrumbs de SQL com parâmetros, tags e `extra` arbitrários, threads e contextos sai sem nenhum desses valores; o teste falha se qualquer um sobreviver. Ficam o tipo e os frames (nome do arquivo, linha, função, módulo), o método, o nome do evento, os campos de `safe_fields`, a tag `skeleton.request_id`, os IDs de trace e o runtime.
+- O cliente real do `sentry-sdk`, com as opções do núcleo e um transporte em memória (sem rede), captura uma exceção com email e token na mensagem, usuário, tag, `extra` e breadcrumb sensíveis: o envelope enviado não tem nenhum deles, não tem `user` e traz o `request_id` do request em curso.
+- Transações com UUID, email ou query são descartadas; a pilha é cortada nos mesmos 25 frames dos logs; `send_default_pii=False`, corpo nunca lido, sem variáveis locais nem código-fonte, transações descartadas; sem DSN ou sem o extra, `sentry_sdk.init` não é chamado, e com eles é chamado uma vez; `skeleton.W030` para DSN sem extra; `sentry_dsn` é segredo do catálogo e recusa DSN sem chave ou sem projeto.
+
+**Não verificado:** o envio a um projeto Sentry real e a integração do SDK com o Django num request que falha (o `before_send` foi exercitado com eventos sintéticos e com o cliente real fora do Django).
+
+### Verificação conjunta do epic
+
+Com os três commits na branch, no mesmo PostgreSQL local:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1282 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) em 40 min |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com `skeleton/observability` no modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+| Windows | `uv 0.12.7 pip compile` dos dois locks (comandos do `README.md`) e `pip-audit 2.9.0 --strict --require-hashes --disable-pip` de `requirements.txt` e `requirements-dev.txt` | locks regenerados; nenhuma vulnerabilidade conhecida |
+
 ## Operação do worker de jobs (#40, epic #77)
 
 Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:
