@@ -141,13 +141,13 @@ def create_event(*, actor: Any, calendar_id: Any, data: dict, uid: str | None = 
 
 def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: int) -> Any:
     """Change an event with CAS; every change bumps the iCalendar ``sequence``."""
-    from skeleton.common.exceptions import ConcurrentUpdate
+    from skeleton.service_api import Conflict
 
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
     if type(expected_revision) is not int or event.revision != expected_revision:
-        raise ConcurrentUpdate("The event changed.")
+        raise Conflict("stale_revision", "O evento mudou.")
     values = _event_values(data)
     for name, value in values.items():
         setattr(event, name, value)
@@ -168,13 +168,13 @@ def cancel_event(*, actor: Any, event_id: Any, expected_revision: int) -> Any:
 
 
 def delete_event(*, actor: Any, event_id: Any, expected_revision: int) -> None:
-    from skeleton.common.exceptions import ConcurrentUpdate
+    from skeleton.service_api import Conflict
 
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
     if type(expected_revision) is not int or event.revision != expected_revision:
-        raise ConcurrentUpdate("The event changed.")
+        raise Conflict("stale_revision", "O evento mudou.")
     event.delete()
 
 
@@ -184,7 +184,7 @@ EDIT_MODES = ("this", "following", "all")
 
 
 def _master(actor: Any, event_id: Any, expected_revision: int) -> Any:
-    from skeleton.common.exceptions import ConcurrentUpdate
+    from skeleton.service_api import Conflict
 
     from .policies import require_writable_event
 
@@ -192,7 +192,7 @@ def _master(actor: Any, event_id: Any, expected_revision: int) -> Any:
     if event.series_id is not None or not event.rrule:
         raise ValidationError({"event": "Use o evento mestre de uma série recorrente."})
     if type(expected_revision) is not int or event.revision != expected_revision:
-        raise ConcurrentUpdate("The series changed.")
+        raise Conflict("stale_revision", "A série mudou.")
     return event
 
 

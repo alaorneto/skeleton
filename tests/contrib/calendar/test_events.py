@@ -5,11 +5,11 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 
-from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.contrib.calendar import services
 from skeleton.contrib.calendar.models import Calendar, Event
 from skeleton.contrib.calendar.policies import readable_events
 from skeleton.contrib.calendar.service_api import event_info
+from skeleton.service_api import Conflict
 from tools.security_fixtures import actor_tenant
 
 START = datetime(2026, 12, 1, 12, 0, tzinfo=UTC)
@@ -120,7 +120,7 @@ def test_cas_has_one_winner_and_sequence_grows(agenda):
             actor=agenda.alice, event_id=event.pk, data={"title": "Nova"}, expected_revision=event.revision
         )
         assert changed.sequence == 1
-        with pytest.raises(ConcurrentUpdate):
+        with pytest.raises(Conflict):
             services.update_event(
                 actor=agenda.alice, event_id=event.pk, data={"title": "Perdida"}, expected_revision=event.revision
             )

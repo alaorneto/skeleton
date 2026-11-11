@@ -1,0 +1,1132 @@
+{
+ "app_label": "skeleton_calendar",
+ "format": 1,
+ "impact": {
+  "organizations": 0,
+  "records": 0,
+  "references": []
+ },
+ "tables": [
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "owner_id",
+     "label": "owner",
+     "name": "owner",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_accounts_user",
+      "model_label": "sk_accounts.user",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "visibility",
+     "label": "visibility",
+     "name": "visibility",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "owning_group_id",
+     "label": "owning group",
+     "name": "owning_group",
+     "nullable": true,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_access_accessgroup",
+      "model_label": "sk_access.accessgroup",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "name",
+     "label": "name",
+     "name": "name",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "kind",
+     "label": "kind",
+     "name": "kind",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "is_default",
+     "label": "is default",
+     "name": "is_default",
+     "nullable": false,
+     "primary_key": false,
+     "type": "BooleanField"
+    },
+    {
+     "column": "color",
+     "label": "color",
+     "name": "color",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "timezone",
+     "label": "timezone",
+     "name": "timezone",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "description",
+     "label": "description",
+     "name": "description",
+     "nullable": false,
+     "primary_key": false,
+     "type": "TextField"
+    }
+   ],
+   "db_table": "skeleton_calendar_calendar",
+   "description": "Calendários pessoais e compartilhados da organização; eventos herdam a autorização deles.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "owner_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "visibility",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "owning_group_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "name",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "kind",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "is_default",
+      "sensitive": false,
+      "type": "BooleanField"
+     },
+     {
+      "name": "color",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "timezone",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "description",
+      "sensitive": false,
+      "type": "TextField"
+     }
+    ],
+    "immutable_fields": [
+     "kind"
+    ],
+    "scope": "organization",
+    "sensitive_fields": []
+   },
+   "label": "Calendários",
+   "model_label": "skeleton_calendar.calendar",
+   "scope": "organization",
+   "sensitive_fields": []
+  },
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "calendar_id",
+     "label": "calendar",
+     "name": "calendar",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_calendar_calendar",
+      "model_label": "skeleton_calendar.calendar",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "uid",
+     "label": "uid",
+     "name": "uid",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "title",
+     "label": "title",
+     "name": "title",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "description",
+     "label": "description",
+     "name": "description",
+     "nullable": false,
+     "primary_key": false,
+     "type": "TextField"
+    },
+    {
+     "column": "location",
+     "label": "location",
+     "name": "location",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "all_day",
+     "label": "all day",
+     "name": "all_day",
+     "nullable": false,
+     "primary_key": false,
+     "type": "BooleanField"
+    },
+    {
+     "column": "starts_at",
+     "label": "starts at",
+     "name": "starts_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "ends_at",
+     "label": "ends at",
+     "name": "ends_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "start_date",
+     "label": "start date",
+     "name": "start_date",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateField"
+    },
+    {
+     "column": "end_date",
+     "label": "end date",
+     "name": "end_date",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateField"
+    },
+    {
+     "column": "tzid",
+     "label": "tzid",
+     "name": "tzid",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "is_private",
+     "label": "is private",
+     "name": "is_private",
+     "nullable": false,
+     "primary_key": false,
+     "type": "BooleanField"
+    },
+    {
+     "column": "status",
+     "label": "status",
+     "name": "status",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "organizer_id",
+     "label": "organizer",
+     "name": "organizer",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_accounts_user",
+      "model_label": "sk_accounts.user",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "sequence",
+     "label": "sequence",
+     "name": "sequence",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveIntegerField"
+    },
+    {
+     "column": "rrule",
+     "label": "rrule",
+     "name": "rrule",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "rdates",
+     "label": "rdates",
+     "name": "rdates",
+     "nullable": false,
+     "primary_key": false,
+     "type": "JSONField"
+    },
+    {
+     "column": "exdates",
+     "label": "exdates",
+     "name": "exdates",
+     "nullable": false,
+     "primary_key": false,
+     "type": "JSONField"
+    },
+    {
+     "column": "recurrence_end",
+     "label": "recurrence end",
+     "name": "recurrence_end",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "series_id",
+     "label": "series",
+     "name": "series",
+     "nullable": true,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_calendar_event",
+      "model_label": "skeleton_calendar.event",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "recurrence_id",
+     "label": "recurrence id",
+     "name": "recurrence_id",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "is_cancelled",
+     "label": "is cancelled",
+     "name": "is_cancelled",
+     "nullable": false,
+     "primary_key": false,
+     "type": "BooleanField"
+    }
+   ],
+   "db_table": "skeleton_calendar_event",
+   "description": "Eventos dos calendários; leitura e escrita derivadas do calendário.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "calendar_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "uid",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "title",
+      "sensitive": true,
+      "type": "CharField"
+     },
+     {
+      "name": "description",
+      "sensitive": true,
+      "type": "TextField"
+     },
+     {
+      "name": "location",
+      "sensitive": true,
+      "type": "CharField"
+     },
+     {
+      "name": "all_day",
+      "sensitive": false,
+      "type": "BooleanField"
+     },
+     {
+      "name": "starts_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "ends_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "start_date",
+      "sensitive": false,
+      "type": "DateField"
+     },
+     {
+      "name": "end_date",
+      "sensitive": false,
+      "type": "DateField"
+     },
+     {
+      "name": "tzid",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "is_private",
+      "sensitive": false,
+      "type": "BooleanField"
+     },
+     {
+      "name": "status",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "organizer_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "sequence",
+      "sensitive": false,
+      "type": "PositiveIntegerField"
+     },
+     {
+      "name": "rrule",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "rdates",
+      "sensitive": false,
+      "type": "JSONField"
+     },
+     {
+      "name": "exdates",
+      "sensitive": false,
+      "type": "JSONField"
+     },
+     {
+      "name": "recurrence_end",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "series_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "recurrence_id",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "is_cancelled",
+      "sensitive": false,
+      "type": "BooleanField"
+     }
+    ],
+    "immutable_fields": [
+     "calendar_id",
+     "uid",
+     "organizer_id"
+    ],
+    "scope": "organization",
+    "sensitive_fields": [
+     "title",
+     "description",
+     "location"
+    ]
+   },
+   "label": "Eventos",
+   "model_label": "skeleton_calendar.event",
+   "scope": "organization",
+   "sensitive_fields": [
+    "title",
+    "description",
+    "location"
+   ]
+  },
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "event_id",
+     "label": "event",
+     "name": "event",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_calendar_event",
+      "model_label": "skeleton_calendar.event",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "membership_id",
+     "label": "membership",
+     "name": "membership",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_membership",
+      "model_label": "sk_tenancy.membership",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "response",
+     "label": "response",
+     "name": "response",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "optional",
+     "label": "optional",
+     "name": "optional",
+     "nullable": false,
+     "primary_key": false,
+     "type": "BooleanField"
+    }
+   ],
+   "db_table": "skeleton_calendar_eventattendee",
+   "description": "Membros convidados para um evento e a resposta deles.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "event_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "membership_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "response",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "optional",
+      "sensitive": false,
+      "type": "BooleanField"
+     }
+    ],
+    "immutable_fields": [
+     "event_id",
+     "membership_id"
+    ],
+    "scope": "organization",
+    "sensitive_fields": []
+   },
+   "label": "Participantes",
+   "model_label": "skeleton_calendar.eventattendee",
+   "scope": "organization",
+   "sensitive_fields": []
+  },
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "event_id",
+     "label": "event",
+     "name": "event",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_calendar_event",
+      "model_label": "skeleton_calendar.event",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "minutes_before",
+     "label": "minutes before",
+     "name": "minutes_before",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveIntegerField"
+    },
+    {
+     "column": "channel_hint",
+     "label": "channel hint",
+     "name": "channel_hint",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    }
+   ],
+   "db_table": "skeleton_calendar_eventreminder",
+   "description": "Lembretes de evento em minutos antes de cada ocorrência.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "event_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "minutes_before",
+      "sensitive": false,
+      "type": "PositiveIntegerField"
+     },
+     {
+      "name": "channel_hint",
+      "sensitive": false,
+      "type": "CharField"
+     }
+    ],
+    "immutable_fields": [
+     "event_id"
+    ],
+    "scope": "organization",
+    "sensitive_fields": []
+   },
+   "label": "Lembretes",
+   "model_label": "skeleton_calendar.eventreminder",
+   "scope": "organization",
+   "sensitive_fields": []
+  }
+ ]
+}
