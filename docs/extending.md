@@ -150,6 +150,21 @@ A declaração no manifesto é obrigatória para novos releases:
 
 O módulo tem de estar dentro do pacote da app, e as classes são nomes simples. Declarar o campo exige `compatibility.skeleton` com piso `>=0.4.0`, a primeira versão do core que o lê; `package build` acrescenta o piso ao artefato. Os checks E018/E019 e o `package doctor` verificam o contrato; o [kit de testes](service-api.md#kit-de-testes-de-contrato) prova autorização, isolamento e CAS. O exemplo Notes (`examples/notes/service_api.py`) e o gerador já seguem o contrato. A análise de imports não alcança imports dinâmicos (`importlib`, `__import__`), que continuam questão de revisão.
 
+### Apps first-party do núcleo (`skeleton/contrib`)
+
+Algumas apps genéricas (a agenda é a primeira, #84) vêm **dentro do wheel do núcleo**, em `skeleton/contrib/<pacote>`, em vez de um `.skapp` separado: um só trem de release, sem matriz de compatibilidade entre elas e o core. O contrato (#66):
+
+| Item | Regra |
+|---|---|
+| Manifest | `kind: "bundled_app"`, manifest v2, `app_label` com o prefixo reservado `skeleton_`, `app_config` em `skeleton.contrib.<pacote>.apps.<Config>` e módulos de runtime sob `skeleton.contrib.<pacote>.`. Sem `files` nem `python_dependencies` próprios |
+| Local e versão | O manifest só é aceito dentro do pacote `skeleton` instalado, e a versão tem de ser **igual** à do core: uma divergência para o startup (`ImproperlyConfigured`) |
+| Prefixo reservado | Uma app de terceiro com label `skeleton_*`, ou com AppConfig em `skeleton.contrib`, é recusada; `package build` recusa um manifest `bundled_app` |
+| Instalação | Opt-in pelo operador: `SKELETON_BUNDLED_APPS=calendar` (lista de nomes do mapa fixo de `skeleton/conf/bundled.py`; nome desconhecido é `ImproperlyConfigured`). O ambiente nunca fornece import path |
+| Rotas do usuário | Só first-party: `runtime.user_urls` monta rotas globais da pessoa em `/me/apps/<label>/`, com login obrigatório e sem cache. Como não há organização na URL, cada view lê as organizações da pessoa uma transação por vez (`for_each_organization`, #74) e pula as que não ativaram a app |
+| Ciclo de vida | Igual ao das demais apps ([#67](https://github.com/alaorneto/skeleton/issues/67)): recém-instalada, fica indisponível (`selected` sem concessão) e desativada em todas as organizações. Retirar com dados preservados e reinstalar estão em [deployment](deployment.md#apps-first-party) |
+
+O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` prova no CI), e a suíte do núcleo roda sem nenhuma app first-party instalada.
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.

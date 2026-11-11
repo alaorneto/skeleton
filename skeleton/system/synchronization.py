@@ -208,3 +208,8 @@ def sync_table_catalog(*, using="default", apps_registry=None):
 def post_migrate_catalog(sender, using, apps, **kwargs):
     if sender.label == "sk_system":
         sync_table_catalog(using=using, apps_registry=apps)
+        from .bundled import sync_bundled_components
+        from .models import ComponentInstallation
+
+        if ComponentInstallation._meta.db_table in physical_tables(connections[using]):
+            sync_bundled_components(using=using)

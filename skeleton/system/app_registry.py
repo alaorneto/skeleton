@@ -64,19 +64,28 @@ class AppManifest:
     administration: AdministrationSpec = AdministrationSpec()
     model_ui: tuple[ModelUISpec, ...] = ()
     service_api: ServiceAPIDeclaration | None = None
+    # First-party app shipped inside the core wheel (#66) and its global user routes (/me/apps/<label>/).
+    bundled: bool = False
+    user_urls: str | None = None
 
     @classmethod
     def from_json(cls, path, *, app_config):
         """Load one canonical contract, resolving runtime modules relative to AppConfig."""
-        from skeleton.system.packages import PackageError, load_manifest
+        from skeleton.system.packages import BUNDLED_KIND, BUNDLED_PACKAGE, PackageError, load_manifest
 
         contract = load_manifest(path)
-        if contract["kind"] != "app":
+        if contract["kind"] not in ("app", BUNDLED_KIND):
             raise PackageError("AppManifest requires an application contract.")
+        bundled = contract["kind"] == BUNDLED_KIND
         expected = contract["app_config"].rsplit(".", 1)[1]
         if app_config.label != contract["app_label"] or app_config.__class__.__name__ != expected:
             raise PackageError("AppConfig identity differs from its canonical manifest.")
         managed = f"applications.{contract['package_name']}"
+        if bundled:
+            _require_bundled(contract, app_config, path)
+            managed = f"{BUNDLED_PACKAGE}.{contract['package_name']}"
+        elif app_config.name.startswith(BUNDLED_PACKAGE + ".") or app_config.label.startswith("skeleton_"):
+            raise PackageError("Only first-party manifests may live in the core contrib namespace.")
         if app_config.name.startswith("applications.") and app_config.name != managed:
             raise PackageError("Managed application package identity mismatch.")
         runtime = contract["runtime"]
@@ -88,11 +97,11 @@ class AppManifest:
         def module(name):
             return app_config.name + name[len(managed) :] if name else None
 
-        origin, default_enabled = "project-local", runtime["default_enabled"]
+        origin, default_enabled = ("bundled" if bundled else "project-local"), runtime["default_enabled"]
         from django.conf import settings
 
         inventory = getattr(settings, "SKELETON_DEPLOYMENT_STATE", None)
-        for entry in getattr(inventory, "apps", ()):
+        for entry in () if bundled else getattr(inventory, "apps", ()):
             data = entry.get("manifest", {})
             if data.get("app_id") == contract["app_id"] and entry.get("state") in {"installed", "project-local"}:
                 if data != contract or Path(entry["path"]).resolve() != root:
@@ -135,7 +144,35 @@ class AppManifest:
             administration=administration,
             model_ui=model_ui,
             service_api=service_api,
+            bundled=bundled,
+            user_urls=module(runtime.get("user_urls")),
         )
+
+
+def core_package_root():
+    import skeleton
+
+    return Path(skeleton.__file__).resolve().parent
+
+
+def _require_bundled(contract, app_config, path):
+    """A first-party manifest is valid only inside the installed core, at the core's version."""
+    from django.core.exceptions import ImproperlyConfigured
+
+    from skeleton.system.packages import BUNDLED_PACKAGE, PackageError
+    from skeleton.versioning import core_version, normalize_version
+
+    root = core_package_root()
+    if (
+        app_config.name != f"{BUNDLED_PACKAGE}.{contract['package_name']}"
+        or not Path(app_config.path).resolve().is_relative_to(root / "contrib")
+        or not Path(path).resolve().is_relative_to(root / "contrib")
+    ):
+        raise PackageError("A first-party app must live inside the installed core package.")
+    version = core_version()["version"]
+    if version is None or normalize_version(contract["version"]) != version:
+        # Same release train as the core: a stale manifest stops the startup.
+        raise ImproperlyConfigured(f"{contract['app_label']} {contract['version']} differs from the core {version}.")
 
 
 _manifests = {}
@@ -344,6 +381,17 @@ def application_urlpatterns():
                 path(
                     f"o/<uuid:organization_id>/apps/{manifest.app_label}/",
                     include((guarded, app_name), namespace=namespace),
+                )
+            )
+        if manifest.bundled and manifest.user_urls:
+            from .administration import guard_user_urls
+
+            module, app_name, namespace = include(manifest.user_urls)
+            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
+            result.append(
+                path(
+                    f"me/apps/{manifest.app_label}/",
+                    include((guard_user_urls(patterns), app_name), namespace=f"{namespace or app_name}-me"),
                 )
             )
         if manifest.api_urls:

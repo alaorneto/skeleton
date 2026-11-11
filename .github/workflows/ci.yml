@@ -89,6 +89,8 @@ jobs:
     env:
       DJANGO_SETTINGS_MODULE: config.settings.test
       SKELETON_ENABLE_EXAMPLE_APP: "true"
+      # The core suite runs without first-party apps (#66); each one adds its own suite.
+      SKELETON_BUNDLED_APPS: ""
       SKELETON_TEST_ALLOW_SCHEMA_RESET: "1"
       # As assertions usam skeleton_runtime (NOSUPERUSER, NOBYPASSRLS); o owner só migra.
       TEST_DATABASE_URL: postgres://skeleton_runtime:ci-runtime@127.0.0.1:5432/ci_skeleton_test

@@ -40,6 +40,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
 - `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
 - `examples/notes`: exemplo didático opt-in, não dependência do núcleo.
+- `skeleton/contrib`: apps first-party distribuídas no wheel do núcleo (manifest `kind: "bundled_app"`, label `skeleton_*`, versão igual à do core). Entram em `INSTALLED_APPS` só por nome em `SKELETON_BUNDLED_APPS`, contra o mapa fixo de `skeleton/conf/bundled.py` (nunca import path do ambiente), e seguem as regras de qualquer app: API de serviços, disponibilidade e ativação fechadas. O resto do núcleo nunca importa `skeleton.contrib`; apps de terceiros não usam o prefixo `skeleton_` nem `runtime.user_urls`.
 
 **Não adicione regras de negócio em `skeleton`. Não renomeie os app labels do núcleo.** Adicione apps a `PROJECT_APPS` em `config/settings/project.py` e URLs a `config/urls_project.py`. O núcleo não importa `applications` ou `examples`.
 
