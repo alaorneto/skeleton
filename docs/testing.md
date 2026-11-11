@@ -54,6 +54,25 @@ O job PostgreSQL concede `CREATE ON DATABASE` ao owner da fixture para que `rese
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Arquivos: cota por organização, antivírus e órfãos (epic #81)
+
+Rodada de 2026-11-10 na branch do epic [#81](https://github.com/alaorneto/skeleton/issues/81), com um commit por issue: [#61](https://github.com/alaorneto/skeleton/issues/61) (cota, `sk_files.0002`) e [#62](https://github.com/alaorneto/skeleton/issues/62) (antivírus e órfãos). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1019 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com `test_storage_quota.py`, `test_file_scanning_jobs.py` e `tests/integration_postgres/test_storage_quota_concurrency.py` | 392 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/integration_postgres/test_storage_quota_concurrency.py`: duas reservas simultâneas que juntas passam da cota, na primeira reserva e com contador existente: uma vence, a outra recebe `QuotaExceeded`, o contador fica certo e o de A é invisível para B (RLS).
+- `tests/integration_sqlite/test_storage_quota.py`: reserva e liberação pelo upload e pela remoção, upload recusado não conta, restaurar acima da cota responde 409 `quota_exceeded`, contador próprio por organização; upload HTML acima da cota é uma página 409; a recontagem corrige uma divergência plantada; a página da plataforma mostra uso e cota (403/404 para quem não é plataforma), limite sem valor é 400, a cota própria vence o padrão, formulário sem a revisão da linha existente é 409 e voltar ao padrão remove a linha.
+- `tests/unit/test_storage_quota_form.py`: MiB para bytes e os três modos.
+- `tests/unit/test_file_scanning.py`: respostas do `clamd` (OK, FOUND, erro), o protocolo INSTREAM contra um `clamd` falso em TCP (EICAR em quarentena, arquivo limpo em vários blocos) e `clamd` inacessível.
+- `tests/integration_sqlite/test_file_scanning_jobs.py`: com scanner, o anexo nasce `pending` e o download fica bloqueado; limpo vira `available`, EICAR vira `quarantined` com a assinatura; scanner fora deixa `pending`, o job volta à fila com `ScannerUnavailable` e o download continua 404; sem scanner, `available` na hora; o objeto de um upload revertido é apagado depois da carência, e os de linhas vivas e excluídas logicamente ficam.
+
+**Não verificado:** um `clamd` real (a suíte usa um `clamd` falso e um scanner falso), armazenamento S3, o `run_worker` real, smoke manual no navegador da página da plataforma e o PostgreSQL 16.15 do CI.
+
 ## Notificações: preferências, email, resumo, push e retenção (epic #80)
 
 Rodada de 2026-11-10 na branch do epic [#80](https://github.com/alaorneto/skeleton/issues/80), com um commit por issue: [#53](https://github.com/alaorneto/skeleton/issues/53) (preferências, `sk_notifications.0003`), [#54](https://github.com/alaorneto/skeleton/issues/54) (email imediato, `NotificationDelivery`, `0004`), [#55](https://github.com/alaorneto/skeleton/issues/55) (resumo, `0005`), [#56](https://github.com/alaorneto/skeleton/issues/56) (web push, `WebPushSubscription`, `0006`) e [#57](https://github.com/alaorneto/skeleton/issues/57) (retenção). Somente o que rodou:

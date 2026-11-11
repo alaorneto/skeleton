@@ -65,7 +65,10 @@ class AttachmentRestoreView(TenantAPI):
         if request_fields(request):
             raise BoundaryError("invalid_request", "Restauração não aceita campos.")
         revision = parse_revision(request.headers.get("If-Match"))
-        attachment = services.restore(
-            exposed_spec(table_key), sysid, attachment_id, user=request.user, revision=revision
-        )
+        try:
+            attachment = services.restore(
+                exposed_spec(table_key), sysid, attachment_id, user=request.user, revision=revision
+            )
+        except services.QuotaExceeded as error:
+            raise _translate(error) from None
         return etag(Response(services.attachment_data(attachment)), attachment.revision)

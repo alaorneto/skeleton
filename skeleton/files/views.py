@@ -44,6 +44,13 @@ def upload(request, organization_id, table_key, sysid):
         return render(
             request, "skeleton/web/error.html", {"detail": "O arquivo excede o limite permitido."}, status=413
         )
+    except services.QuotaExceeded:
+        return render(
+            request,
+            "skeleton/web/error.html",
+            {"detail": "A cota de armazenamento da organização foi atingida."},
+            status=409,
+        )
     return _detail(organization_id, table_key, sysid)
 
 

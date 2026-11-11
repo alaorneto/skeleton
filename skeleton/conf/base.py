@@ -138,8 +138,12 @@ STORAGES = {
     "skeleton_files": private_files_storage(env, BASE_DIR),
 }
 SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
-# Live attachment bytes per organization; empty means unlimited (full quota accounting is #61).
+# Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
+# Antivirus (#62): "none" (files are available at once) or "clamav" (clamd INSTREAM).
+SKELETON_FILES_SCANNER = env("SKELETON_FILES_SCANNER", default="none")
+SKELETON_FILES_CLAMAV_ADDRESS = env("SKELETON_FILES_CLAMAV_ADDRESS", default="")
+SKELETON_FILES_SCAN = SKELETON_FILES_SCANNER != "none"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True

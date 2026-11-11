@@ -216,6 +216,18 @@ def register_core_specs():
             "organization",
             ("storage_key",),
         ),
+        "sk_files.storageusage": (
+            "Uso de armazenamento",
+            "Bytes dos anexos vivos de cada organização, contador da cota sob lock.",
+            "organization",
+            (),
+        ),
+        "sk_files.storagequota": (
+            "Cotas de armazenamento",
+            "Cota de anexos definida pela plataforma para uma organização; sem ela vale o padrão.",
+            "global",
+            (),
+        ),
         "sk_integrations.webhookendpoint": (
             "Webhooks",
             "URLs HTTPS que recebem eventos da organização, assinadas com segredo cifrado.",

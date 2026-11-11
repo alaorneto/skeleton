@@ -115,3 +115,28 @@ class CatalogLabelForm(forms.Form):
     label = forms.CharField(label="Rótulo", max_length=200)
     description = forms.CharField(label="Descrição", required=False, widget=forms.Textarea(attrs={"rows": 3}))
     expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
+class StorageQuotaForm(forms.Form):
+    """Storage quota of one organization (#61): the default setting, a limit or unlimited."""
+
+    MiB = 1024 * 1024
+
+    mode = forms.ChoiceField(
+        label="Cota de armazenamento",
+        choices=(("default", "Padrão da instância"), ("limited", "Limite próprio"), ("unlimited", "Ilimitada")),
+    )
+    quota_mib = forms.IntegerField(
+        label="Limite (MiB)", min_value=0, max_value=10**9, required=False, help_text="Só para limite próprio."
+    )
+    expected_revision = forms.IntegerField(min_value=1, required=False, widget=forms.HiddenInput)
+
+    def clean(self):
+        data = super().clean()
+        if data.get("mode") == "limited" and data.get("quota_mib") is None:
+            self.add_error("quota_mib", "Informe o limite.")
+        return data
+
+    def quota_bytes(self):
+        data = self.cleaned_data
+        return data["quota_mib"] * self.MiB if data["mode"] == "limited" else None

@@ -109,7 +109,7 @@ As organizações que usavam apps ativas por padrão mantêm essas apps com `man
 
 Em desenvolvimento, `manage.py set_app_availability <app_label> --mode all|selected [--grant SLUG] [--enable SLUG]` abre a app e a ativa nas organizações indicadas, uma transação por organização. `check_skeleton_schema` avisa sobre app carregada sem linha de disponibilidade (fechada para todos). Nos testes, `skeleton.testing.applications` oferece `open_app`, `activate_app` e `apps_open_by_default`.
 
-Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Veja [arquivos e anexos](files.md#anexos).
+Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Os anexos contam na cota de armazenamento da organização e, com antivírus configurado, só podem ser baixados depois da verificação. Veja [arquivos e anexos](files.md#anexos).
 
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
