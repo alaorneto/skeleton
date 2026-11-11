@@ -255,7 +255,8 @@ def register_webhook_delivery() -> None:
             owner_app="sk_integrations",
         )
     )
-    register_consumer(WILDCARD, FANOUT_CONSUMER, fanout)
+    # Only webhook types: membership and app events, for instance, never reach the fan-out (#43).
+    register_consumer(WILDCARD, FANOUT_CONSUMER, fanout, accepts=lambda event_type: event_type.webhook)
     from datetime import timedelta as every
 
     from skeleton.jobs.periodic import register_periodic

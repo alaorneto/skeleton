@@ -12,6 +12,9 @@ class EventsConfig(AppConfig):
         from .consumers import register_event_jobs
 
         register_event_jobs()
+        from .core_events import register_core_event_types
+
+        register_core_event_types()
         from datetime import timedelta
 
         from skeleton.jobs.periodic import register_periodic

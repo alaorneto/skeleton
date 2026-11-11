@@ -3,6 +3,7 @@
 import pytest
 
 from skeleton.events import registry as event_registry
+from skeleton.events.core_events import CORE_EVENT_TYPES
 from skeleton.events.models import DomainEvent
 from skeleton.events.registry import EventType, register_event_type
 from skeleton.jobs import registry as job_registry
@@ -48,7 +49,7 @@ def scenario(monkeypatch):
 
     register_job_type(JobType("notes.reindex", handler, {"note_id": "uuid"}, owner_app="example_notes"))
     register_job_type(JobType("other.work", handler, {}, owner_app="other_app"))
-    monkeypatch.setattr(event_registry, "_types", {})
+    monkeypatch.setattr(event_registry, "_types", dict(event_registry._types))  # Keeps core types (#43).
     monkeypatch.setattr(event_registry, "_duplicates", [])
     register_event_type(EventType("notes.closed", "example_notes.note", ("code",), owner_app="example_notes"))
     register_event_type(EventType("other.happened", "example_notes.note", (), owner_app="other_app"))
@@ -122,4 +123,4 @@ def test_publish_refuses_foreign_type_record_and_rolls_back(scenario):
         publish_as_notes(actor=actor, event_type="notes.closed", record_id=own.pk)
         raise RuntimeError("caller failure")
     with system_context(reason="test:events-none", organization_id=scenario.a.pk):
-        assert not DomainEvent.objects.exists()
+        assert not DomainEvent.objects.exclude(event_type__in=CORE_EVENT_TYPES).exists()

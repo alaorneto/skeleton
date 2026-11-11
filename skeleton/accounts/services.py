@@ -435,7 +435,11 @@ def create_service_account(*, actor, name):
         user.set_unusable_password()
         user.save()
         UserProfile(user=user).save()
-        Membership(organization=organization, user=user, is_active=True).save()
+        membership = Membership(organization=organization, user=user, is_active=True)
+        membership.save()
+        from skeleton.events.core_events import membership_changed
+
+        membership_changed(membership, was_active=False)
         return user
 
 
@@ -462,8 +466,11 @@ def deactivate_service_account(*, actor, user):
             raise ValidationError({"user": "Conta de serviço indisponível."})
         _revoke_membership_links(membership)
         if membership.is_active:
+            from skeleton.events.core_events import membership_changed
+
             membership.is_active = False
             membership.save(update_fields={"is_active"})
+            membership_changed(membership, was_active=True)
         if locked.is_active:
             locked.is_active = False
             locked.auth_version += 1
