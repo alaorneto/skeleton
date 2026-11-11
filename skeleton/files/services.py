@@ -17,6 +17,8 @@ from django.http import Http404
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
+from .quota import QuotaExceeded, release, reserve
+from .scanning import enqueue_scan, scanning_enabled
 from .sniffing import HEAD_BYTES, detect
 from .storage import StorageError, object_key, put_stream
 
@@ -26,20 +28,12 @@ class UploadTooLarge(ValidationError):
         super().__init__("O arquivo excede o limite permitido.", code="too_large")
 
 
-class QuotaExceeded(Exception):
-    """The organization's live attachments would exceed SKELETON_FILES_ORG_QUOTA_BYTES."""
+def _precheck_quota(organization_id, size: int) -> None:
+    """Cheap refusal before reading the bytes; the binding check is ``quota.reserve`` under lock."""
+    from .quota import quota_for, usage_for
 
-
-def _check_quota(organization_id, size: int) -> None:
-    from django.db.models import Sum
-
-    from .models import Attachment
-
-    quota = getattr(settings, "SKELETON_FILES_ORG_QUOTA_BYTES", None)
-    if not quota:
-        return
-    used = Attachment.objects.filter(organization_id=organization_id).aggregate(total=Sum("size"))["total"] or 0
-    if used + size > quota:
+    quota, _ = quota_for(organization_id)
+    if quota is not None and usage_for(organization_id).bytes_used + size > quota:
         raise QuotaExceeded()
 
 
@@ -110,7 +104,7 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
     if size is not None and size > limit:
         raise UploadTooLarge()
     if size is not None:
-        _check_quota(record.organization_id, size)
+        _precheck_quota(record.organization_id, size)
     name = _clean_filename(filename)
     head = stream.read(HEAD_BYTES)
     kind = detect(head, name)
@@ -139,13 +133,14 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
             raise UploadTooLarge() from None
         raise
     try:
-        _check_quota(record.organization_id, stored)
+        # Organization, then usage locked in this transaction: concurrent uploads serialize here.
+        reserve(record.organization_id, stored)
     except QuotaExceeded:
         from .storage import delete
 
         delete(key)
         raise
-    scan = getattr(settings, "SKELETON_FILES_SCAN", False)
+    scan = scanning_enabled()
     attachment = Attachment(
         sysid=attachment_id,
         organization_id=record.organization_id,
@@ -165,6 +160,8 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
 
         delete(key)  # The row did not persist: never keep its bytes.
         raise
+    if scan:
+        enqueue_scan(attachment)  # Same transaction: a rollback leaves neither row nor job.
     return attachment
 
 
@@ -187,6 +184,7 @@ def remove(spec, target_sysid, attachment_id, *, user, revision: int) -> Any:
     if attachment.revision != revision:
         raise ConcurrentUpdate("Attachment revision is stale.")
     attachment.delete()
+    release(attachment.organization_id, attachment.size)
     return attachment
 
 
@@ -196,6 +194,7 @@ def restore(spec, target_sysid, attachment_id, *, user, revision: int) -> Any:
         raise Http404
     if attachment.revision != revision:
         raise ConcurrentUpdate("Attachment revision is stale.")
+    reserve(attachment.organization_id, attachment.size)  # Above the quota: QuotaExceeded (409).
     attachment.restore()
     return attachment
 

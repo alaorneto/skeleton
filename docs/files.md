@@ -11,7 +11,7 @@ O núcleo guarda arquivos num **armazenamento privado** (`skeleton/files`, label
 | `SKELETON_FILES_BACKEND=local` (padrão) | `FileSystemStorage` em `SKELETON_FILES_ROOT` (padrão `var/files` do projeto), sem `base_url` |
 | `SKELETON_FILES_BACKEND=s3` | `storages.backends.s3.S3Storage` com `default_acl=private`, URLs assinadas de no máximo 60 s e sem sobrescrita. Exige o extra opcional `django-skeleton[s3]` (`django-storages`, `boto3`) e `SKELETON_FILES_S3_BUCKET` (com `SKELETON_FILES_S3_REGION`/`SKELETON_FILES_S3_ENDPOINT` opcionais) |
 | `SKELETON_UPLOAD_MAX_BYTES` | Limite de upload do parser (padrão 10 MB) |
-| `SKELETON_FILES_ORG_QUOTA_BYTES` | Soma máxima dos anexos vivos de uma organização; vazio é ilimitado. Acima dela, 409 `quota_exceeded` (a contabilidade completa por job é #61) |
+| `SKELETON_FILES_ORG_QUOTA_BYTES` | Cota padrão: soma máxima dos anexos vivos de uma organização; vazio é ilimitado. Acima dela, 409 `quota_exceeded`. A plataforma pode sobrescrevê-la por organização (veja [Cota por organização](#cota-por-organização)) |
 
 `skeleton/files/storage.py` oferece `put_stream`, `open_object`, `delete`, `presigned_url` e `list_prefix`. As chaves são sempre `org/<organização>/<anexo>`, dois UUIDs: o nome de arquivo do usuário nunca entra na chave, então não atravessa diretórios, não colide e não vaza numa URL. `put_stream` grava a chave exata, recusa objeto existente e interrompe acima do limite.
 
@@ -41,7 +41,7 @@ TableSpec(..., attachments=AttachmentPolicy(max_bytes=5 * 1024 * 1024, types=("a
 
 O tipo é detectado pelos primeiros bytes (PDF, PNG, JPEG, GIF, WebP, ZIP/DOCX/XLSX e texto UTF-8 para `.txt`/`.csv`), numa tabela de assinaturas no código, e precisa coincidir com a extensão; o `Content-Type` enviado pelo cliente é ignorado. A tabela própria substituiu a dependência `filetype` prevista no plano: reconhece só os tipos que uma política pode permitir e não acrescenta pacote aos locks. HTML e SVG nunca são aceitos.
 
-Sem antivírus configurado (`SKELETON_FILES_SCAN`, #62), o anexo nasce `available`; com ele, nasce `pending`. Se a gravação da linha falhar, o objeto já gravado é apagado. Remover é exclusão lógica: os bytes ficam até a limpeza de órfãos, para que restaurar funcione.
+Sem antivírus configurado, o anexo nasce `available`; com ele, nasce `pending` (veja [Antivírus](#antivírus)). Se a gravação da linha falhar, o objeto já gravado é apagado. Remover é exclusão lógica: os bytes ficam, para que restaurar funcione, e só o expurgo do epic de LGPD os removerá.
 
 | Superfície | Rota |
 |---|---|
@@ -62,3 +62,31 @@ O middleware tenant recusa respostas em streaming dentro do contexto do banco. A
 | S3 | Redirecionamento para URL pré-assinada de no máximo 60 s, com `Content-Disposition: attachment` forçado |
 
 Toda resposta leva `Content-Disposition: attachment` (nome em RFC 5987), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. Nada é servido inline, nem imagens nesta fase; um tipo fora da lista segura (HTML, SVG) sai como `application/octet-stream`.
+
+## Cota por organização
+
+O contador fica em `StorageUsage` ([tabela operacional](data-model.md#tabelas-operacionais-adr), uma linha por organização, RLS tenant) e a exceção da plataforma em `StorageQuota` (`SystemRecord` global, auditado, campo `quota_organization`). A cota efetiva é a `StorageQuota` da organização (`quota_bytes` vazio significa ilimitada) ou, sem ela, `SKELETON_FILES_ORG_QUOTA_BYTES`.
+
+- **Reserva sob lock:** o upload grava os bytes, trava a linha da organização e, em seguida, a de `StorageUsage` (`SELECT ... FOR UPDATE`, sempre nessa ordem), e só então soma o tamanho, na mesma transação da linha `Attachment`. Dois uploads concorrentes que juntos passam da cota se serializam nesses locks, e o segundo recebe 409 `quota_exceeded` com os bytes apagados. Antes de ler o arquivo, uma checagem sem lock recusa o que já não cabe.
+- **Liberação e restauração:** remover (exclusão lógica) devolve o tamanho; restaurar reserva de novo e responde 409 acima da cota (API e serviço).
+- **Recontagem:** o job periódico `files.quota_recount` (diário, por organização) refaz o contador a partir dos anexos vivos e grava `recounted_at`, corrigindo qualquer divergência.
+- **Plataforma:** o detalhe da organização em `/platform/organizations/<id>/` mostra o uso, a cota e a última recontagem, e o formulário "Armazenamento" (`POST .../storage/`, autenticação recente, CAS pela revisão) escolhe entre o padrão da instância, um limite próprio em MiB ou ilimitada. A plataforma vê só a soma, nunca os anexos.
+
+Cobrança fica fora do escopo.
+## Antivírus
+
+`SKELETON_FILES_SCANNER` escolhe o scanner: `none` (padrão, o anexo nasce `available`) ou `clamav`, que fala o protocolo `INSTREAM` do `clamd` em `SKELETON_FILES_CLAMAV_ADDRESS` (`tcp://clamav:3310` ou `unix:///run/clamav/clamd.ctl`).
+
+Com scanner, o upload nasce `pending` e enfileira o job `files.scan` na mesma transação. O job lê os bytes do armazenamento privado e envia ao `clamd`:
+
+| Resposta | Estado |
+|---|---|
+| `stream: OK` | `available`, `scan_result_code=clean` |
+| `stream: <assinatura> FOUND` (o EICAR, por exemplo) | `quarantined`, `scan_result_code=infected:<assinatura>` |
+| `clamd` fora do ar, timeout ou resposta sem veredito | o job falha e é retentado com backoff, até 10 vezes; o anexo continua `pending` |
+
+O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` até uma nova verificação.
+
+## Objetos órfãos
+
+O upload grava os bytes antes de a linha comitar. Um rollback ou uma queda entre as duas etapas deixa um objeto sem metadado. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e apaga só os objetos **sem nenhuma linha `Attachment`** e mais antigos que o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não pegar um upload em andamento). Objetos de linhas vivas ou excluídas logicamente nunca são apagados: restaurar continua funcionando, e o expurgo de anexos excluídos é do epic de LGPD.

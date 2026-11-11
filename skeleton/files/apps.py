@@ -9,3 +9,6 @@ class FilesConfig(AppConfig):
 
     def ready(self):
         from . import checks  # noqa: F401 - registra os checks de armazenamento
+        from .jobs import register_file_jobs
+
+        register_file_jobs()

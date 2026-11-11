@@ -15,6 +15,7 @@ urlpatterns = [
     path("organizations/", views.organizations, name="organizations"),
     path("organizations/new/", views.organization_create, name="organization-create"),
     path("organizations/<uuid:sysid>/", views.organization_detail, name="organization"),
+    path("organizations/<uuid:sysid>/storage/", views.organization_storage, name="organization-storage"),
     path(
         "organizations/<uuid:sysid>/administrators/",
         views.organization_administrators,
