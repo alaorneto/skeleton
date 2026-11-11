@@ -3,12 +3,16 @@
 from django.db import transaction
 from rest_framework.response import Response
 
+from skeleton.access.policies import require_credential_scope
 from skeleton.api.errors import BoundaryError, parse_revision
 from skeleton.api.parsers import BoundedJSONParser, BoundedMultiPartParser
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.web.services import exposed_spec
 
 from . import services
+
+FILES_READ = "files:read"
+FILES_WRITE = "files:write"
 
 
 def _translate(error):
@@ -23,14 +27,17 @@ def _translate(error):
 
 class AttachmentsView(TenantAPI):
     parser_classes = [BoundedMultiPartParser]
+    token_methods = ("GET", "POST")
 
     def get(self, request, organization_id, table_key, sysid):
+        require_credential_scope(FILES_READ)
         spec = exposed_spec(table_key)
         rows = services.attachments_for(spec, sysid, user=request.user)
         return Response({"results": [services.attachment_data(row) for row in rows]})
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid):
+        require_credential_scope(FILES_WRITE)
         spec = exposed_spec(table_key)
         services.policy(spec)
         uploaded = request.FILES.get("file")
@@ -47,9 +54,11 @@ class AttachmentsView(TenantAPI):
 
 class AttachmentDetailView(TenantAPI):
     parser_classes = [BoundedJSONParser]
+    token_methods = ("DELETE",)
 
     @transaction.atomic
     def delete(self, request, organization_id, table_key, sysid, attachment_id):
+        require_credential_scope(FILES_WRITE)
         if request_fields(request):
             raise BoundaryError("invalid_request", "Remoção não aceita campos.")
         revision = parse_revision(request.headers.get("If-Match"))
@@ -59,9 +68,11 @@ class AttachmentDetailView(TenantAPI):
 
 class AttachmentRestoreView(TenantAPI):
     parser_classes = [BoundedJSONParser]
+    token_methods = ("POST",)
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid, attachment_id):
+        require_credential_scope(FILES_WRITE)
         if request_fields(request):
             raise BoundaryError("invalid_request", "Restauração não aceita campos.")
         revision = parse_revision(request.headers.get("If-Match"))

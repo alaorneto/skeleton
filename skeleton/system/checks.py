@@ -2,7 +2,7 @@ import re
 
 from django.apps import apps
 from django.conf import settings
-from django.core.checks import Error, Warning, register
+from django.core.checks import Error, Tags, Warning, register
 from django.db import connections, models
 
 from skeleton.common.lifecycle_operation import InstallUserLifecycleGuard
@@ -125,11 +125,14 @@ def record_contract_checks(app_configs=None, **kwargs):
     auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
     account = "allauth.account.middleware.AccountMiddleware"
     messages = "django.contrib.messages.middleware.MessageMiddleware"
+    token = "skeleton.integrations.tokens.middleware.ApiTokenMiddleware"
     setup = getattr(settings, "SKELETON_SETUP_MODE", False)  # Setup mode has no tenant at all (#146).
     if not setup and (
         tenant not in middleware
         or any(item not in middleware or middleware.index(item) > middleware.index(tenant) for item in (auth, messages))
         or (account in middleware and middleware.index(account) < middleware.index(tenant))
+        # Bearer tokens (#46) replace request.user after authentication and before the tenant context.
+        or (token in middleware and not middleware.index(auth) < middleware.index(token) < middleware.index(tenant))
     ):
         errors.append(
             Error("Tenant middleware must follow authentication/messages and precede allauth.", id="skeleton.E009")
@@ -861,3 +864,20 @@ def stored_secret_key_checks(app_configs=None, databases=None, **kwargs):
     for alias in databases or ():
         errors.extend(Error(message, id="skeleton.E027") for message in stored_secrets_without_keys(using=alias))
     return errors
+
+
+@register(Tags.security, deploy=True)
+def shared_cache_checks(app_configs=None, **kwargs):
+    """skeleton.W029: rate limits (#48) need a cache shared by every worker."""
+    from django.conf import settings
+
+    backend = settings.CACHES.get("default", {}).get("BACKEND", "")
+    if not settings.DEBUG and backend.endswith(("locmem.LocMemCache", "dummy.DummyCache")):
+        return [
+            Warning(
+                "The default cache is local to each process: token rate limits are per worker, not global.",
+                hint="Set CACHE_URL to a shared Redis.",
+                id="skeleton.W029",
+            )
+        ]
+    return []

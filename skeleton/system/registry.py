@@ -234,6 +234,18 @@ def register_core_specs():
             "organization",
             ("secret_ciphertext", "previous_secret_ciphertext"),
         ),
+        "sk_integrations.apitoken": (
+            "Tokens de API",
+            "Credenciais Bearer de /api/v1/ com prefixo, escopos e validade; só o digest do segredo é guardado.",
+            "global",
+            ("digest",),
+        ),
+        "sk_integrations.apitokenactivity": (
+            "Uso de tokens de API",
+            "Último uso de cada token, gravado no máximo a cada 5 minutos; operacional, sem auditoria.",
+            "global",
+            (),
+        ),
         "sk_integrations.webhookdelivery": (
             "Entregas de webhook",
             "Corpo fixo com identificadores, tentativas e último resultado de cada evento por endpoint.",

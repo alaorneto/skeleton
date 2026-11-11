@@ -119,6 +119,26 @@ Duas suítes não podem rodar ao mesmo tempo no mesmo banco: cada teste recria o
 
 **Rodadas abaixo de [#144](https://github.com/alaorneto/skeleton/issues/144):** as seções seguintes registram a história anterior ao modelo só PostgreSQL e citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Elas continuam como evidência do que rodou naquela época, não como procedimento.
 
+## Tokens de API e contas de serviço (epic #79)
+
+Rodada de 2026-11-11 na branch `feat/79-api-tokens`, um commit por issue: [#45](https://github.com/alaorneto/skeleton/issues/45) (token, `sk_integrations.0004`), [#46](https://github.com/alaorneto/skeleton/issues/46) (Bearer em `/api/v1/`), [#47](https://github.com/alaorneto/skeleton/issues/47) (telas e REST) e [#48](https://github.com/alaorneto/skeleton/issues/48) (limites e uso, `sk_integrations.0005`). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1194 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | os sete arquivos de tokens (abaixo) | 31 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` em `frontend/` | sem problemas, sem migrations pendentes, assets atualizados |
+
+Cobertura nova:
+- `tests/integration/test_api_tokens.py` e `tests/unit/test_api_token_format.py` (#45): só prefixo e digest persistidos, segredo e digest ausentes da auditoria global (lida como administrador da plataforma, por causa da RLS); escopos vazios, desconhecidos, de tabela não exposta, de ação não aceita, nomeado não registrado ou que não seja lista recusados; validade ausente, passada, sem fuso ou acima do limite recusada; revogação (com CAS), `auth_version`, expiração (relógio simulado), segredo errado e texto malformado invalidam; outra pessoa e outra organização recebem "inexistente"; sem `integrations.manage` não há token de serviço; contas de serviço não emitem token pessoal; política de MFA.
+- `tests/integration/test_api_token_auth.py` e `tests/unit/test_api_token_header.py` (#46): token sem CSRF cria registro e a sessão continua exigindo CSRF; sessão + Bearer é 400; escopo de leitura não cria e escopo de criação não lê, mesmo com o papel; em B o papel de Alice não tem permissão e o escopo não a cria; não membro recebe 404; `PATCH me`, vínculos, auditoria e anexos sem `files:read` são 403; token de conta de serviço em outra organização é 404; revogado, `auth_version` mudado, desconhecido e lixo são 401 com `WWW-Authenticate` e evento sem o token; rotas HTML ignoram o cabeçalho; a auditoria grava o usuário do token e `http:token:<prefixo>`.
+- `tests/integration/test_api_token_management.py` (#47): a página mostra o token uma vez com `no-store` e depois só o prefixo; validade e escopo inválidos são 400; Bob não revoga nem vê os tokens de Alice (404); a REST emite, lista sem segredo e revoga com `If-Match` (428 sem ele); um token recebe 403 nos endpoints de token; contas de serviço de A são 404 para quem não tem `integrations.manage` e pela URL de B; desativar a conta invalida o token.
+- `tests/integration/test_api_token_limits.py` e `tests/unit/test_ratelimit.py` (#48): acima do limite do token, 429 com `Retry-After` e nada gravado, e outro token segue livre; falhas de um IP bloqueiam qualquer Bearer desse IP e não de outro; `last_used_at` grava uma vez por janela, mesmo sem o cache, e não gera `AuditEvent`; janela fixa e cache fora do ar deixam passar.
+
+Depois da rodada completa, o trabalho da agenda (#76) achou que um token de feed autenticava `GET /api/v1/me/` como Bearer; o middleware passou a recusá-lo (`6794c1d`, com `test_feed_tokens_are_not_api_credentials`). Rodado depois da correção: `test_api_token_auth.py` e `test_api_tokens.py`, 20 passed; a suíte completa não foi repetida.
+
+**Não verificado:** clientes reais (curl com um token emitido pela página), Redis compartilhado entre vários workers (os testes usam o cache local), smoke das páginas no navegador e o PostgreSQL 16.15 do CI.
+
 ## Arquivos: cota por organização, antivírus e órfãos (epic #81)
 
 Rodada de 2026-11-10 na branch do epic [#81](https://github.com/alaorneto/skeleton/issues/81), com um commit por issue: [#61](https://github.com/alaorneto/skeleton/issues/61) (cota, `sk_files.0002`) e [#62](https://github.com/alaorneto/skeleton/issues/62) (antivírus e órfãos). Somente o que rodou:

@@ -12,3 +12,8 @@ class FilesConfig(AppConfig):
         from .jobs import register_file_jobs
 
         register_file_jobs()
+        from skeleton.integrations.tokens.scopes import register_token_scope
+
+        # Attachments through the API also need the record's table scope (#46).
+        register_token_scope("files:read", "Listar anexos dos registros")
+        register_token_scope("files:write", "Enviar, remover e restaurar anexos")

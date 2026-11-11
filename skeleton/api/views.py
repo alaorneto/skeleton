@@ -14,6 +14,7 @@ from skeleton.access.capabilities import has_any_capability, require_resource_ca
 from skeleton.accounts.mfa import mfa_required
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
 from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model
+from skeleton.integrations.tokens.authentication import ApiTokenAuthentication
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.services import (
@@ -32,8 +33,11 @@ from skeleton.web.services import (
 
 
 class SessionAPI(APIView):
-    authentication_classes = [SessionAuthentication]
+    # A token reaches a view only if it lists the method in ``token_methods`` (#46); the
+    # middleware refuses every other view before it runs.
+    authentication_classes = [ApiTokenAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated]
+    token_methods: tuple[str, ...] = ()
 
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
@@ -102,6 +106,8 @@ def me_data(me):
 
 
 class MeView(SessionAPI):
+    token_methods = ("GET",)
+
     def get(self, request):
         from skeleton.service_api.identity import IdentityService
 
@@ -125,6 +131,8 @@ class MeView(SessionAPI):
 
 
 class OrganizationsView(SessionAPI):
+    token_methods = ("GET",)
+
     def get(self, request):
         from skeleton.service_api.organizations import OrganizationService
 
@@ -158,6 +166,7 @@ def own_membership_data(membership):
 
 
 class OwnMembershipView(TenantAPI):
+    token_methods = ("GET",)
     """The actor's own membership in this organization; its ETag is what leaving requires."""
 
     def get(self, request, organization_id):
@@ -258,6 +267,8 @@ class DedicatedView(TenantAPI):
 
 
 class CatalogView(TenantAPI):
+    token_methods = ("GET",)
+
     def get(self, request, organization_id):
         tables = apps.get_model("sk_system", "TableDefinition").objects
         keys = [spec.model._meta.label_lower for spec in readable_specs(request.user)]
@@ -311,6 +322,8 @@ class AuditView(TenantAPI):
 
 
 class RecordsView(TenantAPI):
+    token_methods = ("GET", "POST", "PATCH", "DELETE")
+
     def get(self, request, organization_id, table_key, sysid=None):
         spec = exposed_spec(table_key)
         queryset = record_queryset(spec, user=request.user).order_by("created_at", "sysid")
@@ -365,6 +378,8 @@ class RecordsView(TenantAPI):
 
 
 class RestoreView(TenantAPI):
+    token_methods = ("POST",)
+
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid):
         spec = exposed_spec(table_key)
@@ -408,6 +423,8 @@ class RecordAccessView(TenantAPI):
 
 
 class ReferenceView(TenantAPI):
+    token_methods = ("GET",)
+
     def get(self, request, organization_id, table_key, field_name):
         from skeleton.web.references import reference_request
 
