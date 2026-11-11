@@ -96,6 +96,9 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
         if blocking:
             names = ", ".join(get_app(label).label for label in blocking)
             raise ValidationError({"enabled": f"Disable dependent applications first: {names}."})
+    from skeleton.events.core_events import application_changed
+
+    was_enabled = bool(record and record.enabled)
     if record is None:
         record = AppInstallation(
             organization_id=current_context().organization_id,
@@ -108,6 +111,7 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
         record.enabled = enabled
         record.configuration = values
         record.save(update_fields={"enabled", "configuration"})
+    application_changed(record, was_enabled=was_enabled)
     return record
 
 

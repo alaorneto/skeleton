@@ -167,14 +167,30 @@ class Backend:
         finally:
             os.close(descriptor)
 
+    def has_worker_hooks(self):
+        commands = self.config["commands"]
+        return "worker_stop" in commands and "worker_restart" in commands
+
+    def stop_workers(self, release, operation):
+        """Stop the job workers and schedulers (#40): SIGTERM lets the current job finish."""
+        if self.has_worker_hooks():
+            self.hook("worker_stop", release, operation)
+
+    def start_workers(self, release, operation):
+        if self.has_worker_hooks():
+            self.hook("worker_restart", release, operation)
+
     def start(self, release, operation):
         self.hook("restart", release, operation)
+        self.start_workers(release, operation)
 
     def drain(self, release, operation):
         self.hook("drain", release, operation)
+        self.stop_workers(release, operation)
 
     def stop(self, release, operation):
         self.hook("stop", release, operation)
+        self.stop_workers(release, operation)
 
     def pg_environment(self, release):
         result = self.operator_env()
@@ -370,8 +386,16 @@ class ComposeBackend(Backend):
         if profile in ("migration", "export", "build"):
             specification["entrypoint"] = []
             specification["user"] = str(compose.get("migration_uid", os.getuid()))
-        atomic_json(path, {"services": {service: specification}})
+        services = {service: specification}
+        if profile == "runtime":
+            # Workers run the web image and environment of the same release; their command stays.
+            for worker in self.worker_services():
+                services[worker] = dict(specification)
+        atomic_json(path, {"services": services})
         return path
+
+    def worker_services(self):
+        return list(self.config["compose"].get("worker_services", []))
 
     def build_image(self, release):
         self.run(
@@ -474,9 +498,10 @@ class ComposeBackend(Backend):
         rendered = json.loads(
             self.capture([*self.base(release), "config", "--format", "json"], code="compose_configuration_failed")
         )
-        environment = rendered["services"][self.config["compose"]["web_service"]].get("environment", {})
-        if environment.get("MIGRATION_DATABASE_URL"):
-            raise AgentError("migration_secret_in_runtime", 409)
+        for service in (self.config["compose"]["web_service"], *self.worker_services()):
+            environment = rendered["services"][service].get("environment", {})
+            if environment.get("MIGRATION_DATABASE_URL"):
+                raise AgentError("migration_secret_in_runtime", 409)
         self.run(
             [
                 *self.base(release),
@@ -490,6 +515,21 @@ class ComposeBackend(Backend):
             code="compose_restart_failed",
         )
         self.hook("restart", release, operation)
+        self.start_workers(release, operation)
+
+    def stop_workers(self, release, operation):
+        if self.worker_services():
+            self.run([*self.base(release), "stop", *self.worker_services()], code="compose_worker_stop_failed")
+        super().stop_workers(release, operation)
+
+    def start_workers(self, release, operation):
+        if self.worker_services():
+            self.run(
+                [*self.base(release), "up", "--detach", "--no-deps", "--no-build", "--force-recreate"]
+                + self.worker_services(),
+                code="compose_worker_restart_failed",
+            )
+        super().start_workers(release, operation)
 
     def drain(self, release, operation):
         self.hook("drain", release, operation)
@@ -498,6 +538,7 @@ class ComposeBackend(Backend):
     def stop(self, release, operation):
         self.run([*self.base(release), "stop", self.config["compose"]["web_service"]], code="compose_stop_failed")
         self.hook("stop", release, operation)
+        self.stop_workers(release, operation)
 
 
 def backend_for(config, store):

@@ -1,0 +1,19 @@
+# Job worker (#40). Provisioned by the operator, never by a package.
+# The deployment agent stops it before migrations (commands.worker_stop) and restarts it
+# after the cutover (commands.worker_restart). SIGTERM finishes the current job and exits.
+[Unit]
+Description=Skeleton job worker
+After=network.target
+[Service]
+User=skeleton-web
+Group=skeleton-web
+WorkingDirectory=/srv/skeleton/current
+EnvironmentFile=/srv/skeleton/private/runtime.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/srv/skeleton/current/.venv/bin/python manage.py run_worker --queues default
+KillSignal=SIGTERM
+TimeoutStopSec=1800
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

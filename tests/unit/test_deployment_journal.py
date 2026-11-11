@@ -322,3 +322,34 @@ def test_internal_error_log_locates_failure_without_message():
     assert record["error_class"] == "RuntimeError"
     assert record["error_stack"][-1].endswith(":failing_command")
     assert "control-token-sentinel" not in output
+
+
+def test_execution_stops_workers_before_migrations_and_restarts_them_after_cutover(approved_deployment, monkeypatch):
+    """#40: with a fake runner, the worker hooks bracket the migrations of an approved plan."""
+    from deployment_agent.backends import Backend
+
+    service, values, _ = approved_deployment
+    record = service.store.get("plans", values["plan_id"])
+    record["inventory"] = {"generation": 1, "core": {"version": "0.5.0"}}
+    service.store.put("plans", values["plan_id"], record)
+    calls = []
+    commands = {
+        "drain": ["/bin/drain-web"],
+        "restart": ["/bin/restart-web"],
+        "stop": ["/bin/stop-web"],
+        "worker_stop": ["/bin/stop-worker"],
+        "worker_restart": ["/bin/start-worker"],
+    }
+    lifecycle = Backend({"commands": commands, "active_link": "/srv/current", "storage_root": "/srv/state"}, None)
+    lifecycle.run = lambda arguments, **kwargs: calls.append(arguments[0])
+    service.backend.drain = lifecycle.drain
+    service.backend.start = lifecycle.start
+    service.backend.manage = lambda release, arguments, profile, **kwargs: calls.append(arguments[0])
+    service.backend.cutover = lambda release: calls.append("cutover")
+    monkeypatch.setattr(service, "health", lambda inventory: calls.append("health"))
+    service.submit(**values)
+    service.execute(values["operation_id"])
+    assert service.store.get("operations", values["operation_id"])["state"] == "succeeded"
+    assert calls.index("/bin/drain-web") < calls.index("/bin/stop-worker") < calls.index("migrate")
+    assert calls.index("migrate") < calls.index("cutover") < calls.index("/bin/restart-web")
+    assert calls.index("/bin/restart-web") < calls.index("/bin/start-worker") < calls.index("health")

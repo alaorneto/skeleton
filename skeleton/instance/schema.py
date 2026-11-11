@@ -192,6 +192,16 @@ _SPECS = (
         _int(1),
     ),
     SettingSpec(
+        "job_succeeded_retention_days",
+        "SKELETON_JOB_SUCCEEDED_RETENTION_DAYS",
+        "int",
+        "Retenção dos jobs concluídos ou cancelados",
+        _int(1),
+    ),
+    SettingSpec(
+        "job_dead_retention_days", "SKELETON_JOB_DEAD_RETENTION_DAYS", "int", "Retenção dos jobs esgotados", _int(1)
+    ),
+    SettingSpec(
         "webhook_retention_days", "SKELETON_WEBHOOK_RETENTION_DAYS", "int", "Retenção das entregas de webhook", _int(1)
     ),
     SettingSpec("files_scanner", "SKELETON_FILES_SCANNER", "str", "Antivírus dos anexos", _choice("none", "clamav")),

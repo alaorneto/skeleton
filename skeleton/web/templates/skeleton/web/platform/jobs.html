@@ -1,0 +1,33 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}Jobs{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Operação</p><h1>Jobs</h1><p class="page-description">Fila de trabalho em segundo plano de todas as organizações. A tela mostra tipo, fila, organização, estado e código de erro, nunca o payload. Um job esgotado pode ser reenviado ou descartado.</p></div></div>
+<dl class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+  <div class="card"><dt class="text-sm text-body-subtle">Na fila</dt><dd class="text-2xl font-semibold text-heading">{{ counts.queued }}</dd></div>
+  <div class="card"><dt class="text-sm text-body-subtle">Atraso do mais antigo</dt><dd class="text-2xl font-semibold text-heading">{{ health.oldest_due_lag_s|floatformat:0 }} s</dd></div>
+  <div class="card"><dt class="text-sm text-body-subtle">Esgotados</dt><dd class="text-2xl font-semibold text-heading">{{ counts.dead }}</dd></div>
+  <div class="card"><dt class="text-sm text-body-subtle">Workers ativos</dt><dd class="text-2xl font-semibold text-heading">{{ health.live_workers }}</dd></div>
+</dl>
+<form method="get" class="mb-4 flex flex-wrap items-end gap-2" aria-label="Filtros">
+  <div class="field"><label for="{{ filter_form.state.id_for_label }}">Estado</label>{{ filter_form.state }}</div>
+  <div class="field"><label for="{{ filter_form.queue.id_for_label }}">Fila</label>{{ filter_form.queue }}</div>
+  <div class="field"><label for="{{ filter_form.job_type.id_for_label }}">Tipo</label>{{ filter_form.job_type }}</div>
+  <button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="filter" %}Filtrar</button>
+  <a class="btn btn-ghost" href="?">Limpar</a>
+</form>
+<div class="table-scroll"><table><thead><tr><th scope="col">Tipo</th><th scope="col">Fila</th><th scope="col">Organização</th><th scope="col">Estado</th><th scope="col">Tentativas</th><th scope="col">Erro</th><th scope="col">Executar após</th><th scope="col">Concluído em</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+{% for job in rows %}<tr>
+  <td class="break-all">{{ job.job_type }}</td>
+  <td>{{ job.queue }}</td>
+  <td>{% if job.job_organization_id %}<a href="{% url 'platform:organization' job.job_organization_id %}">{{ job.organization_name|default:job.job_organization_id }}</a>{% else %}<span class="text-body-subtle">Global</span>{% endif %}</td>
+  <td>{% if job.state == dead_state %}<span class="badge badge-warning badge-dot">{{ job.get_state_display }}</span>{% elif job.state == "succeeded" %}<span class="badge badge-success badge-dot">{{ job.get_state_display }}</span>{% else %}<span class="badge badge-dot">{{ job.get_state_display }}</span>{% endif %}</td>
+  <td>{{ job.attempts }} / {{ job.max_attempts }}</td>
+  <td class="break-all">{% if job.last_error_code or job.last_error_class %}{{ job.last_error_code|default:"—" }}{% if job.last_error_class %} <span class="text-body-subtle">({{ job.last_error_class }})</span>{% endif %}{% else %}<span class="text-body-subtle">—</span>{% endif %}</td>
+  <td class="whitespace-nowrap!">{{ job.run_after }}</td>
+  <td class="whitespace-nowrap!">{{ job.finished_at|default:"—" }}</td>
+  <td>{% if job.state == dead_state %}<form method="post" action="{% url 'platform:job-action' job.pk %}" class="flex gap-2">{% csrf_token %}<input type="hidden" name="expected_updated_at" value="{{ job.updated_at.isoformat }}"><button type="submit" name="action" value="resend" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="refresh" %}Reenviar</button><button type="submit" name="action" value="discard" class="btn btn-ghost btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}Descartar</button></form>{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="9" class="empty-state">Nenhum job encontrado.</td></tr>{% endfor %}
+</tbody></table></div>
+{% include "skeleton/web/pagination.html" %}
+{% endblock %}

@@ -1,0 +1,18 @@
+# Periodic job scheduler (#40). Several schedulers never duplicate a window, so a second
+# host may run one too. Stopped and restarted with the worker by the deployment agent.
+[Unit]
+Description=Skeleton periodic job scheduler
+After=network.target
+[Service]
+User=skeleton-web
+Group=skeleton-web
+WorkingDirectory=/srv/skeleton/current
+EnvironmentFile=/srv/skeleton/private/runtime.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/srv/skeleton/current/.venv/bin/python manage.py run_scheduler --interval 30
+KillSignal=SIGTERM
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target
