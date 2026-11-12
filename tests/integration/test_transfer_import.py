@@ -10,16 +10,13 @@ from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 from skeleton.transfer.csvio import read_csv
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 TABLE = "example_notes.note"
 
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="import")

@@ -13,6 +13,8 @@ from skeleton.common.exceptions import ConcurrentUpdate, ImmutableRecord, Unsafe
 from skeleton.common.models import SystemRecord
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 @pytest.fixture
 def records(skeleton_db):

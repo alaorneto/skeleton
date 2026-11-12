@@ -11,7 +11,7 @@ from skeleton.system.infrastructure_snapshot import export_inventory
 from skeleton.system.retained_schema import export_schema
 from skeleton.tenancy.context import tenant_context
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
 
 def test_retained_schema_impact_counts_each_tenant_once(tmp_path):

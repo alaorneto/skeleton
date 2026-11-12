@@ -23,6 +23,8 @@ from skeleton.testing.service_api import (
     build_service_scenario,
 )
 
+pytestmark = pytest.mark.needs_example_app
+
 SECRET = "observação reservada 9911"
 notes, engine = NoteService(), FlowService()
 

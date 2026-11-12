@@ -12,16 +12,9 @@ from skeleton.tenancy.context import request_context, system_context, tenant_con
 from skeleton.testing.applications import activate_app
 from skeleton.web.platform.forms import AppAvailabilityForm, AppGrantForm, AppRevokeForm
 
-pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults, pytest.mark.needs_example_app]
 PASSWORD = "Availability-screens-Password!23"
 NOTES = "example_notes"
-
-
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
 
 
 def login(user):
@@ -49,7 +42,6 @@ def demote(user):
 
 @pytest.fixture
 def setup():
-    require_notes()
     platform, org_a = bootstrap_identity(
         email="screens-platform@example.test", organization="screens-a", name="Screens A", password=PASSWORD
     )

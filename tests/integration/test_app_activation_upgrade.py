@@ -16,23 +16,15 @@ from skeleton.system.applications import application_state
 from skeleton.tenancy.context import system_context, tenant_context
 
 # These tests prove the closed default: the skeleton_db fixture must not open any app.
-pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults, pytest.mark.needs_example_app]
 PASSWORD = "Closed-default-Password!22"
 NOTES = "example_notes"
 QUIET = "quiet_fixture"
 
 
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-
-
 @pytest.fixture
 def legacy(monkeypatch):
     """A deployment before #22: Notes active by default, a second app off by default, no rows."""
-    require_notes()
     monkeypatch.setitem(app_registry._manifests, NOTES, replace(app_registry.get_app(NOTES), default_enabled=True))
     register_app(AppManifest(app_label=QUIET, label="Quiet", description="Fixture", default_enabled=False))
     admin, org_a = bootstrap_identity(

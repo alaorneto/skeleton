@@ -18,7 +18,7 @@ from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.events import capture_events
 from skeleton.testing.jobs import run_pending_jobs
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Event-consumers-Password!81"
 seen = {"stable": set(), "flaky": [], "envelopes": []}
 
@@ -36,10 +36,7 @@ def flaky(envelope):
 
 @pytest.fixture(autouse=True)
 def declarations(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     seen["stable"].clear()
     seen["flaky"].clear()
     seen["envelopes"].clear()

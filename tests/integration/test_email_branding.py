@@ -16,17 +16,14 @@ from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import acting_as, build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
 TWO_LANGUAGES = [("pt-br", "Português"), ("en", "English")]
 
 
 @pytest.fixture
 def scenario(monkeypatch, settings):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     settings.SKELETON_PUBLIC_URL = "https://app.example.test"

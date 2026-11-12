@@ -19,13 +19,6 @@ PASSWORD = "Availability-gate-Password!61"
 NOTES = "example_notes"
 
 
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-
-
 def login(user):
     client = Client()
     assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
@@ -40,7 +33,6 @@ def demote(user):
 
 @pytest.fixture
 def setup():
-    require_notes()
     platform, org_a = bootstrap_identity(
         email="availability-platform@example.test", organization="availability-a", name="A", password=PASSWORD
     )
@@ -57,6 +49,7 @@ def as_platform(user, fn):
         return fn()
 
 
+@pytest.mark.needs_example_app
 def test_selected_app_is_closed_for_organizations_without_grant(setup):
     platform, org_a, member_b, org_b = setup
     as_platform(platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=0))
@@ -78,6 +71,7 @@ def test_selected_app_is_closed_for_organizations_without_grant(setup):
     assert all(row["table_key"] != "example_notes.note" for row in catalog["results"])
 
 
+@pytest.mark.needs_example_app
 def test_revoke_applies_on_next_request_and_preserves_activation(setup):
     from skeleton.system.models import AppInstallation
 
@@ -102,6 +96,7 @@ def test_revoke_applies_on_next_request_and_preserves_activation(setup):
     assert client.get(home).status_code == 200
 
 
+@pytest.mark.needs_example_app
 def test_configure_refuses_to_enable_unavailable_app_but_allows_disabling(setup):
     platform, org_a, _, _ = setup
     as_platform(platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=0))
@@ -118,6 +113,7 @@ def test_configure_refuses_to_enable_unavailable_app_but_allows_disabling(setup)
         assert record.enabled is False
 
 
+@pytest.mark.needs_example_app
 def test_dependencies_gate_grant_and_revoke(setup, monkeypatch):
     platform, org_a, _, _ = setup
     monkeypatch.setattr(availability, "required_labels", lambda label: ("base_app",) if label == NOTES else ())
@@ -143,6 +139,7 @@ def test_dependencies_gate_grant_and_revoke(setup, monkeypatch):
     assert error.value.error_dict["app_label"][0].code == "dependent_granted"
 
 
+@pytest.mark.needs_example_app
 def test_availability_cas_has_one_winner_and_is_audited(setup):
     from skeleton.audit.models import AuditEvent
 
@@ -169,6 +166,7 @@ def test_availability_cas_has_one_winner_and_is_audited(setup):
     assert operations == ["create", "update"]
 
 
+@pytest.mark.needs_example_app
 def test_only_platform_administrators_change_availability(setup):
     _, org_a, member_b, org_b = setup
     with request_context(actor=member_b, request_id=None, source="test:availability-denied"):

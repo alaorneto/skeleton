@@ -15,20 +15,12 @@ from skeleton.events.registry import EventType, event_problems, register_event_t
 from skeleton.events.services import publish_event
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Domain-events-Password!64"
-
-
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
 
 
 @pytest.fixture(autouse=True)
 def event_types(monkeypatch):
-    require_notes()
     monkeypatch.setattr(registry, "_types", dict(registry._types))  # Keeps the core lifecycle types (#43).
     monkeypatch.setattr(registry, "_duplicates", [])
     register_event_type(EventType("notes.note_created", "example_notes.note", ("code", "title")))

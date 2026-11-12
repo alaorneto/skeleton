@@ -92,6 +92,7 @@ def task_action(world, action, task_id=None):
     return url("api-task-action", world, sysid=task_id or world.task_id, action=action)
 
 
+@pytest.mark.needs_example_app
 def test_anonymous_and_people_without_membership_get_nothing(world):
     anonymous = Client()
     assert anonymous.get(url("api-tasks", world)).status_code == 403
@@ -103,6 +104,7 @@ def test_anonymous_and_people_without_membership_get_nothing(world):
     assert outsider.get(url("api-task", world, sysid=world.task_id)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_task_inbox_detail_and_completion_over_rest(world):
     alice, bob = login(world.alice), login(world.bob)
     mine = alice.get(url("api-tasks", world)).json()
@@ -170,6 +172,7 @@ def test_task_inbox_detail_and_completion_over_rest(world):
     assert alice.get(url("api-tasks", world) + "?page_size=abc").status_code == 400
 
 
+@pytest.mark.needs_example_app
 def test_reassign_and_instance_administration_over_rest(world):
     alice, admin, bob = login(world.alice), login(world.admin), login(world.bob)
     moved = api(alice, "post", task_action(world, "reassign"), {"to_user": str(world.bob.pk)}, revision=1)
@@ -201,6 +204,7 @@ def test_reassign_and_instance_administration_over_rest(world):
     assert api(admin, "post", unknown, revision=1).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_other_organization_token_and_disabled_app(world):
     from skeleton.integrations.tokens.services import issue_personal_token
 
@@ -251,6 +255,7 @@ def csrf(client):
     return client.cookies["csrftoken"].value
 
 
+@pytest.mark.needs_example_app
 def test_pages_work_without_javascript(world):
     alice, bob, admin = login(world.alice), login(world.bob), login(world.admin)
     inbox = alice.get(url("tasks", world))
@@ -308,6 +313,7 @@ def test_pages_work_without_javascript(world):
         assert FlowInstance.objects.get(pk=world.instance_id).outcome == "approved"
 
 
+@pytest.mark.needs_example_app
 def test_instance_actions_on_the_page_require_post_csrf_and_the_revision(world):
     alice, admin = login(world.alice), login(world.admin)
     suspend = url("instance-action", world, sysid=world.instance_id, action="suspend")

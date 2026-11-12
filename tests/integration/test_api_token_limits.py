@@ -15,6 +15,8 @@ from skeleton.integrations.tokens.services import issue_personal_token
 from skeleton.tenancy.context import request_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 NOTE = "example_notes.note"
 
 

@@ -26,10 +26,7 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="history")
@@ -42,6 +39,7 @@ def edit(scenario, note, title):
         note.save(update_fields={"title"})
 
 
+@pytest.mark.needs_example_app
 def test_history_is_authorized_redacted_and_most_recent_first(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="H-1", title="First", body="secret body")
     edit(scenario, note, "Second")
@@ -57,6 +55,7 @@ def test_history_is_authorized_redacted_and_most_recent_first(scenario):
         assert len(service.history(actor=admin, table_key=TABLE, record_id=note.pk).items) == 2
 
 
+@pytest.mark.needs_example_app
 def test_without_audit_permission_or_record_access_is_not_found(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="H-2", title="Mine")
     hidden = scenario.create(scenario.a, owner=scenario.admin_a, code="H-3", title="Private", visibility="private")
@@ -83,6 +82,7 @@ def test_without_audit_permission_or_record_access_is_not_found(scenario):
     )
 
 
+@pytest.mark.needs_example_app
 def test_events_of_another_organization_never_appear(scenario):
     own = scenario.create(scenario.a, owner=scenario.member, code="H-4", title="A note")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="H-5", title="B secret title")

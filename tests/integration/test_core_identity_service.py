@@ -28,15 +28,13 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="identity")
 
 
+@pytest.mark.needs_example_app
 def test_me_works_with_and_without_organization(scenario):
     with acting_as(scenario.member, scenario.a) as actor:
         me = IdentityService().me(actor=actor)
@@ -47,6 +45,7 @@ def test_me_works_with_and_without_organization(scenario):
     assert_rejects_other_actor(scenario.caller(lambda actor: IdentityService().me(actor=scenario.denied)))
 
 
+@pytest.mark.needs_example_app
 def test_get_person_is_limited_to_active_members_and_email_needs_members_view(scenario):
     service = IdentityService()
     with acting_as(scenario.member, scenario.a) as actor:
@@ -64,6 +63,7 @@ def test_get_person_is_limited_to_active_members_and_email_needs_members_view(sc
             service.get_person(actor=scenario.member, user_id=scenario.denied.pk)
 
 
+@pytest.mark.needs_example_app
 def test_inactive_membership_is_not_found(scenario):
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Membership
@@ -77,6 +77,7 @@ def test_inactive_membership_is_not_found(scenario):
 
 
 @override_settings(LANGUAGES=[("pt-br", "Português"), ("en", "English")])
+@pytest.mark.needs_example_app
 def test_update_my_preferences_with_cas(scenario):
     service = IdentityService()
     with acting_as(scenario.member, scenario.a) as actor:

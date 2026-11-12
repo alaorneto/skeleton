@@ -18,6 +18,8 @@ from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 KEY = Fernet.generate_key().decode()
 EVENT = "notes.webhook_ready"
 

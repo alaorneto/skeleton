@@ -23,10 +23,7 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="audit-filters")
@@ -50,6 +47,7 @@ def codes(page):
     return sorted({item.record_sysid for item in page.items})
 
 
+@pytest.mark.needs_example_app
 def test_filters_narrow_by_actor_operation_request_and_period(scenario):
     member_note, member_request = write(scenario.member, scenario.a, "M-1")
     admin_note, _ = write(scenario.admin_a, scenario.a, "A-1")
@@ -72,6 +70,7 @@ def test_filters_narrow_by_actor_operation_request_and_period(scenario):
             SERVICE.events(actor=admin, actor_id="not-a-uuid")
 
 
+@pytest.mark.needs_example_app
 def test_filters_never_reach_another_organization(scenario):
     _, request_a = write(scenario.admin_a, scenario.a, "A-1")
     with acting_as(scenario.admin_b, scenario.b) as admin_b:
@@ -79,12 +78,14 @@ def test_filters_never_reach_another_organization(scenario):
         assert SERVICE.events(actor=admin_b, actor_id=scenario.admin_a.pk).count == 0
 
 
+@pytest.mark.needs_example_app
 def test_a_member_without_audit_permission_filters_only_what_they_already_see(scenario):
     _, request_a = write(scenario.admin_a, scenario.a, "A-1")
     with acting_as(scenario.denied, scenario.a) as denied:
         assert SERVICE.events(actor=denied, request_id=request_a).count == 0
 
 
+@pytest.mark.needs_example_app
 def test_related_domain_events_only_for_the_administrator(scenario):
     from skeleton.events.models import DomainEvent
 
@@ -114,6 +115,7 @@ def login(user):
     return client
 
 
+@pytest.mark.needs_example_app
 def test_web_and_api_accept_the_filters_and_refuse_invalid_ones(scenario):
     member_note, request_id = write(scenario.member, scenario.a, "M-1")
     client = login(scenario.admin_a)
@@ -129,6 +131,7 @@ def test_web_and_api_accept_the_filters_and_refuse_invalid_ones(scenario):
     assert client.get(api, {"request_id": "x"}).status_code == 400
 
 
+@pytest.mark.needs_example_app
 def test_platform_audit_accepts_the_filters(scenario):
     from skeleton.accounts.services import bootstrap_identity
 

@@ -5,6 +5,8 @@ import pytest
 from skeleton.system.checks import check_deployed_schema
 from tools.integration_database import disposable_database_pair
 
+pytestmark = pytest.mark.needs_example_app
+
 
 def _owner_execute(statement):
     import psycopg
@@ -16,11 +18,8 @@ def _owner_execute(statement):
 
 @pytest.fixture
 def pristine(skeleton_db):
-    from django.apps import apps
     from django.db import connection
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     assert connection.vendor == "postgresql"
     assert check_deployed_schema() == []
 

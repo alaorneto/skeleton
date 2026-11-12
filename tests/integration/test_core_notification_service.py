@@ -32,10 +32,7 @@ def test_contract():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     monkeypatch.setattr(registry, "_types", {})
@@ -58,6 +55,7 @@ def notify_as_notes(**kwargs):
     return as_module(NOTES_MODULE, NotificationService().notify)(**kwargs)
 
 
+@pytest.mark.needs_example_app
 def test_owning_app_notifies_and_the_recipient_reads_marks_and_archives(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="NS-1", title="Plan", visibility="organization")
     with acting_as(scenario.admin_a, scenario.a) as admin:
@@ -87,6 +85,7 @@ def test_owning_app_notifies_and_the_recipient_reads_marks_and_archives(scenario
         service.mark_read(actor=other, ids=(item.sysid,))
 
 
+@pytest.mark.needs_example_app
 def test_another_apps_type_is_forbidden(scenario):
     with acting_as(scenario.admin_a, scenario.a) as admin:
         with pytest.raises(Forbidden):
@@ -103,6 +102,7 @@ def test_another_apps_type_is_forbidden(scenario):
             notify_as_notes(actor=admin, type_code="unknown", recipients=Recipients(users=(scenario.member.pk,)))
 
 
+@pytest.mark.needs_example_app
 def test_unreadable_or_foreign_target_is_not_found(scenario):
     hidden = scenario.create(scenario.a, owner=scenario.admin_a, code="NS-2", title="Hidden", visibility="private")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="NS-3", title="B")
@@ -118,6 +118,7 @@ def test_unreadable_or_foreign_target_is_not_found(scenario):
                 )
 
 
+@pytest.mark.needs_example_app
 def test_caller_rollback_leaves_no_notification_and_system_consumers_need_no_actor(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="NS-4", title="T", visibility="organization")
     kwargs = {

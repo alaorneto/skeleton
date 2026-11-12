@@ -24,7 +24,7 @@ from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/browser-one"
 BROWSER = ec.generate_private_key(ec.SECP256R1())
 BROWSER_PUBLIC = BROWSER.public_key().public_bytes(
@@ -57,10 +57,7 @@ class FakePushService:
 
 @pytest.fixture
 def scenario(monkeypatch, tmp_path):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = ec.generate_private_key(ec.SECP256R1())

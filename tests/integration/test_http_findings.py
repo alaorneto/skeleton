@@ -23,6 +23,7 @@ def logged_client():
     return client, actor, organization
 
 
+@pytest.mark.needs_example_app
 def test_rd02_clickjacking_header_on_own_html_pages():
     client, actor, organization = logged_client()
     assert Client().get("/accounts/login/").get("X-Frame-Options") == "DENY"

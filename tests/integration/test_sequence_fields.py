@@ -13,6 +13,8 @@ from skeleton.sequences.registry import SequenceSpec, register_sequence, sequenc
 from skeleton.system import registry as tables
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 PASSWORD = "Fixture-only-password-2026!"
 TABLE = "example_notes.note"
 KEY = "example_notes.note_code"

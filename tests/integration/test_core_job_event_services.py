@@ -41,10 +41,7 @@ def test_contracts():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     register_job_type(JobType("notes.reindex", handler, {"note_id": "uuid"}, owner_app="example_notes"))
@@ -66,6 +63,7 @@ def publish_as_notes(**kwargs):
     return as_module(NOTES_MODULE, EventService().publish)(**kwargs)
 
 
+@pytest.mark.needs_example_app
 def test_enqueue_own_type_with_receipt_and_idempotency(scenario):
     with acting_as(scenario.member, scenario.a) as actor:
         payload = (("note_id", str(actor.pk)),)
@@ -76,6 +74,7 @@ def test_enqueue_own_type_with_receipt_and_idempotency(scenario):
     assert Job.all_objects.get(pk=first.sysid).job_organization_id == scenario.a.pk
 
 
+@pytest.mark.needs_example_app
 def test_foreign_type_invalid_payload_and_rollback(scenario):
     with acting_as(scenario.member, scenario.a) as actor:
         with pytest.raises(Forbidden):
@@ -97,6 +96,7 @@ def test_foreign_type_invalid_payload_and_rollback(scenario):
     )
 
 
+@pytest.mark.needs_example_app
 def test_publish_own_event_about_a_readable_record(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="EV-1", title="T")
     with acting_as(scenario.member, scenario.a) as actor:
@@ -107,6 +107,7 @@ def test_publish_own_event_about_a_readable_record(scenario):
         publish_as_notes(actor=None, event_type="notes.closed", record_id=note.pk)
 
 
+@pytest.mark.needs_example_app
 def test_publish_refuses_foreign_type_record_and_rolls_back(scenario):
     hidden = scenario.create(scenario.a, owner=scenario.admin_a, code="EV-2", title="T", visibility="private")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="EV-3", title="T")

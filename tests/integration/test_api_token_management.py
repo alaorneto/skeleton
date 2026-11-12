@@ -10,6 +10,8 @@ from skeleton.accounts.services import create_service_account
 from skeleton.integrations.tokens.models import ApiToken
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 PASSWORD = "Fixture-only-password-2026!"
 NOTE_READ = "example_notes.note:read"
 

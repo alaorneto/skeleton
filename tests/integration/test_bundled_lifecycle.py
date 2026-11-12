@@ -35,6 +35,7 @@ def component():
         return ComponentInstallation.all_objects.get(component_id="org.skeleton.bundled-stand-in")
 
 
+@pytest.mark.needs_example_app
 def test_a_new_first_party_app_starts_unavailable_and_inactive(stand_in, monkeypatch):
     access = build_security_fixture()
     fresh = replace(
@@ -55,6 +56,7 @@ def test_a_new_first_party_app_starts_unavailable_and_inactive(stand_in, monkeyp
     assert bundled_divergences() == []
 
 
+@pytest.mark.needs_example_app
 def test_opt_out_retains_and_deactivates_and_opt_in_keeps_the_rows(stand_in, monkeypatch, settings):
     access = build_security_fixture()
     sync_bundled_components()
@@ -86,6 +88,7 @@ def test_opt_out_retains_and_deactivates_and_opt_in_keeps_the_rows(stand_in, mon
     assert again.configuration == configuration and again.enabled is False
 
 
+@pytest.mark.needs_example_app
 def test_opted_in_but_unrecorded_is_a_divergence(stand_in):
     assert any("not recorded" in problem for problem in bundled_divergences())
 

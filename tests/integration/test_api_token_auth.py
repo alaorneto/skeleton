@@ -15,6 +15,8 @@ from skeleton.integrations.tokens.services import issue_personal_token, issue_se
 from skeleton.tenancy.context import request_context, system_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 PASSWORD = "Fixture-only-password-2026!"
 NOTE = "example_notes.note"
 

@@ -16,16 +16,9 @@ from skeleton.system.applications import application_states, configure_applicati
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.applications import activate_app, open_app
 
-pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults, pytest.mark.needs_example_app]
 PASSWORD = "Org-apps-available-Password!24"
 NOTES = "example_notes"
-
-
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
 
 
 def login(user):
@@ -58,7 +51,6 @@ def demote(user):
 
 @pytest.fixture
 def setup():
-    require_notes()
     owner, org_a = bootstrap_identity(
         email="org-apps-owner@example.test", organization="org-apps-a", name="A", password=PASSWORD
     )

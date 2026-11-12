@@ -12,6 +12,8 @@ from django.test import RequestFactory, override_settings
 
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 REDACTED = {"new": "[REDACTED]", "redacted": True}
 
 

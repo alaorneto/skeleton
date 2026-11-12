@@ -7,6 +7,8 @@ from tools.integration_database import disposable_database_pair
 from tools.postgres_assertions import assert_runtime_security
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 def test_actual_runtime_rls_guards_and_privileges(skeleton_db):
     pair = disposable_database_pair()

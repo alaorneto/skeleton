@@ -34,10 +34,7 @@ def test_headers_force_a_download_that_cannot_execute():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = "example_notes.note"
@@ -85,6 +82,7 @@ def shared(scenario):
     return note, created.json()["sysid"], url
 
 
+@pytest.mark.needs_example_app
 def test_download_streams_with_safe_headers_and_zero_queries(scenario, shared):
     _, _, url = shared
     response = login(scenario.member).get(url)
@@ -98,6 +96,7 @@ def test_download_streams_with_safe_headers_and_zero_queries(scenario, shared):
     assert (response["Cache-Control"], response["Referrer-Policy"]) == ("no-store", "no-referrer")
 
 
+@pytest.mark.needs_example_app
 def test_revocation_applies_to_the_next_request(scenario, shared):
     from examples.notes.models import Note
 
@@ -113,6 +112,7 @@ def test_revocation_applies_to_the_next_request(scenario, shared):
 
 
 @pytest.mark.parametrize("state", ["pending", "quarantined", "rejected"])
+@pytest.mark.needs_example_app
 def test_files_not_available_never_download(scenario, shared, state):
     from skeleton.files.models import Attachment
 
@@ -122,6 +122,7 @@ def test_files_not_available_never_download(scenario, shared, state):
     assert login(scenario.member).get(url).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_accelerated_delivery_hands_the_key_to_the_proxy(scenario, shared):
     _, attachment_id, url = shared
     with override_settings(SKELETON_FILES_ACCEL="nginx", SKELETON_FILES_ACCEL_PREFIX="/_protected/"):

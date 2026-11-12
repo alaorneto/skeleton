@@ -106,6 +106,8 @@ jobs:
     env:
       DJANGO_SETTINGS_MODULE: config.settings.test
       SKELETON_ENABLE_EXAMPLE_APP: "true"
+      # Tests marked needs_example_app fail instead of skipping without the example app (#264).
+      SKELETON_TEST_REQUIRE_EXAMPLE_APP: "1"
       # The core suite runs without first-party apps (#66); each one adds its own suite.
       SKELETON_BUNDLED_APPS: ${{ matrix.slug == 'calendar' && 'calendar' || '' }}
       SKELETON_TEST_ALLOW_SCHEMA_RESET: "1"

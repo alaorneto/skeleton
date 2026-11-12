@@ -22,15 +22,12 @@ from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
 
 @pytest.fixture
 def scenario(monkeypatch, settings):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     settings.SKELETON_PUBLIC_URL = "https://app.example.test"

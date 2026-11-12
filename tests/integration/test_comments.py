@@ -40,10 +40,7 @@ def enabled(monkeypatch):
 
 @pytest.fixture
 def scenario(enabled):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     scenario = build_service_scenario(Note, slug="comments")
@@ -72,6 +69,7 @@ def _add(scenario, user, body="Primeiro", note=None):
         )
 
 
+@pytest.mark.needs_example_app
 def test_readers_comment_and_unreadable_targets_answer_404(scenario, subtests):
     member = _login(scenario.member)
     with subtests.test("create and list"):
@@ -121,6 +119,7 @@ def test_readers_comment_and_unreadable_targets_answer_404(scenario, subtests):
         )
 
 
+@pytest.mark.needs_example_app
 def test_table_without_policy_refuses_comments(scenario, monkeypatch):
     monkeypatch.setitem(registry._registry, TABLE, replace(registry._registry[TABLE], comments=None))
     member = _login(scenario.member)
@@ -132,6 +131,7 @@ def test_table_without_policy_refuses_comments(scenario, monkeypatch):
         CommentService().add_comment(actor=actor, table_key=TABLE, record_id=scenario.note.pk, body="x")
 
 
+@pytest.mark.needs_example_app
 def test_author_edits_and_author_or_admin_delete_and_restore(scenario, subtests):
     comment = _add(scenario, scenario.member)
     member, admin = _login(scenario.member), _login(scenario.admin_a)
@@ -178,6 +178,7 @@ def test_author_edits_and_author_or_admin_delete_and_restore(scenario, subtests)
         )
 
 
+@pytest.mark.needs_example_app
 def test_service_errors_cas_and_actor(scenario, subtests):
     service = CommentService()
     comment = _add(scenario, scenario.member)
@@ -226,6 +227,7 @@ def test_service_errors_cas_and_actor(scenario, subtests):
     )
 
 
+@pytest.mark.needs_example_app
 def test_writes_are_audited_and_rollback_leaves_nothing(scenario):
     from django.db import transaction
 
@@ -253,6 +255,7 @@ def test_writes_are_audited_and_rollback_leaves_nothing(scenario):
         assert not Comment.objects.filter(body="Desfeito").exists()
 
 
+@pytest.mark.needs_example_app
 def test_page_escapes_bodies_and_timeline_shows_comments(scenario):
     _add(scenario, scenario.member, 'Veja https://example.test <script>alert("x")</script>')
     member = _login(scenario.member)

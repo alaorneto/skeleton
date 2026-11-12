@@ -16,16 +16,13 @@ from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import own_rows, request_context, system_context, tenant_context
 from skeleton.testing.jobs import run_pending_jobs
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Notify-Password!93"
 
 
 @pytest.fixture(autouse=True)
 def types(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     monkeypatch.setattr(registry, "_types", {})
     monkeypatch.setattr(registry, "_duplicates", [])
     register_notification_type(

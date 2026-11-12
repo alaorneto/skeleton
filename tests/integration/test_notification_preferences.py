@@ -12,15 +12,12 @@ from skeleton.notifications.preferences import effective
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     monkeypatch.setattr(registry, "_types", {})

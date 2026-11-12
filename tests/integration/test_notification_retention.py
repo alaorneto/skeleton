@@ -23,10 +23,7 @@ pytestmark = pytest.mark.usefixtures("skeleton_db")
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     monkeypatch.setattr(registry, "_types", {})
@@ -71,6 +68,7 @@ def test_windows_follow_the_settings(settings):
     assert windows() == {"read": timedelta(days=7), "unread": timedelta(days=14), "deliveries": timedelta(days=3)}
 
 
+@pytest.mark.needs_example_app
 def test_only_expired_rows_go_and_the_counter_stays_right(scenario):
     notices(scenario, scenario.a, scenario.admin_a, count=5)
     notices(scenario, scenario.b, scenario.admin_b, count=1)
@@ -90,6 +88,7 @@ def test_only_expired_rows_go_and_the_counter_stays_right(scenario):
     assert len(rows(scenario.b)) == 1  # Another organization is never touched.
 
 
+@pytest.mark.needs_example_app
 def test_finished_deliveries_expire_and_open_ones_stay(scenario):
     notices(scenario, scenario.a, scenario.admin_a, count=2)
     with system_context(reason="test:deliveries", organization_id=scenario.a.pk):
@@ -101,6 +100,7 @@ def test_finished_deliveries_expire_and_open_ones_stay(scenario):
         assert list(NotificationDelivery.objects.values_list("pk", flat=True)) == [other.pk]
 
 
+@pytest.mark.needs_example_app
 def test_orphan_notifications_go_only_after_their_rows_and_deliveries(scenario):
     notices(scenario, scenario.a, scenario.admin_a, count=1)
     [row] = rows(scenario.a)

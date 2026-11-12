@@ -56,6 +56,7 @@ def render_form(form, **context):
     )
 
 
+@pytest.mark.needs_example_app
 def test_write_only_never_reads_current_value_and_skip_differs_from_clear(records):
     from examples.notes.models import Note
     from skeleton.web.services import update_record
@@ -103,6 +104,7 @@ def test_write_only_never_reads_current_value_and_skip_differs_from_clear(record
         assert not any(name.startswith("__change_") for name in wire_values(cleared.cleaned_data))
 
 
+@pytest.mark.needs_example_app
 def test_write_only_skip_bypasses_required_validation_but_change_does_not(records):
     from examples.notes.models import Note
 
@@ -124,6 +126,7 @@ def test_write_only_skip_bypasses_required_validation_but_change_does_not(record
         assert "title" in created.errors
 
 
+@pytest.mark.needs_example_app
 def test_layout_validation_preserves_submitted_values_and_activates_invalid_tab(records, monkeypatch):
     from examples.notes.models import Note
 
@@ -176,6 +179,7 @@ def test_layout_validation_preserves_submitted_values_and_activates_invalid_tab(
         assert len(dom.named("csrfmiddlewaretoken")) == 1
 
 
+@pytest.mark.needs_example_app
 def test_projection_uses_only_readable_values_and_never_business_str(records, monkeypatch):
     from examples.notes.models import Note
 
@@ -192,6 +196,7 @@ def test_projection_uses_only_readable_values_and_never_business_str(records, mo
         assert "Private" in rendered
 
 
+@pytest.mark.needs_example_app
 def test_declared_list_column_order_exact_filters_and_title_are_respected(records, monkeypatch):
     from examples.notes.models import Note
 
@@ -224,6 +229,7 @@ def test_declared_list_column_order_exact_filters_and_title_are_respected(record
         assert context["filters"][0]["value"] == records.private.code
 
 
+@pytest.mark.needs_example_app
 def test_database_page_loads_projection_dependencies_without_per_row_queries(records):
     from examples.notes.models import Note
     from skeleton.web.services import create_record, record_queryset
@@ -246,6 +252,7 @@ def test_database_page_loads_projection_dependencies_without_per_row_queries(rec
         assert "Not a list column" not in str(context["record_rows"])
 
 
+@pytest.mark.needs_example_app
 def test_defaults_readonly_fields_and_dedicated_modes(records, monkeypatch):
     from examples.notes.models import Note
 
@@ -281,6 +288,7 @@ def test_defaults_readonly_fields_and_dedicated_modes(records, monkeypatch):
         assert "code" in invalid.errors and invalid.non_field_errors()
 
 
+@pytest.mark.needs_example_app
 def test_custom_dimensions_and_literal_metadata_are_isolated_in_edit_and_detail(records, monkeypatch):
     from examples.notes.models import Note
 

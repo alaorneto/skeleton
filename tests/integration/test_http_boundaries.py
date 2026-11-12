@@ -2,7 +2,6 @@ import json
 from uuid import uuid4
 
 import pytest
-from django.apps import apps
 from django.test import Client, override_settings
 from django.urls import reverse
 
@@ -47,11 +46,6 @@ def notes_url(organization, sysid=None):
     return reverse("api:record" if sysid else "api:records", kwargs=kwargs)
 
 
-def require_notes():
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-
-
 def test_me_two_revision_cas_and_mass_assignment(http_identity):
     client, user, organization = http_identity
     url = reverse("api:me")
@@ -84,8 +78,8 @@ def test_session_csrf_and_anonymous_default_deny(http_identity):
     assert client.get(url).json()["first_name"] != "Blocked"
 
 
+@pytest.mark.needs_example_app
 def test_note_crud_etag_soft_delete_restore(http_identity):
-    require_notes()
     client, user, organization = http_identity
     url = notes_url(organization)
     created = send(client, "post", url, {"code": "http-note", "title": "Original", "body": "private audit body"})
@@ -116,8 +110,8 @@ def test_note_crud_etag_soft_delete_restore(http_identity):
     assert {item["operation"] for item in events["results"]} >= {"create", "update", "soft_delete", "restore"}
 
 
+@pytest.mark.needs_example_app
 def test_gateway_rejects_technical_keys_filters_and_hidden_access(http_identity):
-    require_notes()
     client, user, organization = http_identity
     url = notes_url(organization)
     assert (
@@ -132,8 +126,8 @@ def test_gateway_rejects_technical_keys_filters_and_hidden_access(http_identity)
     assert send(client, "patch", url, {"title": "no target"}, '"1"').status_code == 405
 
 
+@pytest.mark.needs_example_app
 def test_cross_tenant_detail_and_access_do_not_resolve(http_identity):
-    require_notes()
     client, user, organization = http_identity
     _, other = bootstrap_identity(email=user.email, organization="http-b", name="HTTP B")
     made = send(client, "post", notes_url(organization), {"code": "a-only", "title": "Tenant A", "body": ""})
@@ -178,8 +172,8 @@ def test_dedicated_role_group_crud_and_revision(http_identity):
     assert send(client, "delete", role_url, revision=edit["ETag"]).status_code == 204
 
 
+@pytest.mark.needs_example_app
 def test_html_create_edit_revision_and_escaping(http_identity):
-    require_notes()
     client, user, organization = http_identity
     kwargs = {"organization_id": organization.pk, "table_key": "example_notes.note"}
     records = reverse("web:records", kwargs=kwargs)
@@ -299,8 +293,8 @@ def test_html_create_edit_revision_and_escaping(http_identity):
     assert "Updated" not in json.dumps(events)
 
 
+@pytest.mark.needs_example_app
 def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
-    require_notes()
     admin_client, admin, organization = http_identity
     from allauth.account.models import EmailAddress
 
@@ -384,8 +378,8 @@ def test_mfa_enforcement_preserves_profile_escape_route(http_identity):
         assert client.get(reverse("web:profile")).status_code == 200
 
 
+@pytest.mark.needs_example_app
 def test_access_management_is_separate_and_revision_protected(http_identity):
-    require_notes()
     client, user, organization = http_identity
     created = send(client, "post", notes_url(organization), {"code": "access-note", "title": "ACL", "body": ""})
     assert created.status_code == 201
@@ -405,8 +399,8 @@ def test_access_management_is_separate_and_revision_protected(http_identity):
     assert client.get(detail).json()["visibility"] == "organization"
 
 
+@pytest.mark.needs_example_app
 def test_duplicate_live_code_and_last_admin_return_conflict(http_identity):
-    require_notes()
     client, user, organization = http_identity
     values = {"code": "unique-http", "title": "Existing", "body": ""}
     assert send(client, "post", notes_url(organization), values).status_code == 201

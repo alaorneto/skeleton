@@ -31,10 +31,7 @@ def test_sniffing_requires_content_and_extension_to_agree():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = "example_notes.note"
@@ -78,6 +75,7 @@ def upload(client, target, content, name="file.png"):
     )
 
 
+@pytest.mark.needs_example_app
 def test_owner_uploads_lists_and_reader_without_update_gets_403(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-1", title="T", visibility="organization")
     owner = login(scenario.member)
@@ -94,6 +92,7 @@ def test_owner_uploads_lists_and_reader_without_update_gets_403(scenario):
     assert [row["filename"] for row in reader.get(url(scenario, note)).json()["results"]] == ["file.png"]
 
 
+@pytest.mark.needs_example_app
 def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-3", title="T")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="AT-4", title="T")
@@ -107,6 +106,7 @@ def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     assert client.get(url(scenario, note)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_deleted_target_hides_attachments_and_delete_restore_need_if_match(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-5", title="T")
     client = login(scenario.member)
@@ -126,6 +126,7 @@ def test_deleted_target_hides_attachments_and_delete_restore_need_if_match(scena
     assert client.get(url(scenario, note)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
     from skeleton.audit.models import AuditEvent
 
@@ -150,6 +151,7 @@ def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
     assert change == {"old": None, "new": "[REDACTED]", "redacted": True}
 
 
+@pytest.mark.needs_example_app
 def test_storage_object_is_removed_when_the_row_cannot_persist(scenario, monkeypatch):
     from skeleton.files import services, storage
     from skeleton.files.models import Attachment

@@ -14,6 +14,8 @@ from skeleton.integrations.tokens.services import issue_personal_token
 from skeleton.tenancy.context import request_context, system_context
 from tools.security_fixtures import build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 NOTE = "example_notes.note"
 RECORDS = "/api/v1/o/{organization_id}/tables/example_notes.note/records/"
 RECORD = RECORDS + "{sysid}/"

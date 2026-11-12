@@ -10,16 +10,13 @@ from django.urls import reverse
 from skeleton.system import registry
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 KEY = "example_notes.note"
 
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     scenario = build_service_scenario(Note, slug="search")
@@ -68,11 +65,8 @@ def test_short_terms_and_tables_without_search_are_refused(scenario, monkeypatch
 
 
 def test_search_fields_must_be_readable_non_sensitive_text(monkeypatch):
-    from django.apps import apps
 
     from skeleton.system.checks import record_contract_checks
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     monkeypatch.setitem(registry._registry, KEY, replace(registry._registry[KEY], search_fields=("body",)))
     assert any(error.id == "skeleton.E031" for error in record_contract_checks(None))

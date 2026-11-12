@@ -52,6 +52,7 @@ def test_relations_to_registered_apps_must_be_declared():
     assert undeclared_relations([Source], {"fixture_source"}, {"fixture_source"}) == []
 
 
+@pytest.mark.needs_example_app
 def test_manifest_leaves_must_match_the_migration_graph(monkeypatch):
     from skeleton.system import app_registry
 
@@ -64,6 +65,7 @@ def test_manifest_leaves_must_match_the_migration_graph(monkeypatch):
 
 
 @pytest.mark.parametrize("sensitive", [(), ("body", "title")])
+@pytest.mark.needs_example_app
 def test_table_spec_sensitive_fields_must_match_the_frozen_specification(monkeypatch, sensitive):
     from skeleton.system import registry
 

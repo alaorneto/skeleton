@@ -24,10 +24,7 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="access")
@@ -41,6 +38,7 @@ def expected(model, user, action, record):
     return queryset.filter(pk=record.pk).exists() if record is not None else True
 
 
+@pytest.mark.needs_example_app
 def test_can_matches_authorized_queryset_on_a_role_by_action_matrix(scenario):
     own = scenario.create(scenario.a, owner=scenario.member, code="AC-1", title="Own", visibility="private")
     shared = scenario.create(scenario.a, owner=scenario.admin_a, code="AC-2", title="Org", visibility="organization")
@@ -57,6 +55,7 @@ def test_can_matches_authorized_queryset_on_a_role_by_action_matrix(scenario):
                     assert got == want, (user.email, action, getattr(record, "code", None))
 
 
+@pytest.mark.needs_example_app
 def test_foreign_and_unknown_targets_are_false_and_require_raises_not_found(scenario):
     foreign = scenario.create(scenario.b, owner=scenario.member, code="AC-4", title="B")
     shared = scenario.create(scenario.a, owner=scenario.admin_a, code="AC-5", title="Org", visibility="organization")
@@ -76,6 +75,7 @@ def test_foreign_and_unknown_targets_are_false_and_require_raises_not_found(scen
         service.require(actor=denied, action="read", table_key=TABLE)
 
 
+@pytest.mark.needs_example_app
 def test_revocation_applies_to_the_next_call(scenario):
     from skeleton.access.models import MemberRole
 
@@ -89,6 +89,7 @@ def test_revocation_applies_to_the_next_call(scenario):
         assert not service.can(actor=actor, action="read", table_key=TABLE, record_id=note.pk)
 
 
+@pytest.mark.needs_example_app
 def test_capabilities_and_groups(scenario):
     from skeleton.access.models import AccessGroup, GroupMember
     from skeleton.tenancy.models import Membership

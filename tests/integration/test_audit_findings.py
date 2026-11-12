@@ -8,7 +8,7 @@ from skeleton.system import registry
 from skeleton.system.registry import TableSpec
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
 
 def login(user):

@@ -70,6 +70,8 @@ O servidor vem do `pgserver` (binários do PostgreSQL num wheel). Como o `pgserv
 
 Duas execuções da suíte não podem usar os mesmos bancos ao mesmo tempo: cada teste recria o schema `skeleton` do banco do seu worker. A suíte de SSO real (`tests/sso`, Keycloak e navegador) só é coletada quando `SSO_FIXTURE_ENV_PATH` está definido; sem isso, `pytest tests` a deixa de fora.
 
+Os testes marcados `needs_example_app` são pulados sem `SKELETON_ENABLE_EXAMPLE_APP=true`; com `SKELETON_TEST_REQUIRE_EXAMPLE_APP=1` (ligado no CI) a ausência da app é erro de uso, e a suíte para antes de rodar.
+
 ### Rodar rápido e rodar completo
 
 | Para | Comando | Tempo |

@@ -16,6 +16,8 @@ from skeleton.events import registry
 from skeleton.events.registry import EventType, register_event_type
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 PASSWORD = "Fixture-only-password-2026!"
 KEY = Fernet.generate_key().decode()
 ADDRESSES = {"hooks.example": "93.184.215.14", "internal.example": "10.0.0.7"}
