@@ -59,7 +59,7 @@ BUILTIN_ROLES: dict[str, BuiltinRole] = {
             gettext_lazy("Gestor de pessoas"),
             frozenset({MEMBERS_VIEW, MEMBERS_MANAGE, INVITATIONS_MANAGE, ADMISSION_DECIDE}),
         ),
-        BuiltinRole("app_manager", "Gestor de apps", frozenset({APPS_MANAGE})),
+        BuiltinRole("app_manager", gettext_lazy("Gestor de apps"), frozenset({APPS_MANAGE})),
         BuiltinRole("member", gettext_lazy("Membro"), frozenset()),
     )
 }

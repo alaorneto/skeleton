@@ -216,6 +216,17 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - Suíte completa com as correções: 1294 passed, 111 skipped. Agenda: 59 passed.
 - `tools/i18n_check.py` (`makemessages` e `msgfmt --check-format`) entrou no job estático do CI, que instala o `gettext`. Não rodou localmente porque o Windows desta rodada não tem GNU gettext; a evidência é o CI.
 
+**#173, emails com a marca da organização:**
+
+- `tests/integration/test_email_branding.py`: 4 passed. Cobre:
+  - o layout com a cor padrão e o nome da organização;
+  - a cor e o nome configurados e o logo como parte inline `<organization-logo>` referenciada por `cid:`;
+  - o email da organização B sem a marca nem o logo de A;
+  - o convite saindo de templates, com a marca, o link e `<html lang>` no idioma padrão da organização.
+- Suíte completa depois do merge da branch do #90 atualizada com a `main`: 1346 passed, 111 skipped. Agenda: 59 passed.
+- A varredura de texto pós-merge envolveu os rótulos que restavam: "Gestor de apps", "Apps organizacionais", "Disponibilidade de apps", "Assinaturas de push" e "Observabilidade".
+- Não verificado: a renderização num cliente de email real.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

@@ -71,6 +71,33 @@ def pending_invitation(request):
         return None
 
 
+def _invitation_message(organization, email, url):
+    """Invitation email from templates, branded, in the organization's default language (#173).
+
+    The invited person may not have an account yet, so the organization default (then the
+    instance) chooses the language and time zone, never the inviter's profile.
+    """
+    from django.template.loader import render_to_string
+    from django.utils import translation
+
+    from skeleton.common.locale import preferences_for
+    from skeleton.tenancy.email_brand import attach_logo, email_brand, template_context
+
+    brand = email_brand()
+    preferences = preferences_for(None)
+    context = {**template_context(brand), "organization_name": brand["name"] or organization.name, "url": url}
+    with translation.override(preferences.language), timezone.override(preferences.timezone):
+        subject = render_to_string("skeleton/tenancy/invitation/subject.txt", context)
+        text = render_to_string("skeleton/tenancy/invitation/body.txt", context)
+        html = render_to_string("skeleton/tenancy/invitation/body.html", context)
+    message = EmailMultiAlternatives(
+        " ".join(subject.split())[:200], text.strip() + "\n", settings.DEFAULT_FROM_EMAIL, [email]
+    )
+    message.attach_alternative(html, "text/html")
+    attach_logo(message, brand)
+    return message
+
+
 def issue_invitation(*, user, email, role, request=None):
     from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
     from skeleton.access.services import require_unprivileged_target
@@ -102,14 +129,7 @@ def issue_invitation(*, user, email, role, request=None):
             if not origin:
                 raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_URL.")
             url = origin.rstrip("/") + path
-        subject_name = " ".join(organization.name.splitlines())
-        message = EmailMultiAlternatives(
-            gettext("Convite: %(subject_name)s") % {"subject_name": subject_name},
-            gettext("Você recebeu um convite para %(name)s.\n\n%(url)s\n\nO convite expira em sete dias.")
-            % {"name": organization.name, "url": url},
-            settings.DEFAULT_FROM_EMAIL,
-            [invitation.email],
-        )
+        message = _invitation_message(organization, invitation.email, url)
         from skeleton.common.mail import schedule_mail
 
         schedule_mail(message, request=request, target_sysid=invitation.pk)

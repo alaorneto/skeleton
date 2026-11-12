@@ -141,13 +141,13 @@ def register_core_specs():
             (),
         ),
         "sk_system.appinstallation": (
-            "Apps organizacionais",
+            gettext_lazy("Apps organizacionais"),
             gettext_lazy("Ativação e configuração declarada de extensões por organização."),
             "organization",
             ("configuration",),
         ),
         "sk_system.appavailability": (
-            "Disponibilidade de apps",
+            gettext_lazy("Disponibilidade de apps"),
             gettext_lazy("Portão da plataforma: app disponível para todas as organizações ou só para as selecionadas."),
             "global",
             (),
@@ -215,7 +215,7 @@ def register_core_specs():
             (),
         ),
         "sk_notifications.webpushsubscription": (
-            "Assinaturas de push",
+            gettext_lazy("Assinaturas de push"),
             gettext_lazy("Assinatura de web push de um navegador da pessoa; endpoint e chaves cifrados."),
             "global",
             ("endpoint", "endpoint_digest", "p256dh", "auth_secret"),
