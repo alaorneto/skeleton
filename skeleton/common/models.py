@@ -127,19 +127,22 @@ class SystemRecord(models.Model):
                 target = field.remote_field.model if field.remote_field is not None else None
                 if not isinstance(target, type) or not issubclass(target, SystemRecord):
                     continue
+                # Only the two columns the checks read, never the whole target row (#341).
+                has_organization = hasattr(target, "organization_id")
                 related = (
                     target.all_objects.using(self._state.db or "default")
                     .filter(pk=getattr(self, field.attname))
+                    .values("deleted_at", *(("organization_id",) if has_organization else ()))
                     .first()
                 )
                 if related is None:
                     continue  # The FK field validator supplies the missing-target error.
-                if related.deleted_at is not None and target.soft_delete_reference_policy != "retain":
+                if related["deleted_at"] is not None and target.soft_delete_reference_policy != "retain":
                     raise ValidationError({field.name: gettext("O registro referenciado foi excluído.")})
                 if (
                     hasattr(self, "organization_id")
-                    and hasattr(related, "organization_id")
-                    and self.organization_id != related.organization_id
+                    and has_organization
+                    and self.organization_id != related["organization_id"]
                 ):
                     raise ValidationError(
                         {field.name: gettext("O registro referenciado pertence a outra organização.")}
@@ -369,6 +372,30 @@ class OperationalRecord(models.Model):
     all_objects = OperationalInfrastructureManager()
     immutable_fields: ClassVar[tuple[str, ...]] = ()
     lifecycle: ClassVar[str] = "operational"
+    _loaded_values: dict[str, Any]
+
+    @classmethod
+    def from_db(
+        cls,
+        db: str | None,
+        field_names: Collection[str],
+        values: Collection[Any],
+        *,
+        fetch_mode: "FetchMode | None" = None,
+    ) -> Self:
+        # Django 6.1 passes fetch_mode; Django 5.2 neither passes nor accepts it.
+        if fetch_mode is None:
+            instance = super().from_db(db, field_names, values)
+        else:
+            instance = super().from_db(db, field_names, values, fetch_mode=fetch_mode)
+        instance._loaded_values = dict(zip(field_names, values, strict=True))
+        return instance
+
+    def _identity_names(self) -> tuple[str, ...]:
+        names = ("sysid", "created_at", *self.immutable_fields)
+        if any(field.name == "organization" for field in self._meta.fields):
+            names = (*names, "organization_id")
+        return names
 
     class Meta:
         abstract = True
@@ -391,10 +418,13 @@ class OperationalRecord(models.Model):
             self.created_at = self.updated_at = timezone.now()
         else:
             using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
-            names = ("sysid", "created_at", *self.immutable_fields)
-            if any(field.name == "organization" for field in self._meta.fields):
-                names = (*names, "organization_id")
-            persisted = type(self).all_objects.using(using).filter(pk=self.pk).values(*names).first()
+            names = self._identity_names()
+            loaded = getattr(self, "_loaded_values", {})
+            # The identity read when the instance was loaded or saved; the database only without it (#341).
+            if all(name in loaded for name in names):
+                persisted: dict[str, Any] | None = loaded
+            else:
+                persisted = type(self).all_objects.using(using).filter(pk=self.pk).values(*names).first()
             if persisted is not None and any(getattr(self, name) != persisted[name] for name in names):
                 raise ImmutableRecord("Operational identity cannot change.")
             self._validate_context()
@@ -402,3 +432,5 @@ class OperationalRecord(models.Model):
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = set(kwargs["update_fields"]) | {"updated_at"}
         super().save(**kwargs)
+        identity = {name: getattr(self, name) for name in self._identity_names()}
+        self._loaded_values = {**getattr(self, "_loaded_values", {}), **identity}

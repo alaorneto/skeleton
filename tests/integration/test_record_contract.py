@@ -390,3 +390,24 @@ def test_failed_restore_keeps_the_tombstone_in_memory(records):
             with transaction.atomic():
                 tombstone.restore()
         assert tombstone.deleted_at == deleted_at and tombstone.deleted_by is not None
+
+
+def test_reference_validation_reads_only_two_columns_of_the_target(records):
+    """clean() checks a referenced record with deleted_at and organization_id only (#341)."""
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.access.models import GroupMember
+
+    with actor_tenant(records.admin, records.a):
+        link = GroupMember(organization=records.a, group=records.group, membership=records.alice_membership)
+        with CaptureQueriesContext(connection) as captured:
+            link.full_clean()
+    reads = [
+        query["sql"]
+        for query in captured
+        if query["sql"].startswith("SELECT")
+        and ('"sk_access_accessgroup"' in query["sql"] or '"sk_tenancy_membership"' in query["sql"])
+    ]
+    selects = [sql.split(" FROM ")[0] for sql in reads if '"deleted_at"' in sql.split(" FROM ")[0]]
+    assert selects, reads
+    assert all(sql.count(",") <= 1 for sql in selects), selects  # deleted_at and organization_id only.

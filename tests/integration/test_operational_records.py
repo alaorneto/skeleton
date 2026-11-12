@@ -189,3 +189,22 @@ def test_operational_model_cannot_be_exposed(monkeypatch):
         ids = [error.id for error in record_contract_checks(apps_registry=isolated)]
     assert "skeleton.E020" in ids
     assert "skeleton.E001" not in ids
+
+
+def test_operational_update_does_not_reread_the_identity(pipeline, tenants):
+    """The identity snapshot of a loaded or saved row replaces the extra SELECT (#341)."""
+    from django.test.utils import CaptureQueriesContext
+
+    alice, alpha, _, _ = tenants
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:ops-snapshot"):
+        row = pipeline(organization=alpha)
+        row.save()
+        for instance in (row, pipeline.objects.get(pk=row.pk)):
+            instance.state = "running"
+            with CaptureQueriesContext(connection) as captured:
+                instance.save(update_fields={"state"})
+            assert [query["sql"].split()[0] for query in captured] == ["UPDATE"]
+        fresh = pipeline.objects.get(pk=row.pk)
+        fresh.organization_id = uuid.uuid4()
+        with pytest.raises(ImmutableRecord):
+            fresh.save()
