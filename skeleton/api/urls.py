@@ -8,6 +8,7 @@ from skeleton.api.admission import (
     OrganizationJoinLinksAPI,
     OrganizationJoinRequestsAPI,
 )
+from skeleton.api.identity import OrganizationIdentityProviderAdmissionAPI, OrganizationIdentityProvidersAPI
 from skeleton.api.invitation_views import ResendInvitationView
 from skeleton.files.api_views import AttachmentDetailView, AttachmentRestoreView, AttachmentsView
 
@@ -23,6 +24,16 @@ urlpatterns = [
         "o/<uuid:organization_id>/join-requests/",
         OrganizationJoinRequestsAPI.as_view(),
         name="organization-join-requests",
+    ),
+    path(
+        "o/<uuid:organization_id>/identity-providers/",
+        OrganizationIdentityProvidersAPI.as_view(),
+        name="organization-identity-providers",
+    ),
+    path(
+        "o/<uuid:organization_id>/identity-providers/<uuid:sysid>/admission/",
+        OrganizationIdentityProviderAdmissionAPI.as_view(),
+        name="organization-identity-provider-admission",
     ),
     path("o/<uuid:organization_id>/join-links/", OrganizationJoinLinksAPI.as_view(), name="organization-join-links"),
     path(

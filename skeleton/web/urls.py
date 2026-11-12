@@ -1,7 +1,7 @@
 from django.urls import path
 
 from skeleton.api.health import probe_response
-from skeleton.web import admission_views, views
+from skeleton.web import admission_views, identity_views, views
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import organization_logo, organization_logo_update, organization_settings
 
@@ -18,6 +18,12 @@ urlpatterns = [
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
     path("o/<uuid:organization_id>/", views.dashboard, name="dashboard"),
     path("o/<uuid:organization_id>/admission/", admission_views.admission_policy, name="admission"),
+    path("o/<uuid:organization_id>/identity/", identity_views.identity, name="identity"),
+    path(
+        "o/<uuid:organization_id>/identity/<uuid:sysid>/",
+        identity_views.identity_admission_update,
+        name="identity-admission",
+    ),
     path("o/<uuid:organization_id>/admission/links/", admission_views.join_links, name="join-links"),
     path("o/<uuid:organization_id>/admission/domains/", admission_views.verified_domains, name="verified-domains"),
     path(
