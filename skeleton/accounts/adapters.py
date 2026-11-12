@@ -10,7 +10,7 @@ from django.db import transaction
 from django.http import HttpResponseForbidden
 
 from skeleton.accounts.mfa import cipher
-from skeleton.accounts.providers import binding_for_sociallogin
+from skeleton.accounts.providers import admission_for, binding_for_sociallogin
 from skeleton.accounts.services import ensure_profile, normalized_email, password_allowed
 from skeleton.tenancy.invitations import accept_invitation, pending_invitation
 
@@ -117,8 +117,8 @@ class AccountAdapter(DefaultAccountAdapter):
                     pending = account.extra_data.get("skeleton_pending_email")
                     if not (
                         binding
-                        and binding.jit_provisioning
                         and binding.organization_slug
+                        and admission_for(binding).jit_provisioning
                         and pending == normalized_email(email_address.email)
                         and account.extra_data.get("skeleton_binding") == binding.fingerprint
                     ):
@@ -155,6 +155,27 @@ class AccountAdapter(DefaultAccountAdapter):
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
+    PROVIDER_CLASSES = {"oidc": "openid_connect", "saml": "saml"}
+
+    def list_apps(self, request, provider=None, client_id=None):
+        """File apps plus database providers (#29), built in memory per request, never saved."""
+        from allauth.socialaccount.models import SocialApp
+
+        from skeleton.accounts.identity_providers import database_bindings
+
+        apps = super().list_apps(request, provider=provider, client_id=client_id)
+        present = {app.provider_id for app in apps if app.provider_id}
+        for binding in database_bindings():
+            if binding.provider_id in present or binding.protocol not in self.PROVIDER_CLASSES:
+                continue  # The file keeps its own app; validate_provider_bindings reports conflicts.
+            app = SocialApp(provider=self.PROVIDER_CLASSES[binding.protocol], **binding.app)
+            if provider and provider not in (app.provider, app.provider_id):
+                continue
+            if client_id and app.client_id != client_id:
+                continue
+            apps.append(app)
+        return apps
+
     def is_email_verified(self, provider, email):
         # Preserve protocol evidence, never fabricate it from operator/domain overrides.
         return False
@@ -166,7 +187,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         binding = binding_for_sociallogin(sociallogin)
         return (
             pending_invitation(request) is not None
-            or bool(binding.organization_slug and binding.jit_provisioning)
+            or bool(binding.organization_slug and admission_for(binding).jit_provisioning)
             or bool(not binding.organization_slug and getattr(settings, "SKELETON_PUBLIC_SIGNUP", False))
         )
 
@@ -237,8 +258,13 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         organization = Organization.objects.filter(slug=binding.organization_slug, is_active=True).first()
         if organization is None:
             _deny()
+        admission = admission_for(binding)
         with system_context(reason="sso:validated", organization_id=organization.pk):
-            role = Role.objects.filter(code=binding.default_role_code).first()
+            # The role comes from the organization's rules or the file, never from a claim.
+            if admission.default_role_id is not None:
+                role = Role.objects.filter(pk=admission.default_role_id).first()
+            else:
+                role = Role.objects.filter(code=admission.default_role_code).first()
             if role is None:
                 _deny()
             return organization, role
@@ -262,7 +288,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             user = super().save_user(request, sociallogin, form=form)
             ensure_profile(user)
             invited = _accept_pending(request, user)
-            if not invited and binding.jit_provisioning and binding.organization_slug:
+            if not invited and binding.organization_slug and admission_for(binding).jit_provisioning:
                 # Never provision a membership from an unverified email; allauth confirmation can
                 # later finish this same binding via email_confirmed without trusting external claims.
                 from allauth.account.models import EmailAddress

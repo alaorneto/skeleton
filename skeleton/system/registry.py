@@ -60,6 +60,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_accounts.identityprovider": (
+            "Provedores de identidade",
+            "Provedores OIDC, SAML e LDAP de cada organização, cadastrados pela plataforma; segredos cifrados.",
+            "global",
+            ("secret", "private_key"),
+        ),
         "sk_tenancy.organization": (
             "Organizações",
             "Fronteira de isolamento organizacional e estado de disponibilidade.",
@@ -112,6 +118,12 @@ def register_core_specs():
             "Posse de domínios",
             "Índice global de qual organização verificou cada domínio, lido antes de haver tenant.",
             "global",
+            (),
+        ),
+        "sk_tenancy.identityprovideradmission": (
+            "Admissão por provedor de identidade",
+            "Regras da organização para o seu provedor: JIT, aprovação, papel padrão e domínios permitidos.",
+            "organization",
             (),
         ),
         "sk_tenancy.joinrequest": (

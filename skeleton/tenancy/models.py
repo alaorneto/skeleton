@@ -373,6 +373,36 @@ class DomainClaim(SystemRecord):
         return self.domain
 
 
+class IdentityProviderAdmission(OrganizationRecord):
+    """The organization's admission rules for its own identity provider (#29, #31).
+
+    Without a row JIT provisioning is off. The default role is chosen here, never by a claim,
+    query or body; ``allowed_email_domains`` (at most 50, IDNA) narrows who may be provisioned.
+    """
+
+    provider = models.ForeignKey("sk_accounts.IdentityProvider", on_delete=models.PROTECT, related_name="+")
+    jit_provisioning = models.BooleanField(default=False)
+    jit_requires_approval = models.BooleanField(default=False)
+    default_role = models.ForeignKey(
+        "sk_access.Role", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    allowed_email_domains = models.JSONField(default=list, blank=True)
+    immutable_fields = ("provider_id",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("provider",), name="sk_tenancy_idp_admission_one", violation_error_code="unique"
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        domains = self.allowed_email_domains
+        if not isinstance(domains, list) or len(domains) > 50 or not all(isinstance(item, str) for item in domains):
+            raise ValidationError({"allowed_email_domains": "Use uma lista de até 50 domínios."})
+
+
 BRAND_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
