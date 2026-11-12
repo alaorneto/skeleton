@@ -12,6 +12,7 @@ global rows: RLS and one tenant per request forbid rewriting N organizations.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -147,8 +148,12 @@ def grant_app(app_label: str, *, user, organization_id: UUID):
 
 
 @transaction.atomic
-def revoke_app(app_label: str, *, user, organization_id: UUID):
-    """Close the gate only; the organization's ``AppInstallation`` and configuration are preserved."""
+def revoke_app(app_label: str, *, user, organization_id: UUID, expected_revision: int | None = None):
+    """Close the gate only; the organization's ``AppInstallation`` and configuration are preserved.
+
+    ``expected_revision`` is the grant revision a form displayed: a stale form, or a grant
+    already revoked, raises ``ConcurrentUpdate`` instead of acting on what nobody saw.
+    """
     from .models import AppAvailability, AppOrganizationGrant
 
     _require_platform(user)
@@ -158,6 +163,10 @@ def revoke_app(app_label: str, *, user, organization_id: UUID):
         if row
         else None
     )
+    if expected_revision is not None and (
+        grant is None or type(expected_revision) is not int or grant.revision != expected_revision
+    ):
+        raise ConcurrentUpdate("Application grant changed.")
     if grant is None:
         return None
     blocking = [
@@ -174,3 +183,81 @@ def revoke_app(app_label: str, *, user, organization_id: UUID):
         raise ValidationError({"app_label": ValidationError(message, code="dependent_granted")})
     grant.delete()
     return grant
+
+
+# --------------------------------------------------------------------------- platform read models (#23)
+
+
+@dataclass(frozen=True)
+class GrantSummary:
+    organization_id: UUID
+    name: str
+    slug: str
+    is_active: bool
+    revision: int
+    # Apps granted to this organization that require this one: revoking is refused until they go.
+    blocked_by: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AvailabilitySummary:
+    """What /platform/ shows of one app's gate: global rows only, never tenant activation."""
+
+    app_label: str
+    mode: str | None  # None: no row yet, unavailable to every organization (#22).
+    revision: int  # 0 is the virtual revision before the first write.
+    grants: tuple[GrantSummary, ...]
+    requires: tuple[str, ...]  # Must be available to an organization before it is granted this app.
+    required_by: tuple[str, ...]  # Granted dependents block revoking this app.
+
+    @property
+    def granted_ids(self) -> frozenset[UUID]:
+        return frozenset(grant.organization_id for grant in self.grants)
+
+
+def availability_summary(app_label: str, *, user) -> AvailabilitySummary:
+    """Mode, grants and dependency constraints of one installed app, in a fixed number of queries."""
+    from .models import AppAvailability, AppOrganizationGrant
+
+    _require_platform(user)
+    get_app(app_label)
+    row = AppAvailability.objects.filter(app_label=app_label).first()
+    dependents = dependent_labels(app_label)
+    grants: tuple[GrantSummary, ...] = ()
+    if row is not None:
+        blocking: dict[UUID, list[str]] = {}
+        for organization_id, label in AppOrganizationGrant.objects.filter(
+            availability__app_label__in=dependents,
+            availability__mode=AppAvailability.Mode.SELECTED,
+        ).values_list("granted_organization_id", "availability__app_label"):
+            blocking.setdefault(organization_id, []).append(label)
+        grants = tuple(
+            GrantSummary(
+                organization_id=grant.granted_organization_id,
+                name=grant.granted_organization.name,
+                slug=grant.granted_organization.slug,
+                is_active=grant.granted_organization.is_active,
+                revision=grant.revision,
+                blocked_by=tuple(sorted(blocking.get(grant.granted_organization_id, ()))),
+            )
+            for grant in AppOrganizationGrant.objects.filter(availability=row)
+            .select_related("granted_organization")
+            .order_by("granted_organization__name", "granted_organization__slug")
+        )
+    return AvailabilitySummary(
+        app_label=app_label,
+        mode=row.mode if row else None,
+        revision=row.revision if row else 0,
+        grants=grants,
+        requires=tuple(required_labels(app_label)),
+        required_by=tuple(dependents),
+    )
+
+
+def availability_modes(app_labels: Iterable[str]) -> dict[str, str | None]:
+    """The mode of each app (None without a row) in one query, for the installed apps list."""
+    from .models import AppAvailability
+
+    labels = list(dict.fromkeys(app_labels))
+    rows = dict(AppAvailability.objects.filter(app_label__in=labels).values_list("app_label", "mode"))
+    return {label: rows.get(label) for label in labels}

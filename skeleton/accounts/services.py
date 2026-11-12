@@ -204,13 +204,25 @@ class AdministratorSummary:
 
 
 @dataclass(frozen=True)
+class ApplicationSummary:
+    """One installed app as the platform sees it in an organization: gates only, no configuration."""
+
+    app_label: str
+    label: str
+    available: bool  # Platform gate (global rows).
+    enabled: bool  # The organization's own choice in AppInstallation.
+    effective: bool  # Both gates open for the app and its whole dependency closure.
+
+
+@dataclass(frozen=True)
 class OrganizationOverview:
-    """What the platform may see of an organization: counts and administrator emails only."""
+    """What the platform may see of an organization: counts, administrator emails and app gates."""
 
     organization_id: UUID
     active_members: int
     administrators: tuple[AdministratorSummary, ...]
     administrators_version: str
+    applications: tuple[ApplicationSummary, ...] = ()
 
 
 @contextmanager
@@ -266,7 +278,36 @@ def organization_overview(*, actor, organization, using="default"):
             active_members=Membership.objects.using(using).filter(is_active=True).count(),
             administrators=administrators,
             administrators_version=version,
+            applications=_applications(organization.pk, using),
         )
+
+
+def _applications(organization_id, using):
+    """Availability and activation of every installed app in the current (inspected) tenant."""
+    from skeleton.system.app_registry import all_apps, required_labels
+    from skeleton.system.availability import availability_map
+    from skeleton.system.models import AppInstallation
+
+    manifests = sorted(all_apps(), key=lambda manifest: manifest.label)
+    labels = [manifest.app_label for manifest in manifests]
+    if not labels:
+        return ()
+    available = availability_map(labels, organization_id=organization_id)
+    enabled = dict(
+        AppInstallation.objects.using(using).filter(app_label__in=labels).values_list("app_label", "enabled")
+    )
+    open_gate = {label: available[label] and enabled.get(label, False) for label in labels}
+    return tuple(
+        ApplicationSummary(
+            app_label=manifest.app_label,
+            label=manifest.label,
+            available=available[manifest.app_label],
+            enabled=enabled.get(manifest.app_label, False),
+            effective=open_gate[manifest.app_label]
+            and all(open_gate.get(label, False) for label in required_labels(manifest.app_label)),
+        )
+        for manifest in manifests
+    )
 
 
 def _require_context_actor(actor):

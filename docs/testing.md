@@ -53,6 +53,23 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_s
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Apps por organização, perfis e ingresso (epic #35)
+
+Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.
+
+**#23, telas de disponibilidade em `/platform/`:**
+
+- `python -m pytest tests/integration/test_platform_app_availability.py tests/integration/test_app_availability.py tests/integration/test_platform_boundary.py -q`: 26 passed. Os 7 testes novos cobrem:
+  - formulários: modo inválido, revisão negativa, organização inexistente ou já concedida, revogação com revisão 0 ou UUID inválido;
+  - seletor só com organizações ativas (inativa e inexistente recusadas com 400);
+  - modo com CAS (revisão stale responde 409), concessão e revogação refletidas na requisição seguinte, revogação stale ou repetida com 409, ativação da organização preservada e de volta na nova concessão;
+  - 403 para quem não é admin de plataforma (inclusive o admin da organização) nas telas e nas três mutações; CSRF ausente com 403; autenticação antiga leva à reautenticação sem escrever;
+  - abrir apps, disponibilidade e as páginas de duas organizações não grava evento de auditoria;
+  - card "Aplicativos" com disponibilidade, ativação e uso efetivo, sem configuração;
+  - dependentes concedidos bloqueiam a revogação naquela organização ("Bloqueada por …").
+- Smoke no navegador do painel, contra um banco PostgreSQL próprio (`local_skeleton_smoke`): modo "selecionadas", concessão de uma organização, tabela de concessões e card da organização; tema escuro e claro; largura de 375 px sem rolagem horizontal da página (a tabela rola dentro do contêiner, como as demais).
+- Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check` (depois de `npm run build`): sem problemas.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
