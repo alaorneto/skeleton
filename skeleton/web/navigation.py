@@ -88,9 +88,24 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     resource = match.kwargs.get("resource") if match is not None else None
     from skeleton.access.capabilities import capabilities_for
 
-    values.update(_access_navigation(organization_id, resource, capabilities_for(user)))
+    capabilities = capabilities_for(user)
+    values.update(_access_navigation(organization_id, resource, capabilities))
+    values["admission_links"] = _admission_links(organization_id, capabilities, request.path)
     values["organization_brand"] = _brand(organization_id)
     return values
+
+
+def _admission_links(organization_id: Any, capabilities: frozenset[str], path: str) -> list[dict[str, Any]]:
+    """Join requests (#26) for deciders and the admission policy for who configures it."""
+    links = []
+    for capability, name, label in (
+        ("admission.decide", "web:join-requests", "Solicitações"),
+        ("admission.configure", "web:admission", "Admissão"),
+    ):
+        if capability in capabilities:
+            url = reverse(name, kwargs={"organization_id": organization_id})
+            links.append({"label": label, "url": url, "current": path == url})
+    return links
 
 
 def _brand(organization_id: Any) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 from django.urls import path
 
 from skeleton.api.health import probe_response
-from skeleton.web import views
+from skeleton.web import admission_views, views
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import organization_logo, organization_logo_update, organization_settings
 
@@ -11,7 +11,17 @@ urlpatterns = [
     path("profile/", views.profile, name="profile"),
     path("health/live/", probe_response, name="health-live"),
     path("health/ready/", probe_response, name="health-ready"),
+    path("join/", admission_views.join_directory, name="join"),
+    path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
+    path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
     path("o/<uuid:organization_id>/", views.dashboard, name="dashboard"),
+    path("o/<uuid:organization_id>/admission/", admission_views.admission_policy, name="admission"),
+    path("o/<uuid:organization_id>/requests/", admission_views.join_requests, name="join-requests"),
+    path(
+        "o/<uuid:organization_id>/requests/<uuid:sysid>/decide/",
+        admission_views.join_request_decide,
+        name="join-request-decide",
+    ),
     path("o/<uuid:organization_id>/leave/", views.leave_organization, name="leave-organization"),
     path("o/<uuid:organization_id>/settings/", organization_settings, name="organization-settings"),
     path("o/<uuid:organization_id>/settings/logo/", organization_logo, name="organization-logo"),

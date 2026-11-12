@@ -84,6 +84,24 @@ def register_core_specs():
             "organization",
             ("logo_key",),
         ),
+        "sk_tenancy.organizationadmissionpolicy": (
+            "Política de admissão",
+            "Como pessoas de fora pedem para entrar na organização; sem linha, tudo desligado.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.organizationdirectoryentry": (
+            "Diretório de organizações",
+            "Índice global de quem aparece em /join/ e aceita pedidos, espelhado da política de admissão.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.joinrequest": (
+            "Solicitações de ingresso",
+            "Pedido de uma pessoa para entrar; a aprovação cria o vínculo com o papel indicado.",
+            "organization",
+            (),
+        ),
         "sk_access.role": (
             "Papéis",
             "Perfis empresariais que agregam permissões positivas de tabelas.",

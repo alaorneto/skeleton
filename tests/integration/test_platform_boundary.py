@@ -320,6 +320,7 @@ def test_system_reasons_open_to_http_are_a_closed_list():
 
     from skeleton.tenancy.context import (
         HTTP_SYSTEM_REASONS,
+        JOIN_REASONS,
         PLATFORM_ADMIN_REASONS,
         VALIDATED_IDENTITY_REASONS,
         InvalidContext,
@@ -334,7 +335,8 @@ def test_system_reasons_open_to_http_are_a_closed_list():
         "organization:designate-admin",
         "platform:organization-inspect",
     }
-    assert HTTP_SYSTEM_REASONS == VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
+    assert JOIN_REASONS == {"join:request"}
+    assert HTTP_SYSTEM_REASONS == VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
     platform, _ = bootstrap_identity(
         email="reasons-platform@example.test", organization="reasons", name="Reasons", password=PASSWORD
     )

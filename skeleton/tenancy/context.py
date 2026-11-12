@@ -52,7 +52,10 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "platform:organization-inspect",
     }
 )
-HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
+# Admission by the person (#26): opened by the admission services for one organization, after
+# their own checks, on behalf of the authenticated requester.
+JOIN_REASONS = frozenset({"join:request"})
+HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
 
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
@@ -214,8 +217,10 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
     tenant_id = _uuid(organization_id)
     prior = _context.get()
     # These are private, narrow identity admission paths, never request-selectable flags.
-    admitted = reason in VALIDATED_IDENTITY_REASONS or bool(
-        prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS
+    admitted = (
+        reason in VALIDATED_IDENTITY_REASONS
+        or bool(prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS)
+        or bool(prior and prior.actor is not None and reason in JOIN_REASONS)
     )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")
