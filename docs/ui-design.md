@@ -29,6 +29,20 @@ Este guia define os tokens visuais, os componentes disponíveis e o build. Ele n
 
 Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `ink-*`) e o mapeamento semântico do Flowbite 4. Para trocar a marca de um projeto derivado, altere só a escala `--color-cobalt-*` e recompile.
 
+### Marca por organização
+
+O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor primária e um logo ([#168](https://github.com/alaorneto/skeleton/issues/168)). Nas telas da organização, o nome e o logo substituem "Skeleton" no cabeçalho. A cor substitui só os tokens `--color-brand`, `--color-brand-strong`, `--color-fg-brand` e `--color-fg-brand-strong`, por um `<style>` no `base.html`.
+
+- **Contraste:**
+  - A cor precisa de contraste WCAG AA (4,5:1) com o branco, porque os botões levam texto branco sobre ela e os links a usam sobre o fundo claro.
+  - No modo escuro, os textos usam uma variante clareada até atingir 4,5:1 sobre o fundo escuro.
+  - O cálculo fica em `skeleton/tenancy/branding.py`.
+- **CSS:** sai só de valores `#rrggbb` validados (há também um check no banco), nunca de texto livre. Quando houver CSP global, esse `<style>` vai precisar de nonce.
+- **Logo:**
+  - PNG, JPEG ou WebP de até 512 KB, conferido pelo conteúdo; SVG é recusado.
+  - É servido inline só para membros, em `/o/<org>/settings/logo/`, com `Cache-Control: private`, `nosniff` e ETag.
+  - Fora das telas da organização (`/me`, login, `/platform/`), o tema do núcleo continua.
+
 ### Modo escuro
 
 Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
