@@ -68,6 +68,25 @@ Divergências achadas pela validação e corrigidas no schema, não na API: `GET
 - `format: date-time`, porque o `jsonschema` só confere esse formato com um pacote opcional que não instalamos (`uuid` é conferido);
 - o PostgreSQL 16.15 do CI antes da execução do PR.
 
+## Exportação e importação CSV (epic #92)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`.
+
+**#182, exportação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1465 passed, 111 skipped.
+- Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed. A primeira rodada com a agenda teve 23 erros de montagem de banco dos workers, que não se repetiram na rodada seguinte.
+- `tests/integration/test_transfer_export.py`: 9 passed. Cobrem:
+  - o formato (BOM, `;`, ISO 8601, ponto decimal, fórmulas neutralizadas só em texto, leitura com `;` e `,`);
+  - só os registros autorizados, sem o privado de outro dono, sem outra organização e sem o campo sensível;
+  - os filtros da lista aplicados, e recusados quando são inválidos ou sensíveis;
+  - quem não lê a tabela recebe 404 (inclusive o admin de B);
+  - o download só do solicitante (o admin da organização recebe 404), com `attachment`, `nosniff` e `no-store`, e a revogação parando o download;
+  - o limite de linhas, a revogação antes do job (falha fechada) e a retenção apagando a linha e o arquivo;
+  - a notificação ao solicitante e a lista mostrando só os pedidos da própria pessoa.
+- `tests/integration_postgres/test_transfer_schema.py`: 3 passed. RLS forçada, policy de tenant e guard instalados; sem o guard ou sem a policy, `check_deployed_schema` falha.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

@@ -16,7 +16,7 @@ from django.core.files.storage import storages
 
 ALIAS = "skeleton_files"
 KEY = re.compile(
-    r"^org/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:branding/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    r"^org/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:branding/|transfers/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 CHUNK = 64 * 1024
 
@@ -99,8 +99,8 @@ def presigned_url(key: str, *, filename: str, expires: int = 60) -> str | None:
 
 
 def list_prefix(prefix: str) -> list[str]:
-    """Keys under ``org/<organization>/`` or its ``branding/`` (used by orphan cleanup)."""
-    if not re.fullmatch(r"org/[0-9a-f-]{36}(?:/branding)?/?", prefix):
+    """Keys under ``org/<organization>/``, its ``branding/`` or ``transfers/`` (orphan cleanup)."""
+    if not re.fullmatch(r"org/[0-9a-f-]{36}(?:/branding|/transfers)?/?", prefix):
         raise StorageError("Invalid prefix.")
     storage = private_storage()
     prefix = prefix.rstrip("/")
