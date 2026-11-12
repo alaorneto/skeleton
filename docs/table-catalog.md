@@ -66,6 +66,8 @@ Não existe isenção geral para `django_*`, `account_*` ou apps de terceiros. U
 
 **A spec define o contrato; a migration instala sua proteção física.** `InstallRecordInfrastructure(app_label, model_name, specification)` usa modelos históricos de migrations e uma spec congelada com alcance (`scope`), sensibilidade/colunas, `append_only` e imutabilidade. Reemita a operação após alterações de campos auditáveis ou relações. Atualizar o cadastro de uma coluna não atualiza o trigger.
 
+Os nomes que a operação gera (`<tabela>_sk_guard`, `_sk_audit`, `_sk_guard_fn`, `_sk_audit_fn` e, por FK organizacional, `_sk_org_<coluna>` e `_sk_idx_<coluna>`) precisam caber nos 63 bytes de identificador do PostgreSQL, que trunca o excesso em silêncio: a migration recusa antes de qualquer DDL e `skeleton.E033` acusa já no `manage.py check` (#238).
+
 Há duas verificações complementares (lista completa dos checks: [checks](checks.md)):
 
 - **Checks estáticos:** não consultam o banco no `ready`; verificam base/UUID, organização obrigatória, associações próprias, listas de campos permitidos/sensibilidade, middleware/`ATOMIC_REQUESTS` e classificação.

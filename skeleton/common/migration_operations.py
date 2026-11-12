@@ -65,6 +65,51 @@ def infrastructure_names(table, *, operational=False):
     return tuple(table + "_sk_" + suffix for suffix in suffixes)
 
 
+MAX_IDENTIFIER_BYTES = 63  # PostgreSQL NAMEDATALEN - 1; longer names are truncated silently.
+# Installed before the limit was checked (#238). PostgreSQL stores them truncated, the schema
+# check compares through the same truncation and the truncated names stay unique; renaming them
+# would need a data migration. Nominal and closed: never add a name here.
+LEGACY_LONG_IDENTIFIERS = frozenset(
+    {
+        "sk_tenancy_organizationadmissionpolicy_sk_org_request_default_role_id",
+        "sk_tenancy_organizationadmissionpolicy_sk_idx_request_default_role_id",
+    }
+)
+
+
+def organization_references(model):
+    """Concrete FKs to tenant tables other than ``organization``, ordered by column."""
+    return sorted(
+        (
+            field
+            for field in model._meta.concrete_fields
+            if field.is_relation
+            and field.name != "organization"
+            and any(f.name == "organization" for f in field.related_model._meta.concrete_fields)
+        ),
+        key=lambda field: field.column,
+    )
+
+
+def infrastructure_identifiers(model):
+    """Every database identifier InstallRecordInfrastructure may create for ``model``."""
+    table = model._meta.db_table
+    names = [table + "_sk_guard", table + "_sk_audit", table + "_sk_guard_fn", table + "_sk_audit_fn"]
+    for field in organization_references(model):
+        names.append(table + "_sk_org_" + field.column)
+        names.append(table + "_sk_idx_" + field.column)
+    return names
+
+
+def oversized_identifiers(model):
+    """The generated identifiers PostgreSQL would truncate, as (name, bytes) (#238)."""
+    return [
+        (name, len(name.encode()))
+        for name in infrastructure_identifiers(model)
+        if len(name.encode()) > MAX_IDENTIFIER_BYTES and name not in LEGACY_LONG_IDENTIFIERS
+    ]
+
+
 def require_postgresql(connection):
     """Every data table lives in PostgreSQL (#144); any other backend is refused explicitly."""
     if connection.vendor != "postgresql":
@@ -151,6 +196,13 @@ class InstallRecordInfrastructure(Operation):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         require_postgresql(schema_editor.connection)
+        oversized = oversized_identifiers(model)
+        if oversized:
+            details = ", ".join(f"{name} ({size} bytes)" for name, size in oversized)
+            raise ValueError(
+                f"{model._meta.label}: infrastructure identifiers longer than {MAX_IDENTIFIER_BYTES} bytes "
+                f"would be truncated by PostgreSQL: {details}. Shorten db_table or the db_column of the foreign key."
+            )
         self._postgres(schema_editor, model)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
@@ -200,16 +252,7 @@ class InstallRecordInfrastructure(Operation):
         return self.specification.get("append_only", model._meta.label_lower == "sk_audit.auditevent")
 
     def _org_refs(self, model):
-        return sorted(
-            (
-                field
-                for field in model._meta.concrete_fields
-                if field.is_relation
-                and field.name != "organization"
-                and any(f.name == "organization" for f in field.related_model._meta.concrete_fields)
-            ),
-            key=lambda field: field.column,
-        )
+        return organization_references(model)
 
     def _immutable(self, model):
         names = {"sysid"} | set(self.specification.get("immutable_fields", getattr(model, "immutable_fields", ())))
