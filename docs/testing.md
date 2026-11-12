@@ -70,7 +70,7 @@ Rodadas de 2026-11-11 e 2026-11-12 na branch `test/199-fast-test-suite` ([#349](
 | `pytest tests -n 8`, cache quente, rodada final (duas vezes) | não existia | 1368 passed, 111 skipped em 3 min 59 s e 4 min 13 s |
 | `pytest tests` em série, cache quente, rodada final | 26 min 20 s (com cobertura) | 1368 passed, 111 skipped em 13 min 13 s |
 | Agenda com `-n 8`, rodada final | 4 min no CI, serial | 59 passed em 44 s |
-| Job `tests` do CI (run 43028212566) | 36 min (3.12) e 31 min (3.14) | **não medido**: exige um pull request |
+| Jobs de teste do CI | run 43028212566: um job por Python, 36 min (3.12) e 31 min (3.14) | run 43219085131 (PR #352): o maior job levou 5 min 17 s (3.12, núcleo 2/2) e os outros de 1 min 44 s a 4 min 5 s; por Python, 943 + 614 testes do núcleo e 59 da agenda, sem nenhum pulado no Linux; da criação da execução ao agregador `CI`, 5 min 53 s |
 
 Equivalência (rodada final contra a linha de base, comparando os dois JUnit XML e os dois relatórios JSON do `coverage`): os 1393 testes da linha de base aparecem com o mesmo resultado; os 86 a mais são testes novos (59 em `test_integration_database.py`, 23 em `test_suite_shards.py`, 4 em `test_table_catalog_sync.py`). A cobertura de linhas subiu de 15353 de 21219 (69,42%) para 15396 de 21257 (69,52%), e a de ramos de 3888 de 6496 para 3912 de 6516. Nos arquivos não editados, as linhas executadas são idênticas; nos editados (`skeleton/conf/profiles.py`, `skeleton/system/synchronization.py`, `skeleton/testing/hashers.py`), as linhas cobertas ficaram iguais ou maiores. Rodadas paralelas completas sem falha nesta branch: dez.
 
@@ -84,7 +84,9 @@ Template em cache ([#350](https://github.com/alaorneto/skeleton/issues/350)): um
 
 Estabilidade: dez rodadas paralelas completas sem nenhuma falha (as três da rodada final acima e sete anteriores), com ordens e distribuições diferentes (`-n 8` duas vezes, `-n 16`, `-n 8 --cov`, `-n 16 --dist load`, `-n 8 --dist loadfile`, `-n 12`, `-n 16 --dist worksteal`; as quatro últimas com 1329 passed, 111 skipped em 3 min 40 s a 4 min 6 s). A primeira tentativa com `-n 8` teve 93 erros de `out of shared memory` na restauração do schema; a causa era a tabela de locks do servidor, corrigida com `max_locks_per_transaction` e a conferência prévia.
 
-**Não verificado:** o CI com as fatias (primeiro PR), em especial `POSTGRES_INITDB_ARGS` com `-c` no container `postgres:16.15`; os testes `posix` e o Linux.
+No run 43219085131, o container `postgres:16.15` aplicou os ajustes de `POSTGRES_INITDB_ARGS` (o passo de provisionamento lista `fsync`, `synchronous_commit` e `full_page_writes` em `off` e `max_locks_per_transaction` em 2048), e todos os jobs de teste passaram. O job `coverage` falhou com "No data to combine": num diretório, o `coverage combine` só procura nomes `.coverage*`. A correção, que passa os arquivos das fatias pelo nome, foi reproduzida localmente ("Combined 2 files").
+
+**Não verificado:** o job `coverage` verde no CI depois da correção e o número de cobertura combinado no Linux.
 
 ## Configurações e marca da organização (epic #90)
 
