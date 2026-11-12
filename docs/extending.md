@@ -111,13 +111,15 @@ As organizações que usavam apps ativas por padrão mantêm essas apps com `man
 
 Em desenvolvimento, `manage.py set_app_availability <app_label> --mode all|selected [--grant SLUG] [--enable SLUG]` abre a app e a ativa nas organizações indicadas, uma transação por organização. `check_skeleton_schema` avisa sobre app carregada sem linha de disponibilidade (fechada para todos). Nos testes, `skeleton.testing.applications` oferece `open_app`, `activate_app` e `apps_open_by_default`.
 
+Para declarar tipos só dentro de um teste, `skeleton.testing.registries` isola os registries do núcleo e devolve os objetos originais na saída, mesmo quando o teste falha: `isolated_job_types()` (tipos de job e jobs periódicos), `isolated_event_types()` (tipos de evento, copiando os do núcleo; consumidores vazios, ou copiados com `keep_consumers=True`), `isolated_notification_types()`, `isolated_token_scopes()` (escopos nomeados de token) e `table_spec_override(table_key, **mudanças)`, que troca o `TableSpec` de uma tabela por uma cópia alterada. Use-os num fixture com `yield` dentro do `with`; não combine com `monkeypatch` no mesmo registry, porque a ordem de restauração dos dois deixaria o valor alterado para o teste seguinte.
+
 Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Os anexos contam na cota de armazenamento da organização e, com antivírus configurado, só podem ser baixados depois da verificação. Veja [arquivos e anexos](files.md#anexos).
 
 Do mesmo modo, `TableSpec(comments=CommentPolicy())` abre comentários na tabela: quem lê o registro lê e escreve comentários, só o autor edita e o administrador modera. Veja [comentários](comments.md).
 
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
-Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:
+Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas (lista completa: [checks](checks.md)):
 
 | Check | Regra |
 |---|---|
@@ -316,7 +318,7 @@ register(
 )
 ```
 
-A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória. Um código comercial gerado pelo núcleo entra em `sequence_fields=(("code", "<chave da sequência>"),)` e fica fora de `write_fields`: a criação genérica (formulário e API) o preenche com o próximo número ([sequências](sequences.md#campos-preenchidos-pelo-gateway)). Para busca textual, declare `search_fields=("code", "title")`, só com campos de texto de `read_fields` e nunca sensíveis (E031). Na migration, instale `InstallSearchIndex("<app>", "<model>", fields=[...], label="<campo do rótulo do picker>")`. A lista passa a aceitar `?q=` e o picker `q` ([#180](https://github.com/alaorneto/skeleton/issues/180), [#181](https://github.com/alaorneto/skeleton/issues/181)). O índice ausente ou divergente reprova o `check_skeleton_schema`.
+A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória. Um código comercial gerado pelo núcleo entra em `sequence_fields=(("code", "<chave da sequência>"),)` e fica fora de `write_fields`: a criação genérica (formulário e API) o preenche com o próximo número ([sequências](sequences.md#campos-preenchidos-pelo-gateway-156)). Para busca textual, declare `search_fields=("code", "title")`, só com campos de texto de `read_fields` e nunca sensíveis (E031). Na migration, instale `InstallSearchIndex("<app>", "<model>", fields=[...], label="<campo do rótulo do picker>")`. A lista passa a aceitar `?q=` e o picker `q` ([#180](https://github.com/alaorneto/skeleton/issues/180), [#181](https://github.com/alaorneto/skeleton/issues/181)). O índice ausente ou divergente reprova o `check_skeleton_schema`.
 
 ### Migration de segurança
 

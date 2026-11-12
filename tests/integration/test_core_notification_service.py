@@ -2,13 +2,13 @@
 
 import pytest
 
-from skeleton.notifications import registry
 from skeleton.notifications.models import Notification
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.service_api.errors import Forbidden, InvalidInput, NotFound
 from skeleton.service_api.notifications import NotificationService, Recipients
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import (
     acting_as,
     assert_rejects_other_actor,
@@ -32,32 +32,29 @@ def test_contract():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.shared",
-            "Nota compartilhada",
-            payload_fields=("message",),
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            owner_app="example_notes",
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.shared",
+                "Nota compartilhada",
+                payload_fields=("message",),
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                owner_app="example_notes",
+            )
         )
-    )
-    register_notification_type(NotificationType("other.ping", "Ping", owner_app="other_app"))
-    return build_service_scenario(Note, slug="notify-service")
+        register_notification_type(NotificationType("other.ping", "Ping", owner_app="other_app"))
+        yield build_service_scenario(Note, slug="notify-service")
 
 
 def notify_as_notes(**kwargs):
     return as_module(NOTES_MODULE, NotificationService().notify)(**kwargs)
 
 
+@pytest.mark.needs_example_app
 def test_owning_app_notifies_and_the_recipient_reads_marks_and_archives(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="NS-1", title="Plan", visibility="organization")
     with acting_as(scenario.admin_a, scenario.a) as admin:
@@ -87,6 +84,7 @@ def test_owning_app_notifies_and_the_recipient_reads_marks_and_archives(scenario
         service.mark_read(actor=other, ids=(item.sysid,))
 
 
+@pytest.mark.needs_example_app
 def test_another_apps_type_is_forbidden(scenario):
     with acting_as(scenario.admin_a, scenario.a) as admin:
         with pytest.raises(Forbidden):
@@ -103,6 +101,7 @@ def test_another_apps_type_is_forbidden(scenario):
             notify_as_notes(actor=admin, type_code="unknown", recipients=Recipients(users=(scenario.member.pk,)))
 
 
+@pytest.mark.needs_example_app
 def test_unreadable_or_foreign_target_is_not_found(scenario):
     hidden = scenario.create(scenario.a, owner=scenario.admin_a, code="NS-2", title="Hidden", visibility="private")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="NS-3", title="B")
@@ -118,6 +117,7 @@ def test_unreadable_or_foreign_target_is_not_found(scenario):
                 )
 
 
+@pytest.mark.needs_example_app
 def test_caller_rollback_leaves_no_notification_and_system_consumers_need_no_actor(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="NS-4", title="T", visibility="organization")
     kwargs = {

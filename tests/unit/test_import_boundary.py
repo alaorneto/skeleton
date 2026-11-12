@@ -93,6 +93,7 @@ def test_own_package_third_party_and_django_are_ignored():
         "skeleton.system.app_registry",
         "skeleton.system.applications",
         "skeleton.testing.service_api",
+        "skeleton.sequences.registry",
     ],
 )
 def test_public_core_surfaces_are_allowed(module):
@@ -101,6 +102,21 @@ def test_public_core_surfaces_are_allowed(module):
 
 @pytest.mark.parametrize("module", ["skeleton.access.services", "skeleton.accounts.models", "skeleton.audit.models"])
 def test_other_core_modules_are_warnings(module):
+    assert classify(module) == "core_import"
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "skeleton.sequences.services",
+        "skeleton.events.core_events",
+        "skeleton.events.services",
+        "skeleton.jobs.services",
+        "skeleton.notifications.services",
+        "skeleton.common.exceptions",
+    ],
+)
+def test_internal_subsystem_modules_stay_private(module):
     assert classify(module) == "core_import"
 
 

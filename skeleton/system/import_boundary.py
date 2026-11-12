@@ -33,6 +33,7 @@ PUBLIC_CORE_MODULES = frozenset(
         "skeleton.jobs.periodic",
         "skeleton.events.registry",
         "skeleton.notifications.registry",
+        "skeleton.sequences.registry",
         # Flow declarations (docs/flows.md): specification builders and register_flow*.
         "skeleton.flows.registry",
         "skeleton.integrations.tokens.scopes",

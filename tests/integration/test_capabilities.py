@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.urls import reverse
 
 from skeleton.access.capabilities import (
@@ -15,6 +15,7 @@ from skeleton.access.capabilities import (
 )
 from skeleton.accounts.services import bootstrap_identity, create_identity
 from skeleton.tenancy.context import system_context, tenant_context
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Capability-matrix-Password!83"
@@ -46,14 +47,7 @@ def test_registry_declares_capabilities_only_for_builtin_rows():
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=PASSWORD)
 
 
 def send(client, method, url, data=None, revision=None):
@@ -181,7 +175,7 @@ def test_people_manager_cannot_escalate(org):
     invitations = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
     for code in ("organization_admin", "app_manager", "people_manager"):
         response = send(client, "post", invitations, {"email": f"{code}@example.test", "role": str(roles[code].pk)})
-        assert response.status_code in (400, 403), code
+        assert response.status_code in (400, 403), code  # ver #365
     response = send(client, "post", invitations, {"email": "new-member@example.test", "role": str(roles["member"].pk)})
     assert response.status_code == 201, response.content
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:escalate-check"):

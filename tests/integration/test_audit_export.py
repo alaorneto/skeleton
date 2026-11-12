@@ -4,23 +4,20 @@ import json
 from uuid import uuid4
 
 import pytest
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 from skeleton.transfer.csvio import read_csv
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="audit-export")
@@ -40,9 +37,7 @@ def write(user, organization, code):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def export(client, organization, data=None):

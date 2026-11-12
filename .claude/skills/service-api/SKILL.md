@@ -36,7 +36,7 @@ Exponha o mínimo que os consumidores precisam. Cada método público é comprom
 2. Regras de negócio ficam em funções internas (`services.py`). O `service_api` valida a entrada, autoriza, chama a regra interna e converte para DTO.
 3. Consultas partem de `authorized_queryset(Model, user=actor, action=...)`. Comandos localizam o registro por queryset autorizado e chamam `require_record_action(record, user=actor, action=...)`.
 4. Defina `app_label` da app na classe: o `@service_method` exige a app ativa e responde `Unavailable` (o E018 recusa `app_label` diferente).
-5. Alterações: aplique `expected_revision` no CAS e traduza `ConcurrentUpdate` para `Conflict(code="stale_revision")`. Nunca tente de novo em silêncio.
+5. Alterações: aplique `expected_revision` no CAS; o `@service_method` já converte `ConcurrentUpdate` em `Conflict(code="stale_revision")`, então não capture a exceção nem importe o módulo interno de exceções do núcleo. Nunca tente de novo em silêncio.
 6. Não abra `system_context`, não troque de organização, não faça commit e não envie email/HTTP dentro do método. Use jobs, eventos ou `on_commit` com valores materializados.
 7. Views, REST e jobs da própria app passam a chamar o `service_api`, para existir um único caminho.
 

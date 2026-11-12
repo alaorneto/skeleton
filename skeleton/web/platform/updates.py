@@ -223,11 +223,24 @@ def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_ac
 # --------------------------------------------------------------------------- steps
 
 
+CORE_ORIGIN_LABELS = {
+    "installed": gettext_lazy("pacote instalado"),
+    "source": gettext_lazy("código-fonte"),
+    "unknown": gettext_lazy("desconhecida"),
+}
+
+
+def running_core():
+    """The running core release, with a translated label for its origin code (#364)."""
+    from skeleton.versioning import core_version
+
+    core = core_version()
+    return {**core, "origin_label": CORE_ORIGIN_LABELS.get(core["origin"], core["origin"])}
+
+
 @platform_page(capability="updates.operate", writes=True)
 @require_safe
 def installed(request):
-    from skeleton.versioning import core_version
-
     inventory = None
     try:
         inventory = agent_client().inventory()
@@ -238,7 +251,7 @@ def installed(request):
         "skeleton/web/platform/updates/installed.html",
         _context(
             "installed",
-            core=core_version(),
+            core=running_core(),
             inventory=inventory,
             components=ComponentInstallation.objects.order_by("kind", "component_id"),
         ),

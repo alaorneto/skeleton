@@ -69,11 +69,9 @@ def test_core_if_match_resources_keep_412_for_a_stale_revision():
 
 
 @pytest.mark.usefixtures("skeleton_db")
+@pytest.mark.needs_example_app
 def test_update_my_profile_keeps_both_revisions():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     assert_service_contract(IdentityService)

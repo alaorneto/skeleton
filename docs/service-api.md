@@ -119,7 +119,7 @@ O decorador confere que `actor` é o mesmo de `current_context().actor` (`skelet
 - DTOs são `@dataclass(frozen=True, slots=True)` declarados em `service_api.py` (ou num módulo `service_api/dto.py`) e documentados como parte do contrato.
 - Campos permitidos: UUID, `str`, `int`, `bool`, `Decimal`, `date`, `datetime` com fuso, enums de texto, tuplas e outros DTOs. Datas e horas saem em UTC com `tzinfo`. Converter para o fuso da pessoa é trabalho da superfície.
 - Só entram campos que estão em `read_fields` do `TableSpec` e fora de `sensitive_fields`, salvo campo sensível documentado na seção **Autorização** do método.
-- Listas usam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100). Nunca devolva lista ilimitada.
+- Listas usam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100). Nunca devolva lista ilimitada. Exceção: coleção limitada por natureza e documentada no método pode sair como tupla (as organizações do próprio ator, os grupos do ator, as apps instaladas).
 - Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: `@service_method` recusa o valor na execução, e `assert_service_contract` reprova a anotação de retorno.
 
 ## Erros
@@ -197,6 +197,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.jobs.registry`, `skeleton.jobs.periodic` | `JobType`, `register_job_type`, `register_periodic` em `ready()`; enfileirar é pelo `JobService` |
 | `skeleton.events.registry` | `EventType`, `register_event_type`, `register_consumer` em `ready()`; publicar é pelo `EventService` |
 | `skeleton.notifications.registry` | `NotificationType`, `register_notification_type` em `ready()`; notificar é pelo `NotificationService` |
+| `skeleton.sequences.registry` | `SequenceSpec`, `register_sequence` em `ready()`; numerar é pelo `SequenceService` |
 | `skeleton.flows.registry` | `FlowSpec` e os construtores de etapas, transições, formulários e condições; `register_flow`, `register_flow_handler`, `register_flow_condition`, `register_flow_assignment` em `ready()`; iniciar e operar é pelo `FlowService` ([fluxos](flows.md)) |
 | `skeleton.integrations.tokens.scopes` | `register_token_scope` em `ready()` (escopos nomeados, como o feed da agenda) |
 | `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) |
@@ -221,16 +222,17 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
-| `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
+| `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
-| `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
+| `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 | `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
+| `FeedTokenService` | `skeleton.service_api.tokens` | `issue` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
 ### IdentityService
@@ -329,7 +331,7 @@ NotificationService().notify(
 | `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
 | `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
 
-`JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)).
+`JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)). A `idempotency_key` vale por tipo de job e organização: repetida no mesmo tipo e organização, devolve o job existente; usada por outra organização, é recusada sem revelar o job alheio ([jobs](jobs.md#enfileirar)).
 
 ### FeedTokenService
 
@@ -337,7 +339,7 @@ NotificationService().notify(
 |---|---|---|
 | `FeedTokenService.issue(*, actor, name, scope, expires_at) -> IssuedFeedToken` | a própria pessoa (sem contas de serviço), política de MFA; `scope` é um escopo de feed registrado (`register_token_scope(..., feed=True)`) | `InvalidInput` (escopo que não é de feed, nome ou validade), `Forbidden` |
 
-`IssuedFeedToken` traz `sysid`, `prefix`, `scope`, `expires_at` e o `text`, só nesta resposta. Para a view do feed, `skeleton.service_api.tokens.authenticate_feed(request, text, scope=...)` devolve o usuário de um token de feed vivo com o escopo, ou `None` (inclusive acima dos limites de taxa), e a view responde 404. Um token de feed nunca autentica `/api/v1/` ([#76](https://github.com/alaorneto/skeleton/issues/76)).
+`IssuedFeedToken` traz `sysid`, `prefix`, `scope`, `expires_at` e o `text`, só nesta resposta. Para a view do feed, `skeleton.service_api.tokens.authenticate_feed(request, text, scope=...)` devolve o usuário de um token de feed vivo com o escopo, ou `None` (inclusive acima dos limites de taxa), e a view responde 404. Um token de feed nunca autentica `/api/v1/` ([#76](https://github.com/alaorneto/skeleton/issues/76)). `authenticate_feed(request, text, *, scope)` é função de apoio para a view de feed da própria app; não é método de serviço e não segue as regras de `@service_method`.
 
 ### FileService
 
@@ -400,7 +402,7 @@ FlowService().decide_task(actor=request.user, task_id=task.sysid, expected_revis
 
 A REST e as páginas do núcleo são camadas finas sobre estes serviços ([#110](https://github.com/alaorneto/skeleton/issues/110)), sem mudança observável: `GET/PATCH /api/v1/me/` e a página de perfil usam o `IdentityService`; a auditoria usa o `AuditLogService`; `GET /api/v1/organizations/`, a página inicial e o painel da organização usam o `OrganizationService`; `GET/PUT /api/v1/o/<org>/apps/...` usa o `ApplicationAdministrationService`. Os erros de serviço passam por um único mapeamento para HTTP (`skeleton.api.errors.service_error_response`); os recursos do núcleo que recebem `If-Match` usam `if_match_precondition()` para manter o 412 `revision_conflict` do gateway numa revisão desatualizada. A auditoria (`/o/<org>/audit/`, a REST `/api/v1/o/<org>/audit/`, com o filtro por registro, e `/platform/audit/`) usa o `AuditLogService`, que mantém a paginação numerada e os campos publicados. Ficam fora os recursos administrativos de acesso (papéis, grupos, concessões, convites e vínculos) e o gateway genérico de tabelas, que continuam sobre `skeleton.access.services` e as policies; não há superfície de diretório de membros no núcleo, e o `OrganizationService.members` atende as apps. A cota por organização vem da `StorageQuota` definida pela plataforma ou de `SKELETON_FILES_ORG_QUOTA_BYTES` (desligada por padrão), com reserva sob lock ([#61](https://github.com/alaorneto/skeleton/issues/61)). Veja [arquivos e anexos](files.md).
 
-A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)). Depois que esses serviços existirem, a REST e as views do núcleo passam a consumi-los ([#110](https://github.com/alaorneto/skeleton/issues/110)).
+A app de agenda é a referência de app first-party com `CalendarService` ([#111](https://github.com/alaorneto/skeleton/issues/111)).
 
 ## Testes obrigatórios
 
@@ -417,7 +419,7 @@ Para cada método público, prove:
   - rollback do chamador não deixa efeitos nem eventos.
 - **Contrato:** `assert_service_contract(ServiceClass)` do kit.
 
-Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre em [testing](testing.md) somente o que rodou de fato.
+Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre na [evidência de testes](testing-evidence.md) somente o que rodou de fato.
 
 ### Kit de testes de contrato
 

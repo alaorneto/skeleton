@@ -35,13 +35,22 @@ Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abr
 
 ## `notify()`
 
-Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. A função interna abaixo é do núcleo.
+Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. A função interna do núcleo é `skeleton.notifications.services.notify(type_code, *, recipients, target=None, payload=None, …)`; apps não a importam.
 
 ```python
-from skeleton.notifications.services import Recipients, notify
+from skeleton.service_api.notifications import NotificationService, Recipients
 
-notify("tasks.assigned", recipients=Recipients(users=(assignee.pk,)), target=task, payload={"message": "Nova tarefa"})
+NotificationService().notify(
+    actor=request.user,
+    type_code="tasks.assigned",
+    recipients=Recipients(users=(assignee.pk,)),
+    payload=(("message", "Nova tarefa"),),
+    target_table_key="tasks.task",
+    target_id=task.pk,
+)
 ```
+
+A tabela abaixo descreve a função interna; o serviço devolve as recusas como `ContextRequired`, `InvalidInput` ou `NotFound`.
 
 | Regra | Resultado |
 |---|---|

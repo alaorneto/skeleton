@@ -22,7 +22,7 @@ from skeleton.system.presentation import AdministrationSpec, AdminScreenSpec, Ad
 from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.applications import activation_revision
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Application-administration-Password!54"
 
 

@@ -4,13 +4,11 @@ Runs on PostgreSQL with the runtime role.
 """
 
 import io
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
-from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
@@ -23,9 +21,11 @@ from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 EICAR = rb"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 TXT = b"plain notes\n"
 
@@ -49,38 +49,24 @@ def scanner(monkeypatch):
 
 @pytest.fixture
 def scenario(monkeypatch, settings, tmp_path):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(registry._registry[key], attachments=AttachmentPolicy(max_bytes=1000, types=("text/plain",))),
-    )
-    settings.STORAGES = {
-        **settings.STORAGES,
-        "skeleton_files": {
-            "BACKEND": "django.core.files.storage.FileSystemStorage",
-            "OPTIONS": {"location": str(tmp_path / "files"), "base_url": None},
-        },
-    }
-    settings.SKELETON_FILES_SCANNER = "clamav"
-    return build_service_scenario(Note, slug="scan")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=1000, types=("text/plain",))):
+        settings.STORAGES = {
+            **settings.STORAGES,
+            "skeleton_files": {
+                "BACKEND": "django.core.files.storage.FileSystemStorage",
+                "OPTIONS": {"location": str(tmp_path / "files"), "base_url": None},
+            },
+        }
+        settings.SKELETON_FILES_SCANNER = "clamav"
+        yield build_service_scenario(Note, slug="scan")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def upload(client, scenario, note, content, name="notes.txt"):

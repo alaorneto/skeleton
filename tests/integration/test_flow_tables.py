@@ -25,6 +25,8 @@ from skeleton.flows.models import (
 from skeleton.tenancy.context import system_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 MODELS = (FlowDefinition, FlowInstance, FlowStepRun, FlowTask, FlowSubmission, FlowActivity)
 SECRET = "segredo-do-formulario"
 

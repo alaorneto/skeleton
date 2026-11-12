@@ -13,6 +13,8 @@ from skeleton.common.exceptions import ConcurrentUpdate, ImmutableRecord, Unsafe
 from skeleton.common.models import SystemRecord
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 @pytest.fixture
 def records(skeleton_db):
@@ -288,3 +290,58 @@ def test_direct_sql_cannot_insert_non_guid_identity(records, invalid_sysid):
                     ],
                 )
         assert not Note.objects.filter(code="invalid-guid").exists()
+
+
+def test_cas_and_soft_delete_hold_for_an_organization_record(records):
+    """The model-level contract also holds for an OrganizationRecord without owner (#263)."""
+    from skeleton.access.models import Role
+
+    with actor_tenant(records.admin, records.a):
+        role = Role(organization=records.a, code="contract-probe", name="Probe")
+        role.save()
+        first, second = Role.objects.get(pk=role.pk), Role.objects.get(pk=role.pk)
+        first.name = "Winner"
+        first.save(update_fields=["name"])
+        second.name = "Loser"
+        with pytest.raises(ConcurrentUpdate):
+            second.save(update_fields=["name"])
+        assert Role.objects.get(pk=role.pk).name == "Winner"
+        stored = Role.objects.get(pk=role.pk)
+        stored.delete()
+        assert not Role.objects.filter(pk=role.pk).exists()
+        tombstone = Role.objects.with_deleted().get(pk=role.pk)
+        tombstone.restore()
+        assert Role.objects.get(pk=role.pk).pk == role.pk
+        audit = events(role)
+    assert [event.operation for event in audit] == ["create", "update", "soft_delete", "restore"]
+    assert {event.organization_id for event in audit} == {records.a.pk}
+
+
+def test_cas_holds_for_a_global_system_record(records):
+    """CAS of a global SystemRecord, read and audited only in the platform context (#263)."""
+    from skeleton.accounts.services import bootstrap_identity
+    from skeleton.system import availability
+    from skeleton.system.models import AppAvailability
+    from skeleton.tenancy.context import request_context
+
+    platform, _ = bootstrap_identity(
+        email="contract-platform@example.test",
+        organization="contract-platform",
+        name="Contract",
+        password="Kq9-unrelated-Phrase-2026!",
+    )
+    with request_context(actor=platform, request_id=uuid4(), source="test:contract-global"):
+        current = AppAvailability.objects.filter(app_label="example_notes").first()
+        revision = current.revision if current else 0
+        availability.set_app_availability("example_notes", user=platform, mode="selected", revision=revision)
+        first = AppAvailability.objects.get(app_label="example_notes")
+        second = AppAvailability.objects.get(pk=first.pk)
+        first.mode = "all"
+        first.save(update_fields=["mode"])
+        second.mode = "selected"
+        with pytest.raises(ConcurrentUpdate):
+            second.save(update_fields=["mode"])
+        assert AppAvailability.objects.get(pk=first.pk).mode == "all"
+        audit = events(first)
+    assert [event.operation for event in audit][-1] == "update"
+    assert {event.organization_id for event in audit} == {None}

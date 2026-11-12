@@ -21,6 +21,8 @@ from skeleton.tenancy.context import system_context
 from tools.integration_database import disposable_database_pair
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 OWNER = "example_notes"
 board = flows.Assignment.group("board")
 

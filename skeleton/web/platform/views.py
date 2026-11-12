@@ -92,7 +92,8 @@ def _search(request):
 @require_safe
 def overview(request):
     from skeleton.system.app_registry import all_apps
-    from skeleton.versioning import core_version
+
+    from .updates import running_core
 
     User = _model("sk_accounts.User")
     Organization = _model("sk_tenancy.Organization")
@@ -103,7 +104,7 @@ def overview(request):
         "skeleton/web/platform/overview.html",
         {
             "platform_section": "overview",
-            "core": core_version(),
+            "core": running_core(),
             "stats": [
                 (
                     gettext("Usuários ativos"),

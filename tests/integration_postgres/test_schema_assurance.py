@@ -171,3 +171,65 @@ def test_rd04_lifecycle_procedure_cannot_replace_required_function(pristine_sche
         owner.execute("GRANT EXECUTE ON PROCEDURE skeleton.assert_user_deactivation(uuid) TO skeleton_runtime")
     errors = check_deployed_schema()
     assert any("assert_user_deactivation" in error and "lifecycle" in error for error in errors), errors
+
+
+def _noop_trigger_function(owner):
+    owner.execute(
+        "CREATE FUNCTION skeleton.fixture_noop_trigger() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN COALESCE(NEW,OLD); END $$"
+    )
+    owner.execute("REVOKE ALL ON FUNCTION skeleton.fixture_noop_trigger() FROM PUBLIC")
+
+
+def test_operational_table_with_extra_audit_trigger_fails_schema_check(pristine_schema):
+    from skeleton.jobs.models import Job
+
+    table = Job._meta.db_table
+    with psycopg.connect(pristine_schema.owner, autocommit=True) as owner:
+        _noop_trigger_function(owner)
+        owner.execute(
+            sql.SQL(
+                "CREATE TRIGGER {} AFTER INSERT OR UPDATE OR DELETE ON skeleton.{} FOR EACH ROW "
+                "EXECUTE FUNCTION skeleton.fixture_noop_trigger()"
+            ).format(sql.Identifier(table + "_sk_audit"), sql.Identifier(table))
+        )
+    errors = check_deployed_schema()
+    assert any(table in error for error in errors), errors
+
+
+@pytest.mark.parametrize("mutation", ["DISABLE ROW LEVEL SECURITY", "NO FORCE ROW LEVEL SECURITY"])
+def test_operational_tenant_table_without_rls_fails_schema_check(pristine_schema, mutation):
+    from skeleton.events.models import DomainEvent
+
+    table = DomainEvent._meta.db_table
+    with psycopg.connect(pristine_schema.owner, autocommit=True) as owner:
+        owner.execute(sql.SQL("ALTER TABLE skeleton.{} {}").format(sql.Identifier(table), sql.SQL(mutation)))
+    errors = check_deployed_schema()
+    assert any(table in error and "RLS" in error for error in errors), errors
+
+
+def test_widened_audit_select_policy_fails_schema_check(pristine_schema):
+    from skeleton.audit.models import AuditEvent
+
+    table = AuditEvent._meta.db_table
+    with psycopg.connect(pristine_schema.owner, autocommit=True) as owner:
+        owner.execute(sql.SQL("DROP POLICY skeleton_audit_select ON skeleton.{}").format(sql.Identifier(table)))
+        owner.execute(
+            sql.SQL(
+                "CREATE POLICY skeleton_audit_select ON skeleton.{} FOR SELECT TO skeleton_runtime USING (true)"
+            ).format(sql.Identifier(table))
+        )
+    errors = check_deployed_schema()
+    assert any("skeleton_audit_select" in error or table in error for error in errors), errors
+
+
+@pytest.mark.parametrize("privilege", ["UPDATE", "DELETE"])
+def test_runtime_write_grant_on_audit_fails_schema_check(pristine_schema, privilege):
+    from skeleton.audit.models import AuditEvent
+
+    table = AuditEvent._meta.db_table
+    with psycopg.connect(pristine_schema.owner, autocommit=True) as owner:
+        owner.execute(
+            sql.SQL("GRANT {} ON skeleton.{} TO skeleton_runtime").format(sql.SQL(privilege), sql.Identifier(table))
+        )
+    errors = check_deployed_schema()
+    assert any(table in error for error in errors), errors

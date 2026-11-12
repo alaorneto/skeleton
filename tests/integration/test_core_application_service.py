@@ -11,7 +11,7 @@ from skeleton.testing.service_api import (
     build_service_scenario,
 )
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 NOTES = "example_notes"
 
 
@@ -32,10 +32,7 @@ def test_contract_and_caller_resolution():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="applications")

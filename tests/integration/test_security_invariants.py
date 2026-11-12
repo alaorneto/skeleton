@@ -6,6 +6,8 @@ from django.db import IntegrityError, connection, transaction
 
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 @pytest.fixture
 def access(skeleton_db):

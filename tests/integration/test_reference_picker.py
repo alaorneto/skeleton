@@ -11,7 +11,7 @@ from skeleton.accounts.services import bootstrap_identity
 from skeleton.tenancy.context import tenant_context
 from skeleton.testing.applications import activation_revision
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Reference-picker-test-password!72"
 
 

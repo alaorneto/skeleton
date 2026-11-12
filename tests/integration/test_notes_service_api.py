@@ -22,6 +22,8 @@ from skeleton.testing.service_api import (
     build_service_scenario,
 )
 
+pytestmark = pytest.mark.needs_example_app
+
 
 @pytest.fixture
 def scenario(skeleton_db):

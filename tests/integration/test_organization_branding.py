@@ -12,8 +12,9 @@ from skeleton.service_api.errors import InvalidInput
 from skeleton.service_api.organizations import OrganizationService
 from skeleton.tenancy.context import system_context
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, build_service_scenario
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
 WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 200
 SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
@@ -21,24 +22,14 @@ SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="org-brand")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def urls(organization):

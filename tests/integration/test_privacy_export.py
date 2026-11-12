@@ -8,33 +8,28 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
-from skeleton.notifications import registry
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(NotificationType("system.notice", "Aviso"))
-    return build_service_scenario(Note, slug="privacy")
+    with isolated_notification_types():
+        register_notification_type(NotificationType("system.notice", "Aviso"))
+        yield build_service_scenario(Note, slug="privacy")
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def exported(client):

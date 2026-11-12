@@ -24,6 +24,8 @@ from skeleton.testing.service_api import (
     build_service_scenario,
 )
 
+pytestmark = pytest.mark.needs_example_app
+
 OWNER = "example_notes"
 KEY = "example_notes.approval"
 SECRET = "valor reservado 4242"

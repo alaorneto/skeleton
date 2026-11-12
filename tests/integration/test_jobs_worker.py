@@ -15,6 +15,7 @@ from skeleton.jobs.services import enqueue
 from skeleton.jobs.worker import Worker, claim, execute, reap_expired_leases
 from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Jobs-worker-Password!58"
@@ -38,10 +39,10 @@ def as_actor(*, actor):
 @pytest.fixture(autouse=True)
 def job_types(monkeypatch):
     calls.clear()
-    monkeypatch.setattr(registry, "_registry", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_job_type(JobType("test.write", write_role, {"code": "str", "fail": "bool"}, max_attempts=2, backoff=1))
-    register_job_type(JobType("test.actor", as_actor, {}, run_as="actor"))
+    with isolated_job_types():
+        register_job_type(JobType("test.write", write_role, {"code": "str", "fail": "bool"}, max_attempts=2, backoff=1))
+        register_job_type(JobType("test.actor", as_actor, {}, run_as="actor"))
+        yield
 
 
 @pytest.fixture

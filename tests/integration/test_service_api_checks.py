@@ -214,6 +214,7 @@ def test_non_public_core_import_is_a_warning(fixture_app):
     assert ids(boundary("svc_core"), "skeleton.") == ["skeleton.W019"]
 
 
+@pytest.mark.needs_example_app
 def test_importing_notes_internals_from_a_fixture_app_fails(fixture_app):
     notes = get_app("example_notes")
     assert notes.service_api == ServiceAPIDeclaration("examples.notes.service_api", ("NoteService",))
@@ -230,6 +231,7 @@ def test_importing_notes_internals_from_a_fixture_app_fails(fixture_app):
     assert sorted(error.msg.split(":")[1].strip() for error in errors) == ["alias.py", "bad.py"]
 
 
+@pytest.mark.needs_example_app
 def test_registry_lists_declared_services(fixture_app):
     from skeleton.service_api.registry import service_registry
 
@@ -239,6 +241,7 @@ def test_registry_lists_declared_services(fixture_app):
     assert [cls.__name__ for cls in registry["org.skeleton.example-notes"]] == ["NoteService"]
 
 
+@pytest.mark.needs_example_app
 def test_e012_reports_the_missing_document_name(monkeypatch, tmp_path):
     from skeleton.system import app_registry
 

@@ -12,6 +12,8 @@ from skeleton.tenancy.aggregate import LazyAggregateResult, aggregate_route, for
 from skeleton.tenancy.context import InvalidContext, system_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 PASSWORD = "Fixture-only-password-2026!"
 
 

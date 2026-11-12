@@ -64,16 +64,29 @@ def tenants():
     return alice, alpha, bob, beta
 
 
-def audit_count():
+def audit_events(organization, actor, table):
+    """Events of one table, counted where the organization's events are visible (#261)."""
     from skeleton.audit.models import AuditEvent
 
+    with tenant_context(organization_id=organization.pk, actor=actor, source="test:operational-audit"):
+        return AuditEvent.objects.filter(table_name=table).count()
+
+
+def test_tenantless_system_context_reads_no_tenant_audit(tenants):
+    from skeleton.access.models import AccessGroup
+    from skeleton.audit.models import AuditEvent
+
+    alice, alpha, _, _ = tenants
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:ops-audit-control"):
+        AccessGroup(organization=alpha, code="audit-control", name="Audit control").save()
+        visible = AuditEvent.objects.filter(table_name=AccessGroup._meta.db_table).count()
+    assert visible >= 1  # The audited write produced an event the tenant context can read.
     with system_context(reason="test:operational-audit"):
-        return AuditEvent.all_objects.count()
+        assert AuditEvent.all_objects.count() == 0  # No tenant and no platform GUC: RLS hides every event.
 
 
 def test_update_and_delete_write_no_audit_and_manager_is_tenant_bound(pipeline, tenants):
     alice, alpha, bob, beta = tenants
-    before = audit_count()
     with tenant_context(organization_id=alpha.pk, actor=alice, source="test:ops-a"):
         row = pipeline(organization=alpha)
         row.save()
@@ -90,7 +103,12 @@ def test_update_and_delete_write_no_audit_and_manager_is_tenant_bound(pipeline, 
         assert not pipeline.objects.exists()
     with tenant_context(organization_id=alpha.pk, actor=alice, source="test:ops-a-delete"):
         assert pipeline.objects.filter(pk=row.pk).delete()[0] == 1
-    assert audit_count() == before
+    assert audit_events(alpha, alice, pipeline._meta.db_table) == 0
+    from skeleton.access.models import AccessGroup
+
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:ops-control"):
+        AccessGroup(organization=alpha, code="ops-control", name="Ops control").save()
+    assert audit_events(alpha, alice, AccessGroup._meta.db_table) == 1  # The same helper sees audited writes.
     with pytest.raises(MissingTenantContext):
         list(pipeline.objects.all())
 

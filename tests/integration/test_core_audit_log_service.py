@@ -27,15 +27,13 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="audit-log")
 
 
+@pytest.mark.needs_example_app
 def test_events_are_filtered_before_counting_and_redacted(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="L-1", title="Visible", body="secret body")
     hidden = scenario.create(scenario.a, owner=scenario.admin_a, code="L-2", title="Hidden", visibility="private")
@@ -54,6 +52,7 @@ def test_events_are_filtered_before_counting_and_redacted(scenario):
         assert service.event(actor=admin, event_id=only.items[0].sysid).record_sysid == hidden.pk
 
 
+@pytest.mark.needs_example_app
 def test_default_deny_and_hidden_events_answer_not_found(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="L-3", title="Private", visibility="private")
     service = AuditLogService()
@@ -70,6 +69,7 @@ def test_default_deny_and_hidden_events_answer_not_found(scenario):
             service.event(actor=member, event_id="00000000-0000-0000-0000-000000000001")
 
 
+@pytest.mark.needs_example_app
 def test_pages_and_invalid_input(scenario):
     for number in range(3):
         scenario.create(scenario.a, owner=scenario.member, code=f"P-{number}", title=f"Page {number}")
@@ -88,6 +88,7 @@ def test_pages_and_invalid_input(scenario):
     assert_rejects_other_actor(scenario.caller(lambda actor: service.events(actor=scenario.denied)))
 
 
+@pytest.mark.needs_example_app
 def test_events_of_another_organization_never_appear(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="L-4", title="A note")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="L-5", title="B secret title")
@@ -104,6 +105,7 @@ def test_events_of_another_organization_never_appear(scenario):
             service.event(actor=admin, event_id=foreign_event)
 
 
+@pytest.mark.needs_example_app
 def test_without_organization_only_the_platform_reads_global_events(scenario):
     from uuid import uuid4
 

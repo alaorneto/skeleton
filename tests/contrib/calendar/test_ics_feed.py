@@ -119,7 +119,7 @@ def test_revoked_expired_or_foreign_tokens_answer_404(agenda, series, monkeypatc
     assert Client().get("/me/apps/skeleton_calendar/feed/skt_00000000_" + "A" * 43 + ".ics").status_code == 404
     # A feed token is not a Bearer credential for the API.
     api = Client(HTTP_AUTHORIZATION=f"Bearer {other.text}").get(reverse("api:me"))
-    assert api.status_code in (401, 403)
+    assert api.status_code == 401
 
 
 def test_feed_token_page_shows_the_url_once(agenda, login):

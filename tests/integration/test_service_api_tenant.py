@@ -10,6 +10,8 @@ from skeleton.tenancy.context import system_context
 from skeleton.testing.applications import activation_revision
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 class NoteTitles(ServiceAPI):
     app_label = "example_notes"

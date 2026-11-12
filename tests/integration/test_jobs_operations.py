@@ -13,13 +13,13 @@ from django.utils import timezone
 
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.common.exceptions import ConcurrentUpdate
-from skeleton.jobs import registry
 from skeleton.jobs.models import Job, WorkerHeartbeat
 from skeleton.jobs.operations import discard_dead_job, queue_health, resend_dead_job
 from skeleton.jobs.registry import JobType, register_job_type
 from skeleton.jobs.retention import RETENTION_JOB, expired, purge_expired_jobs
 from skeleton.jobs.services import enqueue
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Jobs-platform-Password!40"
@@ -32,10 +32,9 @@ def noop(**kwargs):
 
 @pytest.fixture(autouse=True)
 def job_types(monkeypatch):
-    saved = dict(registry._registry)
-    monkeypatch.setattr(registry, "_registry", saved)
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_job_type(JobType("test.ops", noop, {"note": "str"}, max_attempts=2))
+    with isolated_job_types(keep_existing=True):
+        register_job_type(JobType("test.ops", noop, {"note": "str"}, max_attempts=2))
+        yield
 
 
 def login(email, password=PASSWORD):

@@ -31,7 +31,7 @@ O namespace de uma rota é uma identidade de integração Django, não o painel 
 
 Cada manifesto carregado cria um grupo imutável de apresentação na memória do processo. Sua identidade é `app_id`; `app_label` identifica modelos/rotas e não é renomeado numa atualização. Não há tabela de menus/layouts ou DDL no `ready()`.
 
-O grupo da plataforma contém visão geral, versão/origem/compatibilidade, seleção de organização, documentação local escapada e telas próprias de **parâmetros**. Não mostra registros, contagens de negócio ou valores de configuração de outras organizações. A seleção lista apenas vínculos ativos do ator e não concede vínculo/papel adicional.
+O grupo da plataforma contém visão geral, versão/origem/compatibilidade, documentação local escapada e telas próprias de **parâmetros**. Não mostra registros, contagens de negócio ou valores de configuração de outras organizações.
 
 A configuração tenant continua em `AppInstallation`, com revisão virtual 0 para a primeira escrita. Campos escalarmente declarados recebem rótulo, help text e seção opcionais. A gravação usa o mesmo `configure_application`, bloqueia a organização antes de avaliar revisão/dependências e não sobrescreve valores persistidos por causa de uma mudança visual.
 

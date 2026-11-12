@@ -12,6 +12,7 @@ from django.urls import reverse
 from skeleton.access.models import GroupMember, MemberRole
 from skeleton.tenancy.models import Membership, Organization
 from tools.integration_database import disposable_database_pair
+from tools.postgres_assertions import wait_for_blocked_backend
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 
@@ -126,7 +127,6 @@ def _platform_admins(*users):
 
 
 def test_concurrent_platform_demotions_keep_one_admin(skeleton_db):
-    import time
     from uuid import uuid4
 
     from skeleton.accounts.models import User
@@ -148,7 +148,7 @@ def test_concurrent_platform_demotions_keep_one_admin(skeleton_db):
                     result = execute(sql, params, many, context)
                     leader_locked.set()
                     assert follower_waiting.wait(10), "Follower did not reach the administrator lock."
-                    time.sleep(0.5)
+                    wait_for_blocked_backend(disposable_database_pair().runtime)
                     return result
                 assert leader_locked.wait(10), "Leader did not lock the administrators."
                 follower_waiting.set()
@@ -199,7 +199,6 @@ def test_superuser_without_staff_keeps_platform_guc_off(skeleton_db):
 
 
 def test_concurrent_departures_of_two_administrators_keep_one_without_deadlock(skeleton_db):
-    import time
 
     from skeleton.access.models import Role
     from skeleton.access.services import LastAdministrator, leave_organization
@@ -220,7 +219,7 @@ def test_concurrent_departures_of_two_administrators_keep_one_without_deadlock(s
                     result = execute(sql, params, many, context)
                     leader_locked.set()
                     assert follower_waiting.wait(10), "Follower did not reach the organization lock."
-                    time.sleep(0.5)
+                    wait_for_blocked_backend(disposable_database_pair().runtime)
                     return result
                 if not leader and not follower_waiting.is_set():
                     assert leader_locked.wait(10), "Leader did not lock the organization."
@@ -344,7 +343,6 @@ def test_platform_designation_writes_only_the_designated_tenant(skeleton_db):
 
 
 def test_platform_designation_and_admin_removal_serialize_without_deadlock(skeleton_db):
-    import time
     from uuid import uuid4
 
     from skeleton.access.services import delete_membership
@@ -366,7 +364,7 @@ def test_platform_designation_and_admin_removal_serialize_without_deadlock(skele
                     result = execute(sql, params, many, context)
                     designation_locked.set()
                     assert removal_waiting.wait(10), "Removal did not reach the organization lock."
-                    time.sleep(0.5)
+                    wait_for_blocked_backend(disposable_database_pair().runtime)
                     return result
                 if kind == "remove" and not removal_waiting.is_set():
                     assert designation_locked.wait(10), "Designation did not lock the organization."

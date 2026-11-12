@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 import pytest
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -11,6 +11,7 @@ from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 from skeleton.transfer.csvio import BOM, cell, read_csv, write_csv
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 TABLE = "example_notes.note"
@@ -18,19 +19,14 @@ TABLE = "example_notes.note"
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="export")
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def export_url(organization):
@@ -68,6 +64,7 @@ def test_cells_are_formatted_for_excel_and_formulas_are_neutralized():
     assert header == ["a", "b"] and list(rows) == [["1", "2"]]
 
 
+@pytest.mark.needs_example_app
 def test_export_contains_only_authorized_records_and_readable_fields(scenario):
     mine = scenario.create(scenario.a, owner=scenario.member, code="E-1", title='=HYPERLINK("x")', body="segredo")
     scenario.create(scenario.a, owner=scenario.admin_a, code="E-2", title="Privada do admin", visibility="private")
@@ -95,6 +92,7 @@ def test_export_contains_only_authorized_records_and_readable_fields(scenario):
         assert NotificationRecipient.objects.filter(user=scenario.member).count() == 1
 
 
+@pytest.mark.needs_example_app
 def test_filters_of_the_list_apply_and_invalid_filters_are_refused(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="F-1", title="Um")
     scenario.create(scenario.a, owner=scenario.member, code="F-2", title="Dois")
@@ -108,12 +106,14 @@ def test_filters_of_the_list_apply_and_invalid_filters_are_refused(scenario):
     assert [row[header.index("code")] for row in rows] == ["F-2"]
 
 
+@pytest.mark.needs_example_app
 def test_people_without_read_access_cannot_export(scenario):
     assert login(scenario.denied).post(export_url(scenario.a)).status_code == 404
     assert login(scenario.admin_b).post(export_url(scenario.a)).status_code == 404
     assert transfers(scenario.a) == []
 
 
+@pytest.mark.needs_example_app
 def test_only_the_requester_downloads_and_a_revocation_stops_it(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="D-1", title="Baixar")
     client = login(scenario.member)
@@ -135,6 +135,7 @@ def test_only_the_requester_downloads_and_a_revocation_stops_it(scenario):
 
 
 @override_settings(SKELETON_EXPORT_MAX_ROWS=1)
+@pytest.mark.needs_example_app
 def test_above_the_row_limit_the_export_fails_without_a_file(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="L-1", title="Um")
     scenario.create(scenario.a, owner=scenario.member, code="L-2", title="Dois")
@@ -144,6 +145,7 @@ def test_above_the_row_limit_the_export_fails_without_a_file(scenario):
     assert (transfer.state, transfer.error_code, transfer.file_key) == ("failed", "too_many_rows", "")
 
 
+@pytest.mark.needs_example_app
 def test_a_revocation_before_the_job_fails_closed(scenario):
     from skeleton.access.models import TablePermission
 
@@ -156,6 +158,7 @@ def test_a_revocation_before_the_job_fails_closed(scenario):
     assert (transfer.state, transfer.file_key) == ("failed", "")
 
 
+@pytest.mark.needs_example_app
 def test_retention_deletes_the_row_and_the_file(scenario):
     from skeleton.files.storage import private_storage
     from skeleton.transfer.retention import clean_transfers
@@ -171,6 +174,7 @@ def test_retention_deletes_the_row_and_the_file(scenario):
     assert transfers(scenario.a) == [] and not private_storage().exists(transfer.file_key)
 
 
+@pytest.mark.needs_example_app
 def test_the_list_page_shows_only_my_transfers(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="P-1", title="Um")
     login(scenario.member).post(export_url(scenario.a))

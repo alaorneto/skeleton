@@ -10,6 +10,7 @@ from skeleton.service_api.identity import IdentityService
 from skeleton.service_api.organizations import OrganizationService
 from skeleton.tenancy.context import system_context
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 TWO_LANGUAGES = [("pt-br", "Português"), ("en", "English")]
@@ -29,19 +30,14 @@ urlpatterns = [
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="locale")
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def set_profile(user, *, language="", zone=""):
@@ -80,6 +76,7 @@ def seen(client, organization=None, *, api=False):
 # The probe under /api/v1/ is a test-only route, outside the published OpenAPI contract.
 @pytest.mark.no_api_contract
 @override_settings(ROOT_URLCONF=__name__, LANGUAGES=TWO_LANGUAGES, SKELETON_DEFAULT_TIMEZONE="UTC")
+@pytest.mark.needs_example_app
 def test_blank_profile_follows_the_organization_then_the_instance(scenario):
     set_profile(scenario.member)
     set_organization(scenario.admin_a, scenario.a, language="en", zone="America/Sao_Paulo")
@@ -91,6 +88,7 @@ def test_blank_profile_follows_the_organization_then_the_instance(scenario):
 
 
 @override_settings(ROOT_URLCONF=__name__, LANGUAGES=TWO_LANGUAGES)
+@pytest.mark.needs_example_app
 def test_explicit_profile_wins_over_the_organization(scenario):
     set_profile(scenario.member, language="pt-br", zone="Asia/Tokyo")
     set_organization(scenario.admin_a, scenario.a, language="en", zone="America/Sao_Paulo")
@@ -114,6 +112,7 @@ def test_instance_defaults_and_browser_language_before_login():
 
 
 @override_settings(ROOT_URLCONF=__name__, LANGUAGES=TWO_LANGUAGES)
+@pytest.mark.needs_example_app
 def test_the_organization_comes_from_the_context_not_from_the_client(scenario):
     set_profile(scenario.member)
     set_organization(scenario.admin_b, scenario.b, language="en", zone="Asia/Tokyo")
@@ -126,6 +125,7 @@ def test_the_organization_comes_from_the_context_not_from_the_client(scenario):
 
 
 @override_settings(LANGUAGES=TWO_LANGUAGES)
+@pytest.mark.needs_example_app
 def test_identity_service_reports_choices_and_effective_values(scenario):
     set_profile(scenario.member)
     set_organization(scenario.admin_a, scenario.a, language="en", zone="America/Sao_Paulo")
@@ -135,6 +135,7 @@ def test_identity_service_reports_choices_and_effective_values(scenario):
     assert (me.effective_language, me.effective_timezone) == ("en", "America/Sao_Paulo")
 
 
+@pytest.mark.needs_example_app
 def test_unsupported_language_is_refused_everywhere(scenario):
     from skeleton.service_api.errors import InvalidInput
 
@@ -153,6 +154,7 @@ def test_unsupported_language_is_refused_everywhere(scenario):
         )
 
 
+@pytest.mark.needs_example_app
 def test_html_lang_follows_the_active_language(scenario):
     client = login(scenario.member)
     page = client.get(reverse("web:dashboard", kwargs={"organization_id": scenario.a.pk})).content.decode()

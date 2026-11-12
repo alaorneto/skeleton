@@ -111,6 +111,7 @@ def test_organization_admin_cannot_use_platform_updates():
     assert client.get("/admin/system/releases/").status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_retained_app_can_only_disable_existing_configuration():
     from django.core.exceptions import ValidationError
 

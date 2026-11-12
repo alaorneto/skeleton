@@ -15,16 +15,17 @@ from django.test import Client, override_settings
 from django.urls import reverse
 
 from skeleton.common import outbound_http
-from skeleton.notifications import registry
 from skeleton.notifications.channels.push import b64url
 from skeleton.notifications.models import NotificationDelivery, WebPushSubscription
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/browser-one"
 BROWSER = ec.generate_private_key(ec.SECP256R1())
 BROWSER_PUBLIC = BROWSER.public_key().public_bytes(
@@ -57,10 +58,7 @@ class FakePushService:
 
 @pytest.fixture
 def scenario(monkeypatch, tmp_path):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = ec.generate_private_key(ec.SECP256R1())
@@ -68,45 +66,37 @@ def scenario(monkeypatch, tmp_path):
     path.write_bytes(
         key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     )
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.mention",
-            "Você foi mencionado",
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            default_channels=("in_app", "push"),
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.mention",
+                "Você foi mencionado",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                default_channels=("in_app", "push"),
+            )
         )
-    )
-    register_notification_type(
-        NotificationType(
-            "notes.shared",
-            "Nota compartilhada",
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            default_channels=("in_app", "push"),
-            push_snapshot=True,
+        register_notification_type(
+            NotificationType(
+                "notes.shared",
+                "Nota compartilhada",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                default_channels=("in_app", "push"),
+                push_snapshot=True,
+            )
         )
-    )
-    with override_settings(
-        WEBPUSH_VAPID_PRIVATE_KEY_FILE=str(path),
-        WEBPUSH_VAPID_SUBJECT="mailto:ops@example.test",
-        SKELETON_PUBLIC_URL="https://app.example.test",
-        INTEGRATION_ENCRYPTION_KEYS=[Fernet.generate_key().decode()],
-    ):
-        yield build_service_scenario(Note, slug="push")
+        with override_settings(
+            WEBPUSH_VAPID_PRIVATE_KEY_FILE=str(path),
+            WEBPUSH_VAPID_SUBJECT="mailto:ops@example.test",
+            SKELETON_PUBLIC_URL="https://app.example.test",
+            INTEGRATION_ENCRYPTION_KEYS=[Fernet.generate_key().decode()],
+        ):
+            yield build_service_scenario(Note, slug="push")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def subscribe(client, endpoint=ENDPOINT, keys=KEYS, csrf=True):

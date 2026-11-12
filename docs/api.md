@@ -4,7 +4,7 @@ Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML, por se
 
 Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
 
-Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do cookie de sessão **e** da proteção CSRF. Em clientes como curl, envie o cookie `csrftoken` e o header `X-CSRFToken` correspondente; um cookie de sessão sozinho não basta. Uma requisição anônima à API recebe 403 do DRF, enquanto a página HTML redireciona ao login. Em produção, use HTTPS e cookies seguros; tokens do IdP não substituem essa sessão.
+Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do cookie de sessão **e** da proteção CSRF. Requisições autenticadas por [token de API](#autenticação-por-token) não usam cookie nem CSRF. Em clientes como curl, envie o cookie `csrftoken` e o header `X-CSRFToken` correspondente; um cookie de sessão sozinho não basta. Uma requisição anônima à API recebe 403 do DRF, enquanto a página HTML redireciona ao login. Em produção, use HTTPS e cookies seguros; tokens do IdP não substituem essa sessão.
 
 ## Recursos
 
@@ -33,6 +33,18 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
 | `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa |
+
+### Recursos dos subsistemas
+
+| URL relativa ao prefixo | Métodos | Contrato |
+|---|---|---|
+| `me/tokens/`, `me/tokens/<id>/` | GET, POST; DELETE no detalhe | Tokens pessoais do próprio ator; [gestão de tokens](#gestão-de-tokens) (`skeleton/integrations/urls.py`) |
+| `o/<org>/service-accounts/`, `<id>/`, `<id>/tokens/`, `<id>/tokens/<token_id>/` | GET, POST na coleção; DELETE no detalhe; GET, POST nos tokens; DELETE num token | Contas de serviço e seus tokens; [gestão de tokens](#gestão-de-tokens) |
+| `o/<org>/webhooks/`, `<id>/`, `<id>/rotate/`, `<id>/ping/`, `<id>/deliveries/`, `<id>/deliveries/<delivery_id>/`, `.../resend/` | GET, POST na coleção; GET, PATCH, DELETE no detalhe; POST em `rotate`, `ping` e `resend`; GET nas entregas | Endpoints, segredo, teste e log de entregas; [webhooks](webhooks.md) |
+| `notifications/`, `o/<org>/notifications/actions/` | GET; POST | Caixa de notificações do ator e ações sobre ela; [notificações](notifications.md) (`skeleton/notifications/urls.py`) |
+| `me/notification-preferences/`, `me/notification-preferences/<type_code>/<channel>/` | GET; GET, PUT, DELETE | Preferências por tipo e canal; [notificações](notifications.md#preferências) |
+| `me/push-subscriptions/`, `me/push-subscriptions/unsubscribe/` | POST; POST | Assinaturas de web push do navegador; [notificações](notifications.md#web-push) |
+| `o/<org>/tables/<table_key>/records/<sysid>/attachments/`, `<attachment_id>/`, `<attachment_id>/restore/` | GET, POST; DELETE; POST | Anexos do registro, com autorização derivada dele; [arquivos](files.md#anexos) (`skeleton/api/urls.py`, views em `skeleton/files/api_views.py`) |
 
 `org`, `sysid` e IDs de relações são UUIDs. Primeiro escolha uma organização devolvida por `organizations/` e use seu UUID em `o/<org>/`; não envie a organização ou o ator no corpo para tentar mudar o contexto. `table_key` é o identificador registrado do modelo (`label_lower`), por exemplo `example_notes.note`, e nunca um nome SQL. O registry, a lista explícita de modelos permitidos no código, é a única fonte dessa resolução. Modelos não expostos ou técnicos não entram no gateway.
 
@@ -181,7 +193,7 @@ class SummaryView(TenantAPI):
     openapi = {"GET": Operation("Resumo das anotações", obj({"count": INTEGER, "heading": nullable(string())}))}
 ```
 
-A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([testes](testing.md#openapi-da-api-epic-86)).
+A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([evidência dos testes](testing-evidence.md#openapi-da-api-epic-86)).
 
 ## Tokens de API
 

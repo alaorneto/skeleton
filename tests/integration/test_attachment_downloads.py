@@ -1,19 +1,18 @@
 """Downloads only through an authorized view, streamed after the transaction (#60)."""
 
-from dataclasses import replace
-
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from skeleton.common.responses import DetachedFileResponse, content_disposition
-from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PDF = b"%PDF-1.7\n" + b"y" * 64
@@ -34,30 +33,16 @@ def test_headers_force_a_download_that_cannot_execute():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(registry._registry[key], attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))),
-    )
-    return build_service_scenario(Note, slug="download")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))):
+        yield build_service_scenario(Note, slug="download")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 @pytest.fixture
@@ -85,6 +70,7 @@ def shared(scenario):
     return note, created.json()["sysid"], url
 
 
+@pytest.mark.needs_example_app
 def test_download_streams_with_safe_headers_and_zero_queries(scenario, shared):
     _, _, url = shared
     response = login(scenario.member).get(url)
@@ -98,6 +84,7 @@ def test_download_streams_with_safe_headers_and_zero_queries(scenario, shared):
     assert (response["Cache-Control"], response["Referrer-Policy"]) == ("no-store", "no-referrer")
 
 
+@pytest.mark.needs_example_app
 def test_revocation_applies_to_the_next_request(scenario, shared):
     from examples.notes.models import Note
 
@@ -113,6 +100,7 @@ def test_revocation_applies_to_the_next_request(scenario, shared):
 
 
 @pytest.mark.parametrize("state", ["pending", "quarantined", "rejected"])
+@pytest.mark.needs_example_app
 def test_files_not_available_never_download(scenario, shared, state):
     from skeleton.files.models import Attachment
 
@@ -122,6 +110,7 @@ def test_files_not_available_never_download(scenario, shared, state):
     assert login(scenario.member).get(url).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_accelerated_delivery_hands_the_key_to_the_proxy(scenario, shared):
     _, attachment_id, url = shared
     with override_settings(SKELETON_FILES_ACCEL="nginx", SKELETON_FILES_ACCEL_PREFIX="/_protected/"):

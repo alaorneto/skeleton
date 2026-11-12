@@ -23,15 +23,13 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="directory")
 
 
+@pytest.mark.needs_example_app
 def test_current_and_my_organizations(scenario):
     from skeleton.tenancy.models import Organization
 
@@ -50,6 +48,7 @@ def test_current_and_my_organizations(scenario):
     assert_rejects_other_actor(scenario.caller(lambda actor: service.current(actor=scenario.denied)))
 
 
+@pytest.mark.needs_example_app
 def test_directory_never_includes_other_organizations_or_inactive_memberships(scenario):
     from skeleton.tenancy.models import Membership
 
@@ -72,6 +71,7 @@ def test_directory_never_includes_other_organizations_or_inactive_memberships(sc
         assert service.is_member(actor=admin, user_id=scenario.member.pk)
 
 
+@pytest.mark.needs_example_app
 def test_search_group_filter_and_pagination(scenario):
     from skeleton.access.models import AccessGroup, GroupMember
     from skeleton.accounts.models import UserProfile

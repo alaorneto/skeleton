@@ -23,6 +23,8 @@ from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import _set_enabled
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 OWNER = "example_notes"
 START = flows.Form(
     flows.Field("amount", "decimal"),

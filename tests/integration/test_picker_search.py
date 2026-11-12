@@ -8,16 +8,13 @@ from skeleton.system.search import trigram_available
 from skeleton.tenancy.context import system_context
 from skeleton.testing.service_api import acting_as, build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 KEY = "example_notes.note"
 
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     scenario = build_service_scenario(Note, slug="picker-search")

@@ -65,10 +65,7 @@ def pseudo(monkeypatch):
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="i18n-coverage")
@@ -155,6 +152,7 @@ def assert_translated(client, url, allowed):
     assert not missing, f"{url}: text outside gettext: {missing}"
 
 
+@pytest.mark.needs_example_app
 def test_organization_pages_are_translated(scenario, pseudo):
 
     allowed = fixture_words(scenario)
@@ -177,6 +175,7 @@ def test_organization_pages_are_translated(scenario, pseudo):
         assert_translated(client, url, allowed)
 
 
+@pytest.mark.needs_example_app
 def test_platform_pages_are_translated(scenario, pseudo):
     from skeleton.accounts.services import bootstrap_identity
 
@@ -196,6 +195,7 @@ def test_platform_pages_are_translated(scenario, pseudo):
         assert_translated(client, reverse(name), allowed)
 
 
+@pytest.mark.needs_example_app
 def test_anonymous_pages_are_translated(scenario, pseudo):
     allowed = fixture_words(scenario)
     client = Client()

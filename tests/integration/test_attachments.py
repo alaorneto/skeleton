@@ -1,18 +1,18 @@
 """Attachments authorized by their target record (#59)."""
 
 import io
-from dataclasses import replace
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.files.sniffing import detect
 from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -31,32 +31,16 @@ def test_sniffing_requires_content_and_extension_to_agree():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(
-            registry._registry[key], attachments=AttachmentPolicy(max_bytes=200, types=("image/png", "application/pdf"))
-        ),
-    )
-    return build_service_scenario(Note, slug="attach")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=200, types=("image/png", "application/pdf"))):
+        yield build_service_scenario(Note, slug="attach")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def url(scenario, note, organization=None):
@@ -78,6 +62,7 @@ def upload(client, target, content, name="file.png"):
     )
 
 
+@pytest.mark.needs_example_app
 def test_owner_uploads_lists_and_reader_without_update_gets_403(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-1", title="T", visibility="organization")
     owner = login(scenario.member)
@@ -94,6 +79,7 @@ def test_owner_uploads_lists_and_reader_without_update_gets_403(scenario):
     assert [row["filename"] for row in reader.get(url(scenario, note)).json()["results"]] == ["file.png"]
 
 
+@pytest.mark.needs_example_app
 def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-3", title="T")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="AT-4", title="T")
@@ -103,10 +89,11 @@ def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     assert upload(client, url(scenario, note), PDF, "doc.png").status_code == 400
     assert upload(client, url(scenario, note), PNG + b"x" * 300).status_code == 413
     key = "example_notes.note"
-    monkeypatch.setitem(registry._registry, key, replace(registry._registry[key], attachments=None))
-    assert client.get(url(scenario, note)).status_code == 404
+    with table_spec_override(key, attachments=None):
+        assert client.get(url(scenario, note)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_deleted_target_hides_attachments_and_delete_restore_need_if_match(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-5", title="T")
     client = login(scenario.member)
@@ -126,6 +113,7 @@ def test_deleted_target_hides_attachments_and_delete_restore_need_if_match(scena
     assert client.get(url(scenario, note)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
     from skeleton.audit.models import AuditEvent
 
@@ -150,6 +138,7 @@ def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
     assert change == {"old": None, "new": "[REDACTED]", "redacted": True}
 
 
+@pytest.mark.needs_example_app
 def test_storage_object_is_removed_when_the_row_cannot_persist(scenario, monkeypatch):
     from skeleton.files import services, storage
     from skeleton.files.models import Attachment

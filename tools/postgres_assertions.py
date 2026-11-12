@@ -39,7 +39,7 @@ def assert_runtime_security(pair, fixture, emit=lambda message: None):
 
     from examples.notes.models import Note
     from skeleton.audit.models import AuditEvent
-    from skeleton.common.models import OrganizationRecord
+    from skeleton.common.models import OperationalRecord, OrganizationRecord
     from skeleton.tenancy.models import Membership
 
     note = sql.Identifier("skeleton", Note._meta.db_table)
@@ -58,7 +58,11 @@ def assert_runtime_security(pair, fixture, emit=lambda message: None):
             expect_state(connection, sql.SQL("SET ROLE {}").format(sql.Identifier(privileged)), None, "42501")
         emit("runtime: non-superuser, NOBYPASSRLS, no ownership or privileged SET ROLE")
         for model in apps.get_models():
-            if not issubclass(model, OrganizationRecord) or model._meta.abstract:
+            tenant_scoped = issubclass(model, OrganizationRecord) or (
+                issubclass(model, OperationalRecord)
+                and any(field.name == "organization" for field in model._meta.fields)
+            )
+            if not tenant_scoped or model._meta.abstract:
                 continue
             table = model._meta.db_table
             flags = connection.execute(
@@ -232,3 +236,19 @@ def assert_runtime_security(pair, fixture, emit=lambda message: None):
         finally:
             owner.execute(sql.SQL("GRANT INSERT ON {} TO skeleton_audit_writer").format(audit))
     emit("runtime: revoked trigger INSERT aborts business change and event atomically; fixture grant restored")
+
+
+def wait_for_blocked_backend(dsn, *, timeout=10.0, interval=0.05):
+    """Block until some backend of this database waits on a lock; fail after ``timeout`` seconds."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    with psycopg.connect(dsn, autocommit=True) as probe:
+        while time.monotonic() < deadline:
+            waiting = probe.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            ).fetchone()[0]
+            if waiting:
+                return
+            time.sleep(interval)  # A polling interval with a deadline, not a timing assumption.
+    raise AssertionError("No backend blocked on a lock: the follower did not wait for the leader.")

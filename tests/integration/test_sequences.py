@@ -13,6 +13,8 @@ from skeleton.sequences.services import next_number
 from skeleton.tenancy.context import system_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 KEY = "example_notes.ticket"
 JAN = datetime(2026, 1, 15, 12, tzinfo=UTC)
 FEB = datetime(2026, 2, 1, 0, 30, tzinfo=UTC)

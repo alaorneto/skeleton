@@ -8,7 +8,6 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from skeleton.notifications import registry
 from skeleton.notifications.inbox import unread_count
 from skeleton.notifications.models import Notification, NotificationDelivery, NotificationRecipient
 from skeleton.notifications.registry import NotificationType, register_notification_type
@@ -16,6 +15,7 @@ from skeleton.notifications.retention import purge_expired_notifications, window
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import build_service_scenario
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
@@ -23,16 +23,12 @@ pytestmark = pytest.mark.usefixtures("skeleton_db")
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(NotificationType("system.notice", "Aviso", default_channels=("in_app", "email")))
-    return build_service_scenario(Note, slug="retention")
+    with isolated_notification_types():
+        register_notification_type(NotificationType("system.notice", "Aviso", default_channels=("in_app", "email")))
+        yield build_service_scenario(Note, slug="retention")
 
 
 def notices(scenario, organization, admin, count):
@@ -71,6 +67,7 @@ def test_windows_follow_the_settings(settings):
     assert windows() == {"read": timedelta(days=7), "unread": timedelta(days=14), "deliveries": timedelta(days=3)}
 
 
+@pytest.mark.needs_example_app
 def test_only_expired_rows_go_and_the_counter_stays_right(scenario):
     notices(scenario, scenario.a, scenario.admin_a, count=5)
     notices(scenario, scenario.b, scenario.admin_b, count=1)
@@ -90,6 +87,7 @@ def test_only_expired_rows_go_and_the_counter_stays_right(scenario):
     assert len(rows(scenario.b)) == 1  # Another organization is never touched.
 
 
+@pytest.mark.needs_example_app
 def test_finished_deliveries_expire_and_open_ones_stay(scenario):
     notices(scenario, scenario.a, scenario.admin_a, count=2)
     with system_context(reason="test:deliveries", organization_id=scenario.a.pk):
@@ -101,6 +99,7 @@ def test_finished_deliveries_expire_and_open_ones_stay(scenario):
         assert list(NotificationDelivery.objects.values_list("pk", flat=True)) == [other.pk]
 
 
+@pytest.mark.needs_example_app
 def test_orphan_notifications_go_only_after_their_rows_and_deliveries(scenario):
     notices(scenario, scenario.a, scenario.admin_a, count=1)
     [row] = rows(scenario.a)

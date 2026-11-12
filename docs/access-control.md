@@ -88,7 +88,7 @@ POST de `Membership` existente usa a mesma transição de desativação que PATC
 
 Desativar ou excluir logicamente o `User` global verifica **todas** as organizações onde ele é membro ativo, não apenas a atual. No PostgreSQL, `skeleton.assert_user_deactivation(uuid)` é uma função `SECURITY DEFINER` restrita: pertence ao migrator (credencial de migrations), executa com privilégios do proprietário e só verifica administradores/mantém bloqueios nas organizações. Não escreve negócio nem concede contexto organizacional geral.
 
-O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano de plataforma autenticado; operações offline usam owner. `system_context(reason=...)` numa conexão runtime comum não transforma a credencial em owner. Violação de integridade vira `LastAdministrator`; o admin global responde 409 com rollback, não erro SQL/500.
+O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano de plataforma autenticado; operações offline usam owner. `system_context(reason=...)` numa conexão runtime comum não transforma a credencial em owner. Violação de integridade vira `LastAdministrator`; a tela `/platform/users/<id>/` responde 409 com rollback, não erro SQL/500.
 
 ### Designação de administrador pela plataforma
 
@@ -104,7 +104,7 @@ A auditoria vem dos triggers, na mesma transação: os eventos de `Membership` e
 
 **Decisão: a leitura restrita da plataforma.** *Contexto:* para designar, a plataforma precisa saber quem administra a organização, mas administração de plataforma não concede acesso tenant. *Decisão:* a única leitura tenant da plataforma é `organization_overview(*, actor, organization)`, em `system_context(reason="platform:organization-inspect")`, que devolve um DTO imutável com o número de vínculos ativos e os emails dos administradores ativos (marcando quem é administrador só via grupo), mais a versão desse conjunto. Um wrapper de execução recusa qualquer instrução que não seja `SELECT` sem `FOR UPDATE`/`FOR SHARE` enquanto o contexto está aberto. *Consequências:* a plataforma não lista membros comuns, papéis, grupos, convites nem dados de negócio, e continua recebendo 404 em `/o/<org>/` sem vínculo próprio. Uma tela que precise de mais que isso exige outra decisão, não uma razão nova reaproveitada.
 
-A confirmação de exclusão de User no Django Admin descreve somente a identidade: não usa o collector de exclusão física do Django. Perfis, Memberships e identificadores de identidade externa (`subjects`) permanecem históricos; o ciclo de vida invalida login/sessões. Não habilite ações de exclusão física da identidade nem de seus dependentes.
+A confirmação de remoção em `/platform/users/<id>/delete/` descreve somente a identidade e chama `deactivate_user(user, delete=True)`: exclusão lógica, sem o collector de exclusão física do Django. Perfis, Memberships e identificadores de identidade externa (`subjects`) permanecem históricos; o ciclo de vida invalida login/sessões. Não habilite ações de exclusão física da identidade nem de seus dependentes.
 
 ## Papéis limitados de plataforma
 

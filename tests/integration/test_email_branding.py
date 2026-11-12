@@ -7,42 +7,38 @@ import pytest
 from django.core import mail
 from django.test import override_settings
 
-from skeleton.notifications import registry
 from skeleton.notifications.channels import delivery as delivery_module
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.service_api.organizations import OrganizationService
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import acting_as, build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
 TWO_LANGUAGES = [("pt-br", "Português"), ("en", "English")]
 
 
 @pytest.fixture
 def scenario(monkeypatch, settings):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     settings.SKELETON_PUBLIC_URL = "https://app.example.test"
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    monkeypatch.setattr(delivery_module, "RETRY_SCHEDULE", (timedelta(0),) * 4)
-    register_notification_type(
-        NotificationType(
-            "notes.mention",
-            "Você foi mencionado",
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            default_channels=("in_app", "email"),
+    with isolated_notification_types():
+        monkeypatch.setattr(delivery_module, "RETRY_SCHEDULE", (timedelta(0),) * 4)
+        register_notification_type(
+            NotificationType(
+                "notes.mention",
+                "Você foi mencionado",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                default_channels=("in_app", "email"),
+            )
         )
-    )
-    return build_service_scenario(Note, slug="email-brand")
+        yield build_service_scenario(Note, slug="email-brand")
 
 
 def brand(scenario, organization, admin, *, color="", name="", language="", logo=False):

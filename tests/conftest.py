@@ -108,10 +108,37 @@ def _keep_shard(config, items):
         items[:] = [item for item in items if item.nodeid in keep]
 
 
+def example_app_action(*, installed: bool, required: bool) -> str:
+    """What to do with tests marked needs_example_app: "run", "skip" or "error" (#264)."""
+    if installed:
+        return "run"
+    return "error" if required else "skip"
+
+
+def _mark_example_app_tests(items):
+    from django.apps import apps
+
+    marked = [item for item in items if item.get_closest_marker("needs_example_app")]
+    action = example_app_action(
+        installed=apps.is_installed("examples.notes"),
+        required=os.environ.get("SKELETON_TEST_REQUIRE_EXAMPLE_APP") == "1",
+    )
+    if marked and action == "error":
+        raise pytest.UsageError(
+            f"{len(marked)} tests need examples.notes: set SKELETON_ENABLE_EXAMPLE_APP=true "
+            "(SKELETON_TEST_REQUIRE_EXAMPLE_APP=1 forbids skipping them)."
+        )
+    if action == "skip":
+        skip_notes = pytest.mark.skip(reason="SKELETON_ENABLE_EXAMPLE_APP=true is required")
+        for item in marked:
+            item.add_marker(skip_notes)
+
+
 def pytest_collection_modifyitems(config, items):
     """Production artifact handling is POSIX-only; report it as a skip, never as an error."""
     if config.getoption("shard"):
         _keep_shard(config, items)
+    _mark_example_app_tests(items)
     if POSIX_FILESYSTEM:
         return
     skip = pytest.mark.skip(reason="Requer os.O_NOFOLLOW/fcntl; execute em Linux ou macOS.")

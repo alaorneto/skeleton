@@ -9,7 +9,6 @@ from uuid import uuid4
 import pytest
 from django.core import mail
 
-from skeleton.notifications import registry
 from skeleton.notifications.channels.digest import run_digest
 from skeleton.notifications.inbox import mark_read
 from skeleton.notifications.models import NotificationDelivery, NotificationRecipient
@@ -18,9 +17,10 @@ from skeleton.notifications.registry import NotificationType, register_notificat
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import build_service_scenario
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 # 12:00 UTC on a Monday is 09:00 in São Paulo.
 MONDAY_NOON = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
 TUESDAY_NOON = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
@@ -28,24 +28,20 @@ TUESDAY_NOON = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 
 @pytest.fixture
 def scenario(monkeypatch, settings):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     settings.SKELETON_PUBLIC_URL = "https://app.example.test"
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(NotificationType("system.notice", "Aviso", default_channels=("in_app", "email")))
-    register_notification_type(NotificationType("system.other", "Outro aviso"))
-    scenario = build_service_scenario(Note, slug="digest")
-    with system_context(reason="test:profile-timezone"):
-        profile = scenario.member.profile
-        profile.refresh_from_db()
-        profile.timezone = "America/Sao_Paulo"
-        profile.save(update_fields={"timezone"})
-    return scenario
+    with isolated_notification_types():
+        register_notification_type(NotificationType("system.notice", "Aviso", default_channels=("in_app", "email")))
+        register_notification_type(NotificationType("system.other", "Outro aviso"))
+        scenario = build_service_scenario(Note, slug="digest")
+        with system_context(reason="test:profile-timezone"):
+            profile = scenario.member.profile
+            profile.refresh_from_db()
+            profile.timezone = "America/Sao_Paulo"
+            profile.save(update_fields={"timezone"})
+        yield scenario
 
 
 def prefer(user, mode, hour=9, type_code="*"):

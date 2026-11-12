@@ -7,9 +7,10 @@ from urllib.parse import urlsplit
 import pytest
 from django.core import mail
 from django.core.exceptions import ValidationError
-from django.test import Client, RequestFactory
+from django.test import RequestFactory
 from django.urls import reverse
 
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 PASSWORD = "Fixture-only-password-2026!"
@@ -21,18 +22,7 @@ def access(skeleton_db):
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {
-            "login": user.email,
-            "password": PASSWORD,
-            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
-        },
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=PASSWORD)
 
 
 def membership_url(access, detail=False):

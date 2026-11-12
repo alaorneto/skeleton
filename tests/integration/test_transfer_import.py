@@ -2,33 +2,29 @@
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.urls import reverse
 
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 from skeleton.transfer.csvio import read_csv
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 TABLE = "example_notes.note"
 
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="import")
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def upload(client, organization, text, name="notas.csv"):

@@ -22,6 +22,8 @@ from skeleton.integrations.tokens.services import (
 from skeleton.tenancy.context import request_context, system_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 NOTE_READ = "example_notes.note:read"
 
 
