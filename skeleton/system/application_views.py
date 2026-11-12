@@ -4,11 +4,24 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods, require_safe
 from rest_framework.response import Response
 
 from skeleton.access.capabilities import APPS_MANAGE, capabilities_for
 from skeleton.api.errors import BoundaryError
+from skeleton.api.openapi import (
+    BOOLEAN,
+    INTEGER,
+    OBJECT,
+    ORGANIZATION_ADMIN,
+    UUID,
+    Operation,
+    nullable,
+    obj,
+    results,
+    string,
+)
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.web.views import tenant_page
@@ -69,7 +82,42 @@ def state_data(state):
     }
 
 
+APPLICATION_STATE = obj(
+    {
+        "app_label": string(),
+        "available": BOOLEAN,
+        "label": string(),
+        "description": string(),
+        "app_id": string(),
+        "version": string(),
+        "enabled": BOOLEAN,
+        "configuration": OBJECT,
+        "revision": INTEGER,
+        "sysid": nullable(UUID),
+    }
+)
+
+
 class ApplicationAPI(TenantAPI):
+    openapi_detail = "app_label"
+    openapi = {
+        "GET": (
+            Operation("Apps da organização", results(APPLICATION_STATE), detail=False, capability=ORGANIZATION_ADMIN),
+            Operation(
+                "Lê o estado de uma app", APPLICATION_STATE, etag=True, detail=True, capability=ORGANIZATION_ADMIN
+            ),
+        ),
+        "PUT": Operation(
+            "Ativa, desativa ou configura uma app",
+            APPLICATION_STATE,
+            etag=True,
+            if_match=True,
+            detail=True,
+            request=obj({"enabled": BOOLEAN, "configuration": OBJECT}),
+            capability=ORGANIZATION_ADMIN,
+        ),
+    }
+
     def check_permissions(self, request):
         super().check_permissions(request)
         require_apps_manager(request.user)
@@ -87,12 +135,12 @@ class ApplicationAPI(TenantAPI):
         _manifest(app_label)
         value = request.headers.get("If-Match")
         if value is None:
-            raise BoundaryError("revision_required", "Informe a revisão.", 428)
+            raise BoundaryError("revision_required", gettext("Informe a revisão."), 428)
         if not re.fullmatch(r'"(?:0|[1-9][0-9]{0,18})"', value):
-            raise BoundaryError("invalid_revision", "Revisão inválida.")
+            raise BoundaryError("invalid_revision", gettext("Revisão inválida."))
         data = request_fields(request)
         if set(data) != {"enabled", "configuration"}:
-            raise BoundaryError("invalid_request", "Informe enabled e configuration.")
+            raise BoundaryError("invalid_request", gettext("Informe enabled e configuration."))
         from skeleton.api.errors import if_match_precondition
         from skeleton.service_api.applications import ApplicationAdministrationService
 
@@ -161,7 +209,7 @@ def application_configuration(request, organization_id, app_label):
     manifest = _visible_manifest(app_label)
     state = application_state(app_label)
     fields = {
-        "enabled": forms.BooleanField(required=False, label="Aplicativo ativo"),
+        "enabled": forms.BooleanField(required=False, label=gettext("Aplicativo ativo")),
         "revision": forms.IntegerField(min_value=0, widget=forms.HiddenInput),
     }
     for field in manifest.configuration_fields:
@@ -173,12 +221,12 @@ def application_configuration(request, organization_id, app_label):
         else:
             fields[field.name] = forms.IntegerField(**options)
     dependencies = [application_state(label) for label in manifest.dependencies]
-    fields["enabled"].help_text = "Desativar preserva os registros e a configuração. " + (
-        "Dependências: "
+    fields["enabled"].help_text = gettext("Desativar preserva os registros e a configuração. ") + (
+        gettext("Dependências: ")
         + ", ".join(f"{item['label']} ({'ativa' if item['enabled'] else 'desativada'})" for item in dependencies)
         + "."
         if dependencies
-        else "Sem dependências."
+        else gettext("Sem dependências.")
     )
     form_type = type("ApplicationConfigurationForm", (forms.Form,), fields)
     form = form_type(
@@ -188,7 +236,7 @@ def application_configuration(request, organization_id, app_label):
     status = 200
     if request.method == "POST":
         if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
-            form.add_error(None, "Campo não permitido.")
+            form.add_error(None, gettext("Campo não permitido."))
             status = 400
         elif form.is_valid():
             data = dict(form.cleaned_data)
@@ -199,15 +247,15 @@ def application_configuration(request, organization_id, app_label):
                 )
                 return redirect("application-admin", organization_id=organization_id, app_label=app_label)
             except ConcurrentUpdate:
-                form.add_error(None, "A configuração mudou. Atualize a página.")
+                form.add_error(None, gettext("A configuração mudou. Atualize a página."))
                 status = 409
             except ValidationError as exc:
                 codes = {item.code for items in getattr(exc, "error_dict", {}).values() for item in items}
                 form.add_error(
                     None,
-                    "O aplicativo não está disponível para esta organização: só é possível desativá-lo."
+                    gettext("O aplicativo não está disponível para esta organização: só é possível desativá-lo.")
                     if "app_unavailable" in codes
-                    else "Verifique os campos e as dependências ativas.",
+                    else gettext("Verifique os campos e as dependências ativas."),
                 )
                 status = 400
         else:
@@ -231,21 +279,21 @@ def application_configuration(request, organization_id, app_label):
             ],
         }
 
-    sections = [section("application-activation", "Ativação", ["enabled"])]
+    sections = [section("application-activation", gettext("Ativação"), ["enabled"])]
     for group in sorted(manifest.administration.configuration_sections, key=lambda item: (item.order, item.id)):
         names = [field.name for field in manifest.configuration_fields if field.section_id == group.id]
         if names:
             sections.append(section(group.id, group.label, names))
     unassigned = [field.name for field in manifest.configuration_fields if field.section_id is None]
     if unassigned:
-        sections.append(section("application-configuration", "Configuração", unassigned))
+        sections.append(section("application-configuration", gettext("Configuração"), unassigned))
     from django.urls import reverse
 
     return render(
         request,
         "skeleton/web/form.html",
         {
-            "title": f"{manifest.label} — Configuração",
+            "title": gettext("%(label)s — Configuração") % {"label": manifest.label},
             "form": form,
             "sections": sections,
             "organization_id": organization_id,
@@ -258,7 +306,7 @@ def application_configuration(request, organization_id, app_label):
                         "application-admin", kwargs={"organization_id": organization_id, "app_label": app_label}
                     ),
                 },
-                {"label": "Configuração"},
+                {"label": gettext("Configuração")},
             ],
             "configuration_dependencies": manifest.dependencies,
         },

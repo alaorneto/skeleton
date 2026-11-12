@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 from skeleton.tenancy.context import current_context
 
@@ -111,14 +112,14 @@ def _tenant_relation(obj):
         getattr(obj, "organization_id", current_context().organization_id) != current_context().organization_id
         or obj.deleted_at is not None
     ):
-        raise ValidationError("Relation must be live and belong to the current organization.")
+        raise ValidationError(gettext("A relação precisa estar ativa e pertencer à organização atual."))
     if hasattr(obj, "is_active") and not obj.is_active:
-        raise ValidationError("Relation must be active.")
+        raise ValidationError(gettext("A relação precisa estar ativa."))
 
 
 def _create(model, *, user, data, fields, capability=ACCESS_MANAGE):
     if set(data) - set(fields):
-        raise ValidationError("Unsupported fields.")
+        raise ValidationError(gettext("Campos não permitidos."))
     with organization_lock(user, capability=capability) as organization:
         for value in data.values():
             if hasattr(value, "_meta"):
@@ -130,11 +131,11 @@ def _create(model, *, user, data, fields, capability=ACCESS_MANAGE):
 
 def _update(record, *, user, data, fields, capability=ACCESS_MANAGE):
     if set(data) - set(fields):
-        raise ValidationError("Unsupported fields.")
+        raise ValidationError(gettext("Campos não permitidos."))
     with organization_lock(user, capability=capability):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False) and "code" in data and data["code"] != record.code:
-            raise ValidationError("Builtin role codes are immutable.")
+            raise ValidationError(gettext("O código de um papel interno não muda."))
         for key, value in data.items():
             setattr(record, key, value)
         record.save(update_fields=set(data))
@@ -146,7 +147,7 @@ def _delete(record, *, user, capability=ACCESS_MANAGE):
     with organization_lock(user, capability=capability):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False):
-            raise ValidationError("Builtin roles cannot be removed.")
+            raise ValidationError(gettext("Papéis internos não podem ser removidos."))
         record.delete()
         ensure_last_admin()
 
@@ -174,7 +175,7 @@ def admit_member(*, organization, user, role):
         raise PermissionDenied("Admission runs in the organization's own context.")
     _tenant_relation(role)
     if user.deleted_at is not None or not user.is_active:
-        raise ValidationError("Identity is unavailable.")
+        raise ValidationError(gettext("Identidade indisponível."))
     from skeleton.events.core_events import membership_changed
 
     membership = Membership.all_objects.filter(organization=organization, user=user).first()
@@ -198,11 +199,11 @@ def create_membership(*, user, data):
     from skeleton.tenancy.models import Membership
 
     if set(data) - {"user", "is_active"}:
-        raise ValidationError("Unsupported fields.")
+        raise ValidationError(gettext("Campos não permitidos."))
     with organization_lock(user, capability=MEMBERS_MANAGE) as organization:
         identity = data["user"]
         if identity.deleted_at is not None or not identity.is_active:
-            raise ValidationError("Identity unavailable.")
+            raise ValidationError(gettext("Identidade indisponível."))
         from skeleton.events.core_events import membership_changed
 
         existing = Membership.all_objects.filter(organization=organization, user=identity).first()
@@ -230,10 +231,10 @@ def _revoke_membership_links(record):
 
 def update_membership(record, *, user, data):
     if set(data) - {"is_active"}:
-        raise ValidationError("Membership identity is immutable.")
+        raise ValidationError(gettext("A pessoa de um vínculo não muda."))
     with organization_lock(user, capability=MEMBERS_MANAGE):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
-            raise ValidationError("Membership unavailable.")
+            raise ValidationError(gettext("Vínculo indisponível."))
         require_service_account_manager(user, record)
         if data.get("is_active") is False:
             require_unprivileged_target(user, membership=record)
@@ -251,7 +252,7 @@ def update_membership(record, *, user, data):
 def delete_membership(record, *, user):
     with organization_lock(user, capability=MEMBERS_MANAGE):
         if record.organization_id != current_context().organization_id or record.deleted_at is not None:
-            raise ValidationError("Membership unavailable.")
+            raise ValidationError(gettext("Vínculo indisponível."))
         require_service_account_manager(user, record)
         require_unprivileged_target(user, membership=record)
         _revoke_membership_links(record)
@@ -308,7 +309,7 @@ def leave_organization(user, *, expected_revision=None):
     with organization_lock():
         membership = Membership.objects.select_for_update().filter(user=user, is_active=True).first()
         if membership is None:
-            raise PermissionDenied("Membership unavailable.")
+            raise PermissionDenied(gettext("Vínculo indisponível."))
         if expected_revision is not None and membership.revision != expected_revision:
             raise ConcurrentUpdate("The membership changed.")
         _revoke_membership_links(membership)
@@ -326,7 +327,7 @@ def create_role(*, user, data):
     from .models import Role
 
     if data.get("code") in BUILTIN_CODES:
-        raise ValidationError("Builtin codes are reserved.")
+        raise ValidationError(gettext("Esse código é reservado aos papéis internos."))
     return _create(Role, user=user, data=data, fields=("code", "name", "description"))
 
 
@@ -379,9 +380,9 @@ def _eligible_table(table, action):
     try:
         spec = get_spec(table.model_label)
     except KeyError:
-        raise ValidationError("Unknown business table.") from None
+        raise ValidationError(gettext("Tabela de negócio desconhecida.")) from None
     if not table.available or not spec.expose_api or not issubclass(spec.model, SecuredRecord) or action not in ACTIONS:
-        raise ValidationError("Table or action is not eligible for enterprise permissions.")
+        raise ValidationError(gettext("Essa tabela ou ação não aceita permissões."))
     return spec
 
 
@@ -400,12 +401,12 @@ def create_record_grant(*, user, data):
         data["action"] not in {"read", "update", "delete"}
         or sum(data.get(name) is not None for name in ("membership", "group", "role")) != 1
     ):
-        raise ValidationError("A record grant requires exactly one subject and a supported action.")
+        raise ValidationError(gettext("A concessão precisa de exatamente um destinatário e de uma ação suportada."))
     # Resolve actual live record with authorized table/tenant visibility, never UUID-only trust.
     from .policies import authorized_queryset
 
     if not authorized_queryset(spec.model, user=user).filter(pk=data["record_sysid"]).exists():
-        raise ValidationError("Record is unavailable.")
+        raise ValidationError(gettext("Registro indisponível."))
     return _create(
         RecordGrant, user=user, data=data, fields=("table", "record_sysid", "membership", "group", "role", "action")
     )

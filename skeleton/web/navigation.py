@@ -8,6 +8,7 @@ from typing import Any
 
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.tenancy.context import current_context, memberships_for_user
 
@@ -18,21 +19,29 @@ __all__ = ["ACCESS_SECTIONS", "organization_shell"]
 ACCESS_SECTIONS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
         "people",
-        "Pessoas",
-        (("memberships", "Membros"), ("invitations", "Convites"), ("member-roles", "Papéis de membros")),
+        gettext_lazy("Pessoas"),
+        (
+            ("memberships", gettext_lazy("Membros")),
+            ("invitations", gettext_lazy("Convites")),
+            ("member-roles", gettext_lazy("Papéis de membros")),
+        ),
     ),
     (
         "groups",
-        "Grupos",
-        (("groups", "Grupos"), ("group-members", "Membros de grupos"), ("group-roles", "Papéis de grupos")),
+        gettext_lazy("Grupos"),
+        (
+            ("groups", gettext_lazy("Grupos")),
+            ("group-members", gettext_lazy("Membros de grupos")),
+            ("group-roles", gettext_lazy("Papéis de grupos")),
+        ),
     ),
     (
         "roles",
-        "Papéis e permissões",
+        gettext_lazy("Papéis e permissões"),
         (
-            ("roles", "Papéis"),
-            ("table-permissions", "Permissões de tabelas"),
-            ("record-grants", "Concessões de registros"),
+            ("roles", gettext_lazy("Papéis")),
+            ("table-permissions", gettext_lazy("Permissões de tabelas")),
+            ("record-grants", gettext_lazy("Concessões de registros")),
         ),
     ),
 )
@@ -99,11 +108,11 @@ def _admission_links(organization_id: Any, capabilities: frozenset[str], path: s
     """Join requests (#26) for deciders and the admission policy for who configures it."""
     links = []
     for capability, name, label in (
-        ("admission.decide", "web:join-requests", "Solicitações"),
-        ("invitations.manage", "web:join-links", "Links de ingresso"),
-        ("admission.configure", "web:admission", "Admissão"),
-        ("admission.configure", "web:verified-domains", "Domínios verificados"),
-        ("identity.configure", "web:identity", "Identidade"),
+        ("admission.decide", "web:join-requests", gettext("Solicitações")),
+        ("invitations.manage", "web:join-links", gettext("Links de ingresso")),
+        ("admission.configure", "web:admission", gettext("Admissão")),
+        ("admission.configure", "web:verified-domains", gettext("Domínios verificados")),
+        ("identity.configure", "web:identity", gettext("Identidade")),
     ):
         if capability in capabilities:
             url = reverse(name, kwargs={"organization_id": organization_id})

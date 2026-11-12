@@ -136,7 +136,7 @@ def test_sbr11_non_string_language_is_validation_error_without_write(value):
 def test_sbr12_manager_created_identity_has_persisted_profile_and_me(method):
     with system_context(reason="test:manager-identity"):
         user = getattr(User.objects, method)(email=f"{method}@example.test", password=PASSWORD)
-        assert UserProfile.objects.get(user=user).timezone == "UTC"
+        assert UserProfile.objects.get(user=user).timezone == ""  # Blank follows the defaults (#170).
         EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
     response = login(user).get("/api/v1/me/")
     assert response.status_code == 200

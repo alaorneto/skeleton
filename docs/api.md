@@ -10,6 +10,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
+| `openapi.json` | GET | [Schema OpenAPI 3.1](#schema-openapi) do que o ator alcança; sessão ou token |
 | `me/` | GET, PATCH | Própria identidade/perfil; ETag composto |
 | `organizations/` | GET | Apenas organizações dos próprios vínculos ativos |
 | `me/join-requests/`, `me/join-requests/<id>/withdraw/` | GET, POST; POST com If-Match | Os próprios pedidos de ingresso em todas as organizações; POST `{organization_id, message?}` cria (201) ou devolve o pedido aberto; organização que não aceita pedidos responde 404 neutro, limite excedido 429 `rate_limited` com `Retry-After`, email não verificado 403 `email_unverified`, vínculo ativo 409 `already_member`. Retirar exige If-Match; pedido já fechado 409 `not_open` |
@@ -17,7 +18,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/join-links/`, `join-links/<id>/revoke/` | GET, POST; POST com If-Match | Capacidade `invitations.manage`. A lista nunca traz token nem resumo. POST `{label, role, mode, days, max_uses}` (exatamente esses campos) cria e devolve a `url` com o token uma única vez (201, `Cache-Control: no-store`); papel com capacidade pedido pelo gestor de pessoas responde 403 `privileged_role`. Revogar exige If-Match (412 se stale) |
 | `o/<org>/join-requests/`, `join-requests/<id>/` | GET; POST decisão com If-Match | Capacidade `admission.decide`; só pedidos abertos da organização. POST `{"decision": "approve"\|"reject"}` (sem outros campos); revisão stale 412, pedido já decidido ou expirado 409 `not_pending`; o gestor de pessoas recebe 403 num pedido com papel que carrega capacidade |
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
-| `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros record_sysid/model_label na lista |
+| `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter` |
 | `o/<org>/membership/` | GET | O próprio vínculo do ator nesta organização (sysid, revisão) com ETag; 404 sem vínculo ativo |
 | `o/<org>/membership/leave/` | POST | O ator sai da organização; exige `If-Match` com a revisão do próprio vínculo (428 sem ele, 412 se mudou), corpo vazio; 204; 409 `last_administrator` para o último administrador |
 | `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
@@ -121,6 +122,59 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 
 `ETAG` inclui aspas do header atual. Releia após cada mutação antes de DELETE/restore. Em HTTPS use URL/origin/referer HTTPS exatos. Cookies/recovery codes não pertencem ao histórico de shell nem arquivos compartilhados. API não oferece export global de Users, hard delete ou bypass de tenant.
 
+## Fluxos de processo
+
+Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Só sessão: um token de API recebe 403 `token_not_allowed`.
+
+| URL relativa ao prefixo | Métodos | Contrato |
+|---|---|---|
+| `o/<org>/flows/tasks/` | GET | Caixa de tarefas do ator; `scope=mine` (padrão), `available` (filas) ou `all`; `status` só com `all` |
+| `o/<org>/flows/tasks/<id>/` | GET | Tarefa com campos do formulário, ações e dados do processo; ETag com a revisão da tarefa |
+| `o/<org>/flows/tasks/<id>/claim/`, `release/` | POST | Assumir ou devolver uma tarefa de fila; corpo vazio |
+| `o/<org>/flows/tasks/<id>/reassign/` | POST | `{"to_user": "<uuid>", "comment": "..."}` |
+| `o/<org>/flows/tasks/<id>/complete/` | POST | `{"action": "<chave>", "data": {campo: valor}, "comment": "..."}` |
+| `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
+| `o/<org>/flows/instances/` | GET | Instâncias visíveis; filtros exatos `flow_key`, `subject_id`, `status` |
+| `o/<org>/flows/instances/<id>/` | GET | Instância com etapas ativas e dados não sensíveis; ETag com a revisão da instância |
+| `o/<org>/flows/instances/<id>/history/` | GET | Histórico ordenado |
+| `o/<org>/flows/instances/<id>/cancel/`, `suspend/`, `resume/`, `retry/` | POST | Administração da instância; `cancel` e `suspend` aceitam `{"reason": "..."}` |
+
+- As listas usam cursor: `{"results": [...], "next_cursor": "..." | null, "page_size": 25}`; envie `cursor` e `page_size` (até 100).
+- Todo POST exige `If-Match` com a revisão lida no GET: da **tarefa** nas ações de tarefa, da **instância** nas demais. Sem o header, 428; revisão antiga, 412; nada é escrito.
+- Tarefa ou instância inexistente, de outra organização, não visível ou de app desativada responde 404. Visível, mas sem direito à ação, 403. Formulário inválido, 400 com `fields`. Estado incompatível (instância suspensa, tarefa encerrada), 409 com o código do conflito.
+- Campo não declarado no formulário da etapa ou da transição é recusado, como no gateway. Ator, organização, responsável e revisão nunca vêm do corpo.
+- Iniciar uma instância não tem rota aqui: é operação da app dona do fluxo.
+- Todas as rotas estão no [schema OpenAPI](#schema-openapi), cada ação com o próprio caminho literal. Os corpos de resposta são gerados dos DTOs do `FlowService` (`skeleton/flows/api_views.py`), e os comandos documentam `If-Match` (412/428) e `ETag`.
+
+## Schema OpenAPI
+
+`GET /api/v1/openapi.json` devolve o contrato da API em [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0), só em JSON e sem página interativa ([#178](https://github.com/alaorneto/skeleton/issues/178)). Ele aceita sessão ou [token](#autenticação-por-token); sem nenhum dos dois, a resposta é 401 ou 403. O documento é gerado do código a cada requisição (`skeleton/api/openapi.py`), nunca mantido à mão:
+
+- **Gateway:** cada `TableSpec` exposto vira caminhos concretos, como `/api/v1/o/{organization_id}/tables/example_notes.note/records/`. As propriedades são os campos sistêmicos e `read_fields`; o corpo de POST/PATCH, os `write_fields`. Os tipos vêm do `_meta` do modelo, pelo mesmo mapeamento da especificação congelada (`field_internal_type`): relações são UUID, e numa leitura do gateway aceitam `null` (referência invisível). Os filtros de igualdade da lista e os pickers de `references/` também aparecem.
+- **Views dedicadas:** cada view de `/api/v1/` declara um atributo `openapi`, um mapa de método HTTP para `Operation` (resumo, schemas de corpo e resposta, paginação, ETag, `If-Match`, capacidade exigida). Isso vale para as rotas de fora de `skeleton/api/urls.py`, como notificações, apps, webhooks e tokens. As rotas vêm da árvore de URLs real, então uma view de app sob `api/v1/o/<org>/apps/<label>/` aparece onde está montada. Uma view sem `openapi` ainda aparece, com corpo livre e `x-skeleton-undocumented: true`.
+- **Componentes:** `Error` (`{code, detail, fields}`, também a resposta `default` de toda operação), `Page` e os parâmetros `page`/`page_size`, o header `ETag`, o parâmetro `If-Match` e as respostas `PreconditionFailed` (412) e `PreconditionRequired` (428). Os esquemas de segurança são `bearerAuth` e `sessionAuth`; cada operação lista `bearerAuth` só quando a view aceita token naquele método (`token_methods`).
+
+O schema descreve só o que o ator alcança. O servidor lê cada organização ativa do ator numa transação própria e somente leitura, como as [rotas agregadas](concepts.md#autorização-e-contexto) (`for_each_organization`), e junta o resultado:
+
+- uma tabela aparece só com TablePermission do ator, e cada operação só com a ação correspondente (`read` para GET, `create` para POST, e assim por diante); app desativada esconde as tabelas e as rotas dela;
+- uma permissão da organização B nunca aparece para quem não é membro de B: nada de outra organização é lido;
+- operações administrativas aparecem só com a capacidade exigida (`access.manage`, `integrations.manage`, administrador da organização);
+- com token, só os métodos de `token_methods` e as ações dos escopos: um token `example_notes.note:read` vê apenas os GET daquela tabela, nenhuma administração e nenhum endpoint de tokens; um token vinculado a uma organização lê só essa organização;
+- `sensitive_fields` nunca aparecem, nem pelo nome: não são propriedades, filtros nem pickers. Quando um campo sensível está em `read_fields`, a resposta real o traz e o objeto do schema fica aberto (sem `additionalProperties: false`), de modo que o campo não é nomeado; nos demais objetos, propriedades fora do schema são proibidas.
+
+O documento muda com permissões, apps e versões: não o grave como contrato fixo. A resposta leva `Cache-Control: private, no-store`. Apps documentam as próprias views da mesma forma (importe `Operation` e os construtores de `skeleton.api.openapi`, uma superfície pública do núcleo):
+
+```python
+from skeleton.api.openapi import INTEGER, Operation, nullable, obj, string
+from skeleton.api.views import TenantAPI
+
+
+class SummaryView(TenantAPI):
+    openapi = {"GET": Operation("Resumo das anotações", obj({"count": INTEGER, "heading": nullable(string())}))}
+```
+
+A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([testes](testing.md#openapi-da-api-epic-86)).
+
 ## Tokens de API
 
 Além da sessão, a API aceita tokens de API (epic #79). Esta seção descreve o token em si (#45); a autenticação nas requisições está em [Autenticação por token](#autenticação-por-token).
@@ -163,6 +217,7 @@ Views que aceitam token, com os métodos:
 | `o/<org>/tables/<tabela>/references/<campo>/` | GET | `read` da tabela referenciada |
 | `.../records/<id>/attachments/` | GET, POST | `files:read` ou `files:write`, além do `read`/`update` do registro que o serviço já exige |
 | `.../attachments/<id>/`, `.../restore/` | DELETE, POST | `files:write` |
+| `.../records/<id>/comments/`, `.../comments/<id>/`, `.../comments/<id>/restore/` | GET, POST, PATCH, DELETE | Só o `read` do registro que o serviço já exige; edição, exclusão e restauração com `If-Match` ([comentários](comments.md)) |
 
 Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de apps, webhooks, auditoria, saída da organização e a gestão de tokens) só aceita sessão. Uma view de app que estende `SessionAPI` também só aceita token se declarar `token_methods`.
 

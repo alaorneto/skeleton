@@ -42,6 +42,9 @@ INSTALLED_APPS = [
     "skeleton.files.apps.FilesConfig",
     "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.sequences.apps.SequencesConfig",
+    "skeleton.transfer.apps.TransferConfig",
+    "skeleton.flows.apps.FlowsConfig",
+    "skeleton.comments.apps.CommentsConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",
@@ -68,6 +71,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    # After the tenant context: reads the organization defaults under RLS (#170).
+    "skeleton.common.locale.LocaleMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -121,8 +126,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
-LANGUAGE_CODE = "pt-br"
-LANGUAGES = [("pt-br", "Português"), ("en", "English")]
+# The core ships pt-BR only (msgids are pt-BR); derived projects add languages with their
+# catalogs in LOCALE_PATHS (#85). Defaults apply to people and organizations without a choice.
+SKELETON_DEFAULT_LANGUAGE = env("SKELETON_DEFAULT_LANGUAGE", default="pt-br")
+SKELETON_DEFAULT_TIMEZONE = env("SKELETON_DEFAULT_TIMEZONE", default="UTC")
+LANGUAGE_CODE = SKELETON_DEFAULT_LANGUAGE
+LANGUAGES = [("pt-br", "Português")]
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
@@ -159,6 +168,8 @@ STORAGES = {
 SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
 # Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
+# Deleted attachments keep their bytes this long, then files.purge removes them (#192).
+SKELETON_FILES_DELETED_RETENTION_DAYS = env.int("SKELETON_FILES_DELETED_RETENTION_DAYS", default=90)
 # Antivirus (#62): "none" (files are available at once) or "clamav" (clamd INSTREAM).
 SKELETON_FILES_SCANNER = env("SKELETON_FILES_SCANNER", default="none")
 SKELETON_FILES_CLAMAV_ADDRESS = env("SKELETON_FILES_CLAMAV_ADDRESS", default="")
@@ -202,6 +213,10 @@ from skeleton.api.proxy import proxy_settings
 globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
+# CSV export and import (#182, #183).
+SKELETON_EXPORT_MAX_ROWS = env.int("SKELETON_EXPORT_MAX_ROWS", default=100_000)
+SKELETON_IMPORT_MAX_ROWS = env.int("SKELETON_IMPORT_MAX_ROWS", default=10_000)
+SKELETON_TRANSFER_RETENTION_DAYS = env.int("SKELETON_TRANSFER_RETENTION_DAYS", default=7)
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # API tokens (#45): maximum validity in days of a newly issued token.
 SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)

@@ -14,7 +14,32 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy import identity_admission
 
 from .errors import BoundaryError
+from .openapi import BOOLEAN, DATETIME, INTEGER, UUID, Operation, array, nullable, obj, results, string
 from .views import TenantAPI, etag, request_fields
+
+ADMISSION_INPUT = obj(
+    {
+        "jit_provisioning": BOOLEAN,
+        "jit_requires_approval": BOOLEAN,
+        "default_role": nullable(UUID),
+        "allowed_email_domains": array(string()),
+    }
+)
+ADMISSION = obj({**ADMISSION_INPUT["properties"], "revision": INTEGER})
+PROVIDER = obj(
+    {
+        "sysid": UUID,
+        "provider_id": string(),
+        "name": string(),
+        "protocol": string(),
+        "enabled": BOOLEAN,
+        "show_on_login": BOOLEAN,
+        "login_path": string(),
+        "last_check_at": nullable(DATETIME),
+        "last_check_code": string(),
+        "admission": ADMISSION,
+    }
+)
 
 
 def provider_data(item):
@@ -40,6 +65,12 @@ def provider_data(item):
 
 
 class OrganizationIdentityProvidersAPI(TenantAPI):
+    openapi = {
+        "GET": Operation(
+            "Provedores de login da organização e suas regras", results(PROVIDER), capability=IDENTITY_CONFIGURE
+        )
+    }
+
     def check_permissions(self, request):
         super().check_permissions(request)
         require_resource_capability(request.user, IDENTITY_CONFIGURE)
@@ -49,6 +80,19 @@ class OrganizationIdentityProvidersAPI(TenantAPI):
 
 
 class OrganizationIdentityProviderAdmissionAPI(OrganizationIdentityProvidersAPI):
+    openapi = {
+        "GET": Operation("Regras de admissão de um provedor", ADMISSION, etag=True, capability=IDENTITY_CONFIGURE),
+        "PUT": Operation(
+            "Grava as regras de admissão de um provedor",
+            ADMISSION,
+            etag=True,
+            if_match=True,
+            request=ADMISSION_INPUT,
+            capability=IDENTITY_CONFIGURE,
+            description='A primeira gravação usa If-Match "0".',
+        ),
+    }
+
     def get(self, request, organization_id, sysid):
         try:
             item = identity_admission.provider(sysid)

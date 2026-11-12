@@ -85,6 +85,10 @@ from skeleton.events.registry import register_consumer
 register_consumer(MEMBERSHIP_CREATED, "tasks.welcome_member", welcome)  # welcome(envelope) relê o vínculo
 ```
 
+## Eventos de fluxos de processo
+
+O motor de [fluxos](flows.md#integrações) publica `flows.instance_started`, `flows.instance_completed`, `flows.instance_cancelled` e `flows.instance_failed` sobre `sk_flows.flowinstance`, na transação do comando, com `flow_key`, `flow_version`, `status`, `outcome`, `subject_table` e `subject_sysid`. Dados de formulário nunca entram no payload. Esses tipos não vão para webhooks; um fluxo pode mapear os mesmos momentos para tipos de evento da própria app sobre o registro de negócio (`subject_events`), que são eventos comuns e alcançam webhooks. O motor também consome `app.enabled`, para reagendar o que os fluxos da app esperavam.
+
 ## Retenção
 
 O job periódico `events.retention` (a cada 6 horas, por organização) apaga fisicamente os eventos com `occurred_at` além de `SKELETON_EVENT_RETENTION_DAYS` (30 por padrão). É o único caminho de exclusão de `DomainEvent`. O volume de jobs é proporcional a eventos × consumidores.

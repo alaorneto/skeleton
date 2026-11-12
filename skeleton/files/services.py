@@ -14,6 +14,7 @@ from typing import IO, Any
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -25,7 +26,7 @@ from .storage import StorageError, object_key, put_stream
 
 class UploadTooLarge(ValidationError):
     def __init__(self):
-        super().__init__("O arquivo excede o limite permitido.", code="too_large")
+        super().__init__(gettext("O arquivo excede o limite permitido."), code="too_large")
 
 
 def _precheck_quota(organization_id, size: int) -> None:
@@ -39,7 +40,9 @@ def _precheck_quota(organization_id, size: int) -> None:
 
 class UnsupportedFileType(ValidationError):
     def __init__(self):
-        super().__init__("Tipo de arquivo não permitido ou inconsistente com a extensão.", code="unsupported_type")
+        super().__init__(
+            gettext("Tipo de arquivo não permitido ou inconsistente com a extensão."), code="unsupported_type"
+        )
 
 
 def policy(spec):
@@ -90,7 +93,7 @@ def _clean_filename(name: str) -> str:
 
     name = PurePath(str(name).replace("\\", "/")).name.strip()
     if not name or len(name) > 255 or any(ord(char) < 32 for char in name):
-        raise ValidationError({"file": "Nome de arquivo inválido."})
+        raise ValidationError({"file": gettext("Nome de arquivo inválido.")})
     return name
 
 
@@ -194,22 +197,39 @@ def restore(spec, target_sysid, attachment_id, *, user, revision: int) -> Any:
         raise Http404
     if attachment.revision != revision:
         raise ConcurrentUpdate("Attachment revision is stale.")
+    if attachment.state == attachment.State.PURGED:
+        # The bytes are gone after the retention (#192): the attachment cannot come back.
+        raise ValidationError(
+            {"attachment": gettext("O conteúdo deste anexo foi expurgado e não pode ser restaurado.")}
+        )
     reserve(attachment.organization_id, attachment.size)  # Above the quota: QuotaExceeded (409).
     attachment.restore()
     return attachment
 
 
+ATTACHMENT_FIELDS = (
+    "sysid",
+    "revision",
+    "filename",
+    "content_type",
+    "size",
+    "sha256",
+    "state",
+    "created_at",
+    "created_by",
+    "deleted_at",
+)
+
+
+def attachment_schema() -> dict[str, Any]:
+    """OpenAPI schema of :func:`attachment_data` (#178), typed by ``_meta``."""
+    from skeleton.api.openapi import model_fields
+
+    from .models import Attachment
+
+    return model_fields(Attachment, ATTACHMENT_FIELDS)
+
+
 def attachment_data(attachment) -> dict[str, Any]:
     """Public metadata; ``storage_key`` never leaves the server."""
-    return {
-        "sysid": attachment.sysid,
-        "revision": attachment.revision,
-        "filename": attachment.filename,
-        "content_type": attachment.content_type,
-        "size": attachment.size,
-        "sha256": attachment.sha256,
-        "state": attachment.state,
-        "created_at": attachment.created_at,
-        "created_by": attachment.created_by,
-        "deleted_at": attachment.deleted_at,
-    }
+    return {name: getattr(attachment, name) for name in ATTACHMENT_FIELDS}

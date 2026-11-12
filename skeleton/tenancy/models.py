@@ -2,6 +2,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext
 
 from skeleton.common.models import OrganizationRecord, SystemRecord
 
@@ -23,7 +24,7 @@ class Organization(SystemRecord):
     def clean(self):
         super().clean()
         if self.deleted_at is not None and self.is_active:
-            raise ValidationError({"is_active": "A deleted organization cannot be active."})
+            raise ValidationError({"is_active": gettext("Uma organização excluída não pode ficar ativa.")})
 
     def _prepare_soft_delete(self):
         self.is_active = False
@@ -73,7 +74,7 @@ class Membership(OrganizationRecord):
                 raise ValidationError(
                     {
                         "user": ValidationError(
-                            "Uma conta de serviço pertence a uma só organização.", code="service_account"
+                            gettext("Uma conta de serviço pertence a uma só organização."), code="service_account"
                         )
                     }
                 )
@@ -87,14 +88,14 @@ class Membership(OrganizationRecord):
                 .filter(pk=self.user_id, is_active=True, deleted_at__isnull=True)
                 .exists()
             ):
-                raise ValidationError({"user": "Membership requires an active identity."})
+                raise ValidationError({"user": gettext("O vínculo exige uma identidade ativa.")})
             if (
                 self.organization_id
                 and not Organization.all_objects.using(using)
                 .filter(pk=self.organization_id, is_active=True, deleted_at__isnull=True)
                 .exists()
             ):
-                raise ValidationError({"organization": "Membership requires an active organization."})
+                raise ValidationError({"organization": gettext("O vínculo exige uma organização ativa.")})
 
     def _prepare_restore(self):
         # Services choose the requested active state before the single restore CAS.
@@ -436,17 +437,17 @@ class OrganizationSettings(OrganizationRecord):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
         if self.default_language and self.default_language not in dict(settings.LANGUAGES):
-            raise ValidationError({"default_language": "Idioma não suportado."})
+            raise ValidationError({"default_language": gettext("Idioma não suportado.")})
         if self.default_timezone:
             try:
                 ZoneInfo(self.default_timezone)
             except (ZoneInfoNotFoundError, ValueError):
-                raise ValidationError({"default_timezone": "Fuso horário inválido."}) from None
+                raise ValidationError({"default_timezone": gettext("Fuso horário inválido.")}) from None
         if self.brand_color:
             import re
 
             if not re.fullmatch(BRAND_COLOR_PATTERN, self.brand_color):
-                raise ValidationError({"brand_color": "Use uma cor no formato #RRGGBB."})
+                raise ValidationError({"brand_color": gettext("Use uma cor no formato #RRGGBB.")})
 
     def __str__(self):
         return self.display_name or str(self.organization_id)

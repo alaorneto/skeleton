@@ -16,15 +16,48 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
 from django.utils.dateparse import parse_datetime
+from django.utils.translation import gettext
 from django.views.decorators.cache import add_never_cache_headers
 from rest_framework.response import Response
 
+from skeleton.access.capabilities import INTEGRATIONS_MANAGE as MANAGE
 from skeleton.api.errors import BoundaryError, parse_revision
+from skeleton.api.openapi import DATETIME, Operation, array, model_label_fields, nullable, obj, results, string
 from skeleton.api.views import SessionAPI, TenantAPI, etag, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 
 from . import services
 from .models import ApiToken
+
+TOKEN_FIELDS = {
+    "sysid": "sysid",
+    "name": "name",
+    "kind": "kind",
+    "prefix": "prefix",
+    "scopes": "scopes",
+    "expires_at": "expires_at",
+    "revoked_at": "revoked_at",
+    "organization": "bound_organization",
+    "revision": "revision",
+    "created_at": "created_at",
+}
+TOKEN = model_label_fields(
+    "sk_integrations.ApiToken", TOKEN_FIELDS, scopes=array(string()), last_used_at=nullable(DATETIME)
+)
+ISSUED = model_label_fields(
+    "sk_integrations.ApiToken",
+    TOKEN_FIELDS,
+    scopes=array(string()),
+    last_used_at=nullable(DATETIME),
+    token=string(description="Texto do token, mostrado só nesta resposta."),
+)
+ISSUE_INPUT = obj(
+    {"name": string(), "scopes": array(string()), "expires_at": DATETIME}, required=("name", "scopes", "expires_at")
+)
+ACCOUNT = model_label_fields(
+    "sk_accounts.User", {"sysid": "sysid", "name": "first_name", "email": "email", "is_active": "is_active"}
+)
+NEEDS_RECENT = "Exige autenticação recente (403 reauthentication_required) e MFA de quem administra."
 
 
 def token_data(token):
@@ -76,7 +109,7 @@ def _require_recent(request):
     from skeleton.accounts.reauthentication import has_recent_authentication
 
     if not has_recent_authentication(request._request):
-        raise BoundaryError("reauthentication_required", "Autentique-se de novo para emitir um token.", 403)
+        raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para emitir um token."), 403)
 
 
 def _revoke(request, token_id):
@@ -87,11 +120,18 @@ def _revoke(request, token_id):
     except ApiToken.DoesNotExist:
         raise Http404 from None
     except ConcurrentUpdate:
-        raise BoundaryError("revision_conflict", "O token mudou.", 412) from None
+        raise BoundaryError("revision_conflict", gettext("O token mudou."), 412) from None
     return Response(status=204)
 
 
 class MeTokensView(SessionAPI):
+    openapi = {
+        "GET": Operation("Tokens pessoais do ator", lambda: results(TOKEN())),
+        "POST": Operation(
+            "Emite um token pessoal", ISSUED, status=201, etag=True, request=ISSUE_INPUT, description=NEEDS_RECENT
+        ),
+    }
+
     def get(self, request):
         if request.user.account_type != "human":
             raise Http404
@@ -108,11 +148,15 @@ class MeTokensView(SessionAPI):
         try:
             issued = services.issue_personal_token(actor=request.user, name=name, scopes=scopes, expires_at=expires_at)
         except PermissionDenied:
-            raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403) from None
+            raise BoundaryError(
+                "mfa_required", gettext("Configure autenticação multifator para continuar."), 403
+            ) from None
         return _issued(issued)
 
 
 class MeTokenDetailView(SessionAPI):
+    openapi = {"DELETE": Operation("Revoga um token pessoal", None, status=204, if_match=True)}
+
     @transaction.atomic
     def delete(self, request, sysid):
         return _revoke(request, sysid)
@@ -141,6 +185,13 @@ class ServiceAccountAPI(TenantAPI):
 
 
 class ServiceAccountsView(ServiceAccountAPI):
+    openapi = {
+        "GET": Operation("Contas de serviço da organização", lambda: results(ACCOUNT()), capability=MANAGE),
+        "POST": Operation(
+            "Cria uma conta de serviço", ACCOUNT, status=201, request=obj({"name": string()}), capability=MANAGE
+        ),
+    }
+
     def get(self, request, organization_id):
         return Response({"results": [account_data(user) for user in self.accounts(organization_id)]})
 
@@ -150,22 +201,37 @@ class ServiceAccountsView(ServiceAccountAPI):
 
         fields = request_fields(request)
         if set(fields) != {"name"}:
-            raise BoundaryError("invalid_request", "Envie só name.")
+            raise BoundaryError("invalid_request", gettext("Envie só name."))
         return Response(account_data(create_service_account(actor=request.user, name=fields["name"])), status=201)
 
 
 class ServiceAccountDetailView(ServiceAccountAPI):
+    openapi = {"DELETE": Operation("Desativa a conta de serviço", None, status=204, capability=MANAGE)}
+
     @transaction.atomic
     def delete(self, request, organization_id, sysid):
         from skeleton.accounts.services import deactivate_service_account
 
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Desativação não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Desativação não aceita campos."))
         deactivate_service_account(actor=request.user, user=self.account(organization_id, sysid))
         return Response(status=204)
 
 
 class ServiceAccountTokensView(ServiceAccountAPI):
+    openapi = {
+        "GET": Operation("Tokens da conta de serviço", lambda: results(TOKEN()), capability=MANAGE),
+        "POST": Operation(
+            "Emite um token da conta de serviço",
+            ISSUED,
+            status=201,
+            etag=True,
+            request=ISSUE_INPUT,
+            capability=MANAGE,
+            description=NEEDS_RECENT,
+        ),
+    }
+
     def get(self, request, organization_id, sysid):
         account = self.account(organization_id, sysid)
         rows = with_activity(services.service_tokens(organization_id, account=account))
@@ -181,11 +247,17 @@ class ServiceAccountTokensView(ServiceAccountAPI):
                 actor=request.user, account=account, name=name, scopes=scopes, expires_at=expires_at
             )
         except PermissionDenied:
-            raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403) from None
+            raise BoundaryError(
+                "mfa_required", gettext("Configure autenticação multifator para continuar."), 403
+            ) from None
         return _issued(issued)
 
 
 class ServiceAccountTokenDetailView(ServiceAccountAPI):
+    openapi = {
+        "DELETE": Operation("Revoga um token da conta de serviço", None, status=204, if_match=True, capability=MANAGE)
+    }
+
     @transaction.atomic
     def delete(self, request, organization_id, sysid, token_id):
         account = self.account(organization_id, sysid)

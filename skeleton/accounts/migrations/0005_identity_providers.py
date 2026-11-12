@@ -32,8 +32,8 @@ def columns(*extra, sensitive=()):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('sk_audit', '0002_record_infrastructure'),
-        ('sk_accounts', '0002_service_accounts'),
+        ('sk_audit', '0003_investigation_indexes'),
+        ('sk_accounts', '0004_personal_fields'),
         ('sk_tenancy', '0007_verified_domains'),
     ]
 

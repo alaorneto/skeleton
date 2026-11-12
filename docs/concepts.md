@@ -10,6 +10,14 @@ Pense em um exemplo: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela t
 
 **Identidade global** é a representação de uma pessoa no sistema inteiro. `User` guarda sua conta e os controles de autenticação; `UserProfile` guarda preferências como nome de exibição, idioma e fuso horário. Entrar em outra organização não cria uma segunda conta.
 
+**Idioma e fuso** de cada resposta e de cada email seguem esta ordem ([#170](https://github.com/alaorneto/skeleton/issues/170)):
+
+1. o perfil da pessoa;
+2. o padrão da organização atual, definido pelo administrador em `/o/<org>/settings/`;
+3. o padrão da instância (`SKELETON_DEFAULT_LANGUAGE` e `SKELETON_DEFAULT_TIMEZONE`).
+
+Um valor em branco passa para o próximo nível. Antes do login, só o `Accept-Language` do navegador escolhe, entre os idiomas de `LANGUAGES`. A organização vem sempre do contexto aberto pelo middleware de tenant, nunca de header ou parâmetro. O núcleo entrega só pt-BR; outro idioma entra quando o projeto derivado acrescenta o catálogo dele.
+
 **Organização** (`Organization`) é a unidade à qual os dados de negócio pertencem: por exemplo, uma clínica, empresa ou equipe. A palavra inglesa **tenant** significa essa organização no contexto de isolamento de dados. **Multi-tenancy** significa que uma instalação atende várias organizações sem misturar seus dados.
 
 **Vínculo** (`Membership`) liga uma conta a uma organização. Ter uma conta não significa pertencer a todas as organizações. Ana pode ter um papel de administradora na clínica e um papel de membro no laboratório. Um vínculo desativado deixa de permitir acesso, mas sua história continua armazenada.

@@ -53,7 +53,7 @@ As restrições herdadas recebem nomes com app/model para não colidir entre tab
 | Modelo / label | Campos próprios e significado | Invariantes |
 |---|---|---|
 | User / `sk_accounts.User` | Email normalizado com lowercase+strip; first_name/last_name; password/last_login da biblioteca; is_active/is_staff/is_superuser; auth_version; local_password_allowed | Email único, inclusive entre excluídos. USERNAME_FIELD=email; não há username nem relações próprias groups/user_permissions. Excluído fica inativo. Administrador de plataforma usa staff+superuser; papel organizacional não promove essas flags. |
-| UserProfile / `sk_accounts.UserProfile` | user OneToOne PROTECT; display_name; timezone=`UTC`; language=`pt-br` | Criado junto à identidade. Página/API de perfil edita apenas o próprio usuário; plataforma pode administrar perfis no admin global. Fuso validado com zoneinfo e idioma nas opções configuradas. Sem uploads ou negócio. |
+| UserProfile / `sk_accounts.UserProfile` | user OneToOne PROTECT; display_name; timezone e language, em branco por padrão (seguem a organização e a instância, #170) | Criado junto à identidade. Página/API de perfil edita apenas o próprio usuário; plataforma pode administrar perfis no admin global. Fuso validado com zoneinfo e idioma nas opções configuradas. Sem uploads ou negócio. |
 | Organization / `sk_tenancy.Organization` | name; slug; is_active | Slug único, inclusive entre excluídos, e imutável. Ciclo de vida controlado pela plataforma; desativar não apaga negócio. |
 | TableDefinition / `sk_system.TableDefinition` | database_alias, schema_name, db_table, model_label; label/description; origin, scope, base_class; uuid_managed, soft_delete, audit_mode, api_exposed, available | Chave alias/schema/tabela única. Sincronização controla informações físicas e preserva textos humanos; usuário não pode excluir a entrada. |
 | FieldDefinition / `sk_system.FieldDefinition` | table; name (Django), column (física); label/description; type_name; nullable/primary_key; relation_target; sensitive; available | UNIQUE(table,column). Sincronização controla informações físicas e preserva textos humanos. |
@@ -99,6 +99,21 @@ Criar uma organização também é uma unidade transacional: `create_organizatio
 
 `sk_system.0005_deploymentoperation_lifecycle` acrescenta `reinstall` e `core_update` ao contrato de operação, sem alterar colunas/infraestrutura da migration anterior. Falha de migration conserva o modo de manutenção; recuperação offline reconciliada aparece como `restored` no histórico.
 
+
+## Fluxos de processo
+
+As seis tabelas de `sk_flows` (`sk_flows.0001_initial`) derivam de `OrganizationRecord`, com relações `PROTECT` de mesmo tenant e infraestrutura congelada na migration. Nenhuma entra no gateway genérico: só os serviços de `skeleton.flows` as escrevem, e a autorização é derivada do registro de negócio e da participação. Detalhe em [fluxos](flows.md#modelo-de-dados).
+
+| Modelo | Campos próprios | Unicidade/regras |
+|---|---|---|
+| FlowDefinition | key, version, app_label, label, digest, specification (JSON) | UNIQUE(org,key,version); todos os campos imutáveis: uma versão publicada nunca muda |
+| FlowInstance | definition, flow_key, flow_version, number, subject_table, subject_sysid, status, outcome, starter, data, sensitive_data, idempotency_key, run_count, activity_count, finished_at | Uma instância ativa (`running`/`suspended`) por fluxo e registro de negócio; chave de idempotência única por fluxo; `sensitive_data` redigido na auditoria; `subject_table` + `subject_sysid` não é `GenericForeignKey`: o serviço resolve o modelo no registro em código |
+| FlowStepRun | instance, step_key, kind, status, sequence, scope, branch, via, outcome, state, due_at, finished_at | UNIQUE(instance,sequence); `scope` aponta para a ativação da bifurcação que criou o ramo |
+| FlowTask | instance, step_run, step_key, kind, status, slot, assignee, candidate_group, candidate_role, delegated_from, decision, action, comment, due_at, reminded_count, escalated_at, completed_by, completed_at | No máximo uma fila (grupo ou papel); a fila é limpa quando a tarefa fecha, para só tarefas abertas impedirem a remoção de um grupo ou papel; `comment` redigido na auditoria |
+| FlowSubmission | instance, step_run, task, step_key, transition_key, origin, values, sensitive_values | Todos os campos imutáveis; `sensitive_values` redigido na auditoria |
+| FlowActivity | instance, sequence, kind, step_key, step_run, task, detail, comment | UNIQUE(instance,sequence); todos os campos imutáveis; `comment` redigido na auditoria |
+
+Essas tabelas são dado de negócio, não estado de pipeline: têm revisão, exclusão lógica e auditoria por linha. O que é operacional (timers, retentativas, entregas) usa a fila de jobs.
 
 ## Tabelas operacionais (ADR)
 

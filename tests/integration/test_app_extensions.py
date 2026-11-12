@@ -234,7 +234,7 @@ def test_activation_follows_transitive_dependencies_and_names_blockers(app_actor
                 configuration={},
                 revision=activation_revision("example_notes"),
             )
-            with pytest.raises(ValidationError, match="Enable required applications first: Anotações, Middle_Fixture"):
+            with pytest.raises(ValidationError, match="Ative antes os aplicativos exigidos: Anotações, Middle_Fixture"):
                 configure_application(
                     "top_fixture",
                     user=actor,

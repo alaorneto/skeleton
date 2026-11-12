@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
 
@@ -8,10 +9,12 @@ class Attachment(OrganizationRecord):
     """Metadata of a file attached to a record; authorization always derives from the target."""
 
     class State(models.TextChoices):
-        PENDING = "pending", "Aguardando verificação"
-        AVAILABLE = "available", "Disponível"
-        QUARANTINED = "quarantined", "Em quarentena"
-        REJECTED = "rejected", "Rejeitado"
+        PENDING = "pending", gettext_lazy("Aguardando verificação")
+        AVAILABLE = "available", gettext_lazy("Disponível")
+        QUARANTINED = "quarantined", gettext_lazy("Em quarentena")
+        REJECTED = "rejected", gettext_lazy("Rejeitado")
+        # Bytes deleted after the retention of a deleted attachment (#192); never restorable.
+        PURGED = "purged", gettext_lazy("Expurgado")
 
     target_table = models.ForeignKey("sk_system.TableDefinition", on_delete=models.PROTECT, related_name="attachments")
     target_sysid = models.UUIDField()
@@ -28,7 +31,7 @@ class Attachment(OrganizationRecord):
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
             models.CheckConstraint(
-                condition=Q(state__in=("pending", "available", "quarantined", "rejected")),
+                condition=Q(state__in=("pending", "available", "quarantined", "rejected", "purged")),
                 name="sk_files_attachment_state",
             ),
         ]

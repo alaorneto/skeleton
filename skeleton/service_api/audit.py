@@ -10,6 +10,7 @@ from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate, validate_page_size
@@ -109,7 +110,7 @@ class AuditService(ServiceAPI):
         from skeleton.system.registry import get_spec
 
         if not isinstance(table_key, str):
-            raise InvalidInput({"table_key": ["Use o identificador da tabela."]})
+            raise InvalidInput({"table_key": [gettext("Use o identificador da tabela.")]})
         identifier = as_uuid(record_id, field="record_id")
         try:
             spec = get_spec(table_key)
@@ -185,6 +186,17 @@ def _log_event(event: Any) -> AuditLogEvent:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class DomainEventSummary:
+    """A domain event correlated with an audited request; identifiers only, never ``data``."""
+
+    event_type: str
+    table_key: str
+    record_id: UUID
+    record_revision: int | None
+    occurred_at: datetime
+
+
 def _authorized_log(actor: AbstractBaseUser) -> Any:
     from skeleton.access.policies import authorized_audit_queryset
 
@@ -205,10 +217,19 @@ class AuditLogService(ServiceAPI):
         actor: AbstractBaseUser,
         model_label: str | None = None,
         record_id: UUID | str | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        actor_id: UUID | str | None = None,
+        operation: str | None = None,
+        request_id: UUID | str | None = None,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> AuditLogPage:
         """Return one numbered page of the events the actor may read, most recent first.
+
+        ``since`` (inclusive) and ``until`` (exclusive) bound ``created_at``; ``actor_id``,
+        ``operation`` and ``request_id`` narrow further (#184). Filters only narrow what the
+        authorization already allows.
 
         Autorização: as regras de ``authorized_audit_queryset``: administrador da organização vê
         todos os eventos dela; os demais, os eventos dos registros que leem (ou restauram) nas
@@ -219,15 +240,32 @@ class AuditLogService(ServiceAPI):
         Efeitos: nenhum.
         """
         if model_label is not None and not isinstance(model_label, str):
-            raise InvalidInput({"model_label": ["Use o rótulo do modelo."]})
+            raise InvalidInput({"model_label": [gettext("Use o rótulo do modelo.")]})
         size = validate_page_size(page_size)
         if type(page) is not int or page < 1:
-            raise InvalidInput({"page": ["Use um inteiro maior que zero."]})
+            raise InvalidInput({"page": [gettext("Use um inteiro maior que zero.")]})
         events = _authorized_log(actor)
         if model_label is not None:
             events = events.filter(model_label=model_label)
         if record_id is not None:
             events = events.filter(record_sysid=as_uuid(record_id, field="record_id"))
+        for name, value in (("since", since), ("until", until)):
+            if value is not None and not isinstance(value, datetime):
+                raise InvalidInput({name: [gettext("Use data e hora.")]})
+        if since is not None:
+            events = events.filter(created_at__gte=as_utc(since))
+        if until is not None:
+            events = events.filter(created_at__lt=as_utc(until))
+        if actor_id is not None:
+            events = events.filter(actor_sysid=as_uuid(actor_id, field="actor_id"))
+        if operation is not None:
+            from skeleton.audit.models import AuditEvent
+
+            if operation not in AuditEvent.Operation.values:
+                raise InvalidInput({"operation": [gettext("Operação desconhecida.")]})
+            events = events.filter(operation=operation)
+        if request_id is not None:
+            events = events.filter(request_id=as_uuid(request_id, field="request_id"))
         offset = (page - 1) * size
         return AuditLogPage(
             items=tuple(_log_event(event) for event in events[offset : offset + size]),
@@ -249,3 +287,35 @@ class AuditLogService(ServiceAPI):
         if event is None:
             raise NotFound()
         return _log_event(event)
+
+    @service_method(read_only=True, since="0.5.0")
+    def related_domain_events(
+        self, *, actor: AbstractBaseUser, request_id: UUID | str
+    ) -> tuple[DomainEventSummary, ...]:
+        """Return the domain events still retained that the same request published (#184).
+
+        Autorização: administrador da organização (os eventos trazem identificadores de qualquer
+        tabela); os demais recebem Forbidden. Só eventos da organização atual.
+        Erros: InvalidInput para identificador inválido; Forbidden para quem não administra.
+        Efeitos: nenhum.
+        """
+        from skeleton.access.policies import is_organization_admin
+        from skeleton.events.models import DomainEvent
+
+        from .errors import Forbidden
+
+        if not is_organization_admin(_user(actor)):
+            raise Forbidden()
+        rows = DomainEvent.objects.filter(request_id=as_uuid(request_id, field="request_id")).order_by(
+            "occurred_at", "sysid"
+        )[:100]
+        return tuple(
+            DomainEventSummary(
+                event_type=row.event_type,
+                table_key=row.table_key,
+                record_id=row.record_sysid,
+                record_revision=row.record_revision,
+                occurred_at=as_utc(row.occurred_at),
+            )
+            for row in rows
+        )

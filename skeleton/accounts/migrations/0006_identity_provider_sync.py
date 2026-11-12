@@ -65,7 +65,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('sk_audit', '0002_record_infrastructure'),
-        ('sk_accounts', '0003_identity_providers'),
+        ('sk_accounts', '0005_identity_providers'),
     ]
 
     operations = [

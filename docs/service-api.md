@@ -193,9 +193,11 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.tenancy.context` | `current_context` (leitura) |
 | `skeleton.web.views` | `tenant_page` |
 | `skeleton.api.views` | `TenantAPI` |
+| `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
 | `skeleton.jobs.registry`, `skeleton.jobs.periodic` | `JobType`, `register_job_type`, `register_periodic` em `ready()`; enfileirar é pelo `JobService` |
 | `skeleton.events.registry` | `EventType`, `register_event_type`, `register_consumer` em `ready()`; publicar é pelo `EventService` |
 | `skeleton.notifications.registry` | `NotificationType`, `register_notification_type` em `ready()`; notificar é pelo `NotificationService` |
+| `skeleton.flows.registry` | `FlowSpec` e os construtores de etapas, transições, formulários e condições; `register_flow`, `register_flow_handler`, `register_flow_condition`, `register_flow_assignment` em `ready()`; iniciar e operar é pelo `FlowService` ([fluxos](flows.md)) |
 | `skeleton.integrations.tokens.scopes` | `register_token_scope` em `ready()` (escopos nomeados, como o feed da agenda) |
 | `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
@@ -223,11 +225,13 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
-| `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
+| `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
+| `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
 ### IdentityService
 
@@ -292,7 +296,7 @@ A app chamadora é identificada pelo módulo do primeiro frame fora da API de se
 
 `AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
 
-`AuditLogService` é o log que as páginas e a REST do núcleo mostram (`/o/<org>/audit/`, `/api/v1/o/<org>/audit/` e `/platform/audit/`). `events(*, actor, model_label=None, record_id=None, page=1, page_size=25) -> AuditLogPage` devolve uma página numerada (`items`, `count`, `page`, `page_size`) com as regras de `authorized_audit_queryset`, filtrada antes de contar; `event(*, actor, event_id) -> AuditLogEvent` devolve um evento ou `NotFound`. `AuditLogEvent` traz os campos do evento como a REST os publica (inclusive `table_name` e `db_principal`) e `changes_json`, o objeto JSON das colunas visíveis. Sem organização no contexto, os dois métodos leem os eventos globais e exigem o administrador da plataforma (`Forbidden` para os demais). Para o histórico de um registro numa app, prefira `AuditService.history`, que já confere a leitura do registro.
+`AuditLogService` é o log que as páginas e a REST do núcleo mostram (`/o/<org>/audit/`, `/api/v1/o/<org>/audit/` e `/platform/audit/`). `events(*, actor, model_label=None, record_id=None, since=None, until=None, actor_id=None, operation=None, request_id=None, page=1, page_size=25) -> AuditLogPage` devolve uma página numerada (`items`, `count`, `page`, `page_size`) com as regras de `authorized_audit_queryset`, filtrada antes de contar; `event(*, actor, event_id) -> AuditLogEvent` devolve um evento ou `NotFound`. `AuditLogEvent` traz os campos do evento como a REST os publica (inclusive `table_name` e `db_principal`) e `changes_json`, o objeto JSON das colunas visíveis. Sem organização no contexto, os dois métodos leem os eventos globais e exigem o administrador da plataforma (`Forbidden` para os demais). Os filtros de período (`since` inclusivo, `until` exclusivo), ator, operação e requisição só estreitam o que a autorização já permite ([#184](https://github.com/alaorneto/skeleton/issues/184)). `related_domain_events(*, actor, request_id) -> tuple[DomainEventSummary, ...]` devolve, só para o administrador da organização, os eventos de domínio ainda retidos da mesma requisição: tipo, tabela, registro, revisão e momento, nunca `data`. Para o histórico de um registro numa app, prefira `AuditService.history`, que já confere a leitura do registro.
 
 ### NotificationService
 
@@ -346,6 +350,10 @@ NotificationService().notify(
 
 Apps não acessam o armazenamento diretamente.
 
+### CommentService
+
+[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`. `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres ou com caracteres de controle. Métodos com `since="0.6.0"`.
+
 ### SequenceService
 
 | Método | Autorização | Erros |
@@ -353,6 +361,40 @@ Apps não acessam o armazenamento diretamente.
 | `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto | `Forbidden` (sequência de outra app); `InvalidInput` (sequência não declarada, data sem fuso) |
 
 `SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
+
+### FlowService
+
+Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Métodos com `since="0.6.0"`.
+
+```python
+from skeleton.service_api.flows import FlowService
+
+receipt = FlowService().start(
+    actor=request.user,
+    flow_key="project_purchases.approval",
+    subject_id=purchase.pk,
+    data=(("amount", "1200.00"),),
+    idempotency_key=f"purchase:{purchase.pk}",
+)
+inbox = FlowService().tasks(actor=request.user, scope="mine")
+FlowService().decide_task(actor=request.user, task_id=task.sysid, expected_revision=task.revision, decision="approved")
+```
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `start(*, actor, flow_key, subject_id, data=(), idempotency_key=None) -> StartReceipt` | a app chamadora é a dona do fluxo; o ator lê o registro de negócio e tem a ação de início (`update` por padrão); `actor=None` em `system_context` | `Forbidden` (fluxo de outra app, sem a ação), `NotFound` (registro inexistente, de outra organização ou ilegível), `InvalidInput`, `Conflict("already_running" \| "definition_changed" \| "idempotency_mismatch" \| "flow_failed")` |
+| `signal(*, actor, instance_id, name, data=()) -> SignalReceipt` | a app chamadora é a dona; o ator lê a instância; `actor=None` em `system_context` | `Forbidden`, `NotFound`, `InvalidInput`, `Conflict("instance_suspended")` |
+| `instance(*, actor, instance_id) -> InstanceInfo`, `history(*, actor, instance_id, cursor=None, page_size=25) -> Page[ActivityEntry]` | quem lê o registro de negócio, quem iniciou, quem participa das tarefas, o administrador da organização | `NotFound` |
+| `instances(*, actor, flow_key=None, subject_id=None, status=None, cursor=None, page_size=25) -> Page[InstanceInfo]` | a mesma, filtrada antes de paginar | `InvalidInput` |
+| `tasks(*, actor, scope="mine", status=None, cursor=None, page_size=25) -> Page[TaskSummary]`, `open_task_count(*, actor) -> int` | `mine` e `available` (filas): só o que o ator pode fazer agora; `all`: o que ele pode ler | `InvalidInput` |
+| `task(*, actor, task_id) -> TaskDetail` | responsável, candidatos da fila, quem participou, administrador. Valores sensíveis do formulário só para quem pode agir (`can_act`) | `NotFound` |
+| `claim_task`, `release_task`, `reassign_task(…, to_user_id, comment="")`, `complete_task(…, action=None, data=(), comment="")`, `decide_task(…, decision, data=(), comment="")`, todos com `task_id` e `expected_revision`, devolvem `TaskSummary` | responsável ou candidato da fila; reatribuir: responsável de etapa delegável ou administrador | `NotFound`, `Forbidden`, `InvalidInput`, `Conflict("stale_revision")`, `Conflict` de estado (`instance_suspended`, `instance_closed`, `task_closed`, `not_a_queue_task`, `not_claimed`, `not_a_task`, `not_an_approval`, `flow_failed`) |
+| `cancel(…, reason="")`, `suspend(…, reason="")`, `resume`, `retry`, todos com `instance_id` e `expected_revision`, devolvem `InstanceInfo` | administrador da organização; `cancel` também por quem iniciou, se o fluxo permitir | `NotFound`, `Forbidden`, `Conflict("stale_revision" \| "instance_closed" \| "not_running" \| "not_suspended" \| "not_failed")` |
+
+- A ordem das verificações é sempre: visível (senão `NotFound`), autorizado a agir (senão `Forbidden`), revisão (`Conflict("stale_revision")`), estado da tarefa e da instância. Quem perde a corrida numa tarefa de fila recebe conflito, não `NotFound`: a tarefa encerrada continua legível para quem está na fila.
+- Dados de formulário entram como tupla de pares `(campo, valor)`; só os campos declarados na etapa e na transição escolhida são aceitos.
+- `InstanceInfo.data` e `ActivityEntry` nunca trazem campos sensíveis. O comentário de um passo aparece no histórico para quem lê a instância; só a auditoria o redige.
+- Tudo é gravado na transação do chamador: um rollback não deixa instância, tarefa, job, evento nem notificação.
 
 ### Superfícies do núcleo sobre os serviços
 

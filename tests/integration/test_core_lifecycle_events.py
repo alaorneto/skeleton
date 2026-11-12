@@ -162,7 +162,9 @@ def test_core_events_enqueue_no_webhook_job(access):
     from skeleton.events.registry import consumers_for
     from skeleton.jobs.models import Job
 
-    assert consumers_for(MEMBERSHIP_CREATED) == () and consumers_for(APP_ENABLED) == ()
+    assert consumers_for(MEMBERSHIP_CREATED) == ()
+    # The only core consumer of app.enabled reschedules the flows of that app (docs/flows.md); never the webhooks.
+    assert [consumer.code for consumer in consumers_for(APP_ENABLED)] == ["flows.resume_application"]
     before = Job.all_objects.filter(job_type="events.consume").count()
     with actor_tenant(access.admin, access.a):
         update_membership(access.bob_membership, user=access.admin, data={"is_active": False})

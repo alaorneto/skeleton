@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator, RegexValidator
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.models import OrganizationRecord, SecuredRecord
 
@@ -12,7 +13,7 @@ def validate_timezone(value):
     try:
         ZoneInfo(value)
     except (ZoneInfoNotFoundError, ValueError):
-        raise ValidationError("Fuso IANA desconhecido.") from None
+        raise ValidationError(gettext("Fuso IANA desconhecido.")) from None
 
 
 class Calendar(SecuredRecord):
@@ -24,14 +25,16 @@ class Calendar(SecuredRecord):
     """
 
     class Kind(models.TextChoices):
-        PERSONAL = "personal", "Pessoal"
-        SHARED = "shared", "Compartilhado"
+        PERSONAL = "personal", gettext_lazy("Pessoal")
+        SHARED = "shared", gettext_lazy("Compartilhado")
 
     name = models.CharField(max_length=150)
     kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.SHARED)
     is_default = models.BooleanField(default=False)
     color = models.CharField(
-        max_length=7, default="#2563eb", validators=[RegexValidator(r"^#[0-9a-fA-F]{6}$", "Use uma cor #RRGGBB.")]
+        max_length=7,
+        default="#2563eb",
+        validators=[RegexValidator(r"^#[0-9a-fA-F]{6}$", gettext_lazy("Use uma cor #RRGGBB."))],
     )
     timezone = models.CharField(max_length=64, default="UTC", validators=[validate_timezone])
     description = models.TextField(blank=True, validators=[MaxLengthValidator(2000)])
@@ -62,10 +65,12 @@ class Calendar(SecuredRecord):
         super().clean()
         if self.kind == self.Kind.PERSONAL:
             if self.visibility != self.Visibility.PRIVATE:
-                raise ValidationError({"visibility": "Um calendário pessoal é sempre privado; delegue por concessão."})
+                raise ValidationError(
+                    {"visibility": gettext("Um calendário pessoal é sempre privado; delegue por concessão.")}
+                )
             loaded = getattr(self, "_loaded_values", {})
             if not self._state.adding and loaded.get("owner_id") not in (None, self.owner_id):
-                raise ValidationError({"owner": "Um calendário pessoal não muda de dono."})
+                raise ValidationError({"owner": gettext("Um calendário pessoal não muda de dono.")})
 
     def __str__(self):
         return self.name
@@ -87,9 +92,9 @@ class Event(OrganizationRecord):
     """
 
     class Status(models.TextChoices):
-        CONFIRMED = "confirmed", "Confirmado"
-        TENTATIVE = "tentative", "Provisório"
-        CANCELLED = "cancelled", "Cancelado"
+        CONFIRMED = "confirmed", gettext_lazy("Confirmado")
+        TENTATIVE = "tentative", gettext_lazy("Provisório")
+        CANCELLED = "cancelled", gettext_lazy("Cancelado")
 
     calendar = models.ForeignKey(Calendar, on_delete=models.PROTECT, related_name="events")
     uid = models.CharField(max_length=255, default=new_uid)
@@ -165,14 +170,14 @@ class Event(OrganizationRecord):
         super().clean()
         if self.all_day:
             if self.start_date is None or self.end_date is None:
-                raise ValidationError({"start_date": "Informe as datas do evento de dia inteiro."})
+                raise ValidationError({"start_date": gettext("Informe as datas do evento de dia inteiro.")})
             if self.end_date <= self.start_date:
-                raise ValidationError({"end_date": "O fim (exclusivo) precisa ser depois do início."})
+                raise ValidationError({"end_date": gettext("O fim (exclusivo) precisa ser depois do início.")})
         else:
             if self.starts_at is None or self.ends_at is None:
-                raise ValidationError({"starts_at": "Informe início e fim do evento."})
+                raise ValidationError({"starts_at": gettext("Informe início e fim do evento.")})
             if self.ends_at <= self.starts_at:
-                raise ValidationError({"ends_at": "O fim precisa ser depois do início."})
+                raise ValidationError({"ends_at": gettext("O fim precisa ser depois do início.")})
         if self.rrule:
             from .recurrence import validate_rule
 
@@ -180,11 +185,11 @@ class Event(OrganizationRecord):
         for name in ("rdates", "exdates"):
             values = getattr(self, name)
             if not isinstance(values, list) or len(values) > 1000 or not all(isinstance(v, str) for v in values):
-                raise ValidationError({name: "Use uma lista de até 1000 datas ISO 8601."})
+                raise ValidationError({name: gettext("Use uma lista de até 1000 datas ISO 8601.")})
         if self.series_id and self.series_id == self.pk:
-            raise ValidationError({"series": "Um evento não substitui a si mesmo."})
+            raise ValidationError({"series": gettext("Um evento não substitui a si mesmo.")})
         if self.calendar_id and self.organization_id and self.calendar.organization_id != self.organization_id:
-            raise ValidationError({"calendar": "O calendário é de outra organização."})
+            raise ValidationError({"calendar": gettext("O calendário é de outra organização.")})
         if self.series_id is None and (self.starts_at or self.start_date):
             from .recurrence import series_end
 
@@ -198,10 +203,10 @@ class EventAttendee(OrganizationRecord):
     """A member of the organization invited to an event (#72); being invited grants reading it."""
 
     class Response(models.TextChoices):
-        NEEDS_ACTION = "needs_action", "Sem resposta"
-        ACCEPTED = "accepted", "Aceito"
-        DECLINED = "declined", "Recusado"
-        TENTATIVE = "tentative", "Talvez"
+        NEEDS_ACTION = "needs_action", gettext_lazy("Sem resposta")
+        ACCEPTED = "accepted", gettext_lazy("Aceito")
+        DECLINED = "declined", gettext_lazy("Recusado")
+        TENTATIVE = "tentative", gettext_lazy("Talvez")
 
     event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name="attendees")
     membership = models.ForeignKey(
@@ -233,9 +238,9 @@ class EventReminder(OrganizationRecord):
     """Remind the people of an event ``minutes_before`` each occurrence (#73)."""
 
     class Channel(models.TextChoices):
-        DEFAULT = "default", "Preferências da pessoa"
-        EMAIL = "email", "Email"
-        PUSH = "push", "Push"
+        DEFAULT = "default", gettext_lazy("Preferências da pessoa")
+        EMAIL = "email", gettext_lazy("Email")
+        PUSH = "push", gettext_lazy("Push")
 
     event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name="reminders")
     minutes_before = models.PositiveIntegerField()

@@ -14,7 +14,39 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy import admission
 
 from .errors import BoundaryError
+from .openapi import DATETIME, INTEGER, UUID, Operation, nullable, obj, results, string
 from .views import SessionAPI, TenantAPI, etag, request_fields
+
+_REQUEST_FIELDS = {
+    "sysid": UUID,
+    "organization_id": UUID,
+    "channel": string(),
+    "status": string(),
+    "message": string(),
+    "created_at": DATETIME,
+    "expires_at": DATETIME,
+    "decided_at": nullable(DATETIME),
+    "revision": INTEGER,
+}
+MY_JOIN_REQUEST = obj({**_REQUEST_FIELDS, "organization_name": string()})
+NAMED = obj({"sysid": UUID, "name": string()})
+DECIDER_JOIN_REQUEST = obj({**_REQUEST_FIELDS, "role": NAMED, "user": obj({"sysid": UUID, "email": string()})})
+JOIN_REQUEST_INPUT = obj({"organization_id": UUID, "message": string()}, required=("organization_id",))
+DECISION_INPUT = obj({"decision": string(enum=["approve", "reject"])})
+_LINK_FIELDS = {
+    "sysid": UUID,
+    "label": string(),
+    "role": NAMED,
+    "mode": string(),
+    "expires_at": DATETIME,
+    "max_uses": INTEGER,
+    "use_count": INTEGER,
+    "revision": INTEGER,
+}
+JOIN_LINK = obj(_LINK_FIELDS)
+CREATED_JOIN_LINK = obj({**_LINK_FIELDS, "url": string(format="uri")})
+JOIN_LINK_INPUT = obj({"label": string(), "role": UUID, "mode": string(), "days": INTEGER, "max_uses": INTEGER})
+REVOKED_JOIN_LINK = obj({"sysid": UUID, "revoked": {"const": True}})
 
 
 def _revision(request):
@@ -54,6 +86,18 @@ def _stale():
 class MyJoinRequestsAPI(SessionAPI):
     """``GET`` lists the person's requests in every organization; ``POST`` asks to join one."""
 
+    openapi = {
+        "GET": Operation("Pedidos de ingresso do ator em todas as organizações", results(MY_JOIN_REQUEST)),
+        "POST": Operation(
+            "Pede ingresso numa organização",
+            MY_JOIN_REQUEST,
+            status=201,
+            etag=True,
+            request=JOIN_REQUEST_INPUT,
+            extra_responses={"429": "Limite de pedidos; veja Retry-After."},
+        ),
+    }
+
     def get(self, request):
         return Response({"results": [request_data(item) for item in admission.my_join_requests(request.user)]})
 
@@ -81,6 +125,8 @@ class MyJoinRequestsAPI(SessionAPI):
 
 
 class MyJoinRequestWithdrawAPI(SessionAPI):
+    openapi = {"POST": Operation("Retira um pedido de ingresso aberto", MY_JOIN_REQUEST, etag=True, if_match=True)}
+
     def post(self, request, sysid):
         revision = _revision(request)
         try:
@@ -99,6 +145,33 @@ class MyJoinRequestWithdrawAPI(SessionAPI):
 
 class OrganizationJoinRequestsAPI(TenantAPI):
     """Deciders list open requests and decide one with ``If-Match``."""
+
+    openapi = {
+        "GET": (
+            Operation(
+                "Pedidos de ingresso pendentes",
+                results(DECIDER_JOIN_REQUEST),
+                detail=False,
+                capability=ADMISSION_DECIDE,
+            ),
+            Operation(
+                "Um pedido de ingresso pendente",
+                DECIDER_JOIN_REQUEST,
+                etag=True,
+                detail=True,
+                capability=ADMISSION_DECIDE,
+            ),
+        ),
+        "POST": Operation(
+            "Aprova ou recusa um pedido de ingresso",
+            DECIDER_JOIN_REQUEST,
+            etag=True,
+            if_match=True,
+            request=DECISION_INPUT,
+            detail=True,
+            capability=ADMISSION_DECIDE,
+        ),
+    }
 
     def check_permissions(self, request):
         super().check_permissions(request)
@@ -158,6 +231,19 @@ def link_data(link):
 class OrganizationJoinLinksAPI(TenantAPI):
     """``invitations.manage`` lists and creates links; revoking takes ``If-Match``."""
 
+    openapi = {
+        "GET": Operation("Links de ingresso vivos", results(JOIN_LINK), capability="invitations.manage"),
+        "POST": Operation(
+            "Cria um link de ingresso",
+            CREATED_JOIN_LINK,
+            status=201,
+            etag=True,
+            request=JOIN_LINK_INPUT,
+            capability="invitations.manage",
+            description="O token só aparece em url, nesta resposta, que não vai para cache.",
+        ),
+    }
+
     def check_permissions(self, request):
         from skeleton.access.capabilities import INVITATIONS_MANAGE
 
@@ -201,6 +287,12 @@ class OrganizationJoinLinksAPI(TenantAPI):
 
 
 class OrganizationJoinLinkRevokeAPI(OrganizationJoinLinksAPI):
+    openapi = {
+        "POST": Operation(
+            "Revoga um link de ingresso", REVOKED_JOIN_LINK, if_match=True, capability="invitations.manage"
+        )
+    }
+
     def get(self, request, organization_id, sysid):
         raise Http404
 

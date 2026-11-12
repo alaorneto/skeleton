@@ -1,5 +1,6 @@
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from skeleton.web.services import assert_fields, coerce_fields, record_data
 
@@ -26,21 +27,31 @@ def dedicated_model(resource):
     return apps.get_model(label), fields
 
 
+DEDICATED_REQUIRED = {
+    "memberships": ("user",),
+    "roles": ("code", "name"),
+    "groups": ("code", "name"),
+    "invitations": ("email", "role"),
+}
+# Read-only fields rendered besides the writable ones.
+DEDICATED_EXTRA = {"roles": ("is_builtin",), "invitations": ("expires_at", "accepted_at", "accepted_by")}
+
+
+def dedicated_required(resource, model, fields):
+    """Fields a creation must send; links require every non-null field."""
+    return DEDICATED_REQUIRED.get(resource, tuple(name for name in fields if not model._meta.get_field(name).null))
+
+
 def dedicated_input(resource, data, *, user, creating=True):
     model, fields = dedicated_model(resource)
     if resource == "memberships" and not creating:
         fields = ("is_active",)
     assert_fields(data, fields)
     if creating:
-        required = {
-            "memberships": ("user",),
-            "roles": ("code", "name"),
-            "groups": ("code", "name"),
-            "invitations": ("email", "role"),
-        }.get(resource, tuple(name for name in fields if not model._meta.get_field(name).null))
+        required = dedicated_required(resource, model, fields)
         missing = [name for name in required if name not in data]
         if missing:
-            raise ValidationError({name: "Campo obrigatório." for name in missing})
+            raise ValidationError({name: gettext("Campo obrigatório.") for name in missing})
     values = dict(data)
     if resource == "memberships" and "user" in values:
         # No global identity list: an administrator must select an existing UUID explicitly.
@@ -48,7 +59,7 @@ def dedicated_input(resource, data, *, user, creating=True):
         try:
             values["user"] = User.objects.get(pk=values["user"], is_active=True)
         except (User.DoesNotExist, ValidationError, ValueError, TypeError):
-            raise ValidationError({"user": "Identidade indisponível."}) from None
+            raise ValidationError({"user": gettext("Identidade indisponível.")}) from None
         rest = {name: value for name, value in values.items() if name != "user"}
         return {"user": values["user"], **coerce_fields(model, rest, user=user)}
     return coerce_fields(model, values, user=user)
@@ -56,7 +67,7 @@ def dedicated_input(resource, data, *, user, creating=True):
 
 def dedicated_data(resource, record):
     _, fields = dedicated_model(resource)
-    extra = {"roles": ("is_builtin",), "invitations": ("expires_at", "accepted_at", "accepted_by")}.get(resource, ())
+    extra = DEDICATED_EXTRA.get(resource, ())
     data = record_data(record, (*fields, *extra))
     if resource == "memberships":
         data["account_type"] = record.user.account_type  # Service accounts are marked in the list (#44).

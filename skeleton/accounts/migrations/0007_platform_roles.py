@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('sk_audit', '0002_record_infrastructure'),
-        ('sk_accounts', '0004_identity_provider_sync'),
+        ('sk_accounts', '0006_identity_provider_sync'),
     ]
 
     operations = [

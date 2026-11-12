@@ -1,9 +1,9 @@
-{% autoescape off %}{{ label }}
+{% autoescape off %}{% load i18n %}{{ label }}
 {% for key, value in snapshot.items %}
 {{ value }}{% endfor %}
 
-Abrir: {{ open_url }}
-Recebido em {{ created_at|date:"d/m/Y H:i" }}.
+{% translate "Abrir:" %} {{ open_url }}
+{% translate "Recebido em" %} {{ created_at|date:"d/m/Y H:i" }}.
 
-Você recebe este email pelas suas preferências de notificação: {{ preferences_url }}
+{% translate "Você recebe este email pelas suas preferências de notificação:" %} {{ preferences_url }}
 {% endautoescape %}

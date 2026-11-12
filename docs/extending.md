@@ -113,6 +113,8 @@ Em desenvolvimento, `manage.py set_app_availability <app_label> --mode all|selec
 
 Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Os anexos contam na cota de armazenamento da organização e, com antivírus configurado, só podem ser baixados depois da verificação. Veja [arquivos e anexos](files.md#anexos).
 
+Do mesmo modo, `TableSpec(comments=CommentPolicy())` abre comentários na tabela: quem lê o registro lê e escreve comentários, só o autor edita e o administrador modera. Veja [comentários](comments.md).
+
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
 Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:
@@ -129,6 +131,7 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E019 | Um módulo da app importa de outra app algo que não seja o `service_api` declarado dela, ou importa esse `service_api` sem declarar a app em `dependencies`. Análise estática (AST) de todos os `.py` da app, inclusive imports relativos e `from pacote import modulo`. |
 | W019 | A app importa um módulo do núcleo fora das [superfícies públicas](service-api.md#superfícies-públicas-do-núcleo-para-apps). É aviso nesta versão e vira erro numa próxima. |
 | E020 | Um modelo `OperationalRecord` tem `expose_api=True` ou `write_fields`; tabelas operacionais são estado de pipeline e nunca vão para o gateway. |
+| E029 | Um [fluxo de processo](flows.md#validação-estrutural) declarado com `register_flow` é inválido: chave duplicada, etapa inalcançável, beco sem saída, bifurcação sem junção, gateway sem transição padrão, aprovação sem as transições de aprovado e rejeitado, condição com operador ou campo desconhecido, handler, condição ou regra de atribuição não registrados pela própria app, campo de formulário divergente ou registro de negócio que não é um `SecuredRecord` exposto da app. |
 | E026 | Um `EncryptedTextField` não está em `TableSpec.sensitive_fields`, ou um keyring (`MFA_ENCRYPTION_KEYS`, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`) tem chave Fernet inválida. |
 | E027 | Check de banco (`check --database`): há segredos cifrados gravados, mas o keyring deles está vazio. |
 
@@ -410,3 +413,26 @@ Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serv
 Uma referência a outro registro organizacional precisa apontar para a mesma organização e para um alvo vivo que o ator possa ler. Combine validação no serviço, seleção autorizada de FK e infraestrutura de integridade no banco: apenas comparar UUIDs não assegura isso. Relações entre registros próprios usam `PROTECT`, para impedir remoção com referências vivas, e links de negócio são tabelas UUID explícitas, não M2M implícito. Marque campos sensíveis no `TableSpec` e na especificação congelada de migration antes de persistir dados em auditoria.
 
 Use o checklist de [AGENTS](../AGENTS.md) e [testing](testing.md). Mantenha testes de API pública, A/B/default deny, auditoria redigida, concorrência, referências e schema checks. Testes por inspeção de strings de source não provam esses contratos.
+
+## Texto traduzível e outros idiomas
+
+O núcleo entrega só pt-BR, e as msgids do gettext são o próprio texto em português ([#171](https://github.com/alaorneto/skeleton/issues/171), [#172](https://github.com/alaorneto/skeleton/issues/172)). Siga as mesmas regras na app.
+
+- **Python:** dentro de funções, use `gettext("…")`; em constantes de módulo ou de classe (rótulos de campo, `TextChoices`, `TableSpec`, tipos de notificação, `verbose_name`), use `gettext_lazy("…")`. Isso inclui os registros feitos em `ready()`, que rodam na inicialização. Com variáveis, use `gettext("Use %(campo)s.") % {"campo": valor}`, nunca uma f-string dentro do gettext.
+- **Templates:** use `{% load i18n %}` e `{% translate "…" %}`; nos argumentos de tags, `_("…")`.
+- **O que fica fora do gettext:**
+  - a documentação da API: resumos e descrições do schema OpenAPI (`openapi = {...}`, `Operation(...)`), que é contrato para integradores e não muda conforme o idioma de quem pede;
+  - texto que o código compara literalmente, como cabeçalhos de documentação (`## Serviços`) e seções de docstring da API de serviços (`Autorização:`);
+  - códigos de erro (`code`) e chaves de JSON;
+  - logs e eventos de segurança;
+  - diagnósticos técnicos em inglês: system checks, manifestos, pacotes e os `PermissionDenied` internos, que as fronteiras já transformam em 403/404 neutros.
+- **JSON:** um texto lazy não passa por `json.dumps`. Converta com `str()` antes de serializar fora do `JsonResponse` e do DRF, que já sabem lidar com ele.
+- **Validação:** `python tools/i18n_check.py` (exige o GNU gettext) extrai o catálogo e o valida com `msgfmt --check-format`. O teste de pseudolocalização `tests/integration/test_i18n_coverage.py` falha quando sobra texto fora do gettext nas páginas-chave.
+
+Para entregar outro idioma, o projeto derivado:
+
+1. acrescenta o idioma em `LANGUAGES`;
+2. cria o catálogo em `LOCALE_PATHS` com `manage.py makemessages -l <idioma>`, traduzindo a partir das msgids em pt-BR;
+3. compila com `compilemessages`.
+
+Os emails aceitam também templates por idioma (`body.<idioma>.html`), que têm precedência sobre o gettext.

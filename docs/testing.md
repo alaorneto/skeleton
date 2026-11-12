@@ -16,6 +16,180 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 **Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
 
+## Comentários em registros (#187, epic #93)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_comment_text.py` e `tests/integration/test_comments.py`: 10 passed, 15 subtests. Cobrem:
+  - corpo vazio, longo demais e com caracteres de controle recusados; HTML sempre escapado; só `http`/`https` viram links, sem quebrar o atributo;
+  - quem lê o registro lista e comenta; registro ilegível, default deny e A/B respondem 404 na lista e na criação; `assert_tenant_isolated`;
+  - tabela sem `CommentPolicy` recusa (REST e serviço);
+  - só o autor edita (o administrador recebe 403); outro membro não exclui; o administrador modera e restaura com o mesmo UUID; o autor exclui e restaura o próprio;
+  - CAS: `If-Match` antigo recusado, ausente responde 428, `assert_cas_conflict` com um vencedor;
+  - auditoria de create e update, e rollback sem evento nem linha residual;
+  - a página escapa o corpo, mostra o link e o item `comment` na linha do tempo; `assert_service_contract` e ator divergente.
+- `python -m pytest tests -q -n 8 -k "comment or i18n or openapi or schema or catalog or timeline or locale"`: 145 passed, 8 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` mesclada: 1677 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
+
+## OpenAPI da API (epic #86)
+
+**Contrato da API.** Toda resposta de `/api/v1/` que a suíte recebe pelo cliente de teste do Django (`Client` e o `APIClient` do DRF) é validada contra o schema publicado. A fixture autouse `api_contract` de `tests/conftest.py` usa `skeleton.testing.openapi.checked_client_responses()`, que monta o schema completo uma vez por árvore de URLs e registry (`build_schema(full_audience())`, o mesmo gerador de `GET /api/v1/openapi.json`, sem filtro de ator). Para cada resposta, `assert_matches_schema` exige:
+
+- rota e método documentados;
+- status entre as respostas da operação, ou a `default`, que é `{code, detail, fields}`;
+- corpo JSON válido pelo schema (Draft 2020-12, com `jsonschema`, dependência só de desenvolvimento) e o header `ETag` quando ele é documentado.
+
+Um erro de rota ou método não documentado ainda precisa ter a forma `{code, detail, fields}`; uma página de erro que não é JSON fica fora do contrato. Uma divergência falha o teste com `SchemaMismatch`, que indica operação, status e caminho JSON. Um teste que monta de propósito uma resposta fora do contrato usa `@pytest.mark.no_api_contract`. Projetos derivados podem usar o mesmo helper nas suítes deles.
+
+Rodada de 2026-11-11 na branch `feat/86-openapi`, um commit por issue: [#178](https://github.com/alaorneto/skeleton/issues/178) (gerador e `GET /api/v1/openapi.json`) e [#179](https://github.com/alaorneto/skeleton/issues/179) (helper de contrato na suíte). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, com a validação de contrato em todos os testes | 1273 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `pytest tests/integration/test_openapi.py tests/unit/test_openapi_schema.py tests/unit/test_openapi_contract_helper.py` | 39 passed |
+| mesmo PostgreSQL, `SKELETON_BUNDLED_APPS=calendar` | `pytest tests/contrib/calendar -q`, também com a validação de contrato | 59 passed |
+| Windows, com e sem `SKELETON_BUNDLED_APPS=calendar` | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`; `uv 0.12.7 pip compile` do `requirements-dev.txt` com `jsonschema` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+
+- `tests/unit/test_openapi_schema.py` (#178):
+  - tipos de campo vindos do `_meta` (texto com `maxLength`, inteiros, positivos, decimal, UUID, datas, JSON, `null`, `choices`, tipo desconhecido);
+  - relações como UUID, e anuláveis no gateway;
+  - `sensitive_fields` fora de propriedades, entradas, filtros e pickers de todas as tabelas expostas e dos recursos de administração;
+  - o documento completo validado contra o meta-schema oficial do OpenAPI 3.1 (`tests/fixtures/openapi/oas-3.1-schema-2022-10-07.json`, cópia do arquivo publicado pela OpenAPI Initiative);
+  - nenhuma rota do núcleo sem `openapi`, com `operationId` únicos;
+  - `If-Match` com 412 e 428, `ETag` e paginação como componentes.
+- `tests/integration/test_openapi.py` (#178):
+  - sem sessão nem token, 401 ou 403 sem o documento;
+  - o schema servido é OpenAPI 3.1 válido;
+  - membro sem capacidade vê as operações da própria TablePermission, sem `body` (sensível), sem administração, webhooks nem apps; o administrador vê a administração e a rota da app ativa;
+  - membro só da organização B, cujo papel não tem permissão, não vê a tabela que A concede ao seu papel `member`; sem vínculo, só as rotas globais;
+  - revogar a TablePermission tira a tabela do schema na hora;
+  - token `example_notes.note:read` vê só os GET da tabela, nem `PATCH me`, tokens ou anexos sem `files:read`; token de criação vê só o POST; token de administrador não vê administração.
+- `tests/unit/test_openapi_contract_helper.py` (#179):
+  - resposta conforme passa;
+  - falham tipo errado, propriedade a mais, obrigatória ausente, erro sem `detail`, `ETag` documentado ausente, rota, método e status não documentados e HTML onde a operação promete JSON;
+  - erro de rota desconhecida ainda segue `{code, detail}`;
+  - caminhos fora da API são ignorados;
+  - o template mais literal resolve a tabela.
+
+Divergências achadas pela validação e corrigidas no schema, não na API: `GET` de anexos vale sem `AttachmentPolicy` (só o upload exige a política), e o `ETag` da preferência de notificação só existe depois que a pessoa grava uma preferência.
+
+**Decisão a confirmar:** a app de exemplo marca `body` como sensível e o gateway o devolve. O schema não o nomeia e deixa esse objeto aberto (sem `additionalProperties: false`). As respostas validam, mas o schema não descreve o campo.
+
+**Não verificado:**
+
+- geradores de cliente (openapi-generator e outros) sobre o documento;
+- `format: date-time`, porque o `jsonschema` só confere esse formato com um pacote opcional que não instalamos (`uuid` é conferido);
+- o PostgreSQL 16.15 do CI antes da execução do PR.
+
+## Exportação e importação CSV (epic #92)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`.
+
+**#182, exportação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1465 passed, 111 skipped.
+- Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed. A primeira rodada com a agenda teve 23 erros de montagem de banco dos workers, que não se repetiram na rodada seguinte.
+- `tests/integration/test_transfer_export.py`: 9 passed. Cobrem:
+  - o formato (BOM, `;`, ISO 8601, ponto decimal, fórmulas neutralizadas só em texto, leitura com `;` e `,`);
+  - só os registros autorizados, sem o privado de outro dono, sem outra organização e sem o campo sensível;
+  - os filtros da lista aplicados, e recusados quando são inválidos ou sensíveis;
+  - quem não lê a tabela recebe 404 (inclusive o admin de B);
+  - o download só do solicitante (o admin da organização recebe 404), com `attachment`, `nosniff` e `no-store`, e a revogação parando o download;
+  - o limite de linhas, a revogação antes do job (falha fechada) e a retenção apagando a linha e o arquivo;
+  - a notificação ao solicitante e a lista mostrando só os pedidos da própria pessoa.
+- `tests/integration_postgres/test_transfer_schema.py`: 3 passed. RLS forçada, policy de tenant e guard instalados; sem o guard ou sem a policy, `check_deployed_schema` falha.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#183, importação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1473 passed, 111 skipped. Agenda: 59 passed.
+- `tests/integration/test_transfer_import.py`: 8 passed. Cobrem:
+  - a prévia sem gravar registros nem auditoria;
+  - a aplicação criando as linhas, com o dono sendo quem importa e o apóstrofo anti-fórmula removido;
+  - o CAS: uma revisão divergente vira erro da linha 3 no relatório, e a aplicação é recusada com 409;
+  - o tudo ou nada: uma mudança depois da prévia desfaz também a linha nova válida;
+  - a coluna `owner` recusando o arquivo;
+  - a vírgula aceita e o valor inválido reportado;
+  - o limite de linhas;
+  - quem não cria na tabela recebe 404, inclusive o admin de B;
+  - o relatório e a aplicação só para quem pediu;
+  - o arquivo fora de UTF-8 recusado.
+
+## Visualizador de auditoria (epic #94)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`. A branch parte da branch do epic #92.
+
+**#184, filtros de investigação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1480 passed, 111 skipped. Agenda: 59 passed.
+- A primeira rodada teve 1 falha: a view de `/platform/audit/` importava `AuditEvent`, o que viola `test_core_surfaces_on_services`. As opções de operação foram para `skeleton.audit.filters.operation_choices`.
+- `tests/integration/test_audit_filters.py`: 7 passed. Cobrem:
+  - o contrato do `AuditLogService`;
+  - os filtros por ator, operação, `request_id` e período no serviço, com valores inválidos recusados;
+  - nenhum alcance em outra organização (`request_id` e ator de A vistos por B);
+  - o membro sem permissão `audit` sem ganho com os filtros;
+  - os eventos de domínio relacionados só para o administrador, sem `data`;
+  - a página e a REST aceitando os filtros e respondendo 400 a inválidos ou desconhecidos;
+  - a auditoria da plataforma com filtros.
+
+**#185, linha do tempo do registro:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1483 passed, 111 skipped. Agenda: 59 passed. `npm run check`: sem diferença depois do build.
+- `tests/integration/test_record_timeline.py`: 3 passed. Cobrem:
+  - auditoria e anexos juntos, do mais recente para o mais antigo, na página de detalhe;
+  - sem a TablePermission `audit`, só os anexos aparecem;
+  - o admin de B recebe 404 e quem não tem permissão na tabela recebe 403, como antes.
+
+**#186, exportação da auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1487 passed, 111 skipped.
+- Agenda: na primeira rodada, 38 passed e 21 erros de montagem dos bancos dos workers; na segunda, 59 passed. É o mesmo padrão transitório visto no #182.
+- `tests/integration/test_audit_export.py`: 4 passed. Cobrem:
+  - o administrador exportando com filtros (operação e tabela), só da própria organização, com `body` em `[REDACTED]` no JSON de `changes`;
+  - o download só do administrador que pediu;
+  - membro e admin de B recebendo 404;
+  - filtro inválido recusado antes do job;
+  - o botão só para o administrador.
+
+## LGPD: dados pessoais, titular e retenção (epic #88)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`; o owner foi usado só para ler a auditoria global e para o comando de redação.
+
+**#189, dados pessoais redigidos na auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1670 passed, 111 skipped.
+- `tests/integration_postgres/test_audit_personal_data.py`: 3 passed. Cobrem:
+  - os eventos novos de `User` (email e primeiro nome) e de `UserProfile` (`display_name`) redigidos, com os campos ainda legíveis no modelo;
+  - um evento antigo simulado (o owner recoloca o email em claro com o guard desligado) redigido pelo comando, com o guard de volta e o `UPDATE` recusado;
+  - o comando recusado sem `--confirm` e com a role runtime.
+- A leitura da auditoria global nos testes passa pelo owner, porque a RLS esconde da role runtime os eventos sem organização.
+
+**#192, expurgo dos bytes de anexos excluídos:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1673 passed, 111 skipped.
+- `tests/integration/test_attachment_purge.py`: 3 passed. Cobrem:
+  - dentro do prazo, nada é tocado;
+  - depois de 91 dias, os bytes saem e o anexo vira `purged`;
+  - a restauração é recusada com 400 e o anexo continua excluído;
+  - uma segunda rodada não refaz o expurgo;
+  - o anexo vivo e o anexo da organização B nunca são tocados;
+  - o anexo restaurado antes do expurgo é pulado.
+
+**#190, exportação dos dados do titular:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1675 passed, 111 skipped.
+- `tests/integration/test_privacy_export.py`: 2 passed. Cobrem:
+  - o ZIP com a identidade e as duas organizações da pessoa, cada uma com a própria notificação;
+  - nenhum email de outra pessoa nem digest de token;
+  - `attachment` e `no-store`;
+  - a página exigindo login;
+  - quem não tem vínculo recebendo só a identidade.
+- Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.
@@ -26,9 +200,11 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
 | `locks` | uv 0.12.7 regenera `requirements.txt` e `requirements-dev.txt` com os comandos `uv pip compile` de "Atualizar locks" do `README.md` e o job exige `git diff --exit-code`: os locks correspondem aos `.in` e foram gerados pelo comando oficial (cabeçalho, `pip`/`setuptools` fixados, hashes). | Que as versões resolvidas são as mais novas ou estão livres de vulnerabilidades (ver `build`); que `pyproject.toml` declara as mesmas faixas que `requirements.in`. |
 | `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
-| `tests` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e a suíte inteira (`pytest tests`) com cobertura, em Python 3.12 e 3.14; migrations como `skeleton_owner`, assertions como `skeleton_runtime`; `tools/smoke_postgres.py` no 3.14. | Um PostgreSQL de produção, um backup/restore ou SSO real. Cobertura mede linhas executadas, não a qualidade das assertions. |
+| `tests` | Seis jobs paralelos, três por Python (3.12 e 3.14): duas fatias da suíte do núcleo (`pytest tests -n 4 --shard 1/2` e `2/2`, com cobertura) e a agenda (`SKELETON_BUNDLED_APPS=calendar`). Banco `ci_skeleton_test` e um por worker (`ci_gw0_skeleton_test` a `ci_gw3_skeleton_test`), todos provisionados por `deploy/postgres/bootstrap.sql`; lock com hashes e `pip check`; `manage.py check` e `makemigrations --check` na primeira fatia e na agenda; migrations como `skeleton_owner`, assertions como `skeleton_runtime`; `tools/smoke_postgres.py` no 3.14. Juntas, as fatias são a suíte inteira (`tests/unit/test_suite_shards.py`). | Um PostgreSQL de produção, um backup/restore ou SSO real. O container de serviço roda sem `fsync`: não serve de prova de durabilidade. |
+| `coverage` | Combina os dados de cobertura das duas fatias de cada Python (`coverage combine`) e publica o relatório e o artifact `coverage-postgres-py<versão>`, com o mesmo escopo de antes da divisão: a suíte do núcleo. | Cobertura mede linhas executadas, não a qualidade das assertions. A agenda não entra na medição, como antes. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |
+| `ci` | Falha se qualquer job acima falhou ou foi cancelado. É o nome estável para exigir na proteção de branch, qualquer que seja a matriz. | Nada além dos outros jobs. |
 
 Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma. Nos PRs de pip do Dependabot, o workflow da seção seguinte faz isso sozinho.
 
@@ -49,7 +225,7 @@ O workflow só roda quando o autor do PR e o ator do evento são `dependabot[bot
 
 Sem os secrets, o job `commit` falha com uma mensagem que aponta para esta seção, e o conserto continua manual. O Dependabot para de rebasear um PR que recebeu commit de outro autor; se a `main` mudar os locks antes do merge, comente `@dependabot recreate` no PR: o Dependabot refaz o branch e o workflow regenera os locks de novo. O resultado foi reproduzido com o PR #133: a partir do lock original do Dependabot, `regenerate` produz byte a byte o lock corrigido à mão em #139.
 
-O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por sessão e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
+O job `tests` concede `CREATE ON DATABASE` ao owner da fixture, em cada banco, para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por worker, sempre (`SKELETON_TEST_TEMPLATE_CACHE=0`, sem o cache local do template), e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. O container do PostgreSQL recebe `fsync=off`, `synchronous_commit=off`, `full_page_writes=off` e `max_locks_per_transaction=2048` por `POSTGRES_INITDB_ARGS`: ele é descartável, e a tabela de locks precisa comportar quatro workers recriando o schema ao mesmo tempo. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI. Para mudar o número de fatias, troque o `N` de `--shard I/N` na matriz; nenhuma lista de arquivos é mantida à mão, então um pacote novo com testes entra numa fatia sozinho.
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
@@ -207,6 +383,66 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 
 - `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1432 passed, 111 skipped (os pulos exigem `O_NOFOLLOW`/`fcntl`, só em Linux/macOS, ou o CLI do Docker).
 - **Não executado:** `tests/sso/` com Keycloak e OpenLDAP em contêiner, por falta de Docker neste ambiente; login real com IdP e MFA no fluxo LDAP ficam para o CI e a homologação.
+## Fluxos de processo (epic #209)
+
+Rodada de 2026-11-12 na branch `feat/209-business-flows`, um commit por issue ([#200](https://github.com/alaorneto/skeleton/issues/200) a [#207](https://github.com/alaorneto/skeleton/issues/207)) e um de testes de concorrência. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1441 passed, 111 skipped (marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker), 1 failed: `test_core_events_enqueue_no_webhook_job` afirmava que `app.enabled` não tinha consumidor nenhum, e o motor de fluxos passou a consumi-lo para reagendar etapas. O teste foi ajustado (o único consumidor é `flows.resume_application`; o fan-out de webhooks continua fora) e o arquivo rodou de novo: 7 passed |
+| mesmo ambiente, commit `7067a3e` (já com o ajuste acima) | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1442 passed, 111 skipped, nenhuma falha, em 32 min 03 s |
+| mesmo ambiente, depois da decisão 9 (quem perde a corrida numa tarefa de fila recebe conflito) | `python -m pytest tests/integration/test_flow_tasks.py tests/integration/test_flow_service_api.py tests/integration/test_flow_http.py tests/integration/test_flow_engine.py tests/integration/test_notes_publication_flow.py tests/integration_postgres/test_flow_concurrency.py` | 59 passed; a suíte inteira não foi repetida depois dessa mudança |
+| mesmo ambiente, merge da `main` com o schema OpenAPI (#195) e a suíte rápida (#352), commit `a9fa9f5`; as rotas REST de fluxos e o endpoint de publicação do Notes documentados no schema | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, em série (sem `pytest-xdist` no ambiente local), com toda resposta de `/api/v1/` validada contra o schema | 1615 passed, 111 skipped, nenhuma falha, em 42 min 57 s; Ruff, mypy, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `package doctor examples/notes` sem problemas |
+| mesmo PostgreSQL | `python -m pytest tests/unit/test_flow_spec.py tests/unit/test_flow_expressions.py tests/unit/test_flow_validation.py` | 92 passed |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_flow_tables.py tests/integration/test_flow_engine.py tests/integration/test_flow_tasks.py tests/integration/test_flow_service_api.py tests/integration/test_flow_http.py tests/integration/test_notes_publication_flow.py` | 10 + 17 + 14 + 12 + 6 + 6 passed (rodados por arquivo durante o desenvolvimento e de novo na suíte inteira) |
+| mesmo PostgreSQL | `python -m pytest tests/integration_postgres/test_flow_concurrency.py` | 3 passed |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui as seis tabelas novas); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING` (com o exemplo habilitado), `makemigrations --check --dry-run`, `python -m skeleton.system.packages doctor examples/notes` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_flow_spec.py`, `test_flow_expressions.py`, `test_flow_validation.py`: forma canônica e digest; condições tipadas, recusa de operador desconhecido, de campo não declarado e de comparação com campo sensível, falha fechada sob `negate`; uma mutação por regra estrutural (alcançabilidade, becos sem saída, bifurcação sem junção, regras de cada tipo de etapa, formulários divergentes) e o check `skeleton.E029`.
+- `tests/integration/test_flow_tables.py`: catálogo e `check_skeleton_schema`; tenant ausente falha fechado (ORM e RLS); A/B em leitura e escrita; FK composta e `WITH CHECK` entre organizações; auditoria de criação, alteração, exclusão lógica e restauração com `sensitive_data`, `sensitive_values` e `comment` redigidos; rollback sem resíduo; CAS com um vencedor; `update_fields` vazio; campos imutáveis no Python e no guard; DELETE físico recusado; uma instância ativa por fluxo e registro.
+- `tests/integration/test_flow_engine.py`: gateway exclusivo, bloco paralelo (a junção espera todos e dispara uma vez), bloco inclusivo (só os ramos ativados, com padrão); serviço com saídas declaradas rodando como sistema; temporizador; espera com sinal, formulário e tempo limite; instância presa à versão e recusa de spec alterada sem versão nova; idempotência e uma instância ativa; rollback do chamador sem instância, job, evento nem auditoria; default deny no início (inexistente, outra organização e ilegível respondem igual); A/B; app desativada bloqueia e reativar retoma; handler que falha é retentado, falha a instância e `retry` retoma, sem guardar a mensagem do erro; handler ausente; suspender, retomar e cancelar; administrador e revisão exigidos; início e sinal em `system_context`.
+- `tests/integration/test_flow_tasks.py`: formulário como allowlist (campo não declarado, obrigatório, tipo, limites, pessoa de fora, campo de outra transição); fila com assumir e liberar, e perda imediata da fila ao perder o papel; um vencedor por revisão; rejeição que devolve à etapa anterior com os envios preservados; políticas `all`, `quorum` e `sequential`; atribuição por campo de formulário; delegação e reatribuição pelo administrador; atribuição sem resolução; instância suspensa ou cancelada e outra organização; SLA com lembrete único, reatribuição e expiração; notificação que só leva à tarefa quem ainda pode vê-la.
+- `tests/integration/test_flow_service_api.py`: `assert_service_contract(FlowService)` e, para os 17 métodos, caminho autorizado, default deny (`assert_denied_as_not_found`), A/B (`assert_tenant_isolated`), app desativada (`assert_unavailable_when_disabled`), ator divergente (`assert_rejects_other_actor`), CAS (`assert_cas_conflict`) nos comandos de tarefa e de instância, idempotência do `start`, valores sensíveis só para quem pode agir e rollback sem efeitos.
+- `tests/integration/test_flow_http.py`: anônimo e pessoa sem vínculo; caixa, detalhe e ações por REST com CSRF, `If-Match` (428, 412) e formulário inválido (400 com `fields`); administração da instância (403 para quem não administra, 409 de estado); outra organização (404), token de API (403 `token_not_allowed`) e app desativada (404); as páginas sem JavaScript, com 400 e 409 no formulário, e as ações da instância por POST com CSRF e revisão.
+- `tests/integration/test_notes_publication_flow.py`: o fluxo do exemplo de ponta a ponta (uma aprovação para público interno, duas em paralelo para externo, devolução e desistência, etapa de serviço), com um aprovador que não lê a anotação; default deny, A/B, app desativada e ator divergente dos dois métodos novos do `NoteService`; a página e o endpoint do exemplo.
+- `tests/integration_postgres/test_flow_concurrency.py`: em conexões e threads separadas, três decisões simultâneas em ramos paralelos disparam a junção uma vez e não perdem numeração de ativações; duas pessoas na mesma tarefa de fila têm um vencedor, e a outra recebe conflito de revisão; três inícios simultâneos do mesmo registro criam uma instância.
+
+**Não verificado:** a suíte SQLite pedida no plano original não existe mais (o projeto é só PostgreSQL desde #144); `cd frontend && npm run check` (os templates novos só usam classes que já estão no `site.css` compilado, conferido por script, mas o build do Tailwind não foi rodado); smoke manual no navegador das telas de fluxos e do exemplo (cobertos pelo cliente de teste com login de sessão real, não por navegador); o PostgreSQL 16.15 e o Python 3.12 do CI; os testes `posix`, do agente e do Docker, pulados no Windows. `tests/unit/test_flow_forms.py`, previsto em #204, não foi escrito: a coerção por tipo está em `test_flow_expressions.py` e a validação de formulários, que consulta vínculos, em `test_flow_tasks.py`.
+
+## Suíte de testes em menos de 10 minutos (epic #199)
+
+Rodadas de 2026-11-11 e 2026-11-12 na branch `test/199-fast-test-suite` ([#349](https://github.com/alaorneto/skeleton/issues/349), [#350](https://github.com/alaorneto/skeleton/issues/350), [#196](https://github.com/alaorneto/skeleton/issues/196), [#197](https://github.com/alaorneto/skeleton/issues/197), [#198](https://github.com/alaorneto/skeleton/issues/198)). Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+| Execução | Antes | Depois |
+|---|---|---|
+| `pytest tests --cov`, serial | 1282 passed, 111 skipped em 26 min 20 s (1320 s de preparação, 246 s de teste); 15353 de 21219 linhas (69,42%) | sem cobertura: 1329 passed, 111 skipped em 12 min 19 s (606 s de preparação, 124 s de teste) |
+| `pytest tests -n 8` | não existia | 1304 passed, 111 skipped em 3 min 56 s |
+| `pytest tests -n 16` | não existia | 1327 passed, 111 skipped em 3 min 53 s |
+| `pytest tests -n 8 --cov` | não existia | 1327 passed, 111 skipped em 4 min 12 s; 15369 de 21239 linhas (69,43%) |
+| `SKELETON_BUNDLED_APPS=calendar pytest tests/contrib/calendar -n 8` | 4 min no CI, serial | 59 passed em 36 s |
+| `pytest tests -n 8 --cov`, cache frio, rodada final (com #349, #350 e a introspecção em lote) | não existia | 1368 passed, 111 skipped em 5 min 0 s; 15396 de 21257 linhas (69,52%) |
+| `pytest tests -n 8`, cache quente, rodada final (duas vezes) | não existia | 1368 passed, 111 skipped em 3 min 59 s e 4 min 13 s |
+| `pytest tests` em série, cache quente, rodada final | 26 min 20 s (com cobertura) | 1368 passed, 111 skipped em 13 min 13 s |
+| Agenda com `-n 8`, rodada final | 4 min no CI, serial | 59 passed em 44 s |
+| Jobs de teste do CI | run 43028212566: um job por Python, 36 min (3.12) e 31 min (3.14) | run 43219085131 (PR #352): o maior job levou 5 min 17 s (3.12, núcleo 2/2) e os outros de 1 min 44 s a 4 min 5 s; por Python, 943 + 614 testes do núcleo e 59 da agenda, sem nenhum pulado no Linux; da criação da execução ao agregador `CI`, 5 min 53 s |
+
+Equivalência (rodada final contra a linha de base, comparando os dois JUnit XML e os dois relatórios JSON do `coverage`): os 1393 testes da linha de base aparecem com o mesmo resultado; os 86 a mais são testes novos (59 em `test_integration_database.py`, 23 em `test_suite_shards.py`, 4 em `test_table_catalog_sync.py`). A cobertura de linhas subiu de 15353 de 21219 (69,42%) para 15396 de 21257 (69,52%), e a de ramos de 3888 de 6496 para 3912 de 6516. Nos arquivos não editados, as linhas executadas são idênticas; nos editados (`skeleton/conf/profiles.py`, `skeleton/system/synchronization.py`, `skeleton/testing/hashers.py`), as linhas cobertas ficaram iguais ou maiores. Rodadas paralelas completas sem falha nesta branch: dez.
+
+`sync_table_catalog` (#197): uma ressincronização sem mudanças caiu de 903 consultas (0,54 s) para 215 com as linhas do catálogo lidas de uma vez, e para 13 (0,013 s) com a introspecção do schema inteiro em duas consultas, gravando o mesmo catálogo (638 linhas comparadas com a implementação anterior). `tests/integration/test_table_catalog_sync.py` compara a introspecção em lote com a do Django em todas as colunas do schema migrado e numa tabela de prova com identidade, serial, default, collation, comentário, coluna removida, chave composta e domínio sobre domínio. O teste achou uma diferença antes do commit: colunas de domínio precisam do tipo base, como na descrição do `SELECT *`.
+
+Catálogo do migrate ([#349](https://github.com/alaorneto/skeleton/issues/349)): depois de todo `migrate`, as dez tabelas operacionais ficavam catalogadas com `soft_delete=True` e `audit_mode=trigger`, e `auth_group_permissions.id` como `BigAutoField`, até a sincronização seguinte. A causa eram os modelos históricos do `post_migrate`, sem `lifecycle` nem o `default_auto_field` da app. A regressão `test_catalog_written_by_migrate_is_the_runtime_catalog` falhou antes da correção e passa depois; uma sincronização logo depois do migrate não grava nada.
+
+Na suíte inteira, o cache e a introspecção em lote não mudam o tempo de forma mensurável: ele é dominado pela restauração do schema antes de cada teste, e a variação entre rodadas iguais (3 min 59 s e 4 min 13 s) é maior que o ganho. O ganho deles é a partida, no ciclo de um arquivo ou de um teste.
+
+Template em cache ([#350](https://github.com/alaorneto/skeleton/issues/350)): um teste com banco, de 6,2 s (migra) para 1,6 s (cache); `tests/integration/test_record_contract.py` com `-n 8`, de 18,9 s para 11,0 s. Testes unitários da chave (estável, ignora o harness e os testes, muda com código, settings, variáveis, bibliotecas, servidor e `pg_dump`), da leitura (recusa entrada malformada, de outra chave ou com meta-comando) e da gravação (atômica, limitada a 4 entradas).
+
+Estabilidade: dez rodadas paralelas completas sem nenhuma falha (as três da rodada final acima e sete anteriores), com ordens e distribuições diferentes (`-n 8` duas vezes, `-n 16`, `-n 8 --cov`, `-n 16 --dist load`, `-n 8 --dist loadfile`, `-n 12`, `-n 16 --dist worksteal`; as quatro últimas com 1329 passed, 111 skipped em 3 min 40 s a 4 min 6 s). A primeira tentativa com `-n 8` teve 93 erros de `out of shared memory` na restauração do schema; a causa era a tabela de locks do servidor, corrigida com `max_locks_per_transaction` e a conferência prévia.
+
+No run 43219085131, o container `postgres:16.15` aplicou os ajustes de `POSTGRES_INITDB_ARGS` (o passo de provisionamento lista `fsync`, `synchronous_commit` e `full_page_writes` em `off` e `max_locks_per_transaction` em 2048), e todos os jobs de teste passaram. O job `coverage` falhou com "No data to combine": num diretório, o `coverage combine` só procura nomes `.coverage*`. A correção, que passa os arquivos das fatias pelo nome, foi reproduzida localmente ("Combined 2 files").
+
+Com a correção, o run 43220490740 passou inteiro em 6 min 17 s, da criação ao agregador `CI`. O maior job de teste levou 5 min 10 s (3.12, núcleo 2/2), e o job `coverage` combinou as duas fatias de cada Python em 30 s. A cobertura combinada da suíte do núcleo ficou em 77% (linhas e ramos), com 17227 de 21714 linhas cobertas (79,34%). O run 43028212566, antes deste epic, tinha 76%, com 16847 de 21324 linhas (79,00%); o total de linhas cresceu com o código que entrou na `main` nesse meio-tempo.
 
 ## Configurações e marca da organização (epic #90)
 
@@ -315,6 +551,89 @@ Cobertura nova:
 
 **Não verificado:** os testes do agente que exigem `fcntl` nesta máquina (rodam no CI), `docker compose up` com os serviços `worker` e `scheduler`, as units systemd num host real, smoke de `/platform/jobs/` no navegador (o template é renderizado e conferido pelos testes de integração) e o PostgreSQL 16.15 do CI.
 
+## i18n: idioma, fuso, textos traduzíveis e emails (epic #85)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#169, origem pública do convite:**
+
+- `tests/integration/test_invitation_public_url.py`: 3 passed com a correção e 2 failed sem ela. O patch foi desfeito e reaplicado com `git apply -R`/`git apply`.
+- Os casos cobertos:
+  - sem requisição, o link usa `SKELETON_PUBLIC_URL`;
+  - sem requisição e sem o setting, o erro cita `SKELETON_PUBLIC_URL`;
+  - com requisição, continua valendo o host da requisição.
+
+**#170, idioma e fuso em todas as superfícies:**
+
+- Suíte completa `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, num PostgreSQL só deste worktree: 1257 passed, 3 failed, 111 skipped. As três falhas eram testes antigos que esperavam `UTC` no perfil novo, ou `en` em `LANGUAGES`, ou que o destinatário de email tivesse `is_authenticated`. Os testes foram ajustados e `preferences_for` passou a aceitar o destinatário sem sessão.
+- Depois da correção: `tests/accounts/test_lifecycle_findings.py`, `tests/unit/test_notification_email_render.py` e `tests/integration/test_locale_preferences.py`, 18 passed.
+- Antes, nesta rodada, `test_locale_preferences.py` com `test_core_identity_service.py`, `test_notification_email.py`, `test_notification_digest.py` e `test_organization_settings.py` tinham dado 34 passed.
+- Os testes cobrem a precedência perfil > organização > instância na web da organização, na API, fora de organização e em `/me`, além de:
+  - perfil explícito vencendo a organização;
+  - padrões da instância e `Accept-Language` antes do login (com `Vary`);
+  - organização vinda só do contexto (header ignorado; sem vínculo, 404);
+  - valores efetivos no `IdentityService.me`;
+  - idioma fora de `LANGUAGES` recusado;
+  - `<html lang>` dinâmico.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#172, templates traduzíveis:**
+
+- 93 templates convertidos por um script que usa o lexer do Django. O texto entre tags e os atributos visíveis viraram `{% translate %}`, e os literais de rótulo nas tags viraram `_("…")`.
+- Ficaram de fora os templates `.en.` de email (eles já são a tradução) e os elementos `script`, `style`, `code` e `pre`.
+- Todos os templates de `skeleton/` e `examples/` compilam: 0 erros.
+- `tests/accounts`, `tests/unit` e os testes de integração que renderizam telas e emails: 816 passed, 111 skipped. São navegação, superfícies recuperadas, apresentação de registros, `/platform/`, email, resumo, configurações e marca, administração de apps, webhooks, tokens, anexos, fronteiras HTTP e setup.
+- A suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- A cobertura sem texto fora do gettext é verificada pela pseudolocalização do #174.
+
+**#171, textos do Python traduzíveis:**
+
+- Por volta de 680 strings em português foram envolvidas por um script AST, com `gettext` em funções e `gettext_lazy` em módulos, classes e registros de inicialização. As f-strings viraram `gettext("… %(nome)s") % {...}`.
+- 55 mensagens de validação em inglês que chegam às pessoas passaram para pt-BR, e o teste que conferia uma delas foi ajustado. Os diagnósticos técnicos ficaram em inglês.
+- Strings de protocolo foram revertidas: `DOCSTRING_SECTIONS`, `SERVICE_API_HEADINGS` e o script `SERVICE_WORKER`.
+- Suíte completa: 1289 passed, 1 failed, 111 skipped. A falha era o `export_schema` serializando a descrição lazy de um spec com `json.dumps`. A correção (`str()` na exportação e no título do push) passou em `test_retained_schema.py`, `test_web_push.py` e `tests/contrib`, com 7 passed, e no `test_retention.py` da agenda, com 2 passed.
+- Suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#174, validação dos catálogos:**
+
+- `tests/integration/test_i18n_coverage.py`: 4 passed. O teste troca o gettext por uma pseudotradução que marca cada mensagem com `⟦…⟧` e renderiza as páginas-chave para três perfis:
+  - o admin da organização: painel, catálogo, auditoria, configurações, apps, webhooks, contas de serviço, recursos de acesso, perfil e início;
+  - o admin da plataforma: visão geral, organizações, usuários, auditoria, jobs e apps;
+  - o visitante: login e recuperação de senha.
+- O teste falha se sobrar texto fora das marcas, descontados os dados do cenário: nomes, emails, papéis, manifestos, fusos, endônimos de idioma e códigos crus.
+- O caso negativo (texto fixo e atributo) é detectado.
+- A rodada achou rótulos que tinham escapado e que foram corrigidos no commit seguinte ao #171: `TextChoices`, palavras soltas, `yesno`/`default_if_none` e as colunas dos recursos de acesso.
+- Suíte completa com as correções: 1294 passed, 111 skipped. Agenda: 59 passed.
+- `tools/i18n_check.py` (`makemessages` e `msgfmt --check-format`) entrou no job estático do CI, que instala o `gettext`. Não rodou localmente porque o Windows desta rodada não tem GNU gettext; a evidência é o CI.
+
+**#173, emails com a marca da organização:**
+
+- `tests/integration/test_email_branding.py`: 4 passed. Cobre:
+  - o layout com a cor padrão e o nome da organização;
+  - a cor e o nome configurados e o logo como parte inline `<organization-logo>` referenciada por `cid:`;
+  - o email da organização B sem a marca nem o logo de A;
+  - o convite saindo de templates, com a marca, o link e `<html lang>` no idioma padrão da organização.
+- Suíte completa depois do merge da branch do #90 atualizada com a `main`: 1346 passed, 111 skipped. Agenda: 59 passed.
+- A varredura de texto pós-merge envolveu os rótulos que restavam: "Gestor de apps", "Apps organizacionais", "Disponibilidade de apps", "Assinaturas de push" e "Observabilidade".
+- Não verificado: a renderização num cliente de email real.
+
+**Epic #85 depois do merge da `main` (`da0eb3a`):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`, com 16 bancos de worker de `tools/dev_postgres.py start --workers 16`: 1471 passed, 111 skipped. Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed.
+- A primeira rodada pós-merge teve 1 falha: a sonda de teste de `test_locale_preferences.py` em `/api/v1/` caiu na verificação de contrato OpenAPI do #179. O teste recebeu `@pytest.mark.no_api_contract`, porque a rota só existe no teste.
+- O texto que veio da `main` é documentação OpenAPI e fica fora do gettext, por regra registrada em `docs/extending.md`.
+
+**Epic #85 depois do merge da `main` com os fluxos (#351):**
+
+- Templates e Python do módulo `skeleton/flows` e da app de exemplo passaram pelos mesmos conversores. Ficaram fora, pela regra do `docs/extending.md`:
+  - as regex de URL;
+  - as mensagens técnicas de validação da especificação do fluxo;
+  - os rótulos da especificação de fluxo congelada;
+  - os textos de OpenAPI.
+- A primeira rodada achou um texto de OpenAPI lazy (`test_openapi_schema`). Ele foi corrigido.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1633 passed, 111 skipped. Agenda: 59 passed.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:
@@ -353,13 +672,38 @@ Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um se
 ```sh
 python tools/dev_postgres.py start                 # inicializa (na primeira vez), sobe e provisiona
 eval "$(python tools/dev_postgres.py env)"          # POSIX; no PowerShell: python tools/dev_postgres.py env --shell powershell | Invoke-Expression
-SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q
+SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto
 python tools/dev_postgres.py stop
 ```
 
-O servidor vem do `pgserver` (binários do PostgreSQL num wheel). Como o `pgserver` só publica wheels para CPython 3.12, o script o executa pelo `uv` num ambiente isolado com Python 3.12, fora do virtualenv do projeto, e nada entra nos locks. Os dados ficam em `var/dev-postgres` (ignorado pelo Git). O banco `local_skeleton_test` é provisionado com `deploy/postgres/bootstrap.sql` e senhas só locais, no mesmo layout do CI. O script também copia os dados de fuso do pacote `tzdata` quando o build do `pgserver` vem sem eles, e exporta `SKELETON_TEST_PG_DUMP` para o template de schema.
+O servidor vem do `pgserver` (binários do PostgreSQL num wheel). Como o `pgserver` só publica wheels para CPython 3.12, o script o executa pelo `uv` num ambiente isolado com Python 3.12, fora do virtualenv do projeto, e nada entra nos locks. Os dados ficam em `var/dev-postgres` (ignorado pelo Git). O banco `local_skeleton_test` é provisionado com `deploy/postgres/bootstrap.sql` e senhas só locais, no mesmo layout do CI. O `start` também cria um banco por worker paralelo (`local_gw0_skeleton_test`, `local_gw1_...`; um por CPU, ou `--workers N`), sem mexer nos que já existem, e ajusta o servidor: `fsync`, `synchronous_commit` e `full_page_writes` desligados e `max_locks_per_transaction=2048` (reinicia o servidor uma vez, na mesma porta). Por isso esse servidor nunca deve guardar dado que importe. O script também copia os dados de fuso do pacote `tzdata` quando o build do `pgserver` vem sem eles, e exporta `SKELETON_TEST_PG_DUMP` para o template de schema.
 
-Duas suítes não podem rodar ao mesmo tempo no mesmo banco: cada teste recria o schema `skeleton`. A suíte de SSO real (`tests/sso`, Keycloak e navegador) só é coletada quando `SSO_FIXTURE_ENV_PATH` está definido; sem isso, `pytest tests` a deixa de fora.
+Duas execuções da suíte não podem usar os mesmos bancos ao mesmo tempo: cada teste recria o schema `skeleton` do banco do seu worker. A suíte de SSO real (`tests/sso`, Keycloak e navegador) só é coletada quando `SSO_FIXTURE_ENV_PATH` está definido; sem isso, `pytest tests` a deixa de fora.
+
+### Rodar rápido e rodar completo
+
+| Para | Comando | Tempo |
+|---|---|---|
+| O arquivo ou teste em que você está trabalhando | `python -m pytest tests/integration/test_x.py -q -x` (`-k nome` escolhe um teste; `-x` para na primeira falha) | um teste com banco: 1,6 s com o template em cache, 6,2 s quando o código mudou e a suíte migra de novo |
+| Só o que falhou na última vez | `python -m pytest tests -q -n auto --lf` | proporcional ao que falhou |
+| Testes sem banco | `python -m pytest tests/unit -q -n auto` | menos de 1 minuto |
+| Suíte inteira, obrigatória antes do PR | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` | cerca de 4 minutos |
+| Suíte inteira com cobertura, como no CI | o mesmo, com `--cov` | cerca de 4 minutos |
+| Agenda | `SKELETON_BUNDLED_APPS=calendar python -m pytest tests/contrib/calendar -q -n auto` | menos de 1 minuto |
+
+Sem `-n`, a suíte roda num processo e num banco, como antes: é o modo para depurar com `--pdb` ou ler a saída de um teste. O comando rápido não substitui a suíte inteira, porque não prova que a mudança deixou os outros módulos intactos.
+
+**Como a paralelização funciona.** `-n` é do `pytest-xdist` (lock de desenvolvimento): N processos, cada um com uma parte dos testes. Cada processo usa um banco só seu, com nome derivado das duas URLs de teste (`local_skeleton_test` vira `local_gw3_skeleton_test` no worker `gw3`), migra uma vez e restaura o template antes de cada teste, exatamente como no modo serial. O `tests/conftest.py` troca as duas variáveis de ambiente no próprio worker; assim os settings, `disposable_database_pair()`, os testes que leem as variáveis e os subprocessos que eles iniciam enxergam o mesmo banco. Os fixtures continuam sem criar banco nem role.
+
+Antes de iniciar os workers, a suíte confere duas coisas: se o owner abre o banco de cada worker e se a tabela de locks do servidor comporta as restaurações simultâneas. Cada restauração segura cerca de 2.100 locks até o commit, e o padrão do PostgreSQL (6.400 no total) só aguenta dois workers. Se faltar algo, a suíte para com um erro de uso que diz o que provisionar. Num PostgreSQL que não seja o de `tools/dev_postgres.py`, crie os bancos `<prefixo>_gwN_skeleton_test` como o banco base (bootstrap, senhas, `GRANT CREATE ON DATABASE`) e aumente `max_locks_per_transaction`.
+
+**Template em cache entre execuções.** Migrar custa de 4 a 8 s por processo. Quando nada que molda o schema mudou desde a execução anterior, o template guardado em `var/test-template-cache` é restaurado sem migrar (ver [Isolamento da suíte](#isolamento-da-suíte)). Editar só testes mantém o cache; editar código do núcleo, de uma app, os settings ou trocar de servidor faz a próxima execução migrar de novo. `SKELETON_TEST_TEMPLATE_CACHE=0` desliga o cache (para depurar migrations); outro valor muda o diretório.
+
+Para escrever um teste novo sem aumentar o tempo da suíte nem quebrar a execução paralela, veja [Escrever testes que mantêm a suíte rápida](#escrever-testes-que-mantêm-a-suíte-rápida).
+
+`--shard I/N` (`tools/suite_shards.py`) roda só uma fatia dos arquivos de teste. Serve ao CI; localmente, `-n` basta.
+
+Os tempos medidos estão em [Suíte de testes em menos de 10 minutos](#suíte-de-testes-em-menos-de-10-minutos-epic-199).
 
 **Rodadas abaixo de [#144](https://github.com/alaorneto/skeleton/issues/144):** as seções seguintes registram a história anterior ao modelo só PostgreSQL e citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Elas continuam como evidência do que rodou naquela época, não como procedimento.
 
@@ -993,17 +1337,23 @@ As regressões de deployment usam `docker compose config --format json`, executa
 
 O isolamento evita que um teste apague dados de outro teste ou de uma instalação real. **Runtime** é a role limitada usada nas verificações de aplicação; **owner** é a role privilegiada usada somente para reconstruir o schema da fixture. Um banco “de teste” não se torna seguro só pelo nome: as URLs, o sufixo e o marcador de reset precisam satisfazer todas as barreiras abaixo.
 
-`tests/conftest.py` oferece fixture `skeleton_db`. pytest-django fornece settings e desbloqueio explícito do ORM; não use criação/flush automático, `django_db`, TransactionTestCase de flush, `--reuse-db` ou pytest-xdist como atalho em schema protegido.
+`tests/conftest.py` oferece fixture `skeleton_db`. pytest-django fornece settings e desbloqueio explícito do ORM; não use criação/flush automático, `django_db`, TransactionTestCase de flush ou `--reuse-db` como atalho em schema protegido. O `pytest-xdist` é usado, mas só com um banco provisionado por worker (abaixo): dois processos nunca compartilham um schema.
 
 No SQLite, a sessão prepara um banco-modelo vazio e migrado. Cada teste recebe uma cópia própria via API de backup SQLite em `tmp_path`; a conexão é reaberta para registrar as funções SQL (UDFs) necessárias aos triggers. Ao terminar, descarta-se somente o arquivo temporário. Testes unitários sem banco não ativam essa fixture.
 
 No PostgreSQL, `TEST_DATABASE_URL` (runtime) e `TEST_MIGRATION_DATABASE_URL` (owner) devem apontar ao **mesmo banco descartável**, com nome terminado `_skeleton_test`, diferente de qualquer `DATABASE_URL`/`MIGRATION_DATABASE_URL` normal. Também é obrigatório `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`.
 
+Com `pytest -n`, cada worker usa o seu banco, `<prefixo>_gwN_skeleton_test`, derivado dessas duas URLs por `tools/integration_database.py`. O nome mantém o sufixo, então todas as barreiras valem para ele. Um worker que não trocou de banco é recusado por `disposable_database_pair()`, e um banco de worker que não existe para a suíte antes de qualquer teste (ver [Rodar rápido e rodar completo](#rodar-rápido-e-rodar-completo)).
+
 A fixture fecha conexões e recria **somente o schema `skeleton`** com owner a cada teste. Depois, todas as verificações de aplicação/RLS usam runtime. Ela não cria banco/roles nem reseta dados externos; DDL/reset são serializados. Se DSN, sufixo ou marcador faltar, pare e corrija o ambiente: a ausência não autoriza reset automático nem desabilitar a barreira.
 
-O schema de cada teste vem de um **template da sessão**, como no SQLite. O fixture `postgres_template` aplica as migrations uma única vez e captura estrutura e dados do schema com `pg_dump --schema=skeleton`, rodando como `skeleton_owner`. Em cada teste, `restore_schema()` apaga o schema, recria-o e executa esse SQL numa só transação, também como owner. O `GRANT CREATE` ao `skeleton_audit_writer` vale só durante a restauração, para transferir a ownership das funções de auditoria, como faz `InstallRecordInfrastructure`. Antes, cada teste rodava o `migrate` completo, cerca de 4 s por teste. O template não é `--reuse-db`: nenhum teste herda dados de outro, e nada é truncado ou apagado linha a linha. `tests/integration_postgres/test_schema_template.py` compara o schema restaurado com o migrado (tabelas, colunas, constraints, índices, triggers, funções, policies, flags de RLS, owners, ACLs, sequências e dados) e mostra que a comparação falha quando falta uma policy, trigger, grant, FORCE RLS ou linha. A comparação de ACLs usa os privilégios efetivos: uma ACL `NULL` conta como `acldefault()` do owner. Isso é necessário porque um `REVOKE` pode deixar gravada uma ACL explícita igual ao padrão, que o `pg_dump` omite e o restore recria como `NULL`. O texto dos CHECK e dos índices com predicado ou expressão também passa por um ida-e-volta: o restore pode mover casts sem mudar a expressão (por exemplo, um `IN` sobre varchar). Por isso, o fingerprint recria cada CHECK (como `NOT VALID`) e cada um desses índices numa transação revertida e compara o texto que o PostgreSQL devolve.
+O schema de cada teste vem de um **template da sessão**, como no SQLite. O fixture `postgres_template` aplica as migrations uma única vez e captura estrutura e dados do schema com `pg_dump --schema=skeleton`, rodando como `skeleton_owner`. Em cada teste, `restore_schema()` apaga o schema, recria-o e executa esse SQL numa só transação, também como owner. O `GRANT CREATE` ao `skeleton_audit_writer` vale só durante a restauração, para transferir a ownership das funções de auditoria, como faz `InstallRecordInfrastructure`. Antes, cada teste rodava o `migrate` completo, cerca de 4 s por teste. A restauração roda com `synchronous_commit=off` na transação do owner: um schema de fixture perdido numa queda é recriado pelo teste seguinte. O template não é `--reuse-db`: nenhum teste herda dados de outro, e nada é truncado ou apagado linha a linha. `tests/integration_postgres/test_schema_template.py` compara o schema restaurado com o migrado (tabelas, colunas, constraints, índices, triggers, funções, policies, flags de RLS, owners, ACLs, sequências e dados) e mostra que a comparação falha quando falta uma policy, trigger, grant, FORCE RLS ou linha. A comparação de ACLs usa os privilégios efetivos: uma ACL `NULL` conta como `acldefault()` do owner. Isso é necessário porque um `REVOKE` pode deixar gravada uma ACL explícita igual ao padrão, que o `pg_dump` omite e o restore recria como `NULL`. O texto dos CHECK e dos índices com predicado ou expressão também passa por um ida-e-volta: o restore pode mover casts sem mudar a expressão (por exemplo, um `IN` sobre varchar). Por isso, o fingerprint recria cada CHECK (como `NOT VALID`) e cada um desses índices numa transação revertida e compara o texto que o PostgreSQL devolve.
+
+Entre execuções locais, o template pode vir de um cache em disco (#350, `var/test-template-cache`, ignorado pelo Git). A chave é um SHA-256 de tudo que molda o schema migrado: todos os arquivos de código e dados de `skeleton/`, `config/`, `applications/` e `examples/`, `tools/integration_database.py` e `tests/conftest.py`, `INSTALLED_APPS` e `MIGRATION_MODULES`, `DJANGO_SETTINGS_MODULE` e as variáveis `SKELETON_*` do projeto (não as `SKELETON_TEST_*`, nem as URLs ou o worker), as versões de todas as bibliotecas instaladas e as versões do servidor e do `pg_dump`. Os valores só entram no hash; o arquivo guarda o SQL do dump e o fingerprint. Uma entrada de outra chave, de outro formato, malformada ou com meta-comando do psql é ignorada, e a suíte migra. A chave é ampla de propósito: uma edição fora de `tests/` custa uma migração; uma entrada esquecida custaria um schema errado. Por isso o CI desliga o cache e prova as migrations em toda execução. O cache não reaproveita dados entre testes: cada teste continua restaurando o schema inteiro.
 
 O template exige `pg_dump` com versão igual ou maior que a do servidor (no CI vem de `postgresql-client`). Para usar outro binário, aponte `SKELETON_TEST_PG_DUMP` para ele. Com `SKELETON_TEST_POSTGRES_TEMPLATE=0`, a fixture volta a migrar a cada teste, o que serve para depurar migrations. Sem `pg_dump` e sem essa variável, a suíte falha com erro de uso, em vez de ficar lenta em silêncio.
+
+O perfil de teste (`skeleton.conf.profiles.test_settings`) usa `skeleton.testing.hashers.FastPBKDF2PasswordHasher`: PBKDF2-SHA256 com 1.000 iterações, com o mesmo algoritmo e o mesmo formato de hash da produção. Com as iterações de produção, cada senha de fixture custava cerca de 0,3 s, e quase todo teste cria várias identidades. Esse hasher nunca entra nos settings de uma instalação.
 
 Browser SSO tem fixture de sessão com DB isolado e servidor real, preservando commits até fim do cenário. Não use TestCase com atomic externa como prova de COMMIT/SET LOCAL; os testes transacionais precisam de commits verdadeiros.
 
@@ -1078,6 +1428,68 @@ Preparador busca discovery/metadata/cert **públicos** nos realms iniciados; ger
 Browser completa redirect/login IdP/callback real e consulta API pela sessão final: org correta, ausência staff/superuser, rerun sem duplicar User/Profile/Membership. Testes negativos manipulam intercâmbios reais da fixture, não substituem o validador: state/replay/issuer/audience/signature/expiry/PKCE OIDC; assinatura/destination/audience/expiry/InResponseTo/unsolicited/replay SAML. Coincidência email não conecta; sem binding/JIT ou email não confiável não concede afiliação. GitHub exige app OAuth/credenciais reais/callback documentado, senão registre não exercitado.
 
 **Resultado esperado:** login retorna à aplicação, cria/reusa a identidade correta e os casos adversos são recusados sem conceder vínculo indevido. **Falha/limite:** serviço ou secret ausente é pré-requisito pendente, não teste aprovado; esta fixture corporativa não habilita GitHub real nem homologação gov.br.
+
+## Escrever testes que mantêm a suíte rápida
+
+O tempo da suíte é quase todo preparo, não teste. Na linha de base do epic [#199](https://github.com/alaorneto/skeleton/issues/199), 1320 s eram `setup` e 246 s eram as funções de teste: cada teste que pede `skeleton_db` recria o schema inteiro antes de rodar. Um teste novo custa principalmente o que ele pede para ser preparado. Custos medidos em 2026-11-12 (Windows 11, em série, PostgreSQL local de `tools/dev_postgres.py`):
+
+| Peça | Custo por teste |
+|---|---|
+| Teste sem banco (`tests/unit`) | milissegundos |
+| `skeleton_db` (restaurar o schema e abrir as apps) | 0,8 a 1,1 s |
+| `build_security_fixture()` (quatro identidades, duas organizações, papéis, catálogo e notas) | 0,47 s |
+| Uma identidade por `create_identity()` | 0,014 s |
+| Subprocesso `python` com `django.setup()` | 2 s |
+| `call_command("migrate")` dentro de um teste | 4 a 8 s |
+
+### Custo
+
+1. **Banco só quando a prova depende dele.** Lógica pura (validação, parsing, formatação, cálculo, montagem de mensagem ou de payload) vai para `tests/unit`, sem `skeleton_db`. O que depende de RLS, triggers, auditoria, CAS, isolamento A/B ou da role runtime continua em PostgreSQL com a role runtime. Não troque essa prova por mock do ORM, SQLite ou owner para ganhar tempo: o [checklist do `AGENTS.md`](../AGENTS.md#checklist-mínimo-de-nova-tabela) continua valendo.
+2. **Um preparo, vários casos de leitura.** Com `skeleton_db`, cada caso de `@pytest.mark.parametrize` paga a restauração do schema. Quando os casos só leem o mesmo cenário, escreva um teste com o fixture `subtests` do pytest 9: o preparo roda uma vez e cada caso aparece no relatório com o próprio nome, também com `-n`. Exemplos de casos só de leitura: a matriz de atores e ações de um default deny, as rotas que devem responder 404 para outra organização, os campos que não podem aparecer numa resposta. Continue com `parametrize`, ou com testes separados, quando um caso escreve e o seguinte precisa do banco intacto.
+
+   ```python
+   def test_outra_organizacao_recebe_404_em_todas_as_rotas(skeleton_db, client, subtests):
+       cenario = build_security_fixture()  # pago uma vez
+       client.force_login(cenario.outsider)
+       for rota in (f"/o/{cenario.a.pk}/", f"/o/{cenario.a.pk}/audit/", f"/api/v1/o/{cenario.a.pk}/catalog/"):
+           with subtests.test(rota=rota):
+               assert client.get(rota).status_code == 404
+   ```
+
+3. **Cenário mínimo.** Monte só o que as assertions usam. Para um teste de um ator numa organização, `create_identity()` e `create_organization()` bastam. `build_security_fixture()` é para a matriz A/B completa, e o kit da API de serviços tem `build_service_scenario()`. Não crie fixture de escopo `session` ou `module` com linhas no banco: o schema é recriado a cada teste, e compartilhar dados entre testes é exatamente o que o [isolamento da suíte](#isolamento-da-suíte) proíbe.
+4. **Não migre dentro de um teste.** O template já entrega o schema migrado. Para DDL de prova use o fixture `owner_schema_editor`. A migração real é testada onde ela é o assunto (`tests/integration/test_scaffold_end_to_end.py`, `tools/smoke_postgres.py`), e `SKELETON_TEST_POSTGRES_TEMPLATE=0` serve para depurar migrations.
+5. **Subprocesso só quando o processo novo é a prova.** Exemplos: importações num processo limpo (`test_observability_optional.py`) ou um comando de ponta a ponta. Para chamar um comando do Django no mesmo processo, use `call_command`.
+6. **Nada de esperar o relógio.**
+   - Tempo que passa: passe `now=` aos serviços que aceitam, ou substitua o `timezone` do módulo com `monkeypatch` (`test_api_tokens.py`, `test_ics_feed.py`).
+   - Retentativa e backoff: injete a agenda ou o relógio em vez de dormir.
+   - Outro thread ou outra transação: sincronize com `threading.Barrier` ou `Event` com timeout (`test_jobs_worker.py`, `test_admin_concurrency.py`). Espere o evento que prova o estado (o lock tomado), não um intervalo fixo.
+7. **Senha de fixture.** O perfil de teste já usa PBKDF2 com 1.000 iterações (`skeleton.testing.hashers`). Não restaure o hasher de produção, a não ser num teste do próprio hashing.
+8. **Sem rede externa.** Use servidores locais em `127.0.0.1` e transportes falsos (`test_outbound_http.py`, `test_webhook_delivery.py`, `test_file_scanning.py`).
+
+### Execução paralela
+
+Com `-n`, cada worker é um processo com um banco só seu, e os testes de um mesmo arquivo podem cair em workers diferentes, em qualquer ordem. Um teste novo precisa passar nessas condições:
+
+- **Porta 0, nunca fixa:** `ThreadingHTTPServer(("127.0.0.1", 0), Handler)`, com a porta lida de `server.server_address[1]`. A única porta fixa hoje é a 8000 de `test_rd09_rendered_web_health_uses_permitted_production_host`, porque o healthcheck renderizado do Compose aponta para ela. Não crie outra.
+- **Arquivos em `tmp_path` ou `tmp_path_factory`,** nunca num caminho fixo do repositório, do usuário ou do sistema.
+- **Estado global restaurado no fim:** `monkeypatch`, `override_settings`, `try/finally` ao mexer em registros (eventos, jobs, apps) e signals conectados com `dispatch_uid` e desconectados no fim.
+- **Nenhuma dependência de ordem:** um teste não supõe que outro rodou antes nem depois dele.
+- **Banco pelas variáveis, nunca pelo nome:** use `disposable_database_pair()` ou `TEST_DATABASE_URL` e `TEST_MIGRATION_DATABASE_URL`. Dentro de um worker, elas já apontam para o banco dele, inclusive nos subprocessos.
+- **Rode `-n auto` antes do PR:** um teste que só passa em série compartilha estado e precisa ser corrigido. Não o marque nem o rode à parte.
+
+### Medir
+
+- **Arquivo novo:** `python -m pytest tests/<caminho>/test_novo.py -q --durations=10`. Um `call` acima de 1 s, ou um `setup` acima de 2 s, pede uma linha no PR dizendo o que está sendo provado e por que não ficou mais barato. Hoje passam disso o scaffold de ponta a ponta (cerca de 30 s) e os testes de concorrência do PostgreSQL (2 a 3 s cada).
+- **Suíte inteira:** `python -m pytest tests -q -n auto --durations=25` lista os mais lentos.
+- **CI:** quando o maior job de teste passar de 8 minutos, aumente o número de fatias do núcleo em vez de cortar testes. São os itens `--shard I/N` da matriz em `.github/workflows/ci.yml`, um por fatia, todos com o mesmo `N`. Arquivos e pacotes novos entram numa fatia sozinhos.
+
+### O que não fazer para ganhar tempo
+
+Nenhum destes é otimização aceita:
+- apagar, pular, ou marcar um teste como lento ou `xfail` para tirá-lo do caminho obrigatório;
+- trocar a prova em PostgreSQL com a role runtime por SQLite, mock do ORM ou conexão do owner;
+- usar `--reuse-db`, flush, `TRUNCATE` ou uma transação revertida no lugar do schema recriado;
+- reexecutar um teste instável até ele passar, em vez de corrigir a causa.
 
 ## Matrix mínima para nova tabela
 

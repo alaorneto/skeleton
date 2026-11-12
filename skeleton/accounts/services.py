@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -67,16 +68,17 @@ def update_profile(user, *, data, user_revision=None, profile_revision=None):
 
     allowed = {"first_name", "last_name", "display_name", "timezone", "language"}
     if set(data) - allowed:
-        raise ValidationError("Unknown profile fields.")
-    if "timezone" in data:
+        raise ValidationError(gettext("Campos de perfil não permitidos."))
+    if "timezone" in data and data["timezone"] != "":
         try:
             ZoneInfo(data["timezone"])
         except (ZoneInfoNotFoundError, TypeError, ValueError) as exc:
-            raise ValidationError({"timezone": "Invalid timezone."}) from exc
+            raise ValidationError({"timezone": gettext("Fuso horário inválido.")}) from exc
     if "language" in data and (
-        not isinstance(data["language"], str) or data["language"] not in dict(settings.LANGUAGES)
+        not isinstance(data["language"], str)
+        or (data["language"] != "" and data["language"] not in dict(settings.LANGUAGES))
     ):
-        raise ValidationError({"language": "Unsupported language."})
+        raise ValidationError({"language": gettext("Idioma não suportado.")})
     with transaction.atomic():
         locked = User.objects.select_for_update().get(pk=user.pk)
         profile = UserProfile.objects.select_for_update().get(user=locked)
@@ -151,7 +153,7 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
 
     unknown = set(data) - set(PLATFORM_USER_FIELDS) - {"email"}
     if unknown:
-        raise ValidationError("Campo não permitido.")
+        raise ValidationError(gettext("Campo não permitido."))
     with transaction.atomic(using=using):
         touches_role = bool(set(data) & {"is_active", *PLATFORM_FLAGS})
         admins = lock_platform_admins(using=using) if touches_role else []
@@ -159,7 +161,7 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
         if expected_revision != previous.revision:
             raise ConcurrentUpdate("The platform form is stale.")
         if "email" in data and normalized_email(data["email"]) != previous.email:
-            raise PermissionDenied("Email changes require allauth verified email flow.")
+            raise PermissionDenied(gettext("O email só muda pelo fluxo de verificação da conta."))
         if previous.is_active and data.get("is_active", True) is False:
             assert_user_deactivation(previous, using=using)
         changed = {key for key in PLATFORM_USER_FIELDS if key in data and getattr(previous, key) != data[key]}
@@ -182,7 +184,7 @@ def update_organization(organization, *, data, expected_revision, using="default
 
     unknown = set(data) - {"name", "is_active"}
     if unknown:
-        raise ValidationError("Campo não permitido.")
+        raise ValidationError(gettext("Campo não permitido."))
     with transaction.atomic(using=using):
         previous = Organization.objects.using(using).select_for_update().get(pk=organization.pk)
         if expected_revision != previous.revision:
@@ -337,9 +339,9 @@ def designate_organization_admin(*, actor, organization, user, replace=None, exp
     require_platform_admin(actor)
     _require_context_actor(actor)
     if user.pk == actor.pk:
-        raise PermissionDenied("Platform administration does not designate itself into an organization.")
+        raise PermissionDenied(gettext("A administração da plataforma não se designa numa organização."))
     if replace is not None and replace.pk == user.pk:
-        raise ValidationError({"replace": "A pessoa substituída precisa ser outra."}, code="invalid")
+        raise ValidationError({"replace": gettext("A pessoa substituída precisa ser outra.")}, code="invalid")
     with (
         transaction.atomic(using=using),
         system_context(reason="organization:designate-admin", organization_id=organization.pk, using=using),
@@ -353,7 +355,9 @@ def designate_organization_admin(*, actor, organization, user, replace=None, exp
             replaced = Membership.objects.using(using).filter(user=replace).first()
             link = MemberRole.objects.using(using).filter(membership=replaced, role=role).first() if replaced else None
             if link is None:
-                raise ValidationError({"replace": "A pessoa substituída não é administradora direta."}, code="invalid")
+                raise ValidationError(
+                    {"replace": gettext("A pessoa substituída não é administradora direta.")}, code="invalid"
+                )
             link.delete(using=using)
         ensure_last_admin()
         return membership
@@ -373,7 +377,7 @@ def set_local_password(user, password, *, using="default"):
     with transaction.atomic(using=using):
         locked = User.all_objects.using(using).select_for_update().get(pk=user.pk)
         if not password_allowed(locked):
-            raise PermissionDenied("Local password authentication is unavailable.")
+            raise PermissionDenied(gettext("O login com senha local não está disponível."))
         validate_password(password, locked)
         locked.set_password(password)
         locked.auth_version += 1
@@ -394,7 +398,7 @@ def create_organization(*, owner, slug, name, using="default"):
     with transaction.atomic(using=using):
         with system_context(reason="organization:create", using=using):
             if not owner.is_active or owner.deleted_at:
-                raise ValidationError("Organization owner must be active.")
+                raise ValidationError(gettext("O responsável pela organização precisa estar ativo."))
             organization = Organization(name=name, slug=slug)
             organization.save(using=using)
         with system_context(reason="organization:bootstrap", organization_id=organization.pk, using=using):
@@ -464,7 +468,7 @@ def create_service_account(*, actor, name):
     from skeleton.tenancy.models import Membership
 
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
-        raise ValidationError({"name": "Informe um nome de até 150 caracteres."})
+        raise ValidationError({"name": gettext("Informe um nome de até 150 caracteres.")})
     with organization_lock(actor, capability=INTEGRATIONS_MANAGE) as organization:
         user = User(
             email=f"svc-{uuid4().hex}@{SERVICE_EMAIL_DOMAIN}",
@@ -504,7 +508,7 @@ def deactivate_service_account(*, actor, user):
             .first()
         )
         if locked is None or membership is None:
-            raise ValidationError({"user": "Conta de serviço indisponível."})
+            raise ValidationError({"user": gettext("Conta de serviço indisponível.")})
         _revoke_membership_links(membership)
         if membership.is_active:
             from skeleton.events.core_events import membership_changed

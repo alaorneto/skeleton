@@ -43,5 +43,5 @@ SPECIFICATION = {
 
 
 class Migration(migrations.Migration):
-    dependencies = [("sk_audit", "0002_record_infrastructure"), ("sk_accounts", "0005_platform_roles")]
+    dependencies = [("sk_audit", "0003_investigation_indexes"), ("sk_accounts", "0007_platform_roles")]
     operations = [InstallRecordInfrastructure("sk_audit", "AuditEvent", SPECIFICATION, replaces=SPECIFICATION)]

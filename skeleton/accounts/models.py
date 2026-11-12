@@ -7,6 +7,7 @@ from django.contrib.auth.models import PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.models import SystemRecord
@@ -15,8 +16,8 @@ from .managers import UserManager
 
 
 class AccountType(models.TextChoices):
-    HUMAN = "human", "Pessoa"
-    SERVICE = "service", "Conta de serviço"
+    HUMAN = "human", gettext_lazy("Pessoa")
+    SERVICE = "service", gettext_lazy("Conta de serviço")
 
 
 SERVICE_EMAIL_DOMAIN = "service.invalid"
@@ -66,7 +67,9 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
         ]
 
     def __str__(self):
-        return f"{self.email} (conta de serviço)" if self.is_service_account else self.email
+        return (
+            gettext("%(email)s (conta de serviço)") % {"email": self.email} if self.is_service_account else self.email
+        )
 
     @property
     def is_service_account(self):
@@ -80,7 +83,7 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
         super().clean()
         self.email = UserManager.normalize_email(self.email)
         if self.deleted_at is not None and self.is_active:
-            raise ValidationError({"is_active": "A deleted identity cannot be active."})
+            raise ValidationError({"is_active": gettext("Uma identidade excluída não pode ficar ativa.")})
 
     def save(self, *args, **kwargs):
         previous_revision = self.revision
@@ -121,18 +124,20 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
 class UserProfile(SystemRecord):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="profile")
     display_name = models.CharField(max_length=150, blank=True)
-    timezone = models.CharField(max_length=64, default="UTC")
-    language = models.CharField(max_length=16, default="pt-br")
+    # Blank follows the organization, then the instance (#170).
+    timezone = models.CharField(max_length=64, blank=True, default="")
+    language = models.CharField(max_length=16, blank=True, default="")
     immutable_fields = ("user_id",)
 
     def clean(self):
         super().clean()
-        try:
-            ZoneInfo(self.timezone)
-        except (ZoneInfoNotFoundError, ValueError):
-            raise ValidationError({"timezone": "Unknown IANA time zone."}) from None
-        if self.language not in {code for code, _ in settings.LANGUAGES}:
-            raise ValidationError({"language": "Unsupported language."})
+        if self.timezone:
+            try:
+                ZoneInfo(self.timezone)
+            except (ZoneInfoNotFoundError, ValueError):
+                raise ValidationError({"timezone": gettext("Fuso horário inválido.")}) from None
+        if self.language and self.language not in {code for code, _ in settings.LANGUAGES}:
+            raise ValidationError({"language": gettext("Idioma não suportado.")})
 
     def __str__(self):
         return self.display_name or str(self.user_id)

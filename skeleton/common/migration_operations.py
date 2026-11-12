@@ -80,6 +80,14 @@ def is_operational(specification):
     return specification.get("lifecycle") == "operational"
 
 
+def field_internal_type(field):
+    """Django internal type of a concrete field; a relation reports its target's type.
+
+    Shared by the frozen specification below and the OpenAPI generator (#178).
+    """
+    return field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
+
+
 def build_infrastructure_specification(model, spec):
     """Return the frozen specification to paste into a new migration.
 
@@ -88,17 +96,21 @@ def build_infrastructure_specification(model, spec):
     Column order follows ``concrete_fields``; relations report the target type.
     """
     sensitive = set(spec.sensitive_fields)
+    personal = set(getattr(spec, "personal_fields", ()) or ())
     columns = []
     for field in model._meta.concrete_fields:
-        kind = field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
-        columns.append(
-            {
-                "name": field.column,
-                "type": kind,
-                "sensitive": field.name in sensitive or field.column in sensitive,
-            }
-        )
+        kind = field_internal_type(field)
+        column = {
+            "name": field.column,
+            "type": kind,
+            "sensitive": field.name in sensitive or field.column in sensitive,
+        }
+        if field.name in personal or field.column in personal:
+            column["personal"] = True
+        columns.append(column)
     specification = {"scope": spec.scope, "sensitive_fields": list(spec.sensitive_fields)}
+    if personal:
+        specification["personal_fields"] = list(spec.personal_fields)
     if getattr(model, "lifecycle", None) == "operational":
         specification["lifecycle"] = "operational"
     discovery = getattr(model, "self_discovery_field", None)
@@ -210,7 +222,12 @@ class InstallRecordInfrastructure(Operation):
         return sorted(names)
 
     def _audit_fields(self, model):
-        sensitive = set(self.specification.get("sensitive_fields", ())) | SENSITIVE
+        # Personal fields (#189) are redacted in the audit like secrets.
+        sensitive = (
+            set(self.specification.get("sensitive_fields", ()))
+            | set(self.specification.get("personal_fields", ()))
+            | SENSITIVE
+        )
         declared = self.specification.get("columns")
         fields = {field.column: field for field in model._meta.concrete_fields}
         if declared is not None:
@@ -222,6 +239,7 @@ class InstallRecordInfrastructure(Operation):
                 (
                     column["name"],
                     column.get("sensitive", False)
+                    or column.get("personal", False)
                     or fields[column["name"]].name in sensitive
                     or column["name"] in sensitive,
                 )

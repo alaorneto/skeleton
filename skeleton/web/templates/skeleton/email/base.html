@@ -1,0 +1,22 @@
+{% load i18n %}{% get_current_language as CURRENT_LANGUAGE %}<!doctype html>
+<html lang="{{ CURRENT_LANGUAGE }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% block title %}{{ brand_name }}{% endblock %}</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden">
+      <tr><td style="background:{{ brand_color|default:'#1d4ed8' }};height:6px;line-height:6px;font-size:0">&nbsp;</td></tr>
+      <tr><td style="padding:20px 24px 4px 24px">
+        {% if brand_logo_cid %}<img src="cid:{{ brand_logo_cid }}" alt="{{ brand_name }}" height="40" style="display:block;height:40px;width:auto;max-width:200px">{% elif brand_name %}<p style="margin:0;font-size:16px;font-weight:bold;color:{{ brand_color|default:'#1d4ed8' }}">{{ brand_name }}</p>{% endif %}
+      </td></tr>
+      <tr><td style="padding:8px 24px 24px 24px;font-size:14px;line-height:21px">
+        {% block content %}{% endblock %}
+      </td></tr>
+      <tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;font-size:12px;line-height:18px;color:#6b7280">
+        {% block footer %}{% if brand_name %}{% blocktranslate trimmed with name=brand_name %}Enviado por {{ name }}.{% endblocktranslate %}{% endif %}{% endblock %}
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

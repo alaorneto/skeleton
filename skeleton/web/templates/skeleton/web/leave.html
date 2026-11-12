@@ -1,19 +1,19 @@
 {% extends 'skeleton/web/base.html' %}
-{% block title %}Sair de {{ organization.name }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{% translate "Sair de" %} {{ organization.name }} · Skeleton{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header">
   <div class="min-w-0">
-    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'web:dashboard' organization_id %}">{{ organization.name }}</a></li><li><span aria-current="page">Sair da organização</span></li></ol></nav>
-    <h1>Sair de {{ organization.name }}</h1>
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'web:dashboard' organization_id %}">{{ organization.name }}</a></li><li><span aria-current="page">{% translate "Sair da organização" %}</span></li></ol></nav>
+    <h1>{% translate "Sair de" %} {{ organization.name }}</h1>
   </div>
 </div>
 <form method="post" class="card">
   {% csrf_token %}
   <input type="hidden" name="revision" value="{{ revision }}">
-  {% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}Não foi possível sair</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
-  <p class="confirmation">Ao sair, você perde na hora o acesso a esta organização: seus papéis, grupos e concessões nela são revogados. Os registros e o histórico continuam na organização. Para voltar, você vai precisar de um novo convite ou da aprovação de quem a administra.</p>
-  <div class="form-actions"><button type="submit" class="btn btn-danger">Sair da organização</button><a class="btn btn-secondary" href="{% url 'web:dashboard' organization_id %}">Cancelar</a></div>
+  {% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível sair" %}</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+  <p class="confirmation">{% translate "Ao sair, você perde na hora o acesso a esta organização: seus papéis, grupos e concessões nela são revogados. Os registros e o histórico continuam na organização. Para voltar, você vai precisar de um novo convite ou da aprovação de quem a administra." %}</p>
+  <div class="form-actions"><button type="submit" class="btn btn-danger">{% translate "Sair da organização" %}</button><a class="btn btn-secondary" href="{% url 'web:dashboard' organization_id %}">{% translate "Cancelar" %}</a></div>
 </form>
 </div>
 {% endblock %}

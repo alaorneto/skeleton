@@ -16,6 +16,7 @@ from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.access.services import LastAdministrator
@@ -105,18 +106,18 @@ def overview(request):
             "core": core_version(),
             "stats": [
                 (
-                    "Usuários ativos",
+                    gettext("Usuários ativos"),
                     User.objects.filter(is_active=True, account_type="human").count(),
                     reverse("platform:users"),
                 ),
                 (
-                    "Organizações ativas",
+                    gettext("Organizações ativas"),
                     Organization.objects.filter(is_active=True).count(),
                     reverse("platform:organizations"),
                 ),
-                ("Aplicativos instalados", len(list(all_apps())), reverse("platform:apps")),
+                (gettext("Aplicativos instalados"), len(list(all_apps())), reverse("platform:apps")),
                 (
-                    "Tabelas catalogadas",
+                    gettext("Tabelas catalogadas"),
                     TableDefinition.objects.filter(available=True).count(),
                     reverse("platform:catalog"),
                 ),
@@ -164,10 +165,10 @@ def user_create(request):
             except ValidationError as exc:
                 status = form_error(form, exc)
             except IntegrityError:
-                form.add_error("email", "Já existe uma identidade com este email.")
+                form.add_error("email", gettext("Já existe uma identidade com este email."))
                 status = 409
             else:
-                messages.success(request, f"Identidade {user.email} criada.")
+                messages.success(request, gettext("Identidade %(email)s criada.") % {"email": user.email})
                 return redirect("platform:user", sysid=user.pk)
         else:
             status = 400
@@ -177,10 +178,10 @@ def user_create(request):
         {
             "platform_section": "users",
             "form": form,
-            "title": "Nova identidade",
-            "eyebrow": "Usuários",
-            "description": "A identidade não recebe vínculo nem permissão em nenhuma organização.",
-            "submit_label": "Criar identidade",
+            "title": gettext("Nova identidade"),
+            "eyebrow": gettext("Usuários"),
+            "description": gettext("A identidade não recebe vínculo nem permissão em nenhuma organização."),
+            "submit_label": gettext("Criar identidade"),
             "cancel_url": reverse("platform:users"),
         },
         status=status,
@@ -205,7 +206,7 @@ def user_detail(request, sysid):
             except (ValidationError, ConcurrentUpdate, LastAdministrator) as exc:
                 status = form_error(form, exc)
             else:
-                messages.success(request, "Identidade atualizada.")
+                messages.success(request, gettext("Identidade atualizada."))
                 return redirect("platform:user", sysid=user.pk)
         else:
             status = 400
@@ -270,26 +271,32 @@ def user_delete(request, sysid):
             with transaction.atomic():
                 deactivate_user(user, delete=True)
         except LastPlatformAdministrator:
-            error = "A remoção deixaria a plataforma sem administrador ativo."
+            error = gettext("A remoção deixaria a plataforma sem administrador ativo.")
             status = 409
         except LastAdministrator:
-            error = "A remoção deixaria uma organização sem administrador ativo."
+            error = gettext("A remoção deixaria uma organização sem administrador ativo.")
             status = 409
         else:
-            messages.success(request, f"Identidade {user.email} removida. Perfil e vínculos históricos foram mantidos.")
+            messages.success(
+                request,
+                gettext("Identidade %(email)s removida. Perfil e vínculos históricos foram mantidos.")
+                % {"email": user.email},
+            )
             return redirect("platform:users")
     return render(
         request,
         "skeleton/web/platform/confirm.html",
         {
             "platform_section": "users",
-            "title": "Remover identidade",
-            "eyebrow": "Usuários",
+            "title": gettext("Remover identidade"),
+            "eyebrow": gettext("Usuários"),
             "subject_label": user.email,
-            "message": "A identidade é desativada e marcada como removida; sessões são revogadas. "
-            "Perfil, vínculos e auditoria são preservados. Não há exclusão física.",
+            "message": gettext(
+                "A identidade é desativada e marcada como removida; sessões são revogadas. "
+                "Perfil, vínculos e auditoria são preservados. Não há exclusão física."
+            ),
             "error": error,
-            "submit_label": "Remover identidade",
+            "submit_label": gettext("Remover identidade"),
             "cancel_url": reverse("platform:user", kwargs={"sysid": user.pk}),
         },
         status=status,
@@ -332,10 +339,10 @@ def organization_create(request):
             except ValidationError as exc:
                 status = form_error(form, exc)
             except IntegrityError:
-                form.add_error("slug", "Já existe uma organização com este identificador.")
+                form.add_error("slug", gettext("Já existe uma organização com este identificador."))
                 status = 409
             else:
-                messages.success(request, f"Organização {organization.name} criada.")
+                messages.success(request, gettext("Organização %(name)s criada.") % {"name": organization.name})
                 return redirect("platform:organization", sysid=organization.pk)
         else:
             status = 400
@@ -345,10 +352,10 @@ def organization_create(request):
         {
             "platform_section": "organizations",
             "form": form,
-            "title": "Nova organização",
-            "eyebrow": "Organizações",
-            "description": "Cria a organização, os papéis padrão e o vínculo do administrador inicial.",
-            "submit_label": "Criar organização",
+            "title": gettext("Nova organização"),
+            "eyebrow": gettext("Organizações"),
+            "description": gettext("Cria a organização, os papéis padrão e o vínculo do administrador inicial."),
+            "submit_label": gettext("Criar organização"),
             "cancel_url": reverse("platform:organizations"),
         },
         status=status,
@@ -412,7 +419,7 @@ def organization_detail(request, sysid):
             except (ValidationError, ConcurrentUpdate, IntegrityError) as exc:
                 status = form_error(form, exc)
             else:
-                messages.success(request, "Organização atualizada.")
+                messages.success(request, gettext("Organização atualizada."))
                 return redirect("platform:organization", sysid=organization.pk)
         else:
             status = 400
@@ -441,15 +448,21 @@ def organization_administrators(request, sysid):
                 expected_version=data["expected_version"],
             )
     except PermissionDenied:
-        admin_form.add_error("email", "A administração da plataforma não designa a si mesma para uma organização.")
+        admin_form.add_error(
+            "email", gettext("A administração da plataforma não designa a si mesma para uma organização.")
+        )
         return _organization_page(request, organization, admin_form=admin_form, status=403)
     except (ValidationError, ConcurrentUpdate, LastAdministrator) as exc:
         status = form_error(admin_form, exc)
         return _organization_page(request, organization, admin_form=admin_form, status=status)
     if data["replace"] is not None:
-        messages.success(request, f"{data['email'].email} substituiu {data['replace'].email} na administração.")
+        messages.success(
+            request,
+            gettext("%(email)s substituiu %(email_)s na administração.")
+            % {"email": data["email"].email, "email_": data["replace"].email},
+        )
     else:
-        messages.success(request, f"{data['email'].email} agora administra a organização.")
+        messages.success(request, gettext("%(email)s agora administra a organização.") % {"email": data["email"].email})
     return redirect("platform:organization", sysid=organization.pk)
 
 
@@ -509,7 +522,7 @@ def catalog_table(request, sysid):
             except ConcurrentUpdate as exc:
                 status = form_error(form, exc)
             else:
-                messages.success(request, "Rótulo da tabela atualizado.")
+                messages.success(request, gettext("Rótulo da tabela atualizado."))
                 return redirect("platform:catalog-table", sysid=table.pk)
         else:
             status = 400
@@ -540,7 +553,7 @@ def catalog_field(request, sysid):
             except ConcurrentUpdate as exc:
                 status = form_error(form, exc)
             else:
-                messages.success(request, f"Rótulo do campo {field.name} atualizado.")
+                messages.success(request, gettext("Rótulo do campo %(name)s atualizado.") % {"name": field.name})
                 return redirect(table_url)
         else:
             status = 400
@@ -550,10 +563,12 @@ def catalog_field(request, sysid):
         {
             "platform_section": "catalog",
             "form": form,
-            "title": f"Campo {field.name}",
-            "eyebrow": f"Catálogo · {field.table.label}",
-            "description": "Somente rótulo e descrição são editáveis; tipo, coluna e sensibilidade vêm do código.",
-            "submit_label": "Salvar",
+            "title": gettext("Campo %(name)s") % {"name": field.name},
+            "eyebrow": gettext("Catálogo · %(label)s") % {"label": field.table.label},
+            "description": gettext(
+                "Somente rótulo e descrição são editáveis; tipo, coluna e sensibilidade vêm do código."
+            ),
+            "submit_label": gettext("Salvar"),
             "cancel_url": table_url,
         },
         status=status,
@@ -568,18 +583,39 @@ def catalog_field(request, sysid):
 def audit(request):
     from skeleton.accounts.platform import is_platform_admin
     from skeleton.api.serializers import audit_data
+    from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
     from skeleton.tenancy.context import platform_audit_scope
 
+    try:
+        filters = parse_audit_filters(request.GET)
+    except ValidationError:
+        return render(
+            request, "skeleton/web/error.html", {"detail": gettext("Verifique os filtros informados.")}, status=400
+        )
+
     def page(**page):
         if is_platform_admin(request.user):
-            return AuditLogService().events(actor=request.user, **page)
+            return AuditLogService().events(actor=request.user, **filters, **page)
         with platform_audit_scope(request.user):  # The auditor's GUC, only for this read (#34).
-            return AuditLogService().events(actor=request.user, **page)
+            return AuditLogService().events(actor=request.user, **filters, **page)
 
-    rows = service_pagination(request, page)
+    rows = service_pagination(
+        request,
+        page,
+        validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
+    )
     rows.object_list = [audit_data(event) for event in rows]
-    return render(request, "skeleton/web/platform/audit.html", {"platform_section": "audit", "rows": rows})
+    return render(
+        request,
+        "skeleton/web/platform/audit.html",
+        {
+            "platform_section": "audit",
+            "rows": rows,
+            "filters": request.GET,
+            "operations": operation_choices(),
+        },
+    )
 
 
 # --------------------------------------------------------------------------- applications
@@ -831,9 +867,9 @@ def organization_storage(request, sysid):
             else:
                 set_quota(organization, quota_bytes=form.quota_bytes(), expected_revision=data["expected_revision"])
     except (ConcurrentUpdate, IntegrityError):
-        form.add_error(None, "A cota foi alterada por outra operação. Revise e salve de novo.")
+        form.add_error(None, gettext("A cota foi alterada por outra operação. Revise e salve de novo."))
         return _organization_page(request, organization, quota_form=form, status=409)
-    messages.success(request, "Cota de armazenamento atualizada.")
+    messages.success(request, gettext("Cota de armazenamento atualizada."))
     return redirect("platform:organization", sysid=organization.pk)
 
 

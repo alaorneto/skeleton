@@ -1,7 +1,7 @@
 from django.urls import path
 
 from skeleton.api.health import probe_response
-from skeleton.web import admission_views, identity_views, views
+from skeleton.web import admission_views, identity_views, privacy_views, views
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import organization_logo, organization_logo_update, organization_settings
 
@@ -9,6 +9,8 @@ app_name = "web"
 urlpatterns = [
     path("", views.home, name="home"),
     path("profile/", views.profile, name="profile"),
+    path("profile/privacy/", privacy_views.privacy, name="privacy"),
+    path("profile/privacy/export/", privacy_views.privacy_export, name="privacy-export"),
     path("health/live/", probe_response, name="health-live"),
     path("health/ready/", probe_response, name="health-ready"),
     path("join/", admission_views.join_directory, name="join"),
