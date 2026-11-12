@@ -175,7 +175,12 @@ def test_people_manager_cannot_escalate(org):
     invitations = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
     for code in ("organization_admin", "app_manager", "people_manager"):
         response = send(client, "post", invitations, {"email": f"{code}@example.test", "role": str(roles[code].pk)})
-        assert response.status_code in (400, 403), code  # ver #365
+        assert response.status_code == 403, (code, response.content)
+        assert response.json()["code"] == "privileged_role"
+    from uuid import uuid4
+
+    unknown = send(client, "post", invitations, {"email": "unknown-role@example.test", "role": str(uuid4())})
+    assert unknown.status_code == 400  # A role that is not this organization's stays an unavailable reference.
     response = send(client, "post", invitations, {"email": "new-member@example.test", "role": str(roles["member"].pk)})
     assert response.status_code == 201, response.content
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:escalate-check"):

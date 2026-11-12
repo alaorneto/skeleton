@@ -24,7 +24,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
 | `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description; is_builtin read-only |
 | `o/<org>/groups/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description |
-| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade; digest/token/estado não graváveis; sem PATCH |
+| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade (papel interno com capacidade responde 403 `privileged_role`, sem escrita, como nos links de ingresso); digest/token/estado não graváveis; sem PATCH |
 | `o/<org>/member-roles/`, `group-members/`, `group-roles/`, `table-permissions/`, `record-grants/` | GET/POST coleção; GET/DELETE detalhe | `access.manage`; links explícitos; sem nested write/PATCH |
 | `o/<org>/tables/<table_key>/records/` | GET, POST | Gateway allowlist de SecuredRecord exposto |
 | `.../records/<sysid>/` | GET, PATCH, DELETE | Um registro autorizado; ETag/revisão |
