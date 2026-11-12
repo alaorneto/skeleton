@@ -12,15 +12,17 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 6. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
 7. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
 
-## Rastreabilidade: plano, issue, commit e fechamento
+## Rastreabilidade: plano, issue, commit, versão e fechamento
 
-Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub. O procedimento é o skill `issue-workflow` (`.claude/skills/issue-workflow/`); o racional e os mecanismos estão em [docs/workflow.md](docs/workflow.md).
+Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub, e toda versão é calculada e escrita pela automação. O procedimento é o skill `dev-workflow` (`.claude/skills/dev-workflow/`), configurado em `.github/dev-workflow.toml`; o que é próprio deste repositório está em [docs/workflow.md](docs/workflow.md).
 
-- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`tools/workflow/github_issues.py sync-epic`).
+- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic`).
 - **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
 - Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
-- Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`. Nunca `--no-verify`.
-- A issue fecha só depois de aprovada: pelo merge do PR ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue ou abre outra.
+- Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`, título em Conventional Commits e todas as seções do modelo. Nunca `--no-verify`.
+- **Todo PR é classificado** com exatamente um label: `release` (o merge publica uma versão com tudo que se acumulou desde a última tag) ou `no-release` (as mudanças ficam acumuladas para a próxima). O nível (patch, minor, major) é o maior entre os sinais de todas as mudanças acumuladas: tipo das issues, commits, `breaking-change`, superfícies públicas e a análise do diff registrada no PR. O responsável sobrepõe com `semver:*` e o motivo na seção "Versão".
+- **Ninguém edita a versão à mão.** A versão do projeto é a do core e vem da última tag `vX.Y.Z`; os arquivos que a repetem (`pyproject.toml`, `deployment_agent/pyproject.toml`, manifestos de `skeleton/contrib`) e o `CHANGELOG.md` são escritos pelo workflow de release. Pisos de funcionalidade (`*_CORE_MINIMUM`, `since=`, `compatibility.skeleton` de apps) recebem a versão em que a capacidade será publicada: `release.py next --level minor`.
+- A issue fecha só depois de aprovada: pelo merge do PR (o comentário de evidências é escrito sozinho) ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue, com o comentário de mudança de escopo, ou abre outra.
 
 ## Fronteiras de código
 

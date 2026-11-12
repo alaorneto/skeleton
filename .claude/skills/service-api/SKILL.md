@@ -11,7 +11,7 @@ Escreva docs e comentários em português, como o restante do repositório; iden
 
 ## 0. Antes de editar
 
-1. Vincule o trabalho a uma issue pelo skill `issue-workflow` (criar app, expor operação e integrar apps são desenvolvimento versionado).
+1. Vincule o trabalho a uma issue pelo skill `dev-workflow` (criar app, expor operação e integrar apps são desenvolvimento versionado).
 2. Verifique o que já existe no checkout, porque partes do contrato ainda estão sendo entregues:
    - `skeleton/service_api/` (base, DTOs, erros, `contract`, `registry`), `runtime.service_api` no manifesto (core `>=0.4.0`), os checks E018/E019/W019 e o kit `skeleton.testing.service_api` estão entregues (epic #112). Num projeto com core mais antigo, atualize o core antes; não crie uma base local paralela.
    - Serviços do núcleo em `skeleton/service_api/` (#102–#109). Use os que existirem; para os demais, use as superfícies públicas listadas na especificação, nunca módulos internos do núcleo.
