@@ -169,6 +169,8 @@ class OrganizationDirectoryEntry(SystemRecord):
     listed_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
     discoverable = models.BooleanField(default=False)
     accepts_requests = models.BooleanField(default=False)
+    # Admission by verified email domain is on (#28): suggested on the home page.
+    accepts_domain = models.BooleanField(default=False)
     immutable_fields = ("listed_organization_id",)
 
     class Meta(SystemRecord.Meta):
@@ -294,6 +296,81 @@ class JoinRequest(OrganizationRecord):
 
     def __str__(self):
         return f"{self.user_id} -> {self.organization_id}: {self.status}"
+
+
+class VerifiedDomain(OrganizationRecord):
+    """An email domain the organization proves it controls with a DNS TXT record (#28).
+
+    ``challenge`` is public by definition: it is published in ``_skeleton-challenge.<domain>``.
+    Only a ``verified`` domain with a live ``DomainClaim`` admits; three failed rechecks in a
+    row mark it ``failed`` and drop the claim.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Aguardando verificação"
+        VERIFIED = "verified", "Verificado"
+        FAILED = "failed", "Falhou"
+
+    class Admission(models.TextChoices):
+        AUTO = "auto", "Entrada direta"
+        APPROVAL = "approval", "Com aprovação"
+
+    domain = models.CharField(max_length=253)
+    challenge = models.CharField(max_length=80)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    admission = models.CharField(max_length=16, choices=Admission.choices, default=Admission.APPROVAL)
+    role = models.ForeignKey("sk_access.Role", on_delete=models.PROTECT, related_name="+")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveSmallIntegerField(default=0)
+    last_error_code = models.CharField(max_length=40, blank=True, default="")
+    immutable_fields = ("domain", "challenge")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "domain"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_tenancy_verifieddomain_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=("pending", "verified", "failed")) & Q(admission__in=("auto", "approval")),
+                name="sk_tenancy_verifieddomain_choices",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="verified") | Q(verified_at__isnull=False),
+                name="sk_tenancy_verifieddomain_verified_at",
+            ),
+        ]
+
+    def __str__(self):
+        return self.domain
+
+
+class DomainClaim(SystemRecord):
+    """Global ownership index of a verified domain (#28), read before any tenant exists.
+
+    Written only by the verification, in the ``VerifiedDomain`` transaction; one live claim
+    per domain. Not named ``organization`` (E017).
+    """
+
+    domain = models.CharField(max_length=253)
+    claiming_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    immutable_fields = ("domain", "claiming_organization_id")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("domain",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_tenancy_domainclaim_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.domain
 
 
 BRAND_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"

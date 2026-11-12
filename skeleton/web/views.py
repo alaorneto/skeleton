@@ -224,6 +224,7 @@ def check_html_revision(form, record):
 def home(request):
     from skeleton.service_api.organizations import OrganizationService
     from skeleton.tenancy.admission import directory
+    from skeleton.tenancy.domains import suggestions
     from skeleton.tenancy.invitations import pending_invitation
     from skeleton.web.admission_views import request_rows
 
@@ -239,10 +240,13 @@ def home(request):
             "memberships": memberships,
             # Join paths (#25): only the invitation this session opened; never other people's.
             "pending_invitation": {"email": proof.email} if proof else None,
-            # The person's own requests (#26, self-discovery); suggestions come with #28.
+            # The person's own requests (#26, self-discovery) and their email domain's organizations (#28).
             "join_requests": request_rows(request.user),
+            "suggested_organizations": [
+                {"organization_id": item.organization_id, "organization_name": item.name, "domain": item.domain}
+                for item in suggestions(request.user)
+            ],
             "join_directory": bool(directory(request.user)),
-            "suggested_organizations": (),
         },
     )
 

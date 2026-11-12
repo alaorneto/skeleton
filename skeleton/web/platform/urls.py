@@ -21,6 +21,8 @@ urlpatterns = [
         views.organization_administrators,
         name="organization-administrators",
     ),
+    path("domains/", views.domains, name="domains"),
+    path("domains/<uuid:sysid>/revoke/", views.domain_revoke, name="domain-revoke"),
     path("catalog/", views.catalog, name="catalog"),
     path("catalog/<uuid:sysid>/", views.catalog_table, name="catalog-table"),
     path("catalog/fields/<uuid:sysid>/", views.catalog_field, name="catalog-field"),

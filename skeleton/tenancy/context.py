@@ -55,8 +55,10 @@ PLATFORM_ADMIN_REASONS = frozenset(
 # Admission by the person (#26, #27): opened by the admission services for one organization,
 # after their own checks. ``join:request`` acts for the authenticated requester; ``join:link``
 # also validates a link before login, the token digest being the proof (like an invitation).
-JOIN_REASONS = frozenset({"join:request", "join:link"})
-_ANONYMOUS_JOIN_REASONS = frozenset({"join:link"})
+JOIN_REASONS = frozenset({"join:request", "join:link", "join:domain"})
+# ``join:domain`` runs when an email is confirmed, possibly before any login: the confirmed
+# address of the person is the proof.
+_ANONYMOUS_JOIN_REASONS = frozenset({"join:link", "join:domain"})
 HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
 
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
@@ -264,7 +266,12 @@ def verified_owner(user: Any) -> Iterator[Context]:
     actor; the previous context comes back at the end.
     """
     prior = _context.get()
-    if prior is None or prior.system or prior.organization_id is not None:
+    if prior is None:
+        # Outside any request (the adapter called directly, a command): a scope of its own.
+        with request_context(actor=user, request_id=None, source="account:email-confirmed") as active:
+            yield active
+        return
+    if prior.system or prior.organization_id is not None:
         raise InvalidContext("Owner verification runs in a request without a tenant.")
     if prior.actor not in (None, _uuid(user)):
         raise InvalidContext("Another identity is already acting in this request.")

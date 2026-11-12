@@ -23,6 +23,8 @@ dependencies = [
     "python-dateutil>=2.9,<3",
     # Calendar export and feed (skeleton/contrib/calendar, #76).
     "icalendar>=6.1,<8",
+    # Verified email domains: TXT challenge lookups (skeleton/tenancy/domains.py, #28).
+    "dnspython>=2.7,<3",
 ]
 
 [project.optional-dependencies]

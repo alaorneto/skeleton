@@ -102,6 +102,18 @@ def register_core_specs():
             "organization",
             ("token_digest",),
         ),
+        "sk_tenancy.verifieddomain": (
+            "Domínios verificados",
+            "Domínios de email que a organização prova controlar por DNS; admitem quem confirma email do domínio.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.domainclaim": (
+            "Posse de domínios",
+            "Índice global de qual organização verificou cada domínio, lido antes de haver tenant.",
+            "global",
+            (),
+        ),
         "sk_tenancy.joinrequest": (
             "Solicitações de ingresso",
             "Pedido de uma pessoa para entrar; a aprovação cria o vínculo com o papel indicado.",

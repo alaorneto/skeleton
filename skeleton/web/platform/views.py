@@ -59,6 +59,8 @@ __all__ = [
     "catalog",
     "catalog_field",
     "catalog_table",
+    "domain_revoke",
+    "domains",
     "organization_administrators",
     "organization_create",
     "organization_detail",
@@ -781,3 +783,46 @@ def organization_storage(request, sysid):
         return _organization_page(request, organization, quota_form=form, status=409)
     messages.success(request, "Cota de armazenamento atualizada.")
     return redirect("platform:organization", sysid=organization.pk)
+
+
+# --------------------------------------------------------------------------- verified domains (#28)
+
+
+def _domains_page(request, *, status=200, error=None):
+    from skeleton.tenancy.domains import claims
+
+    return render(
+        request,
+        "skeleton/web/platform/domains.html",
+        {"platform_section": "domains", "rows": list(claims()), "error": error},
+        status=status,
+    )
+
+
+@platform_page
+@require_safe
+def domains(request):
+    return _domains_page(request)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def domain_revoke(request, sysid):
+    """Settle a disputed domain: drop the global claim; the organization's own row is untouched."""
+    from skeleton.tenancy.domains import DomainUnavailable, revoke_claim
+
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = None
+    try:
+        with transaction.atomic():
+            claim = revoke_claim(actor=request.user, claim_id=sysid, expected_revision=revision)
+    except DomainUnavailable:
+        raise Http404 from None
+    except ConcurrentUpdate:
+        return _domains_page(request, status=409, error="A posse mudou. Atualize a página.")
+    messages.success(request, f"Posse de {claim.domain} revogada.")
+    return redirect("platform:domains")

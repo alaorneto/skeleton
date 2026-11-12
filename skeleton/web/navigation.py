@@ -102,6 +102,7 @@ def _admission_links(organization_id: Any, capabilities: frozenset[str], path: s
         ("admission.decide", "web:join-requests", "Solicitações"),
         ("invitations.manage", "web:join-links", "Links de ingresso"),
         ("admission.configure", "web:admission", "Admissão"),
+        ("admission.configure", "web:verified-domains", "Domínios verificados"),
     ):
         if capability in capabilities:
             url = reverse(name, kwargs={"organization_id": organization_id})

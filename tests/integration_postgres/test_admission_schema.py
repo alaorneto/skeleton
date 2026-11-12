@@ -1,4 +1,4 @@
-"""The deployed-schema check pins the infrastructure of the admission tables (#26, #27)."""
+"""The deployed-schema check pins the infrastructure of the admission tables (#26, #27, #28)."""
 
 import pytest
 
@@ -9,6 +9,8 @@ POLICY = "sk_tenancy_organizationadmissionpolicy"
 REQUEST = "sk_tenancy_joinrequest"
 DIRECTORY = "sk_tenancy_organizationdirectoryentry"
 LINK = "sk_tenancy_joinlink"
+DOMAIN = "sk_tenancy_verifieddomain"
+CLAIM = "sk_tenancy_domainclaim"
 
 
 def _owner_execute(statement, *identifiers):
@@ -62,7 +64,7 @@ def _triggers(table):
 
 
 def test_policy_is_tenant_scoped_and_requests_have_self_discovery(pristine):
-    for table in (POLICY, LINK):
+    for table in (POLICY, LINK, DOMAIN):
         assert _rls(table) == (True, True)
         assert "skeleton_tenant" in _policies(table)
     assert _rls(REQUEST) == (True, True)
@@ -71,11 +73,12 @@ def test_policy_is_tenant_scoped_and_requests_have_self_discovery(pristine):
     assert request_policies and all(name.startswith("skeleton_self_") for name in request_policies)
     # The directory index is global: no tenant policy, still guarded and audited.
     assert _rls(DIRECTORY) == (False, False)
-    for table in (POLICY, REQUEST, DIRECTORY, LINK):
+    assert _rls(CLAIM) == (False, False)
+    for table in (POLICY, REQUEST, DIRECTORY, LINK, DOMAIN, CLAIM):
         assert {table + "_sk_guard", table + "_sk_audit"} <= _triggers(table)
 
 
-@pytest.mark.parametrize("table", [POLICY, REQUEST, DIRECTORY, LINK])
+@pytest.mark.parametrize("table", [POLICY, REQUEST, DIRECTORY, LINK, DOMAIN, CLAIM])
 @pytest.mark.parametrize("kind", ["guard", "audit"])
 def test_missing_trigger_fails_schema_check(pristine, table, kind):
     _owner_execute("DROP TRIGGER {} ON skeleton.{}", f"{table}_sk_{kind}", table)

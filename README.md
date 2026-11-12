@@ -27,6 +27,8 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/profile/notifications/` | Pessoa autenticada | Preferências por tipo e canal: caixa in-app, email imediato, resumo diário ou semanal no fuso da pessoa e web push no navegador; entregas por job com retentativa e retenção declarada ([notificações](docs/notifications.md)) |
 | `/join/` | Pessoa autenticada com email verificado | Ver as organizações abertas a pedidos, pedir ingresso e acompanhar ou retirar os próprios pedidos |
 | `/join/<org>/<token>/` | Quem recebeu um link de ingresso | Entrar direto ou pedir ingresso pelo link; criar conta por ele quando a organização permite |
+| `/o/<org>/admission/domains/` | Administrador da organização | Cadastrar e verificar por DNS os domínios de email que admitem pessoas, com entrada direta ou com aprovação |
+| `/platform/domains/` | Administrador da plataforma | Ver e revogar a posse de domínios verificados em disputa |
 | `/o/<org>/admission/links/` | Quem gerencia convites | Criar e revogar links de ingresso com validade, limite de usos e entrada direta ou com aprovação |
 | `/o/<org>/requests/`, `/o/<org>/admission/` | Gestor de pessoas ou administrador; a política só o administrador | Aprovar ou recusar pedidos de ingresso; definir se a organização aceita pedidos, aparece na lista e com que papel entra quem for aprovado |
 | `/o/<org>/apps/` | Gestor de apps ou administrador da organização | Ativar/desativar as apps que a plataforma disponibilizou e ajustar a configuração, sem instalar código |
