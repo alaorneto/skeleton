@@ -12,4 +12,9 @@
     <a class="button mt-5 self-start" href="{% url 'web:records' organization_id 'example_notes.note' %}">{% translate "Abrir anotações" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
   </section>
 </div>
+<h2 class="mt-5 mb-4">{% translate "Publicação" %}</h2>
+<p class="page-description">{% translate "Pedir a publicação inicia um fluxo de processo: preparação, revisão e registro. O pedido aparece na sua caixa de tarefas." %}</p>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Título" %}</th><th scope="col">{% translate "Ações" %}</th></tr></thead><tbody>
+{% for note in notes %}<tr><td><code>{{ note.code }}</code></td><td>{{ note.title }}</td><td><form method="post" action="{% url 'example_notes:request-publication' organization_id note.sysid %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Pedir publicação" %}</button></form></td></tr>{% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma anotação." %}</td></tr>{% endfor %}
+</tbody></table></div>
 {% endblock %}

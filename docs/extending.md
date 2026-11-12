@@ -127,6 +127,7 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E019 | Um módulo da app importa de outra app algo que não seja o `service_api` declarado dela, ou importa esse `service_api` sem declarar a app em `dependencies`. Análise estática (AST) de todos os `.py` da app, inclusive imports relativos e `from pacote import modulo`. |
 | W019 | A app importa um módulo do núcleo fora das [superfícies públicas](service-api.md#superfícies-públicas-do-núcleo-para-apps). É aviso nesta versão e vira erro numa próxima. |
 | E020 | Um modelo `OperationalRecord` tem `expose_api=True` ou `write_fields`; tabelas operacionais são estado de pipeline e nunca vão para o gateway. |
+| E029 | Um [fluxo de processo](flows.md#validação-estrutural) declarado com `register_flow` é inválido: chave duplicada, etapa inalcançável, beco sem saída, bifurcação sem junção, gateway sem transição padrão, aprovação sem as transições de aprovado e rejeitado, condição com operador ou campo desconhecido, handler, condição ou regra de atribuição não registrados pela própria app, campo de formulário divergente ou registro de negócio que não é um `SecuredRecord` exposto da app. |
 | E026 | Um `EncryptedTextField` não está em `TableSpec.sensitive_fields`, ou um keyring (`MFA_ENCRYPTION_KEYS`, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`) tem chave Fernet inválida. |
 | E027 | Check de banco (`check --database`): há segredos cifrados gravados, mas o keyring deles está vazio. |
 

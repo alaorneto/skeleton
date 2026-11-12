@@ -1,0 +1,16 @@
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Tarefas · Skeleton" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Tarefas" %}</h1><p class="page-description">{% translate "Tarefas e aprovações dos processos desta organização. Cada ação é revalidada no servidor." %}</p></div>
+  <div class="toolbar">{% for key, label in scopes.items %}{% if key == scope %}<span class="badge badge-brand">{{ label }}</span>{% else %}<a class="btn btn-secondary btn-sm" href="?scope={{ key }}">{{ label }}</a>{% endif %}{% endfor %}<a class="btn btn-secondary btn-sm" href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></div>
+</div>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tarefa" %}</th><th scope="col">{% translate "Processo" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Prazo" %}</th><th scope="col">{% translate "Criada em" %}</th></tr></thead><tbody>
+{% for task in page.items %}<tr>
+  <td><a class="font-medium text-heading" href="{% url 'flows:task' organization_id task.sysid %}">{{ task.step_label }}</a>{% if task.kind == "approval" %} <span class="badge">{% translate "aprovação" %}</span>{% endif %}</td>
+  <td><a href="{% url 'flows:instance' organization_id task.instance_id %}">{{ task.flow_label }}{% if task.number %} {{ task.number }}{% endif %}</a></td>
+  <td>{% if task.status == "open" %}{% if task.assignee_id %}<span class="badge badge-warning">{% translate "Aberta" %}</span>{% else %}<span class="badge">{% translate "Na fila" %}</span>{% endif %}{% elif task.status == "completed" %}<span class="badge badge-success">{% translate "Concluída" %}</span>{% else %}<span class="badge">{% translate "Cancelada" %}</span>{% endif %}</td>
+  <td class="whitespace-nowrap!">{{ task.due_at|default_if_none:"—" }}</td>
+  <td class="whitespace-nowrap!">{{ task.created_at }}</td>
+</tr>{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhuma tarefa." %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% if page.next_cursor %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="?scope={{ scope }}&amp;cursor={{ page.next_cursor }}">{% translate "Mais tarefas" %}</a></p>{% endif %}
+{% endblock %}

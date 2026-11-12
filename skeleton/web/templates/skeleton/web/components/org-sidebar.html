@@ -26,6 +26,7 @@ Links não concedem acesso: cada tela revalida a autorização no servidor.
     <p class="sidebar-heading" id="sidebar-data">{% translate "Dados" %}</p>
     <ul class="sidebar-list" aria-labelledby="sidebar-data">
       <li><a class="sidebar-link" href="{{ catalog_url }}"{% if request.path == catalog_url or '/tables/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}{% translate "Tabelas" %}</a></li>
+      {% url 'flows:tasks' organization_id as flow_tasks_url %}<li><a class="sidebar-link" href="{{ flow_tasks_url }}"{% if '/flows/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="check" %}{% translate "Tarefas" %}</a></li>
       <li><a class="sidebar-link" href="{{ audit_url }}"{% if request.path == audit_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}{% translate "Auditoria" %}</a></li>
     </ul>
     {% if access_sections or can_manage_applications %}

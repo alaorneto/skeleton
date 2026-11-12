@@ -24,6 +24,8 @@ def application_urls(project_urls=()):
     routes.append(path("", include("skeleton.files.urls")))
     # Before api/v1/: its generic o/<org>/<resource>/ would otherwise capture webhooks/.
     routes.append(path("", include("skeleton.integrations.urls")))
+    # Process flows (docs/flows.md): also before api/v1/, for the same reason.
+    routes.append(path("", include("skeleton.flows.urls")))
     routes.extend(
         [
             path("api/v1/", include("skeleton.api.urls")),

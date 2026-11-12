@@ -107,6 +107,34 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture, em cada banco, p
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Fluxos de processo (epic #209)
+
+Rodada de 2026-11-12 na branch `feat/209-business-flows`, um commit por issue ([#200](https://github.com/alaorneto/skeleton/issues/200) a [#207](https://github.com/alaorneto/skeleton/issues/207)) e um de testes de concorrência. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1441 passed, 111 skipped (marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker), 1 failed: `test_core_events_enqueue_no_webhook_job` afirmava que `app.enabled` não tinha consumidor nenhum, e o motor de fluxos passou a consumi-lo para reagendar etapas. O teste foi ajustado (o único consumidor é `flows.resume_application`; o fan-out de webhooks continua fora) e o arquivo rodou de novo: 7 passed |
+| mesmo ambiente, commit `7067a3e` (já com o ajuste acima) | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1442 passed, 111 skipped, nenhuma falha, em 32 min 03 s |
+| mesmo ambiente, depois da decisão 9 (quem perde a corrida numa tarefa de fila recebe conflito) | `python -m pytest tests/integration/test_flow_tasks.py tests/integration/test_flow_service_api.py tests/integration/test_flow_http.py tests/integration/test_flow_engine.py tests/integration/test_notes_publication_flow.py tests/integration_postgres/test_flow_concurrency.py` | 59 passed; a suíte inteira não foi repetida depois dessa mudança |
+| mesmo ambiente, merge da `main` com o schema OpenAPI (#195) e a suíte rápida (#352), commit `a9fa9f5`; as rotas REST de fluxos e o endpoint de publicação do Notes documentados no schema | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, em série (sem `pytest-xdist` no ambiente local), com toda resposta de `/api/v1/` validada contra o schema | 1615 passed, 111 skipped, nenhuma falha, em 42 min 57 s; Ruff, mypy, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `package doctor examples/notes` sem problemas |
+| mesmo PostgreSQL | `python -m pytest tests/unit/test_flow_spec.py tests/unit/test_flow_expressions.py tests/unit/test_flow_validation.py` | 92 passed |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_flow_tables.py tests/integration/test_flow_engine.py tests/integration/test_flow_tasks.py tests/integration/test_flow_service_api.py tests/integration/test_flow_http.py tests/integration/test_notes_publication_flow.py` | 10 + 17 + 14 + 12 + 6 + 6 passed (rodados por arquivo durante o desenvolvimento e de novo na suíte inteira) |
+| mesmo PostgreSQL | `python -m pytest tests/integration_postgres/test_flow_concurrency.py` | 3 passed |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui as seis tabelas novas); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING` (com o exemplo habilitado), `makemigrations --check --dry-run`, `python -m skeleton.system.packages doctor examples/notes` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_flow_spec.py`, `test_flow_expressions.py`, `test_flow_validation.py`: forma canônica e digest; condições tipadas, recusa de operador desconhecido, de campo não declarado e de comparação com campo sensível, falha fechada sob `negate`; uma mutação por regra estrutural (alcançabilidade, becos sem saída, bifurcação sem junção, regras de cada tipo de etapa, formulários divergentes) e o check `skeleton.E029`.
+- `tests/integration/test_flow_tables.py`: catálogo e `check_skeleton_schema`; tenant ausente falha fechado (ORM e RLS); A/B em leitura e escrita; FK composta e `WITH CHECK` entre organizações; auditoria de criação, alteração, exclusão lógica e restauração com `sensitive_data`, `sensitive_values` e `comment` redigidos; rollback sem resíduo; CAS com um vencedor; `update_fields` vazio; campos imutáveis no Python e no guard; DELETE físico recusado; uma instância ativa por fluxo e registro.
+- `tests/integration/test_flow_engine.py`: gateway exclusivo, bloco paralelo (a junção espera todos e dispara uma vez), bloco inclusivo (só os ramos ativados, com padrão); serviço com saídas declaradas rodando como sistema; temporizador; espera com sinal, formulário e tempo limite; instância presa à versão e recusa de spec alterada sem versão nova; idempotência e uma instância ativa; rollback do chamador sem instância, job, evento nem auditoria; default deny no início (inexistente, outra organização e ilegível respondem igual); A/B; app desativada bloqueia e reativar retoma; handler que falha é retentado, falha a instância e `retry` retoma, sem guardar a mensagem do erro; handler ausente; suspender, retomar e cancelar; administrador e revisão exigidos; início e sinal em `system_context`.
+- `tests/integration/test_flow_tasks.py`: formulário como allowlist (campo não declarado, obrigatório, tipo, limites, pessoa de fora, campo de outra transição); fila com assumir e liberar, e perda imediata da fila ao perder o papel; um vencedor por revisão; rejeição que devolve à etapa anterior com os envios preservados; políticas `all`, `quorum` e `sequential`; atribuição por campo de formulário; delegação e reatribuição pelo administrador; atribuição sem resolução; instância suspensa ou cancelada e outra organização; SLA com lembrete único, reatribuição e expiração; notificação que só leva à tarefa quem ainda pode vê-la.
+- `tests/integration/test_flow_service_api.py`: `assert_service_contract(FlowService)` e, para os 17 métodos, caminho autorizado, default deny (`assert_denied_as_not_found`), A/B (`assert_tenant_isolated`), app desativada (`assert_unavailable_when_disabled`), ator divergente (`assert_rejects_other_actor`), CAS (`assert_cas_conflict`) nos comandos de tarefa e de instância, idempotência do `start`, valores sensíveis só para quem pode agir e rollback sem efeitos.
+- `tests/integration/test_flow_http.py`: anônimo e pessoa sem vínculo; caixa, detalhe e ações por REST com CSRF, `If-Match` (428, 412) e formulário inválido (400 com `fields`); administração da instância (403 para quem não administra, 409 de estado); outra organização (404), token de API (403 `token_not_allowed`) e app desativada (404); as páginas sem JavaScript, com 400 e 409 no formulário, e as ações da instância por POST com CSRF e revisão.
+- `tests/integration/test_notes_publication_flow.py`: o fluxo do exemplo de ponta a ponta (uma aprovação para público interno, duas em paralelo para externo, devolução e desistência, etapa de serviço), com um aprovador que não lê a anotação; default deny, A/B, app desativada e ator divergente dos dois métodos novos do `NoteService`; a página e o endpoint do exemplo.
+- `tests/integration_postgres/test_flow_concurrency.py`: em conexões e threads separadas, três decisões simultâneas em ramos paralelos disparam a junção uma vez e não perdem numeração de ativações; duas pessoas na mesma tarefa de fila têm um vencedor, e a outra recebe conflito de revisão; três inícios simultâneos do mesmo registro criam uma instância.
+
+**Não verificado:** a suíte SQLite pedida no plano original não existe mais (o projeto é só PostgreSQL desde #144); `cd frontend && npm run check` (os templates novos só usam classes que já estão no `site.css` compilado, conferido por script, mas o build do Tailwind não foi rodado); smoke manual no navegador das telas de fluxos e do exemplo (cobertos pelo cliente de teste com login de sessão real, não por navegador); o PostgreSQL 16.15 e o Python 3.12 do CI; os testes `posix`, do agente e do Docker, pulados no Windows. `tests/unit/test_flow_forms.py`, previsto em #204, não foi escrito: a coerção por tipo está em `test_flow_expressions.py` e a validação de formulários, que consulta vínculos, em `test_flow_tasks.py`.
+
 ## Suíte de testes em menos de 10 minutos (epic #199)
 
 Rodadas de 2026-11-11 e 2026-11-12 na branch `test/199-fast-test-suite` ([#349](https://github.com/alaorneto/skeleton/issues/349), [#350](https://github.com/alaorneto/skeleton/issues/350), [#196](https://github.com/alaorneto/skeleton/issues/196), [#197](https://github.com/alaorneto/skeleton/issues/197), [#198](https://github.com/alaorneto/skeleton/issues/198)). Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
@@ -319,6 +347,16 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`, com 16 bancos de worker de `tools/dev_postgres.py start --workers 16`: 1471 passed, 111 skipped. Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed.
 - A primeira rodada pós-merge teve 1 falha: a sonda de teste de `test_locale_preferences.py` em `/api/v1/` caiu na verificação de contrato OpenAPI do #179. O teste recebeu `@pytest.mark.no_api_contract`, porque a rota só existe no teste.
 - O texto que veio da `main` é documentação OpenAPI e fica fora do gettext, por regra registrada em `docs/extending.md`.
+
+**Epic #85 depois do merge da `main` com os fluxos (#351):**
+
+- Templates e Python do módulo `skeleton/flows` e da app de exemplo passaram pelos mesmos conversores. Ficaram fora, pela regra do `docs/extending.md`:
+  - as regex de URL;
+  - as mensagens técnicas de validação da especificação do fluxo;
+  - os rótulos da especificação de fluxo congelada;
+  - os textos de OpenAPI.
+- A primeira rodada achou um texto de OpenAPI lazy (`test_openapi_schema`). Ele foi corrigido.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1633 passed, 111 skipped. Agenda: 59 passed.
 
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 

@@ -190,6 +190,7 @@ CORE_APP_LABELS = frozenset(
         "sk_files",
         "sk_integrations",
         "sk_sequences",
+        "sk_flows",
     }
 )
 
