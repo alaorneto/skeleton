@@ -160,3 +160,8 @@ for (const section of document.querySelectorAll("[data-push-optin]")) {
     });
   });
 }
+
+// Colour swatches: applied through the CSSOM, which a strict style-src allows (inline style attributes are not, #266).
+for (const swatch of document.querySelectorAll("[data-swatch]")) {
+  swatch.style.background = swatch.dataset.swatch;
+}

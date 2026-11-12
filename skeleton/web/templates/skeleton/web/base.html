@@ -7,7 +7,7 @@
 <link rel="preload" href="{% static 'skeleton/web/vendor/inter-5.2.8/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
 {% block extrahead %}{% endblock %}
 <link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
-{% if organization_brand.css %}<style>{{ organization_brand.css|safe }}</style>{% endif %}
+{% if organization_brand.css %}<style nonce="{{ csp_nonce }}">{{ organization_brand.css|safe }}</style>{% endif %}
 <script src="{% static 'skeleton/web/vendor/flowbite-4.0.2/flowbite.min.js' %}" defer></script>
 <script src="{% static 'skeleton/web/site.js' %}" defer></script>
 </head>

@@ -21,6 +21,6 @@
 </div>
 <section class="mt-6" aria-labelledby="calendars-heading">
   <h2 id="calendars-heading">{% translate "Calendários" %}</h2>
-  <ul class="mt-2 flex flex-wrap gap-2">{% for calendar in calendars %}<li class="badge"><span class="inline-block size-2 rounded-full" style="background: {{ calendar.color }}" aria-hidden="true"></span>{{ calendar.name }}</li>{% endfor %}</ul>
+  <ul class="mt-2 flex flex-wrap gap-2">{% for calendar in calendars %}<li class="badge"><span class="inline-block size-2 rounded-full" data-swatch="{{ calendar.color }}" aria-hidden="true"></span>{{ calendar.name }}</li>{% endfor %}</ul>
 </section>
 {% endblock %}
