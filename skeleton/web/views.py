@@ -618,11 +618,13 @@ def record_detail(request, organization_id, table_key, sysid):
     ]
     from skeleton.files.views import panel_context
 
+    timeline = _timeline_context(request, spec, item)
     return render(
         request,
         "skeleton/web/detail.html",
         {
-            "attachments": panel_context(spec, item, user=request.user),
+            "timeline": timeline,
+            "attachments": None if timeline else panel_context(spec, item, user=request.user),
             "record": {"sysid": item.sysid},
             "title": safe_record_label(item, spec),
             "actions": actions,
@@ -632,6 +634,26 @@ def record_detail(request, organization_id, table_key, sysid):
             **detail_sections(item, spec, user=request.user),
         },
     )
+
+
+def _timeline_context(request, spec, item):
+    """The timeline tab (``?view=timeline``, #185), or None for the record tab."""
+    from urllib.parse import urlencode
+
+    from skeleton.web.timeline import record_timeline
+
+    if set(request.GET) - {"view", "cursor"} or request.GET.get("view", "") not in {"", "timeline"}:
+        raise ValidationError("Parâmetro não permitido.")
+    if request.GET.get("view") != "timeline":
+        if "cursor" in request.GET:
+            raise ValidationError("Parâmetro não permitido.")
+        return None
+    items, cursor = record_timeline(spec, item, user=request.user, cursor=request.GET.get("cursor"))
+    return {
+        "items": items,
+        "next_url": "?" + urlencode({"view": "timeline", "cursor": cursor}) if cursor else None,
+        "first_page": not request.GET.get("cursor"),
+    }
 
 
 @tenant_page()

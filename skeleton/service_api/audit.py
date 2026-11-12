@@ -83,6 +83,24 @@ def _record_visible(model: Any, actor: Any, record_id: UUID) -> bool:
     return False
 
 
+def history_allowed(spec: Any, actor: Any, record_id: UUID) -> bool:
+    """Whether the actor reads the audit history of one record (AuditService and the timeline, #185).
+
+    Organization administrators always do; anyone else needs TablePermission ``audit`` and to
+    read the record now (or, if it is deleted, to restore it).
+    """
+    from skeleton.access.policies import has_table_permission, is_organization_admin
+
+    user = _user(actor)
+    if is_organization_admin(user):
+        return True
+    try:
+        allowed = has_table_permission(spec.model, user=user, action="audit")
+    except PermissionDenied:
+        return False
+    return allowed and _record_visible(spec.model, user, record_id)
+
+
 class AuditService(ServiceAPI):
     """Same rules as ``authorized_audit_queryset``: filtered before paginating."""
 
@@ -104,7 +122,7 @@ class AuditService(ServiceAPI):
         organização; InvalidInput para identificador, cursor ou tamanho de página inválidos.
         Efeitos: nenhum.
         """
-        from skeleton.access.policies import authorized_audit_queryset, has_table_permission, is_organization_admin
+        from skeleton.access.policies import authorized_audit_queryset
         from skeleton.common.models import SecuredRecord
         from skeleton.system.registry import get_spec
 
@@ -117,13 +135,8 @@ class AuditService(ServiceAPI):
             raise NotFound() from None
         if not spec.expose_api or not issubclass(spec.model, SecuredRecord):
             raise NotFound()
-        if not is_organization_admin(_user(actor)):
-            try:
-                allowed = has_table_permission(spec.model, user=_user(actor), action="audit")
-            except PermissionDenied:
-                allowed = False
-            if not allowed or not _record_visible(spec.model, _user(actor), identifier):
-                raise NotFound()
+        if not history_allowed(spec, actor, identifier):
+            raise NotFound()
         events = (
             authorized_audit_queryset(_user(actor))
             .filter(model_label=spec.model._meta.label_lower, record_sysid=identifier)

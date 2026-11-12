@@ -185,6 +185,20 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
 - Não verificado: o smoke no navegador; os filtros da página foram provados pelo HTML nos testes de integração.
 
+## Linha do tempo do registro (#185, epic #94)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_record_timeline_merge.py` e `tests/integration/test_record_timeline.py`: 6 passed, 5 subtests. Cobrem:
+  - junção e ordem entre fontes e páginas por cursor sem repetir nem pular itens; cursor inválido, sem fuso e tamanho de página fora do limite recusados; fonte registrada uma vez só;
+  - auditoria e anexos em ordem na aba, com mudanças cortadas aos `read_fields`;
+  - sem TablePermission `audit`, só os anexos; o administrador vê tudo; outra organização recebe 404;
+  - parâmetro desconhecido ou cursor inválido respondem 400.
+- `python -m pytest tests -q -k "audit or detail or record_presentation or attachment"`: 98 passed, 5 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`: 1639 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: o smoke no navegador; a aba foi provada pelo HTML nos testes de integração.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
