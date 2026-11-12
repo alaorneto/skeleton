@@ -68,6 +68,12 @@ def _require_platform(user) -> None:
         raise PermissionDenied("Platform administration required.")
 
 
+def _changed() -> None:
+    from .applications import forget_application_states
+
+    forget_application_states(everywhere=True)
+
+
 def _locked_availability(app_label: str, *, create: bool):
     from .models import AppAvailability
 
@@ -92,6 +98,7 @@ def set_app_availability(app_label: str, *, user, mode: str, revision: int):
     from .models import AppAvailability
 
     _require_platform(user)
+    _changed()
     if mode not in AppAvailability.Mode.values:
         raise ValidationError({"mode": "Use all ou selected."})
     if type(revision) is not int:
@@ -130,6 +137,7 @@ def grant_app(app_label: str, *, user, organization_id: UUID):
     from .models import AppOrganizationGrant
 
     _require_platform(user)
+    _changed()
     organization = _active_organization(organization_id)
     row = _locked_availability(app_label, create=True)
     missing = [
@@ -157,6 +165,7 @@ def revoke_app(app_label: str, *, user, organization_id: UUID, expected_revision
     from .models import AppAvailability, AppOrganizationGrant
 
     _require_platform(user)
+    _changed()
     row = _locked_availability(app_label, create=False)
     grant = (
         AppOrganizationGrant.objects.filter(availability=row, granted_organization_id=organization_id).first()

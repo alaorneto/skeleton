@@ -56,11 +56,23 @@ HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
 
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
+# Per-request memo (#24): created by request_context, gone when the request ends. Never an
+# authorization cache across requests: a revocation still applies on the next request.
+_request_cache: ContextVar[dict[Any, Any] | None] = ContextVar("skeleton_request_cache", default=None)
 _GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin")
 
 
 def current_context() -> Context:
     return _context.get() or Context()
+
+
+def request_cache() -> dict[Any, Any] | None:
+    """Values memoized for the current request only; ``None`` outside one.
+
+    A ``tenant_context`` opened without a request (jobs, CLI) opens its own request scope,
+    so its memo lives exactly as long as that unit of work.
+    """
+    return _request_cache.get()
 
 
 def in_context() -> bool:
@@ -124,6 +136,7 @@ def request_context(
     if _context.get() is not None:
         raise InvalidContext("Requests cannot nest.")
     selected_token = _selected.set(None)
+    cache_token = _request_cache.set({})
     actor_id = _uuid(actor)
     context = Context(
         actor=actor_id,
@@ -138,6 +151,7 @@ def request_context(
         with _enter(context) as active:
             yield active
     finally:
+        _request_cache.reset(cache_token)
         _selected.reset(selected_token)
 
 
