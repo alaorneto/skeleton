@@ -62,6 +62,21 @@ Bibliotecas técnicas mantêm seu ciclo de vida: sessões expiram ou são apagad
 
 ## Leitura e retenção
 
+### Tabela de retenções
+
+Todo apagamento físico é um job declarado em código, por organização quando a tabela é organizacional, com o prazo num setting do catálogo da instância. Os registros de negócio nunca são apagados: o soft delete os mantém como tombstone.
+
+| O quê | Job | Setting (padrão) |
+|---|---|---|
+| Eventos de domínio já entregues | `events.retention` | `SKELETON_EVENT_RETENTION_DAYS` (30) |
+| Jobs concluídos ou cancelados / esgotados | `jobs.retention` | `SKELETON_JOB_SUCCEEDED_RETENTION_DAYS` (7) / `SKELETON_JOB_DEAD_RETENTION_DAYS` (30) |
+| Entregas de webhook | `webhooks.retention` | `SKELETON_WEBHOOK_RETENTION_DAYS` (30) |
+| Notificações lidas, não lidas e entregas | `notifications.retention` | `SKELETON_NOTIFICATION_*_RETENTION_DAYS` |
+| Arquivos de exportação e importação CSV | `transfer.retention` | `SKELETON_TRANSFER_RETENTION_DAYS` (7) |
+| Objetos sem linha, deixados por rollback | `files.orphans` | `SKELETON_FILES_ORPHAN_GRACE_SECONDS` (1 hora) |
+| Bytes de anexos excluídos | `files.purge` | `SKELETON_FILES_DELETED_RETENTION_DAYS` (90) |
+| Auditoria | nenhum: append-only; só os dados pessoais antigos são redigidos uma vez (`redact_audit_personal_data`) | — |
+
 A auditoria é somente leitura. Administradores organizacionais só veem sua organização; outros usuários precisam de `table.audit` **e** leitura autorizada do registro atual (se excluído, restauração autorizada). Filtre antes de contar/paginar. Eventos globais e inventário técnico são exclusivos da plataforma; registros apagados fisicamente offline só são visíveis a administrador organizacional/plataforma.
 
 Na API, HTML e admin, a apresentação da auditoria de negócio segue `TableSpec.read_fields`, inclusive nomes físicos de FKs. Um campo omitido da leitura comum não reaparece no histórico; a captura persistida continua íntegra e redigida. Eventos administrativos do núcleo são uma superfície privilegiada separada, com segredos ocultados. Uma spec desconhecida não apresenta `changes`. Ter audit-sem-read em uma tabela exclui apenas essa tabela inelegível, sem abortar os eventos permitidos de outras tabelas.

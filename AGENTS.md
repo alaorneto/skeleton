@@ -82,7 +82,7 @@ Não aceite actor/tenant/sysid/revision/flags de usuário por mass assignment. P
 
 `delete` é soft delete. `restore` valida unicidade/referências ativas; não recria UUID. `bulk_update` e bulk conflict upsert são proibidos. User/Organization retêm vínculos históricos; os demais registros protegem referências vivas. Use serviços de lifecycle/revogação para não esquecer `auth_version`, último admin e relações de acesso.
 
-Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. A única exceção é `manage.py redact_audit_personal_data --confirm`: só o owner pode rodá-lo, e ele redige os `personal_fields` de eventos antigos numa transação que religa o guard (#189). DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
+Não implemente purge por HTTP/admin/manager. O único expurgo de conteúdo de negócio é o job `files.purge` (#192), declarado em código: ele apaga os bytes de anexos excluídos há mais de `SKELETON_FILES_DELETED_RETENTION_DAYS` e mantém a linha como tombstone `purged`. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. A única exceção é `manage.py redact_audit_personal_data --confirm`: só o owner pode rodá-lo, e ele redige os `personal_fields` de eventos antigos numa transação que religa o guard (#189). DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
 
 ## Checklist mínimo de nova tabela
 

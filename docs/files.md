@@ -90,3 +90,14 @@ O download exige `available`, então um arquivo `pending` ou `quarantined` nunca
 ## Objetos órfãos
 
 O upload grava os bytes antes de a linha comitar. Um rollback ou uma queda entre as duas etapas deixa um objeto sem metadado. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e apaga só os objetos **sem nenhuma linha `Attachment`** e mais antigos que o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não pegar um upload em andamento). O job também lista `org/<organização>/branding/`, onde fica o logo da organização ([#168](https://github.com/alaorneto/skeleton/issues/168)): o logo atual (`OrganizationSettings.logo_key`) é mantido, e um objeto de logo substituído ou abandonado por rollback sai depois da carência. A troca e a remoção pela tela já apagam o objeto anterior depois do commit. O logo não conta na cota de anexos. Objetos de linhas vivas ou excluídas logicamente nunca são apagados: restaurar continua funcionando, e o expurgo de anexos excluídos é do epic de LGPD.
+
+## Expurgo de anexos excluídos
+
+Um anexo excluído mantém os bytes durante `SKELETON_FILES_DELETED_RETENTION_DAYS` (padrão 90 dias), para que a restauração funcione ([#192](https://github.com/alaorneto/skeleton/issues/192)). Depois disso, o job diário `files.purge`, que roda por organização, apaga o objeto do storage e marca o anexo como `purged`.
+
+- A linha fica como tombstone, com os metadados e a auditoria. Restaurar um anexo `purged` é recusado com 400.
+- Anexos vivos, ou excluídos dentro do prazo, nunca são tocados.
+- Cada linha é travada antes, então uma restauração concorrente ou vence, e o anexo volta e é pulado, ou espera e encontra o anexo já expurgado.
+- Os bytes saem depois do commit. Se a exclusão falhar, a rodada seguinte tenta de novo.
+
+É a única remoção física de conteúdo de anexo, uma exceção nominal do `AGENTS.md`.

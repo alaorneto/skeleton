@@ -151,6 +151,17 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - o comando recusado sem `--confirm` e com a role runtime.
 - A leitura da auditoria global nos testes passa pelo owner, porque a RLS esconde da role runtime os eventos sem organização.
 
+**#192, expurgo dos bytes de anexos excluídos:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1673 passed, 111 skipped.
+- `tests/integration/test_attachment_purge.py`: 3 passed. Cobrem:
+  - dentro do prazo, nada é tocado;
+  - depois de 91 dias, os bytes saem e o anexo vira `purged`;
+  - a restauração é recusada com 400 e o anexo continua excluído;
+  - uma segunda rodada não refaz o expurgo;
+  - o anexo vivo e o anexo da organização B nunca são tocados;
+  - o anexo restaurado antes do expurgo é pulado.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.
