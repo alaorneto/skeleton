@@ -139,6 +139,7 @@ O consumidor trata `Unavailable` como "integração desligada": esconde a funcio
 
 ## Transações, efeitos e idempotência
 
+- Cada comando (`read_only=False`) roda num savepoint da transação do chamador: se levantar um erro público, nada do que ele gravou permanece, e a transação do chamador continua utilizável (#232).
 - O serviço participa da transação do chamador e não faz commit. Pode usar `transaction.atomic()` como savepoint para isolar uma etapa.
 - Efeitos externos (email, HTTP, push) não acontecem dentro do método. Eles vão para jobs ou eventos ([#77](https://github.com/alaorneto/skeleton/issues/77), [#78](https://github.com/alaorneto/skeleton/issues/78)) ou para `on_commit` com valores já materializados. Se o chamador desfizer a transação, nada sai.
 - Reações a mudanças de outra app usam eventos de domínio, não chamadas de serviço disparadas por signals.

@@ -167,6 +167,22 @@ def require_boundary_value(value: object, *, where: str, depth: int = 0) -> None
             require_boundary_value(getattr(value, field.name), where=where, depth=depth + 1)
 
 
+def _run_command[T](function: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]) -> T:
+    """Run a command inside a savepoint of the caller's transaction (#232).
+
+    A command that raises leaves nothing it wrote, and the caller's transaction stays usable.
+    Without an open transaction (unit tests with a fake context) the call runs as is: opening
+    ``atomic`` there would start and commit a transaction, which a service never does.
+    """
+    from django.db import connections, transaction
+
+    using = current_context().using
+    if not connections[using].in_atomic_block:
+        return function(*args, **kwargs)
+    with transaction.atomic(using=using):
+        return function(*args, **kwargs)
+
+
 def service_method(
     *, read_only: bool, since: str, allow_system: bool = False, tenant: bool = True
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
@@ -199,7 +215,7 @@ def service_method(
             try:
                 if provider is not None:
                     _require_provider(provider)
-                result = function(*args, **kwargs)
+                result = function(*args, **kwargs) if spec.read_only else _run_command(function, args, kwargs)
             except ServiceError:
                 raise
             except Exception as exc:
