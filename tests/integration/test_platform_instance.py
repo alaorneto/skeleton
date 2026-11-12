@@ -113,3 +113,37 @@ def test_changes_need_a_recent_authentication(store, platform):
         reverse("platform:instance-restart"), {"csrfmiddlewaretoken": client.cookies["csrftoken"].value}
     )
     assert restart["Location"].startswith(reverse("account_reauthenticate"))
+
+
+REQUIRED = {
+    "secret_key": ("DJANGO_SECRET_KEY", "a-long-secret-key-only-for-this-test-2026"),
+    "allowed_hosts": ("DJANGO_ALLOWED_HOSTS", "instance.example.test"),
+    "database_url": ("DATABASE_URL", "postgres://runtime:pw@db.example.test:5432/skeleton"),
+}
+
+
+def test_required_keys_cannot_be_cleared(store, platform, monkeypatch, settings, caplog):
+    """Clearing a key the instance needs to start would lock the site in setup mode (#267)."""
+    _, client = platform
+    for key, (_env, value) in REQUIRED.items():
+        write_setting(settings.BASE_DIR, key, value, source="test")
+    for env, _ in REQUIRED.values():
+        monkeypatch.delenv(env, raising=False)
+    with caplog.at_level(logging.INFO, logger="skeleton.security"):
+        for key in REQUIRED:
+            assert change(client, key, "", action="clear").status_code == 409, key
+    assert set(REQUIRED) <= set(store.settings())
+    events = [getattr(record, "reason_code", "") or "" for record in caplog.records]
+    assert not [code for code in events if code.startswith("clear:")]
+
+
+def test_clear_button_only_for_optional_keys(store, platform, monkeypatch, settings):
+    _, client = platform
+    monkeypatch.delenv("DJANGO_ALLOWED_HOSTS", raising=False)
+    write_setting(settings.BASE_DIR, "allowed_hosts", "instance.example.test", source="test")
+    write_setting(settings.BASE_DIR, "default_from_email", "ops@example.test", source="test")
+    html = client.get(reverse("platform:instance")).content.decode()
+    rows = {row.split("</span>", 1)[0]: row for row in html.split('<span class="font-medium text-heading">')[1:]}
+    assert 'value="clear"' not in rows["allowed_hosts"]
+    assert 'value="clear"' in rows["default_from_email"] and 'value="clear"' in rows["email_url"]
+    assert html.count('value="clear"') == 2  # The two optional keys stored: email_url and default_from_email.

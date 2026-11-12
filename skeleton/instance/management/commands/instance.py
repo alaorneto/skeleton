@@ -31,6 +31,9 @@ class Command(BaseCommand):
         put.add_argument("--stdin", action="store_true", help="Read the value from standard input.")
         unset = actions.add_parser("unset", help="Remove a stored key (the default or the environment applies).")
         unset.add_argument("key")
+        unset.add_argument(
+            "--force", action="store_true", help="Remove even a key the instance needs to start (recovery only)."
+        )
         imported = actions.add_parser("import-env", help="Store the catalog keys present in the current environment.")
         imported.add_argument("--keep-existing", action="store_true", help="Do not replace keys already stored.")
         actions.add_parser("export-template", help="Print a commented .env template with no values.")
@@ -80,7 +83,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"{spec.key} gravada{overridden}."))
 
     def _unset(self, store, key, options):
+        from skeleton.instance.writer import REQUIRED_KEY_MESSAGE, can_clear
+
         spec = spec_for(options["key"])
+        if not options["force"] and not can_clear(spec):
+            raise CommandError(REQUIRED_KEY_MESSAGE + " Use --force para remover assim mesmo.")
         removed = store.delete(spec.key, source="cli:unset")
         self.stdout.write(f"{spec.key} {'removida' if removed else 'não estava gravada'}.")
 
