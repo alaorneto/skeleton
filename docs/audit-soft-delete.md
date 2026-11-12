@@ -87,6 +87,8 @@ Na API, HTML e admin, a apresentação da auditoria de negócio segue `TableSpec
 
 As três superfícies aceitam os mesmos filtros ([#184](https://github.com/alaorneto/skeleton/issues/184)): a auditoria da organização (`/o/<org>/audit/`), a da plataforma (`/platform/audit/`) e a REST (`/api/v1/o/<org>/audit/`).
 
+As duas páginas mostram as alterações de cada evento como tabela **Campo / Antes / Depois**, uma linha por coluna visível, em ordem alfabética: valor ausente é "—", valor redigido é "[redigido]" e números, booleanos e estruturas aparecem como JSON (#287). A REST continua devolvendo `changes` como objeto `{old, new, redacted}` por campo.
+
 - `from` e `to`: uma data, que vale o dia inteiro no fuso da pessoa, ou data e hora ISO 8601.
 - `actor` (UUID), `operation` (`create`, `update`, `soft_delete`, `restore`, `hard_delete`) e `request_id`.
 - Os filtros que já existiam, `model_label` e `record_sysid`.

@@ -607,10 +607,10 @@ def catalog_field(request, sysid):
 @require_safe
 def audit(request):
     from skeleton.accounts.platform import is_platform_admin
-    from skeleton.api.serializers import audit_data
     from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
     from skeleton.tenancy.context import platform_audit_scope
+    from skeleton.web.presentation import audit_rows
 
     try:
         filters = parse_audit_filters(request.GET)
@@ -630,7 +630,7 @@ def audit(request):
         page,
         validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
     )
-    rows.object_list = [audit_data(event) for event in rows]
+    rows.object_list = audit_rows(rows)
     return render(
         request,
         "skeleton/web/platform/audit.html",

@@ -329,3 +329,37 @@ def detail_sections(record, spec, *, user):
         )
     tabs = _tabs(layout, sections)
     return {"sections": sections, "tabs": tabs, "active_tab": tabs[0]["id"] if tabs else None}
+
+
+def _audit_value(value, redacted):
+    if redacted:
+        return gettext("[redigido]")
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def audit_rows(events):
+    """Audit page rows: the REST shape, with the changes as rows Field / Before / After (#287).
+
+    The service already kept only the visible columns and redacted the sensitive ones; this
+    only draws them. The template escapes every value.
+    """
+    from skeleton.api.serializers import audit_data
+
+    rows = []
+    for event in events:
+        data = audit_data(event)
+        data["changes"] = [
+            {
+                "field": name,
+                "old": _audit_value(change.get("old"), bool(change.get("redacted"))),
+                "new": _audit_value(change.get("new"), bool(change.get("redacted"))),
+            }
+            for name, change in sorted(data["changes"].items())
+            if isinstance(change, dict)
+        ]
+        rows.append(data)
+    return rows

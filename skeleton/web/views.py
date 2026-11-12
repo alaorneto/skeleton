@@ -29,6 +29,7 @@ from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
 from skeleton.web.presentation import (
+    audit_rows,
     detail_sections,
     form_sections,
     grouped_specs,
@@ -536,7 +537,6 @@ def catalog(request, organization_id):
 @tenant_page()
 def audit(request, organization_id):
     from skeleton.access.policies import is_organization_admin
-    from skeleton.api.serializers import audit_data
     from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
 
@@ -546,7 +546,7 @@ def audit(request, organization_id):
         lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
         validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
     )
-    rows.object_list = [audit_data(event) for event in rows]
+    rows.object_list = audit_rows(rows)
     # Domain events of the same request, still retained, for the administrator (#184).
     related = ()
     if "request_id" in filters and is_organization_admin(request.user):

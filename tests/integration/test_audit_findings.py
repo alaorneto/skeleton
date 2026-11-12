@@ -73,3 +73,38 @@ def test_sbr06_audit_representation_excludes_unreadable_fields_but_keeps_capture
         html = client.get(f"/o/{fixture.a.pk}/audit/", {"record_sysid": str(note.pk)})
         assert html.status_code == 200
         assert b"hidden-audit-sentinel" not in html.content
+
+
+def test_audit_page_shows_changes_as_a_table():
+    """Field / Before / After instead of the repr of a Python dict (#287)."""
+    from examples.notes.models import Note
+
+    fixture = build_security_fixture()
+    with actor_tenant(fixture.admin, fixture.a):
+        note = Note.objects.get(pk=fixture.private.pk)
+        note.title = "<b>x</b>"
+        note.body = "segredo-do-corpo"
+        note.save()
+    response = login(fixture.admin).get(f"/o/{fixture.a.pk}/audit/?record_sysid={note.pk}")
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "&#x27;old&#x27;" not in html and "None," not in html and "False}" not in html
+    assert "<code>title</code>" in html and "&lt;b&gt;x&lt;/b&gt;" in html and "<b>x</b>" not in html
+    assert "[redigido]" in html and "segredo-do-corpo" not in html
+
+
+def test_platform_audit_page_uses_the_same_table():
+    from skeleton.accounts.services import bootstrap_identity, update_profile
+    from tests.support import login as login_with
+
+    password = "Platform-audit-table-2026!"
+    user, _ = bootstrap_identity(
+        email="audit-table@example.test", organization="audit-table", name="Audit table", password=password
+    )
+    from skeleton.tenancy.context import request_context
+
+    with request_context(actor=user, request_id=None, source="test:audit-table"):
+        update_profile(user, data={"first_name": "Tabela"})
+    html = login_with(user, password=password).get("/platform/audit/").content.decode()
+    assert "<code>first_name</code>" in html and "Tabela" in html
+    assert "&#x27;old&#x27;" not in html

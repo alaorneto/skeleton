@@ -809,3 +809,39 @@ def test_resolved_grid_rejects_invalid_dimensions(span, columns, wide):
 
     with pytest.raises(ValueError):
         resolve_field_span(span, columns, wide=wide)
+
+
+def test_audit_rows_tabulate_changes():
+    """One row per visible field, in alphabetical order, as text (#287)."""
+    import json as json_module
+
+    from skeleton.web.presentation import audit_rows
+
+    changes = {
+        "title": {"old": "Antes", "new": "Depois", "redacted": False},
+        "closed": {"old": False, "new": True, "redacted": False},
+        "body": {"old": "[REDACTED]", "new": "[REDACTED]", "redacted": True},
+        "meta": {"old": None, "new": {"b": 1, "a": "á"}, "redacted": False},
+    }
+    event = SimpleNamespace(
+        sysid=None,
+        created_at=None,
+        organization_id=None,
+        table_name="t",
+        model_label="app.model",
+        record_sysid=None,
+        record_revision=2,
+        operation="update",
+        actor_sysid=None,
+        request_id=None,
+        source="test",
+        db_principal="runtime",
+        changes_json=json_module.dumps(changes),
+    )
+    [row] = audit_rows([event])
+    assert row["changes"] == [
+        {"field": "body", "old": "[redigido]", "new": "[redigido]"},
+        {"field": "closed", "old": "false", "new": "true"},
+        {"field": "meta", "old": "—", "new": '{"a": "á", "b": 1}'},
+        {"field": "title", "old": "Antes", "new": "Depois"},
+    ]
