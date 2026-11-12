@@ -8,6 +8,8 @@ setuptools>=84.1,<85
 wheel>=0.45,<1
 pytest-cov
 pytest-xdist
+# Validates API responses against the OpenAPI schema in the contract tests (#179).
+jsonschema>=4.23,<5
 mypy==2.4.1
 django-stubs[compatible-mypy]==6.1.2
 djangorestframework-stubs==3.18.2

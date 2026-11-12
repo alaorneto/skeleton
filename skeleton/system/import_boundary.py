@@ -26,6 +26,8 @@ PUBLIC_CORE_MODULES = frozenset(
         "skeleton.tenancy.context",
         "skeleton.web.views",
         "skeleton.api.views",
+        # Operation and schema builders for the ``openapi`` attribute of an app's API views (#178).
+        "skeleton.api.openapi",
         # Registration in AppConfig.ready() (#84): the documented way to declare types of an app.
         "skeleton.jobs.registry",
         "skeleton.jobs.periodic",

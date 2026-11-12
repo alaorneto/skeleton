@@ -120,6 +120,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def api_contract(request):
+    """Every /api/v1/ response a test receives must match the published OpenAPI schema (#179).
+
+    ``@pytest.mark.no_api_contract`` opts a test out, for one that builds a divergent response
+    on purpose.
+    """
+    if request.node.get_closest_marker("no_api_contract"):
+        yield
+        return
+    from skeleton.testing.openapi import checked_client_responses
+
+    with checked_client_responses():
+        yield
+
+
 def _postgres_config(dsn):
     config = environ.Env.db_url_config(dsn)
     config["OPTIONS"] = {"options": "-c search_path=skeleton,public"}
