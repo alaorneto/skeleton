@@ -18,6 +18,8 @@ from .errors import InvalidInput
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 25
+# Largest row offset a page or cursor may address; deeper reads need narrower filters (#271).
+MAX_OFFSET = 1_000_000
 _CURSOR_PREFIX = "o:"
 
 
@@ -58,7 +60,10 @@ def decode_cursor(cursor: str | None) -> int:
     digits = text.removeprefix(_CURSOR_PREFIX)
     if not text.startswith(_CURSOR_PREFIX) or not digits.isdigit() or not digits.isascii():
         raise invalid
-    return int(digits)
+    offset = int(digits)
+    if offset > MAX_OFFSET:
+        raise invalid
+    return offset
 
 
 def validate_page_size(page_size: object) -> int:

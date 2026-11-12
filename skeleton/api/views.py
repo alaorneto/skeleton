@@ -31,6 +31,7 @@ from skeleton.api.openapi import (
 )
 from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model
 from skeleton.integrations.tokens.authentication import ApiTokenAuthentication
+from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.services import (
@@ -76,7 +77,7 @@ def page_numbers(request):
     try:
         number = int(request.query_params.get("page", "1"))
         size = int(request.query_params.get("page_size", "25"))
-        if number < 1 or not 1 <= size <= 100:
+        if number < 1 or not 1 <= size <= 100 or (number - 1) * size > MAX_OFFSET:
             raise ValueError
     except ValueError:
         raise BoundaryError("invalid_pagination", gettext("Página ou tamanho inválido.")) from None

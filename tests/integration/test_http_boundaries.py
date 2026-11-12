@@ -482,3 +482,19 @@ def test_membership_list_query_count_is_constant(http_identity):
     few = queries()
     add(6, 1)
     assert queries() == few
+
+
+def test_page_beyond_max_offset_is_400_not_500(http_identity):
+    """A page whose OFFSET does not fit the database is invalid pagination (#271)."""
+    client, _, organization = http_identity
+    beyond = "?page=" + str(10**30)
+    for url in (notes_url(organization), reverse("api:audit", kwargs={"organization_id": organization.pk})):
+        response = client.get(url + beyond)
+        assert response.status_code == 400, url
+        assert response.json()["code"] == "invalid_pagination"
+
+
+def test_html_audit_page_beyond_max_offset_is_400(http_identity):
+    client, _, organization = http_identity
+    response = client.get(reverse("web:audit", kwargs={"organization_id": organization.pk}) + "?page=" + str(10**30))
+    assert response.status_code == 400

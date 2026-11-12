@@ -23,6 +23,7 @@ from skeleton.accounts.mfa import mfa_required
 from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
 from skeleton.service_api import errors as service_errors
+from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
@@ -151,7 +152,7 @@ PAGE_SIZE = 25
 def _page_number(request):
     try:
         page = int(request.GET.get("page", "1"))
-        if page < 1:
+        if page < 1 or (page - 1) * PAGE_SIZE > MAX_OFFSET:
             raise ValueError
     except ValueError:
         raise ValidationError(gettext("Página inválida.")) from None

@@ -302,3 +302,21 @@ def test_context_required_is_a_server_error():
     from skeleton.api.errors import exception_handler
 
     assert exception_handler(ContextRequired(), {}) is None
+
+
+def test_cursor_beyond_max_offset_is_invalid_input():
+    """An offset the database cannot address is invalid input, never a database error (#271)."""
+    from skeleton.service_api import MAX_OFFSET
+
+    with pytest.raises(InvalidInput) as error:
+        paginate([1, 2], convert=str, cursor=encode_cursor(MAX_OFFSET + 1))
+    assert "cursor" in error.value.errors
+    assert paginate([1, 2], convert=str, cursor=encode_cursor(MAX_OFFSET)).items == ()
+
+
+def test_reference_page_beyond_max_offset_is_refused_before_any_query():
+    """The example table has no reference field: the picker check runs before the queryset (#271)."""
+    from skeleton.web.references import reference_options
+
+    with pytest.raises(ValidationError):
+        reference_options(None, "owner", user=None, page=10**30)

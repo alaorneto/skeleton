@@ -7,6 +7,7 @@ from django.utils.translation import gettext
 
 from skeleton.access.policies import authorized_queryset, is_organization_admin
 from skeleton.common.models import OrganizationRecord, SecuredRecord
+from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
 
 ACCESS_REFERENCE_FIELDS = frozenset({"owner", "owning_group"})
@@ -114,7 +115,13 @@ def reference_label(record, *, user):
 
 
 def reference_options(spec, field_name, *, user, record=None, access=False, page=1, page_size=25, term=None):
-    if type(page) is not int or page < 1 or type(page_size) is not int or not 1 <= page_size <= 100:
+    if (
+        type(page) is not int
+        or page < 1
+        or type(page_size) is not int
+        or not 1 <= page_size <= 100
+        or (page - 1) * page_size > MAX_OFFSET
+    ):
         raise ValidationError(gettext("Paginação inválida."))
     queryset = reference_queryset(spec, field_name, user=user, record=record, access=access)
     name = label_field(queryset.model)

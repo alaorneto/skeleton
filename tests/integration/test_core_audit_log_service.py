@@ -88,6 +88,16 @@ def test_pages_and_invalid_input(scenario):
     assert_rejects_other_actor(scenario.caller(lambda actor: service.events(actor=scenario.denied)))
 
 
+def test_page_beyond_max_offset_is_invalid_input(scenario):
+    """The offset never reaches the database beyond MAX_OFFSET (#271)."""
+    service = AuditLogService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        with pytest.raises(InvalidInput) as error:
+            service.events(actor=admin, page=10**30)
+        assert "page" in error.value.errors
+        assert service.events(actor=admin, page=1).page == 1
+
+
 @pytest.mark.needs_example_app
 def test_events_of_another_organization_never_appear(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="L-4", title="A note")

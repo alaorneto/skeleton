@@ -13,7 +13,7 @@ from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
-from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate, validate_page_size
+from .dto import DEFAULT_PAGE_SIZE, MAX_OFFSET, Page, as_utc, as_uuid, paginate, validate_page_size
 from .errors import InvalidInput, NotFound
 from .identity import _user
 
@@ -244,6 +244,8 @@ class AuditLogService(ServiceAPI):
         size = validate_page_size(page_size)
         if type(page) is not int or page < 1:
             raise InvalidInput({"page": [gettext("Use um inteiro maior que zero.")]})
+        if (page - 1) * size > MAX_OFFSET:
+            raise InvalidInput({"page": [gettext("Página além do limite suportado; use filtros para restringir.")]})
         events = _authorized_log(actor)
         if model_label is not None:
             events = events.filter(model_label=model_label)
