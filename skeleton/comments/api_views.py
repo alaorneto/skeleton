@@ -68,3 +68,15 @@ class CommentRestoreView(TenantAPI):
         revision = parse_revision(request.headers.get("If-Match"))
         comment = services.restore(exposed_spec(table_key), sysid, comment_id, user=request.user, revision=revision)
         return etag(Response(services.comment_data(comment)), comment.revision)
+
+
+class MentionableView(TenantAPI):
+    token_methods = ("GET",)
+    openapi = TableRoutes("comment-mentionable")
+
+    def get(self, request, organization_id, table_key, sysid):
+        from .mentions import mentionable
+
+        spec = exposed_spec(table_key)
+        record = services.readable_target(spec, sysid, user=request.user)
+        return Response({"results": mentionable(spec, record)})

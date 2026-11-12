@@ -33,6 +33,10 @@ class NotificationType:
     # For a type without a target table: ``open_url(user, row) -> str | None`` re-authorizes the
     # person and returns where the notification leads (the flow task page, #204).
     open_url: Callable[[Any, Any], str | None] | None = None
+    # For a type without a target table: ``authorize(user, notification) -> bool`` re-checks
+    # each person at fan-out time, so access revoked since the notification was created
+    # stops the delivery (comment mentions, #188).
+    authorize: Callable[[Any, Any], bool] | None = None
 
 
 _types: dict[str, NotificationType] = {}

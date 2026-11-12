@@ -100,9 +100,11 @@ class CommentService(ServiceAPI):
         """Comment a record with plain text (up to 5,000 characters; no Markdown or HTML).
 
         Autorização: leitura do registro alvo, numa tabela com ``CommentPolicy``.
-        Erros: NotFound como em ``comments``; InvalidInput para corpo vazio, longo demais ou com
-        caracteres de controle.
-        Efeitos: grava o comentário (auditado) na transação do chamador.
+        Erros: NotFound como em ``comments``; InvalidInput para corpo vazio, longo demais, com
+        caracteres de controle ou mencionando (``@[nome](sysid)``) quem não é membro ativo ou não
+        lê o registro.
+        Efeitos: grava o comentário (auditado) e uma notificação ``comments.mention`` por pessoa
+        mencionada, na transação do chamador.
         """
         from skeleton.comments import services
 
@@ -125,7 +127,8 @@ class CommentService(ServiceAPI):
         Autorização: só o autor, que ainda lê o registro.
         Erros: NotFound para comentário inexistente, excluído ou de alvo ilegível; Forbidden para
         quem não é o autor; Conflict("stale_revision") para revisão desatualizada; InvalidInput.
-        Efeitos: grava a nova versão (auditada) na transação do chamador.
+        Efeitos: grava a nova versão (auditada); só quem é mencionado pela primeira vez neste
+        comentário é notificado.
         """
         from skeleton.comments import services
 
