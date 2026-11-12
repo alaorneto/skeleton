@@ -123,6 +123,7 @@ def _platform_admins(*users):
             stored = User.objects.get(pk=user.pk)
             stored.is_staff = stored.is_superuser = True
             stored.save(update_fields=["is_staff", "is_superuser"])
+            user.is_staff = user.is_superuser = True  # The caller's object acts as the platform actor.
         return set(User.objects.filter(is_active=True, is_staff=True, is_superuser=True).values_list("pk", flat=True))
 
 
@@ -159,7 +160,7 @@ def test_concurrent_platform_demotions_keep_one_admin(skeleton_db):
             with connection.execute_wrapper(observe):
                 with request_context(actor=user, request_id=uuid4(), source="test:concurrent-platform-demotion"):
                     revision = User.objects.get(pk=user.pk).revision
-                    update_platform_user(user, data={"is_staff": False}, expected_revision=revision)
+                    update_platform_user(user, actor=user, data={"is_staff": False}, expected_revision=revision)
             return "demoted"
         except LastPlatformAdministrator:
             return "last_platform_administrator"

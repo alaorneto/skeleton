@@ -32,6 +32,7 @@ def password_allowed(user):
 
 
 def create_identity(*, email, password=None, first_name="", last_name="", local_password_allowed=True, using="default"):
+    """A new identity carries no platform flag nor membership, so creating one grants nothing."""
     from skeleton.accounts.models import User, UserProfile
 
     with transaction.atomic(using=using):
@@ -112,15 +113,23 @@ def revoke_sessions(user, *, using="default"):
         return locked
 
 
-def deactivate_user(user, *, delete=False, using="default"):
+def deactivate_user(user, *, actor, delete=False, expected_revision=None, using="default"):
+    """Deactivate (or soft delete) an identity for a platform administrator (#226).
+
+    ``expected_revision`` is the revision the confirmation page displayed; a different one
+    raises ``ConcurrentUpdate``.
+    """
     from skeleton.access.services import assert_user_deactivation
     from skeleton.accounts.models import User
     from skeleton.accounts.platform import assert_platform_admin_remains, lock_platform_admins
 
+    _require_platform_actor(actor)
     with transaction.atomic(using=using):
         # Platform administrators first, in sysid order, then the target: no lock inversion.
         admins = lock_platform_admins(using=using)
         locked = User.all_objects.using(using).select_for_update().get(pk=user.pk)
+        if expected_revision is not None and locked.revision != expected_revision:
+            raise ConcurrentUpdate("The identity changed since the form was displayed.")
         assert_platform_admin_remains(admins, locked, keeps_role=False)
         assert_user_deactivation(locked, using=using)
         if delete:
@@ -135,7 +144,7 @@ def deactivate_user(user, *, delete=False, using="default"):
 PLATFORM_USER_FIELDS = ("first_name", "last_name", "is_active", "is_staff", "is_superuser")
 
 
-def update_platform_user(user, *, data, expected_revision, using="default"):
+def update_platform_user(user, *, actor, data, expected_revision, using="default"):
     """Platform-side identity edit with CAS; email changes stay in the verified allauth flow.
 
     Deactivating keeps the last-administrator guard, demoting or deactivating the last
@@ -151,6 +160,7 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
         lock_platform_admins,
     )
 
+    _require_platform_actor(actor)
     unknown = set(data) - set(PLATFORM_USER_FIELDS) - {"email"}
     if unknown:
         raise ValidationError(gettext("Campo não permitido."))
@@ -178,10 +188,11 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
         return previous
 
 
-def update_organization(organization, *, data, expected_revision, using="default"):
+def update_organization(organization, *, actor, data, expected_revision, using="default"):
     """Platform-side organization edit with CAS; the slug is immutable."""
     from skeleton.tenancy.models import Organization
 
+    _require_platform_actor(actor)
     unknown = set(data) - {"name", "is_active"}
     if unknown:
         raise ValidationError(gettext("Campo não permitido."))
@@ -320,6 +331,23 @@ def _require_context_actor(actor):
         raise InvalidContext("The actor must be the request's authenticated identity.")
 
 
+def _require_platform_actor(actor):
+    """Platform lifecycle services act for the authenticated platform administrator (#226).
+
+    ``actor=None`` is accepted only inside ``system_context`` (CLI/infrastructure), never
+    in a plain request context.
+    """
+    from skeleton.accounts.platform import require_platform_admin
+    from skeleton.tenancy.context import current_context
+
+    if actor is None:
+        if not current_context().system:
+            raise PermissionDenied("Platform administration required.")
+        return
+    require_platform_admin(actor)
+    _require_context_actor(actor)
+
+
 def designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None, using="default"):
     """A platform administrator designates (and optionally replaces) an organization administrator.
 
@@ -363,7 +391,9 @@ def designate_organization_admin(*, actor, organization, user, replace=None, exp
         return membership
 
 
-def restore_user(user, *, using="default"):
+def restore_user(user, *, actor, using="default"):
+    """Restore a deleted identity for a platform administrator; ``restore()`` applies the CAS."""
+    _require_platform_actor(actor)
     with transaction.atomic(using=using):
         user.restore(using=using)
         return user
@@ -389,6 +419,7 @@ def set_local_password(user, password, *, using="default"):
 
 
 def create_organization(*, owner, slug, name, using="default"):
+    """Runs under system_context(reason="organization:create"), which HTTP opens only for the platform."""
     from skeleton.access.capabilities import BUILTIN_ROLES
     from skeleton.access.models import Role
     from skeleton.access.services import provision_membership, reconcile_builtin_roles
@@ -491,7 +522,8 @@ def create_service_account(*, actor, name):
 def deactivate_service_account(*, actor, user):
     """Deactivate a service account of the current organization; sessions and tokens stop at once.
 
-    Same capability and lock as creation. Revokes the membership's roles, groups and grants,
+    Same capability and lock as creation. Idempotent and deactivation only, so it takes no
+    revision. Revokes the membership's roles, groups and grants,
     deactivates the membership and the identity, and increments ``auth_version``. Another
     organization's account, or a human, is reported as unavailable.
     """

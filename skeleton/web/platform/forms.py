@@ -36,6 +36,12 @@ class PlatformUserCreateForm(forms.Form):
         return data
 
 
+class RevisionForm(forms.Form):
+    """Confirmation pages: carries only the revision the page displayed (#226)."""
+
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
+
+
 class PlatformUserForm(forms.Form):
     first_name = forms.CharField(label=gettext_lazy("Nome"), max_length=150, required=False)
     last_name = forms.CharField(label=gettext_lazy("Sobrenome"), max_length=150, required=False)

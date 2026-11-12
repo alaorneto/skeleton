@@ -1,7 +1,9 @@
 """Platform administration views. Every view is wrapped by ``platform_page``.
 
 Identity changes go through ``skeleton.accounts.services`` (CAS, lifecycle guards,
-``auth_version``); catalog edits only touch label/description. Tenant data is never
+``auth_version``), which also require the platform actor; catalog edits only touch
+label/description. Creating, editing or removing an identity and creating or editing an
+organization require a recent authentication on POST (#226); catalog edits do not. Tenant data is never
 read here, except ``organization_overview`` (member count and administrator emails, read
 only): platform administration does not grant organization access.
 """
@@ -45,6 +47,7 @@ from .forms import (
     OrganizationForm,
     PlatformUserCreateForm,
     PlatformUserForm,
+    RevisionForm,
 )
 from .guards import platform_page
 
@@ -148,6 +151,7 @@ def users(request):
 
 @platform_page
 @require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
 @transaction.atomic
 def user_create(request):
     form = PlatformUserCreateForm(request.POST or None)
@@ -191,6 +195,7 @@ def user_create(request):
 
 @platform_page
 @require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
 @transaction.atomic
 def user_detail(request, sysid):
     user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
@@ -203,7 +208,7 @@ def user_detail(request, sysid):
             revision = data.pop("expected_revision")
             try:
                 with transaction.atomic():
-                    user = update_platform_user(user, data=data, expected_revision=revision)
+                    user = update_platform_user(user, actor=request.user, data=data, expected_revision=revision)
             except (ValidationError, ConcurrentUpdate, LastAdministrator) as exc:
                 status = form_error(form, exc)
             else:
@@ -262,28 +267,44 @@ def user_role_revoke(request, sysid, assignment):
 
 @platform_page
 @require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
 @transaction.atomic
 def user_delete(request, sysid):
     user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    form = RevisionForm(
+        request.POST if request.method == "POST" else None, initial={"expected_revision": user.revision}
+    )
     status = 200
     error = None
     if request.method == "POST":
-        try:
-            with transaction.atomic():
-                deactivate_user(user, delete=True)
-        except LastPlatformAdministrator:
-            error = gettext("A remoção deixaria a plataforma sem administrador ativo.")
-            status = 409
-        except LastAdministrator:
-            error = gettext("A remoção deixaria uma organização sem administrador ativo.")
-            status = 409
+        if not form.is_valid():
+            error = gettext("Formulário inválido. Atualize a página e tente novamente.")
+            status = 400
         else:
-            messages.success(
-                request,
-                gettext("Identidade %(email)s removida. Perfil e vínculos históricos foram mantidos.")
-                % {"email": user.email},
-            )
-            return redirect("platform:users")
+            try:
+                with transaction.atomic():
+                    deactivate_user(
+                        user,
+                        actor=request.user,
+                        delete=True,
+                        expected_revision=form.cleaned_data["expected_revision"],
+                    )
+            except ConcurrentUpdate:
+                error = gettext("A identidade mudou. Atualize a página antes de tentar novamente.")
+                status = 409
+            except LastPlatformAdministrator:
+                error = gettext("A remoção deixaria a plataforma sem administrador ativo.")
+                status = 409
+            except LastAdministrator:
+                error = gettext("A remoção deixaria uma organização sem administrador ativo.")
+                status = 409
+            else:
+                messages.success(
+                    request,
+                    gettext("Identidade %(email)s removida. Perfil e vínculos históricos foram mantidos.")
+                    % {"email": user.email},
+                )
+                return redirect("platform:users")
     return render(
         request,
         "skeleton/web/platform/confirm.html",
@@ -299,6 +320,7 @@ def user_delete(request, sysid):
             "error": error,
             "submit_label": gettext("Remover identidade"),
             "cancel_url": reverse("platform:user", kwargs={"sysid": user.pk}),
+            "form": form,
         },
         status=status,
     )
@@ -327,6 +349,7 @@ def organizations(request):
 
 @platform_page
 @require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
 @transaction.atomic
 def organization_create(request):
     form = OrganizationCreateForm(request.POST or None)
@@ -405,6 +428,7 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
 
 @platform_page
 @require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
 @transaction.atomic
 def organization_detail(request, sysid):
     organization = get_object_or_404(_model("sk_tenancy.Organization").objects, pk=sysid)
@@ -416,7 +440,9 @@ def organization_detail(request, sysid):
             revision = data.pop("expected_revision")
             try:
                 with transaction.atomic():
-                    organization = update_organization(organization, data=data, expected_revision=revision)
+                    organization = update_organization(
+                        organization, actor=request.user, data=data, expected_revision=revision
+                    )
             except (ValidationError, ConcurrentUpdate, IntegrityError) as exc:
                 status = form_error(form, exc)
             else:
