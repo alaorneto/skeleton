@@ -9,6 +9,7 @@ from django.views.decorators.http import require_POST
 from rest_framework.response import Response
 
 from skeleton.api.errors import BoundaryError
+from skeleton.api.openapi import BOOLEAN, INTEGER, OBJECT, UUID, Operation, array, obj, string
 from skeleton.api.views import SessionAPI, TenantAPI, request_fields
 from skeleton.web.views import pagination, tenant_page
 
@@ -88,7 +89,40 @@ def open_notification(request, organization_id, sysid):
     )
 
 
+def _inbox_row():
+    from skeleton.api.openapi import model_fields
+
+    from .models import NotificationRecipient
+
+    return model_fields(
+        NotificationRecipient,
+        {
+            "sysid": "sysid",
+            "organization_id": "organization",
+            "type_code": "type_code",
+            "count": "count",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+        },
+        label=string(),
+        snapshot=OBJECT,
+        payload=OBJECT,
+        read=BOOLEAN,
+        archived=BOOLEAN,
+    )
+
+
 class InboxAPI(SessionAPI):
+    openapi = {
+        "GET": Operation(
+            "Caixa de notificações do ator, de todas as organizações",
+            _inbox_row,
+            paginated=True,
+            page_extra={"unread": INTEGER},
+            query=(("archived", string(enum=["0", "1"]), "1 inclui as arquivadas."),),
+        )
+    }
+
     def get(self, request):
         from skeleton.api.views import page
 
@@ -104,6 +138,16 @@ class InboxAPI(SessionAPI):
 
 class InboxActionAPI(TenantAPI):
     ACTIONS = {"read", "unread", "archive", "read_all"}
+    openapi = {
+        "POST": Operation(
+            "Marca como lidas, não lidas ou arquivadas",
+            obj({"changed": INTEGER, "unread": INTEGER}),
+            request=obj(
+                {"action": string(enum=sorted(ACTIONS)), "ids": {**array(UUID), "minItems": 1, "maxItems": 100}},
+                required=("action",),
+            ),
+        )
+    }
 
     @transaction.atomic
     def post(self, request, organization_id):

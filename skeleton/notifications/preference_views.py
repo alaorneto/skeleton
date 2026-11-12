@@ -13,6 +13,7 @@ from django.views.decorators.http import require_http_methods
 from rest_framework.response import Response
 
 from skeleton.api.errors import BoundaryError, parse_revision
+from skeleton.api.openapi import BOOLEAN, INTEGER, UUID, Operation, nullable, obj, results, string
 from skeleton.api.views import SessionAPI, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -45,13 +46,47 @@ def _line(user, type_code):
     raise Http404
 
 
+PREFERENCE = obj(
+    {
+        "type_code": string(),
+        "label": string(),
+        "mandatory": BOOLEAN,
+        "channel": string(enum=list(preferences.CHANNELS)),
+        "mode": string(),
+        "digest_hour": nullable({"type": "integer", "minimum": 0, "maximum": 23}),
+        "source": string(),
+        "sysid": nullable(UUID),
+        "revision": nullable(INTEGER),
+    }
+)
+
+
 class PreferencesAPI(SessionAPI):
+    openapi = {"GET": Operation("Preferências de notificação do ator, por tipo e canal", results(PREFERENCE))}
+
     def get(self, request):
         lines = preferences.preference_lines(request.user)
         return Response({"results": [_item(line, channel) for line in lines for channel in preferences.CHANNELS]})
 
 
 class PreferenceAPI(SessionAPI):
+    openapi = {
+        "GET": Operation(
+            "Lê a preferência de um tipo e canal",
+            PREFERENCE,
+            description="ETag só quando a pessoa já gravou uma preferência (revision não nula).",
+        ),
+        "PUT": Operation(
+            "Define a preferência de um tipo e canal",
+            PREFERENCE,
+            etag=True,
+            if_match=True,
+            if_match_optional=True,
+            request=obj({"mode": string(), "digest_hour": nullable(INTEGER)}, required=("mode",)),
+        ),
+        "DELETE": Operation("Volta ao padrão", None, status=204, if_match=True),
+    }
+
     def _respond(self, request, type_code, channel):
         item = _item(_line(request.user, type_code), channel)
         response = Response(item)

@@ -15,7 +15,9 @@ once per organization in a **full context of its own**:
   ``fn`` is denied (``PermissionDenied``, or ``Forbidden``/``Unavailable`` of a service API), is
   skipped silently;
 - ``fn`` must return materialized values (no queryset, iterator or generator), because nothing
-  may be read after its transaction ends.
+  may be read after its transaction ends;
+- ``credential_scopes`` carries the scopes of the API token of the request into every context,
+  so a token stays narrowed in each organization (``None``, the default, is a session).
 
 Writing across organizations is out of scope: a write always happens in one organization.
 """
@@ -96,6 +98,7 @@ def for_each_organization(
     app_label: str | None = None,
     limit: int = DEFAULT_LIMIT,
     using: str = "default",
+    credential_scopes: frozenset[str] | None = None,
 ) -> list[OrganizationResult]:
     """Run ``fn(organization_id)`` in each of the user's organizations; return the materialized results."""
     if in_context():
@@ -107,7 +110,9 @@ def for_each_organization(
     results = []
     for organization_id, name in _organizations(user, request_id=request_id, source=source, limit=limit, using=using):
         try:
-            with request_context(actor=user, request_id=request_id, source=source, using=using):
+            with request_context(
+                actor=user, request_id=request_id, source=source, using=using, credential_scopes=credential_scopes
+            ):
                 with tenant_context(organization_id=organization_id, actor=user, source=source, using=using):
                     if connections[using].vendor == "postgresql":
                         with connections[using].cursor() as cursor:

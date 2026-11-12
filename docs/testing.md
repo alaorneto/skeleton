@@ -16,6 +16,58 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 **Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
 
+## OpenAPI da API (epic #86)
+
+**Contrato da API.** Toda resposta de `/api/v1/` que a suíte recebe pelo cliente de teste do Django (`Client` e o `APIClient` do DRF) é validada contra o schema publicado. A fixture autouse `api_contract` de `tests/conftest.py` usa `skeleton.testing.openapi.checked_client_responses()`, que monta o schema completo uma vez por árvore de URLs e registry (`build_schema(full_audience())`, o mesmo gerador de `GET /api/v1/openapi.json`, sem filtro de ator). Para cada resposta, `assert_matches_schema` exige:
+
+- rota e método documentados;
+- status entre as respostas da operação, ou a `default`, que é `{code, detail, fields}`;
+- corpo JSON válido pelo schema (Draft 2020-12, com `jsonschema`, dependência só de desenvolvimento) e o header `ETag` quando ele é documentado.
+
+Um erro de rota ou método não documentado ainda precisa ter a forma `{code, detail, fields}`; uma página de erro que não é JSON fica fora do contrato. Uma divergência falha o teste com `SchemaMismatch`, que indica operação, status e caminho JSON. Um teste que monta de propósito uma resposta fora do contrato usa `@pytest.mark.no_api_contract`. Projetos derivados podem usar o mesmo helper nas suítes deles.
+
+Rodada de 2026-11-11 na branch `feat/86-openapi`, um commit por issue: [#178](https://github.com/alaorneto/skeleton/issues/178) (gerador e `GET /api/v1/openapi.json`) e [#179](https://github.com/alaorneto/skeleton/issues/179) (helper de contrato na suíte). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, com a validação de contrato em todos os testes | 1273 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `pytest tests/integration/test_openapi.py tests/unit/test_openapi_schema.py tests/unit/test_openapi_contract_helper.py` | 39 passed |
+| mesmo PostgreSQL, `SKELETON_BUNDLED_APPS=calendar` | `pytest tests/contrib/calendar -q`, também com a validação de contrato | 59 passed |
+| Windows, com e sem `SKELETON_BUNDLED_APPS=calendar` | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`; `uv 0.12.7 pip compile` do `requirements-dev.txt` com `jsonschema` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+
+- `tests/unit/test_openapi_schema.py` (#178):
+  - tipos de campo vindos do `_meta` (texto com `maxLength`, inteiros, positivos, decimal, UUID, datas, JSON, `null`, `choices`, tipo desconhecido);
+  - relações como UUID, e anuláveis no gateway;
+  - `sensitive_fields` fora de propriedades, entradas, filtros e pickers de todas as tabelas expostas e dos recursos de administração;
+  - o documento completo validado contra o meta-schema oficial do OpenAPI 3.1 (`tests/fixtures/openapi/oas-3.1-schema-2022-10-07.json`, cópia do arquivo publicado pela OpenAPI Initiative);
+  - nenhuma rota do núcleo sem `openapi`, com `operationId` únicos;
+  - `If-Match` com 412 e 428, `ETag` e paginação como componentes.
+- `tests/integration/test_openapi.py` (#178):
+  - sem sessão nem token, 401 ou 403 sem o documento;
+  - o schema servido é OpenAPI 3.1 válido;
+  - membro sem capacidade vê as operações da própria TablePermission, sem `body` (sensível), sem administração, webhooks nem apps; o administrador vê a administração e a rota da app ativa;
+  - membro só da organização B, cujo papel não tem permissão, não vê a tabela que A concede ao seu papel `member`; sem vínculo, só as rotas globais;
+  - revogar a TablePermission tira a tabela do schema na hora;
+  - token `example_notes.note:read` vê só os GET da tabela, nem `PATCH me`, tokens ou anexos sem `files:read`; token de criação vê só o POST; token de administrador não vê administração.
+- `tests/unit/test_openapi_contract_helper.py` (#179):
+  - resposta conforme passa;
+  - falham tipo errado, propriedade a mais, obrigatória ausente, erro sem `detail`, `ETag` documentado ausente, rota, método e status não documentados e HTML onde a operação promete JSON;
+  - erro de rota desconhecida ainda segue `{code, detail}`;
+  - caminhos fora da API são ignorados;
+  - o template mais literal resolve a tabela.
+
+Divergências achadas pela validação e corrigidas no schema, não na API: `GET` de anexos vale sem `AttachmentPolicy` (só o upload exige a política), e o `ETag` da preferência de notificação só existe depois que a pessoa grava uma preferência.
+
+**Decisão a confirmar:** a app de exemplo marca `body` como sensível e o gateway o devolve. O schema não o nomeia e deixa esse objeto aberto (sem `additionalProperties: false`). As respostas validam, mas o schema não descreve o campo.
+
+**Não verificado:**
+
+- geradores de cliente (openapi-generator e outros) sobre o documento;
+- `format: date-time`, porque o `jsonschema` só confere esse formato com um pacote opcional que não instalamos (`uuid` é conferido);
+- o PostgreSQL 16.15 do CI antes da execução do PR.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

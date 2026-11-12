@@ -13,6 +13,21 @@ from skeleton.access import services as access_services
 from skeleton.access.capabilities import has_any_capability, require_resource_capability, resource_capability
 from skeleton.accounts.mfa import mfa_required
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
+from skeleton.api.openapi import (
+    BOOLEAN,
+    DATETIME,
+    INTEGER,
+    OBJECT,
+    UUID,
+    DedicatedRoutes,
+    Operation,
+    TableRoutes,
+    model_label_fields,
+    nullable,
+    obj,
+    results,
+    string,
+)
 from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model
 from skeleton.integrations.tokens.authentication import ApiTokenAuthentication
 from skeleton.tenancy.context import current_context
@@ -87,6 +102,60 @@ def request_fields(request):
     return dict(request.data.items())
 
 
+ME_SCHEMA = obj(
+    {
+        "sysid": UUID,
+        "email": string(),
+        "first_name": string(),
+        "last_name": string(),
+        "revision": INTEGER,
+        "profile": obj(
+            {
+                "sysid": nullable(UUID),
+                "revision": INTEGER,
+                "display_name": string(),
+                "timezone": string(),
+                "language": string(),
+            }
+        ),
+    }
+)
+ME_INPUT = obj(
+    {name: string() for name in ("first_name", "last_name", "display_name", "timezone", "language")}, required=()
+)
+OWN_MEMBERSHIP = obj({"sysid": UUID, "organization_id": UUID, "is_active": BOOLEAN, "revision": INTEGER})
+ORGANIZATION = obj(
+    {
+        "sysid": UUID,
+        "organization_id": UUID,
+        "is_active": BOOLEAN,
+        "organization_name": string(),
+        "organization_slug": string(),
+    }
+)
+CATALOG_ENTRY = model_label_fields(
+    "sk_system.TableDefinition",
+    {"sysid": "sysid", "table_key": "model_label", "label": "label", "description": "description", "scope": "scope"},
+)
+AUDIT_EVENT = obj(
+    {
+        "sysid": UUID,
+        "created_at": DATETIME,
+        "organization_id": nullable(UUID),
+        "table_name": string(),
+        "model_label": string(),
+        "record_sysid": UUID,
+        "record_revision": INTEGER,
+        "operation": string(),
+        "actor_sysid": nullable(UUID),
+        "request_id": nullable(UUID),
+        "source": string(),
+        "db_principal": string(),
+        "changes": OBJECT,
+    }
+)
+
+
 def me_data(me):
     """REST shape of the actor's identity (unchanged); built from IdentityService's DTO."""
     return {
@@ -107,6 +176,22 @@ def me_data(me):
 
 class MeView(SessionAPI):
     token_methods = ("GET",)
+    openapi = {
+        "GET": Operation(
+            "Identidade e perfil do ator",
+            ME_SCHEMA,
+            etag=True,
+            description='ETag composto: revisão da identidade e do perfil ("3-5").',
+        ),
+        "PATCH": Operation(
+            "Altera nome e perfil do ator",
+            ME_SCHEMA,
+            etag=True,
+            if_match=True,
+            request=ME_INPUT,
+            description='If-Match composto, como o ETag da leitura ("3-5").',
+        ),
+    }
 
     def get(self, request):
         from skeleton.service_api.identity import IdentityService
@@ -132,6 +217,7 @@ class MeView(SessionAPI):
 
 class OrganizationsView(SessionAPI):
     token_methods = ("GET",)
+    openapi = {"GET": Operation("Vínculos ativos do ator", results(ORGANIZATION))}
 
     def get(self, request):
         from skeleton.service_api.organizations import OrganizationService
@@ -166,8 +252,10 @@ def own_membership_data(membership):
 
 
 class OwnMembershipView(TenantAPI):
-    token_methods = ("GET",)
     """The actor's own membership in this organization; its ETag is what leaving requires."""
+
+    token_methods = ("GET",)
+    openapi = {"GET": Operation("Vínculo do ator nesta organização", OWN_MEMBERSHIP, etag=True)}
 
     def get(self, request, organization_id):
         from skeleton.tenancy.models import Membership
@@ -181,6 +269,8 @@ class OwnMembershipView(TenantAPI):
 class LeaveOrganizationView(TenantAPI):
     """``POST`` with ``If-Match`` of the membership revision: the actor leaves the organization."""
 
+    openapi = {"POST": Operation("Sai da organização", None, status=204, if_match=True)}
+
     @transaction.atomic
     def post(self, request, organization_id):
         if request_fields(request):
@@ -191,6 +281,8 @@ class LeaveOrganizationView(TenantAPI):
 
 
 class DedicatedView(TenantAPI):
+    openapi = DedicatedRoutes()
+
     def check_permissions(self, request):
         super().check_permissions(request)
         self.capability = resource_capability(self.kwargs.get("resource", ""), method=request.method)
@@ -268,6 +360,7 @@ class DedicatedView(TenantAPI):
 
 class CatalogView(TenantAPI):
     token_methods = ("GET",)
+    openapi = {"GET": Operation("Tabelas que o ator lê", CATALOG_ENTRY, paginated=True)}
 
     def get(self, request, organization_id):
         tables = apps.get_model("sk_system", "TableDefinition").objects
@@ -287,6 +380,22 @@ class CatalogView(TenantAPI):
 
 
 class AuditView(TenantAPI):
+    openapi = {
+        "GET": (
+            Operation(
+                "Eventos de auditoria que o ator lê",
+                AUDIT_EVENT,
+                paginated=True,
+                detail=False,
+                query=(
+                    ("record_sysid", UUID, "Eventos de um registro."),
+                    ("model_label", string(), "Eventos de uma tabela."),
+                ),
+            ),
+            Operation("Lê um evento de auditoria", AUDIT_EVENT, detail=True),
+        ),
+    }
+
     def get(self, request, organization_id, sysid=None):
         from uuid import UUID
 
@@ -323,6 +432,7 @@ class AuditView(TenantAPI):
 
 class RecordsView(TenantAPI):
     token_methods = ("GET", "POST", "PATCH", "DELETE")
+    openapi = TableRoutes("records")
 
     def get(self, request, organization_id, table_key, sysid=None):
         spec = exposed_spec(table_key)
@@ -379,6 +489,7 @@ class RecordsView(TenantAPI):
 
 class RestoreView(TenantAPI):
     token_methods = ("POST",)
+    openapi = TableRoutes("restore")
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid):
@@ -399,6 +510,8 @@ class RestoreView(TenantAPI):
 
 
 class RecordAccessView(TenantAPI):
+    openapi = TableRoutes("access")
+
     def get_record(self, request, table_key, sysid, *, lock=False):
         spec = exposed_spec(table_key)
         queryset = record_queryset(spec, user=request.user, action="manage_access")
@@ -424,6 +537,7 @@ class RecordAccessView(TenantAPI):
 
 class ReferenceView(TenantAPI):
     token_methods = ("GET",)
+    openapi = TableRoutes("references")
 
     def get(self, request, organization_id, table_key, field_name):
         from skeleton.web.references import reference_request
@@ -431,3 +545,21 @@ class ReferenceView(TenantAPI):
         spec = exposed_spec(table_key)
         result, _, _ = reference_request(spec, field_name, user=request.user, params=request.query_params)
         return Response(result)
+
+
+class OpenAPIView(SessionAPI):
+    """``GET /api/v1/openapi.json``: the OpenAPI 3.1 schema of what the actor reaches (#178).
+
+    An aggregate route (#74): each of the actor's organizations is read in its own read-only
+    context, never selected by the request.
+    """
+
+    token_methods = ("GET",)
+    openapi = {"GET": Operation("Schema OpenAPI 3.1 do que o ator alcança", OBJECT)}
+
+    def get(self, request):
+        from skeleton.api.openapi import audience_for, build_schema
+
+        response = Response(build_schema(audience_for(request)))
+        response["Cache-Control"] = "private, no-store"
+        return response
