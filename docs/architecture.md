@@ -45,6 +45,18 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 
 “Overlay” significa os arquivos de configuração pertencentes ao projeto derivado, sobre os defaults do core. Atualizar o wheel do núcleo não deve substituir esses arquivos.
 
+### Direção das dependências entre pacotes
+
+Os pacotes do núcleo formam camadas: `skeleton/common` é a base, o núcleo de domínio (`accounts`, `tenancy`, `access`, `system`, `audit`) fica acima dela, os subsistemas e a API de serviços acima do domínio, e as superfícies (`skeleton/web` e `skeleton/api`) no topo. `tests/unit/test_core_layering.py` confere, por análise da AST (sem migrations e sem os blocos `if TYPE_CHECKING:`), cinco regras:
+
+- **R1** — `common` não importa nenhum outro pacote `skeleton.*`.
+- **R2** — `accounts`, `tenancy`, `access`, `system` e `audit` não importam `web`, `api`, `service_api` nem `contrib`.
+- **R3** — `web` não importa `api`, e `api` não importa `web`.
+- **R4** — `service_api` não importa `web` nem `api`.
+- **R5** — nos demais pacotes (`jobs`, `events`, `notifications`, `files`, `integrations`, `sequences`, `observability`, `instance`, `flows`, `comments`, `transfer`...), só arquivos cujo nome contém `views` ou `urls` importam `web` ou `api`. `setup`, `conf`, `contrib` e `testing` ficam livres dessa regra.
+
+Os cinco pacotes do domínio ainda dependem uns dos outros, e o teste não tenta separá-los. As exceções ainda existentes estão em `tests/unit/test_core_layering.py` (`KNOWN_EXCEPTIONS`), cada uma com o motivo; a lista só diminui. Um import novo que inverta uma camada reprova o teste, e quem remover uma inversão apaga a linha correspondente no mesmo PR (uma exceção que não existe mais também reprova).
+
 ## Modelos e identidades estáveis
 
 `SystemRecord`, `OrganizationRecord` e `SecuredRecord` são bases abstratas. Seus campos existem em cada tabela filha concreta; não há supertabela universal nem join universal. Escolha a base no [modelo de dados](data-model.md), registre a especificação e instale a infraestrutura na migration.
