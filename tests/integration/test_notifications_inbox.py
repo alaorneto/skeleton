@@ -83,8 +83,11 @@ def test_global_inbox_counter_and_actions_without_javascript(scenario):
     assert client.get(reverse("notifications:api-inbox")).json()["count"] == 1
     assert post(client, reverse("notifications:read-all", args=[scenario.b.pk])).status_code == 302
     assert client.get(reverse("notifications:api-inbox")).json()["unread"] == 0
-    # A POST without the CSRF token is refused.
-    assert Client(enforce_csrf_checks=True).post(url).status_code in (302, 403)
+    # A POST without the CSRF token is refused, authenticated or not: CSRF runs before the login redirect.
+    unread = client.get(reverse("notifications:api-inbox")).json()["unread"]
+    assert client.post(reverse("notifications:change", args=[scenario.a.pk, row.pk, "unread"])).status_code == 403
+    assert client.get(reverse("notifications:api-inbox")).json()["unread"] == unread
+    assert Client(enforce_csrf_checks=True).post(url).status_code == 403
 
 
 def test_marking_someone_elses_row_is_404(scenario):

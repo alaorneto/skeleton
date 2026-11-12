@@ -109,7 +109,7 @@ def test_a_refused_creation_consumes_no_number(numbered):
     assert post(client, records(fixture.a), {"title": "x" * 1000, "body": ""}).status_code == 400  # Too long.
     assert counter(fixture, fixture.a) == 0
     outsider = login(fixture.outsider)  # No membership in A.
-    assert post(outsider, records(fixture.a), {"title": "Denied", "body": ""}).status_code in (403, 404)
+    assert post(outsider, records(fixture.a), {"title": "Denied", "body": ""}).status_code == 404
     assert counter(fixture, fixture.a) == 0
     assert post(client, records(fixture.a), {"title": "Next", "body": ""}).json()["code"] == f"NT-{year()}-001"
 

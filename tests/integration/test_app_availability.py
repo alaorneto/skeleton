@@ -72,8 +72,8 @@ def test_selected_app_is_closed_for_organizations_without_grant(setup):
     client = login(member_b)
     records = {"organization_id": org_b.pk, "table_key": "example_notes.note"}
     assert client.get(reverse("example_notes:home", kwargs={"organization_id": org_b.pk})).status_code == 404
-    assert client.get(reverse("api:records", kwargs=records)).status_code in (403, 404)
-    assert client.get(reverse("web:records", kwargs=records)).status_code in (403, 404)
+    assert client.get(reverse("api:records", kwargs=records)).status_code == 404
+    assert client.get(reverse("web:records", kwargs=records)).status_code == 404
     catalog = client.get(reverse("api:catalog", kwargs={"organization_id": org_b.pk})).json()
     assert all(row["table_key"] != "example_notes.note" for row in catalog["results"])
 

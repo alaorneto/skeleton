@@ -127,10 +127,13 @@ def test_platform_override_wins_over_the_default(scenario):
     page = reverse("platform:organization", kwargs={"sysid": scenario.a.pk})
     storage = reverse("platform:organization-storage", kwargs={"sysid": scenario.a.pk})
     member = login(scenario.member)
-    assert member.get(page).status_code in (403, 404)
-    assert member.post(
-        storage, {"mode": "unlimited", "csrfmiddlewaretoken": member.cookies["csrftoken"].value}
-    ).status_code in (403, 404)
+    assert member.get(page).status_code == 403
+    assert (
+        member.post(
+            storage, {"mode": "unlimited", "csrfmiddlewaretoken": member.cookies["csrftoken"].value}
+        ).status_code
+        == 403
+    )
     admin = login(platform)
     html = admin.get(page).content.decode()
     assert "Armazenamento" in html and "padrão da instância" in html

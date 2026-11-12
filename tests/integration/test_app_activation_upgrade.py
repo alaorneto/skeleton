@@ -76,7 +76,7 @@ def test_without_the_upgrade_no_app_is_reachable(legacy):
     assert client.post(reverse("account_login"), {"login": admin.email, "password": PASSWORD}).status_code == 302
     assert client.get(reverse("example_notes:home", kwargs={"organization_id": org_a.pk})).status_code == 404
     records = {"organization_id": org_a.pk, "table_key": "example_notes.note"}
-    assert client.get(reverse("api:records", kwargs=records)).status_code in (403, 404)
+    assert client.get(reverse("api:records", kwargs=records)).status_code == 404
 
 
 def test_upgrade_keeps_exactly_the_apps_that_were_active(legacy):

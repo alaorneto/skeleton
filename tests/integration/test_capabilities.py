@@ -181,7 +181,7 @@ def test_people_manager_cannot_escalate(org):
     invitations = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
     for code in ("organization_admin", "app_manager", "people_manager"):
         response = send(client, "post", invitations, {"email": f"{code}@example.test", "role": str(roles[code].pk)})
-        assert response.status_code in (400, 403), code
+        assert response.status_code in (400, 403), code  # ver #365
     response = send(client, "post", invitations, {"email": "new-member@example.test", "role": str(roles["member"].pk)})
     assert response.status_code == 201, response.content
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:escalate-check"):

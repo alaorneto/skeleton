@@ -232,3 +232,19 @@ def assert_runtime_security(pair, fixture, emit=lambda message: None):
         finally:
             owner.execute(sql.SQL("GRANT INSERT ON {} TO skeleton_audit_writer").format(audit))
     emit("runtime: revoked trigger INSERT aborts business change and event atomically; fixture grant restored")
+
+
+def wait_for_blocked_backend(dsn, *, timeout=10.0, interval=0.05):
+    """Block until some backend of this database waits on a lock; fail after ``timeout`` seconds."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    with psycopg.connect(dsn, autocommit=True) as probe:
+        while time.monotonic() < deadline:
+            waiting = probe.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'"
+            ).fetchone()[0]
+            if waiting:
+                return
+            time.sleep(interval)  # A polling interval with a deadline, not a timing assumption.
+    raise AssertionError("No backend blocked on a lock: the follower did not wait for the leader.")

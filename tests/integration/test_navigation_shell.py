@@ -33,7 +33,7 @@ def test_switcher_lists_only_own_memberships_and_marks_current_organization():
     assert 'aria-label="Organização"' in dashboard.content.decode()
     assert "current_organization" not in client.get("/").context
     # The switcher never grants access: a foreign organization stays closed.
-    assert client.get(f"/o/{foreign.pk}/").status_code in (403, 404)
+    assert client.get(f"/o/{foreign.pk}/").status_code == 404
 
 
 @pytest.mark.parametrize(

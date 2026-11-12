@@ -46,8 +46,8 @@ def test_sbr07_exact_health_probes_survive_database_unavailability(monkeypatch, 
     assert response.status_code == status
     assert response.json()["status"] == ("ok" if status == 200 else "unavailable")
     assert "secret-sentinel" not in response.content.decode()
-    assert client.get("/api/v1/me/").status_code >= 400
-    assert client.get("/health/live/business/").status_code != 200
+    assert client.get("/api/v1/me/").status_code == 500
+    assert client.get("/health/live/business/").status_code == 500
 
 
 def test_failed_readiness_logs_dependency_and_stack_without_message(monkeypatch, caplog):
