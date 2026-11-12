@@ -31,6 +31,9 @@ class AuditEvent(SystemRecord):
         indexes = [
             models.Index(fields=("organization_id", "created_at"), name="sk_audit_org_created"),
             models.Index(fields=("table_name", "record_sysid", "record_revision"), name="sk_audit_record_revision"),
+            # Investigation filters (#184): who did it and everything one request did.
+            models.Index(fields=("organization_id", "actor_sysid", "created_at"), name="sk_audit_org_actor"),
+            models.Index(fields=("request_id",), name="sk_audit_request"),
         ]
         constraints = SystemRecord.Meta.constraints + [
             models.CheckConstraint(

@@ -102,6 +102,23 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - o relatório e a aplicação só para quem pediu;
   - o arquivo fora de UTF-8 recusado.
 
+## Visualizador de auditoria (epic #94)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`. A branch parte da branch do epic #92.
+
+**#184, filtros de investigação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1480 passed, 111 skipped. Agenda: 59 passed.
+- A primeira rodada teve 1 falha: a view de `/platform/audit/` importava `AuditEvent`, o que viola `test_core_surfaces_on_services`. As opções de operação foram para `skeleton.audit.filters.operation_choices`.
+- `tests/integration/test_audit_filters.py`: 7 passed. Cobrem:
+  - o contrato do `AuditLogService`;
+  - os filtros por ator, operação, `request_id` e período no serviço, com valores inválidos recusados;
+  - nenhum alcance em outra organização (`request_id` e ator de A vistos por B);
+  - o membro sem permissão `audit` sem ganho com os filtros;
+  - os eventos de domínio relacionados só para o administrador, sem `data`;
+  - a página e a REST aceitando os filtros e respondendo 400 a inválidos ou desconhecidos;
+  - a auditoria da plataforma com filtros.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.
