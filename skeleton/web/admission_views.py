@@ -15,9 +15,11 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
-from skeleton.access.capabilities import ADMISSION_CONFIGURE, ADMISSION_DECIDE
+from skeleton.access.capabilities import ADMISSION_CONFIGURE, ADMISSION_DECIDE, INVITATIONS_MANAGE
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy import admission
 from skeleton.tenancy.context import current_context
@@ -173,6 +175,17 @@ class AdmissionPolicyForm(forms.Form):
         help_text="Lista a organização em /join/ para quem tem email verificado. Sem isso, o pedido só chega "
         "por quem tiver o endereço da organização.",
     )
+    join_links_enabled = forms.BooleanField(
+        label="Permitir links de ingresso",
+        required=False,
+        help_text="Quem gerencia convites cria links multiuso, com validade, limite de usos e entrada direta "
+        "ou com aprovação.",
+    )
+    signup_via_link_enabled = forms.BooleanField(
+        label="Permitir criar conta pelo link",
+        required=False,
+        help_text="Quem ainda não tem conta pode se cadastrar pelo link; a entrada só vale depois de confirmar o email.",
+    )
     request_default_role = forms.ModelChoiceField(
         label="Papel de quem for aprovado",
         queryset=None,
@@ -198,6 +211,8 @@ def admission_policy(request, organization_id):
     initial = {
         "join_requests_enabled": bool(record and record.join_requests_enabled),
         "discoverable": bool(record and record.discoverable),
+        "join_links_enabled": bool(record and record.join_links_enabled),
+        "signup_via_link_enabled": bool(record and record.signup_via_link_enabled),
         "request_default_role": record.request_default_role_id if record else None,
         "revision": admission.revision_of(record),
     }
@@ -299,3 +314,147 @@ def join_request_decide(request, organization_id, sysid):
     else:
         messages.success(request, f"Pedido de {record.user.email} recusado.")
     return redirect("web:join-requests", organization_id=organization_id)
+
+
+# --------------------------------------------------------------------------- join links (#27)
+
+
+def _invalid_link(request):
+    return render(request, "skeleton/web/join/link_invalid.html", status=404)
+
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def join_link(request, organization_id, token):
+    """GET validates and remembers a reference (never the token); POST with CSRF uses the link."""
+    from skeleton.tenancy import links
+
+    if current_context().organization_id is not None:
+        raise Http404
+    try:
+        proof = links.validate_join_link(organization_id, token)
+    except links.InvalidJoinLink:
+        links.forget(request)
+        return _invalid_link(request)
+    links.remember(request, proof)
+    if request.method == "POST":
+        if not request.user.is_authenticated:
+            return redirect(reverse("account_login") + "?next=" + request.path)
+        try:
+            with transaction.atomic():
+                result = links.redeem_join_link(user=request.user, proof=proof)
+        except links.InvalidJoinLink:
+            links.forget(request)
+            return _invalid_link(request)
+        except PermissionDenied:
+            return render(request, "skeleton/web/join/unverified.html", status=403)
+        links.forget(request)
+        if result.outcome in ("member", "admitted"):
+            if result.outcome == "admitted":
+                messages.success(request, f"Você agora é membro de {proof.organization_name}.")
+            return redirect("web:dashboard", organization_id=proof.organization_id)
+        messages.success(request, "Pedido enviado. Você recebe um email quando ele for decidido.")
+        return redirect("web:join")
+    return render(request, "skeleton/web/join/link.html", {"proof": proof})
+
+
+class JoinLinkForm(forms.Form):
+    label = forms.CharField(label="Nome do link", max_length=100, help_text="Só para você reconhecer o link na lista.")
+    role = forms.ModelChoiceField(label="Papel de quem entrar", queryset=None)
+    mode = forms.ChoiceField(
+        label="Entrada",
+        choices=(("approval", "Com aprovação: cria um pedido"), ("direct", "Direta: entra na hora")),
+        help_text="Quem já foi membro sempre passa por aprovação, mesmo num link de entrada direta.",
+    )
+    days = forms.IntegerField(label="Validade (dias)", min_value=1, max_value=90, initial=7)
+    max_uses = forms.IntegerField(label="Limite de usos", min_value=1, max_value=10000, initial=10)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.access.models import Role
+
+        super().__init__(*args, **kwargs)
+        field = self.fields["role"]
+        field.queryset = Role.objects.exclude(code="organization_admin", is_builtin=True).order_by("name")
+        field.label_from_instance = lambda role: role.name
+        field.initial = Role.objects.filter(code="member", is_builtin=True).values_list("pk", flat=True).first()
+
+
+def _links_page(request, organization_id, form, *, status=200, created=None, error=None):
+    from skeleton.tenancy import links
+    from skeleton.tenancy.admission import current_policy
+
+    policy = current_policy()
+    dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
+    return render(
+        request,
+        "skeleton/web/admission/links.html",
+        {
+            "form": form,
+            "organization_id": organization_id,
+            "enabled": bool(policy and policy.join_links_enabled),
+            "rows": list(links.live_links()[:200]),
+            "now": timezone.now(),
+            "created": created,
+            "error": error,
+            "breadcrumbs": [{"label": "Início", "url": dashboard}, {"label": "Links de ingresso"}],
+        },
+        status=status,
+    )
+
+
+@never_cache
+@tenant_page(capability=INVITATIONS_MANAGE)
+@require_http_methods(["GET", "POST"])
+def join_links(request, organization_id):
+    from skeleton.tenancy import links
+
+    form = JoinLinkForm(request.POST if request.method == "POST" else None)
+    if request.method != "POST":
+        return _links_page(request, organization_id, form)
+    if not form.is_valid():
+        return _links_page(request, organization_id, form, status=400)
+    data = form.cleaned_data
+    try:
+        with transaction.atomic():
+            link, token = links.create_join_link(
+                actor=request.user,
+                label=data["label"],
+                role=data["role"],
+                mode=data["mode"],
+                days=data["days"],
+                max_uses=data["max_uses"],
+            )
+    except PermissionDenied:
+        form.add_error("role", "Só o administrador cria links com papel que tem capacidades administrativas.")
+        return _links_page(request, organization_id, form, status=403)
+    except ValidationError as exc:
+        for field, problems in exc.message_dict.items():
+            form.add_error(field if field in form.fields else None, problems)
+        return _links_page(request, organization_id, form, status=400)
+    url = request.build_absolute_uri(
+        reverse("web:join-link", kwargs={"organization_id": organization_id, "token": token})
+    )
+    # The token is shown in this response only; the page is never cached.
+    return _links_page(request, organization_id, JoinLinkForm(), status=201, created={"label": link.label, "url": url})
+
+
+@tenant_page(capability=INVITATIONS_MANAGE)
+@require_POST
+def join_link_revoke(request, organization_id, sysid):
+    from skeleton.tenancy import links
+
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = None
+    try:
+        with transaction.atomic():
+            links.revoke_join_link(actor=request.user, link_id=sysid, expected_revision=revision)
+    except links.InvalidJoinLink:
+        raise Http404 from None
+    except ConcurrentUpdate:
+        return _links_page(
+            request, organization_id, JoinLinkForm(), status=409, error="O link mudou. Atualize e tente de novo."
+        )
+    messages.success(request, "Link revogado. Ele deixa de funcionar na hora.")
+    return redirect("web:join-links", organization_id=organization_id)

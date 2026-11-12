@@ -30,6 +30,14 @@ def _accept_pending(request, user):
     return True
 
 
+def _link_signup(request):
+    """The join link this session opened, when its organization lets people sign up through it (#27)."""
+    from skeleton.tenancy.links import pending_join_link
+
+    proof = pending_join_link(request)
+    return proof if proof is not None and proof.signup_allowed else None
+
+
 class AccountAdapter(DefaultAccountAdapter):
     def pre_login(self, request, user, **kwargs):
         # Defense in depth after the backend: no interactive login path admits a service account (#44).
@@ -38,7 +46,11 @@ class AccountAdapter(DefaultAccountAdapter):
         return super().pre_login(request, user, **kwargs)
 
     def is_open_for_signup(self, request):
-        return pending_invitation(request) is not None or getattr(settings, "SKELETON_PUBLIC_SIGNUP", False)
+        return (
+            pending_invitation(request) is not None
+            or getattr(settings, "SKELETON_PUBLIC_SIGNUP", False)
+            or _link_signup(request) is not None
+        )
 
     def clean_email(self, email):
         return normalized_email(super().clean_email(email))
@@ -59,12 +71,23 @@ class AccountAdapter(DefaultAccountAdapter):
             if commit:
                 user.save()
                 ensure_profile(user)
-                _accept_pending(request, user)
+                if not _accept_pending(request, user):
+                    link = _link_signup(request)
+                    if link is not None:
+                        from skeleton.tenancy.links import forget, start_link_signup
+
+                        # Holds one use until the email is confirmed (possibly on another device).
+                        start_link_signup(user=user, proof=link)
+                        forget(request)
             return user
 
     def confirm_email(self, request, email_address):
         with transaction.atomic():
             confirmed = super().confirm_email(request, email_address)
+            if confirmed and email_address.user.is_active and not email_address.user.deleted_at:
+                from skeleton.tenancy.links import finish_link_signup
+
+                finish_link_signup(email_address.user)
             if confirmed:
                 from allauth.socialaccount.models import SocialAccount
 

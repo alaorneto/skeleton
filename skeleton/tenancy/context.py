@@ -52,9 +52,11 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "platform:organization-inspect",
     }
 )
-# Admission by the person (#26): opened by the admission services for one organization, after
-# their own checks, on behalf of the authenticated requester.
-JOIN_REASONS = frozenset({"join:request"})
+# Admission by the person (#26, #27): opened by the admission services for one organization,
+# after their own checks. ``join:request`` acts for the authenticated requester; ``join:link``
+# also validates a link before login, the token digest being the proof (like an invitation).
+JOIN_REASONS = frozenset({"join:request", "join:link"})
+_ANONYMOUS_JOIN_REASONS = frozenset({"join:link"})
 HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
 
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
@@ -220,7 +222,7 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
     admitted = (
         reason in VALIDATED_IDENTITY_REASONS
         or bool(prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS)
-        or bool(prior and prior.actor is not None and reason in JOIN_REASONS)
+        or bool(prior and reason in JOIN_REASONS and (prior.actor is not None or reason in _ANONYMOUS_JOIN_REASONS))
     )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")
@@ -251,6 +253,30 @@ def refresh_authenticated_actor(user: Any) -> None:
     )
     _context.set(context)
     _apply(context)
+
+
+@contextmanager
+def verified_owner(user: Any) -> Iterator[Context]:
+    """Act as ``user`` for self-discovery right after their email confirmation proved ownership.
+
+    For the confirmation of a signup made through a join link (#27), which may happen on another
+    device without a session. Only outside any tenant and only when the request has no other
+    actor; the previous context comes back at the end.
+    """
+    prior = _context.get()
+    if prior is None or prior.system or prior.organization_id is not None:
+        raise InvalidContext("Owner verification runs in a request without a tenant.")
+    if prior.actor not in (None, _uuid(user)):
+        raise InvalidContext("Another identity is already acting in this request.")
+    context = replace(prior, actor=_uuid(user), platform_admin=False)
+    token = _context.set(context)
+    try:
+        _apply(context)
+        yield context
+    finally:
+        _context.reset(token)
+        if not connections[prior.using].needs_rollback:
+            _apply(prior)
 
 
 def own_rows(model: Any, user: Any, *, using: str = "default") -> Any:

@@ -179,6 +179,50 @@ class OrganizationDirectoryEntry(SystemRecord):
         ]
 
 
+class JoinLink(OrganizationRecord):
+    """A shareable, revocable multi-use join link (#27).
+
+    Only the SHA-256 of the 32-byte token is stored; the token is shown once on creation.
+    Digest, role, mode, validity and limit are immutable; revoking is a soft delete.
+    ``direct`` admits a person without a previous membership; ``approval`` (and anyone who was
+    a member before) creates a join request instead.
+    """
+
+    class Mode(models.TextChoices):
+        DIRECT = "direct", "Entrada direta"
+        APPROVAL = "approval", "Com aprovação"
+
+    MAX_DAYS = 90
+    MAX_USES = 10000
+
+    label = models.CharField(max_length=100)
+    token_digest = models.CharField(max_length=64, unique=True, editable=False)
+    role = models.ForeignKey("sk_access.Role", on_delete=models.PROTECT, related_name="+")
+    mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.APPROVAL)
+    expires_at = models.DateTimeField()
+    max_uses = models.PositiveIntegerField()
+    use_count = models.PositiveIntegerField(default=0)
+    immutable_fields = ("token_digest", "role_id", "mode", "expires_at", "max_uses")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=Q(use_count__gte=0, use_count__lte=models.F("max_uses"), max_uses__gte=1)
+                & Q(max_uses__lte=10000),
+                name="sk_tenancy_joinlink_uses",
+            ),
+            models.CheckConstraint(condition=Q(mode__in=("direct", "approval")), name="sk_tenancy_joinlink_mode"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if len(self.token_digest) != 64 or any(char not in "0123456789abcdef" for char in self.token_digest):
+            raise ValidationError({"token_digest": "A SHA256 hexadecimal digest is required."})
+
+    def __str__(self):
+        return self.label
+
+
 class JoinRequest(OrganizationRecord):
     """A person asks to join (#26); deciding creates or reactivates the membership.
 
@@ -207,12 +251,15 @@ class JoinRequest(OrganizationRecord):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="join_requests")
     channel = models.CharField(max_length=16, choices=Channel.choices)
     role = models.ForeignKey("sk_access.Role", on_delete=models.PROTECT, related_name="+")
+    join_link = models.ForeignKey(
+        "sk_tenancy.JoinLink", on_delete=models.PROTECT, null=True, blank=True, related_name="requests"
+    )
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
     message = models.CharField(max_length=500, blank=True, default="")
     expires_at = models.DateTimeField()
     decided_at = models.DateTimeField(null=True, blank=True)
     decided_by = models.UUIDField(null=True, blank=True)
-    immutable_fields = ("user_id", "channel")
+    immutable_fields = ("user_id", "channel", "join_link_id")
     # Frozen as self_discovery_column in sk_tenancy.0005; read across tenants only via own_rows().
     self_discovery_field = "user"
 
@@ -224,9 +271,12 @@ class JoinRequest(OrganizationRecord):
                 name="sk_tenancy_joinrequest_one_open",
                 violation_error_code="unique",
             ),
+            # Decisions carry a time; only decisions carry a decider; a rejection is always human.
+            # An approval without decider is automatic (a direct link after email confirmation, #27).
             models.CheckConstraint(
-                condition=Q(status__in=("approved", "rejected"), decided_at__isnull=False, decided_by__isnull=False)
-                | (~Q(status__in=("approved", "rejected")) & Q(decided_by__isnull=True)),
+                condition=(~Q(status__in=("approved", "rejected")) | Q(decided_at__isnull=False))
+                & (Q(decided_by__isnull=True) | Q(status__in=("approved", "rejected")))
+                & (~Q(status="rejected") | Q(decided_by__isnull=False)),
                 name="sk_tenancy_joinrequest_decision",
             ),
             models.CheckConstraint(
