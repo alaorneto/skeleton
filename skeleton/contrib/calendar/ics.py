@@ -26,7 +26,7 @@ def vevent(reader: Any, event: Any, *, busy_only: bool = False) -> IEvent:
     item.add("uid", event.uid)
     item.add("dtstamp", event.updated_at)
     item.add("sequence", event.sequence)
-    item.add("summary", event.title if details else BUSY_TITLE)
+    item.add("summary", event.title if details else str(BUSY_TITLE))
     if details and event.description:
         item.add("description", event.description)
     if details and event.location:

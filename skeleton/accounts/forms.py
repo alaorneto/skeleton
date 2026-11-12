@@ -8,6 +8,7 @@ from allauth.account.forms import (
 from allauth.core import context
 from allauth.socialaccount.forms import SignupForm as SocialSignupForm
 from django import forms
+from django.utils.translation import gettext
 
 from skeleton.accounts.services import password_allowed
 from skeleton.tenancy.invitations import pending_invitation
@@ -27,7 +28,7 @@ class InvitationSignupForm(SignupForm):
         request = context.request
         proof = pending_invitation(request) if request is not None else None
         if proof is not None and email.strip().lower() != proof.email:
-            raise forms.ValidationError("Invitation email cannot be changed.")
+            raise forms.ValidationError(gettext("O email do convite não pode ser alterado."))
         return email
 
 
@@ -47,7 +48,7 @@ class InvitationSocialSignupForm(SocialSignupForm):
         request = context.request
         proof = pending_invitation(request) if request is not None else None
         if proof is not None and email.strip().lower() != proof.email:
-            raise forms.ValidationError("Invitation email cannot be changed.")
+            raise forms.ValidationError(gettext("O email do convite não pode ser alterado."))
         return email
 
 
@@ -55,13 +56,13 @@ class PasswordPolicyMixin:
     def clean(self):
         data = super().clean()
         if self.user is None or not password_allowed(self.user):
-            raise forms.ValidationError("Local password authentication is unavailable.")
+            raise forms.ValidationError(gettext("O login com senha local não está disponível."))
         return data
 
     def save(self, *args, **kwargs):
         # Recheck at use, not only when a reset token was issued or form was first displayed.
         if self.user is None or not password_allowed(self.user):
-            raise forms.ValidationError("Local password authentication is unavailable.")
+            raise forms.ValidationError(gettext("O login com senha local não está disponível."))
         return super().save(*args, **kwargs)
 
 

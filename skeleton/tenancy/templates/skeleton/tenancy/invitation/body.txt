@@ -1,0 +1,6 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate trimmed with name=organization_name %}Você recebeu um convite para {{ name }}.{% endblocktranslate %}
+
+{{ url }}
+
+{% translate "O convite expira em sete dias." %}
+{% endautoescape %}

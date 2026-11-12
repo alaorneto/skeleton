@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load crud_forms %}
+{% load crud_forms i18n %}
 {% block title %}{{ title }} · Skeleton{% endblock %}
 {% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
 {% block content %}
@@ -19,7 +19,7 @@
 {% if confirmation %}<p class="confirmation">{{ confirmation }}</p>{% endif %}
 {% include 'skeleton/web/components/tabs.html' %}
 {% crud_form_fields form %}
-<div class="form-actions"><button type="submit" class="btn {% if operation == 'delete' %}btn-danger{% else %}btn-primary{% endif %}">{{ submit_label|default:'Salvar' }}</button>{% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">Cancelar</a>{% endif %}</div>
+<div class="form-actions"><button type="submit" class="btn {% if operation == 'delete' %}btn-danger{% else %}btn-primary{% endif %}">{{ submit_label|default:_("Salvar") }}</button>{% if cancel_url %}<a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a>{% endif %}</div>
 </form>
 </div>
 {% endblock %}

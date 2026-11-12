@@ -5,6 +5,7 @@ from functools import wraps
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.views.decorators.cache import never_cache
 
 from skeleton.access.services import LastAdministrator
@@ -37,11 +38,11 @@ def platform_page(view):
         try:
             return view(request, *args, **kwargs)
         except LastPlatformAdministrator:
-            detail = "A operação deixaria a plataforma sem administrador ativo."
+            detail = gettext("A operação deixaria a plataforma sem administrador ativo.")
         except LastAdministrator:
-            detail = "A operação deixaria uma organização sem administrador ativo."
+            detail = gettext("A operação deixaria uma organização sem administrador ativo.")
         except ConcurrentUpdate:
-            detail = "O registro mudou. Atualize a página antes de tentar novamente."
+            detail = gettext("O registro mudou. Atualize a página antes de tentar novamente.")
         return render(request, "skeleton/web/error.html", {"detail": detail}, status=409)
 
     return guarded

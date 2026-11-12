@@ -1,4 +1,5 @@
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy
 
 
 class ObservabilityConfig(AppConfig):
@@ -6,7 +7,7 @@ class ObservabilityConfig(AppConfig):
 
     name = "skeleton.observability"
     label = "sk_observability"
-    verbose_name = "Observabilidade"
+    verbose_name = gettext_lazy("Observabilidade")
 
     def ready(self) -> None:
         from . import checks  # noqa: F401 - registers the checks

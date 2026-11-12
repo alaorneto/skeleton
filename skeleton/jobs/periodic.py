@@ -13,6 +13,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 from django.utils import timezone
+from django.utils.translation import gettext
 
 _EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 
@@ -77,7 +78,7 @@ def periodic_problems() -> list[str]:
         if periodic.per_organization != (job_type.scope == "organization"):
             problems.append(f"{periodic.code}: per_organization must match the job type scope")
         if job_type.run_as != "system":
-            problems.append(f"{periodic.code}: periodic jobs run as system")
+            problems.append(gettext("%(code)s: periodic jobs run as system") % {"code": periodic.code})
     return problems
 
 

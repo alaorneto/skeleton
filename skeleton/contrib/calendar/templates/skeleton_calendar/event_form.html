@@ -1,12 +1,12 @@
-{% extends "skeleton/web/base.html" %}{% block title %}Novo evento · Agenda · Skeleton{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Novo evento · Agenda · Skeleton" %}{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
-<div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">Agenda</a></li><li><span aria-current="page">Novo evento</span></li></ol></nav><h1>Novo evento</h1></div></div>
+<div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><span aria-current="page">{% translate "Novo evento" %}</span></li></ol></nav><h1>{% translate "Novo evento" %}</h1></div></div>
 <form method="post" class="card">
   {% csrf_token %}
   {% include "skeleton/web/components/form-errors.html" %}
   {% include "skeleton/web/components/form-fields.html" %}
-  <div class="form-actions"><button type="submit" class="btn btn-primary">Criar evento</button><a class="btn btn-secondary" href="{% url 'skeleton_calendar:home' organization_id %}">Cancelar</a></div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar evento" %}</button><a class="btn btn-secondary" href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Cancelar" %}</a></div>
 </form>
 </div>
 {% endblock %}

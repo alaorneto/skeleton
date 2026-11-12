@@ -15,6 +15,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 
 from skeleton.instance import crypto
@@ -24,12 +25,12 @@ from . import database, forms, restart, tokens
 from .mode import COMPLETED
 
 STEPS = (
-    ("instance", "Instância"),
-    ("database", "Banco de dados (role runtime)"),
-    ("schema", "Schema e catálogo"),
-    ("email", "Email"),
-    ("storage", "Cache e arquivos"),
-    ("admin", "Administrador e organização"),
+    ("instance", gettext_lazy("Instância")),
+    ("database", gettext_lazy("Banco de dados (role runtime)")),
+    ("schema", gettext_lazy("Schema e catálogo")),
+    ("email", gettext_lazy("Email")),
+    ("storage", gettext_lazy("Cache e arquivos")),
+    ("admin", gettext_lazy("Administrador e organização")),
 )
 SESSION_KEY = "skeleton_setup"
 MAX_FAILURES = 5
@@ -94,7 +95,7 @@ def start(request):
     """Token form; with a valid setup session, the overview of the steps."""
     _not_completed()
     if request.session.get(SESSION_KEY):
-        return _render(request, "overview.html", {"title": "Configuração da instância"})
+        return _render(request, "overview.html", {"title": gettext("Configuração da instância")})
     form = forms.TokenForm(request.POST or None)
     status = 200
     if request.method == "POST":
@@ -104,7 +105,11 @@ def start(request):
             return _render(
                 request,
                 "token.html",
-                {"form": form, "error": "Muitas tentativas. Aguarde 15 minutos.", "title": "Primeiro acesso"},
+                {
+                    "form": form,
+                    "error": gettext("Muitas tentativas. Aguarde 15 minutos."),
+                    "title": gettext("Primeiro acesso"),
+                },
                 status=429,
             )
         if form.is_valid() and tokens.consume_token(_store()[0], form.cleaned_data["token"]):
@@ -117,10 +122,14 @@ def start(request):
         return _render(
             request,
             "token.html",
-            {"form": form, "error": "Token inválido, já usado ou expirado.", "title": "Primeiro acesso"},
+            {
+                "form": form,
+                "error": gettext("Token inválido, já usado ou expirado."),
+                "title": gettext("Primeiro acesso"),
+            },
             status=status,
         )
-    return _render(request, "token.html", {"form": form, "title": "Primeiro acesso"})
+    return _render(request, "token.html", {"form": form, "title": gettext("Primeiro acesso")})
 
 
 def _step(request, name, form, *, status=200, **context):
@@ -189,7 +198,11 @@ def schema(request):
         except database.DatabaseCheckError as error:
             form.add_error("owner_url", str(error))
         except Exception as error:  # noqa: BLE001 - shown without detail; the DSN never reaches a message
-            form.add_error(None, f"A migração falhou ({type(error).__name__}). Corrija e tente de novo.")
+            form.add_error(
+                None,
+                gettext("A migração falhou (%(__name__)s). Corrija e tente de novo.")
+                % {"__name__": type(error).__name__},
+            )
         finally:
             del owner_dsn  # Kept only in this request's memory; never stored, logged or in the session.
         if not form.errors and not problems:
@@ -230,8 +243,8 @@ def email(request):
 
             spec_for("email_url").clean(data["email_url"])
             message = EmailMessage(
-                subject="Teste do Skeleton",
-                body="O servidor de email da instância está configurado.",
+                subject=gettext("Teste do Skeleton"),
+                body=gettext("O servidor de email da instância está configurado."),
                 from_email=data["default_from_email"],
                 to=[data["test_recipient"]],
                 connection=_email_connection(data["email_url"]),
@@ -241,7 +254,9 @@ def email(request):
         except ValueError as error:
             form.add_error("email_url", str(error))
         except Exception as error:  # noqa: BLE001 - class only: the URL carries a password
-            form.add_error(None, f"O envio de teste falhou ({type(error).__name__}).")
+            form.add_error(
+                None, gettext("O envio de teste falhou (%(__name__)s).") % {"__name__": type(error).__name__}
+            )
         else:
             write_setting(settings.BASE_DIR, "email_url", data["email_url"], source="setup")
             write_setting(settings.BASE_DIR, "default_from_email", data["default_from_email"], source="setup")
@@ -276,7 +291,7 @@ def storage(request):
                 probe.write_bytes(b"ok")
                 probe.unlink()
             except OSError as error:
-                problems.append(f"A pasta não é gravável ({type(error).__name__}).")
+                problems.append(gettext("A pasta não é gravável (%(__name__)s).") % {"__name__": type(error).__name__})
         for problem in problems:
             form.add_error(None, problem)
         if not problems:
@@ -330,7 +345,10 @@ def admin(request):
             for message in error.messages:
                 form.add_error(None, message)
         except Exception as error:  # noqa: BLE001
-            form.add_error(None, f"Não foi possível criar o administrador ({type(error).__name__}).")
+            form.add_error(
+                None,
+                gettext("Não foi possível criar o administrador (%(__name__)s).") % {"__name__": type(error).__name__},
+            )
         else:
             _mark("admin")
             return redirect("setup:finish")
@@ -346,5 +364,5 @@ def finish(request):
         store.put_setup_state("status", COMPLETED)
         request.session.flush()
         how = restart.request_restart()
-        return _render(request, "done.html", {"title": "Configuração concluída", "restart": how, "steps": ()})
-    return _render(request, "finish.html", {"title": "Concluir", "pending": pending})
+        return _render(request, "done.html", {"title": gettext("Configuração concluída"), "restart": how, "steps": ()})
+    return _render(request, "finish.html", {"title": gettext("Concluir"), "pending": pending})

@@ -1,13 +1,13 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}Catálogo de tabelas{% endblock %}
+{% load i18n %}{% block page_title %}{% translate "Catálogo de tabelas" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">Dados</p><h1>Catálogo de tabelas</h1><p class="page-description">Tabelas físicas catalogadas, com origem, escopo e modo de auditoria. Rótulos e descrições são editáveis; a estrutura vem do código.</p></div>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Dados" %}</p><h1>{% translate "Catálogo de tabelas" %}</h1><p class="page-description">{% translate "Tabelas físicas catalogadas, com origem, escopo e modo de auditoria. Rótulos e descrições são editáveis; a estrutura vem do código." %}</p></div>
 </div>
-{% include "skeleton/web/platform/search.html" with placeholder="Buscar por tabela, rótulo ou modelo" %}
-<div class="table-scroll"><table><thead><tr><th scope="col">Tabela</th><th scope="col">Modelo</th><th scope="col">Origem / escopo</th><th scope="col">Auditoria</th><th scope="col">Disponível</th></tr></thead><tbody>
-{% for row in rows %}<tr><td><a href="{% url 'platform:catalog-table' row.pk %}">{{ row.label }}</a><br><span class="uuid">{{ row.database_alias }} / {{ row.schema_name }} / {{ row.db_table }}</span></td><td>{{ row.model_label|default_if_none:'—' }}</td><td>{{ row.origin }} / {{ row.scope }}</td><td>{{ row.audit_mode }}</td><td>{% if row.available %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-warning badge-dot">Não</span>{% endif %}</td></tr>
-{% empty %}<tr><td colspan="5" class="empty-state">Nenhuma tabela catalogada.</td></tr>{% endfor %}
+{% include "skeleton/web/platform/search.html" with placeholder=_("Buscar por tabela, rótulo ou modelo") %}
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tabela" %}</th><th scope="col">{% translate "Modelo" %}</th><th scope="col">{% translate "Origem / escopo" %}</th><th scope="col">{% translate "Auditoria" %}</th><th scope="col">{% translate "Disponível" %}</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><a href="{% url 'platform:catalog-table' row.pk %}">{{ row.label }}</a><br><span class="uuid">{{ row.database_alias }} / {{ row.schema_name }} / {{ row.db_table }}</span></td><td>{{ row.model_label|default_if_none:'—' }}</td><td>{{ row.origin }} / {{ row.scope }}</td><td>{{ row.audit_mode }}</td><td>{% if row.available %}<span class="badge badge-success badge-dot">{% translate "Sim" %}</span>{% else %}<span class="badge badge-warning badge-dot">{% translate "Não" %}</span>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhuma tabela catalogada." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

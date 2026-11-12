@@ -1,26 +1,26 @@
-{% extends "skeleton/web/base.html" %}{% block title %}Agenda · Skeleton{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Agenda · Skeleton" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">Aplicativos</p><h1>Agenda</h1><p class="page-description">Horários no fuso {{ zone }}. Eventos privados de outras pessoas aparecem só como Ocupado.</p></div>
-  <nav class="toolbar" aria-label="Ações da agenda"><a class="button" href="{% url 'skeleton_calendar:event-new' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}Novo evento</a></nav>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Agenda" %}</h1><p class="page-description">{% translate "Horários no fuso" %} {{ zone }}. {% translate "Eventos privados de outras pessoas aparecem só como Ocupado." %}</p></div>
+  <nav class="toolbar" aria-label="{% translate "Ações da agenda" %}"><a class="button" href="{% url 'skeleton_calendar:event-new' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo evento" %}</a></nav>
 </div>
-<nav class="mb-4 flex flex-wrap items-center gap-2" aria-label="Navegação da agenda">
-  <a class="btn btn-secondary" href="{{ previous_url }}" rel="prev">{% include "skeleton/web/components/icon.html" with name="chevron-left" %}<span class="sr-only">Período anterior</span></a>
-  <a class="btn btn-secondary" href="{{ today_url }}">Hoje</a>
-  <a class="btn btn-secondary" href="{{ next_url }}" rel="next">{% include "skeleton/web/components/icon.html" with name="chevron-right" %}<span class="sr-only">Próximo período</span></a>
+<nav class="mb-4 flex flex-wrap items-center gap-2" aria-label="{% translate "Navegação da agenda" %}">
+  <a class="btn btn-secondary" href="{{ previous_url }}" rel="prev">{% include "skeleton/web/components/icon.html" with name="chevron-left" %}<span class="sr-only">{% translate "Período anterior" %}</span></a>
+  <a class="btn btn-secondary" href="{{ today_url }}">{% translate "Hoje" %}</a>
+  <a class="btn btn-secondary" href="{{ next_url }}" rel="next">{% include "skeleton/web/components/icon.html" with name="chevron-right" %}<span class="sr-only">{% translate "Próximo período" %}</span></a>
   <span class="ms-2 font-semibold text-heading">{{ day|date:"F \d\e Y" }}</span>
-  <ul class="ms-auto flex gap-1" aria-label="Visão">{% for name in views %}<li><a class="btn {% if name == view %}btn-primary{% else %}btn-ghost{% endif %}" href="{{ base_url }}?view={{ name }}&amp;date={{ day|date:'Y-m-d' }}"{% if name == view %} aria-current="page"{% endif %}>{% if name == "month" %}Mês{% elif name == "week" %}Semana{% elif name == "day" %}Dia{% else %}Lista{% endif %}</a></li>{% endfor %}</ul>
+  <ul class="ms-auto flex gap-1" aria-label="{% translate "Visão" %}">{% for name in views %}<li><a class="btn {% if name == view %}btn-primary{% else %}btn-ghost{% endif %}" href="{{ base_url }}?view={{ name }}&amp;date={{ day|date:'Y-m-d' }}"{% if name == view %} aria-current="page"{% endif %}>{% if name == "month" %}{% translate "Mês" %}{% elif name == "week" %}{% translate "Semana" %}{% elif name == "day" %}{% translate "Dia" %}{% else %}{% translate "Lista" %}{% endif %}</a></li>{% endfor %}</ul>
 </nav>
 <div class="{% if view == 'month' or view == 'week' %}grid grid-cols-1 gap-2 sm:grid-cols-7{% else %}flex flex-col gap-3{% endif %}">
 {% for date, items in days %}
   <section class="card min-h-24 p-2!" aria-labelledby="day-{{ date|date:'Ymd' }}">
     <h2 id="day-{{ date|date:'Ymd' }}" class="text-sm font-semibold text-heading"><time datetime="{{ date|date:'Y-m-d' }}">{{ date|date:"D d/m" }}</time></h2>
-    {% if items %}<ul class="mt-1 flex flex-col gap-1">{% for item in items %}<li class="text-sm{% if item.occurrence.status == 'cancelled' %} line-through{% endif %}">{% if item.start %}<time datetime="{{ item.start|date:'c' }}">{{ item.start|time:"H:i" }}</time>–{{ item.end|time:"H:i" }} {% else %}<span class="badge">Dia inteiro</span> {% endif %}{% if item.occurrence.busy_only %}<span class="text-body-subtle">Ocupado</span>{% else %}{{ item.occurrence.title }}{% endif %}</li>{% endfor %}</ul>{% elif view != "month" %}<p class="text-sm text-body-subtle">Sem eventos.</p>{% endif %}
+    {% if items %}<ul class="mt-1 flex flex-col gap-1">{% for item in items %}<li class="text-sm{% if item.occurrence.status == 'cancelled' %} line-through{% endif %}">{% if item.start %}<time datetime="{{ item.start|date:'c' }}">{{ item.start|time:"H:i" }}</time>–{{ item.end|time:"H:i" }} {% else %}<span class="badge">{% translate "Dia inteiro" %}</span> {% endif %}{% if item.occurrence.busy_only %}<span class="text-body-subtle">{% translate "Ocupado" %}</span>{% else %}{{ item.occurrence.title }}{% endif %}</li>{% endfor %}</ul>{% elif view != "month" %}<p class="text-sm text-body-subtle">{% translate "Sem eventos." %}</p>{% endif %}
   </section>
 {% endfor %}
 </div>
 <section class="mt-6" aria-labelledby="calendars-heading">
-  <h2 id="calendars-heading">Calendários</h2>
+  <h2 id="calendars-heading">{% translate "Calendários" %}</h2>
   <ul class="mt-2 flex flex-wrap gap-2">{% for calendar in calendars %}<li class="badge"><span class="inline-block size-2 rounded-full" style="background: {{ calendar.color }}" aria-hidden="true"></span>{{ calendar.name }}</li>{% endfor %}</ul>
 </section>
 {% endblock %}

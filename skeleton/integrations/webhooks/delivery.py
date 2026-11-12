@@ -27,6 +27,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.utils import timezone
+from django.utils.translation import gettext
 
 FANOUT_CONSUMER = "webhooks.fanout"
 DELIVER_JOB = "webhooks.deliver"
@@ -272,7 +273,7 @@ def register_webhook_delivery() -> None:
     register_notification_type(
         NotificationType(
             DISABLED_NOTIFICATION,
-            "Webhook desativado",
+            gettext("Webhook desativado"),
             payload_fields=("endpoint", "failures"),
             owner_app="sk_integrations",
         )

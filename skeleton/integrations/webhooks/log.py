@@ -15,6 +15,7 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -33,7 +34,9 @@ def _endpoint_for_action(endpoint: Any, expected_revision: int) -> Any:
     if locked.revision != expected_revision:
         raise ConcurrentUpdate("The webhook endpoint changed.")
     if not locked.is_enabled:
-        raise ValidationError({"endpoint": ValidationError("O webhook está desativado.", code="endpoint_disabled")})
+        raise ValidationError(
+            {"endpoint": ValidationError(gettext("O webhook está desativado."), code="endpoint_disabled")}
+        )
     return locked
 
 

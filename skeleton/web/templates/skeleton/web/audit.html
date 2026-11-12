@@ -1,6 +1,6 @@
-{% extends 'skeleton/web/base.html' %}{% block title %}{{ title }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Histórico</p><h1>{{ title }}</h1><p class="page-description">Eventos gravados na mesma transação da alteração. Somente os eventos autorizados para você aparecem.</p></div></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Histórico" %}</p><h1>{{ title }}</h1><p class="page-description">{% translate "Eventos gravados na mesma transação da alteração. Somente os eventos autorizados para você aparecem." %}</p></div></div>
 {% include "skeleton/web/components/audit-table.html" %}
 {% include 'skeleton/web/pagination.html' %}
 {% endblock %}

@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% block title %}{% block page_title %}Administração da plataforma{% endblock %} · Plataforma · Skeleton{% endblock %}
-{% block shell_class %}with-sidebar{% endblock %}
+{% load i18n %}{% block title %}{% block page_title %}{% translate "Administração da plataforma" %}{% endblock %} · {% translate "Plataforma · Skeleton" %}{% endblock %}
+{% block shell_class %}{% translate "with-sidebar" %}{% endblock %}
 {% block sidebar %}{% include "skeleton/web/components/platform-sidebar.html" %}{% endblock %}
-{% block main_class %}max-lg:pt-0{% endblock %}
+{% block main_class %}{% translate "max-lg:pt-0" %}{% endblock %}

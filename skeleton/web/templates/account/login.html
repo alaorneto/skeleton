@@ -1,26 +1,26 @@
 {% extends "account/base_entrance.html" %}
-{% load socialaccount %}
-{% block head_title %}Entrar{% endblock %}
+{% load socialaccount i18n %}
+{% block head_title %}{% translate "Entrar" %}{% endblock %}
 {% block content %}
 <div class="mb-6">
-  <h1>Entrar</h1>
-  <p class="mt-1.5 text-sm/6 text-body">Use sua conta para acessar as organizações em que você tem vínculo.</p>
+  <h1>{% translate "Entrar" %}</h1>
+  <p class="mt-1.5 text-sm/6 text-body">{% translate "Use sua conta para acessar as organizações em que você tem vínculo." %}</p>
 </div>
 <form method="post" action="{% url 'account_login' %}">
   {% csrf_token %}{% include "skeleton/web/components/form-fields.html" %}{{ redirect_field }}
-  <button type="submit" class="btn btn-primary mt-6 w-full">Entrar</button>
+  <button type="submit" class="btn btn-primary mt-6 w-full">{% translate "Entrar" %}</button>
 </form>
 {% get_providers as socialaccount_providers %}
 {% if socialaccount_providers %}
-<div class="divider">ou</div>
+<div class="divider">{% translate "ou" %}</div>
 <div class="space-y-3">
 {% for provider in socialaccount_providers %}
 <form method="post" action="{% provider_login_url provider process='login' %}">
   {% csrf_token %}
   {% if provider.is_govbr %}
-  <button type="submit" class="br-sign-in govbr-sign-in" aria-label="Entrar com GOV.BR">Entrar com <strong>GOV.BR</strong></button>
+  <button type="submit" class="br-sign-in govbr-sign-in" aria-label="{% translate "Entrar com GOV.BR" %}">{% translate "Entrar com" %} <strong>{% translate "GOV.BR" %}</strong></button>
   {% else %}
-  <button type="submit" class="btn btn-secondary w-full">Entrar com {{ provider.name }}</button>
+  <button type="submit" class="btn btn-secondary w-full">{% translate "Entrar com" %} {{ provider.name }}</button>
   {% endif %}
 </form>
 {% endfor %}

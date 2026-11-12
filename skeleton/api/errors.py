@@ -3,6 +3,7 @@ from contextlib import contextmanager
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
+from django.utils.translation import gettext
 from rest_framework.exceptions import APIException
 from rest_framework.views import exception_handler as drf_exception_handler
 
@@ -17,18 +18,18 @@ class BoundaryError(APIException):
 
 def parse_revision(value, *, composite=False):
     if value is None:
-        raise BoundaryError("revision_required", "Envie If-Match com a revisão atual.", 428)
+        raise BoundaryError("revision_required", gettext("Envie If-Match com a revisão atual."), 428)
     pattern = r'"([1-9][0-9]*)-([1-9][0-9]*)"' if composite else r'"([1-9][0-9]*)"'
     match = re.fullmatch(pattern, value)
     if not match:
-        raise BoundaryError("invalid_revision", "If-Match inválido.")
+        raise BoundaryError("invalid_revision", gettext("If-Match inválido."))
     revisions = tuple(int(item) for item in match.groups())
     return revisions if composite else revisions[0]
 
 
 def require_revision(request, record):
     if parse_revision(request.headers.get("If-Match")) != record.revision:
-        raise BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412)
+        raise BoundaryError("revision_conflict", gettext("O registro foi alterado por outra operação."), 412)
 
 
 def validation_conflict(error):
@@ -71,7 +72,7 @@ def if_match_precondition():
     except errors.Conflict as exc:
         if exc.code != "stale_revision":
             raise
-        raise BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412) from exc
+        raise BoundaryError("revision_conflict", gettext("O registro foi alterado por outra operação."), 412) from exc
 
 
 def exception_handler(exc, context):
@@ -88,26 +89,28 @@ def exception_handler(exc, context):
             return None  # ContextRequired and unknown service errors are programming errors (500).
         exc = mapped
     if isinstance(exc, ConcurrentUpdate):
-        exc = BoundaryError("revision_conflict", "O registro foi alterado por outra operação.", 412)
+        exc = BoundaryError("revision_conflict", gettext("O registro foi alterado por outra operação."), 412)
     elif isinstance(exc, LiveReferencesExist):
-        exc = BoundaryError("live_references", "Existem vínculos ativos com este registro.", 409)
+        exc = BoundaryError("live_references", gettext("Existem vínculos ativos com este registro."), 409)
     elif isinstance(exc, LastAdministrator):
-        exc = BoundaryError("last_administrator", "A organização precisa manter ao menos um administrador ativo.", 409)
+        exc = BoundaryError(
+            "last_administrator", gettext("A organização precisa manter ao menos um administrador ativo."), 409
+        )
     elif isinstance(exc, LastPlatformAdministrator):
         exc = BoundaryError(
-            "last_platform_administrator", "A plataforma precisa manter ao menos um administrador ativo.", 409
+            "last_platform_administrator", gettext("A plataforma precisa manter ao menos um administrador ativo."), 409
         )
     elif isinstance(exc, ValidationError):
         fields = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
         conflict = validation_conflict(exc)
         exc = BoundaryError(
             "integrity_conflict" if conflict else "validation_error",
-            "Verifique os campos informados.",
+            gettext("Verifique os campos informados."),
             409 if conflict else 400,
             fields,
         )
     elif isinstance(exc, IntegrityError):
-        exc = BoundaryError("integrity_conflict", "A operação conflita com os dados existentes.", 409)
+        exc = BoundaryError("integrity_conflict", gettext("A operação conflita com os dados existentes."), 409)
     response = drf_exception_handler(exc, context)
     if response is not None and not isinstance(exc, BoundaryError):
         codes = {
@@ -119,6 +122,6 @@ def exception_handler(exc, context):
         }
         response.data = {
             "code": codes.get(response.status_code, "request_failed"),
-            "detail": response.data.get("detail", "A operação não pôde ser concluída."),
+            "detail": response.data.get("detail", gettext("A operação não pôde ser concluída.")),
         }
     return response

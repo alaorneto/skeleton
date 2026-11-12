@@ -1,11 +1,12 @@
 from django.apps import AppConfig
 from django.db.models.signals import post_migrate
+from django.utils.translation import gettext_lazy
 
 
 class SystemConfig(AppConfig):
     name = "skeleton.system"
     label = "sk_system"
-    verbose_name = "Catálogo de sistema"
+    verbose_name = gettext_lazy("Catálogo de sistema")
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):

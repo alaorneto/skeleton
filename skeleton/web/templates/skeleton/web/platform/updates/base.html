@@ -1,13 +1,13 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}{% block step_title %}Versões e atualizações{% endblock %}{% endblock %}
+{% load i18n %}{% block page_title %}{% block step_title %}{% translate "Versões e atualizações" %}{% endblock %}{% endblock %}
 {% block content %}
 <div class="page-header mb-4! sm:mb-5!">
   <div class="min-w-0">
-    <p class="page-eyebrow">Aplicativos</p>
-    <h1>Versões e atualizações</h1>
-    <p class="page-description">O agente de deployment, separado do site, verifica pacotes, prepara o plano, faz backup, aplica migrations e reinicia. Esta tela só pede prévias e aprovações.</p>
+    <p class="page-eyebrow">{% translate "Aplicativos" %}</p>
+    <h1>{% translate "Versões e atualizações" %}</h1>
+    <p class="page-description">{% translate "O agente de deployment, separado do site, verifica pacotes, prepara o plano, faz backup, aplica migrations e reinicia. Esta tela só pede prévias e aprovações." %}</p>
   </div>
 </div>
-<nav class="link-tabs" aria-label="Etapas de atualização">{% for step_id, label, url_name in steps %}{% url url_name as step_url %}<a href="{{ step_url }}"{% if step_id == updates_step %} aria-current="page"{% endif %}>{{ forloop.counter }}. {{ label }}</a>{% endfor %}</nav>
+<nav class="link-tabs" aria-label="{% translate "Etapas de atualização" %}">{% for step_id, label, url_name in steps %}{% url url_name as step_url %}<a href="{{ step_url }}"{% if step_id == updates_step %} aria-current="page"{% endif %}>{{ forloop.counter }}. {{ label }}</a>{% endfor %}</nav>
 {% block step %}{% endblock %}
 {% endblock %}

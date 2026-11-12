@@ -1,22 +1,22 @@
-{% extends 'skeleton/web/base.html' %}{% block title %}{{ title }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% if scope == "global" %}Todas as organizações{% else %}Organização{% endif %}</p><h1>{{ title }}</h1><p class="page-description">Avisos das organizações em que você tem vínculo ativo. Abrir uma notificação revalida o seu acesso ao conteúdo.</p></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% if scope == "global" %}{% translate "Todas as organizações" %}{% else %}{% translate "Organização" %}{% endif %}</p><h1>{{ title }}</h1><p class="page-description">{% translate "Avisos das organizações em que você tem vínculo ativo. Abrir uma notificação revalida o seu acesso ao conteúdo." %}</p></div>
   <div class="toolbar">
-    {% if include_archived %}<a class="btn btn-secondary btn-sm" href="?">Ocultar arquivadas</a>{% else %}<a class="btn btn-secondary btn-sm" href="?archived=1">{% include "skeleton/web/components/icon.html" with name="archive" %}Mostrar arquivadas</a>{% endif %}
-    {% if organization_id %}<form method="post" action="{% url 'notifications:read-all' organization_id %}">{% csrf_token %}<button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="check" %}Marcar todas como lidas</button></form>{% endif %}
+    {% if include_archived %}<a class="btn btn-secondary btn-sm" href="?">{% translate "Ocultar arquivadas" %}</a>{% else %}<a class="btn btn-secondary btn-sm" href="?archived=1">{% include "skeleton/web/components/icon.html" with name="archive" %}{% translate "Mostrar arquivadas" %}</a>{% endif %}
+    {% if organization_id %}<form method="post" action="{% url 'notifications:read-all' organization_id %}">{% csrf_token %}<button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="check" %}{% translate "Marcar todas como lidas" %}</button></form>{% endif %}
   </div>
 </div>
-<div class="table-scroll"><table><thead><tr><th scope="col">Notificação</th><th scope="col">Quando</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Notificação" %}</th><th scope="col">{% translate "Quando" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for row in rows %}<tr>
   <td><a class="font-medium text-heading" href="{% url 'notifications:open' row.organization_id row.sysid %}">{{ row.label }}</a>{% if row.count > 1 %} <span class="badge badge-brand">{{ row.count }}</span>{% endif %}{% for key, value in row.snapshot.items %}<br><span class="text-body-subtle">{{ value }}</span>{% endfor %}</td>
   <td class="whitespace-nowrap!">{{ row.updated_at }}</td>
-  <td>{% if row.archived %}<span class="badge">Arquivada</span>{% elif row.read %}<span class="badge">Lida</span>{% else %}<span class="badge badge-warning">Não lida</span>{% endif %}</td>
+  <td>{% if row.archived %}<span class="badge">{% translate "Arquivada" %}</span>{% elif row.read %}<span class="badge">{% translate "Lida" %}</span>{% else %}<span class="badge badge-warning">{% translate "Não lida" %}</span>{% endif %}</td>
   <td><div class="toolbar">
-    {% if row.read %}<form method="post" action="{% url 'notifications:change' row.organization_id row.sysid 'unread' %}">{% csrf_token %}<input type="hidden" name="from" value="{{ scope }}"><button class="btn btn-secondary btn-sm" type="submit">Marcar como não lida</button></form>
-    {% else %}<form method="post" action="{% url 'notifications:change' row.organization_id row.sysid 'read' %}">{% csrf_token %}<input type="hidden" name="from" value="{{ scope }}"><button class="btn btn-secondary btn-sm" type="submit">Marcar como lida</button></form>{% endif %}
-    {% if not row.archived %}<form method="post" action="{% url 'notifications:change' row.organization_id row.sysid 'archive' %}">{% csrf_token %}<input type="hidden" name="from" value="{{ scope }}"><button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="archive" %}Arquivar</button></form>{% endif %}
+    {% if row.read %}<form method="post" action="{% url 'notifications:change' row.organization_id row.sysid 'unread' %}">{% csrf_token %}<input type="hidden" name="from" value="{{ scope }}"><button class="btn btn-secondary btn-sm" type="submit">{% translate "Marcar como não lida" %}</button></form>
+    {% else %}<form method="post" action="{% url 'notifications:change' row.organization_id row.sysid 'read' %}">{% csrf_token %}<input type="hidden" name="from" value="{{ scope }}"><button class="btn btn-secondary btn-sm" type="submit">{% translate "Marcar como lida" %}</button></form>{% endif %}
+    {% if not row.archived %}<form method="post" action="{% url 'notifications:change' row.organization_id row.sysid 'archive' %}">{% csrf_token %}<input type="hidden" name="from" value="{{ scope }}"><button class="btn btn-secondary btn-sm" type="submit">{% include "skeleton/web/components/icon.html" with name="archive" %}{% translate "Arquivar" %}</button></form>{% endif %}
   </div></td>
-</tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhuma notificação.</td></tr>{% endfor %}
+</tr>{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhuma notificação." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% include 'skeleton/web/pagination.html' %}
 {% endblock %}
