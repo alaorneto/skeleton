@@ -273,6 +273,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_transfer.transferjob": (
+            "Exportações e importações",
+            "Pedidos de exportação e importação CSV, com o arquivo no storage privado até a retenção.",
+            "organization",
+            ("file_key", "report_key"),
+        ),
         "sk_sequences.sequencecounter": (
             gettext_lazy("Sequências"),
             gettext_lazy("Último número entregue de cada sequência declarada, por organização e período."),

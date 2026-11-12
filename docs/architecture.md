@@ -29,6 +29,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/events` | Eventos de domínio publicados explicitamente pelo serviço | Mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade; [eventos](events.md) |
 | `skeleton/integrations` | Webhooks da organização: endpoints, entrega assinada com retentativas e log | Saídas HTTP só pelo cliente anti-SSRF; entregas agem como a conta de serviço do endpoint; [webhooks](webhooks.md) |
 | `skeleton/sequences` | Sequências sem lacunas por organização e período | Contador bloqueado na transação do chamador; [sequências](sequences.md) |
+| `skeleton/transfer` | Exportação e importação CSV de tabelas expostas, por job | Só pelo caminho autorizado do gateway; arquivo no storage privado só para quem pediu; retenção declarada; [exportação e importação](data-transfer.md) |
 | `skeleton/flows` | Motor de fluxos de processo de negócio: definições versionadas declaradas pelas apps, instâncias, tarefas, formulários e aprovações | Só o motor; a regra de cada fluxo é da app. Condições são dados ou callables registrados, nunca `eval`; [fluxos](flows.md) |
 | `skeleton/instance` | Configuração da instância num SQLite próprio, com segredos cifrados | Lido antes do Django, sem `DATABASES` nem migrations; nunca guarda dados |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |

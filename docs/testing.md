@@ -89,6 +89,39 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 **#181, busca no picker:**
 
 - `tests/integration/test_picker_search.py`: 1 passed e 1 pulado, porque `pg_trgm` não está instalado localmente. O que passou cobre o prefixo com e sem acento, só os registros legíveis da própria organização e o termo curto recusado.
+## Exportação e importação CSV (epic #92)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`.
+
+**#182, exportação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1465 passed, 111 skipped.
+- Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed. A primeira rodada com a agenda teve 23 erros de montagem de banco dos workers, que não se repetiram na rodada seguinte.
+- `tests/integration/test_transfer_export.py`: 9 passed. Cobrem:
+  - o formato (BOM, `;`, ISO 8601, ponto decimal, fórmulas neutralizadas só em texto, leitura com `;` e `,`);
+  - só os registros autorizados, sem o privado de outro dono, sem outra organização e sem o campo sensível;
+  - os filtros da lista aplicados, e recusados quando são inválidos ou sensíveis;
+  - quem não lê a tabela recebe 404 (inclusive o admin de B);
+  - o download só do solicitante (o admin da organização recebe 404), com `attachment`, `nosniff` e `no-store`, e a revogação parando o download;
+  - o limite de linhas, a revogação antes do job (falha fechada) e a retenção apagando a linha e o arquivo;
+  - a notificação ao solicitante e a lista mostrando só os pedidos da própria pessoa.
+- `tests/integration_postgres/test_transfer_schema.py`: 3 passed. RLS forçada, policy de tenant e guard instalados; sem o guard ou sem a policy, `check_deployed_schema` falha.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#183, importação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1473 passed, 111 skipped. Agenda: 59 passed.
+- `tests/integration/test_transfer_import.py`: 8 passed. Cobrem:
+  - a prévia sem gravar registros nem auditoria;
+  - a aplicação criando as linhas, com o dono sendo quem importa e o apóstrofo anti-fórmula removido;
+  - o CAS: uma revisão divergente vira erro da linha 3 no relatório, e a aplicação é recusada com 409;
+  - o tudo ou nada: uma mudança depois da prévia desfaz também a linha nova válida;
+  - a coluna `owner` recusando o arquivo;
+  - a vírgula aceita e o valor inválido reportado;
+  - o limite de linhas;
+  - quem não cria na tabela recebe 404, inclusive o admin de B;
+  - o relatório e a aplicação só para quem pediu;
+  - o arquivo fora de UTF-8 recusado.
 
 ## Integração contínua
 

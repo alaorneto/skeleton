@@ -32,6 +32,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log); saídas HTTP só por `skeleton.common.outbound_http`.
 - `skeleton/sequences`: sequências sem lacunas por organização e período.
+- `skeleton/transfer`: exportação e importação CSV de tabelas expostas por job, com o arquivo no storage privado e a retenção declarada (`TransferJob`, operacional); só pelo caminho autorizado de leitura e escrita do gateway.
 - `skeleton/flows`: motor de fluxos de processo de negócio (definições versionadas, instâncias, tarefas, formulários, aprovações; [docs/flows.md](docs/flows.md)). É só o motor: apps declaram os fluxos em código por `skeleton.flows.registry` e os usam pelo `FlowService`. Condições são árvores de dados ou callables registrados, nunca `eval`; nenhuma regra de negócio de um fluxo entra no núcleo.
 - `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
