@@ -31,7 +31,7 @@ with tenant_context(organization_id=org_uuid, actor=user, source="job:export"):
 As verificações seguem esta ordem; falhar em uma camada não pode ser compensado por outra:
 
 1. Organização ativa, usuário ativo/não excluído e `Membership` ativa/viva nessa organização.
-2. Papéis efetivos: `MemberRole` vivos e `GroupRole` vivos dos grupos com `GroupMember` vivo. Não há cache de autorização entre requisições.
+2. Papéis efetivos: `MemberRole` vivos e `GroupRole` vivos dos grupos com `GroupMember` vivo. Cada decisão resolve o vínculo do ator uma vez e nada é guardado entre decisões: não há cache de autorização, nem entre requisições nem dentro da mesma transação (uma revogação vale na decisão seguinte).
 3. `TablePermission` da ação obrigatória. Uma concessão de registro não a substitui. O padrão é negar (`default deny`); `member` não recebe permissões automaticamente.
 4. Leitura: proprietário é o ator **ou** `visibility=organization` **ou** `visibility=group` e ator pertence ao `owning_group` **ou** existe `RecordGrant read` para seu vínculo/grupo/papel efetivo.
 5. Atualização/exclusão: proprietário é o ator **ou** existe `RecordGrant` específico da ação. Compartilhar leitura com organização/grupo não compartilha escrita.
