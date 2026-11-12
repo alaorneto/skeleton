@@ -159,6 +159,16 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
   - card "Provedores de identidade" na página da organização, sem segredo.
 - Ruff 0.17.4 e `npm run check`: sem problemas. O smoke com um Keycloak de teste não rodou (sem Docker neste ambiente).
 
+**#31, regras de admissão do SSO pela organização:**
+
+- `python -m pytest tests/accounts tests/integration/test_navigation_shell.py tests/integration/test_capabilities.py tests/integration/test_platform_identity_providers.py -q`: 148 passed. Os 5 testes de `tests/accounts/test_identity_admission.py` cobrem:
+  - B não vê os provedores de A na página, na lista REST nem no detalhe, e o PUT de B no provedor de A responde 404; a lista de A não traz segredo;
+  - JIT desligado até a primeira gravação; CAS a partir de `"0"` (stale 412 na API e 409 no HTML), domínios normalizados e sem repetição, campo a mais recusado com 400;
+  - papel de outra organização recusado; o administrador pode escolher papel com capacidade;
+  - JIT com aprovação cria `JoinRequest(channel=sso)` pendente e sem vínculo, idempotente enquanto aberto; sem aprovação, o vínculo é criado;
+  - email fora dos domínios permitidos recebe a recusa neutra (403 "Identity admission denied."); email do domínio passa.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `npm run check`: sem problemas.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

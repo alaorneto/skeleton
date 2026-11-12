@@ -75,6 +75,17 @@ Provedores corporativos OIDC e SAML (LDAP em #32) também podem ficar no banco, 
 
 Em `/platform/identity-providers/`, o administrador da plataforma lista os provedores do banco, cadastra um OIDC (issuer, `client_id`, segredo) ou SAML (entity ID do IdP, `client_id`, entity ID do SP, URLs, certificados e chave privada do SP) e edita só os campos mutáveis. Os campos de identidade aparecem como leitura e um POST que os inclua é recusado. Segredo e chave privada são só de escrita: o campo em branco mantém o valor, e nem a página nem as mensagens de erro os mostram. Toda gravação exige CSRF, CAS (revisão stale responde 409) e autenticação recente. "Testar" busca a descoberta OIDC (`/.well-known/openid-configuration`) ou a metadata SAML pelo cliente HTTP de saída (só HTTPS público, 5 s de conexão e 10 s de leitura, sem redirecionamento) e grava apenas `last_check_at` e `last_check_code`; não faz login. A página de cada organização em `/platform/` tem o card "Provedores de identidade".
 
+### Regras de admissão da organização (#31)
+
+Em `/o/<org>/identity/` (capacidade `identity.configure`, do administrador), a organização vê os provedores que a plataforma ligou a ela, numa projeção sem segredos nem opções de protocolo (nome, protocolo, se está ativo, URL de login e último teste), e ajusta por provedor:
+
+- **JIT** (`jit_provisioning`): criar o acesso no primeiro login; desligado por padrão e sem linha.
+- **Aprovação** (`jit_requires_approval`): o primeiro login cria um `JoinRequest(channel=sso)` pendente, decidido na fila de solicitações, em vez do vínculo.
+- **Papel padrão**: um papel ativo da organização, nunca vindo de claim, query ou corpo. Quem não tem `access.manage` não escolhe papel com capacidade; o administrador pode escolher qualquer um.
+- **Domínios permitidos** (até 50, IDNA): uma identidade nova com email fora da lista recebe a mesma recusa neutra de sempre ("Identity admission denied."), sem revelar a regra.
+
+A gravação usa CAS a partir da revisão virtual 0 e escreve só `IdentityProviderAdmission`. A API equivalente é `GET /api/v1/o/<org>/identity-providers/` e `GET`/`PUT /api/v1/o/<org>/identity-providers/<id>/admission/` com If-Match. Outra organização não vê nem altera esses provedores (404).
+
 ## JSON privado de provedores
 
 `SSO_PROVIDER_CONFIG_PATH` aponta para um arquivo privado fora do Git, cujo objeto raiz contém `providers`. Cada `provider_id` deve ser único e seguro para uso em URL. Os protocolos aceitos são `oidc`, `saml`, `github` e `govbr`. OIDC/SAML corporativos exigem `organization_slug`, pois podem admitir membros em uma organização específica. Gov.br representa identidade global e rejeita configuração de organização, papel ou JIT (criação de vínculo no primeiro login). Ao carregar settings, o parser valida tipos, URLs e referências de segredos sem consultar o banco; após migrations, os serviços e checks verificam organização/papel ativos e a estabilidade do binding.

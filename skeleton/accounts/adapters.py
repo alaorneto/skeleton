@@ -131,7 +131,7 @@ class AccountAdapter(DefaultAccountAdapter):
                         account.extra_data = {"skeleton_binding": binding.fingerprint}
                         account.save(update_fields=["extra_data"])
                         if not existed:
-                            provision_social_membership(user, binding)
+                            admit_or_request_social(user, binding)
             return confirmed
 
     def send_password_reset_mail(self, user, email, context):
@@ -225,6 +225,12 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             proof = pending_invitation(request)
             if proof is not None and email and email != proof.email:
                 _deny()
+            if binding.organization_slug and proof is None:
+                allowed = admission_for(binding).allowed_email_domains
+                from skeleton.tenancy.domains import email_domain
+
+                if allowed and (not email or email_domain(email) not in allowed):
+                    _deny()  # Same neutral answer: the rule itself is never revealed (#31).
         # Trust only assertions already validated by the library and explicitly permitted by config.
         for address in sociallogin.email_addresses:
             address.verified = bool(address.verified and binding.trust_verified_email)
@@ -294,7 +300,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
                 from allauth.account.models import EmailAddress
 
                 if EmailAddress.objects.filter(user=user, email__iexact=user.email, verified=True).exists():
-                    provision_social_membership(user, binding)
+                    admit_or_request_social(user, binding)
                     return user
                 else:
                     sociallogin.account.extra_data = {
@@ -308,6 +314,43 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
                 if EmailAddress.objects.filter(user=user, email__iexact=user.email, verified=True).exists():
                     _domain_admission(user, user.email)
             return user
+
+
+def admit_or_request_social(user, binding):
+    """JIT admission (#29, #31): the membership, or a pending ``sso`` request when approval is on."""
+    if admission_for(binding).jit_requires_approval:
+        return request_social_admission(user, binding)
+    return provision_social_membership(user, binding)
+
+
+def request_social_admission(user, binding):
+    from django.utils import timezone
+
+    from skeleton.tenancy.admission import REQUEST_TTL, effective_status
+    from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.models import JoinRequest, Membership, Organization
+
+    organization, role = SocialAccountAdapter()._resolve_binding(binding)
+    with system_context(reason="sso:validated", organization_id=organization.pk), transaction.atomic():
+        Organization.objects.select_for_update().get(pk=organization.pk)
+        if Membership.objects.filter(user=user, is_active=True).exists():
+            return None
+        existing = JoinRequest.objects.select_for_update().filter(user=user, status__in=JoinRequest.OPEN).first()
+        if existing is not None and effective_status(existing) != JoinRequest.Status.EXPIRED:
+            return existing
+        if existing is not None:
+            existing.status = JoinRequest.Status.EXPIRED
+            existing.save(update_fields={"status"})
+        record = JoinRequest(
+            organization=organization,
+            user=user,
+            channel=JoinRequest.Channel.SSO,
+            role=role,
+            status=JoinRequest.Status.PENDING,
+            expires_at=timezone.now() + REQUEST_TTL,
+        )
+        record.save()
+        return record
 
 
 def provision_social_membership(user, binding):
