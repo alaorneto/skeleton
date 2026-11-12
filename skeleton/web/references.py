@@ -112,12 +112,17 @@ def reference_label(record, *, user):
     return str(value) if value is not None and value != "" else str(record.pk)
 
 
-def reference_options(spec, field_name, *, user, record=None, access=False, page=1, page_size=25):
+def reference_options(spec, field_name, *, user, record=None, access=False, page=1, page_size=25, term=None):
     if type(page) is not int or page < 1 or type(page_size) is not int or not 1 <= page_size <= 100:
         raise ValidationError("Invalid reference pagination.")
     queryset = reference_queryset(spec, field_name, user=user, record=record, access=access)
-    count = queryset.count()
     name = label_field(queryset.model)
+    if term is not None and term != "":
+        # Prefix and, with pg_trgm, similarity on the label (#181); still only readable targets.
+        from skeleton.system.search import apply_label_search
+
+        queryset = apply_label_search(queryset, name, term)
+    count = queryset.count()
     queryset = queryset.only("sysid", *([name] if name else []))
     offset = (page - 1) * page_size
     return {
@@ -133,7 +138,7 @@ def reference_options(spec, field_name, *, user, record=None, access=False, page
 
 def reference_request(spec, field_name, *, user, params):
     """Parse the same constrained picker request for HTML and API."""
-    if set(params) - {"record", "access", "page", "page_size"}:
+    if set(params) - {"record", "access", "page", "page_size", "q"}:
         raise ValidationError("Invalid reference parameters.")
     if hasattr(params, "getlist") and any(len(params.getlist(key)) != 1 for key in params):
         raise ValidationError("Duplicate reference parameters.")
@@ -159,7 +164,9 @@ def reference_request(spec, field_name, *, user, params):
     except (ValueError, TypeError):
         raise ValidationError("Invalid reference pagination.") from None
     return (
-        reference_options(spec, field_name, user=user, record=record, access=access, page=page, page_size=size),
+        reference_options(
+            spec, field_name, user=user, record=record, access=access, page=page, page_size=size, term=params.get("q")
+        ),
         record,
         access,
     )
