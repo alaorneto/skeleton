@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}
 {% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header">
@@ -9,8 +9,8 @@
   </div>
   <nav class="toolbar" aria-label="Ações da tabela">
     {% if can_restore and not deleted %}<a class="btn btn-secondary" href="{% url 'web:deleted-records' organization_id table_key %}">{% include "skeleton/web/components/icon.html" with name="archive" %}Registros removidos</a>{% endif %}
-    {% if can_export %}<form method="post" action="{% url 'transfer:export' organization_id table_key %}">{% csrf_token %}{% for name, value in export_filters.items %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}<button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="archive" %}Exportar CSV</button></form>{% endif %}
-    {% if can_create %}<a class="btn btn-secondary" href="{% url 'transfer:import' organization_id table_key %}">{% include "skeleton/web/components/icon.html" with name="plus" %}Importar CSV</a>{% endif %}
+    {% if can_export %}<form method="post" action="{% url 'transfer:export' organization_id table_key %}">{% csrf_token %}{% for name, value in export_filters.items %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}<button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="archive" %}{% translate "Exportar CSV" %}</button></form>{% endif %}
+    {% if can_create %}<a class="btn btn-secondary" href="{% url 'transfer:import' organization_id table_key %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Importar CSV" %}</a>{% endif %}
     {% if can_create %}<a class="btn btn-primary" href="{% url 'web:record-create' organization_id table_key %}">{% include "skeleton/web/components/icon.html" with name="plus" %}Criar registro</a>{% endif %}
   </nav>
 </div>
