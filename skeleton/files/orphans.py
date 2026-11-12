@@ -2,8 +2,8 @@
 
 An upload writes the bytes before its row commits; a rollback (or a crash between the two)
 leaves an object nobody references. ``files.orphans`` runs per organization and deletes the
-objects under ``org/<organization>/`` that are older than the grace period (1 hour by
-default) and have no ``Attachment`` row at all. Rows that are live **or** soft deleted keep
+objects under ``org/<organization>/`` (and its ``branding/``) that are older than the grace
+period (1 hour by default) and have no ``Attachment`` row at all nor are the current logo. Rows that are live **or** soft deleted keep
 their bytes: restore must keep working, and purging deleted attachments belongs to the LGPD
 retention, not to this job.
 """
@@ -26,17 +26,21 @@ def grace() -> timedelta:
 
 
 def orphan_keys(organization_id: Any, *, now: Any = None) -> list[str]:
+    from skeleton.tenancy.models import OrganizationSettings
+
     from .models import Attachment
     from .storage import list_prefix, private_storage
 
     now = now or timezone.now()
-    keys = list_prefix(f"org/{organization_id}/")
+    keys = list_prefix(f"org/{organization_id}/") + list_prefix(f"org/{organization_id}/branding/")
     if not keys:
         return []
     # Live and soft-deleted rows both keep their bytes (with_deleted keeps the tenant filter).
     referenced = set(
         Attachment.objects.with_deleted().filter(storage_key__in=keys).values_list("storage_key", flat=True)
     )
+    # The current logo of the organization (#168); replaced logos are deleted after commit.
+    referenced |= set(OrganizationSettings.objects.filter(logo_key__in=keys).values_list("logo_key", flat=True))
     storage = private_storage()
     orphans = []
     for key in keys:

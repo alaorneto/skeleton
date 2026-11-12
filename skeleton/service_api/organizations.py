@@ -23,6 +23,33 @@ class OrganizationInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class OrganizationSettingsInfo:
+    """Settings of the organization; blank values mean "use the instance default"."""
+
+    display_name: str
+    default_language: str
+    default_timezone: str
+    brand_color: str
+    has_logo: bool
+    revision: int
+
+
+def _settings_info(record: Any) -> OrganizationSettingsInfo:
+    from skeleton.tenancy.organization_settings import revision_of
+
+    if record is None:
+        return OrganizationSettingsInfo("", "", "", "", False, 0)
+    return OrganizationSettingsInfo(
+        display_name=record.display_name,
+        default_language=record.default_language,
+        default_timezone=record.default_timezone,
+        brand_color=record.brand_color,
+        has_logo=bool(record.logo_key),
+        revision=revision_of(record),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class GroupSummary:
     sysid: UUID
     code: str
@@ -159,3 +186,49 @@ class OrganizationService(ServiceAPI):
 
         active_membership(_user(actor))
         return _active_members().filter(user_id=as_uuid(user_id, field="user_id")).exists()
+
+    @service_method(read_only=True, since="0.5.0")
+    def settings(self, *, actor: AbstractBaseUser) -> OrganizationSettingsInfo:
+        """Return the settings of the current organization (revision 0 while never written).
+
+        Autorização: vínculo ativo do ator.
+        Erros: ContextRequired sem organização no contexto.
+        Efeitos: nenhum.
+        """
+        from skeleton.access.policies import active_membership
+        from skeleton.tenancy.organization_settings import current_settings
+
+        active_membership(_user(actor))
+        return _settings_info(current_settings())
+
+    @service_method(read_only=False, since="0.5.0")
+    def update_settings(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        display_name: str,
+        default_language: str,
+        default_timezone: str,
+        brand_color: str,
+        expected_revision: int,
+    ) -> OrganizationSettingsInfo:
+        """Replace the settings of the current organization with CAS (virtual revision 0).
+
+        Autorização: administrador da organização.
+        Erros: Forbidden para quem não é administrador; InvalidInput para idioma fora de
+        ``LANGUAGES``, fuso inválido ou cor fora de ``#RRGGBB``; Conflict("stale_revision").
+        Efeitos: grava ``OrganizationSettings`` (auditado) na transação do chamador.
+        """
+        from skeleton.tenancy.organization_settings import update_settings
+
+        record = update_settings(
+            actor=_user(actor),
+            data={
+                "display_name": display_name,
+                "default_language": default_language,
+                "default_timezone": default_timezone,
+                "brand_color": brand_color,
+            },
+            expected_revision=expected_revision,
+        )
+        return _settings_info(record)

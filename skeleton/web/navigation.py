@@ -89,4 +89,23 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     from skeleton.access.capabilities import capabilities_for
 
     values.update(_access_navigation(organization_id, resource, capabilities_for(user)))
+    values["organization_brand"] = _brand(organization_id)
     return values
+
+
+def _brand(organization_id: Any) -> dict[str, Any]:
+    """Presentation of the current organization's brand (#168); CSS only from validated hex."""
+    from skeleton.tenancy.branding import palette
+    from skeleton.tenancy.organization_settings import current_settings
+
+    record = current_settings()
+    if record is None:
+        return {}
+    tokens = palette(record.brand_color)
+    return {
+        "display_name": record.display_name,
+        "css": tokens.css() if tokens else "",
+        "logo_url": reverse("web:organization-logo", kwargs={"organization_id": organization_id})
+        if record.logo_key
+        else "",
+    }

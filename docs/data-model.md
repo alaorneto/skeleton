@@ -68,6 +68,7 @@ Um **papel** (`Role`) reúne permissões; um **grupo** (`AccessGroup`) reúne me
 
 | Modelo | Campos próprios | Unicidade/regras |
 |---|---|---|
+| OrganizationSettings / `sk_tenancy.OrganizationSettings` | display_name; default_language; default_timezone; brand_color (`#RRGGBB`); logo_key (sensível) | Uma linha por organização (UNIQUE), criada na primeira gravação; antes dela a revisão virtual é 0. Só o administrador grava, por `OrganizationService.update_settings` ou `/o/<org>/settings/`, com CAS. Valores em branco usam o padrão da instância. `logo_key` muda só pelo upload do logo e é redigido na auditoria. Fora do gateway ([#167](https://github.com/alaorneto/skeleton/issues/167)). |
 | Membership | user; is_active | UNIQUE(org,user) incondicional; user/org imutáveis; novo convite reativa a mesma linha, não cria duplicata |
 | Role | code,name,description,is_builtin | Código único entre vivos por organização; papéis internos (`organization_admin`, `people_manager`, `app_manager`, `member`, declarados em `BUILTIN_ROLES`) não podem ser removidos/renomeados e são os únicos que carregam capacidades |
 | MemberRole | membership,role | Par único entre vivos; mesma organização; revogação lógica |

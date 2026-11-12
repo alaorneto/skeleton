@@ -133,3 +133,52 @@ class Invitation(OrganizationRecord):
 
     def __str__(self):
         return self.email
+
+
+BRAND_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
+
+
+class OrganizationSettings(OrganizationRecord):
+    """Defaults and brand of one organization (#167), edited by its administrator.
+
+    Blank values fall back to the instance: no display name shows ``Organization.name``, no
+    language or time zone uses the instance default and no colour keeps the core theme.
+    ``logo_key`` is the private storage key of the logo (#168), never shown and redacted in audit.
+    """
+
+    display_name = models.CharField(max_length=200, blank=True, default="")
+    default_language = models.CharField(max_length=16, blank=True, default="")
+    default_timezone = models.CharField(max_length=64, blank=True, default="")
+    brand_color = models.CharField(max_length=7, blank=True, default="")
+    logo_key = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization",), name="sk_tenancy_settings_one_per_org", violation_error_code="unique"
+            ),
+            models.CheckConstraint(
+                condition=Q(brand_color="") | Q(brand_color__regex=BRAND_COLOR_PATTERN),
+                name="sk_tenancy_settings_brand_color",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        if self.default_language and self.default_language not in dict(settings.LANGUAGES):
+            raise ValidationError({"default_language": "Idioma não suportado."})
+        if self.default_timezone:
+            try:
+                ZoneInfo(self.default_timezone)
+            except (ZoneInfoNotFoundError, ValueError):
+                raise ValidationError({"default_timezone": "Fuso horário inválido."}) from None
+        if self.brand_color:
+            import re
+
+            if not re.fullmatch(BRAND_COLOR_PATTERN, self.brand_color):
+                raise ValidationError({"brand_color": "Use uma cor no formato #RRGGBB."})
+
+    def __str__(self):
+        return self.display_name or str(self.organization_id)

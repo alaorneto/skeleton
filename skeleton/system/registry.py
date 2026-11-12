@@ -78,6 +78,12 @@ def register_core_specs():
             "organization",
             ("token_digest",),
         ),
+        "sk_tenancy.organizationsettings": (
+            "Configurações da organização",
+            "Nome de exibição, idioma e fuso padrão e marca da organização, editados pelo administrador.",
+            "organization",
+            ("logo_key",),
+        ),
         "sk_access.role": (
             "Papéis",
             "Perfis empresariais que agregam permissões positivas de tabelas.",

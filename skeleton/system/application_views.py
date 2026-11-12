@@ -9,6 +9,18 @@ from rest_framework.response import Response
 
 from skeleton.access.capabilities import require_admin_surface
 from skeleton.api.errors import BoundaryError
+from skeleton.api.openapi import (
+    BOOLEAN,
+    INTEGER,
+    OBJECT,
+    ORGANIZATION_ADMIN,
+    UUID,
+    Operation,
+    nullable,
+    obj,
+    results,
+    string,
+)
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.web.views import tenant_page
@@ -46,7 +58,42 @@ def state_data(state):
     }
 
 
+APPLICATION_STATE = obj(
+    {
+        "app_label": string(),
+        "available": BOOLEAN,
+        "label": string(),
+        "description": string(),
+        "app_id": string(),
+        "version": string(),
+        "enabled": BOOLEAN,
+        "configuration": OBJECT,
+        "revision": INTEGER,
+        "sysid": nullable(UUID),
+    }
+)
+
+
 class ApplicationAPI(TenantAPI):
+    openapi_detail = "app_label"
+    openapi = {
+        "GET": (
+            Operation("Apps da organização", results(APPLICATION_STATE), detail=False, capability=ORGANIZATION_ADMIN),
+            Operation(
+                "Lê o estado de uma app", APPLICATION_STATE, etag=True, detail=True, capability=ORGANIZATION_ADMIN
+            ),
+        ),
+        "PUT": Operation(
+            "Ativa, desativa ou configura uma app",
+            APPLICATION_STATE,
+            etag=True,
+            if_match=True,
+            detail=True,
+            request=obj({"enabled": BOOLEAN, "configuration": OBJECT}),
+            capability=ORGANIZATION_ADMIN,
+        ),
+    }
+
     def check_permissions(self, request):
         super().check_permissions(request)
         require_admin_surface(request.user)

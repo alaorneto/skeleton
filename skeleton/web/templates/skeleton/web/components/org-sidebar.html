@@ -3,7 +3,7 @@ Menu lateral da organização. No desktop fica fixo à esquerda; no celular vira
 painel recolhível (Flowbite collapse) e, sem JavaScript, permanece aberto.
 Links não concedem acesso: cada tela revalida a autorização no servidor.
 {% endcomment %}
-{% url 'web:dashboard' organization_id as dashboard_url %}{% url 'web:catalog' organization_id as catalog_url %}{% url 'web:audit' organization_id as audit_url %}{% url 'application-list' organization_id as applications_url %}
+{% url 'web:dashboard' organization_id as dashboard_url %}{% url 'web:catalog' organization_id as catalog_url %}{% url 'web:audit' organization_id as audit_url %}{% url 'application-list' organization_id as applications_url %}{% url 'web:organization-settings' organization_id as settings_url %}
 <div class="sidebar-wrapper pt-6 sm:pt-8 lg:pb-8">
   <button type="button" class="group btn btn-secondary mb-4 w-full justify-between lg:hidden noscript:hidden" data-collapse-toggle="org-sidebar" aria-controls="org-sidebar" aria-expanded="false">
     <span class="flex min-w-0 items-center gap-2">{% include "skeleton/web/components/icon.html" with name="building" %}<span class="truncate">{{ current_organization.organization_name|default:"Organização" }}</span></span>
@@ -33,6 +33,7 @@ Links não concedem acesso: cada tela revalida a autorização no servidor.
     <p class="sidebar-heading" id="sidebar-admin">Administração</p>
     <ul class="sidebar-list" aria-labelledby="sidebar-admin">
       {% for section in access_sections %}<li><a class="sidebar-link" href="{{ section.url }}"{% if section.current %} aria-current="page"{% endif %}>{% if section.id == "people" %}{% include "skeleton/web/components/icon.html" with name="users" %}{% elif section.id == "groups" %}{% include "skeleton/web/components/icon.html" with name="user-group" %}{% else %}{% include "skeleton/web/components/icon.html" with name="key" %}{% endif %}{{ section.label }}</a></li>{% endfor %}
+      {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ settings_url }}"{% if request.path == settings_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}Configurações</a></li>{% endif %}
       {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ applications_url }}"{% if '/apps/' in request.path and parameter_panel %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Aplicativos</a></li>{% endif %}
     </ul>
     {% endif %}
