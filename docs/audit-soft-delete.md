@@ -52,6 +52,24 @@ Bibliotecas técnicas mantêm seu ciclo de vida: sessões expiram ou são apagad
 
 A auditoria é somente leitura. Administradores organizacionais só veem sua organização; outros usuários precisam de `table.audit` **e** leitura autorizada do registro atual (se excluído, restauração autorizada). Filtre antes de contar/paginar. Eventos globais e inventário técnico são exclusivos da plataforma; registros apagados fisicamente offline só são visíveis a administrador organizacional/plataforma.
 
+### Filtros de investigação
+
+A auditoria da organização (`/o/<org>/audit/`), a da plataforma (`/platform/audit/`), a REST (`/api/v1/o/<org>/audit/`) e o `AuditLogService.events` aceitam os mesmos filtros ([#184](https://github.com/alaorneto/skeleton/issues/184)), validados por allowlist em `skeleton.audit.filters`:
+
+| Parâmetro | Valor | Efeito |
+|---|---|---|
+| `from`, `to` | data `AAAA-MM-DD` ou data e hora ISO 8601 | período inclusivo; uma data cobre o dia inteiro no fuso do perfil (HTML) ou no fuso ativo (REST) |
+| `actor` | UUID | eventos gravados por esse ator |
+| `operation` | `create`, `update`, `soft_delete`, `restore`, `hard_delete` | uma operação |
+| `request_id` | UUID (o `X-Request-ID` da resposta) | eventos de um pedido |
+| `model_label`, `record_sysid` | rótulo e UUID | tabela e registro, como antes |
+
+Parâmetro desconhecido, repetido ou inválido, e período invertido, respondem 400 (`invalid_filter` na REST); valores vazios do formulário são ignorados. Os filtros só restringem o conjunto que `authorized_audit_queryset` e a RLS já autorizaram: um membro não vê, por filtro, evento que não veria sem ele, e um `request_id` de outra organização não devolve nada.
+
+Com `request_id`, a página da organização e a REST (campo `domain_events`) trazem também os eventos de domínio ainda retidos no outbox desse pedido, só dos registros cujos eventos de auditoria do mesmo pedido o ator lê (`AuditLogService.domain_events`). Aparecem só identificadores e tipo, nunca o `data` do evento; um evento já apagado pela retenção do outbox não aparece. Na plataforma não há eventos de domínio, que sempre pertencem a uma organização.
+
+Os índices `sk_audit_org_created` (organização, data), `sk_audit_org_actor` (organização, ator, data) e `sk_audit_org_request` (organização, `request_id`) atendem os filtros. A migration `sk_audit.0003` os cria com `CREATE INDEX CONCURRENTLY`, sem bloquear a escrita da auditoria; por isso ela não é atômica. Se a construção falhar no meio, o PostgreSQL deixa um índice `INVALID`: apague-o (`DROP INDEX CONCURRENTLY skeleton.<nome>`) e rode `migrate` de novo.
+
 Na API, HTML e admin, a apresentação da auditoria de negócio segue `TableSpec.read_fields`, inclusive nomes físicos de FKs. Um campo omitido da leitura comum não reaparece no histórico; a captura persistida continua íntegra e redigida. Eventos administrativos do núcleo são uma superfície privilegiada separada, com segredos ocultados. Uma spec desconhecida não apresenta `changes`. Ter audit-sem-read em uma tabela exclui apenas essa tabela inelegível, sem abortar os eventos permitidos de outras tabelas.
 
 **Append-only** significa que a conexão runtime só acrescenta eventos, não os altera ou exclui. Não significa **WORM** (armazenamento que impede reescrita): DBA/migration owner pode alterar o schema; quem controla o servidor PostgreSQL pode editar ou remover dados. Retenção, backup, criptografia e credenciais privilegiadas exigem proteção operacional. Não prometa imutabilidade contra esses atores.

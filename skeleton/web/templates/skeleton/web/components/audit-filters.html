@@ -1,0 +1,9 @@
+<details class="filter-panel"{% if audit_filtered %} open{% endif %}><summary>{% include "skeleton/web/components/icon.html" with name="filter" %}Filtrar eventos{% include "skeleton/web/components/icon.html" with name="chevron-down" class="chevron ms-auto size-4" %}</summary><form method="get"><div class="section-fields">
+<div class="field field-span-3"><label for="audit-from">De</label><input id="audit-from" name="from" type="date" value="{{ audit_filters.from }}"></div>
+<div class="field field-span-3"><label for="audit-to">Até</label><input id="audit-to" name="to" type="date" value="{{ audit_filters.to }}"></div>
+<div class="field field-span-3"><label for="audit-operation">Operação</label><select id="audit-operation" name="operation"><option value="">Todas</option>{% for code, label in audit_operations %}<option value="{{ code }}"{% if audit_filters.operation == code %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+<div class="field field-span-3"><label for="audit-model">Tabela</label><input id="audit-model" name="model_label" value="{{ audit_filters.model_label }}" placeholder="app.modelo"></div>
+<div class="field field-span-4"><label for="audit-actor">Ator (sysid)</label><input id="audit-actor" name="actor" value="{{ audit_filters.actor }}"></div>
+<div class="field field-span-4"><label for="audit-request">Pedido (request_id)</label><input id="audit-request" name="request_id" value="{{ audit_filters.request_id }}"></div>
+<div class="field field-span-4"><label for="audit-record">Registro (sysid)</label><input id="audit-record" name="record_sysid" value="{{ audit_filters.record_sysid }}"></div>
+</div><div class="toolbar"><button type="submit" class="btn btn-primary">Filtrar</button><a class="btn btn-secondary" href="?">Limpar filtros</a></div></form></details>

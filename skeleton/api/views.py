@@ -22,6 +22,7 @@ from skeleton.api.openapi import (
     DedicatedRoutes,
     Operation,
     TableRoutes,
+    array,
     model_label_fields,
     nullable,
     obj,
@@ -154,6 +155,25 @@ AUDIT_EVENT = obj(
         "changes": OBJECT,
     }
 )
+
+CORRELATED_EVENT = obj(
+    {
+        "sysid": UUID,
+        "occurred_at": DATETIME,
+        "event_type": string(),
+        "version": INTEGER,
+        "table_key": string(),
+        "record_sysid": UUID,
+        "record_revision": nullable(INTEGER),
+        "actor_id": nullable(UUID),
+        "source": string(),
+    }
+)
+
+
+def correlated_data(event):
+    """REST shape of one ``CorrelatedDomainEvent``: identifiers only, never the payload."""
+    return {name: getattr(event, name) for name in CORRELATED_EVENT["properties"]}
 
 
 def me_data(me):
@@ -387,9 +407,20 @@ class AuditView(TenantAPI):
                 AUDIT_EVENT,
                 paginated=True,
                 detail=False,
+                page_extra={"domain_events": array(CORRELATED_EVENT)},
+                description=(
+                    "Filtros exatos e inclusivos, aplicados depois da autorização (#184). Com "
+                    "`request_id`, `domain_events` traz os eventos de domínio ainda retidos dos "
+                    "registros visíveis desse pedido; sem ele, a lista é vazia."
+                ),
                 query=(
                     ("record_sysid", UUID, "Eventos de um registro."),
                     ("model_label", string(), "Eventos de uma tabela."),
+                    ("from", string(), "Início inclusivo: data (AAAA-MM-DD) ou data e hora ISO 8601."),
+                    ("to", string(), "Fim inclusivo: data (o dia inteiro) ou data e hora ISO 8601."),
+                    ("actor", UUID, "Eventos de um ator."),
+                    ("operation", string(), "create, update, soft_delete, restore ou hard_delete."),
+                    ("request_id", UUID, "Eventos de um pedido (X-Request-ID)."),
                 ),
             ),
             Operation("Lê um evento de auditoria", AUDIT_EVENT, detail=True),
@@ -397,28 +428,23 @@ class AuditView(TenantAPI):
     }
 
     def get(self, request, organization_id, sysid=None):
-        from uuid import UUID
-
         from skeleton.service_api.audit import AuditLogService
 
         service = AuditLogService()
         if sysid:
             return Response(audit_data(service.event(actor=request.user, event_id=sysid)))
-        if set(request.query_params) - {"page", "page_size", "record_sysid", "model_label"}:
-            raise BoundaryError("invalid_filter", "Filtro não permitido.")
-        record_id = request.query_params.get("record_sysid")
-        if record_id is not None:
-            try:
-                record_id = UUID(record_id)
-            except ValueError:
-                raise BoundaryError("invalid_filter", "Filtro inválido.") from None
+        from skeleton.audit.filters import parse_audit_filters
+
+        try:
+            filters = parse_audit_filters(request.query_params)
+        except ValidationError:
+            raise BoundaryError("invalid_filter", "Filtro não permitido ou inválido.") from None
         number, size = page_numbers(request)
-        log = service.events(
-            actor=request.user,
-            model_label=request.query_params.get("model_label"),
-            record_id=record_id,
-            page=number,
-            page_size=size,
+        log = service.events(actor=request.user, **filters, page=number, page_size=size)
+        correlated = (
+            service.domain_events(actor=request.user, request_id=filters["request_id"])
+            if "request_id" in filters
+            else ()
         )
         return Response(
             {
@@ -426,6 +452,7 @@ class AuditView(TenantAPI):
                 "page": log.page,
                 "page_size": log.page_size,
                 "results": [audit_data(e) for e in log.items],
+                "domain_events": [correlated_data(e) for e in correlated],
             }
         )
 

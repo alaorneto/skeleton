@@ -2,6 +2,7 @@
 {% block page_title %}Auditoria global{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Dados</p><h1>Auditoria global</h1><p class="page-description">Eventos sem organização (identidades, organizações, catálogo, versões), gravados na mesma transação da alteração. Eventos de organizações ficam na auditoria de cada uma.</p></div></div>
+{% include "skeleton/web/components/audit-filters.html" %}
 {% include "skeleton/web/components/audit-table.html" %}
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

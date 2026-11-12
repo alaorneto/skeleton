@@ -512,22 +512,32 @@ def catalog(request, organization_id):
 @tenant_page()
 def audit(request, organization_id):
     from skeleton.api.serializers import audit_data
+    from skeleton.audit.filters import AUDIT_OPERATION_CHOICES, filter_form_values, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
 
-    if set(request.GET) - {"page", "record_sysid", "model_label"}:
-        raise ValidationError("Filtro não permitido.")
-    filters = {
-        "model_label": request.GET.get("model_label") or None,
-        "record_id": request.GET.get("record_sysid") or None,
-    }
+    filters = parse_audit_filters(request.GET, allowed=("page",))
+    service = AuditLogService()
     rows = service_pagination(
         request,
-        lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
-        validated_filters=request.GET.dict(),
+        lambda **page: service.events(actor=request.user, **filters, **page),
+        validated_filters={name: value for name, value in request.GET.items() if value != ""},
     )
     rows.object_list = [audit_data(event) for event in rows]
+    correlated = (
+        service.domain_events(actor=request.user, request_id=filters["request_id"]) if "request_id" in filters else ()
+    )
     return render(
-        request, "skeleton/web/audit.html", {"title": "Auditoria", "rows": rows, "organization_id": organization_id}
+        request,
+        "skeleton/web/audit.html",
+        {
+            "title": "Auditoria",
+            "rows": rows,
+            "organization_id": organization_id,
+            "audit_filters": filter_form_values(request.GET),
+            "audit_filtered": bool(filters),
+            "audit_operations": AUDIT_OPERATION_CHOICES,
+            "domain_events": correlated,
+        },
     )
 
 

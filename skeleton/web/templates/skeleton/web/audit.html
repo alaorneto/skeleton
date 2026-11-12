@@ -1,6 +1,8 @@
 {% extends 'skeleton/web/base.html' %}{% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Histórico</p><h1>{{ title }}</h1><p class="page-description">Eventos gravados na mesma transação da alteração. Somente os eventos autorizados para você aparecem.</p></div></div>
+{% include "skeleton/web/components/audit-filters.html" %}
 {% include "skeleton/web/components/audit-table.html" %}
 {% include 'skeleton/web/pagination.html' %}
+{% include "skeleton/web/components/correlated-events.html" %}
 {% endblock %}

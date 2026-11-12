@@ -514,12 +514,34 @@ def catalog_field(request, sysid):
 @platform_page
 @require_safe
 def audit(request):
-    from skeleton.api.serializers import audit_data
-    from skeleton.service_api.audit import AuditLogService
+    from django.core.exceptions import ValidationError
 
-    rows = service_pagination(request, lambda **page: AuditLogService().events(actor=request.user, **page))
+    from skeleton.api.serializers import audit_data
+    from skeleton.audit.filters import AUDIT_OPERATION_CHOICES, filter_form_values, parse_audit_filters
+    from skeleton.service_api.audit import AuditLogService
+    from skeleton.service_api.errors import InvalidInput
+
+    try:
+        filters = parse_audit_filters(request.GET, allowed=("page",))
+        rows = service_pagination(
+            request,
+            lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
+            validated_filters={name: value for name, value in request.GET.items() if value != ""},
+        )
+    except (ValidationError, InvalidInput):
+        return render(request, "skeleton/web/error.html", {"detail": "Verifique os filtros informados."}, status=400)
     rows.object_list = [audit_data(event) for event in rows]
-    return render(request, "skeleton/web/platform/audit.html", {"platform_section": "audit", "rows": rows})
+    return render(
+        request,
+        "skeleton/web/platform/audit.html",
+        {
+            "platform_section": "audit",
+            "rows": rows,
+            "audit_filters": filter_form_values(request.GET),
+            "audit_filtered": bool(filters),
+            "audit_operations": AUDIT_OPERATION_CHOICES,
+        },
+    )
 
 
 # --------------------------------------------------------------------------- applications

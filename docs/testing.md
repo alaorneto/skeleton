@@ -168,6 +168,20 @@ No run 43219085131, o container `postgres:16.15` aplicou os ajustes de `POSTGRES
 
 Com a correção, o run 43220490740 passou inteiro em 6 min 17 s, da criação ao agregador `CI`. O maior job de teste levou 5 min 10 s (3.12, núcleo 2/2), e o job `coverage` combinou as duas fatias de cada Python em 30 s. A cobertura combinada da suíte do núcleo ficou em 77% (linhas e ramos), com 17227 de 21714 linhas cobertas (79,34%). O run 43028212566, antes deste epic, tinha 76%, com 16847 de 21324 linhas (79,00%); o total de linhas cresceu com o código que entrou na `main` nesse meio-tempo.
 
+## Auditoria e busca (ciclo 2, epics #91–#94)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#184, filtros da auditoria:**
+
+- `tests/unit/test_audit_filter_parsing.py` e `tests/integration/test_audit_filters.py`: 18 passed, 25 subtests. Cobrem:
+  - allowlist dos filtros, data cobrindo o dia no fuso ativo, data e hora com offset, período invertido, parâmetro repetido ou desconhecido recusados;
+  - cada filtro (`from`/`to`, `actor`, `operation`, `request_id`) no `AuditLogService`, na REST, na página da organização e na da plataforma, com 400 para filtro inválido;
+  - membro sem leitura do registro, membro sem permissão (default deny) e `request_id` de outra organização sem resultado, inclusive em `domain_events`;
+  - eventos de domínio do pedido sem o `data`;
+  - com `enable_seqscan` desligado, o plano usa `sk_audit_org_actor`, `sk_audit_org_request` e `sk_audit_org_created`.
+- `python -m pytest tests -q -n 8 -k "audit or openapi or platform"`: 155 passed, 5 skipped.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

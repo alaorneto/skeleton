@@ -191,6 +191,73 @@ def _authorized_log(actor: AbstractBaseUser) -> Any:
     return authorized_audit_queryset(_user(actor)).order_by("-created_at", "sysid")
 
 
+AUDIT_OPERATIONS = frozenset({"create", "update", "soft_delete", "restore", "hard_delete"})
+
+
+def _moment(value: object, field: str) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise InvalidInput({field: ["Use data e hora com fuso."]})
+    return value
+
+
+def _filtered_log(
+    actor: AbstractBaseUser,
+    *,
+    model_label: object = None,
+    record_id: object = None,
+    occurred_from: object = None,
+    occurred_to: object = None,
+    actor_id: object = None,
+    operation: object = None,
+    request_id: object = None,
+) -> Any:
+    """The authorized log narrowed by the allowlisted filters; validation precedes the query."""
+    if model_label is not None and (not isinstance(model_label, str) or len(model_label) > 255):
+        raise InvalidInput({"model_label": ["Use o rótulo do modelo."]})
+    if operation is not None and operation not in AUDIT_OPERATIONS:
+        raise InvalidInput({"operation": ["Operação desconhecida."]})
+    lookups: dict[str, object] = {}
+    if model_label is not None:
+        lookups["model_label"] = model_label
+    if record_id is not None:
+        lookups["record_sysid"] = as_uuid(record_id, field="record_id")
+    if occurred_from is not None:
+        lookups["created_at__gte"] = _moment(occurred_from, "occurred_from")
+    if occurred_to is not None:
+        lookups["created_at__lte"] = _moment(occurred_to, "occurred_to")
+    if occurred_from is not None and occurred_to is not None and occurred_from > occurred_to:  # type: ignore[operator]
+        raise InvalidInput({"occurred_from": ["O início é posterior ao fim."]})
+    if actor_id is not None:
+        lookups["actor_sysid"] = as_uuid(actor_id, field="actor_id")
+    if operation is not None:
+        lookups["operation"] = operation
+    if request_id is not None:
+        lookups["request_id"] = as_uuid(request_id, field="request_id")
+    return _authorized_log(actor).filter(**lookups)
+
+
+@dataclass(frozen=True, slots=True)
+class CorrelatedDomainEvent:
+    """A retained domain event of the same request as visible audit events (#184).
+
+    Only identifiers and the type: the event payload stays with the event consumers.
+    """
+
+    sysid: UUID
+    occurred_at: datetime
+    event_type: str
+    version: int
+    table_key: str
+    record_sysid: UUID
+    record_revision: int | None
+    actor_id: UUID | None
+    source: str
+
+
+#: Bound of audit events of one request read to correlate domain events.
+CORRELATION_LIMIT = 500
+
+
 class AuditLogService(ServiceAPI):
     """The audit log of the core surfaces, filtered before counting.
 
@@ -205,29 +272,41 @@ class AuditLogService(ServiceAPI):
         actor: AbstractBaseUser,
         model_label: str | None = None,
         record_id: UUID | str | None = None,
+        occurred_from: datetime | None = None,
+        occurred_to: datetime | None = None,
+        actor_id: UUID | str | None = None,
+        operation: str | None = None,
+        request_id: UUID | str | None = None,
         page: int = 1,
         page_size: int = DEFAULT_PAGE_SIZE,
     ) -> AuditLogPage:
         """Return one numbered page of the events the actor may read, most recent first.
 
+        Os filtros (#184) restringem o conjunto já autorizado: período inclusivo
+        (``occurred_from``/``occurred_to``, com fuso), ator, operação, ``request_id``, tabela e
+        registro. Nenhum filtro amplia a visibilidade.
         Autorização: as regras de ``authorized_audit_queryset``: administrador da organização vê
         todos os eventos dela; os demais, os eventos dos registros que leem (ou restauram) nas
         tabelas em que têm TablePermission ``audit``. Só eventos da organização atual; sem
         organização no contexto, os eventos globais, só para o administrador da plataforma.
-        Erros: InvalidInput para filtro, página ou tamanho inválidos; Forbidden sem vínculo ativo
-        ou, sem organização, para quem não administra a plataforma.
+        Erros: InvalidInput para filtro, página ou tamanho inválidos (inclusive período invertido
+        ou data sem fuso); Forbidden sem vínculo ativo ou, sem organização, para quem não
+        administra a plataforma.
         Efeitos: nenhum.
         """
-        if model_label is not None and not isinstance(model_label, str):
-            raise InvalidInput({"model_label": ["Use o rótulo do modelo."]})
+        events = _filtered_log(
+            actor,
+            model_label=model_label,
+            record_id=record_id,
+            occurred_from=occurred_from,
+            occurred_to=occurred_to,
+            actor_id=actor_id,
+            operation=operation,
+            request_id=request_id,
+        )
         size = validate_page_size(page_size)
         if type(page) is not int or page < 1:
             raise InvalidInput({"page": ["Use um inteiro maior que zero."]})
-        events = _authorized_log(actor)
-        if model_label is not None:
-            events = events.filter(model_label=model_label)
-        if record_id is not None:
-            events = events.filter(record_sysid=as_uuid(record_id, field="record_id"))
         offset = (page - 1) * size
         return AuditLogPage(
             items=tuple(_log_event(event) for event in events[offset : offset + size]),
@@ -249,3 +328,46 @@ class AuditLogService(ServiceAPI):
         if event is None:
             raise NotFound()
         return _log_event(event)
+
+    @service_method(read_only=True, since="0.6.0", tenant=False)
+    def domain_events(self, *, actor: AbstractBaseUser, request_id: UUID | str) -> tuple[CorrelatedDomainEvent, ...]:
+        """Return the retained domain events of one request, oldest first (#184).
+
+        Só aparecem eventos de domínio de registros cujos eventos de auditoria, do mesmo
+        ``request_id``, o ator lê: os filtros nunca revelam o que a auditoria esconderia.
+        Eventos já apagados pela retenção do outbox não aparecem.
+        Autorização: as mesmas de ``events``; sem organização no contexto não há eventos de
+        domínio (eles sempre pertencem a uma organização).
+        Erros: InvalidInput para identificador inválido; Forbidden como em ``events``.
+        Efeitos: nenhum.
+        """
+        from skeleton.events.models import DomainEvent
+        from skeleton.tenancy.context import current_context
+
+        identifier = as_uuid(request_id, field="request_id")
+        visible = list(
+            _authorized_log(actor)
+            .filter(request_id=identifier)
+            .values_list("model_label", "record_sysid")[:CORRELATION_LIMIT]
+        )
+        if current_context().organization_id is None or not visible:
+            return ()
+        pairs = {(label, record) for label, record in visible}
+        rows = DomainEvent.objects.filter(
+            request_id=identifier, record_sysid__in={record for _, record in pairs}
+        ).order_by("occurred_at", "sysid")[:CORRELATION_LIMIT]
+        return tuple(
+            CorrelatedDomainEvent(
+                sysid=row.pk,
+                occurred_at=as_utc(row.occurred_at),
+                event_type=row.event_type,
+                version=row.version,
+                table_key=row.table_key,
+                record_sysid=row.record_sysid,
+                record_revision=row.record_revision,
+                actor_id=row.actor_id,
+                source=row.source,
+            )
+            for row in rows
+            if (row.table_key, row.record_sysid) in pairs
+        )
