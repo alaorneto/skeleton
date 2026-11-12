@@ -28,6 +28,10 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - CAS: `If-Match` antigo recusado, ausente responde 428, `assert_cas_conflict` com um vencedor;
   - auditoria de create e update, e rollback sem evento nem linha residual;
   - a página escapa o corpo, mostra o link e o item `comment` na linha do tempo; `assert_service_contract` e ator divergente.
+- `python -m pytest tests -q -n 8 -k "comment or i18n or openapi or schema or catalog or timeline or locale"`: 145 passed, 8 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` mesclada: 1677 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
 
 ## OpenAPI da API (epic #86)
 
