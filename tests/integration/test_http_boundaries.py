@@ -417,3 +417,37 @@ def test_duplicate_live_code_and_last_admin_return_conflict(http_identity):
     assert denied.status_code == 409
     assert denied.json()["code"] == "last_administrator"
     assert client.get(detail).status_code == 200
+
+
+BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+
+
+def test_api_answers_json_to_browser_accept_header(http_identity):
+    client, user, _ = http_identity
+    response = client.get(reverse("api:me"), HTTP_ACCEPT=BROWSER_ACCEPT)
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("application/json")
+    assert response.json()["email"] == user.email
+
+
+@pytest.mark.no_api_contract
+def test_api_refuses_html_only_accept_with_json_error(http_identity):
+    client, _, _ = http_identity
+    response = client.get(reverse("api:me"), HTTP_ACCEPT="text/html")
+    assert response.status_code == 406
+    assert response["Content-Type"].startswith("application/json")
+    assert "code" in response.json()
+    assert b"<html" not in response.content
+
+
+def test_api_anonymous_error_is_json_for_browser_accept():
+    response = Client().get(reverse("api:me"), HTTP_ACCEPT=BROWSER_ACCEPT)
+    assert response.status_code == 403
+    assert response.json()["code"] == "permission_denied"
+
+
+def test_rest_framework_renders_only_json():
+    from rest_framework.renderers import JSONRenderer
+    from rest_framework.settings import api_settings
+
+    assert api_settings.DEFAULT_RENDERER_CLASSES == [JSONRenderer]

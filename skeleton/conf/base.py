@@ -275,8 +275,8 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "skeleton.api.errors.exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 25,
+    # JSON only: the DRF browsable API (HTML) is never served (docs/api.md, #230).
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["skeleton.api.parsers.BoundedJSONParser"],
 }
 LOGGING = {
