@@ -67,3 +67,12 @@ As três superfícies aceitam os mesmos filtros ([#184](https://github.com/alaor
 O parser comum é `skeleton.audit.filters.parse_audit_filters`. Um filtro desconhecido ou inválido responde 400. Os filtros só estreitam o que `authorized_audit_queryset` já permite: um `request_id` de outra organização não revela nada. Os índices `sk_audit_org_actor` (organização, ator, data) e `sk_audit_request` sustentam as buscas.
 
 Com `request_id`, o administrador da organização vê também os eventos de domínio da mesma requisição que ainda estão retidos, com os identificadores e nunca o `data`.
+
+### Exportação CSV
+
+O administrador da organização exporta o resultado filtrado da auditoria em `/o/<org>/audit/` com **Exportar CSV**, que leva os filtros da tela ([#186](https://github.com/alaorneto/skeleton/issues/186)).
+
+- **Como roda:** pelo pipeline de [exportação e importação](data-transfer.md). O job lê pelo `AuditLogService.events` como quem pediu, então as linhas e a redação são as mesmas da tela, e `changes` sai como JSON com os valores sensíveis em `[REDACTED]`.
+- **Limite:** `SKELETON_EXPORT_MAX_ROWS`.
+- **Download:** só o próprio administrador baixa o arquivo.
+- **Fora:** a auditoria global da plataforma, porque toda transferência pertence a uma organização.

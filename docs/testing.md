@@ -127,6 +127,17 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - sem a TablePermission `audit`, só os anexos aparecem;
   - o admin de B recebe 404 e quem não tem permissão na tabela recebe 403, como antes.
 
+**#186, exportação da auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1487 passed, 111 skipped.
+- Agenda: na primeira rodada, 38 passed e 21 erros de montagem dos bancos dos workers; na segunda, 59 passed. É o mesmo padrão transitório visto no #182.
+- `tests/integration/test_audit_export.py`: 4 passed. Cobrem:
+  - o administrador exportando com filtros (operação e tabela), só da própria organização, com `body` em `[REDACTED]` no JSON de `changes`;
+  - o download só do administrador que pediu;
+  - membro e admin de B recebendo 404;
+  - filtro inválido recusado antes do job;
+  - o botão só para o administrador.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

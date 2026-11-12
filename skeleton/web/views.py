@@ -537,6 +537,8 @@ def audit(request, organization_id):
             "filters": request.GET,
             "operations": operation_choices(),
             "related_events": related,
+            # The filtered audit as CSV, for the administrator (#186).
+            "can_export_audit": is_organization_admin(request.user),
         },
     )
 
