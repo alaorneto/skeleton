@@ -1,6 +1,11 @@
 from django.urls import path
 
 from skeleton.api import views
+from skeleton.api.admission import (
+    MyJoinRequestsAPI,
+    MyJoinRequestWithdrawAPI,
+    OrganizationJoinRequestsAPI,
+)
 from skeleton.api.invitation_views import ResendInvitationView
 from skeleton.files.api_views import AttachmentDetailView, AttachmentRestoreView, AttachmentsView
 
@@ -8,6 +13,20 @@ app_name = "api"
 urlpatterns = [
     path("me/", views.MeView.as_view(), name="me"),
     path("organizations/", views.OrganizationsView.as_view(), name="organizations"),
+    path("me/join-requests/", MyJoinRequestsAPI.as_view(), name="me-join-requests"),
+    path(
+        "me/join-requests/<uuid:sysid>/withdraw/", MyJoinRequestWithdrawAPI.as_view(), name="me-join-request-withdraw"
+    ),
+    path(
+        "o/<uuid:organization_id>/join-requests/",
+        OrganizationJoinRequestsAPI.as_view(),
+        name="organization-join-requests",
+    ),
+    path(
+        "o/<uuid:organization_id>/join-requests/<uuid:sysid>/",
+        OrganizationJoinRequestsAPI.as_view(),
+        name="organization-join-request",
+    ),
     path("o/<uuid:organization_id>/catalog/", views.CatalogView.as_view(), name="catalog"),
     path("o/<uuid:organization_id>/membership/", views.OwnMembershipView.as_view(), name="own-membership"),
     path(

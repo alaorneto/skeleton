@@ -1,0 +1,16 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Pedir para entrar · {{ target.name }} · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0">
+<nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'web:join' %}">Entrar numa organização</a></li><li><span aria-current="page">{{ target.name }}</span></li></ol></nav>
+<h1>Pedir para entrar em {{ target.name }}</h1>
+<p class="page-description">Quem administra a organização vê seu nome, seu email e a mensagem. Enquanto o pedido estiver aberto, enviar de novo não cria outro. O pedido expira em 30 dias.</p></div></div>
+<form method="post" class="card">
+{% csrf_token %}
+{% include "skeleton/web/components/form-errors.html" %}
+{% include "skeleton/web/components/form-fields.html" %}
+<div class="form-actions"><button type="submit" class="btn btn-primary">Enviar pedido</button><a class="btn btn-secondary" href="{% url 'web:join' %}">Cancelar</a></div>
+</form>
+</div>
+{% endblock %}

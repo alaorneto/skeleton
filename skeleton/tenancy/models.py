@@ -135,6 +135,117 @@ class Invitation(OrganizationRecord):
         return self.email
 
 
+class OrganizationAdmissionPolicy(OrganizationRecord):
+    """How outsiders join the organization (#26); without a row every path is off.
+
+    Changed only by ``skeleton.tenancy.admission.configure_policy`` (``admission.configure``),
+    with CAS from the virtual revision 0. Links (#27) and domains (#28) read their own flags.
+    """
+
+    discoverable = models.BooleanField(default=False)
+    join_requests_enabled = models.BooleanField(default=False)
+    request_default_role = models.ForeignKey(
+        "sk_access.Role", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    join_links_enabled = models.BooleanField(default=False)
+    signup_via_link_enabled = models.BooleanField(default=False)
+    domain_join_enabled = models.BooleanField(default=False)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization",), name="sk_tenancy_admission_one_per_org", violation_error_code="unique"
+            ),
+        ]
+
+
+class OrganizationDirectoryEntry(SystemRecord):
+    """Pre-tenant index of the admission policy (#26): read by ``/join/`` before any tenant exists.
+
+    Written only by ``configure_policy`` in the policy's transaction. Not named
+    ``organization``: that name turns on tenant semantics for SystemRecord models (E017).
+    """
+
+    listed_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    discoverable = models.BooleanField(default=False)
+    accepts_requests = models.BooleanField(default=False)
+    immutable_fields = ("listed_organization_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("listed_organization",), name="sk_tenancy_directory_one_per_org", violation_error_code="unique"
+            ),
+        ]
+
+
+class JoinRequest(OrganizationRecord):
+    """A person asks to join (#26); deciding creates or reactivates the membership.
+
+    The requester reads their own requests in every organization by self-discovery
+    (``self_discovery_field``); writes stay in one tenant. ``expired`` is also derived:
+    an open request past ``expires_at`` can no longer be decided.
+    """
+
+    class Channel(models.TextChoices):
+        DIRECTORY = "directory", "Pedido"
+        DOMAIN = "domain", "Domínio verificado"
+        LINK = "link", "Link de ingresso"
+        SSO = "sso", "Login corporativo"
+
+    class Status(models.TextChoices):
+        AWAITING_VERIFICATION = "awaiting_verification", "Aguardando confirmação do email"
+        PENDING = "pending", "Aguardando aprovação"
+        APPROVED = "approved", "Aprovado"
+        REJECTED = "rejected", "Recusado"
+        WITHDRAWN = "withdrawn", "Retirado"
+        EXPIRED = "expired", "Expirado"
+
+    OPEN = ("awaiting_verification", "pending")
+    DECIDED = ("approved", "rejected")
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="join_requests")
+    channel = models.CharField(max_length=16, choices=Channel.choices)
+    role = models.ForeignKey("sk_access.Role", on_delete=models.PROTECT, related_name="+")
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    message = models.CharField(max_length=500, blank=True, default="")
+    expires_at = models.DateTimeField()
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decided_by = models.UUIDField(null=True, blank=True)
+    immutable_fields = ("user_id", "channel")
+    # Frozen as self_discovery_column in sk_tenancy.0005; read across tenants only via own_rows().
+    self_discovery_field = "user"
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "user"),
+                condition=Q(status__in=("awaiting_verification", "pending"), deleted_at__isnull=True),
+                name="sk_tenancy_joinrequest_one_open",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=("approved", "rejected"), decided_at__isnull=False, decided_by__isnull=False)
+                | (~Q(status__in=("approved", "rejected")) & Q(decided_by__isnull=True)),
+                name="sk_tenancy_joinrequest_decision",
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="withdrawn") | Q(decided_at__isnull=False),
+                name="sk_tenancy_joinrequest_withdrawn_at",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=("awaiting_verification", "pending", "approved", "rejected", "withdrawn", "expired")
+                )
+                & Q(channel__in=("directory", "domain", "link", "sso")),
+                name="sk_tenancy_joinrequest_choices",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} -> {self.organization_id}: {self.status}"
+
+
 BRAND_COLOR_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 

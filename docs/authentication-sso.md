@@ -23,6 +23,16 @@ Conta nova usa o cadastro allauth com email fixado. A posse de um convite valida
 
 A sessão armazena apenas UUIDs de organização/convite e o digest, nunca o token original. Na criação, a prova de email validada continua disponível somente na requisição corrente depois do consumo, para configurar `EmailAddress` no allauth. Ela não pode autenticar uma conta existente nem ser reutilizada em outra requisição.
 
+### Solicitação de ingresso
+
+A organização decide em `/o/<org>/admission/` (capacidade `admission.configure`, só do administrador) se aceita pedidos de ingresso, se aparece na lista pública e com que papel entra quem for aprovado. Sem política gravada, tudo fica desligado. O papel `organization_admin` nunca é concedido por pedido; a administração plena continua vindo de convite ou designação.
+
+- **Pedir.** Em `/join/`, uma conta com email verificado vê as organizações que aceitam pedidos e optaram por aparecer. `/join/<org_uuid>/` aceita o pedido, com mensagem opcional de até 500 caracteres. Uma organização que não aceita pedidos, inexistente ou inativa responde o mesmo 404 neutro. O limite de pedidos por pessoa (10 por hora, no cache compartilhado) é contado antes de qualquer leitura sobre a organização: o 429 não revela se ela existe. Reenviar com um pedido aberto devolve o mesmo pedido.
+- **Contexto.** O solicitante não tem vínculo, então a gravação usa `system_context(reason="join:request")` para aquela organização, aberto pelo serviço depois das próprias verificações e só para um ator autenticado. Antes de haver tenant, a lista e a aceitação são lidas do índice global `OrganizationDirectoryEntry`, espelhado da política na mesma transação. O solicitante vê os próprios pedidos em todas as organizações pela autodescoberta (`own_rows`); quem decide vê só os da própria organização.
+- **Decidir.** O administrador e o gestor de pessoas (`admission.decide`) aprovam ou recusam em `/o/<org>/requests/`, no próprio contexto tenant, com a ordem de travas Organization → pedido → vínculo e CAS pela revisão exibida. De duas decisões sobre a mesma revisão, uma vence e a outra recebe 409. A aprovação cria um vínculo com o papel do pedido (`admit_member`). O gestor de pessoas não aprova pedido cujo papel carrega capacidade administrativa.
+- **Readmissão.** Aprovar é decisão humana e pode reativar um vínculo anterior; a fila avisa "Já foi membro". Admissões automáticas (link, domínio, SSO) nunca reativam: elas geram um pedido.
+- **Prazo e aviso.** Um pedido aberto expira em 30 dias (estado derivado; um novo pedido substitui o expirado) e pode ser retirado pelo solicitante. O email com a decisão é montado na transação e enviado só depois do commit.
+
 ### Senhas, emails e conexão
 
 **Contas de serviço** (`account_type=service`, ver [controle de acesso](access-control.md#contas-de-serviço)) nunca fazem login interativo. O backend recusa a autenticação e não devolve a sessão (`get_user`), o `AccountAdapter.pre_login` e o `SocialAccountAdapter.pre_social_login` negam de forma genérica, e o reset de senha mantém a resposta neutra sem enviar email. Com a senha inutilizável real, o login responde igual a um email desconhecido. Uma integração vai agir por tokens próprios (#45), não por sessão.
