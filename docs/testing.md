@@ -115,6 +115,23 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
   - API com campos exatos, If-Match obrigatório (428) e stale (412).
 - Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
 
+**#28, domínio de email verificado:**
+
+- `python -m pytest tests/integration/test_verified_domains.py tests/integration_postgres/test_admission_schema.py -q`: 25 passed. Os 10 testes de domínio cobrem:
+  - normalização IDNA e domínios inválidos;
+  - domínio pendente (sem TXT) ou com a política desligada sem efeito;
+  - verificação com resolvedor falso; admissão direta, pedido no modo com aprovação (idempotente) e email não verificado ignorado;
+  - domínio de A recusado para B com erro neutro (serviço e HTML 409) e email do domínio sem nunca levar a B;
+  - ex-membro que confirma outro email do domínio vira pedido, sem readmissão;
+  - reverificação: duas falhas contam, a terceira marca `failed`, remove a posse e suspende a admissão; `verify_domains --recheck` sem efeito sobre a posse removida;
+  - DNS fora do ar (servidor TEST-NET-1 sem resposta, limite de 0,5 s) falha em menos de 3 s com `timeout`;
+  - confirmação de email pelo allauth admite;
+  - sugestão na página inicial e entrada por ela (pedido com `channel=domain`), outra organização com 404;
+  - plataforma revoga a posse com CAS (stale 409); quem não é da plataforma recebe 403.
+- `tests/accounts`, `tests/integration/test_join_links.py`, `test_join_requests.py` e `test_platform_boundary.py`: passaram depois de corrigir o `verified_owner` fora de requisição (a primeira rodada mostrou 3 falhas em `test_social_hardening.py`, que chamam `confirm_email` sem contexto).
+- `dnspython` 2.9.2 nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package dnspython`.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

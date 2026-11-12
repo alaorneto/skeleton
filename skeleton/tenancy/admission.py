@@ -32,8 +32,14 @@ from skeleton.tenancy.context import current_context, own_rows, system_context
 REQUEST_TTL = timedelta(days=30)
 MESSAGE_MAX = 500
 JOIN_REASON = "join:request"
-# What the administrator configures: requests (#26), links (#27); domains (#28) add theirs.
-POLICY_FLAGS = ("discoverable", "join_requests_enabled", "join_links_enabled", "signup_via_link_enabled")
+# What the administrator configures: requests (#26), links (#27) and verified domains (#28).
+POLICY_FLAGS = (
+    "discoverable",
+    "join_requests_enabled",
+    "join_links_enabled",
+    "signup_via_link_enabled",
+    "domain_join_enabled",
+)
 POLICY_FIELDS = (*POLICY_FLAGS, "request_default_role")
 # Submissions per person and window, counted before anything about the organization is read.
 RATE_LIMIT = 10
@@ -130,21 +136,19 @@ def configure_policy(*, actor: Any, data: dict[str, Any], expected_revision: int
 
 def _sync_directory(organization: Any, policy: Any) -> None:
     models = _models()
-    accepts = policy.join_requests_enabled
-    listed = policy.discoverable and accepts
+    values = {
+        "discoverable": policy.discoverable and policy.join_requests_enabled,
+        "accepts_requests": policy.join_requests_enabled,
+        "accepts_domain": policy.domain_join_enabled,
+    }
     entry = models.OrganizationDirectoryEntry.objects.filter(listed_organization=organization).first()
     if entry is None:
-        if accepts or listed:
-            models.OrganizationDirectoryEntry(
-                listed_organization=organization, discoverable=listed, accepts_requests=accepts
-            ).save()
+        if any(values.values()):
+            models.OrganizationDirectoryEntry(listed_organization=organization, **values).save()
         return
-    changed = {
-        name
-        for name, value in (("discoverable", listed), ("accepts_requests", accepts))
-        if getattr(entry, name) != value
-    }
-    entry.discoverable, entry.accepts_requests = listed, accepts
+    changed = {name for name, value in values.items() if getattr(entry, name) != value}
+    for name, value in values.items():
+        setattr(entry, name, value)
     if changed:
         entry.save(update_fields=changed)
 

@@ -15,6 +15,19 @@ from skeleton.accounts.services import ensure_profile, normalized_email, passwor
 from skeleton.tenancy.invitations import accept_invitation, pending_invitation
 
 
+def _domain_admission(user, email):
+    """Admission by verified email domain (#28); skipped if this request already chose a tenant."""
+    from skeleton.tenancy.context import InvalidContext
+    from skeleton.tenancy.domains import apply_verified_email_admission
+
+    try:
+        return apply_verified_email_admission(user, email)
+    except InvalidContext:
+        # Another admission (link, invitation, SSO) already used this request's tenant; the
+        # person can still use the domain later from the home page suggestion.
+        return "skipped"
+
+
 def _deny():
     raise ImmediateHttpResponse(HttpResponseForbidden("Identity admission denied."))
 
@@ -87,7 +100,8 @@ class AccountAdapter(DefaultAccountAdapter):
             if confirmed and email_address.user.is_active and not email_address.user.deleted_at:
                 from skeleton.tenancy.links import finish_link_signup
 
-                finish_link_signup(email_address.user)
+                if finish_link_signup(email_address.user) is None:
+                    _domain_admission(email_address.user, email_address.email)
             if confirmed:
                 from allauth.socialaccount.models import SocialAccount
 
@@ -255,12 +269,18 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
 
                 if EmailAddress.objects.filter(user=user, email__iexact=user.email, verified=True).exists():
                     provision_social_membership(user, binding)
+                    return user
                 else:
                     sociallogin.account.extra_data = {
                         "skeleton_binding": binding.fingerprint,
                         "skeleton_pending_email": normalized_email(user.email),
                     }
                     sociallogin.account.save(update_fields=["extra_data"])
+            if not invited:
+                from allauth.account.models import EmailAddress
+
+                if EmailAddress.objects.filter(user=user, email__iexact=user.email, verified=True).exists():
+                    _domain_admission(user, user.email)
             return user
 
 

@@ -16,6 +16,7 @@
     <ul class="sidebar-list" aria-labelledby="platform-identity">
       <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}Usuários</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}Organizações</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:domains' %}"{% if platform_section == "domains" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}Domínios verificados</a></li>
     </ul>
     <p class="sidebar-heading" id="platform-apps">Aplicativos</p>
     <ul class="sidebar-list" aria-labelledby="platform-apps">

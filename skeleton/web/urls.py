@@ -14,10 +14,17 @@ urlpatterns = [
     path("join/", admission_views.join_directory, name="join"),
     path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
+    path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
     path("o/<uuid:organization_id>/", views.dashboard, name="dashboard"),
     path("o/<uuid:organization_id>/admission/", admission_views.admission_policy, name="admission"),
     path("o/<uuid:organization_id>/admission/links/", admission_views.join_links, name="join-links"),
+    path("o/<uuid:organization_id>/admission/domains/", admission_views.verified_domains, name="verified-domains"),
+    path(
+        "o/<uuid:organization_id>/admission/domains/<uuid:sysid>/",
+        admission_views.verified_domain_action,
+        name="verified-domain-action",
+    ),
     path(
         "o/<uuid:organization_id>/admission/links/<uuid:sysid>/revoke/",
         admission_views.join_link_revoke,

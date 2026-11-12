@@ -186,6 +186,11 @@ class AdmissionPolicyForm(forms.Form):
         required=False,
         help_text="Quem ainda não tem conta pode se cadastrar pelo link; a entrada só vale depois de confirmar o email.",
     )
+    domain_join_enabled = forms.BooleanField(
+        label="Admitir por domínio de email verificado",
+        required=False,
+        help_text="Quem confirma um email de um domínio verificado entra direto ou cria um pedido, conforme o domínio.",
+    )
     request_default_role = forms.ModelChoiceField(
         label="Papel de quem for aprovado",
         queryset=None,
@@ -213,6 +218,7 @@ def admission_policy(request, organization_id):
         "discoverable": bool(record and record.discoverable),
         "join_links_enabled": bool(record and record.join_links_enabled),
         "signup_via_link_enabled": bool(record and record.signup_via_link_enabled),
+        "domain_join_enabled": bool(record and record.domain_join_enabled),
         "request_default_role": record.request_default_role_id if record else None,
         "revision": admission.revision_of(record),
     }
@@ -458,3 +464,138 @@ def join_link_revoke(request, organization_id, sysid):
         )
     messages.success(request, "Link revogado. Ele deixa de funcionar na hora.")
     return redirect("web:join-links", organization_id=organization_id)
+
+
+# --------------------------------------------------------------------------- verified domains (#28)
+
+
+class DomainForm(forms.Form):
+    domain = forms.CharField(label="Domínio", max_length=253, help_text="Por exemplo empresa.com.br, sem @.")
+    admission = forms.ChoiceField(
+        label="Entrada",
+        choices=(("approval", "Com aprovação: cria um pedido"), ("auto", "Direta: entra ao confirmar o email")),
+        help_text="Quem já foi membro sempre passa por aprovação.",
+    )
+    role = forms.ModelChoiceField(label="Papel de quem entrar", queryset=None)
+
+    def __init__(self, *args, **kwargs):
+        from skeleton.access.models import Role
+
+        super().__init__(*args, **kwargs)
+        field = self.fields["role"]
+        field.queryset = Role.objects.exclude(code="organization_admin", is_builtin=True).order_by("name")
+        field.label_from_instance = lambda role: role.name
+        field.initial = Role.objects.filter(code="member", is_builtin=True).values_list("pk", flat=True).first()
+
+
+def _domains_page(request, organization_id, form, *, status=200, error=None):
+    from skeleton.tenancy import domains
+    from skeleton.tenancy.admission import current_policy
+
+    policy = current_policy()
+    dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
+    return render(
+        request,
+        "skeleton/web/admission/domains.html",
+        {
+            "form": form,
+            "organization_id": organization_id,
+            "enabled": bool(policy and policy.domain_join_enabled),
+            "rows": list(domains.domains()),
+            "prefix": domains.CHALLENGE_PREFIX,
+            "error": error,
+            "breadcrumbs": [{"label": "Início", "url": dashboard}, {"label": "Domínios verificados"}],
+        },
+        status=status,
+    )
+
+
+@tenant_page(capability=ADMISSION_CONFIGURE)
+@require_http_methods(["GET", "POST"])
+def verified_domains(request, organization_id):
+    from skeleton.tenancy import domains
+
+    form = DomainForm(request.POST if request.method == "POST" else None)
+    if request.method != "POST":
+        return _domains_page(request, organization_id, form)
+    if not form.is_valid():
+        return _domains_page(request, organization_id, form, status=400)
+    data = form.cleaned_data
+    try:
+        with transaction.atomic():
+            domains.add_domain(
+                actor=request.user, domain=data["domain"], admission=data["admission"], role=data["role"]
+            )
+    except ValidationError as exc:
+        for field, problems in exc.message_dict.items():
+            form.add_error(field if field in form.fields else None, problems)
+        return _domains_page(request, organization_id, form, status=400)
+    messages.success(request, "Domínio cadastrado. Publique o registro TXT e verifique.")
+    return redirect("web:verified-domains", organization_id=organization_id)
+
+
+@tenant_page(capability=ADMISSION_CONFIGURE)
+@require_POST
+def verified_domain_action(request, organization_id, sysid):
+    from skeleton.tenancy import domains
+
+    action = request.POST.get("action")
+    if action not in ("verify", "revoke"):
+        return _domains_page(request, organization_id, DomainForm(), status=400, error="Ação inválida.")
+    try:
+        with transaction.atomic():
+            if action == "verify":
+                record = domains.verify_domain(actor=request.user, domain_id=sysid)
+            else:
+                try:
+                    revision = int(request.POST.get("revision", ""))
+                except ValueError:
+                    revision = None
+                domains.revoke_domain(actor=request.user, domain_id=sysid, expected_revision=revision)
+                record = None
+    except domains.DomainUnavailable:
+        return _domains_page(
+            request,
+            organization_id,
+            DomainForm(),
+            status=409,
+            error="Não foi possível verificar este domínio para esta organização.",
+        )
+    except ConcurrentUpdate:
+        return _domains_page(
+            request, organization_id, DomainForm(), status=409, error="O domínio mudou. Atualize e tente de novo."
+        )
+    if record is None:
+        messages.success(request, "Domínio removido. A admissão por ele parou na hora.")
+    elif record.status == "verified":
+        messages.success(request, f"{record.domain} verificado.")
+    else:
+        messages.warning(request, f"O registro TXT de {record.domain} não foi encontrado ({record.last_error_code}).")
+    return redirect("web:verified-domains", organization_id=organization_id)
+
+
+@_global_page
+@require_POST
+def join_by_domain(request, organization_id):
+    """The home page suggestion: apply the person's verified email domain to that organization."""
+    from allauth.account.models import EmailAddress
+
+    from skeleton.tenancy import domains
+
+    targets = {item.organization_id: item for item in domains.suggestions(request.user)}
+    target = targets.get(organization_id)
+    if target is None:
+        raise Http404
+    email = (
+        EmailAddress.objects.filter(user=request.user, verified=True, email__iendswith="@" + target.domain)
+        .values_list("email", flat=True)
+        .first()
+    )
+    with transaction.atomic():
+        outcome = domains.apply_verified_email_admission(request.user, email or "")
+    if outcome in ("admitted", "member"):
+        return redirect("web:dashboard", organization_id=organization_id)
+    if outcome == "requested":
+        messages.success(request, "Pedido enviado. Você recebe um email quando ele for decidido.")
+        return redirect("web:join")
+    raise Http404
