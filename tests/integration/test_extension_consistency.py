@@ -60,7 +60,7 @@ def test_manifest_leaves_must_match_the_migration_graph(monkeypatch):
     monkeypatch.setitem(app_registry._manifests, "example_notes", replace(manifest, canonical=canonical))
     errors = [error for error in extension_consistency_checks() if error.id == "skeleton.W017"]
     assert len(errors) == 1
-    assert "0099_missing" in errors[0].msg and "0001_initial" in errors[0].msg
+    assert "0099_missing" in errors[0].msg and "0002_search_index" in errors[0].msg
 
 
 @pytest.mark.parametrize("sensitive", [(), ("body", "title")])

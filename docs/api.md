@@ -46,7 +46,15 @@ O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a 
 
 O gateway oferece CRUD genérico (criação, leitura, alteração e exclusão lógica) somente para campos explicitamente declarados em `TableSpec.read_fields` e `write_fields`; os metadados sistêmicos são automaticamente somente leitura. Campos desconhecidos retornam erro em vez de serem ignorados. `organization`, `sysid`, autoria, revisão e campos de acesso são proibidos no POST/PATCH comum: aceitar esses valores do cliente permitiria atribuição indiscriminada de campos protegidos (mass assignment). A criação atribui `owner` ao ator autenticado e visibilidade `private`. Use o recurso separado `access/` para mudar acesso: seu PATCH aceita somente owner UUID, visibility e owning_group UUID/null, coerentes com vínculo e grupo ativos. Ele exige `manage_access` e ser proprietário ou administrador da organização; um leitor comum não pode nem obter GET access.
 
-FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
+FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Uma tabela com `search_fields` aceita também `q`, uma busca textual de 2 a 200 caracteres:
+
+- usa o dicionário `portuguese`, sem acentos e com variações ("contratos" acha "contrato");
+- filtra depois da autorização e antes da paginação, então `count` só conta o que o ator lê;
+- ordena por relevância.
+
+O picker de referências aceita `q` para prefixo do rótulo e, com `pg_trgm`, similaridade por palavra inteira (`strict_word_similarity`, limiar padrão 0,5), que tolera erro de digitação numa palavra do rótulo, mas não casa pedaços de outra palavra (#180, #181).
+
+ Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
 
 Referências invisíveis são representadas como null, sem UUID/label e sem `__str__` de negócio. A projeção da lista autoriza alvos em lote por política/modelo. O recurso `references/<field>/` aceita somente `record`, `access=0/1`, `page` e `page_size`, sem duplicatas. Sem `record`, exige create na origem; com registro, update; com access, manage_access. Retorna `{count,page,page_size,results}` de UUID/label autorizados; máximo 100. Referências de identidade/acesso usam vínculos ativos/resolvedores dedicados, nunca enumeração global. HTML tem seletor equivalente fora do admin e fallback para copiar UUID; toda escrita revalida FK.
 

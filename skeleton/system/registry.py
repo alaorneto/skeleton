@@ -32,6 +32,9 @@ class TableSpec:
     comments: CommentPolicy | None = None
     # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
     sequence_fields: tuple = ()
+    # Text columns of the full-text search (#180): read_fields, text, never sensitive; the table's
+    # migration installs the index with InstallSearchIndex.
+    search_fields: tuple = ()
     # Personal data (#189): still readable through read_fields, but redacted by the audit
     # triggers, so the audit names the person only by sysid. Frozen with the infrastructure.
     personal_fields: tuple = ()

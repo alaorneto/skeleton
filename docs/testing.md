@@ -85,6 +85,27 @@ Divergências achadas pela validação e corrigidas no schema, não na API: `GET
 - `format: date-time`, porque o `jsonschema` só confere esse formato com um pacote opcional que não instalamos (`uuid` é conferido);
 - o PostgreSQL 16.15 do CI antes da execução do PR.
 
+## Busca textual (epic #91)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`. Esse PostgreSQL (`pgserver`) não traz extensões contrib (`pg_available_extensions` sem `unaccent` nem `pg_trgm`). Por isso:
+
+- o `immutable_unaccent` é uma função SQL própria com `translate`;
+- o teste de tolerância a erro de digitação do picker fica pulado aqui e roda no CI, que tem `pg_trgm`.
+
+**#180, busca nos campos declarados:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1621 passed, 1 failed, 112 skipped. A falha era `test_manifest_leaves_must_match_the_migration_graph`, que esperava a folha `0001_initial` da app de exemplo, agora `0002_search_index`. O teste foi ajustado e o arquivo dele passou com 6 passed.
+- Agenda: 59 passed.
+- `tests/integration/test_search.py`: 4 passed. Cobrem:
+  - variações e acentos ("contratos", "acao", "LOCAÇÃO");
+  - a nota privada de outro dono, a outra organização e a contagem da REST (`count` 1) e da lista web;
+  - termo curto e tabela sem `search_fields` recusados;
+  - E031 para campo sensível.
+- `tests/integration_postgres/test_search_schema.py`: 2 passed. Sem o índice ou sem a função, `check_deployed_schema` falha.
+
+**#181, busca no picker:**
+
+- `tests/integration/test_picker_search.py`: 1 passed e 1 pulado, porque `pg_trgm` não está instalado localmente. O que passou cobre o prefixo com e sem acento, só os registros legíveis da própria organização e o termo curto recusado.
 ## Exportação e importação CSV (epic #92)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`.

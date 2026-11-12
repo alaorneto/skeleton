@@ -24,3 +24,13 @@ GRANT skeleton_audit_writer TO skeleton_owner;
 ALTER ROLE skeleton_owner SET search_path TO skeleton, public;
 ALTER ROLE skeleton_runtime SET search_path TO skeleton, public;
 -- All table grants/policies are installed by reviewed migrations, not blanket DML.
+-- Text search (#180, #181): pg_trgm makes the reference picker tolerate typos. It is optional
+-- (a trusted contrib extension, absent from some builds); without it the picker matches
+-- prefixes and the full-text search, which needs no extension, keeps working.
+DO $trgm$
+BEGIN
+    IF EXISTS (SELECT FROM pg_available_extensions WHERE name = 'pg_trgm') THEN
+        CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+    END IF;
+END
+$trgm$;

@@ -101,6 +101,22 @@ def record_contract_checks(app_configs=None, **kwargs):
         for name in ("password", "token_digest", "secret", "private_key"):
             if name in concrete and name not in spec.sensitive_fields:
                 errors.append(Error(f"{model._meta.label}.{name}: missing sensitive declaration.", id="skeleton.E008"))
+        from django.db import models as django_models
+
+        for name in getattr(spec, "search_fields", ()) or ():
+            field = model._meta.get_field(name) if name in concrete else None
+            if (
+                field is None
+                or name not in spec.read_fields
+                or name in spec.sensitive_fields
+                or not isinstance(field, django_models.CharField | django_models.TextField)
+            ):
+                errors.append(
+                    Error(
+                        f"{model._meta.label}.{name}: search_fields must be readable, non-sensitive text fields.",
+                        id="skeleton.E031",
+                    )
+                )
     middleware = list(settings.MIDDLEWARE)
     from django.core.exceptions import ValidationError
 
@@ -588,6 +604,10 @@ def check_deployed_schema(*, using="default"):
 
     if ComponentInstallation._meta.db_table in tables:
         errors.extend(bundled_divergences(using=using))
+    # Full-text search (#180): the unaccent function and each declared search index.
+    from .search import search_problems
+
+    errors.extend(search_problems(using=using)[0])
     if TableDefinition._meta.db_table not in tables:
         errors.append("Catalog migrations are missing.")
     else:

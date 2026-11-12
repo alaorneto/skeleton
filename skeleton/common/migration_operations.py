@@ -380,3 +380,63 @@ class InstallRecordInfrastructure(Operation):
         editor.execute(
             f"CREATE TRIGGER {q(table + '_sk_audit')} AFTER INSERT OR UPDATE OR DELETE ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
+
+
+class InstallSearchIndex(Operation):
+    """Full-text index of ``fields`` and the picker index of ``label`` (#180, #181).
+
+    The fields are frozen in the migration; the deployment check compares the installed index
+    with the current ``TableSpec.search_fields``. The label index is trigram (``gin_trgm_ops``)
+    when ``pg_trgm`` is installed and ``text_pattern_ops`` (prefix) otherwise.
+    """
+
+    reversible = True
+    reduces_to_sql = True
+
+    def __init__(self, app_label, model_name, fields, label=None):
+        self.app_label = app_label
+        self.model_name = model_name
+        self.fields = tuple(fields)
+        self.label = label
+
+    def deconstruct(self):
+        kwargs = {"app_label": self.app_label, "model_name": self.model_name, "fields": list(self.fields)}
+        if self.label is not None:
+            kwargs["label"] = self.label
+        return (self.__class__.__name__, [], kwargs)
+
+    def state_forwards(self, app_label, state):
+        pass
+
+    def describe(self):
+        return f"Install the search index of {self.app_label}.{self.model_name}"
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        from skeleton.system.search import label_sql, vector_sql
+
+        model = to_state.apps.get_model(self.app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        require_postgresql(schema_editor.connection)
+        table, q = model._meta.db_table, schema_editor.quote_name
+        schema_editor.execute(
+            f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_search')} ON skeleton.{q(table)} "
+            f"USING gin ({vector_sql(model, self.fields, qualified=False)})"
+        )
+        if self.label is None:
+            return
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
+            trigram = cursor.fetchone() is not None
+        expression = label_sql(model, self.label, qualified=False)
+        method = f"gin ({expression} gin_trgm_ops)" if trigram else f"btree ({expression} text_pattern_ops)"
+        schema_editor.execute(
+            f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_label')} ON skeleton.{q(table)} USING {method}"
+        )
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        model = from_state.apps.get_model(self.app_label, self.model_name)
+        require_postgresql(schema_editor.connection)
+        table, q = model._meta.db_table, schema_editor.quote_name
+        for suffix in ("_sk_search", "_sk_label"):
+            schema_editor.execute(f"DROP INDEX IF EXISTS skeleton.{q(table + suffix)}")
