@@ -20,8 +20,12 @@ def physical_tables(connection):
         return [row[0] for row in cursor.fetchall()]
 
 
-def _reconcile(model, lookup, physical, defaults, using):
-    record = model.all_objects.using(using).filter(**lookup).first()
+def _reconcile(model, record, lookup, physical, defaults, using):
+    """Create the catalog row or update its physical attributes; human texts are kept.
+
+    ``record`` is the existing row for ``lookup`` (None when there is none), read once per
+    synchronization by ``_existing`` instead of one query per table and per column.
+    """
     if record is None:
         record = model(**lookup, **defaults, **physical)
         record.save(using=using)
@@ -34,6 +38,14 @@ def _reconcile(model, lookup, physical, defaults, using):
         if changed:
             record.save(using=using, update_fields=changed)
     return record
+
+
+def _existing(queryset, key):
+    """Rows of the catalog by ``key``, in the order ``.first()`` would pick them."""
+    rows = {}
+    for record in queryset if queryset.ordered else queryset.order_by("pk"):
+        rows.setdefault(key(record), []).append(record)
+    return rows
 
 
 def sync_table_catalog(*, using="default", apps_registry=None):
@@ -68,6 +80,15 @@ def sync_table_catalog(*, using="default", apps_registry=None):
         known[spec.model._meta.db_table] = spec.model
     field_count = 0
     with system_context(reason="migrate:catalog", using=using):
+        # Two reads for the whole catalog; the loop below only writes what changed.
+        existing_tables = _existing(
+            TableDefinition.all_objects.using(using).filter(database_alias=using, schema_name=schema),
+            lambda record: record.db_table,
+        )
+        existing_fields = _existing(
+            FieldDefinition.all_objects.using(using).filter(table__database_alias=using, table__schema_name=schema),
+            lambda record: record.table_id,
+        )
         for name in names:
             model, spec = known.get(name), specs.get(name)
             is_owned = spec is not None
@@ -101,6 +122,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
             )
             table = _reconcile(
                 TableDefinition,
+                next(iter(existing_tables.get(name, ())), None),
                 {"database_alias": using, "schema_name": schema, "db_table": name},
                 {
                     "model_label": model._meta.label_lower if model else None,
@@ -143,6 +165,10 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                 for column in constraint["columns"]
             }
             seen = []
+            table_fields = existing_fields.get(table.pk, [])
+            by_column = {}
+            for record in table_fields:
+                by_column.setdefault(record.column, record)
             for column in description:
                 field = fields.get(column.name)
                 seen.append(column.name)
@@ -154,6 +180,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                 sensitive = bool(spec and field and field.name in spec.sensitive_fields)
                 _reconcile(
                     FieldDefinition,
+                    by_column.get(column.name),
                     {"table": table, "column": column.name},
                     {
                         "name": field.name if field else column.name,
@@ -170,21 +197,22 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                     using,
                 )
                 field_count += 1
-            for missing in (
-                FieldDefinition.all_objects.using(using).filter(table=table, available=True).exclude(column__in=seen)
-            ):
+            for missing in table_fields:
+                if missing.available and missing.column not in seen:
+                    missing.available = False
+                    missing.save(using=using, update_fields={"available"})
+        for db_table, records in existing_tables.items():
+            if db_table in names:
+                continue
+            for missing in records:
+                if not missing.available:
+                    continue
                 missing.available = False
                 missing.save(using=using, update_fields={"available"})
-        for missing in (
-            TableDefinition.all_objects.using(using)
-            .filter(database_alias=using, schema_name=schema, available=True)
-            .exclude(db_table__in=names)
-        ):
-            missing.available = False
-            missing.save(using=using, update_fields={"available"})
-            for field in FieldDefinition.all_objects.using(using).filter(table=missing, available=True):
-                field.available = False
-                field.save(using=using, update_fields={"available"})
+                for field in existing_fields.get(missing.pk, []):
+                    if field.available:
+                        field.available = False
+                        field.save(using=using, update_fields={"available"})
         organization_ids = (
             list(
                 Organization.all_objects.using(using)
