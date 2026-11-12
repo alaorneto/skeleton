@@ -80,7 +80,7 @@ def send_due_reminders(*, now: Any = None) -> int:
                 type_code=NOTIFICATION,
                 recipients=Recipients(users=_recipients(event)),
                 payload=(
-                    ("title", occurrence.event.title if not occurrence.event.is_private else "Ocupado"),
+                    ("title", occurrence.event.title if not occurrence.event.is_private else gettext("Ocupado")),
                     ("starts_at", occurrence.starts_at.isoformat()),
                     ("event", str(event.pk)),
                 ),
@@ -98,7 +98,7 @@ def register_reminders() -> None:
     register_notification_type(
         NotificationType(
             NOTIFICATION,
-            "Lembrete de evento",
+            gettext("Lembrete de evento"),
             payload_fields=("title", "starts_at", "event"),
             default_channels=("in_app", "email"),
             owner_app="skeleton_calendar",

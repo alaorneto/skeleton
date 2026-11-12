@@ -25,8 +25,8 @@ class Calendar(SecuredRecord):
     """
 
     class Kind(models.TextChoices):
-        PERSONAL = "personal", "Pessoal"
-        SHARED = "shared", "Compartilhado"
+        PERSONAL = "personal", gettext_lazy("Pessoal")
+        SHARED = "shared", gettext_lazy("Compartilhado")
 
     name = models.CharField(max_length=150)
     kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.SHARED)
@@ -92,9 +92,9 @@ class Event(OrganizationRecord):
     """
 
     class Status(models.TextChoices):
-        CONFIRMED = "confirmed", "Confirmado"
+        CONFIRMED = "confirmed", gettext_lazy("Confirmado")
         TENTATIVE = "tentative", gettext_lazy("Provisório")
-        CANCELLED = "cancelled", "Cancelado"
+        CANCELLED = "cancelled", gettext_lazy("Cancelado")
 
     calendar = models.ForeignKey(Calendar, on_delete=models.PROTECT, related_name="events")
     uid = models.CharField(max_length=255, default=new_uid)
@@ -203,10 +203,10 @@ class EventAttendee(OrganizationRecord):
     """A member of the organization invited to an event (#72); being invited grants reading it."""
 
     class Response(models.TextChoices):
-        NEEDS_ACTION = "needs_action", "Sem resposta"
-        ACCEPTED = "accepted", "Aceito"
-        DECLINED = "declined", "Recusado"
-        TENTATIVE = "tentative", "Talvez"
+        NEEDS_ACTION = "needs_action", gettext_lazy("Sem resposta")
+        ACCEPTED = "accepted", gettext_lazy("Aceito")
+        DECLINED = "declined", gettext_lazy("Recusado")
+        TENTATIVE = "tentative", gettext_lazy("Talvez")
 
     event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name="attendees")
     membership = models.ForeignKey(
@@ -239,8 +239,8 @@ class EventReminder(OrganizationRecord):
 
     class Channel(models.TextChoices):
         DEFAULT = "default", gettext_lazy("Preferências da pessoa")
-        EMAIL = "email", "Email"
-        PUSH = "push", "Push"
+        EMAIL = "email", gettext_lazy("Email")
+        PUSH = "push", gettext_lazy("Push")
 
     event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name="reminders")
     minutes_before = models.PositiveIntegerField()

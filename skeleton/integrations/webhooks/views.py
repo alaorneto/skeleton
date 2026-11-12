@@ -48,7 +48,7 @@ def integrations_page(view):
 
 
 class EndpointForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=150)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=150)
     url = forms.CharField(
         label="URL HTTPS", max_length=2000, help_text=gettext_lazy("Validada contra destinos internos ao salvar.")
     )
@@ -56,8 +56,8 @@ class EndpointForm(forms.Form):
         label=gettext_lazy("Conta de serviço"),
         help_text=gettext_lazy("As entregas só falam de registros que essa conta pode ler."),
     )
-    event_types = forms.MultipleChoiceField(label="Eventos", widget=forms.CheckboxSelectMultiple)
-    is_enabled = forms.BooleanField(label="Ativo", required=False, initial=True)
+    event_types = forms.MultipleChoiceField(label=gettext_lazy("Eventos"), widget=forms.CheckboxSelectMultiple)
+    is_enabled = forms.BooleanField(label=gettext_lazy("Ativo"), required=False, initial=True)
     revision = forms.IntegerField(widget=forms.HiddenInput, required=False)
 
     def __init__(self, *args, **kwargs):
@@ -245,7 +245,7 @@ def _log_action(request, organization_id, endpoint, action):
     except ValidationError:
         messages.error(request, gettext("O webhook está desativado: reative-o antes de reenviar ou testar."))
     else:
-        messages.success(request, "Entrega enfileirada.")
+        messages.success(request, gettext("Entrega enfileirada."))
     return redirect("integrations:webhook-deliveries", organization_id=organization_id, sysid=endpoint.pk)
 
 

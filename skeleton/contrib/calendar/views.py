@@ -132,28 +132,30 @@ def home(request, organization_id):
 class EventForm(forms.Form):
     calendar = forms.ChoiceField(label=gettext_lazy("Calendário"))
     title = forms.CharField(label=gettext_lazy("Título"), max_length=200)
-    all_day = forms.BooleanField(label="Dia inteiro", required=False)
-    day = forms.DateField(label="Data", widget=forms.DateInput(attrs={"type": "date"}))
+    all_day = forms.BooleanField(label=gettext_lazy("Dia inteiro"), required=False)
+    day = forms.DateField(label=gettext_lazy("Data"), widget=forms.DateInput(attrs={"type": "date"}))
     start = forms.TimeField(
         label=gettext_lazy("Início"), required=False, widget=forms.TimeInput(attrs={"type": "time"})
     )
-    end = forms.TimeField(label="Fim", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
-    location = forms.CharField(label="Local", max_length=300, required=False)
+    end = forms.TimeField(label=gettext_lazy("Fim"), required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    location = forms.CharField(label=gettext_lazy("Local"), max_length=300, required=False)
     description = forms.CharField(
         label=gettext_lazy("Descrição"), required=False, widget=forms.Textarea(attrs={"rows": 4})
     )
     is_private = forms.BooleanField(label=gettext_lazy("Privado (os outros veem só Ocupado)"), required=False)
     repeat = forms.ChoiceField(
-        label="Repetir",
+        label=gettext_lazy("Repetir"),
         choices=(
             ("none", gettext_lazy("Não repete")),
-            ("daily", "Diariamente"),
-            ("weekly", "Semanalmente"),
-            ("monthly", "Mensalmente"),
-            ("yearly", "Anualmente"),
+            ("daily", gettext_lazy("Diariamente")),
+            ("weekly", gettext_lazy("Semanalmente")),
+            ("monthly", gettext_lazy("Mensalmente")),
+            ("yearly", gettext_lazy("Anualmente")),
         ),
     )
-    count = forms.IntegerField(label="Quantas vezes", min_value=1, max_value=1000, initial=10, required=False)
+    count = forms.IntegerField(
+        label=gettext_lazy("Quantas vezes"), min_value=1, max_value=1000, initial=10, required=False
+    )
 
     def __init__(self, *args, calendars=(), **kwargs):
         super().__init__(*args, **kwargs)
@@ -241,7 +243,7 @@ def event_cancel(request, organization_id, sysid):
     except Conflict:
         messages.error(request, gettext("O evento mudou. Atualize a página antes de tentar novamente."))
     else:
-        messages.success(request, "Evento cancelado.")
+        messages.success(request, gettext("Evento cancelado."))
     return redirect("skeleton_calendar:home", organization_id=organization_id)
 
 

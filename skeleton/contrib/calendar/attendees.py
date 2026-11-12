@@ -94,7 +94,7 @@ def notify_attendees(event: Any, type_code: str, *, users: tuple | None = None, 
     targets = tuple(user for user in (attendee_users(event) if users is None else users) if user != actor.pk)
     if not targets:
         return
-    title = event.title if not event.is_private else "Ocupado"
+    title = event.title if not event.is_private else gettext("Ocupado")
     NotificationService().notify(
         actor=actor,
         type_code=type_code,
@@ -109,8 +109,8 @@ def register_attendee_notifications() -> None:
 
     for code, label in (
         (INVITED, gettext("Convite para evento")),
-        (UPDATED, "Evento alterado"),
-        (CANCELLED, "Evento cancelado"),
+        (UPDATED, gettext("Evento alterado")),
+        (CANCELLED, gettext("Evento cancelado")),
     ):
         register_notification_type(
             NotificationType(code, label, payload_fields=("title", "event"), owner_app="skeleton_calendar")

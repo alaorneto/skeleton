@@ -11,8 +11,8 @@ class Attachment(OrganizationRecord):
     class State(models.TextChoices):
         PENDING = "pending", gettext_lazy("Aguardando verificação")
         AVAILABLE = "available", gettext_lazy("Disponível")
-        QUARANTINED = "quarantined", "Em quarentena"
-        REJECTED = "rejected", "Rejeitado"
+        QUARANTINED = "quarantined", gettext_lazy("Em quarentena")
+        REJECTED = "rejected", gettext_lazy("Rejeitado")
 
     target_table = models.ForeignKey("sk_system.TableDefinition", on_delete=models.PROTECT, related_name="attachments")
     target_sysid = models.UUIDField()

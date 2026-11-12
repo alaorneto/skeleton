@@ -11,7 +11,7 @@ class TokenForm(forms.Form):
 
 class InstanceForm(forms.Form):
     allowed_hosts = forms.CharField(
-        label="Hosts aceitos",
+        label=gettext_lazy("Hosts aceitos"),
         max_length=500,
         help_text=gettext_lazy("Separados por vírgula, por exemplo app.example.com."),
     )
@@ -61,7 +61,7 @@ class SchemaForm(forms.Form):
 
 class EmailForm(forms.Form):
     email_url = forms.CharField(
-        label="Servidor de email",
+        label=gettext_lazy("Servidor de email"),
         max_length=500,
         widget=forms.PasswordInput(render_value=False),
         help_text=gettext_lazy("smtp+tls://usuário:senha@smtp.example.com:587"),
@@ -72,13 +72,15 @@ class EmailForm(forms.Form):
 
 class StorageForm(forms.Form):
     cache_url = forms.CharField(
-        label="Cache compartilhado (Redis)",
+        label=gettext_lazy("Cache compartilhado (Redis)"),
         max_length=500,
         required=False,
         widget=forms.PasswordInput(render_value=False),
         help_text=gettext_lazy("redis://redis:6379/0. Vazio mantém o cache local (só desenvolvimento)."),
     )
-    files_backend = forms.ChoiceField(label="Armazenamento de anexos", choices=(("local", "Local"), ("s3", "S3")))
+    files_backend = forms.ChoiceField(
+        label=gettext_lazy("Armazenamento de anexos"), choices=(("local", gettext_lazy("Local")), ("s3", "S3"))
+    )
     files_root = forms.CharField(label=gettext_lazy("Pasta local dos anexos"), max_length=500, required=False)
     files_s3_bucket = forms.CharField(label="Bucket S3", max_length=200, required=False)
     files_s3_region = forms.CharField(label=gettext_lazy("Região S3"), max_length=100, required=False)
@@ -95,8 +97,8 @@ class StorageForm(forms.Form):
 
 class AdminForm(forms.Form):
     email = forms.EmailField(label=gettext_lazy("Email do administrador da plataforma"))
-    password1 = forms.CharField(label="Senha", widget=forms.PasswordInput(render_value=False))
-    password2 = forms.CharField(label="Confirme a senha", widget=forms.PasswordInput(render_value=False))
+    password1 = forms.CharField(label=gettext_lazy("Senha"), widget=forms.PasswordInput(render_value=False))
+    password2 = forms.CharField(label=gettext_lazy("Confirme a senha"), widget=forms.PasswordInput(render_value=False))
     organization_name = forms.CharField(label=gettext_lazy("Nome da primeira organização"), max_length=200)
     organization_slug = forms.SlugField(label=gettext_lazy("Identificador da organização"), max_length=80)
 

@@ -279,8 +279,8 @@ class OrganizationRecord(SystemRecord):
 
 class SecuredRecord(OrganizationRecord):
     class Visibility(models.TextChoices):
-        PRIVATE = "private", "Privado"
-        GROUP = "group", "Grupo"
+        PRIVATE = "private", gettext_lazy("Privado")
+        GROUP = "group", gettext_lazy("Grupo")
         ORGANIZATION = "organization", gettext_lazy("Organização")
 
     owner = models.ForeignKey(

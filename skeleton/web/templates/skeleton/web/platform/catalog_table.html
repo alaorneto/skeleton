@@ -25,8 +25,8 @@
       <div><dt>{% translate "Origem / escopo" %}</dt><dd>{{ table.origin }} / {{ table.scope }}</dd></div>
       <div><dt>{% translate "Classe base" %}</dt><dd>{{ table.base_class|default:"—" }}</dd></div>
       <div><dt>{% translate "Auditoria" %}</dt><dd>{{ table.audit_mode }}</dd></div>
-      <div><dt>{% translate "UUID gerenciado · exclusão lógica · API" %}</dt><dd>{{ table.uuid_managed|yesno:"Sim,Não" }} · {{ table.soft_delete|yesno:"Sim,Não" }} · {{ table.api_exposed|yesno:"Sim,Não" }}</dd></div>
-      <div><dt>{% translate "Disponível" %}</dt><dd>{{ table.available|yesno:"Sim,Não" }}</dd></div>
+      <div><dt>{% translate "UUID gerenciado · exclusão lógica · API" %}</dt><dd>{{ table.uuid_managed|yesno:_("Sim,Não") }} · {{ table.soft_delete|yesno:_("Sim,Não") }} · {{ table.api_exposed|yesno:_("Sim,Não") }}</dd></div>
+      <div><dt>{% translate "Disponível" %}</dt><dd>{{ table.available|yesno:_("Sim,Não") }}</dd></div>
     </dl>
   </section>
 </div>

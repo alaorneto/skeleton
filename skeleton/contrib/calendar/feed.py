@@ -41,7 +41,7 @@ def feed(request, token):
         return calendar_components(user, readable_events(user), busy_only=busy_only)
 
     results = for_each_organization(user, read, source="http:calendar-feed", app_label=APP_LABEL)
-    body = calendar_bytes("Agenda", [component for row in results for component in row.value])
+    body = calendar_bytes(gettext("Agenda"), [component for row in results for component in row.value])
     response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
     response["Cache-Control"] = "no-store"
     return response

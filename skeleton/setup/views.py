@@ -26,9 +26,9 @@ from .mode import COMPLETED
 
 STEPS = (
     ("instance", gettext_lazy("Instância")),
-    ("database", "Banco de dados (role runtime)"),
+    ("database", gettext_lazy("Banco de dados (role runtime)")),
     ("schema", gettext_lazy("Schema e catálogo")),
-    ("email", "Email"),
+    ("email", gettext_lazy("Email")),
     ("storage", gettext_lazy("Cache e arquivos")),
     ("admin", gettext_lazy("Administrador e organização")),
 )
@@ -105,7 +105,11 @@ def start(request):
             return _render(
                 request,
                 "token.html",
-                {"form": form, "error": "Muitas tentativas. Aguarde 15 minutos.", "title": "Primeiro acesso"},
+                {
+                    "form": form,
+                    "error": gettext("Muitas tentativas. Aguarde 15 minutos."),
+                    "title": gettext("Primeiro acesso"),
+                },
                 status=429,
             )
         if form.is_valid() and tokens.consume_token(_store()[0], form.cleaned_data["token"]):
@@ -118,10 +122,14 @@ def start(request):
         return _render(
             request,
             "token.html",
-            {"form": form, "error": gettext("Token inválido, já usado ou expirado."), "title": "Primeiro acesso"},
+            {
+                "form": form,
+                "error": gettext("Token inválido, já usado ou expirado."),
+                "title": gettext("Primeiro acesso"),
+            },
             status=status,
         )
-    return _render(request, "token.html", {"form": form, "title": "Primeiro acesso"})
+    return _render(request, "token.html", {"form": form, "title": gettext("Primeiro acesso")})
 
 
 def _step(request, name, form, *, status=200, **context):
@@ -357,4 +365,4 @@ def finish(request):
         request.session.flush()
         how = restart.request_restart()
         return _render(request, "done.html", {"title": gettext("Configuração concluída"), "restart": how, "steps": ()})
-    return _render(request, "finish.html", {"title": "Concluir", "pending": pending})
+    return _render(request, "finish.html", {"title": gettext("Concluir"), "pending": pending})

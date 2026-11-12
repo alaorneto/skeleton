@@ -17,7 +17,7 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.utils import timezone
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.cache import add_never_cache_headers, never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
@@ -40,8 +40,8 @@ def scope_choices(*, feed: bool = False):
 
 
 class TokenForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=150)
-    scopes = forms.MultipleChoiceField(label="Escopos", widget=forms.CheckboxSelectMultiple)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=150)
+    scopes = forms.MultipleChoiceField(label=gettext_lazy("Escopos"), widget=forms.CheckboxSelectMultiple)
     days = forms.IntegerField(label="Validade (dias)", min_value=1, initial=90)
 
     def __init__(self, *args, **kwargs):
@@ -159,7 +159,7 @@ def personal_token_revoke(request, sysid):
 
 
 class ServiceAccountForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=150)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=150)
 
 
 def _accounts():

@@ -110,14 +110,14 @@ class UserNotificationPreference(SystemRecord):
 
     class Channel(models.TextChoices):
         IN_APP = "in_app", gettext_lazy("Na aplicação")
-        EMAIL = "email", "Email"
+        EMAIL = "email", gettext_lazy("Email")
         PUSH = "push", gettext_lazy("Push no navegador")
 
     class Mode(models.TextChoices):
-        OFF = "off", "Desligado"
-        IMMEDIATE = "immediate", "Imediato"
+        OFF = "off", gettext_lazy("Desligado")
+        IMMEDIATE = "immediate", gettext_lazy("Imediato")
         DAILY = "daily", gettext_lazy("Resumo diário")
-        WEEKLY = "weekly", "Resumo semanal"
+        WEEKLY = "weekly", gettext_lazy("Resumo semanal")
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
     type_code = models.CharField(max_length=100)
@@ -155,16 +155,16 @@ class NotificationDelivery(OperationalRecord):
     """
 
     class Channel(models.TextChoices):
-        EMAIL = "email", "Email"
-        DIGEST = "digest", "Resumo por email"
+        EMAIL = "email", gettext_lazy("Email")
+        DIGEST = "digest", gettext_lazy("Resumo por email")
         PUSH = "push", gettext_lazy("Push no navegador")
 
     class State(models.TextChoices):
-        PENDING = "pending", "Na fila"
-        RETRYING = "retrying", "Nova tentativa agendada"
-        SENT = "sent", "Enviada"
-        SKIPPED = "skipped", "Ignorada"
-        DEAD = "dead", "Falhou"
+        PENDING = "pending", gettext_lazy("Na fila")
+        RETRYING = "retrying", gettext_lazy("Nova tentativa agendada")
+        SENT = "sent", gettext_lazy("Enviada")
+        SKIPPED = "skipped", gettext_lazy("Ignorada")
+        DEAD = "dead", gettext_lazy("Falhou")
 
     organization = models.ForeignKey(
         "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_notifications_delivery_records"

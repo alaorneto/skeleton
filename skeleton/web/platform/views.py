@@ -105,9 +105,9 @@ def overview(request):
                     Organization.objects.filter(is_active=True).count(),
                     reverse("platform:organizations"),
                 ),
-                ("Aplicativos instalados", len(list(all_apps())), reverse("platform:apps")),
+                (gettext("Aplicativos instalados"), len(list(all_apps())), reverse("platform:apps")),
                 (
-                    "Tabelas catalogadas",
+                    gettext("Tabelas catalogadas"),
                     TableDefinition.objects.filter(available=True).count(),
                     reverse("platform:catalog"),
                 ),
@@ -168,7 +168,7 @@ def user_create(request):
         {
             "platform_section": "users",
             "form": form,
-            "title": "Nova identidade",
+            "title": gettext("Nova identidade"),
             "eyebrow": gettext("Usuários"),
             "description": gettext("A identidade não recebe vínculo nem permissão em nenhuma organização."),
             "submit_label": gettext("Criar identidade"),
@@ -516,7 +516,7 @@ def catalog_field(request, sysid):
             "description": gettext(
                 "Somente rótulo e descrição são editáveis; tipo, coluna e sensibilidade vêm do código."
             ),
-            "submit_label": "Salvar",
+            "submit_label": gettext("Salvar"),
             "cancel_url": table_url,
         },
         status=status,

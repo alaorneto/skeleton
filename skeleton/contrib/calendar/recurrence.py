@@ -65,7 +65,7 @@ def parse_rule(text: str) -> dict[str, str]:
     for item in value.split(";"):
         name, sep, part = item.partition("=")
         if not sep or name in parts:
-            raise _invalid("Regra malformada.")
+            raise _invalid(gettext("Regra malformada."))
         if name not in PARTS:
             raise _invalid(
                 gettext("%(name)s não é aceito; use FREQ, INTERVAL, COUNT, UNTIL e BY* simples.") % {"name": name}

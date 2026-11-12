@@ -1,20 +1,20 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.exceptions import ImmutableRecord, LiveReferencesExist
 from skeleton.common.models import OrganizationRecord
 
 
 class Action(models.TextChoices):
-    READ = "read", "Ler"
-    CREATE = "create", "Criar"
-    UPDATE = "update", "Atualizar"
-    DELETE = "delete", "Excluir"
-    RESTORE = "restore", "Restaurar"
-    MANAGE_ACCESS = "manage_access", "Gerir acesso"
-    AUDIT = "audit", "Auditar"
+    READ = "read", gettext_lazy("Ler")
+    CREATE = "create", gettext_lazy("Criar")
+    UPDATE = "update", gettext_lazy("Atualizar")
+    DELETE = "delete", gettext_lazy("Excluir")
+    RESTORE = "restore", gettext_lazy("Restaurar")
+    MANAGE_ACCESS = "manage_access", gettext_lazy("Gerir acesso")
+    AUDIT = "audit", gettext_lazy("Auditar")
 
 
 def live_unique(fields, name):

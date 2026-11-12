@@ -14,13 +14,13 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q, QuerySet
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.access.policies import authorized_queryset
 
 from .models import Calendar, Event
 
-BUSY_TITLE = "Ocupado"
+BUSY_TITLE = gettext_lazy("Ocupado")
 
 
 def readable_calendars(user: Any) -> QuerySet:

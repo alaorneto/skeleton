@@ -86,7 +86,9 @@ def scaffold_manifest(scaffold):
     )
     prefix = f"applications.{scaffold.package_name}"
     manifest["name"] = scaffold.verbose_name
-    manifest["description"] = f"{scaffold.verbose_name}: app gerada por skeleton_startapp"
+    manifest["description"] = gettext("%(verbose_name)s: app gerada por skeleton_startapp") % {
+        "verbose_name": scaffold.verbose_name
+    }
     manifest["runtime"]["urls"] = f"{prefix}.urls"
     manifest["runtime"]["api_urls"] = f"{prefix}.api_urls"
     manifest["runtime"]["navigation"] = [

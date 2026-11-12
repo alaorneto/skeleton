@@ -16,10 +16,12 @@ __all__ = [
 
 
 class PlatformUserCreateForm(forms.Form):
-    email = forms.EmailField(label="Email", max_length=254)
-    first_name = forms.CharField(label="Nome", max_length=150, required=False)
-    last_name = forms.CharField(label="Sobrenome", max_length=150, required=False)
-    password1 = forms.CharField(label="Senha", strip=False, widget=forms.PasswordInput(render_value=False))
+    email = forms.EmailField(label=gettext_lazy("Email"), max_length=254)
+    first_name = forms.CharField(label=gettext_lazy("Nome"), max_length=150, required=False)
+    last_name = forms.CharField(label=gettext_lazy("Sobrenome"), max_length=150, required=False)
+    password1 = forms.CharField(
+        label=gettext_lazy("Senha"), strip=False, widget=forms.PasswordInput(render_value=False)
+    )
     password2 = forms.CharField(
         label=gettext_lazy("Confirmação da senha"), strip=False, widget=forms.PasswordInput(render_value=False)
     )
@@ -32,10 +34,10 @@ class PlatformUserCreateForm(forms.Form):
 
 
 class PlatformUserForm(forms.Form):
-    first_name = forms.CharField(label="Nome", max_length=150, required=False)
-    last_name = forms.CharField(label="Sobrenome", max_length=150, required=False)
+    first_name = forms.CharField(label=gettext_lazy("Nome"), max_length=150, required=False)
+    last_name = forms.CharField(label=gettext_lazy("Sobrenome"), max_length=150, required=False)
     is_active = forms.BooleanField(
-        label="Identidade ativa",
+        label=gettext_lazy("Identidade ativa"),
         required=False,
         help_text=gettext_lazy("Desativar revoga as sessões e é recusado se deixar uma organização sem administrador."),
     )
@@ -56,12 +58,12 @@ def _owners():
 
 
 class OrganizationCreateForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=200)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
     slug = forms.SlugField(
         label="Identificador (slug)", max_length=100, help_text=gettext_lazy("Não pode ser alterado depois.")
     )
     owner = forms.ModelChoiceField(
-        label="Administrador inicial",
+        label=gettext_lazy("Administrador inicial"),
         queryset=User.objects.none(),
         help_text=gettext_lazy("Recebe o papel de administrador da organização."),
     )
@@ -73,7 +75,7 @@ class OrganizationCreateForm(forms.Form):
 
 
 class OrganizationForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=200)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
     is_active = forms.BooleanField(
         label=gettext_lazy("Organização ativa"),
         required=False,
@@ -91,7 +93,7 @@ class OrganizationAdministratorForm(forms.Form):
         help_text=gettext_lazy("Identidade ativa que recebe o papel de administrador da organização."),
     )
     replace = forms.TypedChoiceField(
-        label="Substituir",
+        label=gettext_lazy("Substituir"),
         required=False,
         empty_value=None,
         help_text=gettext_lazy("Opcional: retira o papel de administrador direto desta pessoa."),
@@ -132,11 +134,11 @@ class StorageQuotaForm(forms.Form):
     MiB = 1024 * 1024
 
     mode = forms.ChoiceField(
-        label="Cota de armazenamento",
+        label=gettext_lazy("Cota de armazenamento"),
         choices=(
             ("default", gettext_lazy("Padrão da instância")),
             ("limited", gettext_lazy("Limite próprio")),
-            ("unlimited", "Ilimitada"),
+            ("unlimited", gettext_lazy("Ilimitada")),
         ),
     )
     quota_mib = forms.IntegerField(

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext_lazy
 
 if TYPE_CHECKING:
     from skeleton.accounts.models import User
@@ -52,14 +53,14 @@ class BuiltinRole:
 BUILTIN_ROLES: dict[str, BuiltinRole] = {
     role.code: role
     for role in (
-        BuiltinRole("organization_admin", "Administrador", CAPABILITIES),
+        BuiltinRole("organization_admin", gettext_lazy("Administrador"), CAPABILITIES),
         BuiltinRole(
             "people_manager",
-            "Gestor de pessoas",
+            gettext_lazy("Gestor de pessoas"),
             frozenset({MEMBERS_VIEW, MEMBERS_MANAGE, INVITATIONS_MANAGE, ADMISSION_DECIDE}),
         ),
         BuiltinRole("app_manager", "Gestor de apps", frozenset({APPS_MANAGE})),
-        BuiltinRole("member", "Membro", frozenset()),
+        BuiltinRole("member", gettext_lazy("Membro"), frozenset()),
     )
 }
 BUILTIN_CODES: frozenset[str] = frozenset(BUILTIN_ROLES)

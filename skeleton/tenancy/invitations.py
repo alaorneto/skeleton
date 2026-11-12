@@ -104,7 +104,7 @@ def issue_invitation(*, user, email, role, request=None):
             url = origin.rstrip("/") + path
         subject_name = " ".join(organization.name.splitlines())
         message = EmailMultiAlternatives(
-            f"Convite: {subject_name}",
+            gettext("Convite: %(subject_name)s") % {"subject_name": subject_name},
             gettext("Você recebeu um convite para %(name)s.\n\n%(url)s\n\nO convite expira em sete dias.")
             % {"name": organization.name, "url": url},
             settings.DEFAULT_FROM_EMAIL,

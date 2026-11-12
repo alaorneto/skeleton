@@ -30,7 +30,7 @@
   </section>
   <section aria-labelledby="operation-migrations">
     <h3 id="operation-migrations" class="section-heading">{% translate "Migrations" %}</h3>
-    <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">{% translate "Migration" %}</th><th scope="col">{% translate "Atômica" %}</th><th scope="col">{% translate "Operações" %}</th></tr></thead><tbody>{% for migration in operation.plan.migrations %}<tr><td>{{ migration.app_label }}</td><td>{{ migration.name }}</td><td>{{ migration.atomic|yesno:"Sim,Não" }}</td><td>{% for step in migration.operations %}{{ step.type }} ({% translate "reversível:" %} {{ step.reversible|yesno:"Sim,Não" }}){% if not forloop.last %}; {% endif %}{% endfor %}</td></tr>{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhuma migration pendente." %}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">{% translate "Migration" %}</th><th scope="col">{% translate "Atômica" %}</th><th scope="col">{% translate "Operações" %}</th></tr></thead><tbody>{% for migration in operation.plan.migrations %}<tr><td>{{ migration.app_label }}</td><td>{{ migration.name }}</td><td>{{ migration.atomic|yesno:_("Sim,Não") }}</td><td>{% for step in migration.operations %}{{ step.type }} ({% translate "reversível:" %} {{ step.reversible|yesno:_("Sim,Não") }}){% if not forloop.last %}; {% endif %}{% endfor %}</td></tr>{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhuma migration pendente." %}</td></tr>{% endfor %}</tbody></table></div>
   </section>
 </div>
 <aside class="space-y-5">
@@ -60,7 +60,7 @@
     <dl class="meta-list sm:grid-cols-1!">
       <div><dt>{% translate "Release" %}</dt><dd><code class="uuid">{{ operation.result.release }}</code></dd></div>
       <div><dt>{% translate "Backup" %}</dt><dd><code class="uuid">{{ operation.result.backup|default:"—" }}</code></dd></div>
-      <div><dt>{% translate "Tráfego liberado" %}</dt><dd>{{ operation.result.traffic_released|yesno:"Sim,Não" }}</dd></div>
+      <div><dt>{% translate "Tráfego liberado" %}</dt><dd>{{ operation.result.traffic_released|yesno:_("Sim,Não") }}</dd></div>
     </dl>
   </section>
   {% endif %}

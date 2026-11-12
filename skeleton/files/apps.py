@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy
 class FilesConfig(AppConfig):
     name = "skeleton.files"
     label = "sk_files"
-    verbose_name = "Arquivos"
+    verbose_name = gettext_lazy("Arquivos")
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):

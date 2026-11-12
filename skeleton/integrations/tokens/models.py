@@ -17,9 +17,9 @@ class ApiToken(SystemRecord):
     """
 
     class Kind(models.TextChoices):
-        PERSONAL = "personal", "Pessoal"
+        PERSONAL = "personal", gettext_lazy("Pessoal")
         SERVICE = "service", gettext_lazy("Conta de serviço")
-        FEED = "feed", "Feed"
+        FEED = "feed", gettext_lazy("Feed")
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sk_api_tokens")
     kind = models.CharField(max_length=16, choices=Kind.choices)

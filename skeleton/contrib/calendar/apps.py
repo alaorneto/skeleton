@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy
 class CalendarConfig(AppConfig):
     name = "skeleton.contrib.calendar"
     label = "skeleton_calendar"
-    verbose_name = "Agenda"
+    verbose_name = gettext_lazy("Agenda")
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
@@ -37,7 +37,7 @@ class CalendarConfig(AppConfig):
             TableSpec(
                 model=Event,
                 description=gettext_lazy("Eventos dos calendários; leitura e escrita derivadas do calendário."),
-                label="Eventos",
+                label=gettext_lazy("Eventos"),
                 scope="organization",
                 read_fields=(
                     "calendar",
@@ -63,7 +63,7 @@ class CalendarConfig(AppConfig):
             TableSpec(
                 model=EventAttendee,
                 description=gettext_lazy("Membros convidados para um evento e a resposta deles."),
-                label="Participantes",
+                label=gettext_lazy("Participantes"),
                 scope="organization",
                 read_fields=("event", "membership", "response", "optional"),
                 write_fields=(),
@@ -75,7 +75,7 @@ class CalendarConfig(AppConfig):
             TableSpec(
                 model=EventReminder,
                 description=gettext_lazy("Lembretes de evento em minutos antes de cada ocorrência."),
-                label="Lembretes",
+                label=gettext_lazy("Lembretes"),
                 scope="organization",
                 read_fields=("event", "minutes_before", "channel_hint"),
                 write_fields=(),

@@ -26,7 +26,7 @@ from skeleton.service_api import errors as service_errors
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.invitations import issue_invitation
-from skeleton.web.forms import ProfileForm, dedicated_form, explicit_form, record_form, wire_values
+from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
 from skeleton.web.presentation import (
     detail_sections,
     form_sections,
@@ -83,6 +83,15 @@ def record_breadcrumbs(spec, organization_id):
             "url": reverse("web:records", kwargs={"organization_id": organization_id, "table_key": key}),
         },
     ]
+
+
+def _display(value):
+    """Booleans read as Sim/Não on the screens; other values stay as they are."""
+    if value is True:
+        return gettext("Sim")
+    if value is False:
+        return gettext("Não")
+    return value
 
 
 def tenant_page(*, admin=False, capability=None):
@@ -341,7 +350,7 @@ def profile(request):
                 status = _service_form_error(form, exc)
         else:
             status = 400
-    return render(request, "account/profile.html", {"title": "Perfil", "form": form}, status=status)
+    return render(request, "account/profile.html", {"title": gettext("Perfil"), "form": form}, status=status)
 
 
 def access_capability(request, kwargs):
@@ -379,7 +388,7 @@ def access_list(request, organization_id, resource):
         {
             "sysid": item.sysid,
             "revision": item.revision,
-            "fields": [(model._meta.get_field(name).verbose_name, getattr(item, name)) for name in fields],
+            "fields": [(dedicated_label(model, name), _display(getattr(item, name))) for name in fields],
         }
         for item in rows
     ]
@@ -452,7 +461,7 @@ def access_edit(request, organization_id, resource, sysid=None):
     return render(
         request,
         "skeleton/web/form.html",
-        {"title": "Editar" if item else "Criar", "form": form, "organization_id": organization_id},
+        {"title": gettext("Editar") if item else gettext("Criar"), "form": form, "organization_id": organization_id},
         status=status,
     )
 
@@ -534,7 +543,9 @@ def audit(request, organization_id):
     )
     rows.object_list = [audit_data(event) for event in rows]
     return render(
-        request, "skeleton/web/audit.html", {"title": "Auditoria", "rows": rows, "organization_id": organization_id}
+        request,
+        "skeleton/web/audit.html",
+        {"title": gettext("Auditoria"), "rows": rows, "organization_id": organization_id},
     )
 
 
@@ -599,9 +610,9 @@ def record_detail(request, organization_id, table_key, sysid):
     except PermissionDenied:
         permissions["manage_access"] = False
     names = {
-        "update": ("web:record-edit", "Editar"),
-        "delete": ("web:record-delete", "Remover"),
-        "manage_access": ("web:record-access", "Gerenciar acesso"),
+        "update": ("web:record-edit", gettext("Editar")),
+        "delete": ("web:record-delete", gettext("Remover")),
+        "manage_access": ("web:record-access", gettext("Gerenciar acesso")),
     }
     actions = [
         {
@@ -707,10 +718,10 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
         "skeleton/web/form.html",
         {
             "title": {
-                "edit": "Editar" if item else "Criar",
-                "delete": "Remover",
-                "restore": "Restaurar",
-                "access": "Gerenciar acesso",
+                "edit": gettext("Editar") if item else gettext("Criar"),
+                "delete": gettext("Remover"),
+                "restore": gettext("Restaurar"),
+                "access": gettext("Gerenciar acesso"),
             }[operation],
             "form": form,
             "organization_id": organization_id,
@@ -719,14 +730,17 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
             "record": {"sysid": item.sysid} if item else None,
             "operation": operation,
             "submit_label": {
-                "edit": "Salvar",
-                "delete": "Remover",
-                "restore": "Restaurar",
+                "edit": gettext("Salvar"),
+                "delete": gettext("Remover"),
+                "restore": gettext("Restaurar"),
                 "access": gettext("Salvar acesso"),
             }[operation],
             "confirmation": (
                 gettext("Confirmar %(value1)s do registro %(pk)s.")
-                % {"value1": "remoção lógica" if operation == "delete" else "restauração", "pk": item.pk}
+                % {
+                    "value1": gettext("remoção lógica") if operation == "delete" else gettext("restauração"),
+                    "pk": item.pk,
+                }
                 if operation in {"delete", "restore"}
                 else None
             ),

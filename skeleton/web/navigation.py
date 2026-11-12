@@ -19,15 +19,19 @@ __all__ = ["ACCESS_SECTIONS", "organization_shell"]
 ACCESS_SECTIONS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
         "people",
-        "Pessoas",
-        (("memberships", "Membros"), ("invitations", "Convites"), ("member-roles", gettext_lazy("Papéis de membros"))),
+        gettext_lazy("Pessoas"),
+        (
+            ("memberships", gettext_lazy("Membros")),
+            ("invitations", gettext_lazy("Convites")),
+            ("member-roles", gettext_lazy("Papéis de membros")),
+        ),
     ),
     (
         "groups",
-        "Grupos",
+        gettext_lazy("Grupos"),
         (
-            ("groups", "Grupos"),
-            ("group-members", "Membros de grupos"),
+            ("groups", gettext_lazy("Grupos")),
+            ("group-members", gettext_lazy("Membros de grupos")),
             ("group-roles", gettext_lazy("Papéis de grupos")),
         ),
     ),

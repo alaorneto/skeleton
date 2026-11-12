@@ -6,8 +6,8 @@ from skeleton.api.serializers import dedicated_model
 
 
 class ProfileForm(forms.Form):
-    first_name = forms.CharField(max_length=150, required=False, label="Nome")
-    last_name = forms.CharField(max_length=150, required=False, label="Sobrenome")
+    first_name = forms.CharField(max_length=150, required=False, label=gettext_lazy("Nome"))
+    last_name = forms.CharField(max_length=150, required=False, label=gettext_lazy("Sobrenome"))
     display_name = forms.CharField(max_length=150, required=False, label=gettext_lazy("Nome de exibição"))
     timezone = forms.ChoiceField(
         label=gettext_lazy("Fuso horário"),
@@ -15,7 +15,7 @@ class ProfileForm(forms.Form):
         help_text=gettext_lazy("Em branco, vale o padrão da organização ou da instância."),
     )
     language = forms.ChoiceField(
-        label="Idioma",
+        label=gettext_lazy("Idioma"),
         required=False,
         help_text=gettext_lazy("Em branco, vale o padrão da organização ou da instância."),
     )
@@ -63,11 +63,36 @@ def explicit_form(model, names, *, user, data=None, instance=None, revision=Fals
     return form_class(data=data, initial=initial)
 
 
+# Labels of the fields of the access resources: the core models keep Django's default verbose
+# names, so the screens name them here, translatable (#174).
+DEDICATED_LABELS = {
+    "user": gettext_lazy("Pessoa"),
+    "is_active": gettext_lazy("Ativo"),
+    "code": gettext_lazy("Código"),
+    "name": gettext_lazy("Nome"),
+    "description": gettext_lazy("Descrição"),
+    "email": gettext_lazy("Email"),
+    "role": gettext_lazy("Papel"),
+    "membership": gettext_lazy("Vínculo"),
+    "group": gettext_lazy("Grupo"),
+    "table": gettext_lazy("Tabela"),
+    "action": gettext_lazy("Ação"),
+    "record_sysid": gettext_lazy("Registro"),
+}
+
+
+def dedicated_label(model, name):
+    return DEDICATED_LABELS.get(name) or model._meta.get_field(name).verbose_name
+
+
 def dedicated_form(resource, *, user, data=None, instance=None):
     model, fields = dedicated_model(resource)
     if resource == "memberships" and instance is not None:
         fields = ("is_active",)
-    return explicit_form(model, fields, user=user, data=data, instance=instance, revision=instance is not None)
+    form = explicit_form(model, fields, user=user, data=data, instance=instance, revision=instance is not None)
+    for name in fields:
+        form.fields[name].label = dedicated_label(model, name)
+    return form
 
 
 CHANGE_PREFIX = "__change_"
@@ -89,7 +114,7 @@ class RecordForm(forms.Form):
             control = CHANGE_PREFIX + name
             self.fields[control] = forms.BooleanField(
                 required=False,
-                label=f"Alterar {self.fields[name].label}",
+                label=gettext("Alterar %(label)s") % {"label": self.fields[name].label},
                 help_text=gettext("Desmarcado mantém o valor atual. Marque para substituir ou limpar."),
             )
             widget = self.fields[control].widget

@@ -69,13 +69,13 @@ def register_core_specs():
             (),
         ),
         "sk_tenancy.membership": (
-            "Membros",
+            gettext_lazy("Membros"),
             gettext_lazy("Vínculo de uma identidade a uma organização; sua remoção revoga acesso local."),
             "organization",
             (),
         ),
         "sk_tenancy.invitation": (
-            "Convites",
+            gettext_lazy("Convites"),
             gettext_lazy("Admissão de uso único, vinculada ao email, à organização e ao papel."),
             "organization",
             ("token_digest",),
@@ -99,13 +99,13 @@ def register_core_specs():
             (),
         ),
         "sk_access.accessgroup": (
-            "Grupos",
+            gettext_lazy("Grupos"),
             gettext_lazy("Agrupamento empresarial usado para visibilidade e atribuição de papéis."),
             "organization",
             (),
         ),
         "sk_access.groupmember": (
-            "Membros de grupos",
+            gettext_lazy("Membros de grupos"),
             gettext_lazy("Associação revogável de um membro a um grupo da mesma organização."),
             "organization",
             (),
@@ -159,7 +159,7 @@ def register_core_specs():
             (),
         ),
         "sk_system.componentinstallation": (
-            "Componentes instalados",
+            gettext_lazy("Componentes instalados"),
             gettext_lazy("Versão e procedência global do release confirmado."),
             "global",
             (),
@@ -171,7 +171,7 @@ def register_core_specs():
             ("plan", "result"),
         ),
         "sk_jobs.job": (
-            "Jobs",
+            gettext_lazy("Jobs"),
             gettext_lazy("Fila de trabalho em segundo plano; payload só com identificadores, sem dados de negócio."),
             "global",
             (),
@@ -221,31 +221,31 @@ def register_core_specs():
             ("endpoint", "endpoint_digest", "p256dh", "auth_secret"),
         ),
         "sk_files.attachment": (
-            "Anexos",
+            gettext_lazy("Anexos"),
             gettext_lazy("Metadados de arquivos anexados a registros; os bytes ficam no armazenamento privado."),
             "organization",
             ("storage_key",),
         ),
         "sk_files.storageusage": (
-            "Uso de armazenamento",
+            gettext_lazy("Uso de armazenamento"),
             gettext_lazy("Bytes dos anexos vivos de cada organização, contador da cota sob lock."),
             "organization",
             (),
         ),
         "sk_files.storagequota": (
-            "Cotas de armazenamento",
+            gettext_lazy("Cotas de armazenamento"),
             gettext_lazy("Cota de anexos definida pela plataforma para uma organização; sem ela vale o padrão."),
             "global",
             (),
         ),
         "sk_integrations.webhookendpoint": (
-            "Webhooks",
+            gettext_lazy("Webhooks"),
             gettext_lazy("URLs HTTPS que recebem eventos da organização, assinadas com segredo cifrado."),
             "organization",
             ("secret_ciphertext", "previous_secret_ciphertext"),
         ),
         "sk_integrations.apitoken": (
-            "Tokens de API",
+            gettext_lazy("Tokens de API"),
             gettext_lazy(
                 "Credenciais Bearer de /api/v1/ com prefixo, escopos e validade; só o digest do segredo é guardado."
             ),
@@ -259,7 +259,7 @@ def register_core_specs():
             (),
         ),
         "sk_integrations.webhookdelivery": (
-            "Entregas de webhook",
+            gettext_lazy("Entregas de webhook"),
             gettext_lazy("Corpo fixo com identificadores, tentativas e último resultado de cada evento por endpoint."),
             "organization",
             (),
@@ -277,7 +277,7 @@ def register_core_specs():
             (),
         ),
         "sk_audit.auditevent": (
-            "Auditoria",
+            gettext_lazy("Auditoria"),
             gettext_lazy("Histórico transacional imutável de alterações, com dados sensíveis redigidos."),
             "global",
             (),

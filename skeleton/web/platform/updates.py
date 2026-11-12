@@ -50,8 +50,8 @@ __all__ = [
 STEPS = (
     ("installed", gettext_lazy("Versões instaladas"), "platform:updates"),
     ("available", gettext_lazy("Novas versões"), "platform:updates-available"),
-    ("upload", "Enviar pacote", "platform:updates-upload"),
-    ("plan", "Preparar plano", "platform:updates-plan"),
+    ("upload", gettext_lazy("Enviar pacote"), "platform:updates-upload"),
+    ("plan", gettext_lazy("Preparar plano"), "platform:updates-plan"),
     ("operations", gettext_lazy("Operações"), "platform:updates-operations"),
 )
 
@@ -69,8 +69,8 @@ class PlanForm(forms.Form):
     action = forms.ChoiceField(
         label=gettext_lazy("Operação"),
         choices=(
-            ("install", "Instalar"),
-            ("update", "Atualizar"),
+            ("install", gettext_lazy("Instalar")),
+            ("update", gettext_lazy("Atualizar")),
             ("uninstall", gettext_lazy("Desinstalar código")),
             ("reinstall", gettext_lazy("Reinstalar código")),
             ("core_update", gettext_lazy("Atualizar núcleo")),

@@ -98,10 +98,10 @@ class ComponentInstallation(SystemRecord):
     state = models.CharField(
         max_length=24,
         choices=(
-            ("installed", "Instalado"),
-            ("project-local", "Local"),
+            ("installed", gettext_lazy("Instalado")),
+            ("project-local", gettext_lazy("Local")),
             ("bundled", "First-party"),
-            ("schema_retained", "Dados preservados"),
+            ("schema_retained", gettext_lazy("Dados preservados")),
         ),
     )
     inventory_reference = models.CharField(max_length=200, blank=True)

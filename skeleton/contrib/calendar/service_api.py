@@ -226,7 +226,7 @@ def event_info(actor: Any, event: Any) -> EventInfo:
     return EventInfo(
         sysid=event.pk,
         calendar_id=event.calendar_id,
-        title=event.title if details else BUSY_TITLE,
+        title=event.title if details else str(BUSY_TITLE),
         description=event.description if details else "",
         location=event.location if details else "",
         busy_only=not details,
@@ -322,7 +322,7 @@ def occurrences_in(actor: Any, events: Any, start: datetime, end: datetime) -> l
                     event_id=event.pk,
                     calendar_id=event.calendar_id,
                     recurrence_id=occurrence.recurrence_id,
-                    title=target.title if details else "Ocupado",
+                    title=target.title if details else gettext("Ocupado"),
                     busy_only=not details,
                     all_day=target.all_day,
                     starts_at=occurrence.starts_at,

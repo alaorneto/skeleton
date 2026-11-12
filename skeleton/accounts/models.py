@@ -15,7 +15,7 @@ from .managers import UserManager
 
 
 class AccountType(models.TextChoices):
-    HUMAN = "human", "Pessoa"
+    HUMAN = "human", gettext_lazy("Pessoa")
     SERVICE = "service", gettext_lazy("Conta de serviço")
 
 

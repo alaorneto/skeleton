@@ -29,7 +29,7 @@ MASK = "••••••••"
 
 class SettingForm(forms.Form):
     key = forms.ChoiceField(choices=[(key, key) for key in CATALOG])
-    action = forms.ChoiceField(choices=(("set", "Gravar"), ("clear", gettext_lazy("Voltar ao padrão"))))
+    action = forms.ChoiceField(choices=(("set", gettext_lazy("Gravar")), ("clear", gettext_lazy("Voltar ao padrão"))))
     value = forms.CharField(required=False, max_length=2000, strip=False)
 
 

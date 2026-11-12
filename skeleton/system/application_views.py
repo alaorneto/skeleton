@@ -130,7 +130,7 @@ def application_configuration(request, organization_id, app_label):
     manifest = _manifest(app_label)
     state = application_state(app_label)
     fields = {
-        "enabled": forms.BooleanField(required=False, label="Aplicativo ativo"),
+        "enabled": forms.BooleanField(required=False, label=gettext("Aplicativo ativo")),
         "revision": forms.IntegerField(min_value=0, widget=forms.HiddenInput),
     }
     for field in manifest.configuration_fields:

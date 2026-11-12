@@ -50,7 +50,7 @@ def list_fields(spec):
 
 def _field_label(spec, name):
     if name == "__label__":
-        return "Registro"
+        return gettext("Registro")
     for section in get_model_ui(spec.model._meta.label_lower).form.sections:
         for field in section.fields:
             if field.name == name and field.label is not None:
@@ -67,7 +67,7 @@ def _value(field, value):
         label = dict(field.flatchoices).get(value, value)
         return str(label)
     if isinstance(value, bool):
-        return "Sim" if value else gettext("Não")
+        return gettext("Sim") if value else gettext("Não")
     if isinstance(value, datetime):
         value = timezone.localtime(value) if timezone.is_aware(value) else value
         return formats.date_format(value, "DATETIME_FORMAT")
@@ -196,7 +196,9 @@ def form_sections(form, spec, *, instance=None, user, operation="edit"):
                 )
             fields.append(entry)
         return {
-            "sections": [{"id": "access", "label": "Gerenciar acesso", "columns": 1, "tab_id": None, "fields": fields}],
+            "sections": [
+                {"id": "access", "label": gettext("Gerenciar acesso"), "columns": 1, "tab_id": None, "fields": fields}
+            ],
             "tabs": [],
             "active_tab": None,
         }
@@ -307,7 +309,7 @@ def detail_sections(record, spec, *, user):
         sections.append(
             {
                 "id": "system-details",
-                "label": "Outros dados",
+                "label": gettext("Outros dados"),
                 "columns": 2,
                 "tab_id": None,
                 "fields": [

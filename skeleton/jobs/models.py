@@ -13,12 +13,12 @@ class Job(OperationalRecord):
     """
 
     class State(models.TextChoices):
-        QUEUED = "queued", "Na fila"
-        RUNNING = "running", "Executando"
+        QUEUED = "queued", gettext_lazy("Na fila")
+        RUNNING = "running", gettext_lazy("Executando")
         SUCCEEDED = "succeeded", gettext_lazy("Concluído")
-        FAILED = "failed", "Falhou"
-        DEAD = "dead", "Esgotado"
-        CANCELLED = "cancelled", "Cancelado"
+        FAILED = "failed", gettext_lazy("Falhou")
+        DEAD = "dead", gettext_lazy("Esgotado")
+        CANCELLED = "cancelled", gettext_lazy("Cancelado")
 
     job_type = models.CharField(max_length=100)
     queue = models.CharField(max_length=64, default="default")

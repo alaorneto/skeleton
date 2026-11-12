@@ -11,7 +11,7 @@ from django import forms
 from django.apps import apps
 from django.contrib import messages
 from django.shortcuts import redirect, render
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
@@ -24,13 +24,13 @@ from .guards import platform_page
 
 
 class JobFilterForm(forms.Form):
-    state = forms.ChoiceField(required=False, choices=(("", "Todos"), *Job.State.choices))
+    state = forms.ChoiceField(required=False, choices=(("", gettext_lazy("Todos")), *Job.State.choices))
     queue = forms.RegexField(required=False, max_length=64, regex=r"^[A-Za-z0-9_.:-]*$")
     job_type = forms.RegexField(required=False, max_length=100, regex=r"^[A-Za-z0-9_.:-]*$")
 
 
 class JobActionForm(forms.Form):
-    action = forms.ChoiceField(choices=(("resend", "Reenviar"), ("discard", "Descartar")))
+    action = forms.ChoiceField(choices=(("resend", gettext_lazy("Reenviar")), ("discard", gettext_lazy("Descartar"))))
     expected_updated_at = forms.DateTimeField()
 
 
