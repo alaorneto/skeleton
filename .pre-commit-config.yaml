@@ -20,9 +20,9 @@ repos:
       - id: detect-private-key
   - repo: local
     hooks:
-      # Todo commit referencia uma issue (Refs #N); docs/workflow.md.
+      # Todo commit referencia uma issue (Refs #N); skill dev-workflow e docs/workflow.md.
       - id: issue-reference
         name: referência a issue do GitHub
-        entry: python tools/workflow/github_issues.py commit-msg
+        entry: python .claude/skills/dev-workflow/scripts/github_issues.py commit-msg
         language: python
         stages: [commit-msg]
