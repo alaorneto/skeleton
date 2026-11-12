@@ -269,3 +269,52 @@ def test_sidebar_shows_only_sections_of_the_capability(org):
     assert reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "memberships"}) in page
     assert reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"}) not in page
     assert reverse("application-list", kwargs={"organization_id": organization.pk}) not in page
+
+
+def test_custom_role_cannot_take_a_reserved_code(skeleton_db):
+    from django.core.exceptions import ValidationError
+
+    from skeleton.access.models import Role
+    from skeleton.access.services import create_role, update_role
+    from tools.security_fixtures import actor_tenant, build_security_fixture
+
+    fixture = build_security_fixture()
+    with actor_tenant(fixture.admin, fixture.a):
+        custom = create_role(user=fixture.admin, data={"code": "auditors", "name": "Auditors", "description": ""})
+        for code in ("app_manager", "organization_admin", "member"):
+            with pytest.raises(ValidationError, match="reservado"):
+                update_role(Role.objects.get(pk=custom.pk), user=fixture.admin, data={"code": code})
+        assert Role.objects.get(pk=custom.pk).code == "auditors"
+        renamed = update_role(Role.objects.get(pk=custom.pk), user=fixture.admin, data={"code": "reviewers"})
+        assert renamed.code == "reviewers"
+        builtin = Role.objects.get(code="member")
+        assert update_role(builtin, user=fixture.admin, data={"name": "Members"}).name == "Members"
+
+
+def test_generic_services_refuse_records_of_another_kind(skeleton_db):
+    from skeleton.access.models import AccessGroup, MemberRole, Role
+    from skeleton.access.services import delete_group, delete_role, revoke_link, update_group, update_role
+    from skeleton.tenancy.models import Membership
+    from tools.security_fixtures import actor_tenant, build_security_fixture
+
+    fixture = build_security_fixture()
+    with actor_tenant(fixture.admin, fixture.a):
+        membership = Membership.objects.get(pk=fixture.bob_membership.pk)
+        group = AccessGroup.objects.get(pk=fixture.group.pk)
+        role = Role.objects.get(code="member")
+        calls = [
+            lambda: revoke_link(membership, user=fixture.admin),
+            lambda: delete_role(group, user=fixture.admin),
+            lambda: delete_group(role, user=fixture.admin),
+            lambda: update_role(group, user=fixture.admin, data={"name": "x"}),
+            lambda: update_group(role, user=fixture.admin, data={"name": "x"}),
+        ]
+        for call in calls:
+            with pytest.raises(TypeError):
+                call()
+        assert Membership.objects.get(pk=membership.pk).is_active
+        assert AccessGroup.objects.get(pk=group.pk).name == group.name
+        assert Role.objects.get(pk=role.pk).name == role.name
+        link = MemberRole.objects.filter(membership=membership).first()
+        revoke_link(link, user=fixture.admin)
+        assert not MemberRole.objects.filter(pk=link.pk).exists()
