@@ -36,7 +36,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
-- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos e arquivos; epic #113).
+- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos, arquivos, sequências e fluxos de processo; epics #113 e #209).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
 - `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
