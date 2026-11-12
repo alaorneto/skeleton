@@ -265,6 +265,29 @@ def delete_membership(record, *, user):
         ensure_last_admin()
 
 
+def system_deactivate_membership(record):
+    """Deactivate like an administrator would, from a validated system context (directory sync, #33).
+
+    Revokes ``MemberRole``/``GroupMember``/``RecordGrant`` of the membership, keeps it (inactive,
+    with its history) and ends with ``ensure_last_admin()``, which raises ``LastAdministrator``
+    and lets the caller's savepoint roll this one membership back. Never reactivates anyone.
+    """
+    context = current_context()
+    if not context.system or record.organization_id != context.organization_id:
+        raise PermissionDenied("Directory deactivation requires the organization's system context.")
+    from skeleton.events.core_events import membership_changed
+
+    with organization_lock():
+        if record.deleted_at is not None or not record.is_active:
+            return record
+        _revoke_membership_links(record)
+        record.is_active = False
+        record.save(update_fields={"is_active"})
+        membership_changed(record, was_active=True)
+        ensure_last_admin()
+        return record
+
+
 def leave_organization(user, *, expected_revision=None):
     """The actor leaves the current organization; anyone may, except its last administrator.
 
