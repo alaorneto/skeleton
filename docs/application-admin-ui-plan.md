@@ -35,7 +35,7 @@ O grupo da plataforma contém visão geral, versão/origem/compatibilidade, sele
 
 A configuração tenant continua em `AppInstallation`, com revisão virtual 0 para a primeira escrita. Campos escalarmente declarados recebem rótulo, help text e seção opcionais. A gravação usa o mesmo `configure_application`, bloqueia a organização antes de avaliar revisão/dependências e não sobrescreve valores persistidos por causa de uma mudança visual.
 
-Configuração e parâmetros tenant exigem `organization_admin`; usuário com leitura de negócio usa o catálogo/viewer, não o painel de parâmetros. Telas de configuração permanecem acessíveis quando a app está desativada. Rotas próprias de negócio/API, listas, formulários e policies continuam bloqueadas pela ativação.
+Configuração e parâmetros tenant exigem a capacidade `apps.manage` (gestor de apps ou administrador; #24); sem ela, o painel responde 404. Usuário com leitura de negócio usa o catálogo/viewer, não o painel de parâmetros. O painel mostra só as apps que a plataforma disponibilizou para a organização e sinaliza as ativas que ela retirou ("Indisponibilizada pela plataforma"), que só podem ser desativadas. Telas de configuração permanecem acessíveis quando a app está desativada. Rotas próprias de negócio/API, listas, formulários e policies continuam bloqueadas pela ativação.
 
 Configuração global não é inferida a partir da configuração tenant. Uma app que precisa de parâmetros globais registra uma tela própria e usa seu modelo/serviço global específico. Segredos pertencem ao deployment privado, nunca ao JSON organizacional.
 
@@ -63,7 +63,7 @@ Configuração global não é inferida a partir da configuração tenant. Uma ap
 | `kind` | `configuration` ou `custom` de parâmetros |
 | `url_name` | Somente custom tenant, resolvível no namespace da própria app |
 | `handler_id` | Somente custom plataforma, callable registrado pelo código da app |
-| `organization_admin_only` | Obrigatório true para custom tenant |
+| `organization_admin_only` | Obrigatório true para custom tenant; o nome é histórico, a tela exige `apps.manage` |
 | `sensitive` | Exige reautenticação recente na tela global |
 
 Handlers recebem a request já protegida; não recebem permissão universal nem imports definidos pelo cliente. Seus módulos pertencem à app e IDs não colidem. Código assinado é confiável para execução, **não** sandbox: telas próprias têm contrato de parâmetros e não devem implementar um viewer disfarçado.

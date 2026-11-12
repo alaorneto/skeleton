@@ -163,33 +163,44 @@ def _state(app_label: str) -> ApplicationState:
 
 
 def _require_administrator(actor: Any) -> None:
-    from skeleton.access.capabilities import require_admin_surface
+    """The app manager (``apps.manage``) or the administrator; everyone else sees NotFound (#24)."""
+    from skeleton.access.capabilities import APPS_MANAGE, capabilities_for
 
-    require_admin_surface(actor)
+    if APPS_MANAGE not in capabilities_for(_user(actor)):
+        raise NotFoundError()
+
+
+def _visible(state: ApplicationState) -> bool:
+    """Available apps, and enabled ones the platform withdrew (the organization may still close them)."""
+    return state.available or state.enabled
 
 
 class ApplicationAdministrationService(ServiceAPI):
-    """Activation and configuration of apps by the organization administrator (surfaces of /o/<org>/apps/)."""
+    """Activation and configuration of apps by the app manager (surfaces of /o/<org>/apps/)."""
 
     @service_method(read_only=True, since="0.5.0")
     def applications(self, *, actor: AbstractBaseUser) -> tuple[ApplicationState, ...]:
-        """Every installed app with its availability, activation and configuration.
+        """The apps the organization can choose from, with availability, activation and configuration.
 
-        Autorização: administrador da organização.
-        Erros: NotFound para quem tem outra capacidade delegada; Forbidden para os demais.
+        Lista as apps disponíveis para a organização e as ativas que a plataforma retirou
+        (``available=False``, para que possam ser desativadas); as demais não aparecem.
+        Autorização: capacidade ``apps.manage`` (gestor de apps ou administrador).
+        Erros: NotFound para quem não tem ``apps.manage``.
         Efeitos: nenhum.
         """
         from skeleton.system.app_registry import all_apps
 
         _require_administrator(actor)
-        return tuple(_state(manifest.app_label) for manifest in all_apps())
+        states = (_state(manifest.app_label) for manifest in all_apps())
+        return tuple(state for state in states if _visible(state))
 
     @service_method(read_only=True, since="0.5.0")
     def application(self, *, actor: AbstractBaseUser, app_label: str) -> ApplicationState:
-        """One installed app.
+        """One app the organization can choose.
 
-        Autorização: administrador da organização.
-        Erros: NotFound para app não instalada; Forbidden/NotFound como em ``applications``.
+        Autorização: capacidade ``apps.manage``.
+        Erros: NotFound para app não instalada ou indisponível (e não ativa) e para quem não
+        tem ``apps.manage``.
         Efeitos: nenhum.
         """
         from skeleton.system.app_registry import get_app
@@ -199,7 +210,10 @@ class ApplicationAdministrationService(ServiceAPI):
             get_app(app_label)
         except KeyError:
             raise NotFoundError() from None
-        return _state(app_label)
+        state = _state(app_label)
+        if not _visible(state):
+            raise NotFoundError()
+        return state
 
     @service_method(read_only=False, since="0.5.0")
     def configure(
@@ -213,7 +227,8 @@ class ApplicationAdministrationService(ServiceAPI):
     ) -> ApplicationState:
         """Enable, disable or configure an app in the organization with CAS (virtual revision 0).
 
-        Autorização: administrador da organização; a app precisa estar disponível para ativar.
+        Autorização: capacidade ``apps.manage``; a app precisa estar disponível para ativar ou
+        configurar (indisponível, só a desativação de uma app ativa é aceita).
         Erros: NotFound para app não instalada; InvalidInput para configuração, dependência ou
         app indisponível (``app_unavailable``); Conflict("stale_revision").
         Efeitos: grava ``AppInstallation`` (auditado) na transação do chamador.
@@ -226,6 +241,9 @@ class ApplicationAdministrationService(ServiceAPI):
             get_app(app_label)
         except KeyError:
             raise NotFoundError() from None
+        current = _state(app_label)
+        if not current.available and (enabled is not False or not current.enabled):
+            raise InvalidInput({"enabled": ["Aplicativo indisponível para esta organização."]})
         values = dict(configuration) if isinstance(configuration, tuple) else configuration
         configure_application(app_label, user=actor, enabled=enabled, configuration=values, revision=expected_revision)
         return _state(app_label)

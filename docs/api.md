@@ -27,7 +27,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `.../records/<sysid>/access/` | GET, PATCH | Manage_access + ownership/org admin; If-Match no PATCH |
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
-| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Org admin; app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial |
+| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa |
 
 `org`, `sysid` e IDs de relações são UUIDs. Primeiro escolha uma organização devolvida por `organizations/` e use seu UUID em `o/<org>/`; não envie a organização ou o ator no corpo para tentar mudar o contexto. `table_key` é o identificador registrado do modelo (`label_lower`), por exemplo `example_notes.note`, e nunca um nome SQL. O registry, a lista explícita de modelos permitidos no código, é a única fonte dessa resolução. Modelos não expostos ou técnicos não entram no gateway.
 

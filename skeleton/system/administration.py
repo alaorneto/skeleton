@@ -4,7 +4,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.urls import resolve, reverse
 
-from skeleton.access.services import require_organization_admin
+from skeleton.access.capabilities import APPS_MANAGE, require_capability
 from skeleton.tenancy.context import current_context
 
 from .app_registry import get_app
@@ -43,7 +43,8 @@ def resolve_application_screen(app_label, screen_id, *, user, scope):
 
         require_platform(user)
     else:
-        require_organization_admin(user)
+        # Tenant parameter screens (organization_admin_only in the manifest) need apps.manage (#24).
+        require_capability(user, APPS_MANAGE)
     return manifest, screen
 
 

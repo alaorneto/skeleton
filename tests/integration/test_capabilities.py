@@ -157,7 +157,7 @@ def test_role_by_resource_matrix_in_html_and_api(org):
             expected = 200 if resource in allowed[code] else 404
             assert (code, resource, html, api) == (code, resource, expected, expected)
         apps_html = client.get(reverse("application-list", kwargs={"organization_id": organization.pk})).status_code
-        assert apps_html == (200 if code == "organization_admin" else 404)
+        assert apps_html == (200 if code in {"organization_admin", "app_manager"} else 404)
     # Someone without any capability keeps the historical 403 of admin-only pages.
     client = login(plain)
     kwargs = {"organization_id": organization.pk, "resource": "memberships"}

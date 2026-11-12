@@ -224,9 +224,13 @@ def test_table_read_permission_does_not_grant_parameter_panel(actor, app_screens
     _, organization, _ = actor
     _, client = member_actor
     base = f"/o/{organization.pk}/apps/example_notes/"
-    assert client.get(base + "admin/").status_code == 403
-    assert client.get(base + "admin/screens/configuration/").status_code == 403
-    assert client.get(base + "configuration/").status_code == 403
+    # The parameter panel exists only for apps.manage: a member gets 404 (#24).
+    assert client.get(base + "admin/").status_code == 404
+    assert client.get(base + "admin/screens/configuration/").status_code == 404
+    assert client.get(base + "configuration/").status_code == 404
+    assert client.get(f"/o/{organization.pk}/apps/").status_code == 404
+    assert client.get(f"/api/v1/o/{organization.pk}/apps/").status_code == 404
+    assert client.get(f"/api/v1/o/{organization.pk}/apps/example_notes/configuration/").status_code == 404
     assert client.get(base).status_code == 200
     assert client.get(f"/o/{organization.pk}/catalog/").status_code == 200
     assert client.get(f"/o/{organization.pk}/tables/example_notes.note/").status_code == 200
