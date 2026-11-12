@@ -92,5 +92,6 @@ Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesm
 - Auditoria create/save/queryset/bulk/SQL/delete/restore correta, segredos redigidos, rollback/savepoint sem eventos residuais.
 - Soft delete/restore/conflito/referências preservam IDs e dados.
 - PostgreSQL com **role runtime** (toda a suíte; `tools/dev_postgres.py` localmente), sem usar owner para provar RLS; o owner só migra ou monta DDL de fixture. Fixtures protegidas, sem flush/TRUNCATE de tabelas próprias.
+- Testes novos seguem [Escrever testes que mantêm a suíte rápida](docs/testing.md#escrever-testes-que-mantêm-a-suíte-rápida). Banco só quando a prova depende dele; casos de leitura dividem um preparo (`subtests`). Nada de porta fixa, arquivo fora de `tmp_path`, `sleep` de espera, estado global sem restauração ou dependência de ordem: a suíte roda em paralelo (`-n`). Tempo não se ganha pulando teste nem trocando o PostgreSQL com a role runtime.
 
 Atualize documentação afetada. Registre somente testes realmente executados; serviços indisponíveis são bloqueios de verificação, nunca aprovação por inferência.

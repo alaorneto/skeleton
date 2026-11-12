@@ -260,6 +260,8 @@ Antes de iniciar os workers, a suíte confere duas coisas: se o owner abre o ban
 
 **Template em cache entre execuções.** Migrar custa de 4 a 8 s por processo. Quando nada que molda o schema mudou desde a execução anterior, o template guardado em `var/test-template-cache` é restaurado sem migrar (ver [Isolamento da suíte](#isolamento-da-suíte)). Editar só testes mantém o cache; editar código do núcleo, de uma app, os settings ou trocar de servidor faz a próxima execução migrar de novo. `SKELETON_TEST_TEMPLATE_CACHE=0` desliga o cache (para depurar migrations); outro valor muda o diretório.
 
+Para escrever um teste novo sem aumentar o tempo da suíte nem quebrar a execução paralela, veja [Escrever testes que mantêm a suíte rápida](#escrever-testes-que-mantêm-a-suíte-rápida).
+
 `--shard I/N` (`tools/suite_shards.py`) roda só uma fatia dos arquivos de teste. Serve ao CI; localmente, `-n` basta.
 
 Os tempos medidos estão em [Suíte de testes em menos de 10 minutos](#suíte-de-testes-em-menos-de-10-minutos-epic-199).
@@ -987,6 +989,68 @@ Preparador busca discovery/metadata/cert **públicos** nos realms iniciados; ger
 Browser completa redirect/login IdP/callback real e consulta API pela sessão final: org correta, ausência staff/superuser, rerun sem duplicar User/Profile/Membership. Testes negativos manipulam intercâmbios reais da fixture, não substituem o validador: state/replay/issuer/audience/signature/expiry/PKCE OIDC; assinatura/destination/audience/expiry/InResponseTo/unsolicited/replay SAML. Coincidência email não conecta; sem binding/JIT ou email não confiável não concede afiliação. GitHub exige app OAuth/credenciais reais/callback documentado, senão registre não exercitado.
 
 **Resultado esperado:** login retorna à aplicação, cria/reusa a identidade correta e os casos adversos são recusados sem conceder vínculo indevido. **Falha/limite:** serviço ou secret ausente é pré-requisito pendente, não teste aprovado; esta fixture corporativa não habilita GitHub real nem homologação gov.br.
+
+## Escrever testes que mantêm a suíte rápida
+
+O tempo da suíte é quase todo preparo, não teste. Na linha de base do epic [#199](https://github.com/alaorneto/skeleton/issues/199), 1320 s eram `setup` e 246 s eram as funções de teste: cada teste que pede `skeleton_db` recria o schema inteiro antes de rodar. Um teste novo custa principalmente o que ele pede para ser preparado. Custos medidos em 2026-11-12 (Windows 11, em série, PostgreSQL local de `tools/dev_postgres.py`):
+
+| Peça | Custo por teste |
+|---|---|
+| Teste sem banco (`tests/unit`) | milissegundos |
+| `skeleton_db` (restaurar o schema e abrir as apps) | 0,8 a 1,1 s |
+| `build_security_fixture()` (quatro identidades, duas organizações, papéis, catálogo e notas) | 0,47 s |
+| Uma identidade por `create_identity()` | 0,014 s |
+| Subprocesso `python` com `django.setup()` | 2 s |
+| `call_command("migrate")` dentro de um teste | 4 a 8 s |
+
+### Custo
+
+1. **Banco só quando a prova depende dele.** Lógica pura (validação, parsing, formatação, cálculo, montagem de mensagem ou de payload) vai para `tests/unit`, sem `skeleton_db`. O que depende de RLS, triggers, auditoria, CAS, isolamento A/B ou da role runtime continua em PostgreSQL com a role runtime. Não troque essa prova por mock do ORM, SQLite ou owner para ganhar tempo: o [checklist do `AGENTS.md`](../AGENTS.md#checklist-mínimo-de-nova-tabela) continua valendo.
+2. **Um preparo, vários casos de leitura.** Com `skeleton_db`, cada caso de `@pytest.mark.parametrize` paga a restauração do schema. Quando os casos só leem o mesmo cenário, escreva um teste com o fixture `subtests` do pytest 9: o preparo roda uma vez e cada caso aparece no relatório com o próprio nome, também com `-n`. Exemplos de casos só de leitura: a matriz de atores e ações de um default deny, as rotas que devem responder 404 para outra organização, os campos que não podem aparecer numa resposta. Continue com `parametrize`, ou com testes separados, quando um caso escreve e o seguinte precisa do banco intacto.
+
+   ```python
+   def test_outra_organizacao_recebe_404_em_todas_as_rotas(skeleton_db, client, subtests):
+       cenario = build_security_fixture()  # pago uma vez
+       client.force_login(cenario.outsider)
+       for rota in (f"/o/{cenario.a.pk}/", f"/o/{cenario.a.pk}/audit/", f"/api/v1/o/{cenario.a.pk}/catalog/"):
+           with subtests.test(rota=rota):
+               assert client.get(rota).status_code == 404
+   ```
+
+3. **Cenário mínimo.** Monte só o que as assertions usam. Para um teste de um ator numa organização, `create_identity()` e `create_organization()` bastam. `build_security_fixture()` é para a matriz A/B completa, e o kit da API de serviços tem `build_service_scenario()`. Não crie fixture de escopo `session` ou `module` com linhas no banco: o schema é recriado a cada teste, e compartilhar dados entre testes é exatamente o que o [isolamento da suíte](#isolamento-da-suíte) proíbe.
+4. **Não migre dentro de um teste.** O template já entrega o schema migrado. Para DDL de prova use o fixture `owner_schema_editor`. A migração real é testada onde ela é o assunto (`tests/integration/test_scaffold_end_to_end.py`, `tools/smoke_postgres.py`), e `SKELETON_TEST_POSTGRES_TEMPLATE=0` serve para depurar migrations.
+5. **Subprocesso só quando o processo novo é a prova.** Exemplos: importações num processo limpo (`test_observability_optional.py`) ou um comando de ponta a ponta. Para chamar um comando do Django no mesmo processo, use `call_command`.
+6. **Nada de esperar o relógio.**
+   - Tempo que passa: passe `now=` aos serviços que aceitam, ou substitua o `timezone` do módulo com `monkeypatch` (`test_api_tokens.py`, `test_ics_feed.py`).
+   - Retentativa e backoff: injete a agenda ou o relógio em vez de dormir.
+   - Outro thread ou outra transação: sincronize com `threading.Barrier` ou `Event` com timeout (`test_jobs_worker.py`, `test_admin_concurrency.py`). Espere o evento que prova o estado (o lock tomado), não um intervalo fixo.
+7. **Senha de fixture.** O perfil de teste já usa PBKDF2 com 1.000 iterações (`skeleton.testing.hashers`). Não restaure o hasher de produção, a não ser num teste do próprio hashing.
+8. **Sem rede externa.** Use servidores locais em `127.0.0.1` e transportes falsos (`test_outbound_http.py`, `test_webhook_delivery.py`, `test_file_scanning.py`).
+
+### Execução paralela
+
+Com `-n`, cada worker é um processo com um banco só seu, e os testes de um mesmo arquivo podem cair em workers diferentes, em qualquer ordem. Um teste novo precisa passar nessas condições:
+
+- **Porta 0, nunca fixa:** `ThreadingHTTPServer(("127.0.0.1", 0), Handler)`, com a porta lida de `server.server_address[1]`. A única porta fixa hoje é a 8000 de `test_rd09_rendered_web_health_uses_permitted_production_host`, porque o healthcheck renderizado do Compose aponta para ela. Não crie outra.
+- **Arquivos em `tmp_path` ou `tmp_path_factory`,** nunca num caminho fixo do repositório, do usuário ou do sistema.
+- **Estado global restaurado no fim:** `monkeypatch`, `override_settings`, `try/finally` ao mexer em registros (eventos, jobs, apps) e signals conectados com `dispatch_uid` e desconectados no fim.
+- **Nenhuma dependência de ordem:** um teste não supõe que outro rodou antes nem depois dele.
+- **Banco pelas variáveis, nunca pelo nome:** use `disposable_database_pair()` ou `TEST_DATABASE_URL` e `TEST_MIGRATION_DATABASE_URL`. Dentro de um worker, elas já apontam para o banco dele, inclusive nos subprocessos.
+- **Rode `-n auto` antes do PR:** um teste que só passa em série compartilha estado e precisa ser corrigido. Não o marque nem o rode à parte.
+
+### Medir
+
+- **Arquivo novo:** `python -m pytest tests/<caminho>/test_novo.py -q --durations=10`. Um `call` acima de 1 s, ou um `setup` acima de 2 s, pede uma linha no PR dizendo o que está sendo provado e por que não ficou mais barato. Hoje passam disso o scaffold de ponta a ponta (cerca de 30 s) e os testes de concorrência do PostgreSQL (2 a 3 s cada).
+- **Suíte inteira:** `python -m pytest tests -q -n auto --durations=25` lista os mais lentos.
+- **CI:** quando o maior job de teste passar de 8 minutos, aumente o número de fatias do núcleo em vez de cortar testes. São os itens `--shard I/N` da matriz em `.github/workflows/ci.yml`, um por fatia, todos com o mesmo `N`. Arquivos e pacotes novos entram numa fatia sozinhos.
+
+### O que não fazer para ganhar tempo
+
+Nenhum destes é otimização aceita:
+- apagar, pular, ou marcar um teste como lento ou `xfail` para tirá-lo do caminho obrigatório;
+- trocar a prova em PostgreSQL com a role runtime por SQLite, mock do ORM ou conexão do owner;
+- usar `--reuse-db`, flush, `TRUNCATE` ou uma transação revertida no lugar do schema recriado;
+- reexecutar um teste instável até ele passar, em vez de corrigir a causa.
 
 ## Matrix mínima para nova tabela
 
