@@ -99,11 +99,32 @@ def _resolve_secrets(value):
     return result
 
 
-def load_provider_config(path=None, *, debug=False):
+_ENTRY_FIELDS = {
+    "protocol",
+    "provider_id",
+    "organization_slug",
+    "jit_provisioning",
+    "default_role_code",
+    "trust_verified_email",
+    "app",
+    "environment",
+    "post_logout_redirect_uri",
+}
+_APP_FIELDS = {"name", "client_id", "secret_env", "settings"}
+_PROTOCOL_OPTIONS = {
+    "oidc": {"server_url", "uid_field", "oauth_pkce_enabled", "token_auth_method"},
+    "govbr": set(),
+    "saml": {"idp", "sp", "advanced", "attribute_mapping", "uid_field"},
+    "github": set(),
+}
+_ALLAUTH_PROVIDER = {"oidc": "openid_connect", "govbr": "openid_connect", "saml": "saml", "github": "github"}
+
+
+def _base_providers():
     # allauth caches provider classes when its registry first loads, even if
     # there are no configured apps yet. Security extensions must be installed
     # independently of credentials and the set of configured identities.
-    providers = {
+    return {
         identifier: {
             "APPS": [],
             "provider_class": "skeleton.accounts.social_providers." + name,
@@ -114,152 +135,198 @@ def load_provider_config(path=None, *, debug=False):
             ("github", "MinimalGitHubProvider"),
         )
     }
-    path = path or os.environ.get("SSO_PROVIDER_CONFIG_PATH")
-    if not path:
-        return ProviderConfiguration(providers, ())
+
+
+def _read_entries(path):
     try:
         document = json.loads(Path(path).read_text())
     except (OSError, ValueError) as exc:
         raise ImproperlyConfigured("Unable to read private SSO provider configuration.") from exc
     if not isinstance(document, dict) or set(document) != {"providers"} or not isinstance(document["providers"], list):
         raise ImproperlyConfigured("SSO configuration requires a providers list.")
-    bindings, ids = [], set()
-    allowed = {
-        "protocol",
-        "provider_id",
-        "organization_slug",
-        "jit_provisioning",
-        "default_role_code",
-        "trust_verified_email",
-        "app",
-        "environment",
-        "post_logout_redirect_uri",
-    }
-    for entry in document["providers"]:
-        if not isinstance(entry, dict) or set(entry) - allowed:
-            raise ImproperlyConfigured("Unknown provider configuration fields.")
-        protocol, provider_id = entry.get("protocol"), entry.get("provider_id")
-        if (
-            protocol not in {"oidc", "govbr", "saml", "github"}
-            or not isinstance(provider_id, str)
-            or not provider_id
-            or provider_id in ids
-        ):
-            raise ImproperlyConfigured("Provider protocol and unique nonempty provider_id are required.")
-        if not all(character.isalnum() or character in "-_" for character in provider_id):
-            raise ImproperlyConfigured("Provider ID must be URL-safe.")
-        ids.add(provider_id)
-        org = entry.get("organization_slug")
-        if protocol in {"oidc", "saml"} and (not isinstance(org, str) or not org):
-            raise ImproperlyConfigured("Corporate SSO requires organization_slug.")
-        if org is not None and (not isinstance(org, str) or not org):
-            raise ImproperlyConfigured("organization_slug must be a nonempty string.")
-        if protocol != "govbr" and {"environment", "post_logout_redirect_uri"} & set(entry):
-            raise ImproperlyConfigured("Government identity settings require the govbr profile.")
-        if protocol == "govbr":
-            if any(key in entry for key in ("organization_slug", "jit_provisioning", "default_role_code")):
-                raise ImproperlyConfigured("Gov.br is global identity and cannot configure organizational admission.")
-            if not isinstance(entry.get("environment"), str) or entry["environment"] not in GOVBR_ISSUERS:
-                raise ImproperlyConfigured("Gov.br requires staging or production environment.")
-            callback = entry.get("post_logout_redirect_uri")
-            _url(callback, debug=False)
-            parsed_callback = urlparse(callback)
-            if parsed_callback.query or parsed_callback.fragment or parsed_callback.params:
-                raise ImproperlyConfigured("Gov.br logout callback must be a fixed HTTPS URL without parameters.")
-        for flag in ("jit_provisioning", "trust_verified_email"):
-            if flag in entry and type(entry[flag]) is not bool:
-                raise ImproperlyConfigured(f"{flag} must be boolean.")
-        if protocol == "github" and entry.get("jit_provisioning", False):
-            raise ImproperlyConfigured(
-                "GitHub is a public identity provider and cannot provision memberships automatically."
-            )
-        role = entry.get("default_role_code", "member")
-        if not isinstance(role, str) or not role:
-            raise ImproperlyConfigured("default_role_code is required.")
-        from skeleton.access.capabilities import BUILTIN_ROLES  # Pure registry: no models at settings time.
+    return document["providers"]
 
-        if role in BUILTIN_ROLES and BUILTIN_ROLES[role].capabilities:
-            raise ImproperlyConfigured("default_role_code cannot be a role that carries administrative capabilities.")
-        app = deepcopy(entry.get("app"))
-        if not isinstance(app, dict) or set(app) - {"name", "client_id", "secret_env", "settings"}:
-            raise ImproperlyConfigured("Provider app requires declared allauth APPS fields.")
-        if not isinstance(app.get("client_id"), str) or not app["client_id"]:
-            raise ImproperlyConfigured("Provider client_id is required.")
-        app = _resolve_secrets(app)
-        app["provider_id"] = provider_id
-        options = app.setdefault("settings", {})
-        if not isinstance(options, dict):
-            raise ImproperlyConfigured("Provider app settings must be an object.")
-        allowed_options = {
-            "oidc": {"server_url", "uid_field", "oauth_pkce_enabled", "token_auth_method"},
-            "govbr": set(),
-            "saml": {"idp", "sp", "advanced", "attribute_mapping", "uid_field"},
-            "github": set(),
+
+def _entry_identity(entry, ids):
+    if not isinstance(entry, dict) or set(entry) - _ENTRY_FIELDS:
+        raise ImproperlyConfigured("Unknown provider configuration fields.")
+    protocol, provider_id = entry.get("protocol"), entry.get("provider_id")
+    if (
+        protocol not in {"oidc", "govbr", "saml", "github"}
+        or not isinstance(provider_id, str)
+        or not provider_id
+        or provider_id in ids
+    ):
+        raise ImproperlyConfigured("Provider protocol and unique nonempty provider_id are required.")
+    if not all(character.isalnum() or character in "-_" for character in provider_id):
+        raise ImproperlyConfigured("Provider ID must be URL-safe.")
+    ids.add(provider_id)
+    return protocol, provider_id
+
+
+def _organization_slug(entry, protocol):
+    org = entry.get("organization_slug")
+    if protocol in {"oidc", "saml"} and (not isinstance(org, str) or not org):
+        raise ImproperlyConfigured("Corporate SSO requires organization_slug.")
+    if org is not None and (not isinstance(org, str) or not org):
+        raise ImproperlyConfigured("organization_slug must be a nonempty string.")
+    if protocol != "govbr" and {"environment", "post_logout_redirect_uri"} & set(entry):
+        raise ImproperlyConfigured("Government identity settings require the govbr profile.")
+    return org
+
+
+def _govbr_callback(entry):
+    if any(key in entry for key in ("organization_slug", "jit_provisioning", "default_role_code")):
+        raise ImproperlyConfigured("Gov.br is global identity and cannot configure organizational admission.")
+    if not isinstance(entry.get("environment"), str) or entry["environment"] not in GOVBR_ISSUERS:
+        raise ImproperlyConfigured("Gov.br requires staging or production environment.")
+    callback = entry.get("post_logout_redirect_uri")
+    _url(callback, debug=False)
+    parsed_callback = urlparse(callback)
+    if parsed_callback.query or parsed_callback.fragment or parsed_callback.params:
+        raise ImproperlyConfigured("Gov.br logout callback must be a fixed HTTPS URL without parameters.")
+    return callback
+
+
+def _admission(entry, protocol):
+    for flag in ("jit_provisioning", "trust_verified_email"):
+        if flag in entry and type(entry[flag]) is not bool:
+            raise ImproperlyConfigured(f"{flag} must be boolean.")
+    if protocol == "github" and entry.get("jit_provisioning", False):
+        raise ImproperlyConfigured(
+            "GitHub is a public identity provider and cannot provision memberships automatically."
+        )
+    role = entry.get("default_role_code", "member")
+    if not isinstance(role, str) or not role:
+        raise ImproperlyConfigured("default_role_code is required.")
+    from skeleton.access.capabilities import BUILTIN_ROLES  # Pure registry: no models at settings time.
+
+    if role in BUILTIN_ROLES and BUILTIN_ROLES[role].capabilities:
+        raise ImproperlyConfigured("default_role_code cannot be a role that carries administrative capabilities.")
+    return role
+
+
+def _app(entry, provider_id, protocol):
+    app = deepcopy(entry.get("app"))
+    if not isinstance(app, dict) or set(app) - _APP_FIELDS:
+        raise ImproperlyConfigured("Provider app requires declared allauth APPS fields.")
+    if not isinstance(app.get("client_id"), str) or not app["client_id"]:
+        raise ImproperlyConfigured("Provider client_id is required.")
+    app = _resolve_secrets(app)
+    app["provider_id"] = provider_id
+    options = app.setdefault("settings", {})
+    if not isinstance(options, dict):
+        raise ImproperlyConfigured("Provider app settings must be an object.")
+    if set(options) - _PROTOCOL_OPTIONS[protocol]:
+        raise ImproperlyConfigured("Provider settings may not override email proof, scopes or protocol parameters.")
+    return app, options
+
+
+def _oidc_identity(options, debug):
+    _url(options.get("server_url"), debug=debug)
+    options["uid_field"] = "sub"
+    options["oauth_pkce_enabled"] = True
+    options["token_auth_method"] = "client_secret_basic"
+    return options["server_url"].rstrip("/")
+
+
+def _govbr_identity(entry, app, options, callback):
+    if not app.get("secret"):
+        raise ImproperlyConfigured("Gov.br requires a client secret environment reference.")
+    environment = entry["environment"]
+    identity = GOVBR_ISSUERS[environment]
+    app["name"] = "GOV.BR"
+    options.update(
+        {
+            "server_url": identity,
+            "uid_field": "sub",
+            "oauth_pkce_enabled": True,
+            "token_auth_method": "client_secret_basic",
+            "fetch_userinfo": False,
+            "govbr_environment": environment,
+            "govbr_logout_redirect_uri": callback,
         }
-        if set(options) - allowed_options[protocol]:
-            raise ImproperlyConfigured("Provider settings may not override email proof, scopes or protocol parameters.")
+    )
+    return identity
+
+
+def _saml_identity(app, options, debug):
+    idp, sp = options.get("idp"), options.setdefault("sp", {})
+    if not isinstance(idp, dict) or not idp.get("entity_id") or not app.get("client_id"):
+        raise ImproperlyConfigured("SAML requires client_id and idp.entity_id.")
+    for key in ("sso_url", "slo_url", "metadata_url"):
+        if idp.get(key):
+            _url(idp[key], debug=debug)
+    if not idp.get("x509cert") and not idp.get("metadata_url"):
+        raise ImproperlyConfigured("SAML requires trusted IdP metadata/certificate.")
+    if not isinstance(sp, dict):
+        raise ImproperlyConfigured("SAML SP settings must be an object.")
+    advanced = options.setdefault("advanced", {})
+    if not isinstance(advanced, dict):
+        raise ImproperlyConfigured("SAML advanced settings must be an object.")
+    advanced.update(
+        {
+            "strict": True,
+            "want_assertion_signed": True,
+            "want_message_signed": True,
+            "reject_deprecated_algorithm": True,
+            "reject_idp_initiated_sso": True,
+        }
+    )
+    return idp["entity_id"]
+
+
+def _github_identity(provider_id):
+    if provider_id != "github":
+        raise ImproperlyConfigured("The GitHub provider ID must be github.")
+    return "https://github.com"
+
+
+def _fingerprint(protocol, identity, app, org, options, entry):
+    identity_tuple = [
+        "skeleton-binding-v2",
+        protocol,
+        identity,
+        app["client_id"],
+        org or "",
+        options.get("sp", {}).get("entity_id", "") if protocol == "saml" else "",
+    ]
+    if protocol == "govbr":
+        identity_tuple.append(entry["environment"])
+    return hashlib.sha256(json.dumps(identity_tuple, separators=(",", ":")).encode()).hexdigest()
+
+
+def _register(providers, binding):
+    provider = providers[_ALLAUTH_PROVIDER[binding.protocol]]
+    provider["APPS"].append(binding.app)
+    if binding.protocol == "github":
+        provider["SCOPE"] = ["user:email"]
+    if binding.protocol in {"oidc", "govbr"}:
+        provider["OAUTH_PKCE_ENABLED"] = True
+        provider["SCOPE"] = ["openid", "profile", "email"]
+
+
+def load_provider_config(path=None, *, debug=False):
+    """Validate the private provider file, one step and one protocol per function (#304)."""
+    providers = _base_providers()
+    path = path or os.environ.get("SSO_PROVIDER_CONFIG_PATH")
+    if not path:
+        return ProviderConfiguration(providers, ())
+    bindings, ids = [], set()
+    for entry in _read_entries(path):
+        protocol, provider_id = _entry_identity(entry, ids)
+        org = _organization_slug(entry, protocol)
+        callback = _govbr_callback(entry) if protocol == "govbr" else None
+        role = _admission(entry, protocol)
+        app, options = _app(entry, provider_id, protocol)
         if protocol == "oidc":
-            _url(options.get("server_url"), debug=debug)
-            options["uid_field"] = "sub"
-            options["oauth_pkce_enabled"] = True
-            options["token_auth_method"] = "client_secret_basic"
-            identity = options["server_url"].rstrip("/")
+            identity = _oidc_identity(options, debug)
         elif protocol == "govbr":
-            if not app.get("secret"):
-                raise ImproperlyConfigured("Gov.br requires a client secret environment reference.")
-            environment = entry["environment"]
-            identity = GOVBR_ISSUERS[environment]
-            app["name"] = "GOV.BR"
-            options.update(
-                {
-                    "server_url": identity,
-                    "uid_field": "sub",
-                    "oauth_pkce_enabled": True,
-                    "token_auth_method": "client_secret_basic",
-                    "fetch_userinfo": False,
-                    "govbr_environment": environment,
-                    "govbr_logout_redirect_uri": callback,
-                }
-            )
+            identity = _govbr_identity(entry, app, options, callback)
         elif protocol == "saml":
-            idp, sp = options.get("idp"), options.setdefault("sp", {})
-            if not isinstance(idp, dict) or not idp.get("entity_id") or not app.get("client_id"):
-                raise ImproperlyConfigured("SAML requires client_id and idp.entity_id.")
-            for key in ("sso_url", "slo_url", "metadata_url"):
-                if idp.get(key):
-                    _url(idp[key], debug=debug)
-            if not idp.get("x509cert") and not idp.get("metadata_url"):
-                raise ImproperlyConfigured("SAML requires trusted IdP metadata/certificate.")
-            if not isinstance(sp, dict):
-                raise ImproperlyConfigured("SAML SP settings must be an object.")
-            advanced = options.setdefault("advanced", {})
-            if not isinstance(advanced, dict):
-                raise ImproperlyConfigured("SAML advanced settings must be an object.")
-            advanced.update(
-                {
-                    "strict": True,
-                    "want_assertion_signed": True,
-                    "want_message_signed": True,
-                    "reject_deprecated_algorithm": True,
-                    "reject_idp_initiated_sso": True,
-                }
-            )
-            identity = idp["entity_id"]
+            identity = _saml_identity(app, options, debug)
         else:
-            if provider_id != "github":
-                raise ImproperlyConfigured("The GitHub provider ID must be github.")
-            identity = "https://github.com"
-        identity_tuple = [
-            "skeleton-binding-v2",
-            protocol,
-            identity,
-            app["client_id"],
-            org or "",
-            options.get("sp", {}).get("entity_id", "") if protocol == "saml" else "",
-        ]
-        if protocol == "govbr":
-            identity_tuple.append(entry["environment"])
-        fingerprint = hashlib.sha256(json.dumps(identity_tuple, separators=(",", ":")).encode()).hexdigest()
+            identity = _github_identity(provider_id)
         binding = ProviderBinding(
             protocol,
             provider_id,
@@ -267,19 +334,11 @@ def load_provider_config(path=None, *, debug=False):
             entry.get("jit_provisioning", False),
             role,
             entry.get("trust_verified_email", False),
-            fingerprint,
+            _fingerprint(protocol, identity, app, org, options, entry),
             app,
         )
         bindings.append(binding)
-        provider = providers[
-            {"oidc": "openid_connect", "govbr": "openid_connect", "saml": "saml", "github": "github"}[protocol]
-        ]
-        provider["APPS"].append(binding.app)
-        if protocol == "github":
-            provider["SCOPE"] = ["user:email"]
-        if protocol in {"oidc", "govbr"}:
-            provider["OAUTH_PKCE_ENABLED"] = True
-            provider["SCOPE"] = ["openid", "profile", "email"]
+        _register(providers, binding)
     return ProviderConfiguration(providers, tuple(bindings))
 
 
