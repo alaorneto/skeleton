@@ -303,10 +303,24 @@ class InstallRecordInfrastructure(Operation):
         ]
 
     def _postgres(self, editor, model):
+        """Install the frozen protection of one table, in a fixed order (decomposed in #316)."""
+        self._drop_audited_triggers_of_operational(editor, model)
+        self._install_tenant_foreign_keys(editor, model)
+        self._install_guard(editor, model)
+        self._install_row_security(editor, model)
+        if self._install_grants(editor, model):
+            self._install_audit(editor, model)
+
+    def _drop_audited_triggers_of_operational(self, editor, model):
+        """Operational tables keep no audit or row trigger of an older specification."""
         q, table = editor.quote_name, model._meta.db_table
         if self.operational():
             for kind in ("guard", "audit"):
                 editor.execute(f"DROP TRIGGER IF EXISTS {q(table + '_sk_' + kind)} ON skeleton.{q(table)}")
+
+    def _install_tenant_foreign_keys(self, editor, model):
+        """Composite same-organization foreign keys and their indexes."""
+        q, table = editor.quote_name, model._meta.db_table
         for field in self._org_refs(model):
             constraint = q(table + "_sk_org_" + field.column)
             target = q(field.related_model._meta.db_table)
@@ -317,6 +331,10 @@ class InstallRecordInfrastructure(Operation):
             editor.execute(
                 f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_idx_' + field.column)} ON skeleton.{q(table)} (organization_id,{q(field.column)})"
             )
+
+    def _guard_body(self, editor, model) -> str:
+        """The PL/pgSQL body of the identity/revision guard for this kind of table."""
+        q = editor.quote_name
         append = self._append_only(model)
         operational = self.operational()
         immutable = " OR ".join(f"NEW.{q(name)} IS DISTINCT FROM OLD.{q(name)}" for name in self._immutable(model))
@@ -338,6 +356,14 @@ class InstallRecordInfrastructure(Operation):
             if append
             else f"IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF; ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF; IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
         )
+        return guard
+
+    def _install_guard(self, editor, model):
+        """The guard function and its BEFORE trigger."""
+        q, table = editor.quote_name, model._meta.db_table
+        guard = self._guard_body(editor, model)
+        operational = self.operational()
+        tenant_column = self.specification.get("tenant_column") if operational else None
         function = q(table + "_sk_guard_fn")
         editor.execute(
             f"CREATE OR REPLACE FUNCTION skeleton.{function}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,skeleton AS $guard$ BEGIN {guard} RETURN NEW; END $guard$"
@@ -348,6 +374,11 @@ class InstallRecordInfrastructure(Operation):
             f"CREATE TRIGGER {q(table + '_sk_guard')} BEFORE {events} ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
         editor.execute(f"REVOKE ALL ON FUNCTION skeleton.{function}() FROM PUBLIC")
+
+    def _install_row_security(self, editor, model):
+        """ENABLE/FORCE RLS and the policies of the table's variant."""
+        q, table = editor.quote_name, model._meta.db_table
+        append = self._append_only(model)
         tenant = TENANT_PREDICATE
         if append or any(f.name == "organization" for f in model._meta.fields):
             editor.execute(f"ALTER TABLE skeleton.{q(table)} ENABLE ROW LEVEL SECURITY")
@@ -379,15 +410,26 @@ class InstallRecordInfrastructure(Operation):
                 editor.execute(
                     f"CREATE POLICY skeleton_tenant ON skeleton.{q(table)} FOR ALL TO skeleton_runtime USING ({tenant}) WITH CHECK ({tenant})"
                 )
+
+    def _install_grants(self, editor, model) -> bool:
+        """Runtime privileges; False when the table carries no row audit."""
+        q, table = editor.quote_name, model._meta.db_table
+        append = self._append_only(model)
+        operational = self.operational()
         editor.execute(f"REVOKE ALL ON skeleton.{q(table)} FROM PUBLIC, skeleton_runtime")
         privileges = "SELECT" if append else "SELECT,INSERT,UPDATE,DELETE" if operational else "SELECT,INSERT,UPDATE"
         editor.execute(f"GRANT {privileges} ON skeleton.{q(table)} TO skeleton_runtime")
         if append:
             editor.execute(f"GRANT INSERT ON skeleton.{q(table)} TO skeleton_audit_writer")
-            return
+            return False
         if operational:
             editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_audit_fn')}()")
-            return
+            return False
+        return True
+
+    def _install_audit(self, editor, model):
+        """The audit function owned by the audit writer and its AFTER trigger."""
+        q, table = editor.quote_name, model._meta.db_table
         fields = self._audit_fields(model)
         build = []
         for column, sensitive in fields:
