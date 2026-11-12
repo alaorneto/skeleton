@@ -637,6 +637,7 @@ def record_detail(request, organization_id, table_key, sysid):
         for action, (route, label) in names.items()
         if permissions[action]
     ]
+    from skeleton.comments.views import panel_context as comments_panel
     from skeleton.files.views import panel_context
     from skeleton.web.timeline import timeline_for
 
@@ -645,6 +646,7 @@ def record_detail(request, organization_id, table_key, sysid):
         "skeleton/web/detail.html",
         {
             "attachments": panel_context(spec, item, user=request.user),
+            "comments": comments_panel(spec, item, user=request.user),
             # Audit and attachments of the record, each filtered for the reader (#185).
             "timeline": timeline_for(request.user, spec, item),
             "record": {"sysid": item.sysid},

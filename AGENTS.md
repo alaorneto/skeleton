@@ -34,6 +34,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/sequences`: sequências sem lacunas por organização e período.
 - `skeleton/transfer`: exportação e importação CSV de tabelas expostas por job, com o arquivo no storage privado e a retenção declarada (`TransferJob`, operacional); só pelo caminho autorizado de leitura e escrita do gateway.
 - `skeleton/flows`: motor de fluxos de processo de negócio (definições versionadas, instâncias, tarefas, formulários, aprovações; [docs/flows.md](docs/flows.md)). É só o motor: apps declaram os fluxos em código por `skeleton.flows.registry` e os usam pelo `FlowService`. Condições são árvores de dados ou callables registrados, nunca `eval`; nenhuma regra de negócio de um fluxo entra no núcleo.
+- `skeleton/comments`: comentários em registros ([docs/comments.md](docs/comments.md)). A autorização vem do registro alvo (como os anexos), a tabela precisa de `TableSpec.comments`; só o autor edita, autor e administrador excluem. Texto simples sempre escapado; nenhuma regra de negócio de app.
 - `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.

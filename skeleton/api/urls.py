@@ -2,6 +2,7 @@ from django.urls import path
 
 from skeleton.api import views
 from skeleton.api.invitation_views import ResendInvitationView
+from skeleton.comments.api_views import CommentDetailView, CommentRestoreView, CommentsView
 from skeleton.files.api_views import AttachmentDetailView, AttachmentRestoreView, AttachmentsView
 from skeleton.tenancy.aggregate import aggregate_route
 
@@ -55,6 +56,21 @@ urlpatterns = [
         "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/attachments/<uuid:attachment_id>/restore/",
         AttachmentRestoreView.as_view(),
         name="attachment-restore",
+    ),
+    path(
+        "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/comments/",
+        CommentsView.as_view(),
+        name="comments",
+    ),
+    path(
+        "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/comments/<uuid:comment_id>/",
+        CommentDetailView.as_view(),
+        name="comment",
+    ),
+    path(
+        "o/<uuid:organization_id>/tables/<str:table_key>/records/<uuid:sysid>/comments/<uuid:comment_id>/restore/",
+        CommentRestoreView.as_view(),
+        name="comment-restore",
     ),
     path(
         "o/<uuid:organization_id>/invitations/<uuid:sysid>/resend/",

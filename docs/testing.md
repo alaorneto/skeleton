@@ -16,6 +16,23 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 **Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
 
+## Comentários em registros (#187, epic #93)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_comment_text.py` e `tests/integration/test_comments.py`: 10 passed, 15 subtests. Cobrem:
+  - corpo vazio, longo demais e com caracteres de controle recusados; HTML sempre escapado; só `http`/`https` viram links, sem quebrar o atributo;
+  - quem lê o registro lista e comenta; registro ilegível, default deny e A/B respondem 404 na lista e na criação; `assert_tenant_isolated`;
+  - tabela sem `CommentPolicy` recusa (REST e serviço);
+  - só o autor edita (o administrador recebe 403); outro membro não exclui; o administrador modera e restaura com o mesmo UUID; o autor exclui e restaura o próprio;
+  - CAS: `If-Match` antigo recusado, ausente responde 428, `assert_cas_conflict` com um vencedor;
+  - auditoria de create e update, e rollback sem evento nem linha residual;
+  - a página escapa o corpo, mostra o link e o item `comment` na linha do tempo; `assert_service_contract` e ator divergente.
+- `python -m pytest tests -q -n 8 -k "comment or i18n or openapi or schema or catalog or timeline or locale"`: 145 passed, 8 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` mesclada: 1677 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
+
 ## OpenAPI da API (epic #86)
 
 **Contrato da API.** Toda resposta de `/api/v1/` que a suíte recebe pelo cliente de teste do Django (`Client` e o `APIClient` do DRF) é validada contra o schema publicado. A fixture autouse `api_contract` de `tests/conftest.py` usa `skeleton.testing.openapi.checked_client_responses()`, que monta o schema completo uma vez por árvore de URLs e registry (`build_schema(full_audience())`, o mesmo gerador de `GET /api/v1/openapi.json`, sem filtro de ator). Para cada resposta, `assert_matches_schema` exige:

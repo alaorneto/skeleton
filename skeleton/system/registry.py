@@ -12,6 +12,13 @@ class AttachmentPolicy:
 
 
 @dataclass(frozen=True)
+class CommentPolicy:
+    """Opt-in to comments on a table (#187): whoever reads a record reads and writes its comments."""
+
+    enabled: bool = True
+
+
+@dataclass(frozen=True)
 class TableSpec:
     model: type
     description: str
@@ -22,6 +29,7 @@ class TableSpec:
     sensitive_fields: tuple = ()
     expose_api: bool = False
     attachments: AttachmentPolicy | None = None
+    comments: CommentPolicy | None = None
     # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
     sequence_fields: tuple = ()
 
@@ -319,6 +327,12 @@ def register_core_specs():
             ),
             "organization",
             ("comment",),
+        ),
+        "sk_comments.comment": (
+            "Comentários",
+            "Texto simples de uma pessoa sobre um registro; a autorização vem do registro alvo.",
+            "organization",
+            (),
         ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),
