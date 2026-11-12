@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "skeleton.sequences.apps.SequencesConfig",
     "skeleton.transfer.apps.TransferConfig",
     "skeleton.flows.apps.FlowsConfig",
+    "skeleton.comments.apps.CommentsConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",

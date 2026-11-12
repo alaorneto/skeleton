@@ -229,6 +229,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
@@ -348,6 +349,10 @@ NotificationService().notify(
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
 Apps não acessam o armazenamento diretamente.
+
+### CommentService
+
+[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`. `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres ou com caracteres de controle. Métodos com `since="0.6.0"`.
 
 ### SequenceService
 

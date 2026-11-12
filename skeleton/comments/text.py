@@ -1,0 +1,48 @@
+"""Comment bodies: plain text only, escaped on output, with automatic links.
+
+No Markdown and no HTML: the body is stored as typed and every rendering escapes it first;
+``linkify`` then turns ``http``/``https`` URLs of the escaped text into links that open
+without referrer. Nothing the author typed can become markup.
+"""
+
+from __future__ import annotations
+
+import re
+
+from django.core.exceptions import ValidationError
+from django.utils.html import escape
+from django.utils.safestring import SafeString, mark_safe
+
+from .models import MAX_BODY
+
+URL = re.compile(r"\bhttps?://[^\s<>\"']+", re.IGNORECASE)
+TRAILING = ".,;:!?)]}"
+FORBIDDEN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def clean_body(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValidationError({"body": "Use um texto."})
+    body = value.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not body:
+        raise ValidationError({"body": "O comentário está vazio."})
+    if len(body) > MAX_BODY:
+        raise ValidationError({"body": f"Use até {MAX_BODY} caracteres."})
+    if FORBIDDEN.search(body):
+        raise ValidationError({"body": "O comentário tem caracteres de controle."})
+    return body
+
+
+def linkify(body: str) -> SafeString:
+    """Escaped HTML of a body with its URLs as links; the only markup is ours."""
+    escaped = str(escape(body))
+
+    def link(match: re.Match[str]) -> str:
+        url = match.group(0)
+        tail = ""
+        while url and url[-1] in TRAILING:
+            url, tail = url[:-1], url[-1] + tail
+        # ``url`` is already escaped: it is safe inside the quoted attribute and as text.
+        return f'<a href="{url}" rel="nofollow noopener noreferrer" target="_blank">{url}</a>{tail}'
+
+    return mark_safe(URL.sub(link, escaped))  # noqa: S308 - built from escaped text only

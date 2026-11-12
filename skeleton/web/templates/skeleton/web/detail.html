@@ -16,6 +16,7 @@
 {% crud_detail_fields sections %}
 </div>
 {% if attachments %}{% include 'skeleton/files/attachments_panel.html' %}{% endif %}
+{% if comments %}{% include 'skeleton/comments/panel.html' %}{% endif %}
 {% include 'skeleton/web/components/timeline.html' %}
 </div>
 {% endblock %}

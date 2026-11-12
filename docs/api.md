@@ -213,6 +213,7 @@ Views que aceitam token, com os métodos:
 | `o/<org>/tables/<tabela>/references/<campo>/` | GET | `read` da tabela referenciada |
 | `.../records/<id>/attachments/` | GET, POST | `files:read` ou `files:write`, além do `read`/`update` do registro que o serviço já exige |
 | `.../attachments/<id>/`, `.../restore/` | DELETE, POST | `files:write` |
+| `.../records/<id>/comments/`, `.../comments/<id>/`, `.../comments/<id>/restore/` | GET, POST, PATCH, DELETE | Só o `read` do registro que o serviço já exige; edição, exclusão e restauração com `If-Match` ([comentários](comments.md)) |
 
 Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de apps, webhooks, auditoria, saída da organização e a gestão de tokens) só aceita sessão. Uma view de app que estende `SessionAPI` também só aceita token se declarar `token_methods`.
 
