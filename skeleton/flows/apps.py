@@ -9,3 +9,8 @@ class FlowsConfig(AppConfig):
 
     def ready(self):
         from . import checks  # noqa: F401 - registers the flow checks (skeleton.E029)
+        from .automatic import register_automatic_steps
+        from .events import register_flow_event_types
+
+        register_flow_event_types()
+        register_automatic_steps()
