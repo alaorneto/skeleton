@@ -148,6 +148,17 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 - A primeira versão fazia `configured_providers()` consultar o banco sempre; um teste unitário sem banco em `test_social_hardening.py` falhou e a mescla passou a ser preguiçosa (arquivo primeiro).
 - Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas. SSO real com Keycloak (`tests/sso/`) não rodou: não há Docker neste ambiente.
 
+**#30, telas de provedores em `/platform/`:**
+
+- `python -m pytest tests/integration/test_platform_identity_providers.py tests/integration/test_platform_boundary.py -q`: 19 passed. Os 7 testes novos cobrem:
+  - criação OIDC, página sem o segredo e sem campos de identidade editáveis, edição com o segredo em branco mantendo o atual, revisão stale com 409, troca de segredo, auditoria com `[REDACTED]` e sem os valores;
+  - `client_id`, `issuer` e `provider_id` enviados no POST de edição recusados com 400 sem mudar nada;
+  - issuer HTTP e OIDC sem segredo recusados; SAML sem certificado nem metadata recusado e aceito com certificado;
+  - CSRF ausente (403), quem não é da plataforma (403) e autenticação antiga levando à reautenticação, sem gravar;
+  - "Testar" com o cliente de saída simulado: só `last_check_*` muda; destino inalcançável grava `unreachable`;
+  - card "Provedores de identidade" na página da organização, sem segredo.
+- Ruff 0.17.4 e `npm run check`: sem problemas. O smoke com um Keycloak de teste não rodou (sem Docker neste ambiente).
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

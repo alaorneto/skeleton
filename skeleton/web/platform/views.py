@@ -325,6 +325,7 @@ def _organization_form(organization, data=None):
 
 
 def _organization_page(request, organization, *, form=None, admin_form=None, quota_form=None, status=200):
+    from skeleton.accounts.identity_providers import organization_providers
     from skeleton.files.quota import platform_usage
 
     # One organization per request: the overview opens a read-only system context for it.
@@ -346,6 +347,7 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
             "admin_form": admin_form,
             "storage": storage,
             "quota_form": quota_form or _quota_form(organization),
+            "identity_providers": organization_providers(organization),
         },
         status=status,
     )
