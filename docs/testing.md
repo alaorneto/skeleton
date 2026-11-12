@@ -264,6 +264,8 @@ Esta **matriz** cruza atores, organizações e operações para encontrar vazame
 - Catálogo sync idempotente preserva sysid/textos e não faz DDL.
 - Conta: convite expired/replay/wrong email/corrida, público sem Membership, reset normal e tokens inválidos/SSO-only/inativo/deletado, auth_version, MFA/recovery single-use/cipher/rotação preservando máscara, admin sem bypass/enrollment sem deadlock.
 
+- Tabelas operacionais com `organization` entram no inventário de RLS de `tools/postgres_assertions.py` (ENABLE/FORCE e policies); o schema check tem negativos em banco para os ramos operacional (trigger de auditoria a mais, RLS desligado) e append-only (policy de leitura alargada, grant de escrita ao runtime) em `tests/integration_postgres/test_schema_assurance.py`.
+
 A aprovação exige evidência dos backends/protocolos relevantes; uma suíte limitada não autoriza alegar matrix completa.
 
 ## Evidência histórica
