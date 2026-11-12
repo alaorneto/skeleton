@@ -285,7 +285,7 @@ SKELETON_CSP = {
     "base-uri": [_CSP.SELF],
     "frame-ancestors": [_CSP.NONE],
 }
-SECURE_CSP_REPORT_ONLY = SKELETON_CSP
+SECURE_CSP = SKELETON_CSP
 SKELETON_JSON_MAX_BYTES = env.int("SKELETON_JSON_MAX_BYTES", default=1048576)
 if SKELETON_JSON_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured

@@ -89,6 +89,22 @@ Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUS
 
 Rate limiting de IP usa a topologia explícita `DJANGO_TRUSTED_PROXY_COUNT` (número de proxies confiáveis no X-Forwarded-For) **ou** `DJANGO_TRUSTED_CLIENT_IP_HEADER` (por exemplo X-Real-IP sobrescrito pelo proxy). Não configure ambos. Exigem DJANGO_TRUST_PROXY=true; defaults 0/sem header ignoram cabeçalhos forjados e usam REMOTE_ADDR. Bloqueie acesso direto ao backend quando confiar no proxy e remova/substitua cabeçalhos recebidos do cliente; confiar em TLS/proto não habilita automaticamente confiança em IP. Dois clientes atrás do proxy não devem compartilhar buckets de login/reset.
 
+### Content-Security-Policy
+
+Toda resposta do web e do setup leva `Content-Security-Policy` com a política `SKELETON_CSP` de `skeleton/conf/base.py` (#266): `default-src`, `script-src`, `font-src`, `connect-src` e `base-uri` só `'self'`; `style-src 'self'` mais um nonce por resposta, usado só pela paleta da marca da organização; `img-src 'self' data:` (o QR code do TOTP é uma imagem `data:`); `object-src 'none'` e `frame-ancestors 'none'`. Não há `'unsafe-inline'` nem `'unsafe-eval'`. Não há `form-action`: o login por SSO começa com um POST para o próprio site que redireciona ao provedor de identidade, e o Chromium aplica `form-action` também ao destino do redirect. O download de anexo mantém a própria política (`sandbox`), que o middleware não sobrescreve.
+
+Templates do núcleo e das apps não usam `<script>` inline, atributo `style=` nem handlers `on*=`: script e estilo vêm de arquivos estáticos, dados passam por `json_script` e cores vindas de dado entram por `data-swatch`, aplicadas pelo `site.js`. Templates de email não passam pelo navegador e continuam com estilo inline.
+
+Para liberar uma origem a mais, estenda a política no overlay de settings em vez de reescrevê-la:
+
+```python
+from skeleton.conf.base import SKELETON_CSP
+
+SECURE_CSP = {**SKELETON_CSP, "img-src": [*SKELETON_CSP["img-src"], "https://cdn.example.com"]}
+```
+
+Para uma view só, use `django.views.decorators.csp.csp_override` (ou `csp_report_only_override` para observar antes). Ao introduzir uma origem nova, publique primeiro em `SECURE_CSP_REPORT_ONLY` e confira o console do navegador nas telas afetadas.
+
 
 ## Provisionamento PostgreSQL
 

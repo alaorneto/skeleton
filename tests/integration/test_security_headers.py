@@ -26,6 +26,23 @@ def test_login_page_carries_the_same_origin_policy():
     assert "form-action" not in policy  # SSO starts with a POST that redirects to the identity provider.
 
 
+def test_authenticated_pages_and_api_carry_the_policy(subtests):
+    from skeleton.accounts.services import bootstrap_identity
+    from tests.support import login
+
+    password = "Disposable-csp-password-47!"
+    user, organization = bootstrap_identity(
+        email="csp-admin@example.test", organization="csp-a", name="CSP A", password=password
+    )
+    client = login(user, password=password)
+    for path in ("/", f"/o/{organization.pk}/", "/platform/", "/api/v1/me/"):
+        with subtests.test(path):
+            response = client.get(path)
+            assert response.status_code == 200
+            policy = directives(response[header_name()])
+            assert policy["script-src"] == ["'self'"] and policy["object-src"] == ["'none'"]
+
+
 def test_brand_style_nonce_matches_the_header():
     """The organization's inline brand palette is allowed by a per-response nonce."""
     import re
