@@ -181,6 +181,9 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - eventos de domínio do pedido sem o `data`;
   - com `enable_seqscan` desligado, o plano usa `sk_audit_org_actor`, `sk_audit_org_request` e `sk_audit_org_created`.
 - `python -m pytest tests -q -n 8 -k "audit or openapi or platform"`: 155 passed, 5 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`: 1633 passed, 111 skipped.
+- Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+- Não verificado: o smoke no navegador; os filtros da página foram provados pelo HTML nos testes de integração.
 
 ## Configurações e marca da organização (epic #90)
 
