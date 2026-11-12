@@ -76,6 +76,18 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_accounts.identityprovider": (
+            "Provedores de identidade",
+            "Provedores OIDC, SAML e LDAP de cada organização, cadastrados pela plataforma; segredos cifrados.",
+            "global",
+            ("secret", "private_key"),
+        ),
+        "sk_accounts.platformroleassignment": (
+            "Papéis de plataforma",
+            "Auditor e operador de releases: papéis limitados de plataforma, concedidos pelo administrador.",
+            "global",
+            (),
+        ),
         "sk_tenancy.organization": (
             gettext_lazy("Organizações"),
             gettext_lazy("Fronteira de isolamento organizacional e estado de disponibilidade."),
@@ -99,6 +111,48 @@ def register_core_specs():
             gettext_lazy("Nome de exibição, idioma e fuso padrão e marca da organização, editados pelo administrador."),
             "organization",
             ("logo_key",),
+        ),
+        "sk_tenancy.organizationadmissionpolicy": (
+            "Política de admissão",
+            "Como pessoas de fora pedem para entrar na organização; sem linha, tudo desligado.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.organizationdirectoryentry": (
+            "Diretório de organizações",
+            "Índice global de quem aparece em /join/ e aceita pedidos, espelhado da política de admissão.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.joinlink": (
+            "Links de ingresso",
+            "Links multiuso revogáveis; só o resumo SHA-256 do token é guardado.",
+            "organization",
+            ("token_digest",),
+        ),
+        "sk_tenancy.verifieddomain": (
+            "Domínios verificados",
+            "Domínios de email que a organização prova controlar por DNS; admitem quem confirma email do domínio.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.domainclaim": (
+            "Posse de domínios",
+            "Índice global de qual organização verificou cada domínio, lido antes de haver tenant.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.identityprovideradmission": (
+            "Admissão por provedor de identidade",
+            "Regras da organização para o seu provedor: JIT, aprovação, papel padrão e domínios permitidos.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.joinrequest": (
+            "Solicitações de ingresso",
+            "Pedido de uma pessoa para entrar; a aprovação cria o vínculo com o papel indicado.",
+            "organization",
+            (),
         ),
         "sk_access.role": (
             gettext_lazy("Papéis"),

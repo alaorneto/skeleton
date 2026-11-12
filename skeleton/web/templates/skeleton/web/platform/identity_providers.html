@@ -1,0 +1,14 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}Provedores de identidade{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="min-w-0"><p class="page-eyebrow">Identidade</p><h1>Provedores de identidade</h1><p class="page-description">Login corporativo OIDC e SAML de cada organização, cadastrado no banco e válido na requisição seguinte. gov.br e GitHub continuam no arquivo privado. A organização decide JIT, papel e domínios em Identidade.</p></div>
+  <nav class="toolbar" aria-label="Ações"><a class="button" href="{% url 'platform:identity-provider-create' %}?protocol=oidc">{% include "skeleton/web/components/icon.html" with name="plus" %}Novo OIDC</a><a class="btn btn-secondary" href="{% url 'platform:identity-provider-create' %}?protocol=saml">{% include "skeleton/web/components/icon.html" with name="plus" %}Novo SAML</a><a class="btn btn-secondary" href="{% url 'platform:identity-provider-create' %}?protocol=ldap">{% include "skeleton/web/components/icon.html" with name="plus" %}Novo LDAP</a></nav>
+</div>
+<div class="table-scroll"><table><thead><tr><th scope="col">Provedor</th><th scope="col">Protocolo</th><th scope="col">Organização</th><th scope="col">Situação</th><th scope="col">Último teste</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><a href="{% url 'platform:identity-provider' row.pk %}">{{ row.name }}</a><br><code class="uuid">{{ row.provider_id }}</code></td><td>{{ row.get_protocol_display }}</td><td>{{ row.bound_organization.name }}</td>
+<td>{% if row.enabled %}<span class="badge badge-success badge-dot">Ativo</span>{% else %}<span class="badge badge-dot">Desligado</span>{% endif %}{% if not row.show_on_login %} <span class="badge">fora do login</span>{% endif %}</td>
+<td>{{ row.last_check_code|default:"—" }}</td></tr>
+{% empty %}<tr><td colspan="5" class="empty-state">Nenhum provedor cadastrado no banco.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

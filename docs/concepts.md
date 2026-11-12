@@ -26,9 +26,23 @@ Um valor em branco passa para o próximo nível. Antes do login, só o `Accept-L
 
 A **plataforma** é a instalação inteira do sistema. Seu administrador usa a área `/platform/` (identidades, organizações, aplicativos instalados, catálogo e auditoria global) incluindo Versões e atualizações; o viewer de negócio fica no catálogo/tabelas de `/o/<org>/`. Acesso de plataforma exige flags Django, conta ativa e MFA quando configurado, sem conceder automaticamente vínculo/autorização tenant. Quem é administrador da plataforma é decidido por um único predicado, `is_platform_admin` (`skeleton/accounts/platform.py`): conta autenticada, ativa, não excluída, com `is_staff` **e** `is_superuser`. Só uma das flags ("Parcial") não concede nada. A plataforma nunca fica sem administrador: rebaixar, desativar ou remover o último administrador ativo é recusado com 409. De uma organização, a plataforma vê só o número de membros ativos e os emails de quem a administra, e pode designar ou substituir esse administrador por um serviço auditado ([controle de acesso](access-control.md#designação-de-administrador-pela-plataforma)); designar não dá à própria plataforma acesso aos dados da organização.
 
+Dois **papéis limitados de plataforma** (#34), em `PlatformRoleAssignment`, não dão administração: o **auditor de plataforma** lê a auditoria global e o catálogo de tabelas, e o **operador de releases** cuida só de `/platform/updates/`. Nenhum deles vê identidades ou organizações, edita o catálogo ou entra em `/o/<org>/` sem vínculo. Só o administrador concede e revoga, e a revogação vale na requisição seguinte ([controle de acesso](access-control.md#papéis-limitados-de-plataforma)).
+
 O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
 
 Parte dessa gestão pode ser delegada sem conceder administração plena. O **gestor de pessoas** (`people_manager`) administra membros e convites; o **gestor de apps** (`app_manager`) recebe a capacidade de gerir apps. Esses perfis são papéis internos com **capacidades** declaradas em código; um papel criado pela organização nunca carrega capacidade. Veja [capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos).
+
+### Ingresso numa organização
+
+Uma conta global só entra numa organização por um destes caminhos, cada um escolhido pela organização ou pela plataforma:
+
+- **Convite** por email, de uso único (já existente).
+- **Pedido com aprovação**: a organização aceita pedidos (e, se quiser, aparece em `/join/`); quem administra pessoas aprova ou recusa (#26).
+- **Link de ingresso**: multiuso, com validade, limite de usos e entrada direta ou com aprovação; pode abrir o cadastro (#27).
+- **Domínio verificado**: quem confirma um email de um domínio que a organização provou controlar por DNS entra direto ou cria um pedido (#28).
+- **SSO ou LDAP** configurado pela plataforma para aquela organização, com JIT, aprovação, papel e domínios decididos pela própria organização (#29–#33).
+
+Admissões automáticas (link, domínio, SSO, sincronização) nunca reativam um vínculo anterior: quem saiu ou foi removido sempre volta por um pedido decidido por uma pessoa. Sair é livre, menos para o último administrador (#25).
 
 A distinção importa: conceder administração de uma clínica não pode conceder administração das outras clínicas ou permissão para atualizar o servidor. E ser superusuário Django não elimina os requisitos de vínculo e autorização nas rotas organizacionais.
 

@@ -250,6 +250,162 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture, em cada banco, p
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+## Apps por organização, perfis e ingresso (epic #35)
+
+Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.
+
+**#23, telas de disponibilidade em `/platform/`:**
+
+- `python -m pytest tests/integration/test_platform_app_availability.py tests/integration/test_app_availability.py tests/integration/test_platform_boundary.py -q`: 26 passed. Os 7 testes novos cobrem:
+  - formulários: modo inválido, revisão negativa, organização inexistente ou já concedida, revogação com revisão 0 ou UUID inválido;
+  - seletor só com organizações ativas (inativa e inexistente recusadas com 400);
+  - modo com CAS (revisão stale responde 409), concessão e revogação refletidas na requisição seguinte, revogação stale ou repetida com 409, ativação da organização preservada e de volta na nova concessão;
+  - 403 para quem não é admin de plataforma (inclusive o admin da organização) nas telas e nas três mutações; CSRF ausente com 403; autenticação antiga leva à reautenticação sem escrever;
+  - abrir apps, disponibilidade e as páginas de duas organizações não grava evento de auditoria;
+  - card "Aplicativos" com disponibilidade, ativação e uso efetivo, sem configuração;
+  - dependentes concedidos bloqueiam a revogação naquela organização ("Bloqueada por …").
+- Smoke no navegador do painel, contra um banco PostgreSQL próprio (`local_skeleton_smoke`): modo "selecionadas", concessão de uma organização, tabela de concessões e card da organização; tema escuro e claro; largura de 375 px sem rolagem horizontal da página (a tabela rola dentro do contêiner, como as demais).
+- Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check` (depois de `npm run build`): sem problemas.
+
+**#24, apps disponíveis em `/o/<org>/apps/` e gestor de apps:**
+
+- `python -m pytest tests/integration/test_org_apps_available.py tests/integration/test_core_surfaces_on_services.py -q`: 18 passed. Os 6 testes novos cobrem:
+  - app indisponível fora da lista HTML e REST, telas e detalhe com 404, PUT com 400 `app_unavailable` (ativar ou desativar); a concessão aparece na requisição seguinte e B não vê a app concedida só a A;
+  - app ativa e depois retirada: sinalizada "Indisponibilizada pela plataforma", negócio com 404, reativar recusado com `app_unavailable`, desativar aceito e a app some da lista;
+  - gestor de apps ativa, configura e desativa pela API e abre o formulário; recebe 404 em membros, papéis e configurações da organização; menu com `can_manage_applications` e sem `can_manage_organization`; membro comum recebe 404 no painel, na lista REST e no PUT;
+  - gestor de apps de A recebe 404 em B; revogação vale na requisição seguinte;
+  - estado memoizado na requisição (segunda leitura sem consultas), refeito depois da escrita, e nenhum memo entre requisições;
+  - navegação com o mesmo número de consultas para 1, 5 e 20 apps com menu.
+- `tests/integration/test_application_administration.py`, `test_capabilities.py`, `test_navigation_shell.py`, `test_app_availability.py`, `test_core_application_service.py`, `test_app_activation_upgrade.py` e `test_app_extensions.py` (com as expectativas de 404 para membro e 200 para o gestor de apps atualizadas): passaram.
+- Smoke no navegador como administrador de uma organização concedida: lista só com a app disponível, ativação pela configuração, entrada no menu lateral e links de administração.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`: sem problemas.
+
+**#26, política de admissão e solicitações de ingresso:**
+
+- `python -m pytest tests/integration/test_join_requests.py tests/integration_postgres/test_admission_schema.py tests/integration/test_platform_boundary.py tests/integration/test_capabilities.py tests/integration/test_navigation_shell.py -q`: 47 passed. Os 12 testes de `test_join_requests.py` cobrem:
+  - sem política, nada listado e 404 neutro no HTML e na API, inclusive para organização inexistente; aceitando sem aparecer, só pelo endereço;
+  - conta sem email verificado recusada;
+  - fluxo completo HTML: pedido, reenvio idempotente, fila, aprovação com exatamente um vínculo e o papel do pedido, email só depois do commit;
+  - duas decisões na mesma revisão (uma vence, a outra 409 no HTML) e duas decisões concorrentes em threads no PostgreSQL (um vencedor);
+  - gestor de pessoas recusado (403) ao aprovar pedido com papel que tem capacidade; `organization_admin` recusado como papel padrão;
+  - solicitante vê os pedidos em A e B pela autodescoberta; o aprovador de A não vê, não lê nem decide pedido de B; membro comum sem acesso à fila;
+  - API: If-Match obrigatório (428), campos extras recusados (400), revisão stale 412, decisão repetida 409;
+  - retirada com CAS, estranho recebe 404, expiração derivada em 30 dias e pedido novo substituindo o expirado;
+  - rate limit com 429 e `Retry-After` igual para organização existente ou não;
+  - aprovação de quem saiu reativa o vínculo, com o aviso "Já foi membro";
+  - CAS e auditoria da política, tabelas fora do gateway, política só para `admission.configure`.
+- `tests/integration_postgres/test_admission_schema.py`: RLS forçada e policy de tenant na política, policies de autodescoberta no pedido, índice global sem RLS; sem o guard, sem o trigger de auditoria ou sem as policies, `check_deployed_schema` falha.
+- `python -m pytest tests/accounts tests/integration/test_access_lifecycle_regressions.py tests/integration/test_core_lifecycle_events.py tests/integration/test_http_boundaries.py tests/integration/test_recovered_surfaces.py tests/integration/test_self_discovery.py tests/integration/test_core_surfaces_on_services.py -q` (convites e SSO usam o `admit_member` extraído de `provision_membership`): 169 passed.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
+**#27, links de ingresso:**
+
+- `python -m pytest tests/integration/test_join_links.py tests/integration/test_join_requests.py tests/integration/test_platform_boundary.py tests/accounts/test_flows.py -q` e `tests/integration_postgres/test_admission_schema.py`: todos passaram (10 testes novos de links, 11 de schema). Cobrem:
+  - link direto admite uma vez com o papel do link; membro ativo não consome uso; a sessão guarda o resumo, nunca o token;
+  - link com aprovação e ex-membro (mesmo num link direto) geram pedido, nunca vínculo;
+  - quatro resgates concorrentes (threads, PostgreSQL) de um link com `max_uses=1`: um admitido, três inválidos, `use_count` 1;
+  - link expirado, revogado (revogação stale recusada), esgotado, de A no endereço de B e inexistente com a mesma página 404; desligar links na política fecha os vivos;
+  - token ausente da listagem HTML e REST, da auditoria (resumo redigido) e dos logs; resposta da criação sem cache;
+  - modo, limite e papel imutáveis;
+  - regras de criação (política, validade, limite, modo, `organization_admin`), gestor de pessoas recusado com papel com capacidade, membro sem acesso (403) e outra organização (404);
+  - cadastro pelo link fechado sem `signup_via_link_enabled`; com a opção, o cadastro cria pedido `awaiting_verification` e a confirmação em outro cliente, sem sessão, admite com aprovação automática;
+  - API com campos exatos, If-Match obrigatório (428) e stale (412).
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
+**#28, domínio de email verificado:**
+
+- `python -m pytest tests/integration/test_verified_domains.py tests/integration_postgres/test_admission_schema.py -q`: 25 passed. Os 10 testes de domínio cobrem:
+  - normalização IDNA e domínios inválidos;
+  - domínio pendente (sem TXT) ou com a política desligada sem efeito;
+  - verificação com resolvedor falso; admissão direta, pedido no modo com aprovação (idempotente) e email não verificado ignorado;
+  - domínio de A recusado para B com erro neutro (serviço e HTML 409) e email do domínio sem nunca levar a B;
+  - ex-membro que confirma outro email do domínio vira pedido, sem readmissão;
+  - reverificação: duas falhas contam, a terceira marca `failed`, remove a posse e suspende a admissão; `verify_domains --recheck` sem efeito sobre a posse removida;
+  - DNS fora do ar (servidor TEST-NET-1 sem resposta, limite de 0,5 s) falha em menos de 3 s com `timeout`;
+  - confirmação de email pelo allauth admite;
+  - sugestão na página inicial e entrada por ela (pedido com `channel=domain`), outra organização com 404;
+  - plataforma revoga a posse com CAS (stale 409); quem não é da plataforma recebe 403.
+- `tests/accounts`, `tests/integration/test_join_links.py`, `test_join_requests.py` e `test_platform_boundary.py`: passaram depois de corrigir o `verified_owner` fora de requisição (a primeira rodada mostrou 3 falhas em `test_social_hardening.py`, que chamam `confirm_email` sem contexto).
+- `dnspython` 2.9.2 nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package dnspython`.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
+**#29, provedores de identidade no banco:**
+
+- `python -m pytest tests/accounts tests/integration_postgres/test_admission_schema.py tests/integration/test_platform_boundary.py tests/integration/test_join_requests.py tests/integration/test_join_links.py tests/integration/test_verified_domains.py -q`: 185 passed. Os 10 testes de `tests/accounts/test_identity_providers_db.py` cobrem:
+  - fingerprint do banco igual ao do carregador do JSON (OIDC e SAML);
+  - allowlist de `settings` por protocolo (escopo, prova de email, chave privada, `advanced`, entity ID, HTTP e SAML sem certificado recusados);
+  - provedor criado no banco resolvido pelo adapter na requisição seguinte, com segredo decifrado; `enabled=false` some do `list_apps` e o provider recusa o login;
+  - identidade imutável no modelo, no serviço e no guard da tabela (UPDATE direto recusado); quem não é da plataforma recebe `PermissionDenied`;
+  - segredo cifrado na coluna, fora do `repr` e redigido na auditoria;
+  - importação do JSON com `--dry-run` sem escrita, fingerprints iguais, segredo e regra JIT importados, avisos de transição enquanto a entrada continua no arquivo e o `SocialAccount` existente reconhecido depois que ela sai;
+  - troca do certificado SAML do IdP mantém o fingerprint e os subjects;
+  - JIT desligado sem `IdentityProviderAdmission`; papel padrão vindo da linha da organização;
+  - email existente sem auto-connect e flags de staff/superuser zeradas para identidade nova;
+  - validação recusa provider_id do arquivo com outra identidade e segredo que a chave atual não decifra.
+- A primeira versão fazia `configured_providers()` consultar o banco sempre; um teste unitário sem banco em `test_social_hardening.py` falhou e a mescla passou a ser preguiçosa (arquivo primeiro).
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas. SSO real com Keycloak (`tests/sso/`) não rodou: não há Docker neste ambiente.
+
+**#30, telas de provedores em `/platform/`:**
+
+- `python -m pytest tests/integration/test_platform_identity_providers.py tests/integration/test_platform_boundary.py -q`: 19 passed. Os 7 testes novos cobrem:
+  - criação OIDC, página sem o segredo e sem campos de identidade editáveis, edição com o segredo em branco mantendo o atual, revisão stale com 409, troca de segredo, auditoria com `[REDACTED]` e sem os valores;
+  - `client_id`, `issuer` e `provider_id` enviados no POST de edição recusados com 400 sem mudar nada;
+  - issuer HTTP e OIDC sem segredo recusados; SAML sem certificado nem metadata recusado e aceito com certificado;
+  - CSRF ausente (403), quem não é da plataforma (403) e autenticação antiga levando à reautenticação, sem gravar;
+  - "Testar" com o cliente de saída simulado: só `last_check_*` muda; destino inalcançável grava `unreachable`;
+  - card "Provedores de identidade" na página da organização, sem segredo.
+- Ruff 0.17.4 e `npm run check`: sem problemas. O smoke com um Keycloak de teste não rodou (sem Docker neste ambiente).
+
+**#31, regras de admissão do SSO pela organização:**
+
+- `python -m pytest tests/accounts tests/integration/test_navigation_shell.py tests/integration/test_capabilities.py tests/integration/test_platform_identity_providers.py -q`: 148 passed. Os 5 testes de `tests/accounts/test_identity_admission.py` cobrem:
+  - B não vê os provedores de A na página, na lista REST nem no detalhe, e o PUT de B no provedor de A responde 404; a lista de A não traz segredo;
+  - JIT desligado até a primeira gravação; CAS a partir de `"0"` (stale 412 na API e 409 no HTML), domínios normalizados e sem repetição, campo a mais recusado com 400;
+  - papel de outra organização recusado; o administrador pode escolher papel com capacidade;
+  - JIT com aprovação cria `JoinRequest(channel=sso)` pendente e sem vínculo, idempotente enquanto aberto; sem aprovação, o vínculo é criado;
+  - email fora dos domínios permitidos recebe a recusa neutra (403 "Identity admission denied."); email do domínio passa.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `npm run check`: sem problemas.
+
+**#32, login LDAP por organização:**
+
+- Spike com Python 3.14.7, `ldap3` 2.9.1 e `pyasn1` 0.6.5 registrado na issue: TLS com `SSLContext`, StartTLS, `MOCK_SYNC` e escape de filtro funcionam; dois `DeprecationWarning` no import.
+- `python -m pytest tests/accounts/test_ldap_login.py -q`: 7 passed, contra o diretório simulado do `ldap3` (`MOCK_SYNC`, trocado em `client.set_connection_factory`). Cobrem:
+  - login cria identidade só-SSO (`local_password_allowed=False`, senha inutilizável) com `SocialAccount(provider, uid=entryUUID)` e o fingerprint, e o vínculo pelo JIT da organização; email mudado no diretório volta para a mesma identidade;
+  - email igual ao de uma conta local recebe a recusa neutra (403), sem conectar;
+  - senha errada, usuário inexistente e filtro injetado (`*)(uid=*`) com a mesma resposta 401; o filtro injetado não encontra ninguém; senha vazia nunca chega a um bind;
+  - limite por usuário com 429 e `Retry-After`;
+  - configuração recusa `ldap://` sem StartTLS, URL sem base, filtro sem parênteses, identificador fora de `entryUUID`/`objectGUID` e opção desconhecida; aceita `ldap://` com StartTLS;
+  - provedor desligado responde 404; `objectGUID` convertido com `bytes_le`;
+  - cadastro LDAP pela plataforma (HTTP recusado, senha cifrada e fora da página) e "Testar" com `ok`.
+- Os testes com contêiner OpenLDAP em `tests/sso/` não rodaram: não há Docker neste ambiente. A MFA no fluxo LDAP é a etapa padrão do allauth e não ganhou teste próprio.
+- `ldap3` e `pyasn1` nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package ldap3`.
+
+**#33, sincronização do diretório LDAP:**
+
+- `python -m pytest tests/accounts/test_ldap_sync.py -q`: 6 passed, contra o diretório simulado do `ldap3` (`MOCK_SYNC`, busca paginada). Cobrem:
+  - `--dry-run` relata a desativação e não grava nada (nem `last_sync_*`);
+  - desativação só na organização do provedor (o vínculo da mesma pessoa em outra organização fica), `last_sync_code=ok`, segunda rodada sem mudança e quem volta ao diretório continua desativado;
+  - diretório vazio e diretório inalcançável abortam com erro de comando e sem desativar ninguém;
+  - acima de `--max-deactivations`, a organização aborta sem gravar;
+  - o último administrador é pulado e reportado;
+  - `--provision` desligado por padrão e sem efeito com JIT desligado; com JIT admite só quem nunca foi membro, nunca um ex-membro; com aprovação cria `JoinRequest(channel=sso)`.
+- Sem Docker, os testes com OpenLDAP real em `tests/sso/` não rodaram.
+
+**#34, auditor e operador de releases:**
+
+- `python -m pytest tests/integration/test_platform_roles.py -q`: 5 passed; com as suítes de plataforma, auditoria, deployment, jobs, administração de apps e `tests/integration_postgres`, 189 passed. Os 5 cobrem:
+  - matriz: o auditor lê `/platform/audit/` e o catálogo e recebe 403 em visão geral, usuários, organizações, apps, jobs e atualizações; o operador acessa só `/platform/updates/`; nenhum dos dois entra em `/o/<org>/`; o auditor não edita rótulo do catálogo (403) e o link do cabeçalho leva à auditoria;
+  - RLS com a role runtime: fora de `platform_audit_scope` o auditor não vê eventos globais, dentro vê, e UPDATE na auditoria continua recusado; o operador não abre o escopo;
+  - revogação incrementa o `auth_version`, a sessão seguinte perde o acesso e a capacidade some;
+  - só o administrador concede papéis; papel desconhecido recusado;
+  - `check_deployed_schema` recusa a política antiga de SELECT da auditoria.
+
+**Branch do epic (`feat/35-org-apps-admission`, todas as issues unidas):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1432 passed, 111 skipped (os pulos exigem `O_NOFOLLOW`/`fcntl`, só em Linux/macOS, ou o CLI do Docker).
+- **Não executado:** `tests/sso/` com Keycloak e OpenLDAP em contêiner, por falta de Docker neste ambiente; login real com IdP e MFA no fluxo LDAP ficam para o CI e a homologação.
+- Depois do merge da `main` (i18n, OpenAPI, fluxos, auditoria, LGPD e suíte rápida), com as migrations do epic renumeradas sobre as da `main` (`sk_accounts.0005`–`0007`, `sk_audit.0004`) e as rotas REST do epic declaradas no schema OpenAPI: `python -m pytest tests -q -n 8`, 1788 passed, 111 skipped e 1 failed. A falha é `test_platform_pages_are_translated`, que acusa a palavra `installed`: é a origem do núcleo que este `.venv` informa, enquanto no CI ela é `source`, palavra que o teste já aceita.
+
 ## Fluxos de processo (epic #209)
 
 Rodada de 2026-11-12 na branch `feat/209-business-flows`, um commit por issue ([#200](https://github.com/alaorneto/skeleton/issues/200) a [#207](https://github.com/alaorneto/skeleton/issues/207)) e um de testes de concorrência. Somente o que rodou:

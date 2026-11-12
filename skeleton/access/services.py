@@ -153,35 +153,46 @@ def _delete(record, *, user, capability=ACCESS_MANAGE):
 
 
 def provision_membership(*, organization, user, role):
+    context = current_context()
+    if not context.system or context.organization_id != organization.pk:
+        raise PermissionDenied("Provisioning requires a validated system tenant context.")
+    with organization_lock():
+        return admit_member(organization=organization, user=user, role=role)
+
+
+def admit_member(*, organization, user, role):
+    """Create or reactivate ``user``'s membership with ``role`` in the current organization.
+
+    The caller has already decided and holds ``organization_lock``: a validated system path
+    (invitation, SSO) or an approved join request (#26). Reactivating a previous membership is
+    a human decision; automatic admissions look for one first and create a request instead.
+    """
     from skeleton.tenancy.models import Membership
 
     from .models import MemberRole
 
-    context = current_context()
-    if not context.system or context.organization_id != organization.pk:
-        raise PermissionDenied("Provisioning requires a validated system tenant context.")
+    if current_context().organization_id != organization.pk:
+        raise PermissionDenied("Admission runs in the organization's own context.")
     _tenant_relation(role)
     if user.deleted_at is not None or not user.is_active:
         raise ValidationError(gettext("Identidade indisponível."))
     from skeleton.events.core_events import membership_changed
 
-    with organization_lock():
-        membership = Membership.all_objects.filter(organization=organization, user=user).first()
-        was_active = membership is not None and membership.is_active and membership.deleted_at is None
-        if membership is None:
-            membership = Membership(organization=organization, user=user, is_active=True)
-            membership.save()
-        else:
-            if membership.deleted_at is not None:
-                membership.is_active = True
-                membership.restore()
-            elif not membership.is_active:
-                membership.is_active = True
-                membership.save(update_fields={"is_active"})
-        if not MemberRole.objects.filter(membership=membership, role=role).exists():
-            MemberRole(organization=organization, membership=membership, role=role).save()
-        membership_changed(membership, was_active=was_active)
-        return membership
+    membership = Membership.all_objects.filter(organization=organization, user=user).first()
+    was_active = membership is not None and membership.is_active and membership.deleted_at is None
+    if membership is None:
+        membership = Membership(organization=organization, user=user, is_active=True)
+        membership.save()
+    elif membership.deleted_at is not None:
+        membership.is_active = True
+        membership.restore()
+    elif not membership.is_active:
+        membership.is_active = True
+        membership.save(update_fields={"is_active"})
+    if not MemberRole.objects.filter(membership=membership, role=role).exists():
+        MemberRole(organization=organization, membership=membership, role=role).save()
+    membership_changed(membership, was_active=was_active)
+    return membership
 
 
 def create_membership(*, user, data):
@@ -253,6 +264,29 @@ def delete_membership(record, *, user):
         record.delete()
         membership_changed(record, was_active=was_active)
         ensure_last_admin()
+
+
+def system_deactivate_membership(record):
+    """Deactivate like an administrator would, from a validated system context (directory sync, #33).
+
+    Revokes ``MemberRole``/``GroupMember``/``RecordGrant`` of the membership, keeps it (inactive,
+    with its history) and ends with ``ensure_last_admin()``, which raises ``LastAdministrator``
+    and lets the caller's savepoint roll this one membership back. Never reactivates anyone.
+    """
+    context = current_context()
+    if not context.system or record.organization_id != context.organization_id:
+        raise PermissionDenied("Directory deactivation requires the organization's system context.")
+    from skeleton.events.core_events import membership_changed
+
+    with organization_lock():
+        if record.deleted_at is not None or not record.is_active:
+            return record
+        _revoke_membership_links(record)
+        record.is_active = False
+        record.save(update_fields={"is_active"})
+        membership_changed(record, was_active=True)
+        ensure_last_admin()
+        return record
 
 
 def leave_organization(user, *, expected_revision=None):

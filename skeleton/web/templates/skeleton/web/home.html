@@ -10,13 +10,15 @@ session; join requests (#26) and suggested organizations (#28) plug into the sam
 {% block home_join_requests %}{% if join_requests %}<section class="card mb-6" aria-labelledby="home-requests">
 <h2 id="home-requests" class="text-base">{% translate "Minhas solicitações" %}</h2>
 <ul class="mt-2 space-y-1">{% for item in join_requests %}<li>{{ item.organization_name }} · {{ item.status_label }}</li>{% endfor %}</ul>
+<p class="mt-3"><a href="{% url 'web:join' %}">Ver e retirar pedidos</a></p>
 </section>{% endif %}{% endblock %}
 {% block home_suggestions %}{% if suggested_organizations %}<section class="card mb-6" aria-labelledby="home-suggestions">
 <h2 id="home-suggestions" class="text-base">{% translate "Organizações sugeridas" %}</h2>
-<ul class="mt-2 space-y-1">{% for item in suggested_organizations %}<li>{{ item.organization_name }}</li>{% endfor %}</ul>
+<p class="mt-1 text-sm/6 text-body-subtle">{% translate "Organizações que verificaram o domínio do seu email." %}</p>
+<ul class="mt-2 space-y-2">{% for item in suggested_organizations %}<li class="flex flex-wrap items-center gap-3"><span>{{ item.organization_name }} <span class="text-sm text-body-subtle">({{ item.domain }})</span></span><form method="post" action="{% url 'web:join-by-domain' item.organization_id %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Entrar" %}<span class="sr-only"> {% blocktranslate with name=item.organization_name %}em {{ name }}{% endblocktranslate %}</span></button></form></li>{% endfor %}</ul>
 </section>{% endif %}{% endblock %}
 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{% for membership in memberships %}<section class="card flex flex-col gap-4">
 <div class="flex items-center gap-3"><span class="grid size-10 shrink-0 place-items-center rounded-base bg-brand-soft text-base font-semibold text-fg-brand-strong" aria-hidden="true">{{ membership.organization_name|first|upper }}</span><h2 class="min-w-0 text-base">{{ membership.organization_name }}</h2></div>
 <a class="button self-start" href="{% url 'web:dashboard' membership.organization_id %}">{% translate "Abrir organização" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
-</section>{% empty %}<div class="card sm:col-span-2 lg:col-span-3"><div class="empty-state">{% include "skeleton/web/components/icon.html" with name="building" class="mx-auto mb-3 size-8 text-body-subtle" %}<p class="font-medium text-heading">{% translate "Você ainda não pertence a uma organização." %}</p><p class="mt-1">{% translate "Para entrar, abra o link de um convite recebido por email ou peça um convite a quem administra a organização." %}</p></div></div>{% endfor %}</div>
+</section>{% empty %}<div class="card sm:col-span-2 lg:col-span-3"><div class="empty-state">{% include "skeleton/web/components/icon.html" with name="building" class="mx-auto mb-3 size-8 text-body-subtle" %}<p class="font-medium text-heading">{% translate "Você ainda não pertence a uma organização." %}</p><p class="mt-1">{% translate "Para entrar, abra o link de um convite recebido por email ou peça um convite a quem administra a organização." %}{% if join_directory %} {% url 'web:join' as join_url %}{% blocktranslate %}Você também pode <a href="{{ join_url }}">pedir para entrar numa organização aberta a pedidos</a>.{% endblocktranslate %}{% endif %}</p></div></div>{% endfor %}</div>
 {% endblock %}

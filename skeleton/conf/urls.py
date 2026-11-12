@@ -3,6 +3,7 @@
 from django.urls import include, path
 
 from skeleton.accounts import oidc
+from skeleton.accounts.ldap import views as ldap_views
 from skeleton.accounts.views import invitation_view, logout
 from skeleton.system.app_registry import application_urlpatterns
 
@@ -13,6 +14,7 @@ def application_urls(project_urls=()):
         *application_urlpatterns(),
         path("accounts/oidc/<str:provider_id>/login/", oidc.login, name="openid_connect_login"),
         path("accounts/oidc/<str:provider_id>/login/callback/", oidc.callback, name="openid_connect_callback"),
+        path("accounts/ldap/<str:provider_id>/login/", ldap_views.login, name="ldap_login"),
         path("accounts/logout/", logout, name="account_logout"),
         path("accounts/", include("allauth.urls")),
         path("platform/", include("skeleton.web.platform.urls")),

@@ -1,0 +1,20 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Solicitações de ingresso · Skeleton{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0">
+{% include 'skeleton/web/components/breadcrumbs.html' %}
+<h1>Solicitações de ingresso</h1>
+<p class="page-description">Pedidos abertos, do mais antigo para o mais novo. Aprovar cria o vínculo com o papel indicado; pedidos expiram em 30 dias.</p></div></div>
+{% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}Não foi possível decidir</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+<div class="table-scroll"><table><thead><tr><th scope="col">Pessoa</th><th scope="col">Mensagem</th><th scope="col">Papel</th><th scope="col">Enviado em</th><th scope="col"><span class="sr-only">Decisão</span></th></tr></thead><tbody>
+{% for row in rows %}{% with item=row.record %}<tr>
+<td><span class="font-medium text-heading">{{ item.user.get_full_name|default:item.user.email }}</span><br><span class="text-sm text-body-subtle">{{ item.user.email }}</span>{% if row.returning %}<br><span class="badge badge-warning badge-dot">Já foi membro: aprovar reativa o vínculo</span>{% endif %}</td>
+<td class="max-w-sm">{{ item.message|default:"—"|linebreaksbr }}</td>
+<td>{{ item.role.name }}</td>
+<td class="whitespace-nowrap!">{{ item.created_at }}</td>
+<td class="text-right"><form method="post" action="{% url 'web:join-request-decide' organization_id item.pk %}" class="inline-flex gap-2">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
+<button type="submit" name="decision" value="approve" class="btn btn-primary btn-sm">Aprovar<span class="sr-only"> {{ item.user.email }}</span></button>
+<button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">Recusar<span class="sr-only"> {{ item.user.email }}</span></button></form></td>
+</tr>{% endwith %}{% empty %}<tr><td colspan="5" class="empty-state">Nenhum pedido aberto.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

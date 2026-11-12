@@ -104,6 +104,27 @@ def has_table_permission(model: type[Model], *, user: User, action: str) -> bool
     )
 
 
+def table_permissions(user: User) -> frozenset[tuple[str, str]]:
+    """``(model_label, action)`` pairs the user's roles hold in the tenant, in one query.
+
+    The batch form of ``has_table_permission`` for menus: the same roles, catalog
+    availability and token scopes. Without an active membership the set is empty.
+    """
+    from .models import TablePermission
+
+    try:
+        rows = TablePermission.objects.filter(
+            role__in=effective_roles(user), table__available=True, action__in=ACTIONS
+        ).values_list("table__model_label", "action")
+        pairs = frozenset(rows)
+    except PermissionDenied:
+        return frozenset()
+    scopes = credential_scopes()
+    if scopes is not None:
+        pairs = frozenset(pair for pair in pairs if f"{pair[0]}:{pair[1]}" in scopes)
+    return pairs
+
+
 def _grant_ids(model: type[Model], user: User, action: str) -> QuerySet[Any, UUID]:
     from .models import RecordGrant
 
@@ -155,7 +176,9 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
 
     organization_id = current_context().organization_id
     if organization_id is None:
-        if is_platform_admin(user):
+        from skeleton.accounts.platform import AUDIT_READ, has_platform_capability
+
+        if is_platform_admin(user) or has_platform_capability(user, AUDIT_READ):
             return AuditEvent.objects.filter(organization_id__isnull=True)
         raise PermissionDenied("Platform access required.")
     active_membership(user)

@@ -320,6 +320,7 @@ def test_system_reasons_open_to_http_are_a_closed_list():
 
     from skeleton.tenancy.context import (
         HTTP_SYSTEM_REASONS,
+        JOIN_REASONS,
         PLATFORM_ADMIN_REASONS,
         VALIDATED_IDENTITY_REASONS,
         InvalidContext,
@@ -334,7 +335,16 @@ def test_system_reasons_open_to_http_are_a_closed_list():
         "organization:designate-admin",
         "platform:organization-inspect",
     }
-    assert HTTP_SYSTEM_REASONS == VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
+    assert JOIN_REASONS == {"join:request", "join:link", "join:domain"}
+    # Without an authenticated actor only a link (whose token digest is the proof) may be validated.
+    with request_context(actor=None, request_id=uuid4(), source="test:reasons-anonymous"):
+        with pytest.raises(InvalidContext), system_context(reason="join:request"):
+            pass
+        with system_context(reason="join:link") as anonymous:
+            assert anonymous.system
+        with system_context(reason="join:domain") as confirmed:
+            assert confirmed.system
+    assert HTTP_SYSTEM_REASONS == VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
     platform, _ = bootstrap_identity(
         email="reasons-platform@example.test", organization="reasons", name="Reasons", password=PASSWORD
     )

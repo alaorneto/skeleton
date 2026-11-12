@@ -560,7 +560,8 @@ def expected_policies(model, operation=None):
             "skeleton_audit_select": (
                 "r",
                 ["skeleton_runtime"],
-                tenant + " OR (organization_id IS NULL AND current_setting('skeleton.platform_admin',true)='on')",
+                tenant
+                + " OR (organization_id IS NULL AND (current_setting('skeleton.platform_admin',true)='on' OR current_setting('skeleton.platform_auditor',true)='on'))",
                 None,
             ),
             "skeleton_audit_insert": ("a", ["skeleton_audit_writer"], None, tenant + " OR organization_id IS NULL"),

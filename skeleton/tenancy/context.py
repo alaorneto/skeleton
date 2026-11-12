@@ -38,6 +38,8 @@ class Context:
     using: str = "default"
     # Scopes of the API token that authenticated the request (#46); None for a session.
     credential_scopes: frozenset[str] | None = None
+    # Global audit reading by the platform auditor (#34); only inside ``platform_audit_scope``.
+    platform_auditor: bool = False
 
 
 # The only system contexts an HTTP request may open (docs/access-control.md). Each is chosen by
@@ -52,15 +54,34 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "platform:organization-inspect",
     }
 )
-HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS
+# Admission by the person (#26, #27): opened by the admission services for one organization,
+# after their own checks. ``join:request`` acts for the authenticated requester; ``join:link``
+# also validates a link before login, the token digest being the proof (like an invitation).
+JOIN_REASONS = frozenset({"join:request", "join:link", "join:domain"})
+# ``join:domain`` runs when an email is confirmed, possibly before any login: the confirmed
+# address of the person is the proof.
+_ANONYMOUS_JOIN_REASONS = frozenset({"join:link", "join:domain"})
+HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
 
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
-_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin")
+# Per-request memo (#24): created by request_context, gone when the request ends. Never an
+# authorization cache across requests: a revocation still applies on the next request.
+_request_cache: ContextVar[dict[Any, Any] | None] = ContextVar("skeleton_request_cache", default=None)
+_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor")
 
 
 def current_context() -> Context:
     return _context.get() or Context()
+
+
+def request_cache() -> dict[Any, Any] | None:
+    """Values memoized for the current request only; ``None`` outside one.
+
+    A ``tenant_context`` opened without a request (jobs, CLI) opens its own request scope,
+    so its memo lives exactly as long as that unit of work.
+    """
+    return _request_cache.get()
 
 
 def in_context() -> bool:
@@ -83,6 +104,7 @@ def _apply(context: Context) -> None:
             context.request_id,
             context.source,
             "on" if context.platform_admin else "off",
+            "on" if context.platform_auditor else "off",
         )
         with connection.cursor() as cursor:
             for name, value in zip(_GUCS, values, strict=True):
@@ -124,6 +146,7 @@ def request_context(
     if _context.get() is not None:
         raise InvalidContext("Requests cannot nest.")
     selected_token = _selected.set(None)
+    cache_token = _request_cache.set({})
     actor_id = _uuid(actor)
     context = Context(
         actor=actor_id,
@@ -138,6 +161,7 @@ def request_context(
         with _enter(context) as active:
             yield active
     finally:
+        _request_cache.reset(cache_token)
         _selected.reset(selected_token)
 
 
@@ -200,8 +224,10 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
     tenant_id = _uuid(organization_id)
     prior = _context.get()
     # These are private, narrow identity admission paths, never request-selectable flags.
-    admitted = reason in VALIDATED_IDENTITY_REASONS or bool(
-        prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS
+    admitted = (
+        reason in VALIDATED_IDENTITY_REASONS
+        or bool(prior and prior.platform_admin and reason in PLATFORM_ADMIN_REASONS)
+        or bool(prior and reason in JOIN_REASONS and (prior.actor is not None or reason in _ANONYMOUS_JOIN_REASONS))
     )
     if prior and not prior.system and not admitted:
         raise InvalidContext("A request cannot promote itself to a system context.")
@@ -232,6 +258,60 @@ def refresh_authenticated_actor(user: Any) -> None:
     )
     _context.set(context)
     _apply(context)
+
+
+@contextmanager
+def platform_audit_scope(user: Any) -> Iterator[Context]:
+    """Read the global audit trail as a platform auditor (#34), and nothing else.
+
+    Turns on ``skeleton.platform_auditor`` for the duration, after checking ``audit.read``,
+    outside any tenant and for a session (never an API token). Administrators already read it.
+    """
+    from skeleton.accounts.platform import AUDIT_READ, has_platform_capability
+
+    prior = _context.get()
+    if prior is None or prior.system or prior.organization_id is not None or prior.credential_scopes is not None:
+        raise InvalidContext("Global audit reading runs in a session request without a tenant.")
+    if prior.actor != _uuid(user) or not has_platform_capability(user, AUDIT_READ):
+        raise PermissionDenied("Platform audit reading required.")
+    context = replace(prior, platform_auditor=True)
+    token = _context.set(context)
+    try:
+        _apply(context)
+        yield context
+    finally:
+        _context.reset(token)
+        if not connections[prior.using].needs_rollback:
+            _apply(prior)
+
+
+@contextmanager
+def verified_owner(user: Any) -> Iterator[Context]:
+    """Act as ``user`` for self-discovery right after their email confirmation proved ownership.
+
+    For the confirmation of a signup made through a join link (#27), which may happen on another
+    device without a session. Only outside any tenant and only when the request has no other
+    actor; the previous context comes back at the end.
+    """
+    prior = _context.get()
+    if prior is None:
+        # Outside any request (the adapter called directly, a command): a scope of its own.
+        with request_context(actor=user, request_id=None, source="account:email-confirmed") as active:
+            yield active
+        return
+    if prior.system or prior.organization_id is not None:
+        raise InvalidContext("Owner verification runs in a request without a tenant.")
+    if prior.actor not in (None, _uuid(user)):
+        raise InvalidContext("Another identity is already acting in this request.")
+    context = replace(prior, actor=_uuid(user), platform_admin=False)
+    token = _context.set(context)
+    try:
+        _apply(context)
+        yield context
+    finally:
+        _context.reset(token)
+        if not connections[prior.using].needs_rollback:
+            _apply(prior)
 
 
 def own_rows(model: Any, user: Any, *, using: str = "default") -> Any:

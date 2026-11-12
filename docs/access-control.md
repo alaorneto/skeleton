@@ -106,6 +106,19 @@ A auditoria vem dos triggers, na mesma transação: os eventos de `Membership` e
 
 A confirmação de exclusão de User no Django Admin descreve somente a identidade: não usa o collector de exclusão física do Django. Perfis, Memberships e identificadores de identidade externa (`subjects`) permanecem históricos; o ciclo de vida invalida login/sessões. Não habilite ações de exclusão física da identidade nem de seus dependentes.
 
+## Papéis limitados de plataforma
+
+O administrador da plataforma continua definido só pelas flags (`is_platform_admin`). Além dele, `sk_accounts.PlatformRoleAssignment` (#34) dá a uma identidade um papel limitado, com capacidades em código (`skeleton/accounts/platform.py`):
+
+| Papel | Capacidades | Telas |
+|---|---|---|
+| `auditor` | `audit.read`, `inventory.read` | `/platform/audit/` e o catálogo de tabelas, só leitura |
+| `operator` | `updates.operate` | `/platform/updates/` (planos, envio, aprovação e operações) |
+
+`platform_page(capability=..., writes=...)` libera a tela ao portador da capacidade: só para leitura, a menos que a capacidade seja de escrita (`updates.operate`); o resto de `/platform/` continua exigindo o administrador. `require_release_operator` aceita o administrador ou o operador nos serviços de deployment. Conceder e revogar, na página da identidade, exigem o administrador, CSRF e autenticação recente, e incrementam o `auth_version` da pessoa; a capacidade é recalculada a cada requisição.
+
+A leitura global da auditoria pelo auditor passa pela RLS: a política `skeleton_audit_select` aceita eventos sem organização com `skeleton.platform_admin='on'` **ou** `skeleton.platform_auditor='on'`. Este último só é ligado por `platform_audit_scope(user)`, aberto pela página de auditoria depois de conferir `audit.read`, numa requisição de sessão sem tenant; fora dele o auditor não vê eventos globais. Inserção continua só com o escritor de auditoria, e UPDATE/DELETE seguem impossíveis. A migration `sk_audit.0004_platform_auditor` reinstala a política, e `check_deployed_schema` recusa a versão antiga.
+
 ## Contrato de contextos
 
 O contexto informa à execução **quem está agindo, em qual organização e em qual transação**. Ele não é uma permissão adicional. Use as entradas abaixo em vez de preencher variáveis de sessão SQL manualmente:
@@ -116,7 +129,7 @@ O contexto informa à execução **quem está agindo, em qual organização e em
 | `tenant_context(*, organization_id, actor, source, using='default')` | Valida vínculo e organização ativos |
 | `system_context(*, reason, organization_id=None, using='default')` | Exige motivo; somente infraestrutura/CLI, nunca opção de body/header HTTP, salvo as razões fechadas abaixo |
 
-Dentro de uma requisição, `system_context` só aceita as razões de `HTTP_SYSTEM_REASONS` (`skeleton/tenancy/context.py`), sempre escolhidas pelo código do servidor depois da própria validação, nunca por body ou header. `invitation:validated` e `sso:validated` (`VALIDATED_IDENTITY_REASONS`) servem a convite e SSO já validados. As demais (`PLATFORM_ADMIN_REASONS`) exigem que o ator da requisição seja administrador de plataforma: `organization:create`, `organization:bootstrap`, `builtin-roles`, `organization:designate-admin` e `platform:organization-inspect`. Qualquer outra razão, ou uma dessas pedida por quem não é administrador de plataforma, levanta `InvalidContext`. Acrescentar uma razão exige mudar a constante e o teste que fixa a lista (`test_system_reasons_open_to_http_are_a_closed_list`).
+Dentro de uma requisição, `system_context` só aceita as razões de `HTTP_SYSTEM_REASONS` (`skeleton/tenancy/context.py`), sempre escolhidas pelo código do servidor depois da própria validação, nunca por body ou header. `invitation:validated` e `sso:validated` (`VALIDATED_IDENTITY_REASONS`) servem a convite e SSO já validados. `PLATFORM_ADMIN_REASONS` exigem que o ator da requisição seja administrador de plataforma: `organization:create`, `organization:bootstrap`, `builtin-roles`, `organization:designate-admin` e `platform:organization-inspect`. `JOIN_REASONS` são abertas só pelos serviços de admissão, para uma organização: `join:request` (#26) exige um ator autenticado e age em nome do próprio solicitante; `join:link` (#27) também valida um link antes do login, com o resumo do token como prova; `join:domain` (#28) roda quando um email é confirmado, possivelmente antes do login, com o email confirmado como prova. A reverificação de domínios (`domain:recheck`), a sincronização de diretório (`directory:sync`) e a importação de provedores (`idp:import`) são só de CLI. Qualquer outra razão, ou uma dessas pedida por quem não é administrador de plataforma, levanta `InvalidContext`. Acrescentar uma razão exige mudar a constante e o teste que fixa a lista (`test_system_reasons_open_to_http_are_a_closed_list`).
 
 Uma requisição global pode entrar em uma organização validada e voltar ao contexto global. Não pode trocar de Alfa para Beta na mesma transação. Blocos aninhados reutilizam identidade/organização usando savepoints (pontos de retorno dentro da transação); o ator só muda no hook de login/logout depois dos estágios allauth completos. Trabalho com várias organizações abre transações independentes por organização. O contexto é restaurado em `finally`; usa somente `SET LOCAL` e não sobrevive a COMMIT/ROLLBACK.
 
@@ -164,4 +177,4 @@ SELECT de AuditEvent pela conexão runtime limita-se ao tenant; eventos globais 
 
 ## Auditoria autorizada
 
-Administradores organizacionais veem auditoria da própria organização. Outros precisam de `table.audit` e leitura autorizada do registro atual; uma marca de exclusão exige autorização para `restore`. Filtre **antes** de paginar/contar. Se o registro foi removido offline e não há objeto atual, só administrador organizacional/plataforma pode ver os eventos: nunca reconstrua a ACL a partir do conteúdo histórico. Inventário técnico e eventos globais pertencem somente à plataforma.
+Administradores organizacionais veem auditoria da própria organização. Outros precisam de `table.audit` e leitura autorizada do registro atual; uma marca de exclusão exige autorização para `restore`. Filtre **antes** de paginar/contar. Se o registro foi removido offline e não há objeto atual, só administrador organizacional/plataforma pode ver os eventos: nunca reconstrua a ACL a partir do conteúdo histórico. Inventário técnico e eventos globais pertencem somente à plataforma: ao administrador e, para leitura, ao auditor de plataforma (#34).

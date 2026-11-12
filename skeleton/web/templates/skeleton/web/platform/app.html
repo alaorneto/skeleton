@@ -23,8 +23,10 @@
     {% if application.dependencies %}<h3 class="mt-6 mb-2 text-sm">{% translate "Dependências" %}</h3><ul>{% for dependency in application.dependencies %}<li><code>{{ dependency }}</code></li>{% endfor %}</ul>{% endif %}
   </section>
   <section class="card" aria-labelledby="app-organizations">
-    <h2 id="app-organizations" class="mb-2">{% translate "Nas organizações" %}</h2>
-    <p class="text-sm/6 text-body">{% translate "Ativação e parâmetros são definidos por quem administra cada organização, em Administração › Aplicativos. Acesso de plataforma não concede vínculo nem acesso a dados de organizações." %}</p>
+    <h2 id="app-organizations" class="mb-2">{% translate "Disponibilidade" %}</h2>
+    <p class="text-sm/6 text-body">{% if availability.mode == "all" %}<span class="badge badge-success badge-dot">{% translate "Todas as organizações" %}</span>{% elif availability.mode == "selected" %}<span class="badge badge-brand badge-dot">{% blocktranslate count counter=availability.grants|length %}{{ counter }} organização selecionada{% plural %}{{ counter }} organizações selecionadas{% endblocktranslate %}</span>{% else %}<span class="badge badge-dot">{% translate "Indisponível" %}</span>{% endif %}</p>
+    <p class="mt-3 text-sm/6 text-body">{% translate "Ativação e parâmetros são definidos por quem administra cada organização, em Administração › Aplicativos. Acesso de plataforma não concede vínculo nem acesso a dados de organizações." %}</p>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:app-availability' application.app_label %}">{% translate "Gerenciar disponibilidade" %}</a></p>
     {% if tenant_screens %}<p class="mt-4 text-xs font-semibold tracking-wide text-body-subtle uppercase">{% translate "Telas na organização" %}</p><ul class="mt-2">{% for screen in tenant_screens %}<li class="text-sm">{{ screen.label }}</li>{% endfor %}</ul>{% endif %}
   </section>
 </div>

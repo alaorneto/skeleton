@@ -6,6 +6,9 @@ from django.utils.translation import gettext, gettext_lazy
 from skeleton.accounts.models import User
 
 __all__ = [
+    "AppAvailabilityForm",
+    "AppGrantForm",
+    "AppRevokeForm",
     "CatalogLabelForm",
     "OrganizationAdministratorForm",
     "OrganizationCreateForm",
@@ -118,6 +121,42 @@ class OrganizationAdministratorForm(forms.Form):
     def clean_replace(self):
         value = self.cleaned_data.get("replace")
         return User.objects.filter(pk=value).first() if value else None
+
+
+class AppAvailabilityForm(forms.Form):
+    """The availability mode of one installed app (#21); ``expected_revision=0`` before the first write."""
+
+    mode = forms.ChoiceField(
+        label="Disponibilidade",
+        choices=(("all", "Todas as organizações"), ("selected", "Organizações selecionadas")),
+        help_text="Disponibilizar não ativa: cada organização ainda escolhe se usa a app.",
+    )
+    expected_revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
+
+
+def _grantable_organizations(granted_ids):
+    from skeleton.tenancy.models import Organization
+
+    # The default manager hides soft-deleted organizations; inactive ones cannot be granted either.
+    return Organization.objects.filter(is_active=True).exclude(pk__in=granted_ids).order_by("name", "slug")
+
+
+class AppGrantForm(forms.Form):
+    """Grant one more organization a ``selected`` app; the picker offers only active, ungranted ones."""
+
+    organization = forms.ModelChoiceField(label="Organização", queryset=None, empty_label="Escolha…")
+
+    def __init__(self, *args, granted_ids=frozenset(), **kwargs):
+        super().__init__(*args, **kwargs)
+        field = self.fields["organization"]
+        field.queryset = _grantable_organizations(granted_ids)
+        field.label_from_instance = lambda organization: f"{organization.name} ({organization.slug})"
+        field.error_messages["invalid_choice"] = "Escolha uma organização ativa que ainda não tenha a app."
+
+
+class AppRevokeForm(forms.Form):
+    organization = forms.UUIDField(widget=forms.HiddenInput)
+    expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
 
 
 class CatalogLabelForm(forms.Form):

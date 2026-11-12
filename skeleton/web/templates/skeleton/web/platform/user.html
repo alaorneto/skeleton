@@ -34,6 +34,17 @@
       <div><dt>{% translate "Revisão" %}</dt><dd>{{ subject.revision }}</dd></div>
     </dl>
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="user-platform-roles">
+    <h2 id="user-platform-roles">Papéis de plataforma</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">O auditor lê a auditoria global e o catálogo; o operador de releases cuida das versões e atualizações. Nenhum dos dois administra identidades nem entra em organizações. Conceder ou revogar encerra as sessões da pessoa.</p>
+    <ul class="mt-4 space-y-2">{% for assignment in platform_roles %}<li class="flex flex-wrap items-center gap-3"><span class="badge badge-brand">{{ assignment.get_role_display }}</span>
+      <form method="post" action="{% url 'platform:user-role-revoke' subject.pk assignment.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ assignment.revision }}"><button type="submit" class="btn btn-secondary btn-sm">Revogar<span class="sr-only"> {{ assignment.get_role_display }}</span></button></form></li>
+    {% empty %}<li class="text-body-subtle">Nenhum papel limitado.</li>{% endfor %}</ul>
+    <form method="post" action="{% url 'platform:user-roles' subject.pk %}" class="mt-4 flex flex-wrap items-end gap-3">{% csrf_token %}
+      <div class="form-field"><label for="platform-role">Conceder papel</label><select id="platform-role" name="role"><option value="auditor">Auditor de plataforma</option><option value="operator">Operador de releases</option></select></div>
+      <button type="submit" class="btn btn-primary">Conceder</button>
+    </form>
+  </section>
 </div>
 </div>
 {% endblock %}

@@ -1,0 +1,20 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Entrar numa organização · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header"><div class="min-w-0"><h1>Entrar numa organização</h1><p class="page-description">Organizações que aceitam pedidos de ingresso. Quem as administra decide; você recebe um email com a resposta.</p></div></div>
+{% if not verified %}
+<div class="card"><p class="font-medium text-heading">Confirme seu email para pedir ingresso.</p><p class="mt-1">Só contas com email verificado enviam pedidos. <a href="{% url 'account_email' %}">Gerencie seus emails</a>.</p></div>
+{% else %}
+{% if requests %}<section class="mb-8" aria-labelledby="join-mine"><h2 id="join-mine" class="section-heading">Minhas solicitações</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">Organização</th><th scope="col">Situação</th><th scope="col">Enviado em</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+{% for item in requests %}<tr><td>{{ item.organization_name }}</td><td>{% if item.status == "approved" %}<span class="badge badge-success badge-dot">{{ item.status_label }}</span>{% elif item.open %}<span class="badge badge-warning badge-dot">{{ item.status_label }}</span>{% else %}<span class="badge badge-dot">{{ item.status_label }}</span>{% endif %}</td><td class="whitespace-nowrap!">{{ item.created_at }}</td>
+<td class="text-right">{% if item.open %}<form method="post" action="{% url 'web:join-withdraw' item.sysid %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}"><button type="submit" class="btn btn-secondary btn-sm">Retirar<span class="sr-only"> pedido para {{ item.organization_name }}</span></button></form>{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></section>{% endif %}
+<section aria-labelledby="join-directory"><h2 id="join-directory" class="section-heading">Organizações</h2>
+<ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for item in organizations %}<li><a class="link-card" href="{% url 'web:join-organization' item.organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="building" %}</span><span class="min-w-0"><span class="link-card-title">{{ item.name }}</span><span class="link-card-text">Pedir para entrar</span></span></a></li>
+{% empty %}<li class="card empty-state sm:col-span-2 lg:col-span-3">Nenhuma organização aberta a pedidos no momento. Peça um convite a quem administra a organização.</li>{% endfor %}</ul>
+</section>
+{% endif %}
+</div>
+{% endblock %}

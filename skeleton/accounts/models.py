@@ -9,6 +9,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext, gettext_lazy
 
+from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.models import SystemRecord
 
 from .managers import UserManager
@@ -140,3 +141,103 @@ class UserProfile(SystemRecord):
 
     def __str__(self):
         return self.display_name or str(self.user_id)
+
+
+class IdentityProvider(SystemRecord):
+    """A corporate identity provider bound to one organization, stored in the database (#29).
+
+    Identity (``provider_id``, protocol, organization, issuer/entity/directory, ``client_id``,
+    SP entity and the binding fingerprint) is immutable: changing it would silently rebind
+    existing ``SocialAccount`` subjects, so a different identity is a new provider. ``settings``
+    holds only the allowlisted, non-secret protocol options; ``secret`` and ``private_key`` are
+    encrypted with ``IDENTITY_PROVIDER_ENCRYPTION_KEYS`` and redacted in the audit trail.
+    The ``SocialApp`` allauth needs is built in memory from this row, never stored.
+    """
+
+    class Protocol(models.TextChoices):
+        OIDC = "oidc", "OpenID Connect"
+        SAML = "saml", "SAML 2.0"
+        LDAP = "ldap", "LDAP"
+
+    provider_id = models.CharField(max_length=64, unique=True)
+    protocol = models.CharField(max_length=8, choices=Protocol.choices)
+    # Not named ``organization``: a global row that points to one organization (E017).
+    bound_organization = models.ForeignKey("sk_tenancy.Organization", on_delete=models.PROTECT, related_name="+")
+    issuer = models.CharField(max_length=500, blank=True, default="")
+    entity_id = models.CharField(max_length=500, blank=True, default="")
+    directory = models.CharField(max_length=500, blank=True, default="")
+    client_id = models.CharField(max_length=255, blank=True, default="")
+    sp_entity_id = models.CharField(max_length=500, blank=True, default="")
+    fingerprint = models.CharField(max_length=64)
+    name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True)
+    show_on_login = models.BooleanField(default=True)
+    trust_verified_email = models.BooleanField(default=False)
+    settings = models.JSONField(default=dict, blank=True)
+    secret = EncryptedTextField(null=True, blank=True)
+    private_key = EncryptedTextField(null=True, blank=True)
+    last_check_at = models.DateTimeField(null=True, blank=True)
+    last_check_code = models.CharField(max_length=40, blank=True, default="")
+    # Directory sync of LDAP providers (#33): counts and codes only, never directory data.
+    last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_sync_code = models.CharField(max_length=40, blank=True, default="")
+    immutable_fields = (
+        "provider_id",
+        "protocol",
+        "bound_organization_id",
+        "issuer",
+        "entity_id",
+        "directory",
+        "client_id",
+        "sp_entity_id",
+        "fingerprint",
+    )
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(protocol__in=("oidc", "saml", "ldap")), name="sk_accounts_idp_protocol"),
+            models.CheckConstraint(
+                condition=Q(provider_id__regex=r"^[a-z0-9][a-z0-9_-]{0,63}$"), name="sk_accounts_idp_provider_id"
+            ),
+            models.CheckConstraint(
+                condition=(~Q(protocol="oidc") | (~Q(issuer="") & ~Q(client_id="")))
+                & (~Q(protocol="saml") | (~Q(entity_id="") & ~Q(client_id="")))
+                & (~Q(protocol="ldap") | ~Q(directory="")),
+                name="sk_accounts_idp_identity",
+            ),
+        ]
+
+    def __str__(self):
+        return self.provider_id
+
+
+class PlatformRoleAssignment(SystemRecord):
+    """A limited platform role of one identity (#34): auditor or release operator.
+
+    The full platform administrator stays defined by the ``is_staff``/``is_superuser`` pair;
+    these rows add read-only audit and inventory (auditor) or release operations (operator)
+    and never an organization's access. Granted and revoked only by a platform administrator,
+    bumping the identity's ``auth_version``; revoking is a soft delete.
+    """
+
+    class Role(models.TextChoices):
+        AUDITOR = "auditor", "Auditor de plataforma"
+        OPERATOR = "operator", "Operador de releases"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="platform_roles")
+    role = models.CharField(max_length=16, choices=Role.choices)
+    immutable_fields = ("user_id", "role")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("user", "role"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_accounts_platform_role_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(condition=Q(role__in=("auditor", "operator")), name="sk_accounts_platform_role"),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}: {self.role}"

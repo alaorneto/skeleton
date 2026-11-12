@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import instance_views, jobs_views, updates, views
+from . import identity_views, instance_views, jobs_views, updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -12,6 +12,8 @@ urlpatterns = [
     path("users/new/", views.user_create, name="user-create"),
     path("users/<uuid:sysid>/", views.user_detail, name="user"),
     path("users/<uuid:sysid>/delete/", views.user_delete, name="user-delete"),
+    path("users/<uuid:sysid>/roles/", views.user_roles, name="user-roles"),
+    path("users/<uuid:sysid>/roles/<uuid:assignment>/revoke/", views.user_role_revoke, name="user-role-revoke"),
     path("organizations/", views.organizations, name="organizations"),
     path("organizations/new/", views.organization_create, name="organization-create"),
     path("organizations/<uuid:sysid>/", views.organization_detail, name="organization"),
@@ -21,6 +23,16 @@ urlpatterns = [
         views.organization_administrators,
         name="organization-administrators",
     ),
+    path("domains/", views.domains, name="domains"),
+    path("identity-providers/", identity_views.identity_providers, name="identity-providers"),
+    path("identity-providers/new/", identity_views.identity_provider_create, name="identity-provider-create"),
+    path("identity-providers/<uuid:sysid>/", identity_views.identity_provider_detail, name="identity-provider"),
+    path(
+        "identity-providers/<uuid:sysid>/check/",
+        identity_views.identity_provider_check,
+        name="identity-provider-check",
+    ),
+    path("domains/<uuid:sysid>/revoke/", views.domain_revoke, name="domain-revoke"),
     path("catalog/", views.catalog, name="catalog"),
     path("catalog/<uuid:sysid>/", views.catalog_table, name="catalog-table"),
     path("catalog/fields/<uuid:sysid>/", views.catalog_field, name="catalog-field"),
@@ -29,6 +41,9 @@ urlpatterns = [
     path("jobs/<uuid:sysid>/", jobs_views.job_action, name="job-action"),
     path("apps/", views.app_list, name="apps"),
     path("apps/<str:app_label>/", views.app_detail, name="app"),
+    path("apps/<str:app_label>/availability/", views.app_availability, name="app-availability"),
+    path("apps/<str:app_label>/availability/grant/", views.app_grant, name="app-grant"),
+    path("apps/<str:app_label>/availability/revoke/", views.app_revoke, name="app-revoke"),
     path("apps/<str:app_label>/documentation/", views.app_documentation, name="app-documentation"),
     path("apps/<str:app_label>/screens/<str:screen_id>/", views.app_screen, name="app-screen"),
     path("updates/", updates.installed, name="updates"),

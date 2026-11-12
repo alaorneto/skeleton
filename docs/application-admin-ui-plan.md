@@ -12,7 +12,16 @@
 | `/o/<org>/catalog/` e `tables/<table_key>/` | Descoberta e viewer padronizado de negócio: lista, detalhe e formulário | Não instalam software nem administram configuração de plataforma |
 | `/api/v1/o/<org>/tables/<table_key>/` | Recursos de negócio e seleção autorizada de referências | Não aceitam classe Python, nome SQL ou bypass de autorização |
 
-A administração da plataforma usa **views explícitas** em `skeleton/web/platform` (namespace `platform`), guardadas por `platform_page`: anônimo vai ao login, quem não é staff+superuser ativo recebe 403, MFA pendente vai ao cadastro de 2FA e o contexto precisa ser global. Identidades e organizações mudam somente pelos serviços de lifecycle (`update_platform_user`, `create_identity`, `deactivate_user`, `create_organization`, `update_organization`, `designate_organization_admin`), com CAS por revisão (na designação, pela versão do conjunto de administradores). A página de uma organização mostra só a contagem de membros ativos e os emails dos administradores (`organization_overview`, leitura restrita descrita em [controle de acesso](access-control.md#designação-de-administrador-pela-plataforma)); o catálogo só edita rótulo e descrição. Nenhum modelo é registrado no Django admin e nenhum changelist genérico é roteado: `/platform/records/`, `/admin/<app>/<model>/` e o antigo seletor "configuração por organização" retornam 404, sem aliases. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.
+A administração da plataforma usa **views explícitas** em `skeleton/web/platform` (namespace `platform`), guardadas por `platform_page`: anônimo vai ao login, quem não é staff+superuser ativo recebe 403, MFA pendente vai ao cadastro de 2FA e o contexto precisa ser global. Identidades e organizações mudam somente pelos serviços de lifecycle (`update_platform_user`, `create_identity`, `deactivate_user`, `create_organization`, `update_organization`, `designate_organization_admin`), com CAS por revisão (na designação, pela versão do conjunto de administradores). A página de uma organização mostra só a contagem de membros ativos, os emails dos administradores e, no card "Aplicativos", a disponibilidade (portão da plataforma) e a ativação (escolha da organização) de cada app instalada, sem parâmetros nem dados de negócio (`organization_overview`, leitura restrita descrita em [controle de acesso](access-control.md#designação-de-administrador-pela-plataforma)); o catálogo só edita rótulo e descrição.
+
+**Disponibilidade de apps (#23).** `/platform/apps/<app_label>/availability/` é a única tela que escreve a disponibilidade, sempre pelos serviços de `skeleton.system.availability`:
+
+- o formulário de modo (`all` ou `selected`) faz CAS na linha `AppAvailability`, com revisão virtual 0 antes da primeira escrita;
+- a lista de organizações concedidas revoga com a revisão da concessão exibida; revisão stale ou concessão já revogada responde 409;
+- o seletor de concessão oferece só organizações ativas, não excluídas e ainda não concedidas;
+- o card "Dependências" diz quais apps precisam estar disponíveis antes de conceder e quais dependentes concedidas bloqueiam a revogação (a linha mostra "Bloqueada por …").
+
+As mutações exigem CSRF e autenticação recente; abrir as telas não escreve nem audita nada. Revogar só fecha o portão: a ativação e os parâmetros da organização ficam preservados e voltam numa nova concessão. O card "Disponibilidade" em `/platform/apps/<app_label>/` resume o modo e leva a essa tela. Nenhum modelo é registrado no Django admin e nenhum changelist genérico é roteado: `/platform/records/`, `/admin/<app>/<model>/` e o antigo seletor "configuração por organização" retornam 404, sem aliases. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.
 
 O namespace de uma rota é uma identidade de integração Django, não o painel em que ela aparece. A separação efetiva é a URL, o conteúdo e o layout. Os serviços de identidade, CAS, desativação, último administrador, MFA e CSRF continuam protegendo os registros globais.
 
@@ -26,7 +35,7 @@ O grupo da plataforma contém visão geral, versão/origem/compatibilidade, sele
 
 A configuração tenant continua em `AppInstallation`, com revisão virtual 0 para a primeira escrita. Campos escalarmente declarados recebem rótulo, help text e seção opcionais. A gravação usa o mesmo `configure_application`, bloqueia a organização antes de avaliar revisão/dependências e não sobrescreve valores persistidos por causa de uma mudança visual.
 
-Configuração e parâmetros tenant exigem `organization_admin`; usuário com leitura de negócio usa o catálogo/viewer, não o painel de parâmetros. Telas de configuração permanecem acessíveis quando a app está desativada. Rotas próprias de negócio/API, listas, formulários e policies continuam bloqueadas pela ativação.
+Configuração e parâmetros tenant exigem a capacidade `apps.manage` (gestor de apps ou administrador; #24); sem ela, o painel responde 404. Usuário com leitura de negócio usa o catálogo/viewer, não o painel de parâmetros. O painel mostra só as apps que a plataforma disponibilizou para a organização e sinaliza as ativas que ela retirou ("Indisponibilizada pela plataforma"), que só podem ser desativadas. Telas de configuração permanecem acessíveis quando a app está desativada. Rotas próprias de negócio/API, listas, formulários e policies continuam bloqueadas pela ativação.
 
 Configuração global não é inferida a partir da configuração tenant. Uma app que precisa de parâmetros globais registra uma tela própria e usa seu modelo/serviço global específico. Segredos pertencem ao deployment privado, nunca ao JSON organizacional.
 
@@ -54,7 +63,7 @@ Configuração global não é inferida a partir da configuração tenant. Uma ap
 | `kind` | `configuration` ou `custom` de parâmetros |
 | `url_name` | Somente custom tenant, resolvível no namespace da própria app |
 | `handler_id` | Somente custom plataforma, callable registrado pelo código da app |
-| `organization_admin_only` | Obrigatório true para custom tenant |
+| `organization_admin_only` | Obrigatório true para custom tenant; o nome é histórico, a tela exige `apps.manage` |
 | `sensitive` | Exige reautenticação recente na tela global |
 
 Handlers recebem a request já protegida; não recebem permissão universal nem imports definidos pelo cliente. Seus módulos pertencem à app e IDs não colidem. Código assinado é confiável para execução, **não** sandbox: telas próprias têm contrato de parâmetros e não devem implementar um viewer disfarçado.

@@ -36,6 +36,9 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.web.views import form_error, pagination, service_pagination
 
 from .forms import (
+    AppAvailabilityForm,
+    AppGrantForm,
+    AppRevokeForm,
     CatalogLabelForm,
     OrganizationAdministratorForm,
     OrganizationCreateForm,
@@ -46,7 +49,10 @@ from .forms import (
 from .guards import platform_page
 
 __all__ = [
+    "app_availability",
     "app_detail",
+    "app_grant",
+    "app_revoke",
     "app_documentation",
     "app_list",
     "app_screen",
@@ -54,6 +60,8 @@ __all__ = [
     "catalog",
     "catalog_field",
     "catalog_table",
+    "domain_revoke",
+    "domains",
     "organization_administrators",
     "organization_create",
     "organization_detail",
@@ -61,6 +69,8 @@ __all__ = [
     "overview",
     "user_create",
     "user_delete",
+    "user_role_revoke",
+    "user_roles",
     "user_detail",
     "users",
 ]
@@ -201,12 +211,52 @@ def user_detail(request, sysid):
         else:
             status = 400
     profile = _model("sk_accounts.UserProfile").objects.filter(user_id=user.pk).first()
+    roles = _model("sk_accounts.PlatformRoleAssignment").objects.filter(user=user).order_by("role")
     return render(
         request,
         "skeleton/web/platform/user.html",
-        {"platform_section": "users", "subject": user, "profile": profile, "form": form},
+        {"platform_section": "users", "subject": user, "profile": profile, "form": form, "platform_roles": roles},
         status=status,
     )
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def user_roles(request, sysid):
+    """Grant a limited platform role (#34); only the platform administrator."""
+    from skeleton.accounts.platform import grant_platform_role
+
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    try:
+        with transaction.atomic():
+            grant_platform_role(actor=request.user, user=user, role=request.POST.get("role", ""))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("platform:user", sysid=user.pk)
+    messages.success(request, "Papel de plataforma concedido.")
+    return redirect("platform:user", sysid=user.pk)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def user_role_revoke(request, sysid, assignment):
+    from skeleton.accounts.platform import revoke_platform_role
+
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    if not _model("sk_accounts.PlatformRoleAssignment").objects.filter(pk=assignment, user=user).exists():
+        raise Http404
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = None
+    with transaction.atomic():
+        revoke_platform_role(actor=request.user, assignment_id=assignment, expected_revision=revision)
+    messages.success(request, "Papel de plataforma revogado.")
+    return redirect("platform:user", sysid=user.pk)
 
 
 @platform_page
@@ -324,6 +374,7 @@ def _organization_form(organization, data=None):
 
 
 def _organization_page(request, organization, *, form=None, admin_form=None, quota_form=None, status=200):
+    from skeleton.accounts.identity_providers import organization_providers
     from skeleton.files.quota import platform_usage
 
     # One organization per request: the overview opens a read-only system context for it.
@@ -345,6 +396,7 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
             "admin_form": admin_form,
             "storage": storage,
             "quota_form": quota_form or _quota_form(organization),
+            "identity_providers": organization_providers(organization),
         },
         status=status,
     )
@@ -437,7 +489,7 @@ def _label_form(request, record):
     )
 
 
-@platform_page
+@platform_page(capability="inventory.read")
 @require_safe
 def catalog(request):
     query, filters = _search(request)
@@ -453,7 +505,7 @@ def catalog(request):
     )
 
 
-@platform_page
+@platform_page(capability="inventory.read")
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def catalog_table(request, sysid):
@@ -483,7 +535,7 @@ def catalog_table(request, sysid):
     )
 
 
-@platform_page
+@platform_page(capability="inventory.read")
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def catalog_field(request, sysid):
@@ -526,12 +578,14 @@ def catalog_field(request, sysid):
 # --------------------------------------------------------------------------- audit
 
 
-@platform_page
+@platform_page(capability="audit.read")
 @require_safe
 def audit(request):
+    from skeleton.accounts.platform import is_platform_admin
     from skeleton.api.serializers import audit_data
     from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
+    from skeleton.tenancy.context import platform_audit_scope
 
     try:
         filters = parse_audit_filters(request.GET)
@@ -539,9 +593,16 @@ def audit(request):
         return render(
             request, "skeleton/web/error.html", {"detail": gettext("Verifique os filtros informados.")}, status=400
         )
+
+    def page(**page):
+        if is_platform_admin(request.user):
+            return AuditLogService().events(actor=request.user, **filters, **page)
+        with platform_audit_scope(request.user):  # The auditor's GUC, only for this read (#34).
+            return AuditLogService().events(actor=request.user, **filters, **page)
+
     rows = service_pagination(
         request,
-        lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
+        page,
         validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
     )
     rows.object_list = [audit_data(event) for event in rows]
@@ -582,6 +643,7 @@ def app_list(request):
 @require_safe
 def app_detail(request, app_label):
     from skeleton.system.administration import application_identity, screen_sections
+    from skeleton.system.availability import availability_summary
 
     manifest = _manifest(app_label)
     return render(
@@ -590,6 +652,7 @@ def app_detail(request, app_label):
         {
             "platform_section": "apps",
             "application": application_identity(manifest),
+            "availability": availability_summary(manifest.app_label, user=request.user),
             "has_documentation": bool(manifest.documentation_root),
             "sections": screen_sections(manifest, user=request.user, scope="platform"),
             "tenant_screens": sorted(
@@ -598,6 +661,119 @@ def app_detail(request, app_label):
             ),
         },
     )
+
+
+def _app_labels(labels):
+    from skeleton.system.app_registry import all_apps
+
+    names = {manifest.app_label: manifest.label for manifest in all_apps()}
+    return [{"app_label": label, "label": names.get(label, label)} for label in labels]
+
+
+def _availability_page(request, manifest, *, mode_form=None, grant_form=None, revoke_error=None, status=200):
+    """Availability of one app (#23): global rows only; no organization's activation is read here."""
+    from skeleton.system.administration import application_identity
+    from skeleton.system.availability import availability_summary
+
+    summary = availability_summary(manifest.app_label, user=request.user)
+    return render(
+        request,
+        "skeleton/web/platform/app_availability.html",
+        {
+            "platform_section": "apps",
+            "application": application_identity(manifest),
+            "availability": summary,
+            "requires": _app_labels(summary.requires),
+            "required_by": _app_labels(summary.required_by),
+            "mode_form": mode_form
+            or AppAvailabilityForm(initial={"mode": summary.mode or "selected", "expected_revision": summary.revision}),
+            "grant_form": grant_form or AppGrantForm(granted_ids=summary.granted_ids),
+            "revoke_error": revoke_error,
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def app_availability(request, app_label):
+    """Show the gate; POST changes the mode with CAS on the availability row."""
+    from skeleton.system.availability import set_app_availability
+
+    manifest = _manifest(app_label)
+    if request.method != "POST":
+        return _availability_page(request, manifest)
+    form = AppAvailabilityForm(request.POST)
+    if not form.is_valid():
+        return _availability_page(request, manifest, mode_form=form, status=400)
+    try:
+        with transaction.atomic():
+            set_app_availability(
+                manifest.app_label,
+                user=request.user,
+                mode=form.cleaned_data["mode"],
+                revision=form.cleaned_data["expected_revision"],
+            )
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _availability_page(request, manifest, mode_form=form, status=status)
+    messages.success(request, "Disponibilidade atualizada.")
+    return redirect("platform:app-availability", app_label=manifest.app_label)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def app_grant(request, app_label):
+    """Admit one organization to the app; it still decides activation itself."""
+    from skeleton.system.availability import availability_summary, grant_app
+
+    manifest = _manifest(app_label)
+    granted = availability_summary(manifest.app_label, user=request.user).granted_ids
+    form = AppGrantForm(request.POST, granted_ids=granted)
+    if not form.is_valid():
+        return _availability_page(request, manifest, grant_form=form, status=400)
+    organization = form.cleaned_data["organization"]
+    try:
+        with transaction.atomic():
+            grant_app(manifest.app_label, user=request.user, organization_id=organization.pk)
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _availability_page(request, manifest, grant_form=form, status=status)
+    messages.success(request, f"{organization.name} pode usar {manifest.label}.")
+    return redirect("platform:app-availability", app_label=manifest.app_label)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def app_revoke(request, app_label):
+    """Close the gate for one organization; its activation and configuration are kept (#21)."""
+    from skeleton.system.availability import revoke_app
+
+    manifest = _manifest(app_label)
+    form = AppRevokeForm(request.POST)
+    if not form.is_valid():
+        return _availability_page(request, manifest, revoke_error="Pedido de revogação inválido.", status=400)
+    try:
+        with transaction.atomic():
+            revoke_app(
+                manifest.app_label,
+                user=request.user,
+                organization_id=form.cleaned_data["organization"],
+                expected_revision=form.cleaned_data["expected_revision"],
+            )
+    except ConcurrentUpdate:
+        detail = "A concessão mudou desde que a página foi aberta. Revise antes de revogar."
+        return _availability_page(request, manifest, revoke_error=detail, status=409)
+    except ValidationError as exc:
+        return _availability_page(request, manifest, revoke_error=" ".join(exc.messages), status=400)
+    messages.success(request, "Concessão revogada. A escolha de ativação da organização foi preservada.")
+    return redirect("platform:app-availability", app_label=manifest.app_label)
 
 
 @platform_page
@@ -695,3 +871,46 @@ def organization_storage(request, sysid):
         return _organization_page(request, organization, quota_form=form, status=409)
     messages.success(request, gettext("Cota de armazenamento atualizada."))
     return redirect("platform:organization", sysid=organization.pk)
+
+
+# --------------------------------------------------------------------------- verified domains (#28)
+
+
+def _domains_page(request, *, status=200, error=None):
+    from skeleton.tenancy.domains import claims
+
+    return render(
+        request,
+        "skeleton/web/platform/domains.html",
+        {"platform_section": "domains", "rows": list(claims()), "error": error},
+        status=status,
+    )
+
+
+@platform_page
+@require_safe
+def domains(request):
+    return _domains_page(request)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def domain_revoke(request, sysid):
+    """Settle a disputed domain: drop the global claim; the organization's own row is untouched."""
+    from skeleton.tenancy.domains import DomainUnavailable, revoke_claim
+
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = None
+    try:
+        with transaction.atomic():
+            claim = revoke_claim(actor=request.user, claim_id=sysid, expected_revision=revision)
+    except DomainUnavailable:
+        raise Http404 from None
+    except ConcurrentUpdate:
+        return _domains_page(request, status=409, error="A posse mudou. Atualize a página.")
+    messages.success(request, f"Posse de {claim.domain} revogada.")
+    return redirect("platform:domains")

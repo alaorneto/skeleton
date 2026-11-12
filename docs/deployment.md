@@ -129,6 +129,8 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py val
 DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py check --deploy
 ```
 
+`validate_provider_bindings` confere também os provedores do banco (#29): fingerprint recalculado, organização ativa, segredos decifráveis com as chaves atuais e papel padrão. Para migrar o JSON, rode `manage.py import_identity_providers --from-config <arquivo> --dry-run`, depois sem `--dry-run`, confira os avisos de transição do preflight e só então retire as entradas `oidc`/`saml` do arquivo ([provedores no banco](authentication-sso.md#provedores-no-banco-29)).
+
 Env dos dois primeiros inclui MIGRATION_DATABASE_URL owner; ambiente web não inclui essa variável/credencial. Execute bootstrap offline com settings.migrate e segredo interativo. Migration owner é privilegiado por definição; check com owner não prova RLS runtime.
 
 **Resultado esperado:** migrations e catálogo concluídos pelo owner; os três checks seguintes passam usando a conexão runtime. **Se falhar:** não inicie web nem troque o check para owner para obter sucesso. Corrija o provisionamento ou a infraestrutura indicada e repita a etapa pertinente; não conceda privilégios adicionais ao runtime.
@@ -450,6 +452,29 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 ### Supervisor e primeira adoção
 
 O JSON acima usa comandos fixos do supervisor. Autorize em sudoers **somente** as ações e a unit exatas, não shell genérico. O marker HTTP sozinho não bloqueia produtores externos: um worker ativo durante as migrations escreveria com o código antigo.
+
+### Sincronização de diretório LDAP
+
+Para organizações com login LDAP (#33), agende `manage.py sync_directory --all --max-deactivations <N>` com cron ou um systemd timer, com o mesmo ambiente do `web` e a mesma chave `IDENTITY_PROVIDER_ENCRYPTION_KEYS`. Rode antes `--dry-run --format json` para conferir o efeito. Um código de saída diferente de zero indica que alguma organização abortou (diretório vazio, erro de busca ou limite de desativações) sem gravar; o relatório traz só contagens e UUIDs ([autenticação](authentication-sso.md#sincronização-do-diretório-33)). Exemplo de timer diário:
+
+```ini
+# /etc/systemd/system/skeleton-directory-sync.service
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/skeleton/web.env
+ExecStart=/opt/skeleton/.venv/bin/python /opt/skeleton/manage.py sync_directory --all --max-deactivations 50
+
+# /etc/systemd/system/skeleton-directory-sync.timer
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+### Reverificação de domínios
+
+Organizações que admitem por domínio de email verificado (#28) dependem do registro TXT continuar publicado. Agende `manage.py verify_domains --recheck` uma vez por dia com cron ou um systemd timer, com o mesmo ambiente do `web`. O comando consulta o DNS fora das transações (3 s por domínio) e imprime só contagens; três falhas seguidas suspendem a admissão por aquele domínio ([autenticação](authentication-sso.md#domínio-de-email-verificado)).
 
 ### Worker de jobs e agendador
 

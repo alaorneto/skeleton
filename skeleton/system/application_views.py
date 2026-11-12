@@ -8,7 +8,7 @@ from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods, require_safe
 from rest_framework.response import Response
 
-from skeleton.access.capabilities import require_admin_surface
+from skeleton.access.capabilities import APPS_MANAGE, capabilities_for
 from skeleton.api.errors import BoundaryError
 from skeleton.api.openapi import (
     BOOLEAN,
@@ -33,7 +33,7 @@ from .administration import (
     tenant_screen_url,
 )
 from .app_registry import all_apps, get_app
-from .applications import application_state, configure_application
+from .applications import application_state, application_states, configure_application
 
 
 def _manifest(app_label):
@@ -41,6 +41,29 @@ def _manifest(app_label):
         return get_app(app_label)
     except KeyError:
         raise Http404 from None
+
+
+def require_apps_manager(user):
+    """The apps panel exists only for ``apps.manage`` (app manager or administrator): 404 otherwise (#24)."""
+    if APPS_MANAGE not in capabilities_for(user):
+        raise Http404
+
+
+def _apps_capability(request, kwargs):
+    require_apps_manager(request.user)
+    return APPS_MANAGE
+
+
+def visible(state):
+    """The organization sees available apps, and enabled ones the platform withdrew (to close them)."""
+    return state["available"] or state["enabled"]
+
+
+def _visible_manifest(app_label):
+    manifest = _manifest(app_label)
+    if not visible(application_state(app_label)):
+        raise Http404  # An unavailable app looks like an app that is not installed.
+    return manifest
 
 
 def state_data(state):
@@ -97,7 +120,7 @@ class ApplicationAPI(TenantAPI):
 
     def check_permissions(self, request):
         super().check_permissions(request)
-        require_admin_surface(request.user)
+        require_apps_manager(request.user)
 
     def get(self, request, organization_id, app_label=None):
         from skeleton.service_api.applications import ApplicationAdministrationService
@@ -121,9 +144,15 @@ class ApplicationAPI(TenantAPI):
         from skeleton.api.errors import if_match_precondition
         from skeleton.service_api.applications import ApplicationAdministrationService
 
+        service = ApplicationAdministrationService()
+        # The service lists available apps and enabled ones the platform withdrew (#24).
+        state = next((item for item in service.applications(actor=request.user) if item.app_label == app_label), None)
+        if state is None or (not state.available and data["enabled"] is not False):
+            # Only closing an app the platform withdrew is accepted; the rest is unavailable.
+            raise BoundaryError("app_unavailable", "Aplicativo indisponível para esta organização.", 400)
         configuration = data["configuration"]
         with if_match_precondition():
-            state = ApplicationAdministrationService().configure(
+            state = service.configure(
                 actor=request.user,
                 app_label=app_label,
                 enabled=data["enabled"],
@@ -133,23 +162,25 @@ class ApplicationAPI(TenantAPI):
         return etag(Response(state_data(state)), state.revision)
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=_apps_capability)
+@require_safe
 def application_list(request, organization_id):
+    states = application_states()
     return render(
         request,
         "skeleton/web/applications.html",
         {
             "organization_id": organization_id,
             "parameter_panel": True,
-            "applications": [application_state(app.app_label) for app in all_apps()],
+            "applications": [states[app.app_label] for app in all_apps() if visible(states[app.app_label])],
         },
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=_apps_capability)
 @require_safe
 def application_admin(request, organization_id, app_label):
-    manifest = _manifest(app_label)
+    manifest = _visible_manifest(app_label)
     state = application_state(app_label)
     return render(
         request,
@@ -164,17 +195,18 @@ def application_admin(request, organization_id, app_label):
     )
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=_apps_capability)
 @require_safe
 def application_admin_screen(request, organization_id, app_label, screen_id):
+    _visible_manifest(app_label)
     manifest, screen = resolve_application_screen(app_label, screen_id, user=request.user, scope="organization")
     return redirect(tenant_screen_url(manifest, screen, organization_id))
 
 
-@tenant_page(admin=True)
+@tenant_page(capability=_apps_capability)
 @require_http_methods(["GET", "POST"])
 def application_configuration(request, organization_id, app_label):
-    manifest = _manifest(app_label)
+    manifest = _visible_manifest(app_label)
     state = application_state(app_label)
     fields = {
         "enabled": forms.BooleanField(required=False, label=gettext("Aplicativo ativo")),
@@ -217,8 +249,14 @@ def application_configuration(request, organization_id, app_label):
             except ConcurrentUpdate:
                 form.add_error(None, gettext("A configuração mudou. Atualize a página."))
                 status = 409
-            except ValidationError:
-                form.add_error(None, gettext("Verifique os campos e as dependências ativas."))
+            except ValidationError as exc:
+                codes = {item.code for items in getattr(exc, "error_dict", {}).values() for item in items}
+                form.add_error(
+                    None,
+                    gettext("O aplicativo não está disponível para esta organização: só é possível desativá-lo.")
+                    if "app_unavailable" in codes
+                    else gettext("Verifique os campos e as dependências ativas."),
+                )
                 status = 400
         else:
             status = 400

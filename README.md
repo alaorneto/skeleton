@@ -25,10 +25,21 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/o/<org>/` | Pessoa com vínculo ativo na organização indicada | Acessar dados e funcionalidades daquele tenant |
 | `/notifications/`, `/o/<org>/notifications/` | Pessoa autenticada | Caixa de notificações de todas as organizações ou de uma, com lida, arquivada e contador no cabeçalho; abrir revalida o acesso ao conteúdo ([notificações](docs/notifications.md)) |
 | `/profile/notifications/` | Pessoa autenticada | Preferências por tipo e canal: caixa in-app, email imediato, resumo diário ou semanal no fuso da pessoa e web push no navegador; entregas por job com retentativa e retenção declarada ([notificações](docs/notifications.md)) |
+| `/join/` | Pessoa autenticada com email verificado | Ver as organizações abertas a pedidos, pedir ingresso e acompanhar ou retirar os próprios pedidos |
+| `/join/<org>/<token>/` | Quem recebeu um link de ingresso | Entrar direto ou pedir ingresso pelo link; criar conta por ele quando a organização permite |
+| `/o/<org>/identity/` | Administrador da organização | Ver os provedores de login corporativo da organização e decidir JIT, aprovação, papel padrão e domínios de email permitidos |
+| `/o/<org>/admission/domains/` | Administrador da organização | Cadastrar e verificar por DNS os domínios de email que admitem pessoas, com entrada direta ou com aprovação |
+| `/platform/audit/`, `/platform/catalog/` | Administrador ou auditor de plataforma | Ler a auditoria global e o catálogo de tabelas; editar rótulos continua só com o administrador |
+| `/platform/updates/` (papel limitado) | Operador de releases | Versões e atualizações, sem acesso a identidades, organizações ou auditoria |
+| `/platform/identity-providers/` | Administrador da plataforma | Cadastrar, editar, desligar e testar provedores OIDC e SAML de cada organização, com segredos cifrados e só de escrita |
+| `/platform/domains/` | Administrador da plataforma | Ver e revogar a posse de domínios verificados em disputa |
+| `/o/<org>/admission/links/` | Quem gerencia convites | Criar e revogar links de ingresso com validade, limite de usos e entrada direta ou com aprovação |
+| `/o/<org>/requests/`, `/o/<org>/admission/` | Gestor de pessoas ou administrador; a política só o administrador | Aprovar ou recusar pedidos de ingresso; definir se a organização aceita pedidos, aparece na lista e com que papel entra quem for aprovado |
+| `/o/<org>/apps/` | Gestor de apps ou administrador da organização | Ativar/desativar as apps que a plataforma disponibilizou e ajustar a configuração, sem instalar código |
 | `/o/<org>/flows/tasks/`, `/o/<org>/flows/instances/` | Pessoa com vínculo ativo | Caixa de tarefas e aprovações dos processos de negócio, com assumir, concluir e decidir; instâncias visíveis e o histórico de cada uma ([fluxos](docs/flows.md)) |
-| `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
 | `/o/<org>/apps/skeleton_calendar/`, `/me/apps/skeleton_calendar/` | Pessoa com vínculo e permissão de calendário, com a agenda instalada (`SKELETON_BUNDLED_APPS=calendar`) e ativa | Agenda first-party: calendários pessoais e compartilhados, eventos com recorrência, convites, lembretes, Minha agenda entre organizações e feed ICS ([agenda](skeleton/contrib/calendar/docs/spec.md)) |
 | `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
+| `/platform/apps/<app>/availability/` | Administrador da plataforma | Disponibilidade da app: todas as organizações ou só as concedidas; revogar fecha o portão e preserva a escolha da organização |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
 | `/platform/updates/` | Administrador da plataforma, com agente provisionado | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
 | `/profile/tokens/` | Pessoa autenticada | Criar e revogar tokens de API pessoais, com escopos e validade; o token aparece uma vez ([API](docs/api.md#gestão-de-tokens)) |

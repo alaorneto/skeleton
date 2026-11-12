@@ -8,7 +8,7 @@ from typing import Any
 
 from django.http import HttpRequest
 from django.urls import reverse
-from django.utils.translation import gettext_lazy
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.tenancy.context import current_context, memberships_for_user
 
@@ -97,9 +97,27 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     resource = match.kwargs.get("resource") if match is not None else None
     from skeleton.access.capabilities import capabilities_for
 
-    values.update(_access_navigation(organization_id, resource, capabilities_for(user)))
+    capabilities = capabilities_for(user)
+    values.update(_access_navigation(organization_id, resource, capabilities))
+    values["admission_links"] = _admission_links(organization_id, capabilities, request.path)
     values["organization_brand"] = _brand(organization_id)
     return values
+
+
+def _admission_links(organization_id: Any, capabilities: frozenset[str], path: str) -> list[dict[str, Any]]:
+    """Join requests (#26) for deciders and the admission policy for who configures it."""
+    links = []
+    for capability, name, label in (
+        ("admission.decide", "web:join-requests", gettext("Solicitações")),
+        ("invitations.manage", "web:join-links", gettext("Links de ingresso")),
+        ("admission.configure", "web:admission", gettext("Admissão")),
+        ("admission.configure", "web:verified-domains", gettext("Domínios verificados")),
+        ("identity.configure", "web:identity", gettext("Identidade")),
+    ):
+        if capability in capabilities:
+            url = reverse(name, kwargs={"organization_id": organization_id})
+            links.append({"label": label, "url": url, "current": path == url})
+    return links
 
 
 def _brand(organization_id: Any) -> dict[str, Any]:

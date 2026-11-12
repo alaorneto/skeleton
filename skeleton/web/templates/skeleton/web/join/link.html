@@ -1,0 +1,19 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Entrar em {{ proof.organization_name }} · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Link de ingresso</p><h1>Entrar em {{ proof.organization_name }}</h1>
+<p class="page-description">{% if proof.mode == "direct" %}Ao confirmar, você entra na organização. Se você já foi membro dela, o link cria um pedido para quem a administra decidir.{% else %}Ao confirmar, você envia um pedido; quem administra a organização decide e você recebe um email com a resposta.{% endif %}</p></div></div>
+<div class="card">
+{% if user.is_authenticated %}
+<form method="post">{% csrf_token %}
+<p>Você está conectado como <strong>{{ user.email }}</strong>.</p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% if proof.mode == "direct" %}Entrar na organização{% else %}Enviar pedido{% endif %}</button><a class="btn btn-secondary" href="{% url 'web:home' %}">Cancelar</a></div>
+</form>
+{% else %}
+<p>Entre com sua conta para continuar.{% if proof.signup_allowed %} Se ainda não tem uma, crie agora: a entrada vale depois que você confirmar o email.{% endif %}</p>
+<div class="form-actions"><a class="btn btn-primary" href="{% url 'account_login' %}?next={{ request.path|urlencode }}">Entrar</a>{% if proof.signup_allowed %}<a class="btn btn-secondary" href="{% url 'account_signup' %}">Criar conta</a>{% endif %}</div>
+{% endif %}
+</div>
+</div>
+{% endblock %}
