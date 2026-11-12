@@ -266,3 +266,192 @@ def test_missing_worker_databases_only_connects_and_reports_names(monkeypatch):
     environment = {idb.RUNTIME_ENV: RUNTIME, idb.OWNER_ENV: OWNER}
     assert idb.missing_worker_databases(3, environment) == ["ci_gw1_skeleton_test"]
     assert opened == ["ci_gw0_skeleton_test", "closed", "ci_gw1_skeleton_test", "ci_gw2_skeleton_test", "closed"]
+
+
+# Template cache between local runs (#350).
+
+TEMPLATE = idb.SchemaTemplate(
+    sql="CREATE TABLE skeleton.t (id integer);\n",
+    fingerprint={"relations": [("t", "r", "skeleton_owner", True, True, ["skeleton_owner=arwdDxtm/skeleton_owner"])]},
+)
+KEY_INPUTS = {
+    "server_version": "160015",
+    "pg_dump_version": "pg_dump (PostgreSQL) 16.15",
+    "installed_apps": ["django.contrib.auth", "skeleton.system"],
+    "migration_modules": {},
+}
+SOURCES = {
+    "skeleton/system/models.py": "class A: pass\n",
+    "skeleton/system/migrations/0001_initial.py": "operations = []\n",
+    "skeleton/system/technical_tables.json": "{}\n",
+    "config/settings/base.py": "DEBUG = False\n",
+    "tests/unit/test_x.py": "def test(): pass\n",
+    "tests/conftest.py": "\n",
+    "tools/integration_database.py": "\n",
+}
+
+
+@pytest.fixture
+def source_tree(tmp_path):
+    for name, text in SOURCES.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def _key(root, environment=None, **changes):
+    environment = {"DJANGO_SETTINGS_MODULE": "config.settings.test"} if environment is None else environment
+    return idb.template_cache_key(**{**KEY_INPUTS, **changes}, environment=environment, root=root)
+
+
+def test_cache_key_is_stable_and_ignores_the_test_harness(source_tree):
+    base = _key(source_tree)
+    assert len(base) == 64 and base == _key(source_tree)
+    harness = {
+        "DJANGO_SETTINGS_MODULE": "config.settings.test",
+        "TEST_DATABASE_URL": "postgres://skeleton_runtime:x@h/a_gw1_skeleton_test",
+        "SKELETON_TEST_WORKER_DATABASE_SELECTED": "gw1",
+        "PYTEST_XDIST_WORKER": "gw1",
+    }
+    assert _key(source_tree, harness) == base
+    (source_tree / "tests/unit/test_x.py").write_text("def test(): assert True\n", encoding="utf-8")
+    (source_tree / "skeleton/system/__pycache__").mkdir()
+    (source_tree / "skeleton/system/__pycache__/models.cpython-314.pyc").write_bytes(b"\0")
+    assert _key(source_tree) == base, "Editing a test or a bytecode cache does not change the schema."
+
+
+def _edit(path, text):
+    def change(root):
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_text(text, encoding="utf-8")
+
+    return change
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        _edit("skeleton/system/models.py", "class A: x = 1\n"),
+        _edit("skeleton/system/migrations/0002_more.py", "\n"),
+        _edit("skeleton/system/technical_tables.json", '{"a": 1}\n'),
+        _edit("config/settings/base.py", "DEBUG = True\n"),
+        _edit("tests/conftest.py", "# changed\n"),
+        _edit("tools/integration_database.py", "# changed\n"),
+        _edit("applications/tasks/models.py", "\n"),
+        _edit("examples/notes/specs.py", "\n"),
+        lambda root: (root / "skeleton/system/migrations/0001_initial.py").rename(root / "skeleton/system/x.py"),
+    ],
+)
+def test_cache_key_changes_with_the_code_that_shapes_the_schema(source_tree, change):
+    base = _key(source_tree)
+    change(source_tree)
+    assert _key(source_tree) != base
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"server_version": "170002"},
+        {"pg_dump_version": "pg_dump (PostgreSQL) 17.2"},
+        {"installed_apps": ["django.contrib.auth", "skeleton.system", "examples.notes"]},
+        {"migration_modules": {"sk_system": "archive.sk_system"}},
+    ],
+)
+def test_cache_key_changes_with_server_tools_and_apps(source_tree, changes):
+    assert _key(source_tree, **changes) != _key(source_tree)
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {"DJANGO_SETTINGS_MODULE": "config.settings.other"},
+        {"DJANGO_SETTINGS_MODULE": "config.settings.test", "SKELETON_ENABLE_EXAMPLE_APP": "true"},
+        {"DJANGO_SETTINGS_MODULE": "config.settings.test", "SKELETON_BUNDLED_APPS": "calendar"},
+    ],
+)
+def test_cache_key_changes_with_the_project_variables(source_tree, environment):
+    assert _key(source_tree, environment) != _key(source_tree)
+
+
+def test_cache_key_covers_the_installed_library_versions(source_tree, monkeypatch):
+    from importlib import metadata
+
+    base = _key(source_tree)
+
+    class Distribution:
+        metadata = {"Name": "Django"}
+        version = "99.0"
+
+    monkeypatch.setattr(metadata, "distributions", lambda: [Distribution()])
+    assert _key(source_tree) != base
+
+
+def test_cache_directory_can_be_disabled_or_moved(tmp_path):
+    assert idb.template_cache_dir({idb.CACHE_ENV: "0"}) is None
+    assert idb.template_cache_dir({idb.CACHE_ENV: str(tmp_path)}) == tmp_path
+    assert idb.template_cache_dir({}) == idb.ROOT / "var" / "test-template-cache"
+
+
+def test_cached_template_round_trips_exactly(tmp_path):
+    key = "a" * 64
+    assert idb.save_cached_template(tmp_path, key, TEMPLATE)
+    loaded = idb.load_cached_template(tmp_path, key)
+    assert loaded == TEMPLATE and isinstance(loaded.fingerprint["relations"][0], tuple)
+    assert not list(tmp_path.glob(".tmp-*")), "The temporary file is renamed, never left behind."
+    assert idb.load_cached_template(tmp_path, "b" * 64) is None
+    assert idb.load_cached_template(None, key) is None
+
+
+def _entry(key, **fields):
+    import json
+
+    return json.dumps({"format": idb.CACHE_FORMAT, "key": key, "sql": "", "fingerprint": {}, **fields})
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        lambda key: "not json",
+        lambda key: '["a list"]',
+        lambda key: _entry(key, format=999),
+        lambda key: _entry("b" * 64),
+        lambda key: _entry(key, sql=5),
+        lambda key: _entry(key, sql="\\connect production\n"),
+        lambda key: _entry(key, sql="CREATE SCHEMA skeleton;\n"),
+        lambda key: _entry(key, fingerprint={"relations": "x"}),
+        lambda key: _entry(key, fingerprint={"relations": ["x"]}),
+        lambda key: _entry(key, fingerprint=[]),
+    ],
+)
+def test_malformed_or_foreign_cache_entry_is_ignored(tmp_path, stored):
+    key = "a" * 64
+    (tmp_path / f"{key}.json").write_text(stored(key), encoding="utf-8")
+    assert idb.load_cached_template(tmp_path, key) is None
+
+
+@pytest.mark.parametrize("key", ["../outside", "A" * 64, "a" * 63, "", None])
+def test_cache_refuses_keys_that_are_not_digests(tmp_path, key):
+    assert not idb.save_cached_template(tmp_path / "cache", key, TEMPLATE)
+    assert idb.load_cached_template(tmp_path / "cache", key) is None
+    assert not (tmp_path / "cache").exists()
+
+
+def test_cache_does_not_store_a_fingerprint_json_cannot_round_trip(tmp_path):
+    import datetime
+
+    for fingerprint in ({"data": [("t", datetime.date(2026, 1, 1))]}, {"data": [("t", (1, 2))]}):
+        assert not idb.save_cached_template(tmp_path, "a" * 64, idb.SchemaTemplate(sql="", fingerprint=fingerprint))
+    assert not list(tmp_path.iterdir())
+
+
+def test_cache_keeps_only_the_newest_entries(tmp_path):
+    import os
+
+    for index in range(idb.CACHE_ENTRIES_KEPT + 3):
+        key = f"{index:064x}"
+        assert idb.save_cached_template(tmp_path, key, TEMPLATE)
+        os.utime(tmp_path / f"{key}.json", (1_000_000 + index, 1_000_000 + index))
+    idb.save_cached_template(tmp_path, "f" * 64, TEMPLATE)
+    kept = sorted(path.stem for path in tmp_path.glob("*.json"))
+    assert len(kept) == idb.CACHE_ENTRIES_KEPT and "f" * 64 in kept
+    assert f"{0:064x}" not in kept

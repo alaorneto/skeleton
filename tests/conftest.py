@@ -156,20 +156,45 @@ def _migrate_postgres(pair, stats):
 @pytest.fixture(scope="session")
 def postgres_schema_stats():
     """How the PostgreSQL schemas of this session were built (asserted by the template tests)."""
-    return {"migrate": 0, "restore": 0}
+    return {"migrate": 0, "cached": 0, "restore": 0}
+
+
+def _template_cache_key(pair):
+    from tools.integration_database import pg_dump_version, server_version, template_cache_key
+
+    return template_cache_key(
+        server_version=server_version(pair),
+        pg_dump_version=pg_dump_version(),
+        installed_apps=settings.INSTALLED_APPS,
+        migration_modules=getattr(settings, "MIGRATION_MODULES", {}),
+    )
 
 
 @pytest.fixture(scope="session")
 def postgres_template(django_db_blocker, postgres_schema_stats):
     """Migrate once per session and keep the migrated schema skeleton as a restorable template.
 
+    The template of a previous run is reused when nothing that shapes the schema changed
+    (tools/integration_database.py, #350); SKELETON_TEST_TEMPLATE_CACHE=0 always migrates.
     Returns None when SKELETON_TEST_POSTGRES_TEMPLATE=0: skeleton_db then migrates for each test.
     """
-    from tools.integration_database import dump_schema, template_enabled
+    from tools.integration_database import (
+        dump_schema,
+        load_cached_template,
+        save_cached_template,
+        template_cache_dir,
+        template_enabled,
+    )
 
     if not template_enabled():
         return None
     pair = _disposable_pair()
+    directory = template_cache_dir()
+    key = _template_cache_key(pair) if directory is not None else None
+    cached = load_cached_template(directory, key)
+    if cached is not None:
+        postgres_schema_stats["cached"] += 1
+        return cached
     original = connections["default"].settings_dict.copy()
     with django_db_blocker.unblock():
         try:
@@ -177,9 +202,11 @@ def postgres_template(django_db_blocker, postgres_schema_stats):
         finally:
             _configure(original)
         try:
-            return dump_schema(pair)
+            template = dump_schema(pair)
         except RuntimeError as exc:
             raise pytest.UsageError(str(exc)) from exc
+    save_cached_template(directory, key, template)
+    return template
 
 
 @pytest.fixture
