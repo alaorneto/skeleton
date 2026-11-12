@@ -26,9 +26,11 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | `assets` | `npm ci --ignore-scripts` do lock de `frontend/` e `npm run check`: `site.css` e `vendor/` correspondem às fontes e às versões fixadas de Tailwind, Flowbite e Inter. | Aparência no navegador; ver [interface e design](ui-design.md). |
 | `locks` | uv 0.12.7 regenera `requirements.txt` e `requirements-dev.txt` com os comandos `uv pip compile` de "Atualizar locks" do `README.md` e o job exige `git diff --exit-code`: os locks correspondem aos `.in` e foram gerados pelo comando oficial (cabeçalho, `pip`/`setuptools` fixados, hashes). | Que as versões resolvidas são as mais novas ou estão livres de vulnerabilidades (ver `build`); que `pyproject.toml` declara as mesmas faixas que `requirements.in`. |
 | `typecheck` | mypy estrito, com django-stubs, nos módulos listados em `[tool.mypy] files`. | Os demais módulos, importados em silêncio até serem anotados. |
-| `tests` | Banco `ci_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`; lock com hashes e `pip check`, `manage.py check`, `makemigrations --check` e a suíte inteira (`pytest tests`) com cobertura, em Python 3.12 e 3.14; migrations como `skeleton_owner`, assertions como `skeleton_runtime`; `tools/smoke_postgres.py` no 3.14. | Um PostgreSQL de produção, um backup/restore ou SSO real. Cobertura mede linhas executadas, não a qualidade das assertions. |
+| `tests` | Seis jobs paralelos, três por Python (3.12 e 3.14): duas fatias da suíte do núcleo (`pytest tests -n 4 --shard 1/2` e `2/2`, com cobertura) e a agenda (`SKELETON_BUNDLED_APPS=calendar`). Banco `ci_skeleton_test` e um por worker (`ci_gw0_skeleton_test` a `ci_gw3_skeleton_test`), todos provisionados por `deploy/postgres/bootstrap.sql`; lock com hashes e `pip check`; `manage.py check` e `makemigrations --check` na primeira fatia e na agenda; migrations como `skeleton_owner`, assertions como `skeleton_runtime`; `tools/smoke_postgres.py` no 3.14. Juntas, as fatias são a suíte inteira (`tests/unit/test_suite_shards.py`). | Um PostgreSQL de produção, um backup/restore ou SSO real. O container de serviço roda sem `fsync`: não serve de prova de durabilidade. |
+| `coverage` | Combina os dados de cobertura das duas fatias de cada Python (`coverage combine`) e publica o relatório e o artifact `coverage-postgres-py<versão>`, com o mesmo escopo de antes da divisão: a suíte do núcleo. | Cobertura mede linhas executadas, não a qualidade das assertions. A agenda não entra na medição, como antes. |
 | `deploy-check` | `check --deploy` com os settings de produção e valores descartáveis. | Conectividade com banco, Redis ou SMTP. |
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |
+| `ci` | Falha se qualquer job acima falhou ou foi cancelado. É o nome estável para exigir na proteção de branch, qualquer que seja a matriz. | Nada além dos outros jobs. |
 
 Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma. Nos PRs de pip do Dependabot, o workflow da seção seguinte faz isso sozinho.
 
@@ -49,9 +51,28 @@ O workflow só roda quando o autor do PR e o ator do evento são `dependabot[bot
 
 Sem os secrets, o job `commit` falha com uma mensagem que aponta para esta seção, e o conserto continua manual. O Dependabot para de rebasear um PR que recebeu commit de outro autor; se a `main` mudar os locks antes do merge, comente `@dependabot recreate` no PR: o Dependabot refaz o branch e o workflow regenera os locks de novo. O resultado foi reproduzido com o PR #133: a partir do lock original do Dependabot, `regenerate` produz byte a byte o lock corrigido à mão em #139.
 
-O job `tests` concede `CREATE ON DATABASE` ao owner da fixture para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por sessão e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI.
+O job `tests` concede `CREATE ON DATABASE` ao owner da fixture, em cada banco, para que `reset_schema()` e `restore_schema()` recriem o schema `skeleton`. As migrations rodam uma vez por worker e cada teste restaura o template (ver [Isolamento da suíte](#isolamento-da-suíte)); `tools/smoke_postgres.py` continua aplicando o `migrate` real. O container do PostgreSQL recebe `fsync=off`, `synchronous_commit=off`, `full_page_writes=off` e `max_locks_per_transaction=2048` por `POSTGRES_INITDB_ARGS`: ele é descartável, e a tabela de locks precisa comportar quatro workers recriando o schema ao mesmo tempo. As senhas são exclusivas do CI e valem só para o container de serviço. SSO real, gov.br e o agente de deployment em host não fazem parte do CI. Para mudar o número de fatias, troque o `N` de `--shard I/N` na matriz; nenhuma lista de arquivos é mantida à mão, então um pacote novo com testes entra numa fatia sozinho.
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
+
+## Suíte de testes em menos de 10 minutos (epic #199)
+
+Rodada de 2026-11-11 na branch `test/199-fast-test-suite` ([#196](https://github.com/alaorneto/skeleton/issues/196), [#197](https://github.com/alaorneto/skeleton/issues/197), [#198](https://github.com/alaorneto/skeleton/issues/198)). Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+| Execução | Antes | Depois |
+|---|---|---|
+| `pytest tests --cov`, serial | 1282 passed, 111 skipped em 26 min 20 s (1320 s de preparação, 246 s de teste); 15353 de 21219 linhas (69,42%) | não repetida até o fim nesta rodada |
+| `pytest tests -n 8` | não existia | 1304 passed, 111 skipped em 3 min 56 s |
+| `pytest tests -n 16` | não existia | 1327 passed, 111 skipped em 3 min 53 s |
+| `pytest tests -n 8 --cov` | não existia | 1327 passed, 111 skipped em 4 min 12 s; 15369 de 21239 linhas (69,43%) |
+| `SKELETON_BUNDLED_APPS=calendar pytest tests/contrib/calendar -n 8` | 4 min no CI, serial | 59 passed em 36 s |
+| Job `tests` do CI (run 43028212566) | 36 min (3.12) e 31 min (3.14) | **não medido**: exige um pull request |
+
+Equivalência: os 1393 testes da linha de base aparecem na rodada paralela com o mesmo resultado (comparação dos dois JUnit XML); os 45 a mais são os testes novos de `test_integration_database.py` e `test_suite_shards.py`. Arquivo a arquivo, as linhas executadas só mudaram nos arquivos editados (`skeleton/conf/profiles.py`, `skeleton/system/synchronization.py`, `skeleton/testing/hashers.py`).
+
+`sync_table_catalog` (#197): uma ressincronização sem mudanças caiu de 903 para 215 consultas e grava o mesmo catálogo (638 linhas comparadas com a implementação anterior); `tests/integration/test_table_catalog_sync.py` passa nas duas implementações no teste de reconciliação e só na nova no de número de consultas.
+
+**Não verificado:** o CI com as fatias (primeiro PR), em especial `POSTGRES_INITDB_ARGS` com `-c` no container `postgres:16.15`; os testes `posix` e o Linux.
 
 ## Observabilidade (epic #87)
 
@@ -165,13 +186,34 @@ Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um se
 ```sh
 python tools/dev_postgres.py start                 # inicializa (na primeira vez), sobe e provisiona
 eval "$(python tools/dev_postgres.py env)"          # POSIX; no PowerShell: python tools/dev_postgres.py env --shell powershell | Invoke-Expression
-SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q
+SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto
 python tools/dev_postgres.py stop
 ```
 
-O servidor vem do `pgserver` (binários do PostgreSQL num wheel). Como o `pgserver` só publica wheels para CPython 3.12, o script o executa pelo `uv` num ambiente isolado com Python 3.12, fora do virtualenv do projeto, e nada entra nos locks. Os dados ficam em `var/dev-postgres` (ignorado pelo Git). O banco `local_skeleton_test` é provisionado com `deploy/postgres/bootstrap.sql` e senhas só locais, no mesmo layout do CI. O script também copia os dados de fuso do pacote `tzdata` quando o build do `pgserver` vem sem eles, e exporta `SKELETON_TEST_PG_DUMP` para o template de schema.
+O servidor vem do `pgserver` (binários do PostgreSQL num wheel). Como o `pgserver` só publica wheels para CPython 3.12, o script o executa pelo `uv` num ambiente isolado com Python 3.12, fora do virtualenv do projeto, e nada entra nos locks. Os dados ficam em `var/dev-postgres` (ignorado pelo Git). O banco `local_skeleton_test` é provisionado com `deploy/postgres/bootstrap.sql` e senhas só locais, no mesmo layout do CI. O `start` também cria um banco por worker paralelo (`local_gw0_skeleton_test`, `local_gw1_...`; um por CPU, ou `--workers N`), sem mexer nos que já existem, e ajusta o servidor: `fsync`, `synchronous_commit` e `full_page_writes` desligados e `max_locks_per_transaction=2048` (reinicia o servidor uma vez, na mesma porta). Por isso esse servidor nunca deve guardar dado que importe. O script também copia os dados de fuso do pacote `tzdata` quando o build do `pgserver` vem sem eles, e exporta `SKELETON_TEST_PG_DUMP` para o template de schema.
 
-Duas suítes não podem rodar ao mesmo tempo no mesmo banco: cada teste recria o schema `skeleton`. A suíte de SSO real (`tests/sso`, Keycloak e navegador) só é coletada quando `SSO_FIXTURE_ENV_PATH` está definido; sem isso, `pytest tests` a deixa de fora.
+Duas execuções da suíte não podem usar os mesmos bancos ao mesmo tempo: cada teste recria o schema `skeleton` do banco do seu worker. A suíte de SSO real (`tests/sso`, Keycloak e navegador) só é coletada quando `SSO_FIXTURE_ENV_PATH` está definido; sem isso, `pytest tests` a deixa de fora.
+
+### Rodar rápido e rodar completo
+
+| Para | Comando | Tempo |
+|---|---|---|
+| O arquivo ou teste em que você está trabalhando | `python -m pytest tests/integration/test_x.py -q -x` (`-k nome` escolhe um teste; `-x` para na primeira falha) | segundos: a partida (Django e template do schema) mais 1 a 2 s por teste com banco |
+| Só o que falhou na última vez | `python -m pytest tests -q -n auto --lf` | proporcional ao que falhou |
+| Testes sem banco | `python -m pytest tests/unit -q -n auto` | menos de 1 minuto |
+| Suíte inteira, obrigatória antes do PR | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` | cerca de 4 minutos |
+| Suíte inteira com cobertura, como no CI | o mesmo, com `--cov` | cerca de 4 minutos |
+| Agenda | `SKELETON_BUNDLED_APPS=calendar python -m pytest tests/contrib/calendar -q -n auto` | menos de 1 minuto |
+
+Sem `-n`, a suíte roda num processo e num banco, como antes: é o modo para depurar com `--pdb` ou ler a saída de um teste. O comando rápido não substitui a suíte inteira, porque não prova que a mudança deixou os outros módulos intactos.
+
+**Como a paralelização funciona.** `-n` é do `pytest-xdist` (lock de desenvolvimento): N processos, cada um com uma parte dos testes. Cada processo usa um banco só seu, com nome derivado das duas URLs de teste (`local_skeleton_test` vira `local_gw3_skeleton_test` no worker `gw3`), migra uma vez e restaura o template antes de cada teste, exatamente como no modo serial. O `tests/conftest.py` troca as duas variáveis de ambiente no próprio worker; assim os settings, `disposable_database_pair()`, os testes que leem as variáveis e os subprocessos que eles iniciam enxergam o mesmo banco. Os fixtures continuam sem criar banco nem role.
+
+Antes de iniciar os workers, a suíte confere duas coisas: se o owner abre o banco de cada worker e se a tabela de locks do servidor comporta as restaurações simultâneas. Cada restauração segura cerca de 2.100 locks até o commit, e o padrão do PostgreSQL (6.400 no total) só aguenta dois workers. Se faltar algo, a suíte para com um erro de uso que diz o que provisionar. Num PostgreSQL que não seja o de `tools/dev_postgres.py`, crie os bancos `<prefixo>_gwN_skeleton_test` como o banco base (bootstrap, senhas, `GRANT CREATE ON DATABASE`) e aumente `max_locks_per_transaction`.
+
+`--shard I/N` (`tools/suite_shards.py`) roda só uma fatia dos arquivos de teste. Serve ao CI; localmente, `-n` basta.
+
+Os tempos medidos estão em [Suíte de testes em menos de 10 minutos](#suíte-de-testes-em-menos-de-10-minutos-epic-199).
 
 **Rodadas abaixo de [#144](https://github.com/alaorneto/skeleton/issues/144):** as seções seguintes registram a história anterior ao modelo só PostgreSQL e citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Elas continuam como evidência do que rodou naquela época, não como procedimento.
 
@@ -805,17 +847,21 @@ As regressões de deployment usam `docker compose config --format json`, executa
 
 O isolamento evita que um teste apague dados de outro teste ou de uma instalação real. **Runtime** é a role limitada usada nas verificações de aplicação; **owner** é a role privilegiada usada somente para reconstruir o schema da fixture. Um banco “de teste” não se torna seguro só pelo nome: as URLs, o sufixo e o marcador de reset precisam satisfazer todas as barreiras abaixo.
 
-`tests/conftest.py` oferece fixture `skeleton_db`. pytest-django fornece settings e desbloqueio explícito do ORM; não use criação/flush automático, `django_db`, TransactionTestCase de flush, `--reuse-db` ou pytest-xdist como atalho em schema protegido.
+`tests/conftest.py` oferece fixture `skeleton_db`. pytest-django fornece settings e desbloqueio explícito do ORM; não use criação/flush automático, `django_db`, TransactionTestCase de flush ou `--reuse-db` como atalho em schema protegido. O `pytest-xdist` é usado, mas só com um banco provisionado por worker (abaixo): dois processos nunca compartilham um schema.
 
 No SQLite, a sessão prepara um banco-modelo vazio e migrado. Cada teste recebe uma cópia própria via API de backup SQLite em `tmp_path`; a conexão é reaberta para registrar as funções SQL (UDFs) necessárias aos triggers. Ao terminar, descarta-se somente o arquivo temporário. Testes unitários sem banco não ativam essa fixture.
 
 No PostgreSQL, `TEST_DATABASE_URL` (runtime) e `TEST_MIGRATION_DATABASE_URL` (owner) devem apontar ao **mesmo banco descartável**, com nome terminado `_skeleton_test`, diferente de qualquer `DATABASE_URL`/`MIGRATION_DATABASE_URL` normal. Também é obrigatório `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`.
 
+Com `pytest -n`, cada worker usa o seu banco, `<prefixo>_gwN_skeleton_test`, derivado dessas duas URLs por `tools/integration_database.py`. O nome mantém o sufixo, então todas as barreiras valem para ele. Um worker que não trocou de banco é recusado por `disposable_database_pair()`, e um banco de worker que não existe para a suíte antes de qualquer teste (ver [Rodar rápido e rodar completo](#rodar-rápido-e-rodar-completo)).
+
 A fixture fecha conexões e recria **somente o schema `skeleton`** com owner a cada teste. Depois, todas as verificações de aplicação/RLS usam runtime. Ela não cria banco/roles nem reseta dados externos; DDL/reset são serializados. Se DSN, sufixo ou marcador faltar, pare e corrija o ambiente: a ausência não autoriza reset automático nem desabilitar a barreira.
 
-O schema de cada teste vem de um **template da sessão**, como no SQLite. O fixture `postgres_template` aplica as migrations uma única vez e captura estrutura e dados do schema com `pg_dump --schema=skeleton`, rodando como `skeleton_owner`. Em cada teste, `restore_schema()` apaga o schema, recria-o e executa esse SQL numa só transação, também como owner. O `GRANT CREATE` ao `skeleton_audit_writer` vale só durante a restauração, para transferir a ownership das funções de auditoria, como faz `InstallRecordInfrastructure`. Antes, cada teste rodava o `migrate` completo, cerca de 4 s por teste. O template não é `--reuse-db`: nenhum teste herda dados de outro, e nada é truncado ou apagado linha a linha. `tests/integration_postgres/test_schema_template.py` compara o schema restaurado com o migrado (tabelas, colunas, constraints, índices, triggers, funções, policies, flags de RLS, owners, ACLs, sequências e dados) e mostra que a comparação falha quando falta uma policy, trigger, grant, FORCE RLS ou linha. A comparação de ACLs usa os privilégios efetivos: uma ACL `NULL` conta como `acldefault()` do owner. Isso é necessário porque um `REVOKE` pode deixar gravada uma ACL explícita igual ao padrão, que o `pg_dump` omite e o restore recria como `NULL`. O texto dos CHECK e dos índices com predicado ou expressão também passa por um ida-e-volta: o restore pode mover casts sem mudar a expressão (por exemplo, um `IN` sobre varchar). Por isso, o fingerprint recria cada CHECK (como `NOT VALID`) e cada um desses índices numa transação revertida e compara o texto que o PostgreSQL devolve.
+O schema de cada teste vem de um **template da sessão**, como no SQLite. O fixture `postgres_template` aplica as migrations uma única vez e captura estrutura e dados do schema com `pg_dump --schema=skeleton`, rodando como `skeleton_owner`. Em cada teste, `restore_schema()` apaga o schema, recria-o e executa esse SQL numa só transação, também como owner. O `GRANT CREATE` ao `skeleton_audit_writer` vale só durante a restauração, para transferir a ownership das funções de auditoria, como faz `InstallRecordInfrastructure`. Antes, cada teste rodava o `migrate` completo, cerca de 4 s por teste. A restauração roda com `synchronous_commit=off` na transação do owner: um schema de fixture perdido numa queda é recriado pelo teste seguinte. O template não é `--reuse-db`: nenhum teste herda dados de outro, e nada é truncado ou apagado linha a linha. `tests/integration_postgres/test_schema_template.py` compara o schema restaurado com o migrado (tabelas, colunas, constraints, índices, triggers, funções, policies, flags de RLS, owners, ACLs, sequências e dados) e mostra que a comparação falha quando falta uma policy, trigger, grant, FORCE RLS ou linha. A comparação de ACLs usa os privilégios efetivos: uma ACL `NULL` conta como `acldefault()` do owner. Isso é necessário porque um `REVOKE` pode deixar gravada uma ACL explícita igual ao padrão, que o `pg_dump` omite e o restore recria como `NULL`. O texto dos CHECK e dos índices com predicado ou expressão também passa por um ida-e-volta: o restore pode mover casts sem mudar a expressão (por exemplo, um `IN` sobre varchar). Por isso, o fingerprint recria cada CHECK (como `NOT VALID`) e cada um desses índices numa transação revertida e compara o texto que o PostgreSQL devolve.
 
 O template exige `pg_dump` com versão igual ou maior que a do servidor (no CI vem de `postgresql-client`). Para usar outro binário, aponte `SKELETON_TEST_PG_DUMP` para ele. Com `SKELETON_TEST_POSTGRES_TEMPLATE=0`, a fixture volta a migrar a cada teste, o que serve para depurar migrations. Sem `pg_dump` e sem essa variável, a suíte falha com erro de uso, em vez de ficar lenta em silêncio.
+
+O perfil de teste (`skeleton.conf.profiles.test_settings`) usa `skeleton.testing.hashers.FastPBKDF2PasswordHasher`: PBKDF2-SHA256 com 1.000 iterações, com o mesmo algoritmo e o mesmo formato de hash da produção. Com as iterações de produção, cada senha de fixture custava cerca de 0,3 s, e quase todo teste cria várias identidades. Esse hasher nunca entra nos settings de uma instalação.
 
 Browser SSO tem fixture de sessão com DB isolado e servidor real, preservando commits até fim do cenário. Não use TestCase com atomic externa como prova de COMMIT/SET LOCAL; os testes transacionais precisam de commits verdadeiros.
 
