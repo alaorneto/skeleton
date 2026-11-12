@@ -383,6 +383,8 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 
 - `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1432 passed, 111 skipped (os pulos exigem `O_NOFOLLOW`/`fcntl`, só em Linux/macOS, ou o CLI do Docker).
 - **Não executado:** `tests/sso/` com Keycloak e OpenLDAP em contêiner, por falta de Docker neste ambiente; login real com IdP e MFA no fluxo LDAP ficam para o CI e a homologação.
+- Depois do merge da `main` (i18n, OpenAPI, fluxos, auditoria, LGPD e suíte rápida), com as migrations do epic renumeradas sobre as da `main` (`sk_accounts.0005`–`0007`, `sk_audit.0004`) e as rotas REST do epic declaradas no schema OpenAPI: `python -m pytest tests -q -n 8`, 1788 passed, 111 skipped e 1 failed. A falha é `test_platform_pages_are_translated`, que acusa a palavra `installed`: é a origem do núcleo que este `.venv` informa, enquanto no CI ela é `source`, palavra que o teste já aceita.
+
 ## Fluxos de processo (epic #209)
 
 Rodada de 2026-11-12 na branch `feat/209-business-flows`, um commit por issue ([#200](https://github.com/alaorneto/skeleton/issues/200) a [#207](https://github.com/alaorneto/skeleton/issues/207)) e um de testes de concorrência. Somente o que rodou:
