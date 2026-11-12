@@ -87,6 +87,21 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - `tests/integration_postgres/test_transfer_schema.py`: 3 passed. RLS forçada, policy de tenant e guard instalados; sem o guard ou sem a policy, `check_deployed_schema` falha.
 - Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
 
+**#183, importação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1473 passed, 111 skipped. Agenda: 59 passed.
+- `tests/integration/test_transfer_import.py`: 8 passed. Cobrem:
+  - a prévia sem gravar registros nem auditoria;
+  - a aplicação criando as linhas, com o dono sendo quem importa e o apóstrofo anti-fórmula removido;
+  - o CAS: uma revisão divergente vira erro da linha 3 no relatório, e a aplicação é recusada com 409;
+  - o tudo ou nada: uma mudança depois da prévia desfaz também a linha nova válida;
+  - a coluna `owner` recusando o arquivo;
+  - a vírgula aceita e o valor inválido reportado;
+  - o limite de linhas;
+  - quem não cria na tabela recebe 404, inclusive o admin de B;
+  - o relatório e a aplicação só para quem pediu;
+  - o arquivo fora de UTF-8 recusado.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

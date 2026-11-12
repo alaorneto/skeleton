@@ -10,7 +10,7 @@
   <td>{% if transfer.state == ready %}<span class="badge badge-success">{{ transfer.get_state_display }}</span>{% elif transfer.state == "failed" %}<span class="badge badge-warning">{{ transfer.get_state_display }}</span>{% else %}<span class="badge">{{ transfer.get_state_display }}</span>{% endif %}</td>
   <td>{{ transfer.row_count }}</td>
   <td class="whitespace-nowrap!">{{ transfer.expires_at }}</td>
-  <td>{% if transfer.state == ready and transfer.file_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:download' organization_id transfer.sysid %}">{% translate "Baixar CSV" %}</a>{% endif %}</td>
+  <td><div class="toolbar">{% if transfer.kind == "export" and transfer.state == ready and transfer.file_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:download' organization_id transfer.sysid %}">{% translate "Baixar CSV" %}</a>{% endif %}{% if transfer.report_key %}<a class="btn btn-secondary btn-sm" href="{% url 'transfer:report' organization_id transfer.sysid %}">{% blocktranslate trimmed count errors=transfer.error_count %}Relatório ({{ errors }} erro){% plural %}Relatório ({{ errors }} erros){% endblocktranslate %}</a>{% endif %}{% if transfer.state == previewed and not transfer.error_count %}<form method="post" action="{% url 'transfer:apply' organization_id transfer.sysid %}">{% csrf_token %}<button class="btn btn-primary btn-sm" type="submit">{% translate "Aplicar importação" %}</button></form>{% endif %}</div></td>
 </tr>{% empty %}<tr><td colspan="7" class="empty-state">{% translate "Nenhuma exportação ou importação." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% endblock %}

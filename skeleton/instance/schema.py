@@ -193,6 +193,7 @@ _SPECS = (
     ),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
     SettingSpec("export_max_rows", "SKELETON_EXPORT_MAX_ROWS", "int", "Linhas máximas de uma exportação CSV", _int(1)),
+    SettingSpec("import_max_rows", "SKELETON_IMPORT_MAX_ROWS", "int", "Linhas máximas de uma importação CSV", _int(1)),
     SettingSpec(
         "transfer_retention_days", "SKELETON_TRANSFER_RETENTION_DAYS", "int", "Retenção dos arquivos CSV", _int(1)
     ),

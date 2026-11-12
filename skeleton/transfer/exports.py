@@ -157,12 +157,18 @@ def notify_ready(*, transfer_id: Any) -> None:
 
     from .models import TransferJob
 
-    transfer = TransferJob.objects.filter(pk=transfer_id, state=TransferJob.State.READY).first()
+    finished = (
+        TransferJob.State.READY,
+        TransferJob.State.PREVIEWED,
+        TransferJob.State.APPLIED,
+        TransferJob.State.FAILED,
+    )
+    transfer = TransferJob.objects.filter(pk=transfer_id, state__in=finished).first()
     if transfer is None:
         return
     notify(
         READY_TYPE,
         recipients=Recipients(users=(transfer.requester_id,)),
         payload={"transfer": str(transfer.pk)},
-        dedupe_key=f"transfer:{transfer.pk}",
+        dedupe_key=f"transfer:{transfer.pk}:{transfer.state}",
     )
