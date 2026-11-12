@@ -20,3 +20,11 @@ Ativação não concede `TablePermission`; mesmo com menu visível, o servidor r
 Mudanças do manifesto exigem deployment e verificações, pois podem afetar código, dependências e rotas de todas as organizações. Já a configuração organizacional pode mudar sem instalar uma versão nova, dentro dos campos declarados e com revisão. Configuração sensível é recusada: segredos pertencem ao deployment privado, e o JSON permitido é redigido integralmente na auditoria.
 
 Preservar estado e dados torna a desativação segura e reversível, mas não libera espaço de banco nem equivale a desinstalar a app. A retirada global do código também não autoriza apagar seu histórico. Checks de documentação e testes simulados não constituem aprovação de um pacote para produção.
+
+## Fluxo de publicação no próprio exemplo
+
+**Contexto.** O núcleo ganhou o motor de fluxos de processo e precisava de um exemplo opt-in que exercitasse etapas, bifurcação, formulário e aprovação.
+
+**Decisão.** O fluxo fica no Notes, sobre a própria anotação, em vez de uma segunda app de exemplo. A app só declara o fluxo e chama o `FlowService`; não cria tabelas.
+
+**Consequências.** Nenhuma migration nova; a versão do Notes passa a 0.4.0. O piso de core do manifesto precisa subir para a versão do núcleo que publicar `skeleton.flows` quando ela for cortada.

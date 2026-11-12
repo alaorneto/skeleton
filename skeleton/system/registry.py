@@ -276,6 +276,42 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_flows.flowdefinition": (
+            "Definições de fluxo",
+            "Especificação congelada de uma versão de fluxo de processo na organização.",
+            "organization",
+            (),
+        ),
+        "sk_flows.flowinstance": (
+            "Instâncias de fluxo",
+            "Execução de um fluxo sobre um registro de negócio; dados sensíveis de formulário à parte.",
+            "organization",
+            ("sensitive_data",),
+        ),
+        "sk_flows.flowsteprun": (
+            "Etapas de instâncias",
+            "Ativação de uma etapa numa instância de fluxo, com escopo de bloco e ramo.",
+            "organization",
+            (),
+        ),
+        "sk_flows.flowtask": (
+            "Tarefas de fluxo",
+            "Trabalho de uma pessoa ou fila numa etapa de tarefa ou de aprovação, com decisão e prazo.",
+            "organization",
+            ("comment",),
+        ),
+        "sk_flows.flowsubmission": (
+            "Formulários de fluxo",
+            "Formulário enviado numa etapa ou transição, guardado como foi aceito.",
+            "organization",
+            ("sensitive_values",),
+        ),
+        "sk_flows.flowactivity": (
+            "Histórico de fluxos",
+            "Narrativa ordenada de uma instância: quem fez o quê e quando, só com identificadores e rótulos.",
+            "organization",
+            ("comment",),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",
@@ -284,7 +320,12 @@ def register_core_specs():
         ),
     }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
-    read_fields = {"sk_tenancy.membership": ("user",), "sk_system.appinstallation": ("app_label",)}
+    read_fields = {
+        "sk_tenancy.membership": ("user",),
+        "sk_system.appinstallation": ("app_label",),
+        # What the flow lifecycle events carry (docs/flows.md); form data is never an event field.
+        "sk_flows.flowinstance": ("flow_key", "flow_version", "status", "outcome", "subject_table", "subject_sysid"),
+    }
     for key, (label, description, scope, sensitive) in definitions.items():
         register(
             TableSpec(
