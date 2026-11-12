@@ -41,6 +41,26 @@ def export_request(request, organization_id, table_key):
 
 
 @tenant_page()
+@require_POST
+def audit_export_request(request, organization_id):
+    """Export the audit page's filtered events (#186), for the organization administrator."""
+    from .audit_export import request_audit_export
+
+    params = {name: value for name, value in request.POST.items() if name != "csrfmiddlewaretoken"}
+    try:
+        with transaction.atomic():
+            request_audit_export(user=request.user, params=params)
+    except PermissionDenied:
+        raise Http404 from None
+    except ValidationError:
+        return render(
+            request, "skeleton/web/error.html", {"detail": gettext("Verifique os filtros informados.")}, status=400
+        )
+    messages.success(request, gettext("Exportação na fila. O arquivo aparece aqui quando estiver pronto."))
+    return redirect("transfer:list", organization_id=organization_id)
+
+
+@tenant_page()
 @never_cache
 @require_safe
 def transfer_list(request, organization_id):
@@ -75,10 +95,16 @@ def transfer_download(request, organization_id, sysid):
     ).first()
     if transfer is None or not transfer.file_key:
         raise Http404
-    try:
-        record_queryset(exportable_spec(transfer.table_key), user=request.user, action="read")
-    except PermissionDenied:
-        raise Http404 from None
+    from .audit_export import AUDIT_KEY, can_download
+
+    if transfer.table_key == AUDIT_KEY:
+        if not can_download(request.user):
+            raise Http404
+    else:
+        try:
+            record_queryset(exportable_spec(transfer.table_key), user=request.user, action="read")
+        except PermissionDenied:
+            raise Http404 from None
     return DetachedFileResponse(storage_key=transfer.file_key, filename=transfer.filename, content_type="text/csv")
 
 

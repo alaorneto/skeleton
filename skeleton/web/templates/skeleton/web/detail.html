@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load crud_forms %}
+{% load crud_forms i18n %}
 {% block title %}{{ title }} · Skeleton{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -16,5 +16,7 @@
 {% crud_detail_fields sections %}
 </div>
 {% if attachments %}{% include 'skeleton/files/attachments_panel.html' %}{% endif %}
+{% if comments %}{% include 'skeleton/comments/panel.html' %}{% endif %}
+{% include 'skeleton/web/components/timeline.html' %}
 </div>
 {% endblock %}

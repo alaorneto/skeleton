@@ -33,3 +33,8 @@ def register_file_jobs() -> None:
     )
     register_job_type(JobType(ORPHANS_JOB, clean_orphans, {}, run_as="system", max_attempts=3, owner_app="sk_files"))
     register_periodic(ORPHANS_JOB, ORPHANS_JOB, every=timedelta(hours=6))
+    from .purge import PURGE_JOB, purge_deleted
+
+    # Deleted attachments lose their bytes after the retention window (#192).
+    register_job_type(JobType(PURGE_JOB, purge_deleted, {}, run_as="system", max_attempts=3, owner_app="sk_files"))
+    register_periodic(PURGE_JOB, PURGE_JOB, daily_at=time(3, 0))

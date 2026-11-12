@@ -16,6 +16,23 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 **Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
 
+## Comentários em registros (#187, epic #93)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_comment_text.py` e `tests/integration/test_comments.py`: 10 passed, 15 subtests. Cobrem:
+  - corpo vazio, longo demais e com caracteres de controle recusados; HTML sempre escapado; só `http`/`https` viram links, sem quebrar o atributo;
+  - quem lê o registro lista e comenta; registro ilegível, default deny e A/B respondem 404 na lista e na criação; `assert_tenant_isolated`;
+  - tabela sem `CommentPolicy` recusa (REST e serviço);
+  - só o autor edita (o administrador recebe 403); outro membro não exclui; o administrador modera e restaura com o mesmo UUID; o autor exclui e restaura o próprio;
+  - CAS: `If-Match` antigo recusado, ausente responde 428, `assert_cas_conflict` com um vencedor;
+  - auditoria de create e update, e rollback sem evento nem linha residual;
+  - a página escapa o corpo, mostra o link e o item `comment` na linha do tempo; `assert_service_contract` e ator divergente.
+- `python -m pytest tests -q -n 8 -k "comment or i18n or openapi or schema or catalog or timeline or locale"`: 145 passed, 8 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` mesclada: 1677 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
+
 ## OpenAPI da API (epic #86)
 
 **Contrato da API.** Toda resposta de `/api/v1/` que a suíte recebe pelo cliente de teste do Django (`Client` e o `APIClient` do DRF) é validada contra o schema publicado. A fixture autouse `api_contract` de `tests/conftest.py` usa `skeleton.testing.openapi.checked_client_responses()`, que monta o schema completo uma vez por árvore de URLs e registry (`build_schema(full_audience())`, o mesmo gerador de `GET /api/v1/openapi.json`, sem filtro de ator). Para cada resposta, `assert_matches_schema` exige:
@@ -122,6 +139,77 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - quem não cria na tabela recebe 404, inclusive o admin de B;
   - o relatório e a aplicação só para quem pediu;
   - o arquivo fora de UTF-8 recusado.
+
+## Visualizador de auditoria (epic #94)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`. A branch parte da branch do epic #92.
+
+**#184, filtros de investigação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1480 passed, 111 skipped. Agenda: 59 passed.
+- A primeira rodada teve 1 falha: a view de `/platform/audit/` importava `AuditEvent`, o que viola `test_core_surfaces_on_services`. As opções de operação foram para `skeleton.audit.filters.operation_choices`.
+- `tests/integration/test_audit_filters.py`: 7 passed. Cobrem:
+  - o contrato do `AuditLogService`;
+  - os filtros por ator, operação, `request_id` e período no serviço, com valores inválidos recusados;
+  - nenhum alcance em outra organização (`request_id` e ator de A vistos por B);
+  - o membro sem permissão `audit` sem ganho com os filtros;
+  - os eventos de domínio relacionados só para o administrador, sem `data`;
+  - a página e a REST aceitando os filtros e respondendo 400 a inválidos ou desconhecidos;
+  - a auditoria da plataforma com filtros.
+
+**#185, linha do tempo do registro:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1483 passed, 111 skipped. Agenda: 59 passed. `npm run check`: sem diferença depois do build.
+- `tests/integration/test_record_timeline.py`: 3 passed. Cobrem:
+  - auditoria e anexos juntos, do mais recente para o mais antigo, na página de detalhe;
+  - sem a TablePermission `audit`, só os anexos aparecem;
+  - o admin de B recebe 404 e quem não tem permissão na tabela recebe 403, como antes.
+
+**#186, exportação da auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1487 passed, 111 skipped.
+- Agenda: na primeira rodada, 38 passed e 21 erros de montagem dos bancos dos workers; na segunda, 59 passed. É o mesmo padrão transitório visto no #182.
+- `tests/integration/test_audit_export.py`: 4 passed. Cobrem:
+  - o administrador exportando com filtros (operação e tabela), só da própria organização, com `body` em `[REDACTED]` no JSON de `changes`;
+  - o download só do administrador que pediu;
+  - membro e admin de B recebendo 404;
+  - filtro inválido recusado antes do job;
+  - o botão só para o administrador.
+
+## LGPD: dados pessoais, titular e retenção (epic #88)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`; o owner foi usado só para ler a auditoria global e para o comando de redação.
+
+**#189, dados pessoais redigidos na auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1670 passed, 111 skipped.
+- `tests/integration_postgres/test_audit_personal_data.py`: 3 passed. Cobrem:
+  - os eventos novos de `User` (email e primeiro nome) e de `UserProfile` (`display_name`) redigidos, com os campos ainda legíveis no modelo;
+  - um evento antigo simulado (o owner recoloca o email em claro com o guard desligado) redigido pelo comando, com o guard de volta e o `UPDATE` recusado;
+  - o comando recusado sem `--confirm` e com a role runtime.
+- A leitura da auditoria global nos testes passa pelo owner, porque a RLS esconde da role runtime os eventos sem organização.
+
+**#192, expurgo dos bytes de anexos excluídos:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1673 passed, 111 skipped.
+- `tests/integration/test_attachment_purge.py`: 3 passed. Cobrem:
+  - dentro do prazo, nada é tocado;
+  - depois de 91 dias, os bytes saem e o anexo vira `purged`;
+  - a restauração é recusada com 400 e o anexo continua excluído;
+  - uma segunda rodada não refaz o expurgo;
+  - o anexo vivo e o anexo da organização B nunca são tocados;
+  - o anexo restaurado antes do expurgo é pulado.
+
+**#190, exportação dos dados do titular:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1675 passed, 111 skipped.
+- `tests/integration/test_privacy_export.py`: 2 passed. Cobrem:
+  - o ZIP com a identidade e as duas organizações da pessoa, cada uma com a própria notificação;
+  - nenhum email de outra pessoa nem digest de token;
+  - `attachment` e `no-store`;
+  - a página exigindo login;
+  - quem não tem vínculo recebendo só a identidade.
+- Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
 
 ## Integração contínua
 

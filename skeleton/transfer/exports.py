@@ -102,7 +102,6 @@ def _fail(transfer: Any, code: str) -> None:
 
 def run_export(*, actor: Any, transfer_id: Any) -> None:
     """Job handler (tenant context of the requester)."""
-    from skeleton.files.storage import put_stream
     from skeleton.web.services import filter_records, record_queryset, records_data
 
     from .csvio import write_csv
@@ -113,6 +112,16 @@ def run_export(*, actor: Any, transfer_id: Any) -> None:
         return
     transfer.state = TransferJob.State.RUNNING
     transfer.save(update_fields={"state"})
+    from .audit_export import AUDIT_KEY, build_audit_csv
+
+    if transfer.table_key == AUDIT_KEY:
+        # The filtered audit log (#186): same rows and redaction as the audit page.
+        built = build_audit_csv(actor=actor, transfer=transfer)
+        if isinstance(built, str):
+            _fail(transfer, built)
+            return
+        _store(transfer, *built, filename=f"auditoria-{timezone.localdate().isoformat()}.csv")
+        return
     try:
         spec = exportable_spec(transfer.table_key)
         rows = filter_records(
@@ -138,11 +147,21 @@ def run_export(*, actor: Any, transfer_id: Any) -> None:
             break
         data.extend(records_data(page, fields, user=actor))
     content = write_csv(header, ([row.get(name) for name in header] for row in data))
+    _store(
+        transfer, content, len(data), filename=f"{spec.model._meta.model_name}-{timezone.localdate().isoformat()}.csv"
+    )
+
+
+def _store(transfer: Any, content: bytes, rows: int, *, filename: str) -> None:
+    from skeleton.files.storage import put_stream
+
+    from .models import TransferJob
+
     key = transfer_key(transfer.organization_id)
     put_stream(key, io.BytesIO(content), max_bytes=MAX_EXPORT_BYTES)
     transfer.file_key = key
-    transfer.filename = f"{spec.model._meta.model_name}-{timezone.localdate().isoformat()}.csv"
-    transfer.row_count = len(data)
+    transfer.filename = filename
+    transfer.row_count = rows
     transfer.state = TransferJob.State.READY
     transfer.save(update_fields={"file_key", "filename", "row_count", "state"})
     # A system job tells the requester: the fan-out never notifies the actor of the action itself.

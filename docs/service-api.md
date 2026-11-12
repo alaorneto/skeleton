@@ -225,10 +225,11 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
-| `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
+| `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
@@ -295,7 +296,7 @@ A app chamadora é identificada pelo módulo do primeiro frame fora da API de se
 
 `AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
 
-`AuditLogService` é o log que as páginas e a REST do núcleo mostram (`/o/<org>/audit/`, `/api/v1/o/<org>/audit/` e `/platform/audit/`). `events(*, actor, model_label=None, record_id=None, page=1, page_size=25) -> AuditLogPage` devolve uma página numerada (`items`, `count`, `page`, `page_size`) com as regras de `authorized_audit_queryset`, filtrada antes de contar; `event(*, actor, event_id) -> AuditLogEvent` devolve um evento ou `NotFound`. `AuditLogEvent` traz os campos do evento como a REST os publica (inclusive `table_name` e `db_principal`) e `changes_json`, o objeto JSON das colunas visíveis. Sem organização no contexto, os dois métodos leem os eventos globais e exigem o administrador da plataforma (`Forbidden` para os demais). Para o histórico de um registro numa app, prefira `AuditService.history`, que já confere a leitura do registro.
+`AuditLogService` é o log que as páginas e a REST do núcleo mostram (`/o/<org>/audit/`, `/api/v1/o/<org>/audit/` e `/platform/audit/`). `events(*, actor, model_label=None, record_id=None, since=None, until=None, actor_id=None, operation=None, request_id=None, page=1, page_size=25) -> AuditLogPage` devolve uma página numerada (`items`, `count`, `page`, `page_size`) com as regras de `authorized_audit_queryset`, filtrada antes de contar; `event(*, actor, event_id) -> AuditLogEvent` devolve um evento ou `NotFound`. `AuditLogEvent` traz os campos do evento como a REST os publica (inclusive `table_name` e `db_principal`) e `changes_json`, o objeto JSON das colunas visíveis. Sem organização no contexto, os dois métodos leem os eventos globais e exigem o administrador da plataforma (`Forbidden` para os demais). Os filtros de período (`since` inclusivo, `until` exclusivo), ator, operação e requisição só estreitam o que a autorização já permite ([#184](https://github.com/alaorneto/skeleton/issues/184)). `related_domain_events(*, actor, request_id) -> tuple[DomainEventSummary, ...]` devolve, só para o administrador da organização, os eventos de domínio ainda retidos da mesma requisição: tipo, tabela, registro, revisão e momento, nunca `data`. Para o histórico de um registro numa app, prefira `AuditService.history`, que já confere a leitura do registro.
 
 ### NotificationService
 
@@ -348,6 +349,10 @@ NotificationService().notify(
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
 Apps não acessam o armazenamento diretamente.
+
+### CommentService
+
+[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`. `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres ou com caracteres de controle. Métodos com `since="0.6.0"`.
 
 ### SequenceService
 

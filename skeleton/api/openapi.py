@@ -642,6 +642,42 @@ class TableRoutes:
                 Operation("Restaura o anexo", ref("Attachment"), etag=True, if_match=True, scope="files:write"),
             )
 
+    def _comments(self, spec: Any, actions: frozenset[str], route: Route, path: str) -> Iterator[Expanded]:
+        if "read" not in actions or spec.comments is None:
+            return
+        yield path, "GET", Operation("Lista os comentários do registro", results(ref("Comment")))
+        yield (
+            path,
+            "POST",
+            Operation(
+                "Comenta o registro",
+                ref("Comment"),
+                status=201,
+                etag=True,
+                request=obj({"body": string()}),
+            ),
+        )
+
+    def _comment(self, spec: Any, actions: frozenset[str], route: Route, path: str) -> Iterator[Expanded]:
+        if "read" not in actions or spec.comments is None:
+            return
+        yield (
+            path,
+            "PATCH",
+            Operation(
+                "Edita o comentário (só o autor)",
+                ref("Comment"),
+                etag=True,
+                if_match=True,
+                request=obj({"body": string()}),
+            ),
+        )
+        yield path, "DELETE", Operation("Exclui o comentário (autor ou administrador)", None, status=204, if_match=True)
+
+    def _comment_restore(self, spec: Any, actions: frozenset[str], route: Route, path: str) -> Iterator[Expanded]:
+        if "read" in actions and spec.comments is not None:
+            yield path, "POST", Operation("Restaura o comentário", ref("Comment"), etag=True, if_match=True)
+
 
 # --- Access administration (DedicatedView) ------------------------------------------------
 
@@ -723,6 +759,7 @@ def _components(audience: Audience, specs: list[tuple[Any, frozenset[str]]]) -> 
     from django.conf import settings
 
     from skeleton.api.serializers import DEDICATED
+    from skeleton.comments.services import comment_schema
     from skeleton.files.services import attachment_schema
 
     schemas: dict[str, Schema] = {
@@ -749,6 +786,9 @@ def _components(audience: Audience, specs: list[tuple[Any, frozenset[str]]]) -> 
         ),
         "Attachment": attachment_schema(),
     }
+    if any(spec.comments is not None and "read" in actions for spec, actions in specs):
+        # Only an audience that reaches a commentable table sees the comment shape (#187).
+        schemas["Comment"] = comment_schema()
     for spec, _ in specs:
         schemas[_record_name(spec)] = record_schema(spec)
         schemas[_input_name(spec) + ".create"] = record_input_schema(spec, creating=True)

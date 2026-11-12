@@ -395,6 +395,15 @@ def extension_consistency_checks(app_configs=None, **kwargs):
                     id="skeleton.E016",
                 )
             )
+        personal = set(operation.specification.get("personal_fields", ()))
+        if personal != set(getattr(spec, "personal_fields", ()) or ()):
+            errors.append(
+                Error(
+                    f"{model._meta.label}: TableSpec personal_fields differ from the frozen migration specification "
+                    f"{sorted(personal)}; add a migration with the new specification.",
+                    id="skeleton.E032",
+                )
+            )
     return errors
 
 
