@@ -27,11 +27,14 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/jobs` | Fila de jobs no banco, tipos registrados em código | Enqueue na transação do negócio; payload sem dado de negócio; [jobs](jobs.md) |
 | `skeleton/notifications` | Tipos de notificação, `notify()` e linhas por pessoa | Snapshot só com campos declarados e não sensíveis; [notificações](notifications.md) |
 | `skeleton/events` | Eventos de domínio publicados explicitamente pelo serviço | Mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade; [eventos](events.md) |
-| `skeleton/integrations` | Webhooks da organização: endpoints, entrega assinada com retentativas e log | Saídas HTTP só pelo cliente anti-SSRF; entregas agem como a conta de serviço do endpoint; [webhooks](webhooks.md) |
+| `skeleton/integrations` | Webhooks da organização (endpoints, entrega assinada com retentativas e log) e tokens de API | Saídas HTTP só pelo cliente anti-SSRF; entregas agem como a conta de serviço do endpoint; [webhooks](webhooks.md); tokens: só o hash no banco; [API](api.md#tokens-de-api) |
+| `skeleton/files` | Anexos em armazenamento privado, cota por organização e verificação por antivírus | Sem URL pública; download só por view autorizada; [arquivos](files.md) |
 | `skeleton/sequences` | Sequências sem lacunas por organização e período | Contador bloqueado na transação do chamador; [sequências](sequences.md) |
 | `skeleton/transfer` | Exportação e importação CSV de tabelas expostas, por job | Só pelo caminho autorizado do gateway; arquivo no storage privado só para quem pediu; retenção declarada; [exportação e importação](data-transfer.md) |
 | `skeleton/flows` | Motor de fluxos de processo de negócio: definições versionadas declaradas pelas apps, instâncias, tarefas, formulários e aprovações | Só o motor; a regra de cada fluxo é da app. Condições são dados ou callables registrados, nunca `eval`; [fluxos](flows.md) |
 | `skeleton/comments` | Comentários em registros, com moderação e itens na linha do tempo | Autorização derivada do registro alvo, opt-in por `CommentPolicy`; texto simples escapado; [comentários](comments.md) |
+| `skeleton/setup` | Setup do primeiro acesso, antes de existir banco configurado | A credencial owner vive só na requisição que migra |
+| `skeleton/observability` | Métricas Prometheus, tracing OpenTelemetry e Sentry, todos opt-in | Sem dado pessoal, identificador de registro ou segredo em rótulos e spans; eventos do Sentry só com os campos estruturados dos logs; [deployment](deployment.md#observabilidade-87) |
 | `skeleton/instance` | Configuração da instância num SQLite próprio, com segredos cifrados | Lido antes do Django, sem `DATABASES` nem migrations; nunca guarda dados |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
 | `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate`, erros públicos, introspecção do contrato (`contract`) e APIs declaradas pelas apps (`registry`) | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
@@ -63,7 +66,7 @@ Os cinco pacotes do domínio ainda dependem uns dos outros, e o teste não tenta
 
 `sysid` identifica uma linha; código comercial identifica algo segundo o negócio; `table_key` identifica um modelo registrado na interface. Nenhum desses valores é autorização ou um nome SQL livre recebido do cliente.
 
-Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences`, `sk_flows`, `sk_comments` e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
+Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences`, `sk_flows`, `sk_comments`, `sk_transfer`, `sk_observability` (sem modelos) e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
 
 ## Caminho de uma requisição
 

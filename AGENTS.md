@@ -8,9 +8,10 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 2. `docs/data-model.md`, `docs/access-control.md`, `docs/audit-soft-delete.md`.
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
-5. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
-6. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
-7. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
+5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md` e `docs/sequences.md` antes de usar ou alterar o subsistema correspondente.
+6. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
+7. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
+8. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
 
 ## Rastreabilidade: plano, issue, commit e fechamento
 
@@ -30,18 +31,24 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/access`: papéis/grupos, concessões e serviços/policies.
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
-- `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log); saídas HTTP só por `skeleton.common.outbound_http`.
+- `skeleton/jobs`: fila de jobs no banco, com tipos registrados em código; enqueue na transação do negócio; payload só com identificadores, nunca dado de negócio.
+- `skeleton/events`: eventos de domínio publicados explicitamente pelo serviço, na mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade.
+- `skeleton/notifications`: tipos de notificação, `notify()` e linhas por pessoa; snapshot só com campos declarados e não sensíveis; envio por jobs, nunca dentro da requisição.
+- `skeleton/files`: anexos em armazenamento privado; os bytes só saem por view autorizada, com autorização derivada do registro alvo; sem URL pública.
+- `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log) e tokens de API (emissão, autenticação Bearer, limites); saídas HTTP só por `skeleton.common.outbound_http`; o banco guarda só o hash do token.
 - `skeleton/sequences`: sequências sem lacunas por organização e período.
 - `skeleton/transfer`: exportação e importação CSV de tabelas expostas por job, com o arquivo no storage privado e a retenção declarada (`TransferJob`, operacional); só pelo caminho autorizado de leitura e escrita do gateway.
 - `skeleton/flows`: motor de fluxos de processo de negócio (definições versionadas, instâncias, tarefas, formulários, aprovações; [docs/flows.md](docs/flows.md)). É só o motor: apps declaram os fluxos em código por `skeleton.flows.registry` e os usam pelo `FlowService`. Condições são árvores de dados ou callables registrados, nunca `eval`; nenhuma regra de negócio de um fluxo entra no núcleo.
 - `skeleton/comments`: comentários em registros ([docs/comments.md](docs/comments.md)). A autorização vem do registro alvo (como os anexos), a tabela precisa de `TableSpec.comments`; só o autor edita, autor e administrador excluem. Texto simples sempre escapado; nenhuma regra de negócio de app.
 - `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
+- `skeleton/observability`: métricas, tracing e relato de erros, todos opt-in; nenhum rótulo ou atributo carrega `sysid` de organização ou de pessoa, slug, email, token ou segredo, e os eventos de erro só levam os campos estruturados permitidos aos logs.
+- `skeleton/conf`: defaults, profiles e URLs distribuídos com o núcleo; não importa negócio nem configurações do derivado (só referencia `config.*` por nome, em settings).
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
-- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos, arquivos, sequências e fluxos de processo; epics #113 e #209).
+- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos, arquivos, sequências, tokens de feed e fluxos de processo; epics #113 e #209).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
-- `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
+- `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado. `deployment_agent`: processo operacional separado que prepara e troca releases; a credencial owner e os comandos privilegiados nunca pertencem ao processo web.
 - `examples/notes`: exemplo didático opt-in, não dependência do núcleo.
 - `skeleton/contrib`: apps first-party distribuídas no wheel do núcleo (manifest `kind: "bundled_app"`, label `skeleton_*`, versão igual à do core). Entram em `INSTALLED_APPS` só por nome em `SKELETON_BUNDLED_APPS`, contra o mapa fixo de `skeleton/conf/bundled.py` (nunca import path do ambiente), e seguem as regras de qualquer app: API de serviços, disponibilidade e ativação fechadas. O resto do núcleo nunca importa `skeleton.contrib`; apps de terceiros não usam o prefixo `skeleton_` nem `runtime.user_urls`.
 

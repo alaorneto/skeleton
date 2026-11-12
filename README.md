@@ -194,10 +194,11 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md), [testes](docs/testing.md) e a [evidência histórica das rodadas](docs/testing-evidence.md).
+- [Jobs](docs/jobs.md), [eventos](docs/events.md), [notificações](docs/notifications.md), [arquivos](docs/files.md), [webhooks](docs/webhooks.md) e [sequências](docs/sequences.md): subsistemas do núcleo.
 - [Checks](docs/checks.md): todos os `skeleton.E/W`, o que reprovam e como corrigir.
 - [API de serviços entre apps](docs/service-api.md): contrato obrigatório de classes de serviço que cada app publica e que outras apps consomem em processo; procedimento no skill `service-api`.
-- [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro, tema do admin e build do CSS.
+- [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro e build do CSS.
 - [Fluxo de trabalho](docs/workflow.md): plano → issues classificadas → branch/commits → PR → fechamento aprovado.
-- [Administração e interfaces de apps](docs/application-admin-ui-plan.md): grupos de parâmetros no admin e viewer/layouts de negócio fora dele; renderer SSR e dimensões no core/agente 0.3.0.
+- [Administração e interfaces de apps](docs/application-admin-ui-plan.md): telas de parâmetros das apps e viewer/layouts de negócio; renderer SSR e dimensões no core/agente 0.3.0.
 
 Os resultados observados da integração estão na [evidência histórica](docs/testing-evidence.md), e os comandos para reproduzi-los, em [testes](docs/testing.md). PostgreSQL e Keycloak reais foram exercitados; mocks não substituem essas provas. Credenciais de produção e dados de fixture não fazem parte do template.
