@@ -24,6 +24,18 @@ O **administrador de organização** tem o papel empresarial `organization_admin
 
 Parte dessa gestão pode ser delegada sem conceder administração plena. O **gestor de pessoas** (`people_manager`) administra membros e convites; o **gestor de apps** (`app_manager`) recebe a capacidade de gerir apps. Esses perfis são papéis internos com **capacidades** declaradas em código; um papel criado pela organização nunca carrega capacidade. Veja [capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos).
 
+### Ingresso numa organização
+
+Uma conta global só entra numa organização por um destes caminhos, cada um escolhido pela organização ou pela plataforma:
+
+- **Convite** por email, de uso único (já existente).
+- **Pedido com aprovação**: a organização aceita pedidos (e, se quiser, aparece em `/join/`); quem administra pessoas aprova ou recusa (#26).
+- **Link de ingresso**: multiuso, com validade, limite de usos e entrada direta ou com aprovação; pode abrir o cadastro (#27).
+- **Domínio verificado**: quem confirma um email de um domínio que a organização provou controlar por DNS entra direto ou cria um pedido (#28).
+- **SSO ou LDAP** configurado pela plataforma para aquela organização, com JIT, aprovação, papel e domínios decididos pela própria organização (#29–#33).
+
+Admissões automáticas (link, domínio, SSO, sincronização) nunca reativam um vínculo anterior: quem saiu ou foi removido sempre volta por um pedido decidido por uma pessoa. Sair é livre, menos para o último administrador (#25).
+
 A distinção importa: conceder administração de uma clínica não pode conceder administração das outras clínicas ou permissão para atualizar o servidor. E ser superusuário Django não elimina os requisitos de vínculo e autorização nas rotas organizacionais.
 
 Veja [modelo de dados](data-model.md) e [controle de acesso](access-control.md).
