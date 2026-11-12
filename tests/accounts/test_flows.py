@@ -134,7 +134,7 @@ def test_issued_reset_token_cannot_create_password_after_policy_revocation(local
             email="reset-platform@example.test", organization="reset-platform", name="Platform", password=PASSWORD
         )
         with request_context(actor=platform, request_id=uuid4(), source="test:reset-policy"):
-            deactivate_user(local_user, delete=state == "deleted")
+            deactivate_user(local_user, actor=platform, delete=state == "deleted")
     response = reset.post(path, {"password1": NEW_PASSWORD, "password2": NEW_PASSWORD})
     assert response.status_code in {200, 302, 400, 403}
     local_user.refresh_from_db()
@@ -223,12 +223,18 @@ def test_platform_admin_lifecycle_conflicts_and_logical_delete(local_user):
         {"first_name": "", "last_name": "", "is_staff": "on", "is_superuser": "on", "expected_revision": revision},
     )
     assert changed.status_code == 409
-    removed = client.post(reverse("platform:user-delete", args=[admin.pk]))
+    removed = client.post(
+        reverse("platform:user-delete", args=[admin.pk]),
+        {"expected_revision": User.all_objects.get(pk=admin.pk).revision},
+    )
     assert removed.status_code == 409
     admin.refresh_from_db()
     assert admin.is_active and admin.deleted_at is None
     profile_id = local_user.profile.pk
-    removed = client.post(reverse("platform:user-delete", args=[local_user.pk]))
+    removed = client.post(
+        reverse("platform:user-delete", args=[local_user.pk]),
+        {"expected_revision": User.all_objects.get(pk=local_user.pk).revision},
+    )
     assert removed.status_code == 302
     retained = User.all_objects.get(pk=local_user.pk)
     assert not retained.is_active and retained.deleted_at is not None

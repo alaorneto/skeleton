@@ -4,8 +4,8 @@ from django.contrib import messages
 from django.db import transaction
 from django.utils.translation import gettext
 
+from skeleton.common.context import current_context
 from skeleton.common.logging import security_event
-from skeleton.tenancy.context import current_context
 
 
 def schedule_mail(message, *, request=None, target_sysid=None):

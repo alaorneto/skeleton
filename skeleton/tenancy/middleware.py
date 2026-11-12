@@ -18,23 +18,23 @@ class TenantContextMiddleware:
         from .aggregate import is_aggregate_route
 
         try:
-            callback = resolve(request.path_info).func
+            match = resolve(request.path_info)  # Resolved once per request (#237).
         except Resolver404:
-            callback = None
-        if is_aggregate_route(callback):
+            match = None
+        if is_aggregate_route(match.func if match else None):
             # Reads many organizations (#74): the view opens one context per organization itself.
             response = self.get_response(request)
             if hasattr(response, "render") and not response.is_rendered:
                 response.render()
             response["X-Request-ID"] = str(request.request_id)
             return response
-        response = self._in_context(request)
+        response = self._in_context(request, match)
         if getattr(response, "detached", False):
             # The transaction committed and the contexts are gone: stream without the ORM.
             response = response.materialize()
         return response
 
-    def _in_context(self, request):
+    def _in_context(self, request, match):
         user = request.user
         token = getattr(request, "api_token", None)
         # The GUC skeleton.source names the token prefix, so audit rows show which credential wrote.
@@ -45,10 +45,6 @@ class TenantContextMiddleware:
             source=source,
             credential_scopes=frozenset(token.scopes) if token is not None else None,
         ):
-            try:
-                match = resolve(request.path_info)
-            except Resolver404:
-                match = None
             if match:
                 from asgiref.sync import iscoroutinefunction
 
@@ -103,4 +99,7 @@ class TenantContextMiddleware:
         if hasattr(response, "render") and not response.is_rendered:
             response.render()
         request._skeleton_log_context = current_context()
+        if response.status_code >= 400:
+            # Revert the tenant savepoint inside its own context before leaving it (#237).
+            transaction.set_rollback(True)
         return response

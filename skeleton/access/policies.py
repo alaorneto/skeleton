@@ -38,31 +38,62 @@ def active_membership(user: User) -> Membership:
     return membership
 
 
-def group_ids(user: User) -> QuerySet[Any, UUID]:
-    from .models import GroupMember
+class _Subject:
+    """The actor's membership, resolved once for ONE policy decision (#227).
 
-    membership = active_membership(user)
-    return GroupMember.objects.filter(membership=membership, group__deleted_at__isnull=True).values_list(
-        "group_id", flat=True
-    )
+    Never store an instance beyond the call that created it (no ContextVar, request
+    attribute, module cache): authorization is recomputed on every decision.
+    """
+
+    __slots__ = ("user", "membership", "_admin", "_tables")
+
+    def __init__(self, user: User) -> None:
+        self.user = user
+        self.membership = active_membership(user)  # The only Membership query of the decision.
+        self._admin: bool | None = None
+        self._tables: dict[str, TableDefinition | None] = {}
+
+    def group_ids(self) -> QuerySet[Any, UUID]:
+        from .models import GroupMember
+
+        return GroupMember.objects.filter(membership=self.membership, group__deleted_at__isnull=True).values_list(
+            "group_id", flat=True
+        )
+
+    def roles(self) -> QuerySet[Role]:
+        from .models import GroupRole, MemberRole, Role
+
+        direct = MemberRole.objects.filter(membership=self.membership, role__deleted_at__isnull=True).values_list(
+            "role_id", flat=True
+        )
+        grouped = GroupRole.objects.filter(group_id__in=self.group_ids(), role__deleted_at__isnull=True).values_list(
+            "role_id", flat=True
+        )
+        return Role.objects.filter(Q(sysid__in=direct) | Q(sysid__in=grouped))
+
+    def is_admin(self) -> bool:
+        if self._admin is None:
+            self._admin = self.roles().filter(code="organization_admin", is_builtin=True).exists()
+        return self._admin
+
+    def table(self, model: type[Model]) -> TableDefinition | None:
+        label = model._meta.label_lower
+        if label not in self._tables:
+            self._tables[label] = table_definition(model)
+        return self._tables[label]
+
+
+def group_ids(user: User) -> QuerySet[Any, UUID]:
+    return _Subject(user).group_ids()
 
 
 def effective_roles(user: User) -> QuerySet[Role]:
-    from .models import GroupRole, MemberRole, Role
-
-    membership = active_membership(user)
-    direct = MemberRole.objects.filter(membership=membership, role__deleted_at__isnull=True).values_list(
-        "role_id", flat=True
-    )
-    grouped = GroupRole.objects.filter(group_id__in=group_ids(user), role__deleted_at__isnull=True).values_list(
-        "role_id", flat=True
-    )
-    return Role.objects.filter(Q(sysid__in=direct) | Q(sysid__in=grouped))
+    return _Subject(user).roles()
 
 
 def is_organization_admin(user: User) -> bool:
     try:
-        return effective_roles(user).filter(code="organization_admin", is_builtin=True).exists()
+        return _Subject(user).is_admin()
     except PermissionDenied:
         return False
 
@@ -88,19 +119,25 @@ def require_credential_scope(scope: str) -> None:
 
 
 def has_table_permission(model: type[Model], *, user: User, action: str) -> bool:
+
+    if action not in ACTIONS or not _scope_allows(model, action):
+        return False
+    return _permits(_Subject(user), model, action)
+
+
+def _scope_allows(model: type[Model], action: str) -> bool:
+    # The single point where a token scope applies: it narrows the role, never widens it.
+    scopes = credential_scopes()
+    return scopes is None or f"{model._meta.label_lower}:{action}" in scopes
+
+
+def _permits(subject: _Subject, model: type[Model], action: str) -> bool:
     from .models import TablePermission
 
-    if action not in ACTIONS:
-        return False
-    scopes = credential_scopes()
-    if scopes is not None and f"{model._meta.label_lower}:{action}" not in scopes:
-        # The single point where a token scope applies: it narrows the role, never widens it.
-        return False
-    active_membership(user)
-    table = table_definition(model)
+    table = subject.table(model)
     return (
         table is not None
-        and TablePermission.objects.filter(table=table, role__in=effective_roles(user), action=action).exists()
+        and TablePermission.objects.filter(table=table, role__in=subject.roles(), action=action).exists()
     )
 
 
@@ -126,14 +163,32 @@ def table_permissions(user: User) -> frozenset[tuple[str, str]]:
 
 
 def _grant_ids(model: type[Model], user: User, action: str) -> QuerySet[Any, UUID]:
+    return _grants(_Subject(user), model, action)
+
+
+def _grants(subject: _Subject, model: type[Model], action: str) -> QuerySet[Any, UUID]:
     from .models import RecordGrant
 
-    membership = active_membership(user)
     return (
-        RecordGrant.objects.filter(table=table_definition(model), action=action)
-        .filter(Q(membership=membership) | Q(group_id__in=group_ids(user)) | Q(role__in=effective_roles(user)))
+        RecordGrant.objects.filter(table=subject.table(model), action=action)
+        .filter(Q(membership=subject.membership) | Q(group_id__in=subject.group_ids()) | Q(role__in=subject.roles()))
         .values_list("record_sysid", flat=True)
     )
+
+
+def _authorized[RecordT: SecuredRecord](
+    model: type[RecordT], subject: _Subject, action: str, include_deleted: bool
+) -> QuerySet[RecordT]:
+    """The visibility rule over an already permitted table (one place for the rule)."""
+    queryset = model.objects.with_deleted() if include_deleted else model.objects.all()
+    if subject.is_admin():
+        return queryset
+    visibility = Q(owner_id=subject.user.pk)
+    if action == "read":
+        visibility |= Q(visibility="organization") | Q(visibility="group", owning_group_id__in=subject.group_ids())
+    if action in ("read", "update", "delete"):
+        visibility |= Q(sysid__in=_grants(subject, model, action))
+    return queryset.filter(visibility)
 
 
 def authorized_queryset[RecordT: SecuredRecord](
@@ -147,20 +202,20 @@ def authorized_queryset[RecordT: SecuredRecord](
     from skeleton.system.applications import require_application_enabled
 
     require_application_enabled(model._meta.app_label)
-    if not has_table_permission(model, user=user, action=action):
+    if include_deleted and action != "restore":
+        # Reading a tombstone also requires the restore authorization (docs/access-control.md, #229).
+        raise PermissionDenied("Deleted records require the restore action.")
+    if action not in ACTIONS or not _scope_allows(model, action):
         raise PermissionDenied("Table permission required.")
-    queryset = model.objects.with_deleted() if include_deleted else model.objects.all()
-    if is_organization_admin(user):
-        return queryset
-    visibility = Q(owner_id=user.pk)
-    if action == "read":
-        visibility |= Q(visibility="organization") | Q(visibility="group", owning_group_id__in=group_ids(user))
-    if action in ("read", "update", "delete"):
-        visibility |= Q(sysid__in=_grant_ids(model, user, action))
-    return queryset.filter(visibility)
+    subject = _Subject(user)
+    if not _permits(subject, model, action):
+        raise PermissionDenied("Table permission required.")
+    return _authorized(model, subject, action, include_deleted)
 
 
 def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User, action: str) -> RecordT:
+    if record.deleted_at is not None and action != "restore":
+        raise PermissionDenied("Deleted records require the restore action.")
     if (
         not authorized_queryset(type(record), user=user, action=action, include_deleted=record.deleted_at is not None)
         .filter(sysid=record.pk)
@@ -181,25 +236,44 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
         if is_platform_admin(user) or has_platform_capability(user, AUDIT_READ):
             return AuditEvent.objects.filter(organization_id__isnull=True)
         raise PermissionDenied("Platform access required.")
-    active_membership(user)
+    from skeleton.common.models import SecuredRecord
+    from skeleton.system.applications import require_application_enabled
+
+    from .models import TablePermission
+
+    subject = _Subject(user)
     events = AuditEvent.objects.filter(organization_id=organization_id)
-    if is_organization_admin(user):
+    if subject.is_admin():
         return events
+    # The actor's audit/read/restore permissions in one query, decided in memory per table (#227).
+    permitted = set(
+        TablePermission.objects.filter(
+            role__in=subject.roles(),
+            action__in=("audit", "read", "restore"),
+            table__available=True,
+            table__deleted_at__isnull=True,
+        ).values_list("table__model_label", "action")
+    )
+
+    def allows(model: type[Model], action: str) -> bool:
+        return (model._meta.label_lower, action) in permitted and _scope_allows(model, action)
+
     allowed = Q(pk__in=[])
     for spec in all_specs():
-        if not spec.expose_api or not has_table_permission(spec.model, user=user, action="audit"):
+        model = spec.model
+        if not spec.expose_api or not issubclass(model, SecuredRecord) or not allows(model, "audit"):
             continue
         try:
-            live = authorized_queryset(spec.model, user=user).values_list("sysid", flat=True)
+            require_application_enabled(model._meta.app_label)
         except PermissionDenied:
+            continue  # A disabled app hides only its own tables.
+        if not allows(model, "read"):
             continue
-        condition = Q(model_label=spec.model._meta.label_lower, record_sysid__in=live)
-        if has_table_permission(spec.model, user=user, action="restore"):
-            restored = (
-                authorized_queryset(spec.model, user=user, action="restore", include_deleted=True)
-                .filter(deleted_at__isnull=False)
-                .values_list("sysid", flat=True)
-            )
-            condition |= Q(model_label=spec.model._meta.label_lower, record_sysid__in=restored)
+        label = model._meta.label_lower
+        live = _authorized(model, subject, "read", False).values_list("sysid", flat=True)
+        condition = Q(model_label=label, record_sysid__in=live)
+        if allows(model, "restore"):
+            restored = _authorized(model, subject, "restore", True).filter(deleted_at__isnull=False)
+            condition |= Q(model_label=label, record_sysid__in=restored.values_list("sysid", flat=True))
         allowed |= condition
     return events.filter(allowed)

@@ -493,7 +493,7 @@ def test_global_offboarding_cannot_be_undone_by_government_identity(govbr, delet
         email="operator@example.test", organization="govbr-offboarding", name="Offboarding", password=PASSWORD
     )
     with request_context(actor=admin, request_id=None, source="test:govbr-offboarding"):
-        deactivate_user(user, delete=deleted)
+        deactivate_user(user, actor=admin, delete=deleted)
     client = Client()
     authorization = start(client)
     transport.prepare(authorization)

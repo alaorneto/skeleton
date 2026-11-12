@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from skeleton.accounts.emails import normalize_email
+
 DEFAULT_TIMEOUT_S = 5
 ID_ATTRIBUTES = ("entryUUID", "objectGUID")
 PAGE_SIZE = 500
@@ -206,7 +208,7 @@ def _user(entry: Any, options: DirectoryOptions) -> DirectoryUser:
     return DirectoryUser(
         uid=_uid(_value(entry, options.id_attribute), options.id_attribute),
         dn=str(entry.get("dn") or ""),
-        email=str(_value(entry, options.email_attribute) or "").strip().lower(),
+        email=normalize_email(str(_value(entry, options.email_attribute) or "")),
         first_name=str(_value(entry, options.first_name_attribute) or "")[:150],
         last_name=str(_value(entry, options.last_name_attribute) or "")[:150],
     )

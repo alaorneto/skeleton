@@ -454,3 +454,65 @@ def test_platform_admin_does_not_enter_the_organization_it_administers(platform_
     for name in ("web:dashboard", "web:catalog"):
         assert client.get(reverse(name, kwargs={"organization_id": organization.pk})).status_code == 404
     assert client.get(f"/api/v1/o/{organization.pk}/memberships/").status_code in {403, 404}
+
+
+def test_user_delete_requires_current_revision(platform_actor):
+    from skeleton.accounts.models import User
+
+    _, _, client = platform_actor
+    person = _person("delete-revision@example.test")
+    url = reverse("platform:user-delete", args=[person.pk])
+    page = client.get(url).content.decode()
+    current = User.all_objects.get(pk=person.pk).revision
+    assert f'name="expected_revision" value="{current}"' in page
+    token = client.cookies["csrftoken"].value
+    assert client.post(url, {"csrfmiddlewaretoken": token}).status_code == 400
+    assert client.post(url, {"csrfmiddlewaretoken": token, "expected_revision": current + 1}).status_code == 409
+    assert User.all_objects.get(pk=person.pk).deleted_at is None
+    response = client.post(url, {"csrfmiddlewaretoken": token, "expected_revision": current})
+    assert response.status_code == 302
+    assert User.all_objects.get(pk=person.pk).deleted_at is not None
+
+
+def test_identity_and_organization_changes_require_recent_authentication(platform_actor, foreign_organization):
+    from skeleton.accounts.models import User
+    from skeleton.tenancy.models import Organization
+
+    user, _, client = platform_actor
+    organization, owner, _ = foreign_organization
+    person = _person("recent-auth@example.test")
+    with system_context(reason="test:recent-auth-state"):
+        before_org = Organization.objects.get(pk=organization.pk)
+    before_person = User.all_objects.get(pk=person.pk)
+    pages = {
+        "platform:user-create": ((), {"email": "created@example.test", "password1": "x", "password2": "x"}),
+        "platform:user": (
+            (person.pk,),
+            {"first_name": "Changed", "is_active": "on", "expected_revision": before_person.revision},
+        ),
+        "platform:user-delete": ((person.pk,), {"expected_revision": before_person.revision}),
+        "platform:organization-create": ((), {"name": "Created", "slug": "created-recent", "owner": str(user.pk)}),
+        "platform:organization": (
+            (organization.pk,),
+            {"name": "Changed", "is_active": "on", "expected_revision": before_org.revision},
+        ),
+    }
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    token = client.cookies["csrftoken"].value
+    for name, (args, data) in pages.items():
+        url = reverse(name, args=args)
+        assert client.get(url).status_code == 200, name
+        response = client.post(url, {**data, "csrfmiddlewaretoken": token})
+        assert response.status_code == 302 and response["Location"].startswith(reverse("account_reauthenticate")), name
+    after_person = User.all_objects.get(pk=person.pk)
+    assert (after_person.revision, after_person.first_name, after_person.deleted_at) == (
+        before_person.revision,
+        before_person.first_name,
+        None,
+    )
+    assert not User.all_objects.filter(email="created@example.test").exists()
+    with system_context(reason="test:recent-auth-state"):
+        assert Organization.objects.get(pk=organization.pk).revision == before_org.revision
+        assert not Organization.objects.filter(slug="created-recent").exists()

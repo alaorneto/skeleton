@@ -41,6 +41,8 @@ A função interna do núcleo é `skeleton.sequences.services.next_number(key, *
 
 ## Garantias
 
+A primeira numeração de um período serializa na linha da organização com `FOR NO KEY UPDATE`, que não conflita com as inserções já feitas pela transação (#239).
+
 - **Sem lacunas:** o contador de `(organização, chave, período)` é uma linha `SequenceCounter` bloqueada com `SELECT … FOR UPDATE` e incrementada **na transação do chamador**. Se a escrita do negócio é desfeita, o incremento também é, e a próxima alocação reutiliza o número.
 - **Sem duplicatas:** alocações concorrentes da mesma sequência e período esperam o bloqueio e recebem números consecutivos. A primeira criação do contador é serializada no bloqueio da organização, de modo que duas transações nunca criam o mesmo contador.
 - **Isolamento:** cada organização e período tem seu contador, protegido por RLS tenant; a organização B não vê nem avança o contador de A.

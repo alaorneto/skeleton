@@ -14,6 +14,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext
 
+from skeleton.accounts.emails import normalize_email
+
 
 class InvalidInvitation(ValidationError):
     def __init__(self):
@@ -149,7 +151,7 @@ def accept_invitation(*, user, organization_id, token=None, proof=None, verified
         if proof is None
         else _validate_reference(organization_id, proof.token_digest, proof.sysid)
     )
-    if not user.is_active or user.deleted_at or user.email.strip().lower() != proof.email:
+    if not user.is_active or user.deleted_at or normalize_email(user.email) != proof.email:
         raise InvalidInvitation()
     if (
         not verified_signup
@@ -158,7 +160,7 @@ def accept_invitation(*, user, organization_id, token=None, proof=None, verified
         raise InvalidInvitation()
     with system_context(reason="invitation:validated", organization_id=organization_id):
         with transaction.atomic():
-            organization = Organization.objects.select_for_update().get(pk=organization_id, is_active=True)
+            organization = Organization.objects.select_for_update(no_key=True).get(pk=organization_id, is_active=True)
             invitation = (
                 Invitation.objects.select_for_update()
                 .filter(

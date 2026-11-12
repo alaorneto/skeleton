@@ -50,7 +50,7 @@ def instance_preferences() -> Preferences:
 
 def organization_preferences() -> tuple[str | None, str | None]:
     """Defaults of the context organization (RLS applies); ``(None, None)`` outside one."""
-    from skeleton.tenancy.context import current_context
+    from skeleton.common.context import current_context
 
     if current_context().organization_id is None:
         return None, None

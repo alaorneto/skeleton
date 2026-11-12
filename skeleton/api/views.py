@@ -281,6 +281,25 @@ class LeaveOrganizationView(TenantAPI):
         return Response(status=204)
 
 
+def _refuse_privileged_invitation_role(user, value):
+    """A delegated inviter asking for a capability role gets 403, as join links do (#365).
+
+    The picker never offers those roles; this answers the explicit request instead of the generic
+    "unavailable reference". A role of another organization or an invalid value stays a 400.
+    """
+    from uuid import UUID
+
+    from skeleton.access.capabilities import ACCESS_MANAGE, has_capability, privileged_role
+    from skeleton.access.models import Role
+
+    try:
+        role = Role.objects.filter(pk=UUID(str(value))).first()
+    except (TypeError, ValueError):
+        return
+    if role is not None and privileged_role(role) and not has_capability(user, ACCESS_MANAGE):
+        raise BoundaryError("privileged_role", gettext("Só o administrador concede papel com capacidades."), 403)
+
+
 class DedicatedView(TenantAPI):
     openapi = DedicatedRoutes()
 
@@ -305,7 +324,10 @@ class DedicatedView(TenantAPI):
     def post(self, request, organization_id, resource, sysid=None):
         if sysid:
             raise BoundaryError("method_not_allowed", gettext("Criação exige a URL da coleção."), 405)
-        values = dedicated_input(resource, request_fields(request), user=request.user)
+        fields = request_fields(request)
+        if resource == "invitations":
+            _refuse_privileged_invitation_role(request.user, fields.get("role"))
+        values = dedicated_input(resource, fields, user=request.user)
         if resource == "invitations":
             record = issue_invitation(user=request.user, request=request, **values)
         else:

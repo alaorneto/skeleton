@@ -1,9 +1,5 @@
 """Identity lifecycle operations; callers cannot mass-assign identity flags."""
 
-import hashlib
-from contextlib import contextmanager
-from dataclasses import dataclass
-from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -17,7 +13,9 @@ from skeleton.common.exceptions import ConcurrentUpdate
 def normalized_email(email):
     from django.core.validators import validate_email
 
-    email = email.strip().lower()
+    from skeleton.accounts.emails import normalize_email
+
+    email = normalize_email(email)
     validate_email(email)
     return email
 
@@ -32,6 +30,7 @@ def password_allowed(user):
 
 
 def create_identity(*, email, password=None, first_name="", last_name="", local_password_allowed=True, using="default"):
+    """A new identity carries no platform flag nor membership, so creating one grants nothing."""
     from skeleton.accounts.models import User, UserProfile
 
     with transaction.atomic(using=using):
@@ -112,15 +111,23 @@ def revoke_sessions(user, *, using="default"):
         return locked
 
 
-def deactivate_user(user, *, delete=False, using="default"):
+def deactivate_user(user, *, actor, delete=False, expected_revision=None, using="default"):
+    """Deactivate (or soft delete) an identity for a platform administrator (#226).
+
+    ``expected_revision`` is the revision the confirmation page displayed; a different one
+    raises ``ConcurrentUpdate``.
+    """
     from skeleton.access.services import assert_user_deactivation
     from skeleton.accounts.models import User
-    from skeleton.accounts.platform import assert_platform_admin_remains, lock_platform_admins
+    from skeleton.accounts.platform import assert_platform_admin_remains, lock_platform_admins, require_platform_actor
 
+    require_platform_actor(actor)
     with transaction.atomic(using=using):
         # Platform administrators first, in sysid order, then the target: no lock inversion.
         admins = lock_platform_admins(using=using)
         locked = User.all_objects.using(using).select_for_update().get(pk=user.pk)
+        if expected_revision is not None and locked.revision != expected_revision:
+            raise ConcurrentUpdate("The identity changed since the form was displayed.")
         assert_platform_admin_remains(admins, locked, keeps_role=False)
         assert_user_deactivation(locked, using=using)
         if delete:
@@ -135,7 +142,7 @@ def deactivate_user(user, *, delete=False, using="default"):
 PLATFORM_USER_FIELDS = ("first_name", "last_name", "is_active", "is_staff", "is_superuser")
 
 
-def update_platform_user(user, *, data, expected_revision, using="default"):
+def update_platform_user(user, *, actor, data, expected_revision, using="default"):
     """Platform-side identity edit with CAS; email changes stay in the verified allauth flow.
 
     Deactivating keeps the last-administrator guard, demoting or deactivating the last
@@ -149,8 +156,10 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
         assert_platform_admin_remains,
         is_platform_admin,
         lock_platform_admins,
+        require_platform_actor,
     )
 
+    require_platform_actor(actor)
     unknown = set(data) - set(PLATFORM_USER_FIELDS) - {"email"}
     if unknown:
         raise ValidationError(gettext("Campo não permitido."))
@@ -178,192 +187,11 @@ def update_platform_user(user, *, data, expected_revision, using="default"):
         return previous
 
 
-def update_organization(organization, *, data, expected_revision, using="default"):
-    """Platform-side organization edit with CAS; the slug is immutable."""
-    from skeleton.tenancy.models import Organization
+def restore_user(user, *, actor, using="default"):
+    """Restore a deleted identity for a platform administrator; ``restore()`` applies the CAS."""
+    from skeleton.accounts.platform import require_platform_actor
 
-    unknown = set(data) - {"name", "is_active"}
-    if unknown:
-        raise ValidationError(gettext("Campo não permitido."))
-    with transaction.atomic(using=using):
-        previous = Organization.objects.using(using).select_for_update().get(pk=organization.pk)
-        if expected_revision != previous.revision:
-            raise ConcurrentUpdate("The organization form is stale.")
-        changed = {key for key, value in data.items() if getattr(previous, key) != value}
-        if not changed:
-            return previous
-        for key in changed:
-            setattr(previous, key, data[key])
-        previous.save(using=using, update_fields=changed)
-        return previous
-
-
-@dataclass(frozen=True)
-class AdministratorSummary:
-    user_id: UUID
-    email: str
-    direct: bool
-
-
-@dataclass(frozen=True)
-class ApplicationSummary:
-    """One installed app as the platform sees it in an organization: gates only, no configuration."""
-
-    app_label: str
-    label: str
-    available: bool  # Platform gate (global rows).
-    enabled: bool  # The organization's own choice in AppInstallation.
-    effective: bool  # Both gates open for the app and its whole dependency closure.
-
-
-@dataclass(frozen=True)
-class OrganizationOverview:
-    """What the platform may see of an organization: counts, administrator emails and app gates."""
-
-    organization_id: UUID
-    active_members: int
-    administrators: tuple[AdministratorSummary, ...]
-    administrators_version: str
-    applications: tuple[ApplicationSummary, ...] = ()
-
-
-@contextmanager
-def _read_only(using):
-    """Refuse any statement but plain reads while the platform inspects a tenant."""
-    from django.db import connections
-
-    allowed = ("SELECT", "SAVEPOINT", "RELEASE SAVEPOINT", "ROLLBACK TO SAVEPOINT")
-
-    def guard(execute, sql, params, many, context):
-        statement = sql.lstrip().upper()
-        if not statement.startswith(allowed) or " FOR UPDATE" in statement or " FOR SHARE" in statement:
-            raise PermissionDenied("Platform inspection is read-only.")
-        return execute(sql, params, many, context)
-
-    with connections[using].execute_wrapper(guard):
-        yield
-
-
-def _administrators(using):
-    """Administrators of the current tenant and a version token of that set (the form's CAS)."""
-    from skeleton.access.models import MemberRole
-    from skeleton.access.services import administrator_memberships
-
-    direct = set(
-        MemberRole.objects.using(using)
-        .filter(role__code="organization_admin", role__is_builtin=True, role__deleted_at__isnull=True)
-        .values_list("membership_id", flat=True)
-    )
-    rows = administrator_memberships().using(using).values_list("pk", "user_id", "user__email").order_by("user__email")
-    summaries = tuple(
-        AdministratorSummary(user_id=user_id, email=email, direct=pk in direct) for pk, user_id, email in rows
-    )
-    token = "\n".join(sorted(f"{pk}:{pk in direct}" for pk, _, _ in rows))
-    return summaries, hashlib.sha256(token.encode()).hexdigest()
-
-
-def organization_overview(*, actor, organization, using="default"):
-    """Read-only platform view of one organization; never members' identities or business rows."""
-    from skeleton.accounts.platform import require_platform_admin
-    from skeleton.tenancy.context import system_context
-    from skeleton.tenancy.models import Membership
-
-    require_platform_admin(actor)
-    _require_context_actor(actor)
-    with (
-        system_context(reason="platform:organization-inspect", organization_id=organization.pk, using=using),
-        _read_only(using),
-    ):
-        administrators, version = _administrators(using)
-        return OrganizationOverview(
-            organization_id=organization.pk,
-            active_members=Membership.objects.using(using).filter(is_active=True).count(),
-            administrators=administrators,
-            administrators_version=version,
-            applications=_applications(organization.pk, using),
-        )
-
-
-def _applications(organization_id, using):
-    """Availability and activation of every installed app in the current (inspected) tenant."""
-    from skeleton.system.app_registry import all_apps, required_labels
-    from skeleton.system.availability import availability_map
-    from skeleton.system.models import AppInstallation
-
-    manifests = sorted(all_apps(), key=lambda manifest: manifest.label)
-    labels = [manifest.app_label for manifest in manifests]
-    if not labels:
-        return ()
-    available = availability_map(labels, organization_id=organization_id)
-    enabled = dict(
-        AppInstallation.objects.using(using).filter(app_label__in=labels).values_list("app_label", "enabled")
-    )
-    open_gate = {label: available[label] and enabled.get(label, False) for label in labels}
-    return tuple(
-        ApplicationSummary(
-            app_label=manifest.app_label,
-            label=manifest.label,
-            available=available[manifest.app_label],
-            enabled=enabled.get(manifest.app_label, False),
-            effective=open_gate[manifest.app_label]
-            and all(open_gate.get(label, False) for label in required_labels(manifest.app_label)),
-        )
-        for manifest in manifests
-    )
-
-
-def _require_context_actor(actor):
-    from skeleton.tenancy.context import InvalidContext, current_context
-
-    current = current_context().actor
-    if current is not None and current != actor.pk:
-        raise InvalidContext("The actor must be the request's authenticated identity.")
-
-
-def designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None, using="default"):
-    """A platform administrator designates (and optionally replaces) an organization administrator.
-
-    Runs under ``system_context(reason="organization:designate-admin")`` for that organization
-    only, so the audit events carry the platform actor and that source. ``expected_version`` is
-    the ``administrators_version`` the form displayed; a different set raises ``ConcurrentUpdate``.
-    ``replace`` loses only its direct ``organization_admin`` role; the organization always keeps an
-    active administrator (``LastAdministrator`` otherwise). The platform cannot designate itself:
-    that would turn platform administration into organization access.
-    """
-    from skeleton.access.models import MemberRole, Role
-    from skeleton.access.services import ensure_last_admin, organization_lock, provision_membership
-    from skeleton.accounts.platform import require_platform_admin
-    from skeleton.tenancy.context import system_context
-    from skeleton.tenancy.models import Membership
-
-    require_platform_admin(actor)
-    _require_context_actor(actor)
-    if user.pk == actor.pk:
-        raise PermissionDenied(gettext("A administração da plataforma não se designa numa organização."))
-    if replace is not None and replace.pk == user.pk:
-        raise ValidationError({"replace": gettext("A pessoa substituída precisa ser outra.")}, code="invalid")
-    with (
-        transaction.atomic(using=using),
-        system_context(reason="organization:designate-admin", organization_id=organization.pk, using=using),
-        organization_lock() as locked,
-    ):
-        if expected_version is not None and _administrators(using)[1] != expected_version:
-            raise ConcurrentUpdate("The administrators changed since the form was displayed.")
-        role = Role.objects.using(using).get(code="organization_admin", is_builtin=True)
-        membership = provision_membership(organization=locked, user=user, role=role)
-        if replace is not None:
-            replaced = Membership.objects.using(using).filter(user=replace).first()
-            link = MemberRole.objects.using(using).filter(membership=replaced, role=role).first() if replaced else None
-            if link is None:
-                raise ValidationError(
-                    {"replace": gettext("A pessoa substituída não é administradora direta.")}, code="invalid"
-                )
-            link.delete(using=using)
-        ensure_last_admin()
-        return membership
-
-
-def restore_user(user, *, using="default"):
+    require_platform_actor(actor)
     with transaction.atomic(using=using):
         user.restore(using=using)
         return user
@@ -386,29 +214,6 @@ def set_local_password(user, password, *, using="default"):
         user.auth_version = locked.auth_version
         user.revision = locked.revision
     return user
-
-
-def create_organization(*, owner, slug, name, using="default"):
-    from skeleton.access.capabilities import BUILTIN_ROLES
-    from skeleton.access.models import Role
-    from skeleton.access.services import provision_membership, reconcile_builtin_roles
-    from skeleton.tenancy.context import system_context
-    from skeleton.tenancy.models import Organization
-
-    with transaction.atomic(using=using):
-        with system_context(reason="organization:create", using=using):
-            if not owner.is_active or owner.deleted_at:
-                raise ValidationError(gettext("O responsável pela organização precisa estar ativo."))
-            organization = Organization(name=name, slug=slug)
-            organization.save(using=using)
-        with system_context(reason="organization:bootstrap", organization_id=organization.pk, using=using):
-            roles = {}
-            for code, builtin in BUILTIN_ROLES.items():
-                roles[code] = Role(organization=organization, code=code, name=builtin.name, is_builtin=True)
-                roles[code].save(using=using)
-            provision_membership(organization=organization, user=owner, role=roles["organization_admin"])
-        reconcile_builtin_roles(organization_id=organization.pk, using=using)
-    return organization
 
 
 def bootstrap_identity(*, email, organization, name, password=None, using="default"):
@@ -491,12 +296,13 @@ def create_service_account(*, actor, name):
 def deactivate_service_account(*, actor, user):
     """Deactivate a service account of the current organization; sessions and tokens stop at once.
 
-    Same capability and lock as creation. Revokes the membership's roles, groups and grants,
+    Same capability and lock as creation. Idempotent and deactivation only, so it takes no
+    revision. Revokes the membership's roles, groups and grants,
     deactivates the membership and the identity, and increments ``auth_version``. Another
     organization's account, or a human, is reported as unavailable.
     """
     from skeleton.access.capabilities import INTEGRATIONS_MANAGE
-    from skeleton.access.services import _revoke_membership_links, organization_lock
+    from skeleton.access.services import organization_lock, revoke_membership_links
     from skeleton.accounts.models import AccountType, User
     from skeleton.tenancy.models import Membership
 
@@ -509,7 +315,7 @@ def deactivate_service_account(*, actor, user):
         )
         if locked is None or membership is None:
             raise ValidationError({"user": gettext("Conta de serviço indisponível.")})
-        _revoke_membership_links(membership)
+        revoke_membership_links(membership)
         if membership.is_active:
             from skeleton.events.core_events import membership_changed
 
@@ -521,3 +327,13 @@ def deactivate_service_account(*, actor, user):
             locked.auth_version += 1
             locked.save(update_fields=["is_active", "auth_version"])
         return locked
+
+
+# Moved to their owning packages (#303); importable from here for one minor version.
+from skeleton.access.administration import (  # noqa: E402, F401
+    AdministratorSummary,
+    OrganizationOverview,
+    designate_organization_admin,
+    organization_overview,
+)
+from skeleton.tenancy.services import create_organization, update_organization  # noqa: E402, F401

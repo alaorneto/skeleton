@@ -222,6 +222,28 @@ POSTGRESQL_ENGINE = "django.db.backends.postgresql"
 
 
 @register()
+def infrastructure_identifier_checks(app_configs=None, **kwargs):
+    """skeleton.E033: no infrastructure identifier above PostgreSQL's 63 bytes (#238)."""
+    from skeleton.common.migration_operations import MAX_IDENTIFIER_BYTES, oversized_identifiers
+    from skeleton.common.models import OperationalRecord, SystemRecord
+
+    errors = []
+    for model in kwargs.get("apps_registry", apps).get_models():
+        if model._meta.proxy or not issubclass(model, SystemRecord | OperationalRecord):
+            continue
+        for name, size in oversized_identifiers(model):
+            errors.append(
+                Error(
+                    f"{model._meta.label}: infrastructure identifier {name} has {size} bytes; PostgreSQL "
+                    f"truncates above {MAX_IDENTIFIER_BYTES}.",
+                    hint="Shorten db_table or the db_column of the foreign key. See docs/checks.md.",
+                    id="skeleton.E033",
+                )
+            )
+    return errors
+
+
+@register()
 def postgresql_only_checks(app_configs=None, **kwargs):
     """skeleton.E025: every DATABASES alias is PostgreSQL (#144); data never lives in SQLite.
 

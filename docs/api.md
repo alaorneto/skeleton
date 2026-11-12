@@ -24,7 +24,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
 | `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description; is_builtin read-only |
 | `o/<org>/groups/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description |
-| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade; digest/token/estado não graváveis; sem PATCH |
+| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade (papel interno com capacidade responde 403 `privileged_role`, sem escrita, como nos links de ingresso); digest/token/estado não graváveis; sem PATCH |
 | `o/<org>/member-roles/`, `group-members/`, `group-roles/`, `table-permissions/`, `record-grants/` | GET/POST coleção; GET/DELETE detalhe | `access.manage`; links explícitos; sem nested write/PATCH |
 | `o/<org>/tables/<table_key>/records/` | GET, POST | Gateway allowlist de SecuredRecord exposto |
 | `.../records/<sysid>/` | GET, PATCH, DELETE | Um registro autorizado; ETag/revisão |
@@ -39,7 +39,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
 | `me/tokens/`, `me/tokens/<id>/` | GET, POST; DELETE no detalhe | Tokens pessoais do próprio ator; [gestão de tokens](#gestão-de-tokens) (`skeleton/integrations/urls.py`) |
-| `o/<org>/service-accounts/`, `<id>/`, `<id>/tokens/`, `<id>/tokens/<token_id>/` | GET, POST na coleção; DELETE no detalhe; GET, POST nos tokens; DELETE num token | Contas de serviço e seus tokens; [gestão de tokens](#gestão-de-tokens) |
+| `o/<org>/service-accounts/`, `<id>/`, `<id>/tokens/`, `<id>/tokens/<token_id>/` | GET, POST na coleção; DELETE no detalhe (idempotente; não usa `If-Match`); GET, POST nos tokens; DELETE num token | Contas de serviço e seus tokens; [gestão de tokens](#gestão-de-tokens) |
 | `o/<org>/webhooks/`, `<id>/`, `<id>/rotate/`, `<id>/ping/`, `<id>/deliveries/`, `<id>/deliveries/<delivery_id>/`, `.../resend/` | GET, POST na coleção; GET, PATCH, DELETE no detalhe; POST em `rotate`, `ping` e `resend`; GET nas entregas | Endpoints, segredo, teste e log de entregas; [webhooks](webhooks.md) |
 | `notifications/`, `o/<org>/notifications/actions/` | GET; POST | Caixa de notificações do ator e ações sobre ela; [notificações](notifications.md) (`skeleton/notifications/urls.py`) |
 | `me/notification-preferences/`, `me/notification-preferences/<type_code>/<channel>/` | GET; GET, PUT, DELETE | Preferências por tipo e canal; [notificações](notifications.md#preferências) |

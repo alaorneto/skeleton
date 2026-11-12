@@ -167,3 +167,27 @@ def revoke_platform_role(*, actor: Any, assignment_id: Any, expected_revision: A
         record.delete()
         _bump(record.user_id)
         return record
+
+
+def require_context_actor(actor: Any) -> None:
+    from skeleton.tenancy.context import InvalidContext, current_context
+
+    current = current_context().actor
+    if current is not None and current != actor.pk:
+        raise InvalidContext("The actor must be the request's authenticated identity.")
+
+
+def require_platform_actor(actor: Any) -> None:
+    """Platform lifecycle services act for the authenticated platform administrator (#226).
+
+    ``actor=None`` is accepted only inside ``system_context`` (CLI/infrastructure), never
+    in a plain request context.
+    """
+    from skeleton.tenancy.context import current_context
+
+    if actor is None:
+        if not current_context().system:
+            raise PermissionDenied("Platform administration required.")
+        return
+    require_platform_admin(actor)
+    require_context_actor(actor)

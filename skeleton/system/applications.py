@@ -135,7 +135,7 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
         raise ValidationError({"enabled": gettext("Use true or false.")})
     values = validate_configuration(manifest, configuration)
     # Serialize even the first virtual revision=0 transition and dependency changes.
-    Organization.objects.select_for_update().get(pk=current_context().organization_id)
+    Organization.objects.select_for_update(no_key=True).get(pk=current_context().organization_id)
     record = AppInstallation.objects.filter(app_label=app_label).first()
     expected = record.revision if record else 0
     if type(revision) is not int or revision != expected:

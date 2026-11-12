@@ -44,7 +44,9 @@ def organization_lock(user=None, *, capability=None):
     if context.organization_id is None:
         raise PermissionDenied("Organization required.")
     with transaction.atomic(using=context.using):
-        organization = Organization.all_objects.using(context.using).select_for_update().get(pk=context.organization_id)
+        organization = (
+            Organization.all_objects.using(context.using).select_for_update(no_key=True).get(pk=context.organization_id)
+        )
         if not organization.is_active or organization.deleted_at is not None:
             raise PermissionDenied("Organization unavailable.")
         if user is not None:
@@ -129,7 +131,32 @@ def _create(model, *, user, data, fields, capability=ACCESS_MANAGE):
         return record
 
 
-def _update(record, *, user, data, fields, capability=ACCESS_MANAGE):
+def _require_type(record, allowed):
+    """Each public service manages one kind of record; another kind is a caller bug (#268)."""
+    if not isinstance(record, allowed):
+        raise TypeError(f"{type(record).__name__} is not managed by this service.")
+
+
+def _roles():
+    from .models import Role
+
+    return (Role,)
+
+
+def _groups():
+    from .models import AccessGroup
+
+    return (AccessGroup,)
+
+
+def _links():
+    from .models import GroupMember, GroupRole, MemberRole, RecordGrant, TablePermission
+
+    return (MemberRole, GroupMember, GroupRole, TablePermission, RecordGrant)
+
+
+def _update(record, *, user, data, fields, allowed, capability=ACCESS_MANAGE):
+    _require_type(record, allowed)
     if set(data) - set(fields):
         raise ValidationError(gettext("Campos não permitidos."))
     with organization_lock(user, capability=capability):
@@ -143,7 +170,8 @@ def _update(record, *, user, data, fields, capability=ACCESS_MANAGE):
         return record
 
 
-def _delete(record, *, user, capability=ACCESS_MANAGE):
+def _delete(record, *, user, allowed, capability=ACCESS_MANAGE):
+    _require_type(record, allowed)
     with organization_lock(user, capability=capability):
         _tenant_relation(record)
         if getattr(record, "is_builtin", False):
@@ -204,6 +232,11 @@ def create_membership(*, user, data):
         identity = data["user"]
         if identity.deleted_at is not None or not identity.is_active:
             raise ValidationError(gettext("Identidade indisponível."))
+        if user is not None and identity.is_service_account:
+            # Same rule as update/delete: only integrations.manage touches a service account's membership (#268).
+            from .capabilities import INTEGRATIONS_MANAGE
+
+            require_capability(user, INTEGRATIONS_MANAGE)
         from skeleton.events.core_events import membership_changed
 
         existing = Membership.all_objects.filter(organization=organization, user=identity).first()
@@ -222,7 +255,7 @@ def create_membership(*, user, data):
         return record
 
 
-def _revoke_membership_links(record):
+def revoke_membership_links(record):
     from .models import GroupMember, MemberRole, RecordGrant
 
     for model in (MemberRole, GroupMember, RecordGrant):
@@ -238,7 +271,7 @@ def update_membership(record, *, user, data):
         require_service_account_manager(user, record)
         if data.get("is_active") is False:
             require_unprivileged_target(user, membership=record)
-            _revoke_membership_links(record)
+            revoke_membership_links(record)
         from skeleton.events.core_events import membership_changed
 
         was_active = record.is_active
@@ -255,7 +288,7 @@ def delete_membership(record, *, user):
             raise ValidationError(gettext("Vínculo indisponível."))
         require_service_account_manager(user, record)
         require_unprivileged_target(user, membership=record)
-        _revoke_membership_links(record)
+        revoke_membership_links(record)
         from skeleton.events.core_events import membership_changed
 
         was_active = record.is_active
@@ -281,7 +314,7 @@ def system_deactivate_membership(record):
     with organization_lock():
         if record.deleted_at is not None or not record.is_active:
             return record
-        _revoke_membership_links(record)
+        revoke_membership_links(record)
         record.is_active = False
         record.save(update_fields={"is_active"})
         membership_changed(record, was_active=True)
@@ -312,7 +345,7 @@ def leave_organization(user, *, expected_revision=None):
             raise PermissionDenied(gettext("Vínculo indisponível."))
         if expected_revision is not None and membership.revision != expected_revision:
             raise ConcurrentUpdate("The membership changed.")
-        _revoke_membership_links(membership)
+        revoke_membership_links(membership)
         from skeleton.events.core_events import membership_changed
 
         membership.is_active = False
@@ -332,11 +365,14 @@ def create_role(*, user, data):
 
 
 def update_role(record, *, user, data):
-    return _update(record, user=user, data=data, fields=("code", "name", "description"))
+    _require_type(record, _roles())
+    if not record.is_builtin and data.get("code") in BUILTIN_CODES:
+        raise ValidationError(gettext("Esse código é reservado aos papéis internos."))
+    return _update(record, user=user, data=data, fields=("code", "name", "description"), allowed=_roles())
 
 
 def delete_role(record, *, user):
-    return _delete(record, user=user)
+    return _delete(record, user=user, allowed=_roles())
 
 
 def create_group(*, user, data):
@@ -346,11 +382,11 @@ def create_group(*, user, data):
 
 
 def update_group(record, *, user, data):
-    return _update(record, user=user, data=data, fields=("code", "name", "description"))
+    return _update(record, user=user, data=data, fields=("code", "name", "description"), allowed=_groups())
 
 
 def delete_group(record, *, user):
-    return _delete(record, user=user)
+    return _delete(record, user=user, allowed=_groups())
 
 
 def assign_member_role(*, user, data):
@@ -413,7 +449,7 @@ def create_record_grant(*, user, data):
 
 
 def revoke_link(record, *, user):
-    return _delete(record, user=user)
+    return _delete(record, user=user, allowed=_links())
 
 
 def reconcile_builtin_roles(*, organization_id, using="default"):

@@ -10,6 +10,7 @@ from allauth.socialaccount.forms import SignupForm as SocialSignupForm
 from django import forms
 from django.utils.translation import gettext
 
+from skeleton.accounts.emails import normalize_email
 from skeleton.accounts.services import password_allowed
 from skeleton.tenancy.invitations import pending_invitation
 
@@ -27,7 +28,7 @@ class InvitationSignupForm(SignupForm):
         email = super().clean_email()
         request = context.request
         proof = pending_invitation(request) if request is not None else None
-        if proof is not None and email.strip().lower() != proof.email:
+        if proof is not None and normalize_email(email) != proof.email:
             raise forms.ValidationError(gettext("O email do convite não pode ser alterado."))
         return email
 
@@ -47,7 +48,7 @@ class InvitationSocialSignupForm(SocialSignupForm):
         email = super().clean_email()
         request = context.request
         proof = pending_invitation(request) if request is not None else None
-        if proof is not None and email.strip().lower() != proof.email:
+        if proof is not None and normalize_email(email) != proof.email:
             raise forms.ValidationError(gettext("O email do convite não pode ser alterado."))
         return email
 

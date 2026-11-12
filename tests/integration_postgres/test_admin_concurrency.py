@@ -40,7 +40,7 @@ def test_admin_mutation_after_concurrent_membership_post_conflicts_without_deadl
 
     def request(kind):
         def observe(execute, sql, params, many, context):
-            if "FOR UPDATE" in sql:
+            if "FOR UPDATE" in sql or "FOR NO KEY UPDATE" in sql:
                 if kind == "create" and Organization._meta.db_table in sql and not organization_locked.is_set():
                     result = execute(sql, params, many, context)
                     organization_locked.set()
@@ -123,6 +123,7 @@ def _platform_admins(*users):
             stored = User.objects.get(pk=user.pk)
             stored.is_staff = stored.is_superuser = True
             stored.save(update_fields=["is_staff", "is_superuser"])
+            user.is_staff = user.is_superuser = True  # The caller's object acts as the platform actor.
         return set(User.objects.filter(is_active=True, is_staff=True, is_superuser=True).values_list("pk", flat=True))
 
 
@@ -159,7 +160,7 @@ def test_concurrent_platform_demotions_keep_one_admin(skeleton_db):
             with connection.execute_wrapper(observe):
                 with request_context(actor=user, request_id=uuid4(), source="test:concurrent-platform-demotion"):
                     revision = User.objects.get(pk=user.pk).revision
-                    update_platform_user(user, data={"is_staff": False}, expected_revision=revision)
+                    update_platform_user(user, actor=user, data={"is_staff": False}, expected_revision=revision)
             return "demoted"
         except LastPlatformAdministrator:
             return "last_platform_administrator"
@@ -214,7 +215,7 @@ def test_concurrent_departures_of_two_administrators_keep_one_without_deadlock(s
 
     def leave(user, leader):
         def observe(execute, sql, params, many, context):
-            if "FOR UPDATE" in sql and Organization._meta.db_table in sql:
+            if "FOR NO KEY UPDATE" in sql and Organization._meta.db_table in sql:
                 if leader and not leader_locked.is_set():
                     result = execute(sql, params, many, context)
                     leader_locked.set()
@@ -261,7 +262,7 @@ def test_departure_and_admin_removal_of_the_same_member_serialize(skeleton_db):
 
     def run(kind):
         def observe(execute, sql, params, many, context):
-            if "FOR UPDATE" in sql and Organization._meta.db_table in sql:
+            if "FOR NO KEY UPDATE" in sql and Organization._meta.db_table in sql:
                 if kind == "leave" and not locked.is_set():
                     result = execute(sql, params, many, context)
                     locked.set()
@@ -359,7 +360,7 @@ def test_platform_designation_and_admin_removal_serialize_without_deadlock(skele
 
     def run(kind):
         def observe(execute, sql, params, many, context):
-            if "FOR UPDATE" in sql and Organization._meta.db_table in sql:
+            if "FOR NO KEY UPDATE" in sql and Organization._meta.db_table in sql:
                 if kind == "designate" and not designation_locked.is_set():
                     result = execute(sql, params, many, context)
                     designation_locked.set()

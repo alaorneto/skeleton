@@ -113,6 +113,7 @@ plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 # importados em silêncio até ganharem anotações próprias.
 files = [
     "skeleton/tenancy/context.py",
+    "skeleton/common/context.py",
     "skeleton/access/policies.py",
     "skeleton/common/models.py",
     "skeleton/system/dependencies.py",
@@ -141,6 +142,7 @@ check_untyped_defs = true
 [[tool.mypy.overrides]]
 module = [
     "skeleton.tenancy.context",
+    "skeleton.common.context",
     "skeleton.access.policies",
     "skeleton.common.models",
     "skeleton.system.dependencies",
