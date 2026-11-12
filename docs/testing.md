@@ -314,6 +314,12 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - A varredura de texto pós-merge envolveu os rótulos que restavam: "Gestor de apps", "Apps organizacionais", "Disponibilidade de apps", "Assinaturas de push" e "Observabilidade".
 - Não verificado: a renderização num cliente de email real.
 
+**Epic #85 depois do merge da `main` (`da0eb3a`):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`, com 16 bancos de worker de `tools/dev_postgres.py start --workers 16`: 1471 passed, 111 skipped. Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed.
+- A primeira rodada pós-merge teve 1 falha: a sonda de teste de `test_locale_preferences.py` em `/api/v1/` caiu na verificação de contrato OpenAPI do #179. O teste recebeu `@pytest.mark.no_api_contract`, porque a rota só existe no teste.
+- O texto que veio da `main` é documentação OpenAPI e fica fora do gettext, por regra registrada em `docs/extending.md`.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

@@ -416,6 +416,7 @@ O núcleo entrega só pt-BR, e as msgids do gettext são o próprio texto em por
 - **Python:** dentro de funções, use `gettext("…")`; em constantes de módulo ou de classe (rótulos de campo, `TextChoices`, `TableSpec`, tipos de notificação, `verbose_name`), use `gettext_lazy("…")`. Isso inclui os registros feitos em `ready()`, que rodam na inicialização. Com variáveis, use `gettext("Use %(campo)s.") % {"campo": valor}`, nunca uma f-string dentro do gettext.
 - **Templates:** use `{% load i18n %}` e `{% translate "…" %}`; nos argumentos de tags, `_("…")`.
 - **O que fica fora do gettext:**
+  - a documentação da API: resumos e descrições do schema OpenAPI (`openapi = {...}`, `Operation(...)`), que é contrato para integradores e não muda conforme o idioma de quem pede;
   - texto que o código compara literalmente, como cabeçalhos de documentação (`## Serviços`) e seções de docstring da API de serviços (`Autorização:`);
   - códigos de erro (`code`) e chaves de JSON;
   - logs e eventos de segurança;

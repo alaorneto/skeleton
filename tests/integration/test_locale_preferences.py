@@ -77,6 +77,8 @@ def seen(client, organization=None, *, api=False):
     return response.json()["language"], response.json()["timezone"], response["Content-Language"]
 
 
+# The probe under /api/v1/ is a test-only route, outside the published OpenAPI contract.
+@pytest.mark.no_api_contract
 @override_settings(ROOT_URLCONF=__name__, LANGUAGES=TWO_LANGUAGES, SKELETON_DEFAULT_TIMEZONE="UTC")
 def test_blank_profile_follows_the_organization_then_the_instance(scenario):
     set_profile(scenario.member)
