@@ -201,6 +201,25 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - `npm run check`, Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
 - Não verificado: o smoke visual no navegador, porque a renderização da marca foi provada pelo HTML nos testes de integração.
 
+## Exportação CSV (#182, epic #92)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_transfer_csv.py` e `tests/integration/test_transfer_export.py`: 19 passed, 17 subtests. Cobrem:
+  - BOM, `;`, CRLF, acentos e aspas; formatos de data, decimal, booleano e JSON; neutralização de `=`, `+`, `-`, `@`, tab e CR em texto, sem tocar números;
+  - pedido pela REST e pela lista, job, notificação `transfer.finished`, download com `attachment`, `nosniff` e `no-store`;
+  - só `read_fields` não sensíveis (o corpo sensível não sai) e só registros autorizados: privado do administrador e registro de B fora do arquivo;
+  - filtros da lista aplicados; filtro sensível, de paginação ou desconhecido recusado com 400;
+  - administrador da organização e outra organização recebem 404 no download e na leitura do pedido;
+  - revogação da TablePermission depois do pedido impede o download; antes do job, o pedido falha `unauthorized` sem arquivo;
+  - acima de `SKELETON_EXPORT_MAX_ROWS`, falha `too_many_rows` sem objeto no armazenamento;
+  - a retenção apaga linha e bytes vencidos e mantém os vigentes;
+  - default deny (403 na REST, `Forbidden` no serviço), idempotência e chave reaproveitada recusada, ator divergente e `assert_service_contract`.
+- `python -m pytest tests -q -n 8 -k "openapi or catalog or schema or notification or job or record_contract or service_api or boundary"`: 379 passed, 9 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`: 1634 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: abrir o CSV no Excel ou no LibreOffice. A codificação (BOM UTF-8), o separador e a neutralização foram provados pelos bytes do arquivo nos testes.
+
 ## Observabilidade (epic #87)
 
 Rodada de 2026-11-11 na branch `feat/87-observability`, um commit por issue. Somente o que rodou.
