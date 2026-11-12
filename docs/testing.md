@@ -132,6 +132,22 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 - `dnspython` 2.9.2 nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package dnspython`.
 - Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
 
+**#29, provedores de identidade no banco:**
+
+- `python -m pytest tests/accounts tests/integration_postgres/test_admission_schema.py tests/integration/test_platform_boundary.py tests/integration/test_join_requests.py tests/integration/test_join_links.py tests/integration/test_verified_domains.py -q`: 185 passed. Os 10 testes de `tests/accounts/test_identity_providers_db.py` cobrem:
+  - fingerprint do banco igual ao do carregador do JSON (OIDC e SAML);
+  - allowlist de `settings` por protocolo (escopo, prova de email, chave privada, `advanced`, entity ID, HTTP e SAML sem certificado recusados);
+  - provedor criado no banco resolvido pelo adapter na requisição seguinte, com segredo decifrado; `enabled=false` some do `list_apps` e o provider recusa o login;
+  - identidade imutável no modelo, no serviço e no guard da tabela (UPDATE direto recusado); quem não é da plataforma recebe `PermissionDenied`;
+  - segredo cifrado na coluna, fora do `repr` e redigido na auditoria;
+  - importação do JSON com `--dry-run` sem escrita, fingerprints iguais, segredo e regra JIT importados, avisos de transição enquanto a entrada continua no arquivo e o `SocialAccount` existente reconhecido depois que ela sai;
+  - troca do certificado SAML do IdP mantém o fingerprint e os subjects;
+  - JIT desligado sem `IdentityProviderAdmission`; papel padrão vindo da linha da organização;
+  - email existente sem auto-connect e flags de staff/superuser zeradas para identidade nova;
+  - validação recusa provider_id do arquivo com outra identidade e segredo que a chave atual não decifra.
+- A primeira versão fazia `configured_providers()` consultar o banco sempre; um teste unitário sem banco em `test_social_hardening.py` falhou e a mescla passou a ser preguiçosa (arquivo primeiro).
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas. SSO real com Keycloak (`tests/sso/`) não rodou: não há Docker neste ambiente.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

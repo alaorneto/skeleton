@@ -6,6 +6,7 @@ import os
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -43,6 +44,20 @@ class ProviderBinding:
     trust_verified_email: bool
     fingerprint: str
     app: dict
+    # "file" (the private JSON) or "db" (IdentityProvider, #29); ``sysid`` is the row of a db binding.
+    source: str = "file"
+    sysid: Any = None
+
+
+@dataclass(frozen=True)
+class ProviderAdmission:
+    """What a binding allows its organization: JIT, approval, role and email domains (#29, #31)."""
+
+    jit_provisioning: bool
+    jit_requires_approval: bool = False
+    default_role_code: str = "member"
+    default_role_id: Any = None
+    allowed_email_domains: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -260,11 +275,68 @@ def load_provider_config(path=None, *, debug=False):
     return ProviderConfiguration(providers, tuple(bindings))
 
 
-def configured_providers():
+def configured_file_providers():
+    """The providers of the private JSON file, materialized at startup."""
     configuration = getattr(settings, "SKELETON_PROVIDER_CONFIGURATION", None)
     if configuration is None:
         raise ImproperlyConfigured("SSO provider configuration must be materialized at startup.")
     return configuration
+
+
+class MergedProviders:
+    """File providers first, then enabled database providers (#29), read once per request.
+
+    A ``provider_id`` found in the file is answered without touching the database. The same id
+    in both sources is a transition: the file entry stays in effect until it is removed from the
+    file, and ``validate_provider_bindings`` warns (same fingerprint) or fails (different one).
+    """
+
+    def __init__(self, base):
+        self.base = base
+        self.settings = base.settings
+
+    def get(self, provider_id):
+        binding = self.base.get(provider_id)
+        if binding is not None:
+            return binding
+        from .identity_providers import database_bindings
+
+        return next((item for item in database_bindings() if item.provider_id == provider_id), None)
+
+    @property
+    def bindings(self):
+        from .identity_providers import database_bindings
+
+        known = {binding.provider_id for binding in self.base.bindings}
+        return (*self.base.bindings, *(item for item in database_bindings() if item.provider_id not in known))
+
+
+def configured_providers():
+    return MergedProviders(configured_file_providers())
+
+
+def admission_for(binding):
+    """The admission rules of ``binding``; database bindings read their organization's row."""
+    if binding.source != "db":
+        return ProviderAdmission(
+            jit_provisioning=bool(binding.jit_provisioning), default_role_code=binding.default_role_code or "member"
+        )
+    from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.models import IdentityProviderAdmission, Organization
+
+    organization = Organization.objects.filter(slug=binding.organization_slug, is_active=True).first()
+    if organization is None:
+        return ProviderAdmission(jit_provisioning=False)
+    with system_context(reason="sso:validated", organization_id=organization.pk):
+        row = IdentityProviderAdmission.objects.filter(provider_id=binding.sysid).first()
+    if row is None:
+        return ProviderAdmission(jit_provisioning=False)  # No row: JIT stays off (#29).
+    return ProviderAdmission(
+        jit_provisioning=row.jit_provisioning,
+        jit_requires_approval=row.jit_requires_approval,
+        default_role_id=row.default_role_id,
+        allowed_email_domains=tuple(row.allowed_email_domains or ()),
+    )
 
 
 def binding_for_sociallogin(sociallogin):
@@ -277,14 +349,55 @@ def binding_for_sociallogin(sociallogin):
 
 
 def validate_provider_bindings(*, using="default"):
+    """Check every binding (file and database); return transition warnings, raise on errors.
+
+    Database rows are checked against their recomputed fingerprint, active organization,
+    decryptable secrets and admission role; a ``provider_id`` in both sources with another
+    identity is an error, with the same identity a transition warning (#29).
+    """
     from allauth.socialaccount.models import SocialAccount
 
     from skeleton.access.models import Role
     from skeleton.tenancy.context import system_context
-    from skeleton.tenancy.models import Organization
+    from skeleton.tenancy.models import IdentityProviderAdmission, Organization
 
+    from .identity_providers import binding_fingerprint
+    from .models import IdentityProvider
+
+    warnings = []
+    file_bindings = {binding.provider_id: binding for binding in configured_file_providers().bindings}
+    for row in IdentityProvider.objects.using(using).select_related("bound_organization").order_by("provider_id"):
+        identity = {"oidc": row.issuer, "saml": row.entity_id, "ldap": row.directory}[row.protocol]
+        expected = binding_fingerprint(
+            row.protocol, identity, row.client_id, row.bound_organization.slug, row.sp_entity_id
+        )
+        if row.fingerprint != expected:
+            raise ImproperlyConfigured(f"Provider {row.provider_id}: stored fingerprint does not match its identity.")
+        file_binding = file_bindings.get(row.provider_id)
+        if file_binding is not None:
+            if file_binding.fingerprint != row.fingerprint:
+                raise ImproperlyConfigured(
+                    f"Provider {row.provider_id}: the file and the database disagree on identity."
+                )
+            warnings.append(
+                f"Provider {row.provider_id}: also in the file, which stays in effect; remove it from the file."
+            )
+        if not row.enabled:
+            continue
+        for secret in ("secret", "private_key"):
+            value = getattr(row, secret)
+            if value is not None:
+                value.reveal()  # ImproperlyConfigured when no key decrypts it.
+        organization = row.bound_organization
+        if not organization.is_active or organization.deleted_at is not None:
+            raise ImproperlyConfigured(f"Provider {row.provider_id}: active organization does not exist.")
+        with system_context(reason="sso:validated", organization_id=organization.pk, using=using):
+            admission = IdentityProviderAdmission.objects.using(using).filter(provider_id=row.pk).first()
+            if admission is not None and admission.default_role_id is not None:
+                if not Role.objects.using(using).filter(pk=admission.default_role_id).exists():
+                    raise ImproperlyConfigured(f"Provider {row.provider_id}: active default role does not exist.")
     for binding in configured_providers().bindings:
-        if binding.organization_slug:
+        if binding.organization_slug and binding.source == "file":
             organization = (
                 Organization.objects.using(using).filter(slug=binding.organization_slug, is_active=True).first()
             )
@@ -300,3 +413,4 @@ def validate_provider_bindings(*, using="default"):
                 raise ImproperlyConfigured(
                     f"Provider {binding.provider_id}: issuer/entity or organization binding changed."
                 )
+    return warnings
