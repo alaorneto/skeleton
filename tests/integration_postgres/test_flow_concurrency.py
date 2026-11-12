@@ -17,7 +17,6 @@ from skeleton.flows import registry as flows
 from skeleton.flows import services, tasks
 from skeleton.flows.errors import FlowConflict
 from skeleton.flows.models import FlowInstance, FlowStepRun, FlowTask
-from skeleton.flows.services import NotVisible
 from skeleton.tenancy.context import system_context
 from tools.integration_database import disposable_database_pair
 from tools.security_fixtures import actor_tenant, build_security_fixture
@@ -163,10 +162,9 @@ def test_two_people_on_the_same_queue_task_have_one_winner(world):
     results = together([decide(world.alice, "approved"), decide(world.bob, "rejected")])
     winners = [item for item in results if not isinstance(item, Exception)]
     losers = [item for item in results if isinstance(item, Exception)]
-    # The loser read the same revision. Once the winner closed the task it left the loser's queue,
-    # so the loser gets "not found" (or a stale revision if it still took part): never a second write.
+    # The loser read the same revision: a conflict, never "not found" and never a second write.
     assert len(winners) == 1 and len(losers) == 1, results
-    assert isinstance(losers[0], ConcurrentUpdate | NotVisible), results
+    assert isinstance(losers[0], ConcurrentUpdate), results
     with actor_tenant(world.admin, world.a):
         stored = FlowTask.objects.get(pk=task.pk)
         instance = FlowInstance.objects.get(pk=instance_id)

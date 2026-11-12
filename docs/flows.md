@@ -259,7 +259,7 @@ Seis tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisã
 
 - **Um bloqueio por instância.** Todo comando que muda uma instância bloqueia primeiro a linha dela (`SELECT ... FOR UPDATE`) e só depois lê ativações e tarefas. Dois ramos paralelos concluídos ao mesmo tempo são processados um depois do outro: a junção dispara exatamente uma vez. A ordem de bloqueio é sempre instância → tarefa.
 - **CAS.** Ações de tarefa recebem a revisão da tarefa; `cancel`, `suspend`, `resume` e `retry`, a da instância. A revisão é comparada depois do bloqueio. Revisão antiga é `Conflict("stale_revision")`; o serviço não tenta de novo.
-- **Um vencedor.** Dois atores que agem na mesma tarefa leram a mesma revisão: o primeiro vence, e o segundo recebe o conflito de revisão. Numa tarefa de **fila**, a tarefa encerrada sai da fila do segundo, que então recebe "não encontrado", pela regra de visibilidade. Em nenhum caso há segunda escrita.
+- **Um vencedor.** Dois atores que agem na mesma tarefa leram a mesma revisão: o primeiro vence, e o segundo recebe `Conflict("stale_revision")` (409). Isso vale também numa tarefa de **fila**: quem continua na fila segue lendo a tarefa depois que outra pessoa a encerrou (a entrada `task_created` do histórico guarda a fila de origem, já que a tarefa encerrada solta o grupo ou papel), e uma nova tentativa com a revisão atual recebe `Conflict("task_closed")`. Em nenhum caso há segunda escrita.
 - **Inícios simultâneos.** `start` bloqueia a linha do registro de negócio: dois inícios do mesmo fluxo e registro criam uma instância, e o outro recebe `Conflict("already_running")`.
 - **Idempotência.** `start` aceita `idempotency_key`: a repetição devolve a mesma instância (`created=False`). Os jobs do subsistema usam chaves de idempotência e conferem o estado antes de agir, então uma execução repetida não avança duas vezes.
 
@@ -271,7 +271,7 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 |---|---|
 | Iniciar (`start`), enviar sinal (`signal`) | O código da **app dona** do fluxo, para um ator com a ação `start_action` (padrão `update`) sobre o registro de negócio; em `system_context`, sem ator (jobs e consumidores de eventos da app) |
 | Ler a instância e o histórico | Quem lê o registro de negócio (`authorized_queryset`), quem iniciou, quem tem ou teve tarefa na instância, quem é candidato a uma tarefa aberta, e o administrador da organização |
-| Ler e agir numa tarefa | O responsável; para tarefa de fila, quem é do grupo ou tem o papel candidato **no momento da chamada** |
+| Ler e agir numa tarefa | O responsável; para tarefa de fila, quem é do grupo ou tem o papel candidato **no momento da chamada**. Depois de encerrada, quem continua na fila segue lendo a tarefa, sem poder agir |
 | Reatribuir | O responsável (etapa `delegable`) ou o administrador da organização |
 | Cancelar | O administrador da organização, ou quem iniciou quando o fluxo permite (`starter_can_cancel`) |
 | Suspender, retomar, repetir | O administrador da organização |
@@ -280,7 +280,7 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 - **Inexistente e não autorizado respondem igual** (`NotFound`), inclusive para outra organização.
 - **Revogação imediata.** Quem perde o papel ou sai do grupo deixa de ver a fila na chamada seguinte; não há cache.
 - **Ator explícito.** Todo método recebe `actor`, conferido contra o contexto.
-- **Ordem das verificações.** Visível (senão `NotFound`), autorizado a agir (senão `Forbidden`), revisão (`Conflict("stale_revision")`), estado da instância e da tarefa.
+- **Ordem das verificações.** Visível (senão `NotFound`), autorizado a agir (senão `Forbidden`), revisão (`Conflict("stale_revision")`), estado da tarefa (`task_closed`) e da instância (`instance_suspended`, `instance_closed`).
 - O motor nunca abre `system_context` para ampliar o que o ator pode; os jobs do subsistema rodam como sistema porque não agem em nome de ninguém.
 
 **Decisão: autorização derivada, sem `TablePermission` própria.** *Contexto:* as tabelas de fluxos não são `SecuredRecord` expostos, então não recebem `TablePermission`. *Decisão:* a leitura de uma instância deriva do registro de negócio e da participação; a ação numa tarefa deriva da atribuição. *Consequência:* um aprovador que não lê o registro de negócio ainda vê a instância e os dados dos formulários dela, porque precisa deles para decidir; ele não ganha acesso ao registro em si.
@@ -334,7 +334,9 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 | Comentários livres na instância | Serão os comentários de registros (#187) |
 | Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |
 
-## Decisões que pedem confirmação do responsável
+## Decisões confirmadas pelo responsável
+
+Confirmadas em 2026-11-12, como recomendado no desenho:
 
 1. **Nome** `skeleton/flows` / `sk_flows` / "fluxos", em vez de "workflow". Renomear depois de existir migration custa uma migração de dados.
 2. **Fluxos só em código** na primeira entrega (sem editor nem definição em dados).
@@ -343,4 +345,5 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 5. **Quem administra fluxos é o administrador da organização**; não há capacidade delegável ainda.
 6. **Um aprovador vê os dados de formulário da instância mesmo sem ler o registro de negócio.**
 7. **Nada é apagado**: sem retenção na primeira entrega.
-8. **A versão do core não muda neste epic**; os métodos novos declaram `since="0.6.0"`.
+8. **A versão do core não muda neste epic**; os métodos novos declaram `since="0.6.0"`, e o piso de core do Notes sobe quando essa versão for cortada.
+9. **Quem perde a corrida numa tarefa de fila recebe conflito (409), não "não encontrado"**: a tarefa encerrada continua legível para quem está na fila.

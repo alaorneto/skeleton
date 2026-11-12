@@ -144,13 +144,14 @@ def _ready(execution: Execution, task: FlowTask, actor: Any, expected_revision: 
         raise ValidationError({"expected_revision": "Use a revisão inteira atual."})
     if task.revision != expected_revision:
         raise ConcurrentUpdate("The task changed.")
+    if task.status != "open":
+        # First: it is the precise reason for whoever lost the race on a queue task.
+        raise FlowConflict("task_closed", "Esta tarefa já foi encerrada, possivelmente por outra pessoa.")
     status = execution.instance.status
     if status == "suspended":
         raise FlowConflict("instance_suspended", "A instância está suspensa.")
     if status != "running":
         raise FlowConflict("instance_closed", "A instância não está em andamento.")
-    if task.status != "open":
-        raise FlowConflict("task_closed", "A tarefa já foi encerrada.")
 
 
 def claim_task(task_id: Any, *, actor: Any, expected_revision: int) -> FlowTask:

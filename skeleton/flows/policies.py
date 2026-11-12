@@ -14,7 +14,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Q, QuerySet
 
 from .errors import FlowUnavailable
-from .models import FlowDefinition, FlowInstance, FlowTask
+from .models import FlowActivity, FlowDefinition, FlowInstance, FlowTask
 
 
 def require_flow_app(app_label: str) -> None:
@@ -68,6 +68,26 @@ def queue_filter(user: Any) -> Q:
     )
 
 
+def former_queue_filter(user: Any) -> Q:
+    """Closed tasks of a queue the person belongs to now.
+
+    Closing a task drops its queue (so a group or role can be removed later), but the
+    ``task_created`` entry of the history keeps where the task was opened. Whoever is still
+    in that queue keeps reading the task once someone else finished it, and a late action of
+    theirs is a conflict instead of "not found".
+    """
+    from skeleton.access.policies import effective_roles, group_ids
+
+    groups = [str(item) for item in group_ids(user)]
+    roles = [str(item) for item in effective_roles(user).values_list("pk", flat=True)]
+    if not groups and not roles:
+        return Q(pk__in=[])
+    opened = FlowActivity.objects.filter(kind="task_created", task__isnull=False).filter(
+        Q(detail__group__in=groups) | Q(detail__role__in=roles)
+    )
+    return ~Q(status="open") & Q(pk__in=opened.values("task_id"))
+
+
 def participation_filter(user: Any) -> Q:
     """Tasks that make the person part of an instance: assigned, done, delegated or in their queue."""
     return Q(assignee=user) | Q(completed_by=user) | Q(delegated_from=user) | queue_filter(user)
@@ -110,10 +130,10 @@ def actionable_tasks(user: Any) -> QuerySet[FlowTask]:
 
 
 def visible_tasks(user: Any) -> QuerySet[FlowTask]:
-    """Tasks the person may read: the actionable ones, their past ones and, for the administrator, all."""
+    """Tasks the person may read: actionable, past, closed in their queue and, for the administrator, all."""
     if not has_membership(user):
         return FlowTask.objects.none()
     rows = FlowTask.objects.filter(instance__definition__app_label__in=enabled_flow_apps())
     if is_flow_admin(user):
         return rows
-    return rows.filter(participation_filter(user))
+    return rows.filter(participation_filter(user) | former_queue_filter(user))

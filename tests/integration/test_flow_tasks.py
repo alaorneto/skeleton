@@ -255,6 +255,42 @@ def test_queue_task_is_claimed_released_and_decided_only_by_its_candidates(world
     assert "task_claimed" in kinds(world, instance_id) and "task_released" in kinds(world, instance_id)
 
 
+def test_the_loser_of_a_queue_race_gets_a_conflict_not_a_missing_task(world):
+    with system_context(reason="test:flow-queue-race", organization_id=world.a.pk):
+        MemberRole(organization=world.a, membership=world.alice_membership, role=world.reviewer).save()
+    instance_id = start(world, "queue")
+    fill(world, instance_id)
+    [task] = open_tasks(world, instance_id, "review")
+    assert task.candidate_role_id == world.reviewer.pk
+    act(world, world.bob, tasks.decide_task, task, decision="approved")
+    with pytest.raises(ConcurrentUpdate):  # Alice read the same revision as Bob.
+        act(world, world.alice, tasks.decide_task, task, decision="rejected")
+    with actor_tenant(world.admin, world.a):
+        closed = FlowTask.objects.get(pk=task.pk)
+        assert (closed.status, closed.candidate_role_id) == ("completed", None)  # The queue was dropped.
+    with pytest.raises(FlowConflict) as late:  # With the current revision: already closed.
+        act(world, world.alice, tasks.decide_task, closed, decision="rejected")
+    assert late.value.code == "task_closed"
+    with actor_tenant(world.alice, world.a):
+        assert policies.visible_tasks(world.alice).filter(pk=task.pk).exists()  # Still readable to the queue.
+        assert not policies.actionable_tasks(world.alice).filter(pk=task.pk).exists()
+    with actor_tenant(world.admin, world.a):
+        assert FlowTask.objects.get(pk=task.pk).decision == "approved"
+    # Out of the queue, the closed task is as good as missing again.
+    with system_context(reason="test:flow-queue-race", organization_id=world.a.pk):
+        MemberRole.objects.get(role=world.reviewer, membership=world.alice_membership).delete()
+    with pytest.raises(NotVisible):
+        act(world, world.alice, tasks.decide_task, closed, decision="rejected")
+    with actor_tenant(world.alice, world.a):
+        assert not policies.visible_tasks(world.alice).filter(pk=task.pk).exists()
+    # The role can be removed: closed tasks no longer hold it.
+    with system_context(reason="test:flow-queue-race", organization_id=world.a.pk):
+        MemberRole.objects.get(role=world.reviewer, membership=world.bob_membership).delete()
+        reviewer = Role.objects.get(pk=world.reviewer.pk)
+        reviewer.delete()
+        assert not Role.objects.filter(pk=world.reviewer.pk).exists()
+
+
 def test_two_people_deciding_the_same_task_have_one_winner(world):
     instance_id = start(world, "all")
     fill(world, instance_id)
