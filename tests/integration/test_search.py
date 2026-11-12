@@ -1,13 +1,12 @@
 """Text search on declared fields (#180) and in the reference picker (#181)."""
 
-from dataclasses import replace
-
 import pytest
 from django.core.exceptions import ValidationError
 from django.test import Client
 from django.urls import reverse
 
 from skeleton.system import registry
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, build_service_scenario
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
@@ -59,14 +58,14 @@ def test_search_never_crosses_the_authorization_or_the_organization(scenario):
 def test_short_terms_and_tables_without_search_are_refused(scenario, monkeypatch):
     with pytest.raises(ValidationError):
         search(scenario.member, scenario.a, "a")
-    monkeypatch.setitem(registry._registry, KEY, replace(registry._registry[KEY], search_fields=()))
-    with pytest.raises(ValidationError):
-        search(scenario.member, scenario.a, "contrato")
+    with table_spec_override(KEY, search_fields=()):
+        with pytest.raises(ValidationError):
+            search(scenario.member, scenario.a, "contrato")
 
 
 def test_search_fields_must_be_readable_non_sensitive_text(monkeypatch):
 
     from skeleton.system.checks import record_contract_checks
 
-    monkeypatch.setitem(registry._registry, KEY, replace(registry._registry[KEY], search_fields=("body",)))
-    assert any(error.id == "skeleton.E031" for error in record_contract_checks(None))
+    with table_spec_override(KEY, search_fields=("body",)):
+        assert any(error.id == "skeleton.E031" for error in record_contract_checks(None))

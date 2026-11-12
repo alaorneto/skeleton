@@ -9,12 +9,12 @@ from django.core.exceptions import ValidationError
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.jobs.models import Job
-from skeleton.notifications import registry
 from skeleton.notifications.models import Notification, NotificationRecipient
 from skeleton.notifications.registry import NotificationType, notification_problems, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import own_rows, request_context, system_context, tenant_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Notify-Password!93"
@@ -23,18 +23,18 @@ PASSWORD = "Notify-Password!93"
 @pytest.fixture(autouse=True)
 def types(monkeypatch):
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.shared",
-            "Nota compartilhada",
-            payload_fields=("message",),
-            snapshot_fields=("title", "code"),
-            target_table_key="example_notes.note",
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.shared",
+                "Nota compartilhada",
+                payload_fields=("message",),
+                snapshot_fields=("title", "code"),
+                target_table_key="example_notes.note",
+            )
         )
-    )
-    register_notification_type(NotificationType("system.hello", "Olá", payload_fields=("message",)))
+        register_notification_type(NotificationType("system.hello", "Olá", payload_fields=("message",)))
+        yield
 
 
 @pytest.fixture

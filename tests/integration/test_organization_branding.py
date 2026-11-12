@@ -12,6 +12,7 @@ from skeleton.service_api.errors import InvalidInput
 from skeleton.service_api.organizations import OrganizationService
 from skeleton.tenancy.context import system_context
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, build_service_scenario
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 200
@@ -28,14 +29,7 @@ def scenario():
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def urls(organization):

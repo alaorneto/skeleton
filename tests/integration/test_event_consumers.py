@@ -6,7 +6,6 @@ import pytest
 from django.utils import timezone
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.events import registry
 from skeleton.events.consumers import consume
 from skeleton.events.core_events import CORE_EVENT_TYPES
 from skeleton.events.models import DomainEvent
@@ -17,6 +16,7 @@ from skeleton.jobs.models import Job
 from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.events import capture_events
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_event_types
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Event-consumers-Password!81"
@@ -40,13 +40,12 @@ def declarations(monkeypatch):
     seen["stable"].clear()
     seen["flaky"].clear()
     seen["envelopes"].clear()
-    monkeypatch.setattr(registry, "_types", dict(registry._types))  # Keeps the core lifecycle types (#43).
-    monkeypatch.setattr(registry, "_consumers", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_event_type(EventType("notes.note_created", "example_notes.note", ("code",)))
-    register_consumer("notes.note_created", "test.stable", stable)
-    # The wildcard narrowed to the test types: the fixture's membership events (#43) stay out.
-    register_consumer("*", "test.flaky", flaky, accepts=lambda event_type: event_type.code.startswith("notes."))
+    with isolated_event_types():
+        register_event_type(EventType("notes.note_created", "example_notes.note", ("code",)))
+        register_consumer("notes.note_created", "test.stable", stable)
+        # The wildcard narrowed to the test types: the fixture's membership events (#43) stay out.
+        register_consumer("*", "test.flaky", flaky, accepts=lambda event_type: event_type.code.startswith("notes."))
+        yield
 
 
 @pytest.fixture

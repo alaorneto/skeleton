@@ -7,11 +7,12 @@ import pytest
 from django.db import connections
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.jobs import periodic, registry
+from skeleton.jobs import periodic
 from skeleton.jobs.models import Job
 from skeleton.jobs.periodic import periodic_problems, register_periodic, schedule_due
 from skeleton.jobs.registry import JobType, register_job_type
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Jobs-periodic-Password!36"
@@ -24,11 +25,10 @@ def noop(**kwargs):
 
 @pytest.fixture(autouse=True)
 def declarations(monkeypatch):
-    monkeypatch.setattr(registry, "_registry", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    monkeypatch.setattr(periodic, "_periodic", {})
-    register_job_type(JobType("test.tick", noop, {}))
-    register_job_type(JobType("test.global_tick", noop, {}, scope="global"))
+    with isolated_job_types():
+        register_job_type(JobType("test.tick", noop, {}))
+        register_job_type(JobType("test.global_tick", noop, {}, scope="global"))
+        yield
 
 
 @pytest.fixture

@@ -4,12 +4,12 @@ from uuid import uuid4
 
 import pytest
 from django.db import connection, transaction
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.accounts.platform import grant_platform_role, platform_capabilities, revoke_platform_role
 from skeleton.accounts.services import bootstrap_identity, create_identity
 from skeleton.tenancy.context import platform_audit_scope, request_context, system_context
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Platform-roles-Password!34"
@@ -25,9 +25,7 @@ def person(email):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 @pytest.fixture

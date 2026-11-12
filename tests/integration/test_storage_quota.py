@@ -3,19 +3,17 @@
 Runs on PostgreSQL with the runtime role.
 """
 
-from dataclasses import replace
-
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.files.models import StorageQuota, StorageUsage
 from skeleton.files.quota import recount, usage_for
-from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 92  # 100 bytes
@@ -27,24 +25,13 @@ def scenario(monkeypatch, settings):
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(registry._registry[key], attachments=AttachmentPolicy(max_bytes=1000, types=("image/png",))),
-    )
-    settings.SKELETON_FILES_ORG_QUOTA_BYTES = 250
-    return build_service_scenario(Note, slug="quota")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=1000, types=("image/png",))):
+        settings.SKELETON_FILES_ORG_QUOTA_BYTES = 250
+        yield build_service_scenario(Note, slug="quota")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def url(organization, note):

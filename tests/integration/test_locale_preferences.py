@@ -10,6 +10,7 @@ from skeleton.service_api.identity import IdentityService
 from skeleton.service_api.organizations import OrganizationService
 from skeleton.tenancy.context import system_context
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 TWO_LANGUAGES = [("pt-br", "Português"), ("en", "English")]
@@ -36,9 +37,7 @@ def scenario():
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def set_profile(user, *, language="", zone=""):

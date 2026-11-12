@@ -1,18 +1,18 @@
 """Attachments authorized by their target record (#59)."""
 
 import io
-from dataclasses import replace
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.files.sniffing import detect
 from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -35,25 +35,12 @@ def scenario(monkeypatch):
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(
-            registry._registry[key], attachments=AttachmentPolicy(max_bytes=200, types=("image/png", "application/pdf"))
-        ),
-    )
-    return build_service_scenario(Note, slug="attach")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=200, types=("image/png", "application/pdf"))):
+        yield build_service_scenario(Note, slug="attach")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def url(scenario, note, organization=None):
@@ -102,8 +89,8 @@ def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     assert upload(client, url(scenario, note), PDF, "doc.png").status_code == 400
     assert upload(client, url(scenario, note), PNG + b"x" * 300).status_code == 413
     key = "example_notes.note"
-    monkeypatch.setitem(registry._registry, key, replace(registry._registry[key], attachments=None))
-    assert client.get(url(scenario, note)).status_code == 404
+    with table_spec_override(key, attachments=None):
+        assert client.get(url(scenario, note)).status_code == 404
 
 
 @pytest.mark.needs_example_app

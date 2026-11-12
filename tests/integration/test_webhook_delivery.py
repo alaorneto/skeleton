@@ -12,10 +12,11 @@ from django.test import override_settings
 from django.utils import timezone
 
 from skeleton.accounts.services import create_service_account
-from skeleton.events import registry
 from skeleton.events.registry import EventType, register_event_type
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_event_types
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 pytestmark = pytest.mark.needs_example_app
@@ -57,28 +58,28 @@ def pipeline(skeleton_db, monkeypatch, receiver):
     from skeleton.access.models import MemberRole, Role
     from skeleton.integrations.webhooks.services import create_endpoint
 
-    monkeypatch.setattr(registry, "_types", dict(registry._types))
-    register_event_type(EventType(EVENT, "example_notes.note", ("code",), webhook=True))
-    register_event_type(EventType("notes.quiet", "example_notes.note", ("code",), webhook=True))
-    register_event_type(EventType("notes.internal_only", "example_notes.note", ("code",)))
-    with override_settings(
-        DEBUG=True, SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE=True, INTEGRATION_ENCRYPTION_KEYS=[KEY]
-    ):
-        fixture = build_security_fixture()
-        with actor_tenant(fixture.admin, fixture.a):
-            principal = create_service_account(actor=fixture.admin, name="Receiver")
-            membership = principal.organization_memberships.get()
-            MemberRole(organization=fixture.a, membership=membership, role=Role.objects.get(code="member")).save()
-            issued = create_endpoint(
-                actor=fixture.admin,
-                data={
-                    "name": "Local",
-                    "url": f"http://127.0.0.1:{receiver.server_port}/hook",
-                    "principal": principal,
-                    "event_types": [EVENT],
-                },
-            )
-        yield fixture, principal, issued
+    with isolated_event_types(keep_consumers=True):
+        register_event_type(EventType(EVENT, "example_notes.note", ("code",), webhook=True))
+        register_event_type(EventType("notes.quiet", "example_notes.note", ("code",), webhook=True))
+        register_event_type(EventType("notes.internal_only", "example_notes.note", ("code",)))
+        with override_settings(
+            DEBUG=True, SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE=True, INTEGRATION_ENCRYPTION_KEYS=[KEY]
+        ):
+            fixture = build_security_fixture()
+            with actor_tenant(fixture.admin, fixture.a):
+                principal = create_service_account(actor=fixture.admin, name="Receiver")
+                membership = principal.organization_memberships.get()
+                MemberRole(organization=fixture.a, membership=membership, role=Role.objects.get(code="member")).save()
+                issued = create_endpoint(
+                    actor=fixture.admin,
+                    data={
+                        "name": "Local",
+                        "url": f"http://127.0.0.1:{receiver.server_port}/hook",
+                        "principal": principal,
+                        "event_types": [EVENT],
+                    },
+                )
+            yield fixture, principal, issued
 
 
 def publish(fixture, note, event=EVENT):
@@ -237,21 +238,7 @@ def test_fifteen_consecutive_failures_disable_the_endpoint_and_notify(pipeline, 
 
 
 def login(user):
-    from django.test import Client
-    from django.urls import reverse
-
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {
-            "login": user.email,
-            "password": "Fixture-only-password-2026!",
-            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
-        },
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password="Fixture-only-password-2026!")
 
 
 def api_post(client, url, revision=None):

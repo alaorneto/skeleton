@@ -15,6 +15,7 @@ from skeleton.flows import services
 from skeleton.flows.models import FlowInstance, FlowTask
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.service_api import _set_enabled
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 PASSWORD = "Fixture-only-password-2026!"
@@ -67,14 +68,7 @@ def world(skeleton_db, monkeypatch):
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=PASSWORD)
 
 
 def api(client, method, url, data=None, revision=None, csrf=True):

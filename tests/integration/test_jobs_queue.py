@@ -8,11 +8,11 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.jobs import registry
 from skeleton.jobs.models import Job
 from skeleton.jobs.registry import JobType, job_type_problems, register_job_type
 from skeleton.jobs.services import enqueue
 from skeleton.tenancy.context import system_context, tenant_context
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Jobs-queue-Password!47"
@@ -24,11 +24,11 @@ def handler(**kwargs):
 
 @pytest.fixture(autouse=True)
 def job_types(monkeypatch):
-    monkeypatch.setattr(registry, "_registry", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_job_type(JobType("test.ping", handler, {"record_id": "uuid", "count": "int"}))
-    register_job_type(JobType("test.as_actor", handler, {}, run_as="actor"))
-    register_job_type(JobType("test.global", handler, {}, scope="global"))
+    with isolated_job_types():
+        register_job_type(JobType("test.ping", handler, {"record_id": "uuid", "count": "int"}))
+        register_job_type(JobType("test.as_actor", handler, {}, run_as="actor"))
+        register_job_type(JobType("test.global", handler, {}, scope="global"))
+        yield
 
 
 @pytest.fixture

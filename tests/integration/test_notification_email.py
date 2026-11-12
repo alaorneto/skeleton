@@ -12,7 +12,6 @@ from django.core.mail.backends.locmem import EmailBackend
 from django.db import transaction
 from django.test import override_settings
 
-from skeleton.notifications import registry
 from skeleton.notifications.channels import delivery as delivery_module
 from skeleton.notifications.models import NotificationDelivery
 from skeleton.notifications.preferences import set_preference
@@ -20,6 +19,7 @@ from skeleton.notifications.registry import NotificationType, register_notificat
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import build_service_scenario
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
@@ -31,21 +31,20 @@ def scenario(monkeypatch, settings):
     from examples.notes.models import Note
 
     settings.SKELETON_PUBLIC_URL = "https://app.example.test"
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    monkeypatch.setattr(delivery_module, "RETRY_SCHEDULE", (timedelta(0),) * 4)
-    register_notification_type(
-        NotificationType(
-            "notes.mention",
-            "Você foi mencionado",
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            default_channels=("in_app", "email"),
+    with isolated_notification_types():
+        monkeypatch.setattr(delivery_module, "RETRY_SCHEDULE", (timedelta(0),) * 4)
+        register_notification_type(
+            NotificationType(
+                "notes.mention",
+                "Você foi mencionado",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                default_channels=("in_app", "email"),
+            )
         )
-    )
-    register_notification_type(NotificationType("system.notice", "Aviso"))
-    register_notification_type(NotificationType("system.alert", "Alerta", default_channels=("in_app", "email")))
-    return build_service_scenario(Note, slug="email")
+        register_notification_type(NotificationType("system.notice", "Aviso"))
+        register_notification_type(NotificationType("system.alert", "Alerta", default_channels=("in_app", "email")))
+        yield build_service_scenario(Note, slug="email")
 
 
 def mention(scenario, note, users):

@@ -7,13 +7,14 @@ from datetime import timedelta
 import pytest
 from cryptography.fernet import Fernet
 from django.db import connection
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from skeleton.accounts.services import create_service_account
-from skeleton.events import registry
 from skeleton.events.registry import EventType, register_event_type
+from skeleton.testing.registries import isolated_event_types
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 pytestmark = pytest.mark.needs_example_app
@@ -34,27 +35,20 @@ def webhooks(skeleton_db, monkeypatch):
     from skeleton.common import outbound_http
 
     monkeypatch.setattr(outbound_http.socket, "getaddrinfo", fake_getaddrinfo)
-    monkeypatch.setattr(registry, "_types", dict(registry._types))
-    register_event_type(EventType("notes.webhook_ready", "example_notes.note", ("code",), webhook=True))
-    register_event_type(EventType("notes.internal_only", "example_notes.note", ("code",)))
-    with override_settings(INTEGRATION_ENCRYPTION_KEYS=[KEY]):
-        fixture = build_security_fixture()
-        with actor_tenant(fixture.admin, fixture.a):
-            principal = create_service_account(actor=fixture.admin, name="Receiver")
-        with actor_tenant(fixture.bob, fixture.b):
-            foreign = create_service_account(actor=fixture.bob, name="Foreign")
-        yield fixture, principal, foreign
+    with isolated_event_types(keep_consumers=True):
+        register_event_type(EventType("notes.webhook_ready", "example_notes.note", ("code",), webhook=True))
+        register_event_type(EventType("notes.internal_only", "example_notes.note", ("code",)))
+        with override_settings(INTEGRATION_ENCRYPTION_KEYS=[KEY]):
+            fixture = build_security_fixture()
+            with actor_tenant(fixture.admin, fixture.a):
+                principal = create_service_account(actor=fixture.admin, name="Receiver")
+            with actor_tenant(fixture.bob, fixture.b):
+                foreign = create_service_account(actor=fixture.bob, name="Foreign")
+            yield fixture, principal, foreign
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=PASSWORD)
 
 
 def api(client, method, url, data=None, revision=None):

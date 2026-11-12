@@ -18,6 +18,7 @@ from skeleton.accounts.services import bootstrap_identity, create_identity
 from skeleton.common.exceptions import ImmutableRecord
 from skeleton.tenancy import admission, links
 from skeleton.tenancy.context import request_context, system_context, tenant_context
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Join-links-Password!27"
@@ -42,9 +43,7 @@ def identity(email):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def demote(user):

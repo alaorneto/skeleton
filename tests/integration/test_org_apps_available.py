@@ -5,7 +5,6 @@ from dataclasses import replace
 
 import pytest
 from django.db import connection
-from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -15,6 +14,7 @@ from skeleton.system.app_registry import MenuEntry
 from skeleton.system.applications import application_states, configure_application, navigation_for_user
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.applications import activate_app, open_app
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults, pytest.mark.needs_example_app]
 PASSWORD = "Org-apps-available-Password!24"
@@ -22,9 +22,7 @@ NOTES = "example_notes"
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def person(owner, organization, email, code):

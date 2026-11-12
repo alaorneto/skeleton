@@ -8,7 +8,6 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from skeleton.notifications import registry
 from skeleton.notifications.inbox import unread_count
 from skeleton.notifications.models import Notification, NotificationDelivery, NotificationRecipient
 from skeleton.notifications.registry import NotificationType, register_notification_type
@@ -16,6 +15,7 @@ from skeleton.notifications.retention import purge_expired_notifications, window
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import build_service_scenario
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
@@ -26,10 +26,9 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(NotificationType("system.notice", "Aviso", default_channels=("in_app", "email")))
-    return build_service_scenario(Note, slug="retention")
+    with isolated_notification_types():
+        register_notification_type(NotificationType("system.notice", "Aviso", default_channels=("in_app", "email")))
+        yield build_service_scenario(Note, slug="retention")
 
 
 def notices(scenario, organization, admin, count):

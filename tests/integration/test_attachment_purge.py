@@ -1,6 +1,5 @@
 """Purge of deleted attachments' bytes after the retention window (#192)."""
 
-from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -11,9 +10,9 @@ from django.utils import timezone
 
 from skeleton.files.purge import purge_deleted
 from skeleton.files.storage import private_storage
-from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
@@ -26,12 +25,8 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setitem(
-        registry._registry,
-        KEY,
-        replace(registry._registry[KEY], attachments=AttachmentPolicy(max_bytes=500, types=("application/pdf",))),
-    )
-    return build_service_scenario(Note, slug="purge")
+    with table_spec_override(KEY, attachments=AttachmentPolicy(max_bytes=500, types=("application/pdf",))):
+        yield build_service_scenario(Note, slug="purge")
 
 
 def login(user):

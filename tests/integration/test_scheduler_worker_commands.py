@@ -8,10 +8,10 @@ import pytest
 from django.core.management import call_command
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.jobs import periodic, registry
 from skeleton.jobs.models import Job
 from skeleton.jobs.periodic import register_periodic
 from skeleton.jobs.registry import JobType, register_job_type
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Scheduler-command-Phrase-335!"
@@ -24,13 +24,12 @@ def record(**kwargs):
 
 @pytest.fixture(autouse=True)
 def declarations(monkeypatch):
-    monkeypatch.setattr(registry, "_registry", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    monkeypatch.setattr(periodic, "_periodic", {})
-    # The commands install process-wide SIGTERM/SIGINT handlers; keep pytest's own.
-    monkeypatch.setattr(signal, "signal", lambda *args: None)
-    register_job_type(JobType("test.command_tick", record, {}))
-    RAN.clear()
+    with isolated_job_types():
+        # The commands install process-wide SIGTERM/SIGINT handlers; keep pytest's own.
+        monkeypatch.setattr(signal, "signal", lambda *args: None)
+        register_job_type(JobType("test.command_tick", record, {}))
+        RAN.clear()
+        yield
 
 
 @pytest.fixture

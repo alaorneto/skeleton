@@ -1,17 +1,16 @@
 """Timeline of a record (#185): audit and attachments, each filtered for the reader."""
 
-from dataclasses import replace
-
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import request_context, system_context, tenant_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 from skeleton.web.timeline import timeline_for
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
@@ -23,12 +22,8 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setitem(
-        registry._registry,
-        KEY,
-        replace(registry._registry[KEY], attachments=AttachmentPolicy(max_bytes=500, types=("image/png",))),
-    )
-    return build_service_scenario(Note, slug="timeline")
+    with table_spec_override(KEY, attachments=AttachmentPolicy(max_bytes=500, types=("image/png",))):
+        yield build_service_scenario(Note, slug="timeline")
 
 
 def note_by(user, organization):
@@ -46,9 +41,7 @@ def note_by(user, organization):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def attach(client, organization, note):

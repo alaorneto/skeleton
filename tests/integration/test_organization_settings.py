@@ -1,7 +1,6 @@
 """Organization settings (#167): administrator only, CAS from virtual revision 0, audited, A/B isolated."""
 
 import pytest
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.service_api.errors import Forbidden, InvalidInput
@@ -15,6 +14,7 @@ from skeleton.testing.service_api import (
     assert_tenant_isolated,
     build_service_scenario,
 )
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 SERVICE = OrganizationService()
@@ -39,14 +39,7 @@ def update(actor, revision, **changes):
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def test_settings_start_blank_and_the_admin_writes_them(scenario):

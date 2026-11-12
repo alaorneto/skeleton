@@ -2,13 +2,13 @@
 
 import pytest
 
-from skeleton.notifications import registry
 from skeleton.notifications.models import Notification
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.service_api.errors import Forbidden, InvalidInput, NotFound
 from skeleton.service_api.notifications import NotificationService, Recipients
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import (
     acting_as,
     assert_rejects_other_actor,
@@ -35,20 +35,19 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.shared",
-            "Nota compartilhada",
-            payload_fields=("message",),
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            owner_app="example_notes",
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.shared",
+                "Nota compartilhada",
+                payload_fields=("message",),
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                owner_app="example_notes",
+            )
         )
-    )
-    register_notification_type(NotificationType("other.ping", "Ping", owner_app="other_app"))
-    return build_service_scenario(Note, slug="notify-service")
+        register_notification_type(NotificationType("other.ping", "Ping", owner_app="other_app"))
+        yield build_service_scenario(Note, slug="notify-service")
 
 
 def notify_as_notes(**kwargs):

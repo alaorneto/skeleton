@@ -3,7 +3,7 @@
 from datetime import timedelta
 
 import pytest
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -11,6 +11,7 @@ from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
 from skeleton.transfer.csvio import BOM, cell, read_csv, write_csv
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 TABLE = "example_notes.note"
@@ -25,9 +26,7 @@ def scenario():
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def export_url(organization):

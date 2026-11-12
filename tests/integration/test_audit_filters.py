@@ -4,7 +4,6 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
@@ -12,6 +11,7 @@ from skeleton.service_api.audit import AuditLogService
 from skeleton.service_api.errors import Forbidden, InvalidInput
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.service_api import FIXTURE_PASSWORD, acting_as, assert_service_contract, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 SERVICE = AuditLogService()
@@ -110,9 +110,7 @@ def test_related_domain_events_only_for_the_administrator(scenario):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 @pytest.mark.needs_example_app

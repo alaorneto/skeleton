@@ -8,6 +8,7 @@ from django.urls import reverse
 
 from skeleton.accounts.services import create_service_account
 from skeleton.integrations.tokens.models import ApiToken
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
 pytestmark = pytest.mark.needs_example_app
@@ -22,14 +23,7 @@ def access(skeleton_db):
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=PASSWORD)
 
 
 def csrf(client):

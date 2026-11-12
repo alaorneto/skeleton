@@ -3,12 +3,13 @@
 import pytest
 
 from skeleton.jobs.models import Job
-from skeleton.notifications import fanout, registry
+from skeleton.notifications import fanout
 from skeleton.notifications.models import NotificationRecipient
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import build_service_scenario
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
@@ -19,13 +20,14 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType("notes.mention", "Menção", target_table_key="example_notes.note", group_key="note:{target}")
-    )
-    register_notification_type(NotificationType("system.notice", "Aviso"))
-    return build_service_scenario(Note, slug="fanout")
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.mention", "Menção", target_table_key="example_notes.note", group_key="note:{target}"
+            )
+        )
+        register_notification_type(NotificationType("system.notice", "Aviso"))
+        yield build_service_scenario(Note, slug="fanout")
 
 
 def rows(scenario):

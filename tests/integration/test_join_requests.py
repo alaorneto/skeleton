@@ -8,13 +8,13 @@ import pytest
 from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.accounts.services import bootstrap_identity, create_identity
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy import admission
 from skeleton.tenancy.context import request_context, system_context, tenant_context
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Join-requests-Password!26"
@@ -51,9 +51,7 @@ def member_with_role(owner, organization, email, code):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def demote(user):

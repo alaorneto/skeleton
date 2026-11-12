@@ -1,19 +1,18 @@
 """Downloads only through an authorized view, streamed after the transaction (#60)."""
 
-from dataclasses import replace
-
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import Client, override_settings
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from skeleton.common.responses import DetachedFileResponse, content_disposition
-from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PDF = b"%PDF-1.7\n" + b"y" * 64
@@ -38,23 +37,12 @@ def scenario(monkeypatch):
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(registry._registry[key], attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))),
-    )
-    return build_service_scenario(Note, slug="download")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))):
+        yield build_service_scenario(Note, slug="download")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 @pytest.fixture

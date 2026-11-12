@@ -111,6 +111,8 @@ As organizações que usavam apps ativas por padrão mantêm essas apps com `man
 
 Em desenvolvimento, `manage.py set_app_availability <app_label> --mode all|selected [--grant SLUG] [--enable SLUG]` abre a app e a ativa nas organizações indicadas, uma transação por organização. `check_skeleton_schema` avisa sobre app carregada sem linha de disponibilidade (fechada para todos). Nos testes, `skeleton.testing.applications` oferece `open_app`, `activate_app` e `apps_open_by_default`.
 
+Para declarar tipos só dentro de um teste, `skeleton.testing.registries` isola os registries do núcleo e devolve os objetos originais na saída, mesmo quando o teste falha: `isolated_job_types()` (tipos de job e jobs periódicos), `isolated_event_types()` (tipos de evento, copiando os do núcleo; consumidores vazios, ou copiados com `keep_consumers=True`), `isolated_notification_types()`, `isolated_token_scopes()` (escopos nomeados de token) e `table_spec_override(table_key, **mudanças)`, que troca o `TableSpec` de uma tabela por uma cópia alterada. Use-os num fixture com `yield` dentro do `with`; não combine com `monkeypatch` no mesmo registry, porque a ordem de restauração dos dois deixaria o valor alterado para o teste seguinte.
+
 Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Os anexos contam na cota de armazenamento da organização e, com antivírus configurado, só podem ser baixados depois da verificação. Veja [arquivos e anexos](files.md#anexos).
 
 Do mesmo modo, `TableSpec(comments=CommentPolicy())` abre comentários na tabela: quem lê o registro lê e escreve comentários, só o autor edita e o administrador modera. Veja [comentários](comments.md).

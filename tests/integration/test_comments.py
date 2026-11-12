@@ -6,15 +6,12 @@ is audited, bodies are escaped, comments appear on the timeline and CommentServi
 service contract.
 """
 
-from dataclasses import replace
-
 import pytest
-from django.test import Client
 
 from skeleton.service_api.comments import CommentService
 from skeleton.service_api.errors import Conflict, Forbidden, InvalidInput, NotFound
-from skeleton.system import registry
 from skeleton.system.registry import CommentPolicy
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import (
     FIXTURE_PASSWORD,
     acting_as,
@@ -24,6 +21,7 @@ from skeleton.testing.service_api import (
     assert_tenant_isolated,
     build_service_scenario,
 )
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 TABLE = "example_notes.note"
@@ -35,7 +33,8 @@ def test_contract():
 
 @pytest.fixture
 def enabled(monkeypatch):
-    monkeypatch.setitem(registry._registry, TABLE, replace(registry._registry[TABLE], comments=CommentPolicy()))
+    with table_spec_override(TABLE, comments=CommentPolicy()):
+        yield
 
 
 @pytest.fixture
@@ -53,9 +52,7 @@ def scenario(enabled):
 
 
 def _login(user):
-    client = Client()
-    assert client.post("/accounts/login/", {"login": user.email, "password": FIXTURE_PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD, csrf=False)
 
 
 def _url(organization, note, suffix=""):
@@ -121,14 +118,15 @@ def test_readers_comment_and_unreadable_targets_answer_404(scenario, subtests):
 
 @pytest.mark.needs_example_app
 def test_table_without_policy_refuses_comments(scenario, monkeypatch):
-    monkeypatch.setitem(registry._registry, TABLE, replace(registry._registry[TABLE], comments=None))
-    member = _login(scenario.member)
-    assert member.get(_url(scenario.a, scenario.note)).status_code == 404
-    assert (
-        member.post(_url(scenario.a, scenario.note), {"body": "x"}, content_type="application/json").status_code == 404
-    )
-    with acting_as(scenario.member, scenario.a) as actor, pytest.raises(NotFound):
-        CommentService().add_comment(actor=actor, table_key=TABLE, record_id=scenario.note.pk, body="x")
+    with table_spec_override(TABLE, comments=None):
+        member = _login(scenario.member)
+        assert member.get(_url(scenario.a, scenario.note)).status_code == 404
+        assert (
+            member.post(_url(scenario.a, scenario.note), {"body": "x"}, content_type="application/json").status_code
+            == 404
+        )
+        with acting_as(scenario.member, scenario.a) as actor, pytest.raises(NotFound):
+            CommentService().add_comment(actor=actor, table_key=TABLE, record_id=scenario.note.pk, body="x")
 
 
 @pytest.mark.needs_example_app

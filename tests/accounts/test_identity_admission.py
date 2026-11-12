@@ -9,7 +9,7 @@ from allauth.core.exceptions import ImmediateHttpResponse
 from cryptography.fernet import Fernet
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import Client, RequestFactory, override_settings
+from django.test import RequestFactory, override_settings
 from django.urls import reverse
 
 from skeleton.accounts import identity_providers
@@ -17,6 +17,7 @@ from skeleton.accounts.adapters import SocialAccountAdapter, admit_or_request_so
 from skeleton.accounts.providers import admission_for, configured_providers, load_provider_config
 from skeleton.accounts.services import bootstrap_identity, create_identity
 from skeleton.tenancy.context import request_context, system_context, tenant_context
+from tests import support
 
 PASSWORD = "Identity-admission-Password!31"
 KEY = Fernet.generate_key().decode()
@@ -60,9 +61,7 @@ def setup(skeleton_db):
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def put(client, organization, row, body, revision):

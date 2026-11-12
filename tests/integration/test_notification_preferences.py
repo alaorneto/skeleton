@@ -6,11 +6,12 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
-from skeleton.notifications import registry
 from skeleton.notifications.models import UserNotificationPreference
 from skeleton.notifications.preferences import effective
 from skeleton.notifications.registry import NotificationType, register_notification_type
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
@@ -20,24 +21,16 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType("tasks.assigned", "Tarefa atribuída", default_channels=("in_app", "email"))
-    )
-    register_notification_type(NotificationType("security.alert", "Alerta de segurança", mandatory=True))
-    return build_service_scenario(Note, slug="preferences")
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType("tasks.assigned", "Tarefa atribuída", default_channels=("in_app", "email"))
+        )
+        register_notification_type(NotificationType("security.alert", "Alerta de segurança", mandatory=True))
+        yield build_service_scenario(Note, slug="preferences")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def csrf(client):

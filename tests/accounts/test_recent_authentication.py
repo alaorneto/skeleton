@@ -13,6 +13,7 @@ from django.urls import reverse
 from skeleton.accounts.reauthentication import has_recent_authentication
 from skeleton.accounts.services import bootstrap_identity, create_identity
 from skeleton.tenancy.context import system_context, tenant_context
+from tests import support
 
 PASSWORD = "Recent-authentication-password!57"
 pytestmark = pytest.mark.usefixtures("skeleton_db")
@@ -26,9 +27,7 @@ def local_identity(email):
 
 
 def login(user):
-    client = Client()
-    assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def expire(client):

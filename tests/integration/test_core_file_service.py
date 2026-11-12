@@ -1,15 +1,14 @@
 """FileService of the core service API (#109)."""
 
 import io
-from dataclasses import replace
 
 import pytest
 from django.test import override_settings
 
 from skeleton.service_api.errors import Conflict, Forbidden, InvalidInput, NotFound
 from skeleton.service_api.files import FileService
-from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import (
     acting_as,
     assert_rejects_other_actor,
@@ -32,12 +31,8 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setitem(
-        registry._registry,
-        TABLE,
-        replace(registry._registry[TABLE], attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))),
-    )
-    return build_service_scenario(Note, slug="file-service")
+    with table_spec_override(TABLE, attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))):
+        yield build_service_scenario(Note, slug="file-service")
 
 
 def attach(service, actor, note, *, content=PDF, name="doc.pdf"):

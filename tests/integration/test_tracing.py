@@ -17,6 +17,7 @@ from skeleton.jobs.services import enqueue
 from skeleton.observability import otel, tracing
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 EMAIL = "traced-person@example.test"
@@ -32,9 +33,9 @@ def lookup_by_email(**kwargs):
 
 @pytest.fixture(autouse=True)
 def job_types(monkeypatch):
-    monkeypatch.setattr(registry, "_registry", dict(registry._registry))
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_job_type(JobType("test.tracing", lookup_by_email, {}, max_attempts=1))
+    with isolated_job_types(keep_existing=True):
+        register_job_type(JobType("test.tracing", lookup_by_email, {}, max_attempts=1))
+        yield
 
 
 @pytest.fixture

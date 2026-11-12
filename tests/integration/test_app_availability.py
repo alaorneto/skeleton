@@ -3,7 +3,6 @@
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
-from django.test import Client
 from django.test.utils import isolate_apps
 from django.urls import reverse
 
@@ -13,6 +12,7 @@ from skeleton.system import availability
 from skeleton.system.applications import application_state, configure_application, navigation_for_user
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.applications import activate_app
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
 PASSWORD = "Availability-gate-Password!61"
@@ -20,9 +20,7 @@ NOTES = "example_notes"
 
 
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def demote(user):

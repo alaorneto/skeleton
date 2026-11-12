@@ -2,17 +2,16 @@
 
 import pytest
 
-from skeleton.events import registry as event_registry
 from skeleton.events.core_events import CORE_EVENT_TYPES
 from skeleton.events.models import DomainEvent
 from skeleton.events.registry import EventType, register_event_type
-from skeleton.jobs import registry as job_registry
 from skeleton.jobs.models import Job
 from skeleton.jobs.registry import JobType, register_job_type
 from skeleton.service_api.errors import Forbidden, InvalidInput, NotFound
 from skeleton.service_api.events import EventService
 from skeleton.service_api.jobs import JobService
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import isolated_event_types, isolated_job_types
 from skeleton.testing.service_api import (
     acting_as,
     assert_rejects_other_actor,
@@ -44,15 +43,13 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    register_job_type(JobType("notes.reindex", handler, {"note_id": "uuid"}, owner_app="example_notes"))
-    register_job_type(JobType("other.work", handler, {}, owner_app="other_app"))
-    monkeypatch.setattr(event_registry, "_types", dict(event_registry._types))  # Keeps core types (#43).
-    monkeypatch.setattr(event_registry, "_duplicates", [])
-    register_event_type(EventType("notes.closed", "example_notes.note", ("code",), owner_app="example_notes"))
-    register_event_type(EventType("other.happened", "example_notes.note", (), owner_app="other_app"))
-    yield build_service_scenario(Note, slug="jobs-events")
-    for code in ("notes.reindex", "other.work"):
-        job_registry._registry.pop(code, None)
+    # Copies keep the core job and event types (#43); nothing registered here outlives the test.
+    with isolated_job_types(keep_existing=True), isolated_event_types(keep_consumers=True):
+        register_job_type(JobType("notes.reindex", handler, {"note_id": "uuid"}, owner_app="example_notes"))
+        register_job_type(JobType("other.work", handler, {}, owner_app="other_app"))
+        register_event_type(EventType("notes.closed", "example_notes.note", ("code",), owner_app="example_notes"))
+        register_event_type(EventType("other.happened", "example_notes.note", (), owner_app="other_app"))
+        yield build_service_scenario(Note, slug="jobs-events")
 
 
 def enqueue_as_notes(**kwargs):

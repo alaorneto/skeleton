@@ -8,14 +8,15 @@ from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
-from skeleton.notifications import registry
 from skeleton.notifications.inbox import counter_label, unread_count
 from skeleton.notifications.models import NotificationRecipient
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 
@@ -25,26 +26,21 @@ def scenario(monkeypatch):
 
     from examples.notes.models import Note
 
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.mention", "Você foi mencionado", snapshot_fields=("title",), target_table_key="example_notes.note"
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.mention",
+                "Você foi mencionado",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+            )
         )
-    )
-    register_notification_type(NotificationType("system.notice", "Aviso"))
-    return build_service_scenario(Note, slug="inbox")
+        register_notification_type(NotificationType("system.notice", "Aviso"))
+        yield build_service_scenario(Note, slug="inbox")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def post(client, url, data=None):
