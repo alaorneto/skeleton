@@ -1,6 +1,7 @@
 """Private object storage for attachments: local filesystem or S3, never public.
 
-Keys are ``org/<organization>/<attachment>``: two UUIDs and nothing chosen by
+Keys are ``org/<organization>/<attachment>`` (``branding/`` for the logo, ``transfers/``
+for CSV exports): two UUIDs and nothing chosen by
 the user, so a file name can never traverse paths, collide or leak in a URL.
 """
 
@@ -16,7 +17,7 @@ from django.core.files.storage import storages
 
 ALIAS = "skeleton_files"
 KEY = re.compile(
-    r"^org/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:branding/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    r"^org/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:branding/|transfers/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
 CHUNK = 64 * 1024
 

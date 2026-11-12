@@ -230,6 +230,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
+| `TransferService` | `skeleton.service_api.transfer` | `request_export`, `transfer`, `transfers` | [#182](https://github.com/alaorneto/skeleton/issues/182) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
 ### IdentityService
@@ -348,6 +349,10 @@ NotificationService().notify(
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
 Apps não acessam o armazenamento diretamente.
+
+### TransferService
+
+Pede e acompanha [exportações CSV](data-transfer.md) dos registros que o ator lê. `request_export(*, actor, table_key, filters=(), idempotency_key=None) -> TransferInfo` valida os filtros como a lista (pares `(campo, valor)`; sem paginação nem campo sensível), grava o pedido e o job na transação do chamador e devolve o pedido na fila; `transfer(*, actor, transfer_id)` e `transfers(*, actor, cursor=None, page_size=25) -> Page[TransferInfo]` leem só os pedidos do próprio ator na organização atual (nem o administrador vê os de outra pessoa). `TransferInfo` não traz os filtros nem a chave do armazenamento; o arquivo é baixado pela rota web do núcleo. Erros: `NotFound` para tabela não exposta ou pedido de outra pessoa, `Forbidden` sem leitura da tabela, `InvalidInput` para filtro inválido ou chave de idempotência reaproveitada com outro pedido. Métodos com `since="0.6.0"`.
 
 ### SequenceService
 

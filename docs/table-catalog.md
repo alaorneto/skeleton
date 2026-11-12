@@ -79,6 +79,8 @@ Apps próprias são identificadas por manifestos explícitos e pelo inventário 
 
 As tabelas de [fluxos de processo](flows.md#modelo-de-dados) (`sk_flows.flowdefinition`, `flowinstance`, `flowsteprun`, `flowtask`, `flowsubmission` e `flowactivity`) são entidades organizacionais próprias do núcleo, com specs explícitas sem gateway e infraestrutura congelada em `sk_flows.0001_initial`. `sensitive_data`, `sensitive_values` e `comment` são sensíveis. Só `sk_flows.flowinstance` declara `read_fields` (chave e versão do fluxo, estado, resultado e o registro de negócio): são os campos que os eventos de domínio do subsistema podem levar. Nenhuma delas recebe `TablePermission`.
 
+`sk_transfer.transferjob` é a tabela operacional das [exportações CSV](data-transfer.md#modelo): pedido, estado e chave do arquivo privado (`storage_key`, sensível) de uma pessoa, com infraestrutura congelada em `sk_transfer.0001_initial` e exclusão só pela retenção `transfer.retention`.
+
 No PostgreSQL, encontrar um nome conhecido não basta. O check compara:
 
 - a função realmente referenciada pelo trigger (`tgfoid`/schema), momento de execução, eventos, nível, `WHEN` e argumentos;

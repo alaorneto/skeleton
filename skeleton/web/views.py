@@ -558,6 +558,8 @@ def records(request, organization_id, table_key, deleted=False):
             "can_create": not deleted and can_action(spec, request.user, "create"),
             "can_restore": can_action(spec, request.user, "restore"),
             "deleted": deleted,
+            # The export repeats the list filters (never the page), as a CSV job (#182).
+            "export_filters": {name: value for name, value in filters.items() if name != "page"},
             "breadcrumbs": record_breadcrumbs(spec, organization_id),
             **presentation,
         },

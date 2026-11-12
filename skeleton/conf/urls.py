@@ -26,6 +26,8 @@ def application_urls(project_urls=()):
     routes.append(path("", include("skeleton.integrations.urls")))
     # Process flows (docs/flows.md): also before api/v1/, for the same reason.
     routes.append(path("", include("skeleton.flows.urls")))
+    # CSV exports (docs/data-transfer.md): before api/v1/ too.
+    routes.append(path("", include("skeleton.transfer.urls")))
     routes.extend(
         [
             path("api/v1/", include("skeleton.api.urls")),

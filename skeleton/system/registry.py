@@ -306,6 +306,12 @@ def register_core_specs():
             "organization",
             ("comment",),
         ),
+        "sk_transfer.transferjob": (
+            "Exportações",
+            "Pedido, estado e arquivo privado de uma exportação CSV de uma pessoa; apagado pela retenção.",
+            "organization",
+            ("storage_key",),
+        ),
         "sk_audit.auditevent": (
             "Auditoria",
             "Histórico transacional imutável de alterações, com dados sensíveis redigidos.",

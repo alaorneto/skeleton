@@ -142,6 +142,17 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 - Iniciar uma instância não tem rota aqui: é operação da app dona do fluxo.
 - Todas as rotas estão no [schema OpenAPI](#schema-openapi), cada ação com o próprio caminho literal. Os corpos de resposta são gerados dos DTOs do `FlowService` (`skeleton/flows/api_views.py`), e os comandos documentam `If-Match` (412/428) e `ETag`.
 
+## Exportações CSV
+
+Pedidos de [exportação CSV](data-transfer.md) dos registros que o ator lê ([#182](https://github.com/alaorneto/skeleton/issues/182)). As views chamam o [`TransferService`](service-api.md#transferservice).
+
+| Rota | Método | Uso |
+|---|---|---|
+| `o/<org>/exports/` | POST | `{"table_key": "<app.modelo>", "filters": {campo: valor}}`; os filtros da lista, sem paginação nem campo sensível; `Idempotency-Key` opcional; responde 202 com o pedido |
+| `o/<org>/transfers/`, `transfers/<id>/` | GET | Pedidos do próprio ator (nem o administrador vê os de outra pessoa), com `state`, `row_count`, `error_code` e `download_url` quando pronto |
+
+O arquivo é baixado por `download_url` (`/o/<org>/transfers/<id>/download/`), com a sessão, como os anexos; o download reautoriza a cada pedido e responde 404 para outra pessoa, pedido vencido ou leitura revogada. Filtro inválido responde 400 `invalid_filter`; tabela não exposta, 404; sem leitura da tabela, 403.
+
 ## Schema OpenAPI
 
 `GET /api/v1/openapi.json` devolve o contrato da API em [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0), só em JSON e sem página interativa ([#178](https://github.com/alaorneto/skeleton/issues/178)). Ele aceita sessão ou [token](#autenticação-por-token); sem nenhum dos dois, a resposta é 401 ou 403. O documento é gerado do código a cada requisição (`skeleton/api/openapi.py`), nunca mantido à mão:
