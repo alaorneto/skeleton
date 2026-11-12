@@ -57,6 +57,12 @@ def state_counts() -> dict[str, int]:
     return counts
 
 
+def job_type_state_counts() -> dict[tuple[str, str], int]:
+    """Jobs per ``(job_type, state)``, every organization together: counts only, read at scrape time (#175)."""
+    rows = Job.objects.values("job_type", "state").annotate(total=Count("sysid")).order_by()
+    return {(row["job_type"], row["state"]): row["total"] for row in rows}
+
+
 def _change_dead(job_id: UUID, *, expected_updated_at: datetime, actor: Any, event: str, **changes: Any) -> None:
     changed = Job.objects.filter(pk=job_id, state=Job.State.DEAD, updated_at=expected_updated_at).update(**changes)
     if changed != 1:

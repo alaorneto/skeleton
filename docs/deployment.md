@@ -141,11 +141,108 @@ Leia as respostas como sinais diferentes: `live=200` significa que o processo re
 
 Redis compartilhado é necessário a rate limits entre workers; configure autenticação e rede privada. O probe usa REDISCLI_AUTH com expansão de ambiente, não senha literal/argv. SMTP entrega após commit de mensagens já materializadas e pré-validadas. Falha real é registrada por classe/UUID sem segredo e não vira 500 enganoso após dados confirmados: API recebe `X-Email-Delivery: failed`, HTML recebe aviso, e permanece um caminho explícito de reenvio. Convite reenviado revoga o antigo por tombstone e emite UUID/token novos na mesma transação, com revisão obrigatória; convite consumido não pode ser reenviado. Não há retry/outbox nem promessa de entrega distribuída/transacional. Isso vale para emails com token (allauth e convites). Os emails de **notificação** são outra coisa: saem por job (`notifications.email`), com retentativa e estado em `NotificationDelivery`, e por isso exigem um worker (`manage.py run_worker`) e o agendador de jobs periódicos rodando; sem worker, ficam na fila. `SKELETON_DEFAULT_LANGUAGE` (padrão `pt-br`) e `SKELETON_DEFAULT_TIMEZONE` (padrão `UTC`) ficam no catálogo da instância e valem para quem não escolheu um idioma ou fuso no perfil, nem tem um padrão na organização ([#170](https://github.com/alaorneto/skeleton/issues/170)). Defina `SKELETON_PUBLIC_URL` (a origem pública, como `https://app.example.com`) para que os links desses emails sejam absolutos. A mesma origem vale para os convites emitidos sem requisição (por um job ou comando): sem ela, o convite é recusado com um erro que cita `SKELETON_PUBLIC_URL` ([#169](https://github.com/alaorneto/skeleton/issues/169)). Veja [notificações](notifications.md#email-imediato). O **web push** é opcional: gere a chave VAPID com `manage.py generate_vapid_keys /caminho/privado/vapid.pem` (arquivo novo, 0600, fora do repositório e do diretório estático; o comando imprime a chave pública) e defina `WEBPUSH_VAPID_PRIVATE_KEY_FILE`, `WEBPUSH_VAPID_SUBJECT` (`mailto:` ou `https:`) e, se preciso, `WEBPUSH_ALLOWED_HOSTS`. As assinaturas exigem `INTEGRATION_ENCRYPTION_KEYS`. Trocar a chave VAPID invalida as assinaturas existentes, e cada pessoa precisa ativar o push de novo. Sem a chave, a seção de push não aparece e `/sw.js` responde 404.
 
-Os logs da aplicação e do Django usam `SecurityJSONFormatter`, com um evento de conclusão `http.request` após resultado transacional/callbacks e UUID gerado pelo servidor, sem URL/body/cookies. Outcomes distinguem success, validation_error, conflict, access_denied, not_found e server_error; falha de entrega preserva o status de persistência e registra reason_code. status_code do Django é mapeado para status; error_class e target_sysid são seguros, sem mensagem/traceback bruto. Registros com exceção trazem `error_stack`: até 25 posições `arquivo:linha:função`, da mais externa para a mais interna, sem mensagem, código-fonte ou variáveis locais. Um readiness com falha registra `health.probe_failed` com `reason_code` `database_unavailable` ou `cache_unavailable`; a resposta HTTP continua sendo só 503. O agente de deployment escreve no stderr uma linha JSON `agent.internal_error`, no mesmo formato, antes de responder `agent_internal_error`. O comando Gunicorn da imagem não habilita access log bruto. Proxy, ingress, APM e capturas de HTTP também precisam redigir caminhos/query de convite, reset e callbacks; não acrescente `--access-logfile -` sem formatter seguro. O backend de email console é somente desenvolvimento e imprime links privados por definição.
+Os logs da aplicação e do Django usam `SecurityJSONFormatter`, com um evento de conclusão `http.request` após resultado transacional/callbacks e UUID gerado pelo servidor, sem URL/body/cookies. Outcomes distinguem success, validation_error, conflict, access_denied, not_found e server_error; falha de entrega preserva o status de persistência e registra reason_code. status_code do Django é mapeado para status; error_class e target_sysid são seguros, sem mensagem/traceback bruto. Registros com exceção trazem `error_stack`: até 25 posições `arquivo:linha:função`, da mais externa para a mais interna, sem mensagem, código-fonte ou variáveis locais. Um readiness com falha registra `health.probe_failed` com `reason_code` `database_unavailable` ou `cache_unavailable`; a resposta HTTP continua sendo só 503. O agente de deployment escreve no stderr uma linha JSON `agent.internal_error`, no mesmo formato, antes de responder `agent_internal_error`. O comando Gunicorn da imagem não habilita access log bruto. Proxy, ingress, APM e capturas de HTTP também precisam redigir caminhos/query de convite, reset e callbacks (as integrações do núcleo com Prometheus, OpenTelemetry e Sentry já não enviam caminhos, ver [Observabilidade](#observabilidade-87)); não acrescente `--access-logfile -` sem formatter seguro. O backend de email console é somente desenvolvimento e imprime links privados por definição.
 
 **Antivírus de anexos (opcional):** rode um `clamd` numa rede privada (por exemplo, a imagem `clamav/clamav` com a porta 3310 sem publicação externa), defina `SKELETON_FILES_SCANNER=clamav` e `SKELETON_FILES_CLAMAV_ADDRESS=tcp://clamav:3310` e mantenha o worker de jobs rodando: sem ele, os anexos ficam `pending` e não podem ser baixados. Ajuste `StreamMaxLength` do `clamd` para pelo menos `SKELETON_UPLOAD_MAX_BYTES`, senão o `clamd` responde erro e o anexo fica pendente. A cota de armazenamento e a limpeza de órfãos também dependem do worker. Veja [arquivos e anexos](files.md#antivírus).
 
 Backups PostgreSQL devem incluir entidades, audit e estado de migrations; proteja DSNs e chaves Fernet separadamente. Teste restore em DB vazio com mesmas versões/apps, check de schema e contagens/IDs. Backups de Authenticator exigem chaves antigas; não exclua chave só porque runtime novo deixou de usá-la. Banco/audit não é WORM contra DBA. Nunca use purge/flush/TRUNCATE no runtime protegido.
+
+## Observabilidade (#87)
+
+Métricas, traces e relatórios de erro são **extras opcionais**, todos desligados por padrão. Sem o setting de cada um, o processo não importa a biblioteca correspondente (`prometheus_client`, `opentelemetry`, `sentry_sdk`). Instale só o que for usar, na mesma imagem e com hashes: `pip install "django-skeleton[metrics]"`, `[otel]` ou `[sentry]`. As faixas ficam em `pyproject.toml`, e as versões travadas e auditadas por `pip-audit` estão em `requirements-dev.txt`. Um setting definido sem o extra instalado gera o aviso `skeleton.W030` e não liga nada.
+
+Nenhum dos três envia dado de negócio. Rótulos e atributos não carregam sysid de organização ou de pessoa, slug, email, nome, corpo, cookie, cabeçalho de autenticação nem parâmetro SQL. O que cada um envia está descrito abaixo.
+
+### Métricas Prometheus (#175)
+
+Defina `SKELETON_METRICS_TOKEN` (setting sensível da instância, cifrado no SQLite; ao menos 32 caracteres sem espaços, senão `skeleton.E030`). Gere um com `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Sem o token, `/metrics` não existe (404). Com ele:
+
+- `/metrics` responde antes de sessão, autenticação e contexto de tenant, só a `GET`/`HEAD`, e só com `Authorization: Bearer <token>`. O token é comparado em tempo constante (SHA-256 dos dois lados e `hmac.compare_digest`). Token errado ou ausente responde 401 sem corpo, com `WWW-Authenticate: Bearer`, e registra `metrics.denied`. O host continua validado por `ALLOWED_HOSTS`.
+- Restrinja o caminho também na rede ou no proxy: o token é um segundo fator, não o único.
+
+Configuração do Prometheus:
+
+```yaml
+scrape_configs:
+  - job_name: skeleton
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/skeleton-metrics-token
+    static_configs:
+      - targets: ["app.internal:8000"]
+```
+
+| Métrica | Rótulos | Origem |
+|---|---|---|
+| `skeleton_http_request_duration_seconds` (histograma) | `method`, `route`, `status` | Cada request, medido pelo middleware. `route` é o **padrão** resolvido (`o/<uuid:organization_id>/`), nunca o caminho; sem rota, `unresolved`; os probes usam `health/live/` e `health/ready/` |
+| `skeleton_jobs` | `job_type`, `state` | Jobs por tipo registrado e estado; tipo não registrado entra como `other` |
+| `skeleton_delivery_jobs` | `channel` (`webhook`, `email`, `push`), `state` | Jobs de entrega de webhook e de notificação |
+| `skeleton_jobs_due`, `skeleton_jobs_oldest_due_lag_seconds`, `skeleton_jobs_dead` | — | `queue_health()`, o mesmo de `check_jobs` e de `/platform/jobs/` |
+| `skeleton_job_workers` | `state` (`live`, `stale`) | Heartbeats dos workers |
+| `skeleton_queue_metrics_up` | — | 1 quando a coleta leu a fila; 0 quando o banco falhou (o resto da coleta continua) |
+
+As métricas da fila são calculadas **na coleta**, por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Cada coleta faz algumas consultas agregadas sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
+
+**Gunicorn com vários workers (modo multiprocess).** Cada processo tem o próprio histograma de requests. Para somá-los, defina `PROMETHEUS_MULTIPROC_DIR` com um diretório privado e vazio, gravável pelo usuário do web, **antes** de o gunicorn iniciar, e esvazie-o a cada início do serviço:
+
+```sh
+export PROMETHEUS_MULTIPROC_DIR=/run/skeleton-metrics
+rm -rf "$PROMETHEUS_MULTIPROC_DIR" && install -d -m 0700 -o skeleton "$PROMETHEUS_MULTIPROC_DIR"
+gunicorn config.wsgi:application --workers 3
+```
+
+Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
+
+Fora do escopo: dashboards, alertas e métricas por organização.
+
+### Tracing OpenTelemetry (#176)
+
+Instale o extra `[otel]` (SDK, exportador OTLP/HTTP e as instrumentações oficiais de Django e psycopg) e configure-o pelas variáveis padrão do OpenTelemetry, no ambiente do web e do worker. O tracing liga quando há um endpoint e não há `OTEL_SDK_DISABLED=true`:
+
+| Variável | Uso |
+|---|---|
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` ou `OTEL_EXPORTER_OTLP_ENDPOINT` | Coletor OTLP/HTTP (`http://collector:4318`); sem nenhuma das duas, o tracing fica desligado |
+| `OTEL_SERVICE_NAME` | Nome do serviço; padrão `skeleton`. Use nomes diferentes para web e worker |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Amostragem, por exemplo `parentbased_traceidratio` e `0.1` |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Cabeçalhos do coletor. Podem conter credencial: entregue por secret do ambiente, nunca no repositório |
+| `OTEL_PYTHON_DJANGO_EXCLUDED_URLS` | Rotas sem span; padrão `health/live/,health/ready/,metrics` |
+| `OTEL_RESOURCE_ATTRIBUTES` | Atributos do recurso, como `deployment.environment=prod` |
+
+Essas variáveis são lidas pelo SDK direto do ambiente, por isso não fazem parte do catálogo da instância. O núcleo instala a instrumentação em `AppConfig.ready()`, antes de o handler WSGI carregar os middlewares. Com `gunicorn --preload`, o `BatchSpanProcessor` é recriado em cada worker depois do fork.
+
+O que vira span:
+
+- **Request:** um span `SERVER` por request, com nome `<método> <padrão de rota>` (`GET o/<uuid:organization_id>/`), método, rota, status e `skeleton.request_id`, o mesmo UUID do cabeçalho `X-Request-ID` e do log `http.request`. O contexto W3C (`traceparent`) de entrada é respeitado.
+- **Job:** um span `CONSUMER` `job <code>` por execução no worker, com `skeleton.job_id`, `skeleton.job_type`, `skeleton.job_queue`, `skeleton.job_attempt`, `skeleton.job_state` e, na falha, `error.type` (a classe). Cada execução tem `skeleton.request_id` próprio, que também vai nos logs do job.
+- **SQL:** um span `CLIENT` por statement, filho do request ou do job, com `db.system`, `db.name`, a operação (`SELECT`, `INSERT`...) e o `skeleton.request_id` de quem o executou.
+
+Nenhum span leva URL, query string, host, IP ou user agent do cliente, texto SQL, parâmetros SQL, email, nome, corpo, cookie ou cabeçalho. A garantia não depende das instrumentações: o único exportador é `RedactingSpanExporter`, que reconstrói cada span com uma lista fixa de atributos, reduz o nome dos spans de SQL à palavra-chave inicial, mantém dos eventos de exceção só `exception.type` (sem mensagem nem stack trace) e remove a descrição do status. Os comentários SQL (`sqlcommenter`) e a captura de parâmetros ficam desligados. Atributos que você acrescentar num span próprio também passam por essa lista: fora dela, são descartados.
+
+O exportador fala com o coletor que o operador configurou; não é saída controlada por tenant, por isso não passa por `skeleton.common.outbound_http`. Ponha o coletor numa rede privada.
+
+Fora do escopo: o coletor e o backend de traces.
+
+### Sentry (#177)
+
+Instale o extra `[sentry]` e defina `SKELETON_SENTRY_DSN` (setting sensível da instância, cifrado no SQLite) com o DSN do projeto, `https://<chave>@<host>/<projeto>`. Sem o DSN, `sentry_sdk` não é importado nem inicializado; a variável `SENTRY_DSN` do próprio SDK é ignorada, porque o núcleo só chama `sentry_sdk.init` com `SKELETON_SENTRY_DSN`. `SENTRY_ENVIRONMENT` e `SENTRY_RELEASE` continuam lidos pelo SDK do ambiente.
+
+O SDK é iniciado com `send_default_pii=False`, `max_request_body_size="never"` (o corpo nunca é lido), sem variáveis locais nem linhas de código-fonte, sem sessões e sem performance monitoring (traces são do OpenTelemetry). A integração do Django agrupa os erros pelo padrão de rota (`transaction_style="url"`).
+
+Um `before_send` reconstrói cada evento por lista fixa, a mesma regra dos logs JSON (`skeleton.common.logging`):
+
+| Sai | Não sai |
+|---|---|
+| Tipo e módulo de cada exceção; frames com nome do arquivo sem diretório, linha, função e módulo, no máximo 25, como o `error_stack` dos logs | Mensagem da exceção, variáveis locais, linhas de código, caminho absoluto |
+| Nome do evento de log (`job.dead`, `health.probe_failed`) e os campos estruturados que os logs aceitam (`safe_fields`: `status`, `reason_code`, `outcome`, `target_sysid` válido...) | Texto e parâmetros da mensagem de log, `extra` arbitrário, contexto de segurança |
+| Método HTTP e padrão de rota | URL, query string, cabeçalhos, `Authorization`, cookies, corpo, IP, user agent |
+| Tag `skeleton.request_id`, o mesmo UUID do `X-Request-ID` e dos logs | Usuário (`user`), tags arbitrárias |
+| IDs de trace, nome e versão do runtime, `environment`, `release`, `server_name` | Threads, módulos instalados, outros contextos |
+| Tipo, categoria, nível e hora dos breadcrumbs | Mensagem (SQL, texto de log) e dados (parâmetros, URLs) dos breadcrumbs |
+
+Os eventos de log `ERROR` (como `job.dead`) também viram eventos no Sentry, pela integração de logging do SDK, com o mesmo tratamento. O SDK envia ao host do DSN, configurado pelo operador, e não passa por `skeleton.common.outbound_http`.
+
+Fora do escopo: performance monitoring do Sentry.
 
 ## Instalações antigas com SQLite
 
