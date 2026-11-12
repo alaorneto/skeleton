@@ -204,12 +204,15 @@ def _page_links(rows, validated_filters):
 
 
 def form_error(form, error):
-    from skeleton.accounts.platform import LastPlatformAdministrator
+    """Put an internal error on the form and return the status (#325: shared classification)."""
+    from skeleton.service_api.internal_errors import classify
 
-    if isinstance(error, access_services.LastAdministrator):
+    internal = classify(error)
+    code = internal.code if internal is not None else None
+    if code == "last_administrator":
         form.add_error(None, gettext("A organização precisa manter ao menos um administrador ativo."))
         return 409
-    if isinstance(error, LastPlatformAdministrator):
+    if code == "last_platform_administrator":
         form.add_error(None, gettext("A plataforma precisa manter ao menos um administrador ativo."))
         return 409
     if isinstance(error, ValidationError):
@@ -218,12 +221,10 @@ def form_error(form, error):
                 form.add_error(field if field in form.fields else None, errors)
         else:
             form.add_error(None, error.messages)
-        from skeleton.api.errors import validation_conflict
-
-        return 409 if validation_conflict(error) else 400
-    if isinstance(error, ConcurrentUpdate):
+        return 409 if code == "integrity_conflict" else 400
+    if code == "stale_revision":
         form.add_error(None, gettext("O registro foi alterado. Atualize a página antes de tentar novamente."))
-    elif isinstance(error, LiveReferencesExist):
+    elif code == "live_references":
         form.add_error(None, gettext("Existem vínculos ativos. Revogue-os antes de remover."))
     else:
         form.add_error(None, gettext("A operação conflita com os dados existentes."))

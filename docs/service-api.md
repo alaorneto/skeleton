@@ -131,11 +131,13 @@ Os erros públicos ficam em `skeleton.service_api.errors` ([#97](https://github.
 | `NotFound` | Alvo inexistente, de outra organização ou não legível | 404 |
 | `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto | 403 |
 | `InvalidInput(errors)` | Validação de campos; `errors` mapeia campo → mensagens | 400 |
-| `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade, último admin, cota | 409 |
+| `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade (`integrity_conflict`), vínculos ativos (`live_references`), último admin (`last_administrator`, `last_platform_administrator`), cota | 409 |
 | `Unavailable` | App provedora desativada, indisponível ou não instalada na organização | 404 |
 | `ContextRequired` | Chamada sem o contexto exigido | 500 (erro de programação) |
 
 O consumidor trata `Unavailable` como "integração desligada": esconde a funcionalidade, sem falhar a operação principal.
+
+A classificação das exceções internas (revisão, vínculos, último administrador, validação, integridade, contexto) fica num lugar só, `skeleton.service_api.internal_errors.classify`, compartilhado pela API de serviços, pela REST e pelos formulários HTML; cada superfície mantém a própria apresentação (status, `code`, mensagem) (#325).
 
 ## Transações, efeitos e idempotência
 

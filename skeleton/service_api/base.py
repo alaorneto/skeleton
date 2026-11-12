@@ -15,12 +15,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar, ParamSpec, TypeVar
 
-from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
-from django.db import IntegrityError
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import Http404
 from django.utils.translation import gettext
 
-from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist, MissingTenantContext
 from skeleton.tenancy.context import current_context
 
 from .errors import Conflict, ContextRequired, Forbidden, InvalidInput, NotFound, ServiceError, Unavailable
@@ -114,38 +112,25 @@ def _require_provider(app_label: str) -> None:
         raise Unavailable() from None
 
 
-def _validation_error(exc: ValidationError) -> ServiceError:
-    errors = (
-        [item for values in exc.error_dict.values() for item in values]
-        if hasattr(exc, "error_dict")
-        else exc.error_list
-    )
-    if any(item.code in {"unique", "unique_together"} for item in errors):
-        return Conflict("integrity_conflict")
-    if hasattr(exc, "error_dict"):
-        return InvalidInput(exc.message_dict)
-    return InvalidInput({"non_field_errors": exc.messages})
-
-
 def _translate(exc: Exception) -> ServiceError | None:
-    from skeleton.access.services import LastAdministrator
+    """The public error for an internal exception; ``None`` lets it propagate unchanged.
 
-    if isinstance(exc, ConcurrentUpdate):
-        return Conflict("stale_revision")
-    if isinstance(exc, LiveReferencesExist):
-        return Conflict("live_references")
-    if isinstance(exc, LastAdministrator):
-        return Conflict("last_administrator")
-    if isinstance(exc, ValidationError):
-        return _validation_error(exc)
-    if isinstance(exc, IntegrityError):
-        return Conflict("integrity_conflict")
+    The classification is shared with the REST and the forms (``internal_errors``, #325); only
+    "not found" and "forbidden" are decided here, because each surface answers them its own way.
+    """
+    from .internal_errors import classify
+
+    internal = classify(exc)
+    if internal is not None:
+        if internal.kind == "conflict":
+            return Conflict(internal.code)
+        if internal.kind == "invalid":
+            return InvalidInput(internal.fields or {})
+        return ContextRequired()
     if isinstance(exc, ObjectDoesNotExist | Http404):
         return NotFound()
-    if isinstance(exc, PermissionDenied):
+    if isinstance(exc, PermissionDenied):  # ApplicationUnavailable included, as before.
         return Forbidden()
-    if isinstance(exc, MissingTenantContext):
-        return ContextRequired()
     return None
 
 
