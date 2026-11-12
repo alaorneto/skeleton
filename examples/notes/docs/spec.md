@@ -27,3 +27,12 @@ Os critérios abaixo descrevem comportamentos observáveis, não resultados de t
 - Duas alterações com a mesma revisão não vencem ambas. Uma restauração que colide com um código vivo retorna conflito sem substituir o outro registro.
 - `NoteService` passa em `assert_service_contract` e, em SQLite e PostgreSQL com a role runtime, nega por padrão, isola A/B, responde `Unavailable` com a app desativada, recusa ator divergente e tem um único vencedor no CAS.
 - O check estático exige `spec.md`, `adr.md` e `service-api.md` com as seções obrigatórias (E012) e a API declarada bem formada (E018). Ele verifica o contrato documental, não substitui os testes de isolamento, autorização e concorrência.
+
+## Fluxo de publicação
+
+A app declara o fluxo `example_notes.publication` em `flows.py` e o registra no `ready()`. O registro de negócio é a própria anotação. Etapas: preparação pelo autor (formulário com público, resumo e uma observação sensível), gateway exclusivo pelo público, revisão única para público interno (papel `organization_admin`), duas revisões em paralelo para público externo (papéis `note_reviewer` e `organization_admin`, com junção), devolução ao autor em caso de rejeição, etapa de serviço que registra a publicação e os fins `published` e `withdrawn`.
+
+- Iniciar exige ler e alterar a anotação (`NoteService.request_publication`); a página da app e `POST /api/v1/o/<org>/apps/example_notes/publication/` chamam o serviço.
+- Tarefas e aprovações acontecem nas superfícies do núcleo (`/o/<org>/flows/tasks/`).
+- A observação reservada é campo sensível: não aparece na auditoria, em eventos, em notificações nem nos DTOs da app.
+- Sem o papel `note_reviewer` na organização, a tarefa de conteúdo nasce sem responsável e o administrador a reatribui.

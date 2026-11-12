@@ -1,0 +1,16 @@
+{% extends 'skeleton/web/base.html' %}{% block title %}Tarefas · Skeleton{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Fluxos de processo</p><h1>Tarefas</h1><p class="page-description">Tarefas e aprovações dos processos desta organização. Cada ação é revalidada no servidor.</p></div>
+  <div class="toolbar">{% for key, label in scopes.items %}{% if key == scope %}<span class="badge badge-brand">{{ label }}</span>{% else %}<a class="btn btn-secondary btn-sm" href="?scope={{ key }}">{{ label }}</a>{% endif %}{% endfor %}<a class="btn btn-secondary btn-sm" href="{% url 'flows:instances' organization_id %}">Processos</a></div>
+</div>
+<div class="table-scroll"><table><thead><tr><th scope="col">Tarefa</th><th scope="col">Processo</th><th scope="col">Estado</th><th scope="col">Prazo</th><th scope="col">Criada em</th></tr></thead><tbody>
+{% for task in page.items %}<tr>
+  <td><a class="font-medium text-heading" href="{% url 'flows:task' organization_id task.sysid %}">{{ task.step_label }}</a>{% if task.kind == "approval" %} <span class="badge">aprovação</span>{% endif %}</td>
+  <td><a href="{% url 'flows:instance' organization_id task.instance_id %}">{{ task.flow_label }}{% if task.number %} {{ task.number }}{% endif %}</a></td>
+  <td>{% if task.status == "open" %}{% if task.assignee_id %}<span class="badge badge-warning">Aberta</span>{% else %}<span class="badge">Na fila</span>{% endif %}{% elif task.status == "completed" %}<span class="badge badge-success">Concluída</span>{% else %}<span class="badge">Cancelada</span>{% endif %}</td>
+  <td class="whitespace-nowrap!">{{ task.due_at|default_if_none:"—" }}</td>
+  <td class="whitespace-nowrap!">{{ task.created_at }}</td>
+</tr>{% empty %}<tr><td colspan="5" class="empty-state">Nenhuma tarefa.</td></tr>{% endfor %}
+</tbody></table></div>
+{% if page.next_cursor %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="?scope={{ scope }}&amp;cursor={{ page.next_cursor }}">Mais tarefas</a></p>{% endif %}
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends 'skeleton/web/base.html' %}{% block title %}Processos · Skeleton{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Fluxos de processo</p><h1>Processos</h1><p class="page-description">Instâncias de fluxo que você pode ver: as dos registros que você lê, as que você iniciou e as em que você tem tarefas.</p></div>
+  <div class="toolbar"><a class="btn btn-secondary btn-sm" href="{% url 'flows:tasks' organization_id %}">Tarefas</a></div>
+</div>
+<div class="table-scroll"><table><thead><tr><th scope="col">Processo</th><th scope="col">Estado</th><th scope="col">Etapas ativas</th><th scope="col">Iniciado em</th></tr></thead><tbody>
+{% for instance in page.items %}<tr>
+  <td><a class="font-medium text-heading" href="{% url 'flows:instance' organization_id instance.sysid %}">{{ instance.label }}{% if instance.number %} {{ instance.number }}{% endif %}</a><br><code class="uuid">{{ instance.subject_id }}</code></td>
+  <td><span class="badge">{{ instance.status }}</span>{% if instance.outcome %} <span class="badge badge-success">{{ instance.outcome }}</span>{% endif %}</td>
+  <td>{% for step in instance.active_steps %}<span class="badge">{{ step.label }}</span> {% empty %}—{% endfor %}</td>
+  <td class="whitespace-nowrap!">{{ instance.created_at }}</td>
+</tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhum processo.</td></tr>{% endfor %}
+</tbody></table></div>
+{% if page.next_cursor %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="?cursor={{ page.next_cursor }}">Mais processos</a></p>{% endif %}
+{% endblock %}

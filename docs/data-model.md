@@ -92,6 +92,21 @@ Criar uma organização também é uma unidade transacional: `create_organizatio
 `sk_system.0005_deploymentoperation_lifecycle` acrescenta `reinstall` e `core_update` ao contrato de operação, sem alterar colunas/infraestrutura da migration anterior. Falha de migration conserva o modo de manutenção; recuperação offline reconciliada aparece como `restored` no histórico.
 
 
+## Fluxos de processo
+
+As seis tabelas de `sk_flows` (`sk_flows.0001_initial`) derivam de `OrganizationRecord`, com relações `PROTECT` de mesmo tenant e infraestrutura congelada na migration. Nenhuma entra no gateway genérico: só os serviços de `skeleton.flows` as escrevem, e a autorização é derivada do registro de negócio e da participação. Detalhe em [fluxos](flows.md#modelo-de-dados).
+
+| Modelo | Campos próprios | Unicidade/regras |
+|---|---|---|
+| FlowDefinition | key, version, app_label, label, digest, specification (JSON) | UNIQUE(org,key,version); todos os campos imutáveis: uma versão publicada nunca muda |
+| FlowInstance | definition, flow_key, flow_version, number, subject_table, subject_sysid, status, outcome, starter, data, sensitive_data, idempotency_key, run_count, activity_count, finished_at | Uma instância ativa (`running`/`suspended`) por fluxo e registro de negócio; chave de idempotência única por fluxo; `sensitive_data` redigido na auditoria; `subject_table` + `subject_sysid` não é `GenericForeignKey`: o serviço resolve o modelo no registro em código |
+| FlowStepRun | instance, step_key, kind, status, sequence, scope, branch, via, outcome, state, due_at, finished_at | UNIQUE(instance,sequence); `scope` aponta para a ativação da bifurcação que criou o ramo |
+| FlowTask | instance, step_run, step_key, kind, status, slot, assignee, candidate_group, candidate_role, delegated_from, decision, action, comment, due_at, reminded_count, escalated_at, completed_by, completed_at | No máximo uma fila (grupo ou papel); a fila é limpa quando a tarefa fecha, para só tarefas abertas impedirem a remoção de um grupo ou papel; `comment` redigido na auditoria |
+| FlowSubmission | instance, step_run, task, step_key, transition_key, origin, values, sensitive_values | Todos os campos imutáveis; `sensitive_values` redigido na auditoria |
+| FlowActivity | instance, sequence, kind, step_key, step_run, task, detail, comment | UNIQUE(instance,sequence); todos os campos imutáveis; `comment` redigido na auditoria |
+
+Essas tabelas são dado de negócio, não estado de pipeline: têm revisão, exclusão lógica e auditoria por linha. O que é operacional (timers, retentativas, entregas) usa a fila de jobs.
+
 ## Tabelas operacionais (ADR)
 
 **Contexto.** Fila de jobs, outbox de eventos, entregas e estado de leitura de notificações mudam a cada claim, heartbeat ou leitura. Com `SystemRecord`, cada UPDATE geraria um `AuditEvent`, e a role runtime não tem DELETE: essas tabelas cresceriam para sempre e inflariam a auditoria.
