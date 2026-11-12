@@ -15,6 +15,8 @@ def ready(self):
     )
 ```
 
+`skeleton.sequences.registry` é superfície pública do núcleo para registrar em `ready()`; numerar é sempre pelo `SequenceService`.
+
 | Campo | Valores |
 |---|---|
 | `key` | `app_label.nome`, até 100 caracteres |

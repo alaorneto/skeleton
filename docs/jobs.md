@@ -48,13 +48,15 @@ O check `skeleton.E021` reprova código duplicado, handler que não é chamável
 
 ## Enfileirar
 
-```python
-from skeleton.jobs.services import enqueue
+Apps enfileiram pelo `JobService` ([API de serviços](service-api.md#jobservice-e-eventservice)): o tipo precisa pertencer à app chamadora e a organização é a do contexto.
 
-receipt = enqueue(
-    "tasks.remind",
-    organization_id=org_id,
-    payload={"task_id": str(task.pk)},
+```python
+from skeleton.service_api.jobs import JobService
+
+receipt = JobService().enqueue(
+    actor=request.user,
+    job_type="tasks.remind",
+    payload=(("task_id", str(task.pk)),),
     idempotency_key=f"remind:{task.pk}:{task.revision}",
 )
 ```
@@ -68,6 +70,8 @@ receipt = enqueue(
 | `run_as="actor"` sem ator ou sem organização | `ValidationError` |
 | `idempotency_key` repetida para o mesmo tipo e organização | devolve o job existente (`created=False`), inserido em savepoint |
 | A mesma chave usada por outra organização | `ValidationError`, sem revelar o job alheio |
+
+A função interna do núcleo é `skeleton.jobs.services.enqueue(code, *, organization_id=None, …)`; apps não a importam. A tabela acima descreve a função interna; o serviço devolve `Forbidden` para tipo de outra app e `InvalidInput` para as recusas de validação.
 
 O recibo (`JobReceipt`) traz `id`, `job_type`, `state`, `run_after` e `created`, nunca o payload.
 
