@@ -1,5 +1,6 @@
 """Finding-specific regressions exercising allauth and configured provider boundaries."""
 
+import dataclasses
 import json
 from io import StringIO
 
@@ -123,6 +124,7 @@ def test_sp04_client_identity_changes_fingerprint(tmp_path, monkeypatch, protoco
     if protocol == "github":
         document["provider_id"] = "github"
         document["app"]["settings"] = {}
+        document.pop("jit_provisioning")
     elif protocol == "saml":
         document["app"]["settings"] = {
             "idp": {"entity_id": "https://idp.example.test", "x509cert": "public-certificate"}
@@ -310,3 +312,99 @@ def test_jit_confirmation_does_not_readmit_who_left(skeleton_db, tmp_path, monke
     with tenant_context(organization_id=organization.pk, actor=admin, source="test:jit-leave-observe"):
         assert not Membership.objects.filter(user=user).exists()
         assert Membership.objects.with_deleted().get(user=user).deleted_at is not None
+
+
+@pytest.mark.parametrize("protocol", ["oidc", "saml"])
+@pytest.mark.parametrize("role", ["organization_admin", "people_manager", "app_manager"])
+def test_default_role_with_capabilities_is_refused_at_load(tmp_path, monkeypatch, protocol, role):
+    document = entry()
+    document["protocol"] = protocol
+    document["default_role_code"] = role
+    if protocol == "saml":
+        document["app"]["settings"] = {
+            "idp": {"entity_id": "https://idp.example.test", "x509cert": "public-certificate"}
+        }
+    with pytest.raises(ImproperlyConfigured) as raised:
+        load(tmp_path, monkeypatch, document)
+    assert "capabilities" in str(raised.value) and "fixture-client-secret" not in str(raised.value)
+
+
+@pytest.mark.parametrize("role", [None, "member", "custom_reader"])
+def test_default_role_without_capabilities_still_loads(tmp_path, monkeypatch, role):
+    document = entry()
+    if role is not None:
+        document["default_role_code"] = role
+    assert load(tmp_path, monkeypatch, document).bindings[0].default_role_code == (role or "member")
+
+
+def test_github_cannot_provision_memberships_automatically(tmp_path, monkeypatch):
+    document = entry()
+    document.update(protocol="github", provider_id="github")
+    document["app"]["settings"] = {}
+    with pytest.raises(ImproperlyConfigured, match="GitHub"):
+        load(tmp_path, monkeypatch, document)
+    for jit in (False, None):
+        safe = json.loads(json.dumps(document))
+        if jit is None:
+            safe.pop("jit_provisioning")
+        else:
+            safe["jit_provisioning"] = jit
+        assert load(tmp_path, monkeypatch, safe).bindings[0].protocol == "github"
+        safe.pop("organization_slug")
+        assert load(tmp_path, monkeypatch, safe).bindings[0].organization_slug is None
+
+
+def test_binding_whose_file_role_carries_capabilities_is_denied(skeleton_db, tmp_path, monkeypatch):
+    from allauth.core.exceptions import ImmediateHttpResponse
+
+    from skeleton.access.models import Role
+
+    configuration = load(tmp_path, monkeypatch)
+    _, organization = bootstrap_identity(
+        email="owner-role@example.test", organization="acme", name="Acme", password="Fixture-password-2026!"
+    )
+    binding = configuration.bindings[0]
+    with system_context(reason="test:privileged-file-role", organization_id=organization.pk):
+        member = Role.objects.get(code="member")
+    with override_settings(SKELETON_PROVIDER_CONFIGURATION=configuration):
+        assert SocialAccountAdapter()._resolve_binding(binding)[1].pk == member.pk
+        privileged = dataclasses.replace(binding, default_role_code="organization_admin")
+        with pytest.raises(ImmediateHttpResponse):
+            SocialAccountAdapter()._resolve_binding(privileged)
+
+
+def test_email_confirmation_survives_a_pending_admission_that_became_impossible(skeleton_db, tmp_path, monkeypatch):
+    from allauth.account.models import EmailAddress
+    from allauth.socialaccount.models import SocialAccount
+
+    from skeleton.accounts.services import create_identity
+    from skeleton.tenancy.models import Membership, Organization
+
+    configuration = load(tmp_path, monkeypatch)
+    _, organization = bootstrap_identity(
+        email="owner-gone@example.test", organization="acme", name="Acme", password="Fixture-password-2026!"
+    )
+    with system_context(reason="test:pending-impossible"):
+        user = create_identity(email="pending-gone@example.test", password=None)
+        address = EmailAddress.objects.create(user=user, email=user.email, primary=True, verified=False)
+        SocialAccount.objects.create(
+            user=user,
+            provider="acme",
+            uid="pending-gone-subject",
+            extra_data={
+                "skeleton_binding": configuration.bindings[0].fingerprint,
+                "skeleton_pending_email": user.email,
+            },
+        )
+        Organization.objects.filter(pk=organization.pk).update(is_active=False)
+    req = request()
+    with (
+        override_settings(
+            SKELETON_PROVIDER_CONFIGURATION=configuration, SOCIALACCOUNT_PROVIDERS=configuration.settings
+        ),
+        context.request_context(req),
+    ):
+        assert AccountAdapter().confirm_email(req, address)
+    assert EmailAddress.objects.get(pk=address.pk).verified
+    with system_context(reason="test:pending-impossible-observe", organization_id=organization.pk):
+        assert not Membership.objects.with_deleted().filter(user=user).exists()

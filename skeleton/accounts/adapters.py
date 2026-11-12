@@ -1,5 +1,7 @@
 """Admission decisions live in adapters, not race-prone social signals."""
 
+import logging
+
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.mfa.adapter import DefaultMFAAdapter
@@ -13,6 +15,7 @@ from django.utils.translation import gettext
 from skeleton.accounts.mfa import cipher
 from skeleton.accounts.providers import admission_for, binding_for_sociallogin
 from skeleton.accounts.services import ensure_profile, normalized_email, password_allowed
+from skeleton.common.logging import security_event
 from skeleton.tenancy.invitations import accept_invitation, pending_invitation
 
 
@@ -124,7 +127,12 @@ class AccountAdapter(DefaultAccountAdapter):
                         and account.extra_data.get("skeleton_binding") == binding.fingerprint
                     ):
                         continue
-                    organization, role = SocialAccountAdapter()._resolve_binding(binding)
+                    target = SocialAccountAdapter()._binding_target(binding)
+                    if target is None:
+                        # The admission is no longer possible; the email confirmation itself must not fail.
+                        security_event("sso.jit_admission_skipped", level=logging.WARNING, target_sysid=str(user.pk))
+                        continue
+                    organization, role = target
                     with system_context(reason="sso:validated", organization_id=organization.pk):
                         Organization.objects.select_for_update().get(pk=organization.pk)
                         # A pending initial admission is not authority to undo local offboarding.
@@ -257,24 +265,35 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             # validated, recently authenticated flow can set this provider ID.
             request.session["skeleton_govbr_logout_provider"] = binding.provider_id
 
-    def _resolve_binding(self, binding):
+    def _binding_target(self, binding):
+        """Organization and default role of a binding, or None when it cannot admit anyone now."""
+        from skeleton.access.capabilities import privileged_role
         from skeleton.access.models import Role
         from skeleton.tenancy.context import system_context
         from skeleton.tenancy.models import Organization
 
         organization = Organization.objects.filter(slug=binding.organization_slug, is_active=True).first()
         if organization is None:
-            _deny()
+            return None
         admission = admission_for(binding)
         with system_context(reason="sso:validated", organization_id=organization.pk):
             # The role comes from the organization's rules or the file, never from a claim.
             if admission.default_role_id is not None:
+                # Chosen in the organization's admission rules by someone with access.manage (#31).
                 role = Role.objects.filter(pk=admission.default_role_id).first()
             else:
                 role = Role.objects.filter(code=admission.default_role_code).first()
+                if role is not None and privileged_role(role):
+                    role = None  # A file binding never hands out an administrative capability (#228).
             if role is None:
-                _deny()
+                return None
             return organization, role
+
+    def _resolve_binding(self, binding):
+        target = self._binding_target(binding)
+        if target is None:
+            _deny()
+        return target
 
     def save_user(self, request, sociallogin, form=None):
         binding = binding_for_sociallogin(sociallogin)

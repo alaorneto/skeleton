@@ -169,9 +169,17 @@ def load_provider_config(path=None, *, debug=False):
         for flag in ("jit_provisioning", "trust_verified_email"):
             if flag in entry and type(entry[flag]) is not bool:
                 raise ImproperlyConfigured(f"{flag} must be boolean.")
+        if protocol == "github" and entry.get("jit_provisioning", False):
+            raise ImproperlyConfigured(
+                "GitHub is a public identity provider and cannot provision memberships automatically."
+            )
         role = entry.get("default_role_code", "member")
         if not isinstance(role, str) or not role:
             raise ImproperlyConfigured("default_role_code is required.")
+        from skeleton.access.capabilities import BUILTIN_ROLES  # Pure registry: no models at settings time.
+
+        if role in BUILTIN_ROLES and BUILTIN_ROLES[role].capabilities:
+            raise ImproperlyConfigured("default_role_code cannot be a role that carries administrative capabilities.")
         app = deepcopy(entry.get("app"))
         if not isinstance(app, dict) or set(app) - {"name", "client_id", "secret_env", "settings"}:
             raise ImproperlyConfigured("Provider app requires declared allauth APPS fields.")
