@@ -48,6 +48,13 @@ def _existing(queryset, key):
     return rows
 
 
+def _installed_model(model):
+    try:
+        return apps.get_model(model._meta.app_label, model._meta.model_name)
+    except LookupError:
+        return None
+
+
 def sync_table_catalog(*, using="default", apps_registry=None):
     from skeleton.tenancy.models import Organization
 
@@ -75,6 +82,10 @@ def sync_table_catalog(*, using="default", apps_registry=None):
     known = {}
     for model in registry.get_models(include_auto_created=True):
         if not model._meta.proxy and not model._meta.swapped:
+            if registry is not apps and model._meta.auto_created:
+                # Historical m2m tables take DEFAULT_AUTO_FIELD, not their app's default_auto_field
+                # (auth uses AutoField): describe them with the installed model when it exists.
+                model = _installed_model(model) or model
             known.setdefault(model._meta.db_table, model)
     for spec in retained_specs:
         known[spec.model._meta.db_table] = spec.model
@@ -108,7 +119,8 @@ def sync_table_catalog(*, using="default", apps_registry=None):
             uuid_managed = bool(
                 model and model._meta.pk.get_internal_type() == "UUIDField" and model._meta.pk.name == "sysid"
             )
-            operational = bool(model and getattr(model, "lifecycle", None) == "operational")
+            # From the spec's model: historical models (post_migrate) do not keep class attributes.
+            operational = bool(spec and getattr(spec.model, "lifecycle", None) == "operational")
             base_class = (
                 "OperationalRecord"
                 if is_owned and operational

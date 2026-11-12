@@ -25,8 +25,6 @@ def _catalog():
 def test_unchanged_catalog_is_read_in_two_queries_and_not_written(skeleton_db):
     from skeleton.system.synchronization import sync_table_catalog
 
-    # post_migrate wrote the rows from historical models; the first runtime sync settles them.
-    sync_table_catalog()
     before = _catalog()
     with CaptureQueriesContext(connection) as queries:
         result = sync_table_catalog()
@@ -103,3 +101,44 @@ def test_new_changed_and_removed_tables_and_columns_are_reconciled(skeleton_db, 
     assert back[PROBE, "id"][0] == fields[PROBE, "id"][0] and back[PROBE, "id"][2] is True
     assert back[PROBE, "note"][2] is True and back[PROBE, "extra"][2] is False
     assert {name: row for name, row in tables.items() if name != PROBE} == untouched_tables
+
+
+OPERATIONAL = {
+    "sk_events_domainevent",
+    "sk_files_storageusage",
+    "sk_integrations_apitokenactivity",
+    "sk_integrations_webhookdelivery",
+    "sk_integrations_webhookendpointhealth",
+    "sk_jobs_job",
+    "sk_jobs_workerheartbeat",
+    "sk_notifications_notification",
+    "sk_notifications_notificationdelivery",
+    "sk_notifications_notificationrecipient",
+}
+
+
+def test_catalog_written_by_migrate_is_the_runtime_catalog(skeleton_db):
+    """post_migrate sees historical models, without ``lifecycle`` or the app's default auto field (#349)."""
+    from django.apps import apps
+
+    from skeleton.system.models import FieldDefinition, TableDefinition
+    from skeleton.system.synchronization import sync_table_catalog
+    from skeleton.tenancy.context import system_context
+
+    # The schema of this test was migrated once and restored: the catalog is the one migrate wrote.
+    with system_context(reason="test:catalog"):
+        rows = {row.db_table: row for row in TableDefinition.all_objects.all()}
+        group_permissions = FieldDefinition.all_objects.get(table__db_table="auth_group_permissions", column="id")
+    operational = {
+        model._meta.db_table for model in apps.get_models() if getattr(model, "lifecycle", None) == "operational"
+    }
+    assert operational >= OPERATIONAL, "The list above names the operational tables this test guards."
+    for name in operational:
+        row = rows[name]
+        assert (row.base_class, row.soft_delete, row.audit_mode) == ("OperationalRecord", False, "operational"), name
+    assert group_permissions.type_name == "AutoField"
+
+    with CaptureQueriesContext(connection) as queries:
+        sync_table_catalog()
+    writes = [query["sql"] for query in queries if query["sql"].lstrip().upper().startswith(("INSERT", "UPDATE"))]
+    assert writes == [], f"{len(writes)} catalog rows differed from what migrate wrote."
