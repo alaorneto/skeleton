@@ -148,6 +148,18 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - Suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
 - Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
 
+**#174, validação dos catálogos:**
+
+- `tests/integration/test_i18n_coverage.py`: 4 passed. O teste troca o gettext por uma pseudotradução que marca cada mensagem com `⟦…⟧` e renderiza as páginas-chave para três perfis:
+  - o admin da organização: painel, catálogo, auditoria, configurações, apps, webhooks, contas de serviço, recursos de acesso, perfil e início;
+  - o admin da plataforma: visão geral, organizações, usuários, auditoria, jobs e apps;
+  - o visitante: login e recuperação de senha.
+- O teste falha se sobrar texto fora das marcas, descontados os dados do cenário: nomes, emails, papéis, manifestos, fusos, endônimos de idioma e códigos crus.
+- O caso negativo (texto fixo e atributo) é detectado.
+- A rodada achou rótulos que tinham escapado e que foram corrigidos no commit seguinte ao #171: `TextChoices`, palavras soltas, `yesno`/`default_if_none` e as colunas dos recursos de acesso.
+- Suíte completa com as correções: 1294 passed, 111 skipped. Agenda: 59 passed.
+- `tools/i18n_check.py` (`makemessages` e `msgfmt --check-format`) entrou no job estático do CI, que instala o `gettext`. Não rodou localmente porque o Windows desta rodada não tem GNU gettext; a evidência é o CI.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:
