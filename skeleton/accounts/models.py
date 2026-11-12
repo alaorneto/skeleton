@@ -173,6 +173,9 @@ class IdentityProvider(SystemRecord):
     private_key = EncryptedTextField(null=True, blank=True)
     last_check_at = models.DateTimeField(null=True, blank=True)
     last_check_code = models.CharField(max_length=40, blank=True, default="")
+    # Directory sync of LDAP providers (#33): counts and codes only, never directory data.
+    last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_sync_code = models.CharField(max_length=40, blank=True, default="")
     immutable_fields = (
         "provider_id",
         "protocol",

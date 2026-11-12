@@ -183,6 +183,17 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 - Os testes com contêiner OpenLDAP em `tests/sso/` não rodaram: não há Docker neste ambiente. A MFA no fluxo LDAP é a etapa padrão do allauth e não ganhou teste próprio.
 - `ldap3` e `pyasn1` nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package ldap3`.
 
+**#33, sincronização do diretório LDAP:**
+
+- `python -m pytest tests/accounts/test_ldap_sync.py -q`: 6 passed, contra o diretório simulado do `ldap3` (`MOCK_SYNC`, busca paginada). Cobrem:
+  - `--dry-run` relata a desativação e não grava nada (nem `last_sync_*`);
+  - desativação só na organização do provedor (o vínculo da mesma pessoa em outra organização fica), `last_sync_code=ok`, segunda rodada sem mudança e quem volta ao diretório continua desativado;
+  - diretório vazio e diretório inalcançável abortam com erro de comando e sem desativar ninguém;
+  - acima de `--max-deactivations`, a organização aborta sem gravar;
+  - o último administrador é pulado e reportado;
+  - `--provision` desligado por padrão e sem efeito com JIT desligado; com JIT admite só quem nunca foi membro, nunca um ex-membro; com aprovação cria `JoinRequest(channel=sso)`.
+- Sem Docker, os testes com OpenLDAP real em `tests/sso/` não rodaram.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
