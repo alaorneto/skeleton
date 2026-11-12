@@ -86,6 +86,39 @@ Estabilidade: dez rodadas paralelas completas sem nenhuma falha (as três da rod
 
 **Não verificado:** o CI com as fatias (primeiro PR), em especial `POSTGRES_INITDB_ARGS` com `-c` no container `postgres:16.15`; os testes `posix` e o Linux.
 
+## Configurações e marca da organização (epic #90)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#167, configurações da organização:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1250 passed, 111 skipped.
+- `tests/integration/test_organization_settings.py` (12) e `tests/integration/test_core_organization_service.py` (4): 16 passed. Cobrem:
+  - revisão virtual 0;
+  - CAS na primeira gravação e nas seguintes;
+  - só o administrador grava (membro recebe `Forbidden` e 403 na página; outra organização recebe 404);
+  - validação de idioma, fuso, cor e tamanho do nome;
+  - isolamento A/B;
+  - auditoria de create e update com `logo_key` redigido;
+  - campo extra no POST recusado com 400.
+- `tests/integration_postgres/test_organization_settings_schema.py`: 4 passed. RLS forçada, policy de tenant e triggers instalados; sem o guard, sem o trigger de auditoria ou sem a policy de tenant, `check_deployed_schema` falha.
+- Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#168, logo e cor da organização:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1280 passed, 111 skipped. A rodada usou um PostgreSQL só deste worktree, enquanto outras suítes rodavam em servidores próprios.
+- `tests/unit/test_branding_palette.py`, `tests/integration/test_organization_branding.py` e `tests/integration/test_organization_settings.py`: 42 passed. Cobrem:
+  - contraste WCAG contra valores de referência;
+  - cores abaixo de AA recusadas e a paleta mantendo AA nos dois temas;
+  - CSS só com hex;
+  - o logo inline só para membros (outra organização recebe 404, sem login há redirecionamento), com `private`, `nosniff`, ETag e 304;
+  - recusa de SVG (também disfarçado de PNG), de GIF, de nome e conteúdo divergentes e de arquivos acima de 512 KB;
+  - a troca e a remoção apagando o objeto anterior depois do commit, com CAS;
+  - a marca aplicada só nas telas da própria organização;
+  - `files.orphans` mantendo o logo atual e removendo objetos de logo abandonados.
+- `npm run check`, Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+- Não verificado: o smoke visual no navegador, porque a renderização da marca foi provada pelo HTML nos testes de integração.
+
 ## Observabilidade (epic #87)
 
 Rodada de 2026-11-11 na branch `feat/87-observability`, um commit por issue. Somente o que rodou.

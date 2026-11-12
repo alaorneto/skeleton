@@ -220,7 +220,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
-| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member` | [#103](https://github.com/alaorneto/skeleton/issues/103) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure`, `my_configuration` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
@@ -257,6 +257,10 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
 | `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
 | `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
+| `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
+| `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
+
+As configurações começam em branco com `revision=0` e passam a existir na primeira gravação; valores em branco significam "use o padrão da instância", e `has_logo` diz se há logo sem revelar a chave do storage.
 
 O diretório traz só vínculos ativos de identidades ativas da organização atual, busca por nome de exibição ou nome, e deixa de fora as contas de serviço (#44). Administrar vínculos continua nos serviços de acesso.
 
