@@ -125,3 +125,43 @@ def test_without_organization_only_the_platform_reads_global_events(scenario):
     with request_context(actor=scenario.admin_a, request_id=uuid4(), source="test:service-api"):
         with pytest.raises(Forbidden):
             service.events(actor=scenario.admin_a)
+
+
+@pytest.mark.needs_example_app
+def test_non_admin_auditor_does_not_see_infrastructure_fields(scenario):
+    """Database role and physical table name are only for administrators (#324)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="INF-1", title="Visible")
+    service = AuditLogService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        log = service.events(actor=actor, model_label=TABLE)
+        single = service.event(actor=actor, event_id=log.items[0].sysid)
+    for event in (*log.items, single):
+        assert (event.db_principal, event.table_name) == ("", "")
+        assert event.model_label == TABLE and event.record_sysid == note.pk and event.operation == "create"
+
+
+@pytest.mark.needs_example_app
+def test_organization_admin_sees_infrastructure_fields(scenario):
+    from examples.notes.models import Note
+
+    scenario.create(scenario.a, owner=scenario.member, code="INF-2", title="Visible")
+    service = AuditLogService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        log = service.events(actor=admin, model_label=TABLE)
+        single = service.event(actor=admin, event_id=log.items[0].sysid)
+    for event in (*log.items, single):
+        assert event.table_name == Note._meta.db_table and event.db_principal != ""
+
+
+def test_platform_admin_sees_infrastructure_fields_of_global_events():
+    from uuid import uuid4
+
+    from skeleton.accounts.services import bootstrap_identity
+    from skeleton.tenancy.context import request_context
+
+    user, _ = bootstrap_identity(
+        email="audit-infra@example.test", organization="audit-infra", name="Infra", password="Audit-infra-2026!"
+    )
+    with request_context(actor=user, request_id=uuid4(), source="test:service-api"):
+        log = AuditLogService().events(actor=user)
+    assert log.items and all(event.db_principal != "" and event.table_name != "" for event in log.items)

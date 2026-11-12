@@ -544,3 +544,18 @@ def test_static_files_keep_their_cache():
         response = Client().get("/static/skeleton/web/site.css")  # WhiteNoise reads its settings per handler.
     assert response.status_code == 200
     assert "no-store" not in response.get("Cache-Control", "")
+
+
+def test_audit_api_hides_infrastructure_fields_from_non_admin():
+    """The REST keeps the keys, empty for a member who is not an administrator (#324)."""
+    from examples.notes.models import Note
+    from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+    from tests.support import login
+
+    scenario = build_service_scenario(Note, slug="audit-infra-api")
+    scenario.create(scenario.a, owner=scenario.member, code="INF-API", title="Visible")
+    client = login(scenario.member, password=FIXTURE_PASSWORD, csrf=False)
+    response = client.get(reverse("api:audit", kwargs={"organization_id": scenario.a.pk}))
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results and all(item["db_principal"] == "" and item["table_name"] == "" for item in results)

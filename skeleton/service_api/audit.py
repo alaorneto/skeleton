@@ -166,14 +166,24 @@ class AuditLogPage:
     page_size: int
 
 
-def _log_event(event: Any) -> AuditLogEvent:
+def _sees_infrastructure(actor: AbstractBaseUser) -> bool:
+    """Database role and physical table names are shown only to administrators (#324)."""
+    from skeleton.access.policies import is_organization_admin
+    from skeleton.tenancy.context import current_context
+
+    if current_context().organization_id is None:
+        return True  # Platform view: authorized_audit_queryset already required the platform role.
+    return is_organization_admin(_user(actor))
+
+
+def _log_event(event: Any, *, infrastructure: bool) -> AuditLogEvent:
     from skeleton.audit.presentation import visible_audit_changes
 
     return AuditLogEvent(
         sysid=event.pk,
         created_at=as_utc(event.created_at),
         organization_id=event.organization_id,
-        table_name=event.table_name,
+        table_name=event.table_name if infrastructure else "",
         model_label=event.model_label,
         record_sysid=event.record_sysid,
         record_revision=event.record_revision,
@@ -181,7 +191,7 @@ def _log_event(event: Any) -> AuditLogEvent:
         actor_sysid=event.actor_sysid,
         request_id=event.request_id,
         source=event.source,
-        db_principal=event.db_principal,
+        db_principal=event.db_principal if infrastructure else "",
         changes_json=json.dumps(visible_audit_changes(event)),
     )
 
@@ -235,6 +245,8 @@ class AuditLogService(ServiceAPI):
         todos os eventos dela; os demais, os eventos dos registros que leem (ou restauram) nas
         tabelas em que têm TablePermission ``audit``. Só eventos da organização atual; sem
         organização no contexto, os eventos globais, só para o administrador da plataforma.
+        ``table_name`` e ``db_principal`` (identificadores de infraestrutura) vêm vazios para quem
+        não administra a organização nem a plataforma.
         Erros: InvalidInput para filtro, página ou tamanho inválidos; Forbidden sem vínculo ativo
         ou, sem organização, para quem não administra a plataforma.
         Efeitos: nenhum.
@@ -269,8 +281,9 @@ class AuditLogService(ServiceAPI):
         if request_id is not None:
             events = events.filter(request_id=as_uuid(request_id, field="request_id"))
         offset = (page - 1) * size
+        infrastructure = _sees_infrastructure(actor)  # Once per call, after the authorization.
         return AuditLogPage(
-            items=tuple(_log_event(event) for event in events[offset : offset + size]),
+            items=tuple(_log_event(event, infrastructure=infrastructure) for event in events[offset : offset + size]),
             count=events.count(),
             page=page,
             page_size=size,
@@ -288,7 +301,7 @@ class AuditLogService(ServiceAPI):
         event = _authorized_log(actor).filter(pk=as_uuid(event_id, field="event_id")).first()
         if event is None:
             raise NotFound()
-        return _log_event(event)
+        return _log_event(event, infrastructure=_sees_infrastructure(actor))
 
     @service_method(read_only=True, since="0.5.0")
     def related_domain_events(

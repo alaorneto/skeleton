@@ -89,6 +89,8 @@ As três superfícies aceitam os mesmos filtros ([#184](https://github.com/alaor
 
 As duas páginas mostram as alterações de cada evento como tabela **Campo / Antes / Depois**, uma linha por coluna visível, em ordem alfabética: valor ausente é "—", valor redigido é "[redigido]" e números, booleanos e estruturas aparecem como JSON (#287). A REST continua devolvendo `changes` como objeto `{old, new, redacted}` por campo.
 
+O nome físico da tabela (`table_name`) e a role do banco que escreveu (`db_principal`) só interessam a quem administra: no log, chegam vazios para o membro que lê eventos por `TablePermission audit` sem ser administrador da organização (#324). A captura persistida continua completa.
+
 - `from` e `to`: uma data, que vale o dia inteiro no fuso da pessoa, ou data e hora ISO 8601.
 - `actor` (UUID), `operation` (`create`, `update`, `soft_delete`, `restore`, `hard_delete`) e `request_id`.
 - Os filtros que já existiam, `model_label` e `record_sysid`.
