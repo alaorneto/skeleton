@@ -32,6 +32,8 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 | `build` | Wheel do núcleo, `pip-audit` dos dois locks e `docker build`. | Que a imagem sobe em produção. |
 | `ci` | Falha se qualquer job acima falhou ou foi cancelado. É o nome estável para exigir na proteção de branch, qualquer que seja a matriz. | Nada além dos outros jobs. |
 
+A suíte unitária também protege a documentação: `tests/unit/test_documentation_references.py` confere links, âncoras, caminhos citados, comandos `manage.py`, o catálogo de serviços do núcleo e as fronteiras de código; `test_docs_app_snippets.py` confere os exemplos de código de app; `test_check_reference.py`, a referência dos checks. Ao criar pacote, serviço, comando, check ou documento, atualize o catálogo correspondente no mesmo PR.
+
 Quando o job `locks` falha, o log mostra o diff que a regeneração produziu. Regenere os dois locks com os mesmos comandos e a mesma versão do uv e commite o resultado no branch do PR. Com `-o`, o uv usa o lock existente como preferência e não atualiza pacotes de carona. Um falso positivo raro ocorre quando o PyPI acrescenta um wheel a uma versão já travada (hash novo); a correção é a mesma. Nos PRs de pip do Dependabot, o workflow da seção seguinte faz isso sozinho.
 
 ### Locks dos PRs do Dependabot
