@@ -197,6 +197,11 @@ def restore(spec, target_sysid, attachment_id, *, user, revision: int) -> Any:
         raise Http404
     if attachment.revision != revision:
         raise ConcurrentUpdate("Attachment revision is stale.")
+    if attachment.state == attachment.State.PURGED:
+        # The bytes are gone after the retention (#192): the attachment cannot come back.
+        raise ValidationError(
+            {"attachment": gettext("O conteúdo deste anexo foi expurgado e não pode ser restaurado.")}
+        )
     reserve(attachment.organization_id, attachment.size)  # Above the quota: QuotaExceeded (409).
     attachment.restore()
     return attachment

@@ -1,0 +1,12 @@
+{% extends 'skeleton/web/base.html' %}{% load i18n %}
+{% block title %}{% translate "Privacidade" %} · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Perfil" %}</p><h1>{% translate "Seus dados" %}</h1><p class="page-description">{% translate "Baixe uma cópia do que o sistema guarda sobre você: identidade, perfil, tokens de API e, em cada organização, o vínculo, as notificações recebidas e os anexos que você enviou." %}</p></div></div>
+<section class="card">
+  <h2>{% translate "Exportar meus dados" %}</h2>
+  <p class="mt-2 text-sm/6 text-body">{% translate "O arquivo é um ZIP com JSON. Ele não inclui os registros de negócio das organizações, que pertencem a cada uma delas." %}</p>
+  <a class="btn btn-primary mt-4" href="{% url 'web:privacy-export' %}">{% translate "Baixar meus dados" %}</a>
+</section>
+</div>
+{% endblock %}

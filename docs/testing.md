@@ -155,6 +155,41 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - filtro inválido recusado antes do job;
   - o botão só para o administrador.
 
+## LGPD: dados pessoais, titular e retenção (epic #88)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`; o owner foi usado só para ler a auditoria global e para o comando de redação.
+
+**#189, dados pessoais redigidos na auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1670 passed, 111 skipped.
+- `tests/integration_postgres/test_audit_personal_data.py`: 3 passed. Cobrem:
+  - os eventos novos de `User` (email e primeiro nome) e de `UserProfile` (`display_name`) redigidos, com os campos ainda legíveis no modelo;
+  - um evento antigo simulado (o owner recoloca o email em claro com o guard desligado) redigido pelo comando, com o guard de volta e o `UPDATE` recusado;
+  - o comando recusado sem `--confirm` e com a role runtime.
+- A leitura da auditoria global nos testes passa pelo owner, porque a RLS esconde da role runtime os eventos sem organização.
+
+**#192, expurgo dos bytes de anexos excluídos:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1673 passed, 111 skipped.
+- `tests/integration/test_attachment_purge.py`: 3 passed. Cobrem:
+  - dentro do prazo, nada é tocado;
+  - depois de 91 dias, os bytes saem e o anexo vira `purged`;
+  - a restauração é recusada com 400 e o anexo continua excluído;
+  - uma segunda rodada não refaz o expurgo;
+  - o anexo vivo e o anexo da organização B nunca são tocados;
+  - o anexo restaurado antes do expurgo é pulado.
+
+**#190, exportação dos dados do titular:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1675 passed, 111 skipped.
+- `tests/integration/test_privacy_export.py`: 2 passed. Cobrem:
+  - o ZIP com a identidade e as duas organizações da pessoa, cada uma com a própria notificação;
+  - nenhum email de outra pessoa nem digest de token;
+  - `attachment` e `no-store`;
+  - a página exigindo login;
+  - quem não tem vínculo recebendo só a identidade.
+- Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

@@ -16,6 +16,18 @@ O **payload** é o conteúdo do evento. Em `changes`, cada campo tem `{old, new,
 
 **Redação**, aqui, significa ocultar valores sensíveis, não escrever uma descrição. Password, token/token_digest, secret/private_key, códigos MFA e campos marcados `sensitive` viram `[REDACTED]` **antes de persistir**. O banco compara os valores reais antes de ocultá-los: mesmo que old/new apareçam igualmente redigidos, uma mudança de senha continua registrada. JSON/claims sensíveis são ocultados integralmente. Um novo campo sensível exige atualização da spec e da migration; não confie apenas em heurística de nome.
 
+### Dados pessoais
+
+`TableSpec.personal_fields` marca dados pessoais, como o email e os nomes de `User` e o `display_name` de `UserProfile` ([#189](https://github.com/alaorneto/skeleton/issues/189)). Esses campos continuam em `read_fields`, mas os triggers os gravam como `[REDACTED]`, com `redacted: true`. Assim a auditoria nunca guarda a PII, cita a pessoa só pelo sysid e não impede a anonimização da identidade. A declaração é congelada na especificação da infraestrutura, e uma divergência entre o spec e a migration é E032.
+
+Os eventos gravados antes da declaração continuam com os valores. `manage.py redact_audit_personal_data --confirm` os redige uma vez, e é a única exceção à regra append-only:
+
+- roda só com o owner da tabela de auditoria (`MIGRATION_DATABASE_URL` ou `--database-url`); a role runtime é recusada;
+- numa transação, desliga o guard, reescreve só `old`/`new`/`redacted` das colunas pessoais e religa o guard;
+- grava o evento de segurança `audit.personal_data_redacted` com a contagem.
+
+Faça backup antes: a reescrita não tem volta.
+
 No PostgreSQL, actor/request/source vêm dos parâmetros locais do contexto (GUCs); `db_principal` é `session_user`, a identidade SQL da conexão. Tabela, organização e registro vêm de OLD/NEW do banco, nunca da entrada do cliente. Sem source, registra-se `sql:unattributed`, sem inventar usuário.
 
 O escritor de auditoria é um trigger `SECURITY DEFINER`: executa com os privilégios de seu proprietário, tem `search_path` fixo e não recebe escrita em negócio. INSERT de auditoria organizacional deve satisfazer a policy; o audit writer não tem `BYPASSRLS`. Isso não é o papel empresarial de administrador.
@@ -49,6 +61,21 @@ As políticas de dependência são explícitas:
 Bibliotecas técnicas mantêm seu ciclo de vida: sessões expiram ou são apagadas tecnicamente; allauth gerencia dados de protocolo. Não aplique exclusão lógica genérica nem auditoria do conteúdo nessas tabelas; o manifesto explica as exceções.
 
 ## Leitura e retenção
+
+### Tabela de retenções
+
+Todo apagamento físico é um job declarado em código, por organização quando a tabela é organizacional, com o prazo num setting do catálogo da instância. Os registros de negócio nunca são apagados: o soft delete os mantém como tombstone.
+
+| O quê | Job | Setting (padrão) |
+|---|---|---|
+| Eventos de domínio já entregues | `events.retention` | `SKELETON_EVENT_RETENTION_DAYS` (30) |
+| Jobs concluídos ou cancelados / esgotados | `jobs.retention` | `SKELETON_JOB_SUCCEEDED_RETENTION_DAYS` (7) / `SKELETON_JOB_DEAD_RETENTION_DAYS` (30) |
+| Entregas de webhook | `webhooks.retention` | `SKELETON_WEBHOOK_RETENTION_DAYS` (30) |
+| Notificações lidas, não lidas e entregas | `notifications.retention` | `SKELETON_NOTIFICATION_*_RETENTION_DAYS` |
+| Arquivos de exportação e importação CSV | `transfer.retention` | `SKELETON_TRANSFER_RETENTION_DAYS` (7) |
+| Objetos sem linha, deixados por rollback | `files.orphans` | `SKELETON_FILES_ORPHAN_GRACE_SECONDS` (1 hora) |
+| Bytes de anexos excluídos | `files.purge` | `SKELETON_FILES_DELETED_RETENTION_DAYS` (90) |
+| Auditoria | nenhum: append-only; só os dados pessoais antigos são redigidos uma vez (`redact_audit_personal_data`) | — |
 
 A auditoria é somente leitura. Administradores organizacionais só veem sua organização; outros usuários precisam de `table.audit` **e** leitura autorizada do registro atual (se excluído, restauração autorizada). Filtre antes de contar/paginar. Eventos globais e inventário técnico são exclusivos da plataforma; registros apagados fisicamente offline só são visíveis a administrador organizacional/plataforma.
 
