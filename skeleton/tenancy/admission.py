@@ -188,6 +188,12 @@ def directory(user: Any) -> tuple[DirectoryEntry, ...]:
     from .context import memberships_for_user
 
     mine = {item["organization_id"] for item in memberships_for_user(user)}
+    # An organization the person already asked to join is followed in "Minhas solicitações".
+    mine |= set(
+        own_rows(_models().JoinRequest, user)
+        .filter(status__in=_models().JoinRequest.OPEN, expires_at__gt=timezone.now())
+        .values_list("organization_id", flat=True)
+    )
     rows = (
         _models()
         .OrganizationDirectoryEntry.objects.filter(

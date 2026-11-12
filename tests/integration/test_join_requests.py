@@ -148,6 +148,7 @@ def test_full_flow_is_idempotent_and_approval_creates_one_membership(orgs):
     url = reverse("web:join-organization", args=[a.pk])
     assert client.post(url, {"message": "Sou da equipe de vendas."}).status_code == 302
     assert client.post(url, {"message": "De novo"}).status_code == 302
+    assert list(client.get(reverse("web:join")).context["organizations"]) == []  # Already asked.
     with request_context(actor=person, request_id=uuid4(), source="test:join-mine"):
         mine = admission.my_join_requests(person)
     assert len(mine) == 1 and mine[0].message == "Sou da equipe de vendas." and mine[0].status == "pending"
