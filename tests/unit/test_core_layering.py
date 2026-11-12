@@ -14,10 +14,7 @@ UNRESTRICTED = {"web", "api", "setup", "conf", "contrib", "testing"}
 
 # (file, imported module): reason and the issue that removes it.
 KNOWN_EXCEPTIONS = {
-    ("skeleton/common/logging.py", "skeleton.tenancy.context"): "context lives in tenancy",
-    ("skeleton/common/mail.py", "skeleton.tenancy.context"): "context lives in tenancy",
     ("skeleton/common/models.py", "skeleton.tenancy.models"): "owner membership check",
-    ("skeleton/common/querysets.py", "skeleton.tenancy.context"): "context lives in tenancy",
     ("skeleton/common/responses.py", "skeleton.files"): "private download response",
     ("skeleton/system/application_views.py", "skeleton.api.errors"): "app views live in system",
     ("skeleton/system/application_views.py", "skeleton.api.views"): "app views live in system",
@@ -39,7 +36,6 @@ KNOWN_EXCEPTIONS = {
     ("skeleton/comments/apps.py", "skeleton.web.timeline"): "timeline registry lives in web",
     ("skeleton/comments/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",
     ("skeleton/comments/timeline.py", "skeleton.web.timeline"): "timeline registry lives in web",
-    ("skeleton/common/locale.py", "skeleton.tenancy.context"): "context lives in tenancy",
     ("skeleton/common/locale.py", "skeleton.tenancy.organization_settings"): "organization locale settings",
     ("skeleton/common/migration_operations.py", "skeleton.system.search"): "search index DDL lives in system",
     ("skeleton/files/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",

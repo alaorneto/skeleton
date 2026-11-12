@@ -3,12 +3,11 @@ from django.db.models import F
 from django.db.models.lookups import IsNull
 from django.utils import timezone
 
+from .context import current_context, is_tenant_model
 from .exceptions import MissingTenantContext, UnsafeBulkMutation
 
 
 def context():
-    from skeleton.tenancy.context import current_context
-
     return current_context()
 
 
@@ -116,7 +115,7 @@ class RecordQuerySet(models.QuerySet):
 class RecordManager(models.Manager.from_queryset(RecordQuerySet)):
     def get_queryset(self):
         queryset = super().get_queryset()
-        if any(field.name == "organization" for field in self.model._meta.fields):
+        if is_tenant_model(self.model):
             tenant = context().organization_id
             if tenant is None:
                 raise MissingTenantContext("Organizational records require an explicit tenant context.")
@@ -151,7 +150,7 @@ class OperationalManager(models.Manager.from_queryset(OperationalQuerySet)):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if any(field.name == "organization" for field in self.model._meta.fields):
+        if is_tenant_model(self.model):
             tenant = context().organization_id
             if tenant is None:
                 raise MissingTenantContext("Organizational records require an explicit tenant context.")

@@ -18,7 +18,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 
 | Diretório | Responsabilidade | Limite importante |
 |---|---|---|
-| `skeleton/common` | Bases abstratas, querysets, erros, logs e instalação de infraestrutura por migrations | Não conhece regras de negócio do derivado |
+| `skeleton/common` | Bases abstratas, querysets, erros, logs, instalação de infraestrutura por migrations e o estado do contexto corrente (`skeleton/common/context.py`: `Context`, `current_context`, `is_tenant_model`; os gerenciadores de contexto ficam em `skeleton.tenancy.context`, que reexporta esses nomes) | Não conhece regras de negócio do derivado |
 | `skeleton/accounts` | Conta/perfil, integração allauth, provedores de identidade no banco (OIDC, SAML e LDAP, #29–#33) e papéis limitados de plataforma (#34) | Não reimplementa OAuth, OIDC, SAML, MFA ou reset de senha; o `SocialApp` é montado em memória; LDAP só por `skeleton/accounts/ldap/client.py`, com TLS verificado |
 | `skeleton/tenancy` | Organização (criação e edição em `skeleton/tenancy/services.py`), vínculo, convite, contexto transacional e ingresso: política de admissão, pedidos, links, domínios verificados e regras de SSO da organização (#26–#28, #31) | Seleção de tenant validada, nunca flags escolhidas pelo body/header; quem pede ingresso não tem tenant e só entra por `system_context` com razão `join:*` aberta pelo serviço; índices lidos antes do tenant (diretório, posse de domínio) são `SystemRecord` globais |
 | `skeleton/access` | Papéis, grupos, permissões, policies e serviços de gestão; leitura e designação de administradores pela plataforma em `skeleton/access/administration.py` | Permissões Django globais não substituem autorização empresarial |

@@ -5,6 +5,8 @@ Only historical migration models and the frozen specification determine DDL.
 
 from django.db.migrations.operations.base import Operation
 
+from .context import is_tenant_model
+
 MECHANICAL = {"sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_by", "revision"}
 POLICY_NAMES = (
     "skeleton_tenant",
@@ -248,7 +250,7 @@ class InstallRecordInfrastructure(Operation):
         """RLS policies this frozen specification installs on ``model``."""
         if self._append_only(model):
             return ("skeleton_audit_select", "skeleton_audit_insert")
-        if not any(f.name == "organization" for f in model._meta.fields):
+        if not is_tenant_model(model):
             return ()
         mode, column = self_discovery_mode(model, self.specification)
         if mode is None:
@@ -263,7 +265,7 @@ class InstallRecordInfrastructure(Operation):
 
     def _immutable(self, model):
         names = {"sysid"} | set(self.specification.get("immutable_fields", getattr(model, "immutable_fields", ())))
-        if any(f.name == "organization" for f in model._meta.fields):
+        if is_tenant_model(model):
             names.add("organization_id")
         if model._meta.label_lower == "sk_tenancy.organization":
             names.add("slug")
@@ -380,7 +382,7 @@ class InstallRecordInfrastructure(Operation):
         q, table = editor.quote_name, model._meta.db_table
         append = self._append_only(model)
         tenant = TENANT_PREDICATE
-        if append or any(f.name == "organization" for f in model._meta.fields):
+        if append or is_tenant_model(model):
             editor.execute(f"ALTER TABLE skeleton.{q(table)} ENABLE ROW LEVEL SECURITY")
             editor.execute(f"ALTER TABLE skeleton.{q(table)} FORCE ROW LEVEL SECURITY")
             for name in POLICY_NAMES:
@@ -438,11 +440,7 @@ class InstallRecordInfrastructure(Operation):
             build.append(
                 f"IF TG_OP <> 'UPDATE' OR (old_data->{_lit(column)}) IS DISTINCT FROM (new_data->{_lit(column)}) THEN changes := changes || jsonb_build_object({_lit(column)},jsonb_build_object('old',CASE WHEN TG_OP='INSERT' THEN NULL ELSE {old} END,'new',CASE WHEN TG_OP='DELETE' THEN NULL ELSE {new} END,'redacted',{'true' if sensitive else 'false'})); END IF;"
             )
-        org = (
-            "(record_data->>'organization_id')::uuid"
-            if any(f.name == "organization" for f in model._meta.fields)
-            else "NULL"
-        )
+        org = "(record_data->>'organization_id')::uuid" if is_tenant_model(model) else "NULL"
         function = q(table + "_sk_audit_fn")
         editor.execute(f"""CREATE OR REPLACE FUNCTION skeleton.{function}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,skeleton AS $audit$
             DECLARE old_data jsonb; new_data jsonb; record_data jsonb; changes jsonb := '{{}}'::jsonb; operation text;

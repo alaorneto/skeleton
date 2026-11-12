@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -11,6 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
 
 from skeleton.accounts.platform import is_platform_admin
+from skeleton.common.context import Context, _context, current_context, in_context  # noqa: F401  Re-exported (#307).
 from skeleton.common.exceptions import MissingTenantContext
 
 
@@ -25,21 +26,6 @@ class HasSysid(Protocol):
 
 # An identity may be a record, a UUID or its string form; the record's sysid wins.
 IdentityRef = HasSysid | UUID | str | None
-
-
-@dataclass(frozen=True)
-class Context:
-    actor: UUID | None = None
-    organization_id: UUID | None = None
-    request_id: UUID | None = None
-    source: str = "sql:unattributed"
-    platform_admin: bool = False
-    system: bool = False
-    using: str = "default"
-    # Scopes of the API token that authenticated the request (#46); None for a session.
-    credential_scopes: frozenset[str] | None = None
-    # Global audit reading by the platform auditor (#34); only inside ``platform_audit_scope``.
-    platform_auditor: bool = False
 
 
 # The only system contexts an HTTP request may open (docs/access-control.md). Each is chosen by
@@ -63,7 +49,6 @@ JOIN_REASONS = frozenset({"join:request", "join:link", "join:domain"})
 _ANONYMOUS_JOIN_REASONS = frozenset({"join:link", "join:domain"})
 HTTP_SYSTEM_REASONS = VALIDATED_IDENTITY_REASONS | PLATFORM_ADMIN_REASONS | JOIN_REASONS
 
-_context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)
 _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", default=None)
 # Per-request memo (#24): created by request_context, gone when the request ends. Never an
 # authorization cache across requests: a revocation still applies on the next request.
@@ -73,10 +58,6 @@ _GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "plat
 _SET_GUCS = "SELECT " + ", ".join(f"set_config('skeleton.{name}', %s, true)" for name in _GUCS)
 
 
-def current_context() -> Context:
-    return _context.get() or Context()
-
-
 def request_cache() -> dict[Any, Any] | None:
     """Values memoized for the current request only; ``None`` outside one.
 
@@ -84,11 +65,6 @@ def request_cache() -> dict[Any, Any] | None:
     so its memo lives exactly as long as that unit of work.
     """
     return _request_cache.get()
-
-
-def in_context() -> bool:
-    """Whether any request, tenant or system context is open in this execution context."""
-    return _context.get() is not None
 
 
 def _uuid(value: IdentityRef) -> UUID | None:

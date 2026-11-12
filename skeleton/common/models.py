@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 
+from .context import is_tenant_model
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
 from .querysets import (
     InfrastructureManager,
@@ -105,6 +106,7 @@ class SystemRecord(models.Model):
         self.revision = 1
         self._validate_context()
 
+    # hasattr() is deliberate here: it also covers a plain organization_id column (AuditEvent); see is_tenant_model.
     def _validate_context(self) -> None:
         if hasattr(self, "organization_id"):
             tenant = context().organization_id
@@ -393,7 +395,7 @@ class OperationalRecord(models.Model):
 
     def _identity_names(self) -> tuple[str, ...]:
         names = ("sysid", "created_at", *self.immutable_fields)
-        if any(field.name == "organization" for field in self._meta.fields):
+        if is_tenant_model(type(self)):
             names = (*names, "organization_id")
         return names
 
@@ -403,7 +405,7 @@ class OperationalRecord(models.Model):
         default_manager_name = "objects"
 
     def _validate_context(self) -> None:
-        if any(field.name == "organization" for field in self._meta.fields):
+        if is_tenant_model(type(self)):
             tenant = context().organization_id
             if tenant is None:
                 raise MissingTenantContext("An organizational write requires tenant context.")
