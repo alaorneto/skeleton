@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.sequences.apps.SequencesConfig",
     "skeleton.instance.apps.InstanceConfig",
+    "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",
     "skeleton.api",
 ]
@@ -53,6 +54,8 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "skeleton.common.http_logging.RequestCompletionMiddleware",
+    # Serves /metrics before session, auth and tenant; removes itself without SKELETON_METRICS_TOKEN (#175).
+    "skeleton.observability.metrics.MetricsMiddleware",
     "skeleton.api.health.HealthProbeMiddleware",
     "skeleton.deployment.MaintenanceMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -210,6 +213,14 @@ SKELETON_JOB_SUCCEEDED_RETENTION_DAYS = env.int("SKELETON_JOB_SUCCEEDED_RETENTIO
 SKELETON_JOB_DEAD_RETENTION_DAYS = env.int("SKELETON_JOB_DEAD_RETENTION_DAYS", default=30)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
+
+# Observability (#87): each piece stays off until its setting is present and its extra installed.
+# Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.
+SKELETON_METRICS_TOKEN = env("SKELETON_METRICS_TOKEN", default="")
+# Sentry DSN (extra [sentry], #177); without it Sentry is never initialized. Tracing (#176) has no
+# setting here: the SDK reads the standard OTEL_* variables from the environment.
+SKELETON_SENTRY_DSN = env("SKELETON_SENTRY_DSN", default="")
+
 # Notification retention (#57): read/archived rows, unread rows and finished deliveries.
 SKELETON_NOTIFICATION_READ_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_READ_RETENTION_DAYS", default=90)
 SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS = env.int("SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS", default=180)

@@ -88,6 +88,24 @@ def _subject(value: str) -> str:
     return value
 
 
+def _token(minimum: int) -> Callable[[str], str]:
+    def validate(value: str) -> str:
+        if len(value) < minimum or any(character.isspace() for character in value):
+            raise ValueError(f"Use ao menos {minimum} caracteres, sem espaços.")
+        return value
+
+    return validate
+
+
+def _sentry_dsn(value: str) -> str:
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(_required_text(value).strip())
+    if parts.scheme not in {"http", "https"} or not parts.username or not parts.hostname or parts.path in {"", "/"}:
+        raise ValueError("Use o DSN do projeto, como https://<chave>@o0.ingest.sentry.io/<projeto>.")
+    return value.strip()
+
+
 def _choice(*choices: str) -> Callable[[str], str]:
     def validate(value: str) -> str:
         if value not in choices:
@@ -242,6 +260,22 @@ _SPECS = (
         "int",
         "Retenção das entregas de notificação",
         _int(1),
+    ),
+    SettingSpec(
+        "metrics_token",
+        "SKELETON_METRICS_TOKEN",
+        "secret",
+        "Token Bearer do endpoint /metrics (extra [metrics])",
+        _token(32),
+        True,
+    ),
+    SettingSpec(
+        "sentry_dsn",
+        "SKELETON_SENTRY_DSN",
+        "url",
+        "DSN do projeto Sentry (extra [sentry])",
+        _sentry_dsn,
+        True,
     ),
     SettingSpec("files_backend", "SKELETON_FILES_BACKEND", "str", "Armazenamento de anexos", _choice("local", "s3")),
     SettingSpec("files_root", "SKELETON_FILES_ROOT", "path", "Pasta local dos anexos", _required_text),
