@@ -31,7 +31,7 @@ O check `skeleton.E022` reprova tipo duplicado, tabela sem `TableSpec`, campo de
 
 ## Publicar
 
-Apps publicam pelo `EventService` ([API de serviços](service-api.md#jobservice-e-eventservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o registro.
+Apps publicam pelo `EventService` ([API de serviços](service-api.md#jobservice-e-eventservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o registro. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272).
 
 ```python
 from skeleton.service_api.events import EventService

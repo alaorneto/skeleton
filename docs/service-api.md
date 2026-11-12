@@ -332,6 +332,8 @@ NotificationService().notify(
 | `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
 | `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
 
+Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden` para qualquer chamador, app ou não (#272). Isso vale também para `NotificationService.notify` e `SequenceService.next_number`.
+
 `JobReceipt` traz `sysid`, `job_type`, `state`, `run_after` e `created` (falso quando a chave de idempotência já existia); `EventReceipt` traz `sysid`, `event_type`, `record_id` e `occurred_at`. Nenhum recibo devolve o payload. Os dois gravam na transação do chamador: um rollback não deixa job nem evento. Tipos e consumidores continuam registrados em `ready()` ([jobs](jobs.md), [eventos](events.md)). A `idempotency_key` vale por tipo de job e organização: repetida no mesmo tipo e organização, devolve o job existente; usada por outra organização, é recusada sem revelar o job alheio ([jobs](jobs.md#enfileirar)).
 
 ### FeedTokenService

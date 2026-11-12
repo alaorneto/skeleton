@@ -22,7 +22,7 @@ def ready(self):
 | `key` | `app_label.nome`, até 100 caracteres |
 | `period` | `year` (recomeça a cada ano, padrão), `month` (a cada mês) ou `none` (nunca); calendário em UTC |
 | `template` | `str.format` com `{number}` obrigatório e, opcionalmente, `{year}`, `{month}` e `{period}` |
-| `owner_app` | A app que pode numerar com a sequência pela API de serviços |
+| `owner_app` | A app que pode numerar com a sequência pela API de serviços; sem ele, nenhum chamador numera pelo serviço (#272) |
 
 O check `skeleton.E028` reprova chave mal formada, período desconhecido, modelo sem `{number}` ou com campo desconhecido, e declaração duplicada diferente.
 

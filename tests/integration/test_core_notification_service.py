@@ -47,6 +47,7 @@ def scenario(monkeypatch):
             )
         )
         register_notification_type(NotificationType("other.ping", "Ping", owner_app="other_app"))
+        register_notification_type(NotificationType("orphan.ping", "Ping"))  # No owner_app (#272).
         yield build_service_scenario(Note, slug="notify-service")
 
 
@@ -134,3 +135,14 @@ def test_caller_rollback_leaves_no_notification_and_system_consumers_need_no_act
         notify_as_notes(actor=None, **kwargs)
         assert Notification.objects.count() == 1
     assert_rejects_other_actor(scenario.caller(lambda actor: NotificationService().unread_count(actor=scenario.denied)))
+
+
+@pytest.mark.needs_example_app
+def test_type_without_owner_is_forbidden_for_everyone(scenario):
+    """A type without owner_app is usable by no caller of the service, app or not (#272)."""
+    recipients = Recipients(users=(scenario.member.pk,))
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        with pytest.raises(Forbidden):
+            NotificationService().notify(actor=admin, type_code="orphan.ping", recipients=recipients)
+        with pytest.raises(Forbidden):
+            notify_as_notes(actor=admin, type_code="orphan.ping", recipients=recipients)
