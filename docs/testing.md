@@ -162,6 +162,17 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - o anexo vivo e o anexo da organização B nunca são tocados;
   - o anexo restaurado antes do expurgo é pulado.
 
+**#190, exportação dos dados do titular:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1675 passed, 111 skipped.
+- `tests/integration/test_privacy_export.py`: 2 passed. Cobrem:
+  - o ZIP com a identidade e as duas organizações da pessoa, cada uma com a própria notificação;
+  - nenhum email de outra pessoa nem digest de token;
+  - `attachment` e `no-store`;
+  - a página exigindo login;
+  - quem não tem vínculo recebendo só a identidade.
+- Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.
