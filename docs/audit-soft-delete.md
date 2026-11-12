@@ -44,7 +44,7 @@ SQL direto também precisa fornecer `revision=OLD.revision+1`, datas e valores c
 
 ## Soft delete e restore
 
-**Soft delete**, ou exclusão lógica, preenche `deleted_at` em vez de apagar a linha. A marca é chamada **tombstone**: `deleted_at IS NOT NULL` é sua única definição, sem `is_deleted` redundante. O manager padrão exclui essas linhas das consultas e aplica a organização. Sem contexto organizacional, lança `MissingTenantContext`. `with_deleted()` remove **apenas** o filtro da marca de exclusão: não abre Beta para quem está em Alfa nem dispensa autorização. O base manager interno não filtrado serve só à infraestrutura, nunca a serializer, seletor de referências ou template.
+**Soft delete**, ou exclusão lógica, preenche `deleted_at` em vez de apagar a linha. A marca é chamada **tombstone**: `deleted_at IS NOT NULL` é sua única definição, sem `is_deleted` redundante. O manager padrão exclui essas linhas das consultas e aplica a organização. Sem contexto organizacional, lança `MissingTenantContext`. `with_deleted()` remove **apenas** o filtro da marca de exclusão posto pelo manager, em qualquer profundidade e também em querysets combinados com `|` e `&` (o filtro é um lookup próprio, `LiveRows`, reconhecido pelo tipo; um `deleted_at__isnull=True` escrito por quem chama fica): não abre Beta para quem está em Alfa nem dispensa autorização (#274). O base manager interno não filtrado serve só à infraestrutura, nunca a serializer, seletor de referências ou template.
 
 Delete de instância/queryset é lógico e não usa coleta/cascata de exclusão física do Django. O lote usa um único `atomic`, com triggers por linha. Restore revalida referências ativas e unicidade, preservando `sysid`; um conflito não restaura parcialmente nem sobrescreve outra linha.
 

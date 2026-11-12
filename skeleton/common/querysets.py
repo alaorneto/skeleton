@@ -1,5 +1,6 @@
 from django.db import models, transaction
 from django.db.models import F
+from django.db.models.lookups import IsNull
 from django.utils import timezone
 
 from .exceptions import MissingTenantContext, UnsafeBulkMutation
@@ -11,26 +12,25 @@ def context():
     return current_context()
 
 
-def _remove_live_node(node, marker):
-    node.children = [child for child in node.children if child is not marker]
+class LiveRows(IsNull):
+    """The manager's own ``deleted_at IS NULL``; ``with_deleted()`` removes it by type (#274)."""
+
+
+def _without_live_rows(node):
+    """A new WHERE tree without the manager's live-row filters (nodes may be shared: never mutate)."""
+    clone = node.create(connector=node.connector, negated=node.negated)
     for child in node.children:
-        if hasattr(child, "children"):
-            _remove_live_node(child, marker)
+        if isinstance(child, LiveRows):
+            continue
+        clone.children.append(_without_live_rows(child) if hasattr(child, "children") else child)
+    return clone
 
 
 class RecordQuerySet(models.QuerySet):
-    _live_node = None
-
-    def _clone(self):
-        clone = super()._clone()
-        clone._live_node = self._live_node
-        return clone
-
     def with_deleted(self):
+        """Remove only the tombstone filters of the manager, at any depth; never tenant or authorization."""
         clone = self._chain()
-        if clone._live_node is not None:
-            _remove_live_node(clone.query.where, clone._live_node)
-            clone._live_node = None
+        clone.query.where = _without_live_rows(clone.query.where)
         return clone
 
     def update(self, **kwargs):
@@ -121,9 +121,7 @@ class RecordManager(models.Manager.from_queryset(RecordQuerySet)):
             if tenant is None:
                 raise MissingTenantContext("Organizational records require an explicit tenant context.")
             queryset = queryset.filter(organization_id=tenant)
-        queryset = queryset.filter(deleted_at__isnull=True)
-        queryset._live_node = queryset.query.where.children[-1]
-        return queryset
+        return queryset.filter(LiveRows(F("deleted_at"), True))
 
 
 class InfrastructureManager(models.Manager.from_queryset(RecordQuerySet)):
