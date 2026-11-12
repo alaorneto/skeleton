@@ -71,17 +71,34 @@ jobs:
           fi
 
   tests:
-    name: Testes em PostgreSQL (Python ${{ matrix.python }}, role runtime)
+    name: Testes em PostgreSQL (Python ${{ matrix.python }}, ${{ matrix.suite }}, role runtime)
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]
+        # A suíte do núcleo é dividida em fatias de arquivos (tools/suite_shards.py): juntas, as
+        # fatias são a suíte inteira. Para mudar o número de fatias, troque N aqui em todas elas.
+        suite: ["núcleo 1/2", "núcleo 2/2", "agenda"]
+        include:
+          - suite: "núcleo 1/2"
+            shard: "1/2"
+            slug: core-1
+          - suite: "núcleo 2/2"
+            shard: "2/2"
+            slug: core-2
+          - suite: "agenda"
+            slug: calendar
     services:
       postgres:
         image: postgres:16.15
         env:
           POSTGRES_PASSWORD: ci-superuser-only
+          # Container descartável: não espera o disco, e a tabela de locks comporta um worker
+          # por vCPU recriando o schema ao mesmo tempo (cerca de 2.100 locks por restauração).
+          POSTGRES_INITDB_ARGS: >-
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+            -c max_locks_per_transaction=2048
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -90,11 +107,16 @@ jobs:
       DJANGO_SETTINGS_MODULE: config.settings.test
       SKELETON_ENABLE_EXAMPLE_APP: "true"
       # The core suite runs without first-party apps (#66); each one adds its own suite.
-      SKELETON_BUNDLED_APPS: ""
+      SKELETON_BUNDLED_APPS: ${{ matrix.slug == 'calendar' && 'calendar' || '' }}
       SKELETON_TEST_ALLOW_SCHEMA_RESET: "1"
+      # Sem o cache local do template (#350): cada execução do CI aplica as migrations de verdade.
+      SKELETON_TEST_TEMPLATE_CACHE: "0"
       # As assertions usam skeleton_runtime (NOSUPERUSER, NOBYPASSRLS); o owner só migra.
+      # Com pytest -n, cada worker deriva o seu banco: ci_gw0_skeleton_test, ci_gw1_...
       TEST_DATABASE_URL: postgres://skeleton_runtime:ci-runtime@127.0.0.1:5432/ci_skeleton_test
       TEST_MIGRATION_DATABASE_URL: postgres://skeleton_owner:ci-owner@127.0.0.1:5432/ci_skeleton_test
+      # Um worker por vCPU do runner; o passo de provisionamento cria um banco para cada um.
+      TEST_WORKERS: "4"
       PGHOST: 127.0.0.1
       PGUSER: postgres
       PGPASSWORD: ci-superuser-only
@@ -103,19 +125,24 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
       - name: Instalar dependências do sistema
         # redis-server alimenta o teste do healthcheck renderizado pelo Compose; o cliente
         # PostgreSQL provisiona o banco e gera o template de schema (pg_dump).
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES redis-server postgresql-client
-      - name: Provisionar banco descartável e roles
+      - name: Provisionar bancos descartáveis e roles
         run: |
-          createdb ci_skeleton_test
-          psql -v ON_ERROR_STOP=1 -d ci_skeleton_test -f deploy/postgres/bootstrap.sql
+          for database in ci_skeleton_test $(seq -f 'ci_gw%g_skeleton_test' 0 $((TEST_WORKERS - 1))); do
+            createdb "$database"
+            psql -q -v ON_ERROR_STOP=1 -d "$database" -f deploy/postgres/bootstrap.sql
+            # O GRANT permite que reset_schema() recrie o schema skeleton como owner.
+            psql -q -v ON_ERROR_STOP=1 -d "$database" -c "GRANT CREATE ON DATABASE $database TO skeleton_owner"
+          done
           psql -v ON_ERROR_STOP=1 -d ci_skeleton_test \
             -c "ALTER ROLE skeleton_owner PASSWORD 'ci-owner'" \
             -c "ALTER ROLE skeleton_runtime PASSWORD 'ci-runtime'" \
-            -c "GRANT CREATE ON DATABASE ci_skeleton_test TO skeleton_owner"
-          # O GRANT permite que reset_schema() recrie o schema skeleton como owner.
+            -c "SELECT name, setting FROM pg_settings WHERE name IN ('fsync', 'synchronous_commit', 'full_page_writes', 'max_locks_per_transaction')"
       - name: Instalar lock com hashes
         # Os testes de Compose invocam .venv/bin/python, então o venv fica na raiz.
         run: |
@@ -123,22 +150,61 @@ jobs:
           .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
           .venv/bin/python -m pip check
       - name: Django checks
+        # Uma vez por Python e por conjunto de apps: na primeira fatia do núcleo e na agenda.
+        if: matrix.slug != 'core-2'
         run: |
           .venv/bin/python manage.py check --fail-level WARNING
           .venv/bin/python manage.py makemigrations --check --dry-run
-      - name: Suíte inteira com cobertura
-        run: .venv/bin/python -m pytest tests -q --cov --cov-report=term --cov-report=xml
-      - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
-        # Its own suite and checks with the app installed; the core suite above runs without it.
+      - name: Fatia ${{ matrix.shard }} da suíte com cobertura
+        if: matrix.shard
         env:
-          SKELETON_BUNDLED_APPS: calendar
+          COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
         run: |
-          .venv/bin/python manage.py check --fail-level WARNING
-          .venv/bin/python manage.py makemigrations --check --dry-run
-          .venv/bin/python -m pytest tests/contrib/calendar -q
+          mkdir -p coverage-data
+          .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report=
+      - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
+        # Its own suite and checks with the app installed; the core slices run without it.
+        if: matrix.slug == 'calendar'
+        run: .venv/bin/python -m pytest tests/contrib/calendar -q -n "$TEST_WORKERS"
       - name: Smoke de segurança do runtime
-        if: matrix.python == '3.14'
+        if: matrix.python == '3.14' && matrix.slug == 'core-1'
         run: .venv/bin/python tools/smoke_postgres.py
+      - uses: actions/upload-artifact@v7
+        if: matrix.shard
+        with:
+          name: coverage-data-py${{ matrix.python }}-${{ matrix.slug }}
+          path: coverage-data/
+          if-no-files-found: error
+
+  coverage:
+    name: Cobertura da suíte (Python ${{ matrix.python }})
+    needs: tests
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-data-py${{ matrix.python }}-*
+          path: coverage-data
+          merge-multiple: true
+      - name: Combinar a cobertura das fatias
+        # Mesma medição de antes da divisão: a suíte do núcleo inteira, por Python.
+        run: |
+          python -m pip install --require-hashes -r requirements-dev.txt
+          # Arquivos nomeados: num diretório, o coverage só procura nomes ".coverage*", e o
+          # upload-artifact deixa arquivos ocultos de fora.
+          python -m coverage combine coverage-data/coverage.*
+          python -m coverage report
+          python -m coverage xml
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-postgres-py${{ matrix.python }}
@@ -204,3 +270,19 @@ jobs:
         with:
           name: core-wheel
           path: dist/*.whl
+
+  ci:
+    name: CI
+    # Um nome estável para exigir na proteção de branch, qualquer que seja a matriz acima.
+    if: always()
+    needs: [lint, assets, locks, tests, coverage, typecheck, deploy-check, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Todos os jobs passaram
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Resultados: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
