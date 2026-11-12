@@ -33,6 +33,14 @@ A organização decide em `/o/<org>/admission/` (capacidade `admission.configure
 - **Readmissão.** Aprovar é decisão humana e pode reativar um vínculo anterior; a fila avisa "Já foi membro". Admissões automáticas (link, domínio, SSO) nunca reativam: elas geram um pedido.
 - **Prazo e aviso.** Um pedido aberto expira em 30 dias (estado derivado; um novo pedido substitui o expirado) e pode ser retirado pelo solicitante. O email com a decisão é montado na transação e enviado só depois do commit.
 
+### Links de ingresso
+
+Com `join_links_enabled` na política, quem gerencia convites (`invitations.manage`) cria em `/o/<org>/admission/links/` links multiuso com nome, papel, entrada direta ou com aprovação, validade de até 90 dias e limite de 1 a 10.000 usos. O token tem 32 bytes aleatórios e aparece uma única vez, na resposta da criação (sem cache); o banco guarda só o SHA-256, redigido na auditoria. Papel, modo, validade, limite e resumo são imutáveis; revogar é exclusão lógica e desliga o link na hora. O gestor de pessoas não cria link com papel que carrega capacidade, e `organization_admin` nunca é concedido por link.
+
+- **Abrir.** `GET /join/<org_uuid>/<token>/` valida o link em `system_context(reason="join:link")`, que pode ser aberto antes do login (o resumo do token é a prova, como no convite), e guarda na sessão só a referência com o resumo. Link expirado, revogado, esgotado, de outra organização ou com links desligados mostra a mesma página neutra.
+- **Usar.** `POST` com CSRF, autenticado e com email verificado, trava a organização e depois o link. Sem vínculo anterior, o modo direto admite com o papel do link e o modo com aprovação cria um `JoinRequest(channel=link)`. Quem já foi membro sempre gera um pedido: admissão automática nunca reativa vínculo. Membro ativo e pedido já aberto não consomem uso. Com `max_uses=1` e resgates concorrentes, um só vence.
+- **Cadastro pelo link.** Só com `signup_via_link_enabled`. O cadastro cria a conta e um pedido `awaiting_verification` que reserva um uso. A confirmação do email conclui: admite (link direto) ou deixa o pedido pendente. Ela funciona em outro dispositivo, sem sessão, porque o serviço lê os próprios pedidos da pessoa pela autodescoberta, atuando como a dona do email recém-confirmado (`verified_owner`). Sem a opção, o link não abre o cadastro público.
+
 ### Senhas, emails e conexão
 
 **Contas de serviço** (`account_type=service`, ver [controle de acesso](access-control.md#contas-de-serviço)) nunca fazem login interativo. O backend recusa a autenticação e não devolve a sessão (`get_user`), o `AccountAdapter.pre_login` e o `SocialAccountAdapter.pre_social_login` negam de forma genérica, e o reset de senha mantém a resposta neutra sem enviar email. Com a senha inutilizável real, o login responde igual a um email desconhecido. Uma integração vai agir por tokens próprios (#45), não por sessão.

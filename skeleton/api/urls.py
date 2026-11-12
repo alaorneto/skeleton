@@ -4,6 +4,8 @@ from skeleton.api import views
 from skeleton.api.admission import (
     MyJoinRequestsAPI,
     MyJoinRequestWithdrawAPI,
+    OrganizationJoinLinkRevokeAPI,
+    OrganizationJoinLinksAPI,
     OrganizationJoinRequestsAPI,
 )
 from skeleton.api.invitation_views import ResendInvitationView
@@ -21,6 +23,12 @@ urlpatterns = [
         "o/<uuid:organization_id>/join-requests/",
         OrganizationJoinRequestsAPI.as_view(),
         name="organization-join-requests",
+    ),
+    path("o/<uuid:organization_id>/join-links/", OrganizationJoinLinksAPI.as_view(), name="organization-join-links"),
+    path(
+        "o/<uuid:organization_id>/join-links/<uuid:sysid>/revoke/",
+        OrganizationJoinLinkRevokeAPI.as_view(),
+        name="organization-join-link-revoke",
     ),
     path(
         "o/<uuid:organization_id>/join-requests/<uuid:sysid>/",

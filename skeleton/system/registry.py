@@ -96,6 +96,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_tenancy.joinlink": (
+            "Links de ingresso",
+            "Links multiuso revogáveis; só o resumo SHA-256 do token é guardado.",
+            "organization",
+            ("token_digest",),
+        ),
         "sk_tenancy.joinrequest": (
             "Solicitações de ingresso",
             "Pedido de uma pessoa para entrar; a aprovação cria o vínculo com o papel indicado.",

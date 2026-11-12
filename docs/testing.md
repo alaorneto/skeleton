@@ -101,6 +101,20 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 - `python -m pytest tests/accounts tests/integration/test_access_lifecycle_regressions.py tests/integration/test_core_lifecycle_events.py tests/integration/test_http_boundaries.py tests/integration/test_recovered_surfaces.py tests/integration/test_self_discovery.py tests/integration/test_core_surfaces_on_services.py -q` (convites e SSO usam o `admit_member` extraído de `provision_membership`): 169 passed.
 - Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
 
+**#27, links de ingresso:**
+
+- `python -m pytest tests/integration/test_join_links.py tests/integration/test_join_requests.py tests/integration/test_platform_boundary.py tests/accounts/test_flows.py -q` e `tests/integration_postgres/test_admission_schema.py`: todos passaram (10 testes novos de links, 11 de schema). Cobrem:
+  - link direto admite uma vez com o papel do link; membro ativo não consome uso; a sessão guarda o resumo, nunca o token;
+  - link com aprovação e ex-membro (mesmo num link direto) geram pedido, nunca vínculo;
+  - quatro resgates concorrentes (threads, PostgreSQL) de um link com `max_uses=1`: um admitido, três inválidos, `use_count` 1;
+  - link expirado, revogado (revogação stale recusada), esgotado, de A no endereço de B e inexistente com a mesma página 404; desligar links na política fecha os vivos;
+  - token ausente da listagem HTML e REST, da auditoria (resumo redigido) e dos logs; resposta da criação sem cache;
+  - modo, limite e papel imutáveis;
+  - regras de criação (política, validade, limite, modo, `organization_admin`), gestor de pessoas recusado com papel com capacidade, membro sem acesso (403) e outra organização (404);
+  - cadastro pelo link fechado sem `signup_via_link_enabled`; com a opção, o cadastro cria pedido `awaiting_verification` e a confirmação em outro cliente, sem sessão, admite com aprovação automática;
+  - API com campos exatos, If-Match obrigatório (428) e stale (412).
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

@@ -32,8 +32,9 @@ from skeleton.tenancy.context import current_context, own_rows, system_context
 REQUEST_TTL = timedelta(days=30)
 MESSAGE_MAX = 500
 JOIN_REASON = "join:request"
-# What the administrator configures in #26; links (#27) and domains (#28) add their own flags.
-POLICY_FIELDS = ("discoverable", "join_requests_enabled", "request_default_role")
+# What the administrator configures: requests (#26), links (#27); domains (#28) add theirs.
+POLICY_FLAGS = ("discoverable", "join_requests_enabled", "join_links_enabled", "signup_via_link_enabled")
+POLICY_FIELDS = (*POLICY_FLAGS, "request_default_role")
 # Submissions per person and window, counted before anything about the organization is read.
 RATE_LIMIT = 10
 RATE_WINDOW_S = 3600
@@ -102,7 +103,7 @@ def configure_policy(*, actor: Any, data: dict[str, Any], expected_revision: int
     if type(expected_revision) is not int:
         raise ValidationError({"revision": "Informe a revisão."})
     values: dict[str, Any] = {}
-    for name in ("discoverable", "join_requests_enabled"):
+    for name in POLICY_FLAGS:
         value = data.get(name, False)
         if type(value) is not bool:
             raise ValidationError({name: "Use true ou false."})

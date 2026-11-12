@@ -136,3 +136,83 @@ class OrganizationJoinRequestsAPI(TenantAPI):
         except ValidationError:
             raise BoundaryError("not_pending", "O pedido não está mais pendente.", 409) from None
         return etag(Response(request_data(record, decider=True)), record.revision)
+
+
+# --------------------------------------------------------------------------- join links (#27)
+
+
+def link_data(link):
+    """Never the digest; the token exists only in the creation response."""
+    return {
+        "sysid": str(link.pk),
+        "label": link.label,
+        "role": {"sysid": str(link.role_id), "name": link.role.name},
+        "mode": link.mode,
+        "expires_at": link.expires_at.isoformat(),
+        "max_uses": link.max_uses,
+        "use_count": link.use_count,
+        "revision": link.revision,
+    }
+
+
+class OrganizationJoinLinksAPI(TenantAPI):
+    """``invitations.manage`` lists and creates links; revoking takes ``If-Match``."""
+
+    def check_permissions(self, request):
+        from skeleton.access.capabilities import INVITATIONS_MANAGE
+
+        super().check_permissions(request)
+        require_resource_capability(request.user, INVITATIONS_MANAGE)
+
+    def get(self, request, organization_id):
+        from skeleton.tenancy import links
+
+        return Response({"results": [link_data(item) for item in links.live_links()[:200]]})
+
+    def post(self, request, organization_id):
+        from django.urls import reverse
+
+        from skeleton.access.models import Role
+        from skeleton.tenancy import links
+
+        data = request_fields(request)
+        if set(data) != {"label", "role", "mode", "days", "max_uses"}:
+            raise BoundaryError("invalid_request", "Informe label, role, mode, days e max_uses.")
+        try:
+            role = Role.objects.filter(pk=str(data["role"])).first()
+        except (ValueError, ValidationError):
+            role = None
+        try:
+            with transaction.atomic():
+                link, token = links.create_join_link(
+                    actor=request.user,
+                    label=data["label"],
+                    role=role,
+                    mode=data["mode"],
+                    days=data["days"],
+                    max_uses=data["max_uses"],
+                )
+        except PermissionDenied:
+            raise BoundaryError("privileged_role", "Só o administrador concede papel com capacidades.", 403) from None
+        path = reverse("web:join-link", kwargs={"organization_id": organization_id, "token": token})
+        response = Response({**link_data(link), "url": request.build_absolute_uri(path)}, status=201)
+        response["Cache-Control"] = "no-store"
+        return etag(response, link.revision)
+
+
+class OrganizationJoinLinkRevokeAPI(OrganizationJoinLinksAPI):
+    def get(self, request, organization_id, sysid):
+        raise Http404
+
+    def post(self, request, organization_id, sysid):
+        from skeleton.tenancy import links
+
+        revision = _revision(request)
+        try:
+            with transaction.atomic():
+                link = links.revoke_join_link(actor=request.user, link_id=sysid, expected_revision=revision)
+        except links.InvalidJoinLink:
+            raise Http404 from None
+        except ConcurrentUpdate:
+            raise _stale() from None
+        return Response({"sysid": str(link.pk), "revoked": True})

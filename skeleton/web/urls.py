@@ -14,8 +14,15 @@ urlpatterns = [
     path("join/", admission_views.join_directory, name="join"),
     path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
+    path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
     path("o/<uuid:organization_id>/", views.dashboard, name="dashboard"),
     path("o/<uuid:organization_id>/admission/", admission_views.admission_policy, name="admission"),
+    path("o/<uuid:organization_id>/admission/links/", admission_views.join_links, name="join-links"),
+    path(
+        "o/<uuid:organization_id>/admission/links/<uuid:sysid>/revoke/",
+        admission_views.join_link_revoke,
+        name="join-link-revoke",
+    ),
     path("o/<uuid:organization_id>/requests/", admission_views.join_requests, name="join-requests"),
     path(
         "o/<uuid:organization_id>/requests/<uuid:sysid>/decide/",

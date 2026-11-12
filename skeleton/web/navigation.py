@@ -100,6 +100,7 @@ def _admission_links(organization_id: Any, capabilities: frozenset[str], path: s
     links = []
     for capability, name, label in (
         ("admission.decide", "web:join-requests", "Solicitações"),
+        ("invitations.manage", "web:join-links", "Links de ingresso"),
         ("admission.configure", "web:admission", "Admissão"),
     ):
         if capability in capabilities:
