@@ -194,6 +194,7 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
 - [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md), [testes](docs/testing.md) e a [evidência histórica das rodadas](docs/testing-evidence.md).
+- [Checks](docs/checks.md): todos os `skeleton.E/W`, o que reprovam e como corrigir.
 - [API de serviços entre apps](docs/service-api.md): contrato obrigatório de classes de serviço que cada app publica e que outras apps consomem em processo; procedimento no skill `service-api`.
 - [Interface e design](docs/ui-design.md): tokens de cor, tipografia, componentes Flowbite, modo escuro, tema do admin e build do CSS.
 - [Fluxo de trabalho](docs/workflow.md): plano → issues classificadas → branch/commits → PR → fechamento aprovado.

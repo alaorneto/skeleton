@@ -35,7 +35,13 @@ def record_contract_checks(app_configs=None, **kwargs):
             or model._meta.pk.name != "sysid"
         ):
             errors.append(
-                Error(f"{model._meta.label}: own models require SystemRecord and UUID sysid PK.", id="skeleton.E001")
+                Error(
+                    f"{model._meta.label}: own models require SystemRecord and UUID sysid PK.",
+                    hint="Derive the model from SystemRecord, OrganizationRecord, SecuredRecord or "
+                    "OperationalRecord (skeleton.common.models) and do not declare another primary key. See "
+                    "docs/checks.md.",
+                    id="skeleton.E001",
+                )
             )
         if (
             issubclass(model, SystemRecord)
@@ -52,7 +58,14 @@ def record_contract_checks(app_configs=None, **kwargs):
             )
         spec = specs.get(model._meta.label_lower)
         if spec is None:
-            errors.append(Error(f"{model._meta.label}: missing TableSpec.", id="skeleton.E002"))
+            errors.append(
+                Error(
+                    f"{model._meta.label}: missing TableSpec.",
+                    hint="Register a TableSpec for the model in the app's AppConfig.ready() with "
+                    "skeleton.system.registry.register(). See docs/extending.md and docs/checks.md.",
+                    id="skeleton.E002",
+                )
+            )
             continue
         concrete = {field.name for field in model._meta.concrete_fields}
         system_fields = {
@@ -73,14 +86,32 @@ def record_contract_checks(app_configs=None, **kwargs):
             set(spec.read_fields) | set(spec.write_fields) | set(spec.sensitive_fields)
         ) - concrete or "__all__" in spec.read_fields + spec.write_fields:
             errors.append(
-                Error(f"{model._meta.label}: field allowlists require concrete model fields.", id="skeleton.E003")
+                Error(
+                    f"{model._meta.label}: field allowlists require concrete model fields.",
+                    hint="List only concrete field names of this model in read_fields, write_fields and "
+                    'sensitive_fields; "__all__" and related paths are not accepted. See docs/checks.md.',
+                    id="skeleton.E003",
+                )
             )
         if set(spec.write_fields) & system_fields:
             errors.append(
-                Error(f"{model._meta.label}: system/access fields are not externally writable.", id="skeleton.E004")
+                Error(
+                    f"{model._meta.label}: system/access fields are not externally writable.",
+                    hint="Remove sysid, organization, created_*/updated_*/deleted_*, revision, owner, visibility "
+                    "and owning_group from write_fields; access fields change only through the manage_access "
+                    "service. See docs/checks.md.",
+                    id="skeleton.E004",
+                )
             )
         if spec.expose_api and not issubclass(model, SecuredRecord):
-            errors.append(Error(f"{model._meta.label}: generic API requires SecuredRecord.", id="skeleton.E005"))
+            errors.append(
+                Error(
+                    f"{model._meta.label}: generic API requires SecuredRecord.",
+                    hint="Set expose_api=False in the TableSpec, or derive the model from SecuredRecord if it is "
+                    "organization business data. See docs/checks.md.",
+                    id="skeleton.E005",
+                )
+            )
         if issubclass(model, OperationalRecord) and (spec.expose_api or spec.write_fields):
             errors.append(
                 Error(
@@ -89,18 +120,34 @@ def record_contract_checks(app_configs=None, **kwargs):
                 )
             )
         if issubclass(model, OrganizationRecord) and model._meta.get_field("organization").null:
-            errors.append(Error(f"{model._meta.label}: tenant is mandatory.", id="skeleton.E006"))
+            errors.append(
+                Error(
+                    f"{model._meta.label}: tenant is mandatory.",
+                    hint="Do not override the organization field of OrganizationRecord with null=True. See "
+                    "docs/data-model.md and docs/checks.md.",
+                    id="skeleton.E006",
+                )
+            )
         for field in model._meta.local_many_to_many:
             if field.remote_field.through._meta.auto_created:
                 errors.append(
                     Error(
                         f"{model._meta.label}.{field.name}: own relations require explicit UUID through models.",
+                        hint="Replace the implicit ManyToManyField with an explicit link model derived from "
+                        "OrganizationRecord, with two PROTECT foreign keys. See docs/checks.md.",
                         id="skeleton.E007",
                     )
                 )
         for name in ("password", "token_digest", "secret", "private_key"):
             if name in concrete and name not in spec.sensitive_fields:
-                errors.append(Error(f"{model._meta.label}.{name}: missing sensitive declaration.", id="skeleton.E008"))
+                errors.append(
+                    Error(
+                        f"{model._meta.label}.{name}: missing sensitive declaration.",
+                        hint="Add the field to TableSpec.sensitive_fields and install the record infrastructure again "
+                        "in a new migration with the updated frozen specification. See docs/checks.md.",
+                        id="skeleton.E008",
+                    )
+                )
         from django.db import models as django_models
 
         for name in getattr(spec, "search_fields", ()) or ():
@@ -151,10 +198,23 @@ def record_contract_checks(app_configs=None, **kwargs):
         or (token in middleware and not middleware.index(auth) < middleware.index(token) < middleware.index(tenant))
     ):
         errors.append(
-            Error("Tenant middleware must follow authentication/messages and precede allauth.", id="skeleton.E009")
+            Error(
+                "Tenant middleware must follow authentication/messages and precede allauth.",
+                hint="In MIDDLEWARE, keep the order: AuthenticationMiddleware, MessageMiddleware, "
+                "ApiTokenMiddleware (if present), TenantContextMiddleware, then allauth "
+                "AccountMiddleware. Use the list in skeleton/conf/base.py. See docs/checks.md.",
+                id="skeleton.E009",
+            )
         )
     if any(db.get("ATOMIC_REQUESTS") for db in settings.DATABASES.values()):
-        errors.append(Error("ATOMIC_REQUESTS must be False; tenant middleware owns transactions.", id="skeleton.E010"))
+        errors.append(
+            Error(
+                "ATOMIC_REQUESTS must be False; tenant middleware owns transactions.",
+                hint="Remove ATOMIC_REQUESTS from every DATABASES entry; TenantContextMiddleware opens the "
+                "request transaction. See docs/architecture.md and docs/checks.md.",
+                id="skeleton.E010",
+            )
+        )
     return errors
 
 

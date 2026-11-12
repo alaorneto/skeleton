@@ -66,7 +66,7 @@ Não existe isenção geral para `django_*`, `account_*` ou apps de terceiros. U
 
 **A spec define o contrato; a migration instala sua proteção física.** `InstallRecordInfrastructure(app_label, model_name, specification)` usa modelos históricos de migrations e uma spec congelada com alcance (`scope`), sensibilidade/colunas, `append_only` e imutabilidade. Reemita a operação após alterações de campos auditáveis ou relações. Atualizar o cadastro de uma coluna não atualiza o trigger.
 
-Há duas verificações complementares:
+Há duas verificações complementares (lista completa dos checks: [checks](checks.md)):
 
 - **Checks estáticos:** não consultam o banco no `ready`; verificam base/UUID, organização obrigatória, associações próprias, listas de campos permitidos/sensibilidade, middleware/`ATOMIC_REQUESTS` e classificação.
 - **`check_skeleton_schema` após migrations:** inspeciona tabelas/tipos/triggers/guards/FKs/RLS/FORCE e inventário de policies/roles/grants SQL. Policy permissiva extra, trigger ausente, UUID incorreto e tabela desconhecida são falhas, não avisos a ignorar. Em produção, inclui backend, ownership, privilégios e `SET ROLE`; o check comum não exige banco já migrado.

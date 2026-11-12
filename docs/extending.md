@@ -117,7 +117,7 @@ Do mesmo modo, `TableSpec(comments=CommentPolicy())` abre comentários na tabela
 
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
-Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:
+Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas (lista completa: [checks](checks.md)):
 
 | Check | Regra |
 |---|---|
