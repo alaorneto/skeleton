@@ -203,6 +203,11 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
   - só o administrador concede papéis; papel desconhecido recusado;
   - `check_deployed_schema` recusa a política antiga de SELECT da auditoria.
 
+**Branch do epic (`feat/35-org-apps-admission`, todas as issues unidas):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1432 passed, 111 skipped (os pulos exigem `O_NOFOLLOW`/`fcntl`, só em Linux/macOS, ou o CLI do Docker).
+- **Não executado:** `tests/sso/` com Keycloak e OpenLDAP em contêiner, por falta de Docker neste ambiente; login real com IdP e MFA no fluxo LDAP ficam para o CI e a homologação.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
