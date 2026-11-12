@@ -311,6 +311,9 @@ class DedicatedView(TenantAPI):
     def get(self, request, organization_id, resource, sysid=None):
         model, fields = dedicated_model(resource)
         queryset = model.objects.order_by("created_at", "sysid")
+        if resource == "memberships":
+            # dedicated_data reads record.user.account_type: one JOIN instead of one query per row (#231).
+            queryset = queryset.select_related("user")
         if sysid:
             record = queryset.filter(pk=sysid).first()
             if record is None:

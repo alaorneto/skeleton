@@ -451,3 +451,34 @@ def test_rest_framework_renders_only_json():
     from rest_framework.settings import api_settings
 
     assert api_settings.DEFAULT_RENDERER_CLASSES == [JSONRenderer]
+
+
+def test_membership_list_query_count_is_constant(http_identity):
+    """The membership list joins the user instead of one query per row (#231)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.access.models import Role
+    from skeleton.access.services import provision_membership
+    from skeleton.accounts.services import create_identity
+    from skeleton.tenancy.context import system_context
+
+    client, _, organization = http_identity
+    url = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "memberships"})
+
+    def add(count, start):
+        with system_context(reason="test:membership-list", organization_id=organization.pk):
+            role = Role.objects.get(code="member")
+            for index in range(start, start + count):
+                user = create_identity(email=f"list-{index}@example.test", password=None)
+                provision_membership(organization=organization, user=user, role=role)
+
+    def queries():
+        with CaptureQueriesContext(connection) as captured:
+            assert client.get(url).status_code == 200
+        return len(captured)
+
+    add(1, 0)
+    few = queries()
+    add(6, 1)
+    assert queries() == few

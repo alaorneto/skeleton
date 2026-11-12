@@ -105,3 +105,17 @@ def test_update_my_preferences_with_cas(scenario):
             service.update_my_preferences(actor=actor, expected_revision=current)
         with pytest.raises(Conflict):
             service.update_my_preferences(actor=actor, expected_revision=current - 1, language="pt-br")
+
+
+@pytest.mark.needs_example_app
+def test_get_person_reads_membership_user_and_profile_in_one_query(scenario):
+    """No separate UserProfile query after the membership (#231)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with acting_as(scenario.member, scenario.a) as actor:
+        with CaptureQueriesContext(connection) as captured:
+            person = IdentityService().get_person(actor=actor, user_id=scenario.denied.pk)
+    assert person.sysid == scenario.denied.pk
+    profile_alone = [query["sql"] for query in captured if query["sql"].startswith('SELECT "sk_accounts_userprofile"')]
+    assert profile_alone == []
