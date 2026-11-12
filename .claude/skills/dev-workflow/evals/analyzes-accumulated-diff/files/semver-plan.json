@@ -1,0 +1,62 @@
+{
+  "base_tag": "v1.4.2",
+  "base_version": "1.4.2",
+  "requested": true,
+  "natural_level": "patch",
+  "level": "patch",
+  "next_version": "1.4.3",
+  "changes": [
+    {
+      "key": "#52",
+      "kind": "pr",
+      "pr": 52,
+      "title": "refactor: split the parser module",
+      "labels": [
+        "no-release"
+      ],
+      "level": "none",
+      "analyzed": false,
+      "commits": [
+        {
+          "sha": "1111111aaaaaaa",
+          "subject": "refactor: split the parser module"
+        }
+      ],
+      "signals": [],
+      "public_surfaces": []
+    },
+    {
+      "key": "#57",
+      "kind": "pr",
+      "pr": 57,
+      "title": "fix: paginate the client",
+      "labels": [
+        "release"
+      ],
+      "level": "patch",
+      "analyzed": false,
+      "commits": [
+        {
+          "sha": "2222222bbbbbbb",
+          "subject": "fix: paginate the client"
+        }
+      ],
+      "signals": [
+        {
+          "level": "patch",
+          "source": "issue",
+          "detail": "#40 tem o label `bug`",
+          "breaking": false
+        }
+      ],
+      "public_surfaces": [
+        {
+          "surface": "API pública",
+          "path": "api/client.py",
+          "event": "modify",
+          "action": "review"
+        }
+      ]
+    }
+  ]
+}
