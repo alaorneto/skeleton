@@ -204,3 +204,35 @@ class IdentityProvider(SystemRecord):
 
     def __str__(self):
         return self.provider_id
+
+
+class PlatformRoleAssignment(SystemRecord):
+    """A limited platform role of one identity (#34): auditor or release operator.
+
+    The full platform administrator stays defined by the ``is_staff``/``is_superuser`` pair;
+    these rows add read-only audit and inventory (auditor) or release operations (operator)
+    and never an organization's access. Granted and revoked only by a platform administrator,
+    bumping the identity's ``auth_version``; revoking is a soft delete.
+    """
+
+    class Role(models.TextChoices):
+        AUDITOR = "auditor", "Auditor de plataforma"
+        OPERATOR = "operator", "Operador de releases"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="platform_roles")
+    role = models.CharField(max_length=16, choices=Role.choices)
+    immutable_fields = ("user_id", "role")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("user", "role"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_accounts_platform_role_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(condition=Q(role__in=("auditor", "operator")), name="sk_accounts_platform_role"),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}: {self.role}"

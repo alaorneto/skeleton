@@ -29,6 +29,8 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/join/<org>/<token>/` | Quem recebeu um link de ingresso | Entrar direto ou pedir ingresso pelo link; criar conta por ele quando a organização permite |
 | `/o/<org>/identity/` | Administrador da organização | Ver os provedores de login corporativo da organização e decidir JIT, aprovação, papel padrão e domínios de email permitidos |
 | `/o/<org>/admission/domains/` | Administrador da organização | Cadastrar e verificar por DNS os domínios de email que admitem pessoas, com entrada direta ou com aprovação |
+| `/platform/audit/`, `/platform/catalog/` | Administrador ou auditor de plataforma | Ler a auditoria global e o catálogo de tabelas; editar rótulos continua só com o administrador |
+| `/platform/updates/` (papel limitado) | Operador de releases | Versões e atualizações, sem acesso a identidades, organizações ou auditoria |
 | `/platform/identity-providers/` | Administrador da plataforma | Cadastrar, editar, desligar e testar provedores OIDC e SAML de cada organização, com segredos cifrados e só de escrita |
 | `/platform/domains/` | Administrador da plataforma | Ver e revogar a posse de domínios verificados em disputa |
 | `/o/<org>/admission/links/` | Quem gerencia convites | Criar e revogar links de ingresso com validade, limite de usos e entrada direta ou com aprovação |

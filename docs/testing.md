@@ -194,6 +194,15 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
   - `--provision` desligado por padrão e sem efeito com JIT desligado; com JIT admite só quem nunca foi membro, nunca um ex-membro; com aprovação cria `JoinRequest(channel=sso)`.
 - Sem Docker, os testes com OpenLDAP real em `tests/sso/` não rodaram.
 
+**#34, auditor e operador de releases:**
+
+- `python -m pytest tests/integration/test_platform_roles.py -q`: 5 passed; com as suítes de plataforma, auditoria, deployment, jobs, administração de apps e `tests/integration_postgres`, 189 passed. Os 5 cobrem:
+  - matriz: o auditor lê `/platform/audit/` e o catálogo e recebe 403 em visão geral, usuários, organizações, apps, jobs e atualizações; o operador acessa só `/platform/updates/`; nenhum dos dois entra em `/o/<org>/`; o auditor não edita rótulo do catálogo (403) e o link do cabeçalho leva à auditoria;
+  - RLS com a role runtime: fora de `platform_audit_scope` o auditor não vê eventos globais, dentro vê, e UPDATE na auditoria continua recusado; o operador não abre o escopo;
+  - revogação incrementa o `auth_version`, a sessão seguinte perde o acesso e a capacidade some;
+  - só o administrador concede papéis; papel desconhecido recusado;
+  - `check_deployed_schema` recusa a política antiga de SELECT da auditoria.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

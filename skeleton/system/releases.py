@@ -27,6 +27,16 @@ def require_platform(user):
         raise PermissionDenied("Deployment operations are global.")
 
 
+def require_release_operator(user):
+    """Release operations (#34): the platform administrator or the release operator."""
+    from skeleton.accounts.platform import UPDATES_OPERATE, has_platform_capability, is_platform_admin
+
+    if not (is_platform_admin(user) or has_platform_capability(user, UPDATES_OPERATE)) or mfa_required(user):
+        raise PermissionDenied("Release operation required.")
+    if current_context().organization_id is not None:
+        raise PermissionDenied("Deployment operations are global.")
+
+
 def agent_client():
     from .deployment_client import AgentClient
 
@@ -38,7 +48,7 @@ def agent_client():
 
 
 def create_preview(*, user, action, artifacts=(), app_ids=()):
-    require_platform(user)
+    require_release_operator(user)
     if action not in {"install", "update", "uninstall", "reinstall", "core_update"}:
         raise ValidationError("Unsupported deployment operation.")
     plan = agent_client().preview(action, artifacts=list(artifacts), app_ids=list(app_ids))
@@ -55,7 +65,7 @@ def create_preview(*, user, action, artifacts=(), app_ids=()):
 
 
 def confirm_operation(*, user, operation_id, revision):
-    require_platform(user)
+    require_release_operator(user)
     operation = DeploymentOperation.objects.select_for_update().get(pk=operation_id)
     if operation.revision != revision:
         raise ConcurrentUpdate("Deployment preview changed.")
@@ -112,7 +122,7 @@ def _schedule_submission(*, user, values):
 
 def retry_submission(*, user, operation_id, revision):
     """Explicit retry of delivery only; the agent UUID remains idempotent."""
-    require_platform(user)
+    require_release_operator(user)
     row = DeploymentOperation.objects.select_for_update().get(pk=operation_id)
     if row.revision != revision or row.state != "submission_failed":
         raise ConcurrentUpdate("Deployment submission changed.")

@@ -9,30 +9,30 @@
       <p class="page-eyebrow">Plataforma</p>
       <p class="truncate text-sm font-semibold text-heading">Administração</p>
     </div>
-    <ul class="sidebar-list">
+{% if platform_admin %}    <ul class="sidebar-list">
       <li><a class="sidebar-link" href="{% url 'platform:overview' %}"{% if platform_section == "overview" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="home" %}Visão geral</a></li>
     </ul>
-    <p class="sidebar-heading" id="platform-identity">Identidade</p>
+{% endif %}{% if platform_admin %}    <p class="sidebar-heading" id="platform-identity">Identidade</p>
     <ul class="sidebar-list" aria-labelledby="platform-identity">
       <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}Usuários</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}Organizações</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:domains' %}"{% if platform_section == "domains" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}Domínios verificados</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:identity-providers' %}"{% if platform_section == "identity-providers" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}Provedores de identidade</a></li>
     </ul>
-    <p class="sidebar-heading" id="platform-apps">Aplicativos</p>
+{% endif %}    <p class="sidebar-heading" id="platform-apps">Aplicativos</p>
     <ul class="sidebar-list" aria-labelledby="platform-apps">
-      <li><a class="sidebar-link" href="{% url 'platform:apps' %}"{% if platform_section == "apps" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}Aplicativos instalados</a></li>
-      <li><a class="sidebar-link" href="{% url 'platform:updates' %}"{% if platform_section == "updates" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>
+      {% if platform_admin %}<li><a class="sidebar-link" href="{% url 'platform:apps' %}"{% if platform_section == "apps" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}Aplicativos instalados</a></li>{% endif %}
+      {% if "updates.operate" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:updates' %}"{% if platform_section == "updates" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a></li>{% endif %}
     </ul>
     <p class="sidebar-heading" id="platform-data">Dados</p>
     <ul class="sidebar-list" aria-labelledby="platform-data">
-      <li><a class="sidebar-link" href="{% url 'platform:catalog' %}"{% if platform_section == "catalog" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Catálogo de tabelas</a></li>
-      <li><a class="sidebar-link" href="{% url 'platform:instance' %}"{% if platform_section == "instance" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Configuração da instância</a></li>
-      <li><a class="sidebar-link" href="{% url 'platform:audit' %}"{% if platform_section == "audit" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>
+      {% if "inventory.read" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:catalog' %}"{% if platform_section == "catalog" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Catálogo de tabelas</a></li>{% endif %}
+      {% if platform_admin %}<li><a class="sidebar-link" href="{% url 'platform:instance' %}"{% if platform_section == "instance" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Configuração da instância</a></li>{% endif %}
+      {% if "audit.read" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:audit' %}"{% if platform_section == "audit" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria global</a></li>{% endif %}
     </ul>
-    <p class="sidebar-heading" id="platform-operations">Operação</p>
+{% if platform_admin %}    <p class="sidebar-heading" id="platform-operations">Operação</p>
     <ul class="sidebar-list" aria-labelledby="platform-operations">
       <li><a class="sidebar-link" href="{% url 'platform:jobs' %}"{% if platform_section == "jobs" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" %}Jobs</a></li>
     </ul>
-  </nav>
+{% endif %}  </nav>
 </div>

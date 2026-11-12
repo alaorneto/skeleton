@@ -106,6 +106,19 @@ A auditoria vem dos triggers, na mesma transação: os eventos de `Membership` e
 
 A confirmação de exclusão de User no Django Admin descreve somente a identidade: não usa o collector de exclusão física do Django. Perfis, Memberships e identificadores de identidade externa (`subjects`) permanecem históricos; o ciclo de vida invalida login/sessões. Não habilite ações de exclusão física da identidade nem de seus dependentes.
 
+## Papéis limitados de plataforma
+
+O administrador da plataforma continua definido só pelas flags (`is_platform_admin`). Além dele, `sk_accounts.PlatformRoleAssignment` (#34) dá a uma identidade um papel limitado, com capacidades em código (`skeleton/accounts/platform.py`):
+
+| Papel | Capacidades | Telas |
+|---|---|---|
+| `auditor` | `audit.read`, `inventory.read` | `/platform/audit/` e o catálogo de tabelas, só leitura |
+| `operator` | `updates.operate` | `/platform/updates/` (planos, envio, aprovação e operações) |
+
+`platform_page(capability=..., writes=...)` libera a tela ao portador da capacidade: só para leitura, a menos que a capacidade seja de escrita (`updates.operate`); o resto de `/platform/` continua exigindo o administrador. `require_release_operator` aceita o administrador ou o operador nos serviços de deployment. Conceder e revogar, na página da identidade, exigem o administrador, CSRF e autenticação recente, e incrementam o `auth_version` da pessoa; a capacidade é recalculada a cada requisição.
+
+A leitura global da auditoria pelo auditor passa pela RLS: a política `skeleton_audit_select` aceita eventos sem organização com `skeleton.platform_admin='on'` **ou** `skeleton.platform_auditor='on'`. Este último só é ligado por `platform_audit_scope(user)`, aberto pela página de auditoria depois de conferir `audit.read`, numa requisição de sessão sem tenant; fora dele o auditor não vê eventos globais. Inserção continua só com o escritor de auditoria, e UPDATE/DELETE seguem impossíveis. A migration `sk_audit.0003_platform_auditor` reinstala a política, e `check_deployed_schema` recusa a versão antiga.
+
 ## Contrato de contextos
 
 O contexto informa à execução **quem está agindo, em qual organização e em qual transação**. Ele não é uma permissão adicional. Use as entradas abaixo em vez de preencher variáveis de sessão SQL manualmente:
@@ -164,4 +177,4 @@ SELECT de AuditEvent pela conexão runtime limita-se ao tenant; eventos globais 
 
 ## Auditoria autorizada
 
-Administradores organizacionais veem auditoria da própria organização. Outros precisam de `table.audit` e leitura autorizada do registro atual; uma marca de exclusão exige autorização para `restore`. Filtre **antes** de paginar/contar. Se o registro foi removido offline e não há objeto atual, só administrador organizacional/plataforma pode ver os eventos: nunca reconstrua a ACL a partir do conteúdo histórico. Inventário técnico e eventos globais pertencem somente à plataforma.
+Administradores organizacionais veem auditoria da própria organização. Outros precisam de `table.audit` e leitura autorizada do registro atual; uma marca de exclusão exige autorização para `restore`. Filtre **antes** de paginar/contar. Se o registro foi removido offline e não há objeto atual, só administrador organizacional/plataforma pode ver os eventos: nunca reconstrua a ACL a partir do conteúdo histórico. Inventário técnico e eventos globais pertencem somente à plataforma: ao administrador e, para leitura, ao auditor de plataforma (#34).

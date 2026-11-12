@@ -176,7 +176,9 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
 
     organization_id = current_context().organization_id
     if organization_id is None:
-        if is_platform_admin(user):
+        from skeleton.accounts.platform import AUDIT_READ, has_platform_capability
+
+        if is_platform_admin(user) or has_platform_capability(user, AUDIT_READ):
             return AuditEvent.objects.filter(organization_id__isnull=True)
         raise PermissionDenied("Platform access required.")
     active_membership(user)
