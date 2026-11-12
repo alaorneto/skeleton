@@ -30,7 +30,18 @@ _PROVIDER_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 SAML_IDP_KEYS = {"sso_url", "slo_url", "metadata_url", "x509cert"}
 SAML_SP_KEYS = {"x509cert"}
 SAML_MAPPING_KEYS = {"uid", "email", "email_verified", "first_name", "last_name"}
-LDAP_KEYS: set[str] = set()  # #32 declares the directory options.
+LDAP_KEYS = {
+    "bind_dn",
+    "user_filter",
+    "id_attribute",
+    "email_attribute",
+    "first_name_attribute",
+    "last_name_attribute",
+    "required_group_dn",
+    "start_tls",
+    "ca_bundle",
+    "timeout_s",
+}
 SAML_ADVANCED = {
     "strict": True,
     "want_assertion_signed": True,
@@ -83,7 +94,7 @@ def normalize_settings(protocol: str, value: Any) -> dict[str, Any]:
         unknown = set(value) - LDAP_KEYS
         if unknown:
             raise ValidationError({"settings": f"Opções não permitidas: {', '.join(sorted(unknown))}."})
-        return deepcopy(value)
+        return deepcopy(value)  # Checked with the directory URL in ``validate_directory``.
     unknown = set(value) - {"idp", "sp", "attribute_mapping"}
     if unknown:
         raise ValidationError({"settings": f"Opções não permitidas: {', '.join(sorted(unknown))}."})
@@ -102,6 +113,16 @@ def normalize_settings(protocol: str, value: Any) -> dict[str, Any]:
     if not idp.get("x509cert") and not idp.get("metadata_url"):
         raise ValidationError({"settings": "SAML exige o certificado ou a URL de metadata do IdP."})
     return {"idp": dict(idp), "sp": dict(sp), "attribute_mapping": dict(mapping)}
+
+
+def validate_directory(directory: str, options: dict[str, Any]) -> None:
+    """``ldaps://`` (or ``ldap://`` with StartTLS), a base DN, a service account and a safe filter."""
+    from .ldap.client import options_from
+
+    try:
+        options_from(directory, options)
+    except (ValueError, TypeError) as exc:
+        raise ValidationError({"directory": str(exc)}) from None
 
 
 def _require_platform(actor: Any) -> None:
@@ -155,10 +176,11 @@ def create_identity_provider(*, actor: Any, data: dict[str, Any]) -> Any:
         if not identity or not values["client_id"]:
             raise ValidationError({"entity_id": "SAML exige o entity_id do IdP e o client_id (slug da URL)."})
     else:
-        values["directory"] = data.get("directory") or ""
+        values["directory"] = (data.get("directory") or "").strip()
         identity = values["directory"]
-        if not identity:
-            raise ValidationError({"directory": "LDAP exige o diretório."})
+        validate_directory(values["directory"], values["settings"])
+        if not data.get("secret"):
+            raise ValidationError({"secret": "LDAP exige a senha da service account."})
     values["fingerprint"] = binding_fingerprint(
         protocol, identity, values["client_id"], organization.slug, values["sp_entity_id"]
     )
@@ -215,6 +237,8 @@ def update_identity_provider(*, actor: Any, provider_id: Any, data: dict[str, An
                 changed.add("name")
         if "settings" in data:
             options = normalize_settings(record.protocol, data["settings"])
+            if record.protocol == "ldap":
+                validate_directory(record.directory, options)
             if options != record.settings:
                 record.settings = options
                 changed.add("settings")
@@ -262,6 +286,10 @@ def binding_from_row(row: Any) -> Any:
             "oauth_pkce_enabled": True,
             "token_auth_method": "client_secret_basic",
         }
+    elif row.protocol == "ldap":
+        # In memory only: the directory, its options and the service account password.
+        app["secret"] = _reveal(row.secret)
+        settings = {"directory": row.directory, "options": dict(row.settings or {})}
     elif row.protocol == "saml":
         options = row.settings or {}
         advanced = dict(SAML_ADVANCED)
@@ -304,7 +332,7 @@ def database_bindings() -> tuple[Any, ...]:
         return cache[_MEMO]
     rows = IdentityProvider.objects.filter(
         enabled=True,
-        protocol__in=("oidc", "saml"),
+        protocol__in=("oidc", "saml", "ldap"),
         bound_organization__is_active=True,
         bound_organization__deleted_at__isnull=True,
     ).select_related("bound_organization")
@@ -328,7 +356,13 @@ def probe(row: Any) -> str:
         if not url:
             return "no_metadata_url"
     else:
-        return "unsupported"
+        from .ldap import client
+
+        try:
+            options = client.options_from(row.directory, row.settings or {})
+        except ValueError:
+            return "invalid_settings"
+        return client.check(options, _reveal(row.secret))
     try:
         response = request("GET", url, headers={"Accept": "application/json, application/xml"})
     except OutboundRequestRefused as exc:

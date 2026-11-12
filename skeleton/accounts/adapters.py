@@ -155,7 +155,7 @@ class AccountAdapter(DefaultAccountAdapter):
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
-    PROVIDER_CLASSES = {"oidc": "openid_connect", "saml": "saml"}
+    PROVIDER_CLASSES = {"oidc": "openid_connect", "saml": "saml", "ldap": "ldap"}
 
     def list_apps(self, request, provider=None, client_id=None):
         """File apps plus database providers (#29), built in memory per request, never saved."""

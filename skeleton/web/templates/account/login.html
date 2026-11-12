@@ -15,6 +15,7 @@
 <div class="divider">ou</div>
 <div class="space-y-3">
 {% for provider in socialaccount_providers %}
+{% if provider.id == "ldap" %}<a class="btn btn-secondary w-full" href="{% provider_login_url provider %}">Entrar com {{ provider.name }}</a>{% else %}
 <form method="post" action="{% provider_login_url provider process='login' %}">
   {% csrf_token %}
   {% if provider.is_govbr %}
@@ -22,7 +23,7 @@
   {% else %}
   <button type="submit" class="btn btn-secondary w-full">Entrar com {{ provider.name }}</button>
   {% endif %}
-</form>
+</form>{% endif %}
 {% endfor %}
 </div>
 {% endif %}
