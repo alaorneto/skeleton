@@ -52,23 +52,6 @@ def dedicated_data(resource, record):
     return data
 
 
-def profile_data(user, profile):
-    return {
-        "sysid": user.sysid,
-        "email": user.email,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "revision": user.revision,
-        "profile": {
-            "sysid": profile.sysid,
-            "revision": profile.revision,
-            "display_name": profile.display_name,
-            "timezone": profile.timezone,
-            "language": profile.language,
-        },
-    }
-
-
 def audit_data(event):
     """REST shape of one ``AuditLogEvent`` (``AuditLogService``).
 

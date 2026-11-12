@@ -260,11 +260,14 @@ class OwnMembershipView(TenantAPI):
     openapi = {"GET": Operation("Vínculo do ator nesta organização", OWN_MEMBERSHIP, etag=True)}
 
     def get(self, request, organization_id):
-        from skeleton.tenancy.models import Membership
+        from django.core.exceptions import PermissionDenied
 
-        membership = Membership.objects.filter(user=request.user, is_active=True).first()
-        if membership is None:
-            raise Http404
+        from skeleton.access.policies import active_membership
+
+        try:
+            membership = active_membership(request.user)  # The policy, not a query of the view (#340).
+        except PermissionDenied:
+            raise Http404 from None
         return etag(Response(own_membership_data(membership)), membership.revision)
 
 
@@ -310,7 +313,7 @@ class DedicatedView(TenantAPI):
         require_resource_capability(request.user, self.capability)
 
     def get(self, request, organization_id, resource, sysid=None):
-        model, fields = dedicated_model(resource)
+        model, _ = dedicated_model(resource)
         queryset = model.objects.order_by("created_at", "sysid")
         if resource == "memberships":
             # dedicated_data reads record.user.account_type: one JOIN instead of one query per row (#231).
@@ -339,7 +342,7 @@ class DedicatedView(TenantAPI):
     def patch(self, request, organization_id, resource, sysid=None):
         if not sysid or resource in LINKS or resource == "invitations":
             raise BoundaryError("method_not_allowed", gettext("Este recurso não aceita atualização."), 405)
-        model, fields = dedicated_model(resource)
+        model, _ = dedicated_model(resource)
         with access_services.organization_lock(request.user, capability=self.capability):
             record = model.objects.select_for_update().filter(pk=sysid).first()
             if record is None:
@@ -355,7 +358,7 @@ class DedicatedView(TenantAPI):
             raise BoundaryError("method_not_allowed", gettext("Selecione o registro."), 405)
         if request_fields(request):
             raise BoundaryError("invalid_request", gettext("Remoção não aceita campos."))
-        model, fields = dedicated_model(resource)
+        model, _ = dedicated_model(resource)
         with access_services.organization_lock(request.user, capability=self.capability):
             record = model.objects.select_for_update().filter(pk=sysid).first()
             if record is None:
