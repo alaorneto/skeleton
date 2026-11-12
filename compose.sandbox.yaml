@@ -1,0 +1,135 @@
+# Sandbox and test environment on Coolify (#369); see docs/deployment.md, "Sandbox no Coolify".
+# Production keeps the deployment agent and compose.yaml. This file lives at the repository root
+# so every build context is "." whichever directory Coolify resolves relative paths against.
+#
+# Required variables (Coolify > Environment Variables; never commit values):
+#   SANDBOX_HOST                   public host of the sandbox, e.g. sandbox.example.com
+#   POSTGRES_PASSWORD              PostgreSQL administrator (only the database container uses it)
+#   SKELETON_OWNER_DB_PASSWORD     skeleton_owner: migrations, only in the migrate service
+#   SKELETON_RUNTIME_DB_PASSWORD   skeleton_runtime: typed in the setup as the runtime URL
+#   REDIS_PASSWORD                 Redis requirepass
+# Use letters and digits only (openssl rand -hex 32): the passwords go into URLs unencoded.
+#
+# No service publishes a host port: Coolify's proxy reaches web on 8000 through the domain
+# configured for the web service (https://<SANDBOX_HOST>:8000 in the Coolify UI).
+
+x-app-environment: &app-environment
+  DJANGO_SETTINGS_MODULE: config.settings.production
+  # Bootstrap only: the configuration itself lives in the instance volume (#143, #146).
+  SKELETON_INSTANCE_DB: /instance/instance.sqlite3
+  SKELETON_INSTANCE_KEY_FILE: /instance/keys/master.key
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: deploy/coolify/postgres.Dockerfile
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: skeleton
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define the PostgreSQL administrator password}
+      # Read by deploy/coolify/postgres-init.sh on the first start of an empty volume only.
+      SKELETON_OWNER_DB_PASSWORD: ${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}
+      SKELETON_RUNTIME_DB_PASSWORD: ${SKELETON_RUNTIME_DB_PASSWORD:?Define the skeleton_runtime password}
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8.8.3
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?Define the Redis password}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Define the Redis password}
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot, on every deploy: the owner applies migrations and the table catalog, then exits.
+  # Its credential exists only here, never in web, worker or scheduler.
+  migrate:
+    build: .
+    restart: "no"
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py sync_table_catalog"]
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.migrate
+      MIGRATION_DATABASE_URL: postgres://skeleton_owner:${SKELETON_OWNER_DB_PASSWORD:?Define the skeleton_owner password}@postgres:5432/skeleton
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  web:
+    build: .
+    restart: unless-stopped
+    expose: ["8000"]
+    # Configured instance: the runtime role keeps the apps open and checks the protected schema
+    # before serving (what the agent does in finish()). A failure stops web instead of serving.
+    # Unconfigured instance: gunicorn starts in setup mode and prints the token to the log.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        mode=$$(python -c "from skeleton.setup.mode import setup_required; print('setup' if setup_required() else 'ready')")
+        if [ "$$mode" = ready ]; then
+          python manage.py upgrade_app_activation
+          python manage.py check_skeleton_schema
+        fi
+        exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3
+    environment:
+      <<: *app-environment
+      # The setup exits the process when it completes; the restart policy brings it back.
+      SKELETON_SETUP_RESTART: exit
+      SKELETON_SETUP_ALLOWED_HOSTS: ${SANDBOX_HOST:?Define the public host of the sandbox}
+      SKELETON_SETUP_SECURE_COOKIES: "true"
+      SKELETON_REQUIRE_ADMIN_MFA: "true"
+    volumes:
+      - instance:/instance
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      # Resolves a Host the instance accepts (setup or normal mode) without starting Django.
+      test: ["CMD", "python", "-m", "skeleton.api.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Job worker and periodic scheduler (#40): same image, instance volume and environment as web.
+  # Until the setup finishes they exit and the restart policy retries.
+  worker:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 5m
+    command: ["python", "manage.py", "run_worker", "--queues", "default"]
+    environment: *app-environment
+    volumes:
+      - instance:/instance
+    depends_on:
+      web: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "check_jobs", "--max-lag", "900"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+
+  scheduler:
+    build: .
+    restart: unless-stopped
+    command: ["python", "manage.py", "run_scheduler", "--interval", "30"]
+    environment: *app-environment
+    volumes:
+      - instance:/instance
+    depends_on:
+      web: {condition: service_healthy}
+
+volumes:
+  postgres_data:
+  instance:

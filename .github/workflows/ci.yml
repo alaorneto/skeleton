@@ -272,6 +272,25 @@ jobs:
           pip-audit --strict --require-hashes --disable-pip -r requirements-dev.txt
       - name: Construir imagem
         run: docker build --tag django-skeleton:ci .
+      - name: Validar o compose do sandbox (#369)
+        env:
+          SANDBOX_HOST: sandbox.example.test
+          POSTGRES_PASSWORD: ci
+          SKELETON_OWNER_DB_PASSWORD: ci
+          SKELETON_RUNTIME_DB_PASSWORD: ci
+          REDIS_PASSWORD: ci
+        run: |
+          config=$(docker compose -f compose.sandbox.yaml config --format json)
+          # Nenhuma porta no host: o proxy do Coolify chega ao web pela rede interna.
+          echo "$config" | jq -e '[.services[] | select(.ports)] == []'
+          # A URL owner só no migrate; a senha owner só no migrate e no init do PostgreSQL.
+          echo "$config" | jq -e '[.services | to_entries[] | select(.value.environment.MIGRATION_DATABASE_URL) | .key] == ["migrate"]'
+          echo "$config" | jq -e '[.services | to_entries[] | select(.value.environment.SKELETON_OWNER_DB_PASSWORD) | .key] == ["postgres"]'
+          # Sem uma variável obrigatória, o compose recusa em vez de subir com valor vazio.
+          if env -u REDIS_PASSWORD docker compose -f compose.sandbox.yaml config --quiet 2>/dev/null; then
+            echo "compose.sandbox.yaml aceitou REDIS_PASSWORD ausente" >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: core-wheel
@@ -292,3 +311,27 @@ jobs:
           for result in $RESULTS; do
             [ "$result" = "success" ] || exit 1
           done
+
+  deploy-sandbox:
+    name: Deploy do sandbox (Coolify)
+    # Só depois do CI verde num push para main (o merge de um PR); nunca em pull request (#369).
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: sandbox
+    concurrency:
+      group: deploy-sandbox
+      cancel-in-progress: false
+    steps:
+      - name: Disparar o deploy no Coolify
+        env:
+          COOLIFY_DEPLOY_URL: ${{ secrets.COOLIFY_DEPLOY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          # Projetos derivados sem sandbox não configuram os secrets: o job não falha por isso.
+          if [ -z "$COOLIFY_DEPLOY_URL" ] || [ -z "$COOLIFY_TOKEN" ]; then
+            echo "::notice::Secrets COOLIFY_DEPLOY_URL/COOLIFY_TOKEN ausentes no environment sandbox; deploy não disparado."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --max-time 60 \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_DEPLOY_URL"
