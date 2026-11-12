@@ -1,0 +1,10 @@
+{% load i18n %}<details class="filter-panel"{% if filters %} open{% endif %}><summary>{% include "skeleton/web/components/icon.html" with name="filter" %}{% translate "Filtros" %}{% include "skeleton/web/components/icon.html" with name="chevron-down" class="chevron ms-auto size-4" %}</summary>
+<form method="get"><div class="section-fields">
+  <div class="field field-span-4"><label for="audit-from">{% translate "De" %}</label><input id="audit-from" name="from" type="date" value="{{ filters.from }}"></div>
+  <div class="field field-span-4"><label for="audit-to">{% translate "Até" %}</label><input id="audit-to" name="to" type="date" value="{{ filters.to }}"></div>
+  <div class="field field-span-4"><label for="audit-operation">{% translate "Operação" %}</label><select id="audit-operation" name="operation"><option value="">{% translate "Todas" %}</option>{% for value, label in operations %}<option value="{{ value }}"{% if filters.operation == value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field field-span-4"><label for="audit-actor">{% translate "Ator (UUID)" %}</label><input id="audit-actor" name="actor" value="{{ filters.actor }}"></div>
+  <div class="field field-span-4"><label for="audit-request">{% translate "Requisição (request_id)" %}</label><input id="audit-request" name="request_id" value="{{ filters.request_id }}"></div>
+  <div class="field field-span-4"><label for="audit-model">{% translate "Tabela (rótulo do modelo)" %}</label><input id="audit-model" name="model_label" value="{{ filters.model_label }}"></div>
+  <div class="field field-span-4"><label for="audit-record">{% translate "Registro (UUID)" %}</label><input id="audit-record" name="record_sysid" value="{{ filters.record_sysid }}"></div>
+</div><div class="toolbar"><button type="submit" class="btn btn-primary">{% translate "Filtrar" %}</button><a class="btn btn-secondary" href="?">{% translate "Limpar filtros" %}</a></div></form></details>

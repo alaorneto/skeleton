@@ -527,25 +527,35 @@ def catalog(request, organization_id):
 
 @tenant_page()
 def audit(request, organization_id):
+    from skeleton.access.policies import is_organization_admin
     from skeleton.api.serializers import audit_data
+    from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
 
-    if set(request.GET) - {"page", "record_sysid", "model_label"}:
-        raise ValidationError(gettext("Filtro não permitido."))
-    filters = {
-        "model_label": request.GET.get("model_label") or None,
-        "record_id": request.GET.get("record_sysid") or None,
-    }
+    filters = parse_audit_filters(request.GET)
     rows = service_pagination(
         request,
         lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
-        validated_filters=request.GET.dict(),
+        validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
     )
     rows.object_list = [audit_data(event) for event in rows]
+    # Domain events of the same request, still retained, for the administrator (#184).
+    related = ()
+    if "request_id" in filters and is_organization_admin(request.user):
+        related = AuditLogService().related_domain_events(actor=request.user, request_id=filters["request_id"])
     return render(
         request,
         "skeleton/web/audit.html",
-        {"title": gettext("Auditoria"), "rows": rows, "organization_id": organization_id},
+        {
+            "title": gettext("Auditoria"),
+            "rows": rows,
+            "organization_id": organization_id,
+            "filters": request.GET,
+            "operations": operation_choices(),
+            "related_events": related,
+            # The filtered audit as CSV, for the administrator (#186).
+            "can_export_audit": is_organization_admin(request.user),
+        },
     )
 
 
@@ -628,12 +638,15 @@ def record_detail(request, organization_id, table_key, sysid):
         if permissions[action]
     ]
     from skeleton.files.views import panel_context
+    from skeleton.web.timeline import timeline_for
 
     return render(
         request,
         "skeleton/web/detail.html",
         {
             "attachments": panel_context(spec, item, user=request.user),
+            # Audit and attachments of the record, each filtered for the reader (#185).
+            "timeline": timeline_for(request.user, spec, item),
             "record": {"sysid": item.sysid},
             "title": safe_record_label(item, spec),
             "actions": actions,

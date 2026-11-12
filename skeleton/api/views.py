@@ -391,6 +391,11 @@ class AuditView(TenantAPI):
                 query=(
                     ("record_sysid", UUID, "Eventos de um registro."),
                     ("model_label", string(), "Eventos de uma tabela."),
+                    ("from", string(), "A partir desta data (AAAA-MM-DD) ou data e hora ISO 8601."),
+                    ("to", string(), "Até esta data (o dia inteiro) ou data e hora ISO 8601, exclusiva."),
+                    ("actor", UUID, "Eventos de um ator."),
+                    ("operation", string(), "create, update, soft_delete, restore ou hard_delete."),
+                    ("request_id", UUID, "Eventos de uma mesma requisição."),
                 ),
             ),
             Operation("Lê um evento de auditoria", AUDIT_EVENT, detail=True),
@@ -398,29 +403,22 @@ class AuditView(TenantAPI):
     }
 
     def get(self, request, organization_id, sysid=None):
-        from uuid import UUID
 
         from skeleton.service_api.audit import AuditLogService
 
         service = AuditLogService()
         if sysid:
             return Response(audit_data(service.event(actor=request.user, event_id=sysid)))
-        if set(request.query_params) - {"page", "page_size", "record_sysid", "model_label"}:
-            raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
-        record_id = request.query_params.get("record_sysid")
-        if record_id is not None:
-            try:
-                record_id = UUID(record_id)
-            except ValueError:
-                raise BoundaryError("invalid_filter", gettext("Filtro inválido.")) from None
+        from django.core.exceptions import ValidationError
+
+        from skeleton.audit.filters import parse_audit_filters
+
+        try:
+            filters = parse_audit_filters(request.query_params)
+        except ValidationError:
+            raise BoundaryError("invalid_filter", gettext("Filtro inválido.")) from None
         number, size = page_numbers(request)
-        log = service.events(
-            actor=request.user,
-            model_label=request.query_params.get("model_label"),
-            record_id=record_id,
-            page=number,
-            page_size=size,
-        )
+        log = service.events(actor=request.user, **filters, page=number, page_size=size)
         return Response(
             {
                 "count": log.count,

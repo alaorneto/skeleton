@@ -55,3 +55,24 @@ A auditoria é somente leitura. Administradores organizacionais só veem sua org
 Na API, HTML e admin, a apresentação da auditoria de negócio segue `TableSpec.read_fields`, inclusive nomes físicos de FKs. Um campo omitido da leitura comum não reaparece no histórico; a captura persistida continua íntegra e redigida. Eventos administrativos do núcleo são uma superfície privilegiada separada, com segredos ocultados. Uma spec desconhecida não apresenta `changes`. Ter audit-sem-read em uma tabela exclui apenas essa tabela inelegível, sem abortar os eventos permitidos de outras tabelas.
 
 **Append-only** significa que a conexão runtime só acrescenta eventos, não os altera ou exclui. Não significa **WORM** (armazenamento que impede reescrita): DBA/migration owner pode alterar o schema; quem controla o servidor PostgreSQL pode editar ou remover dados. Retenção, backup, criptografia e credenciais privilegiadas exigem proteção operacional. Não prometa imutabilidade contra esses atores.
+
+### Filtros de investigação
+
+As três superfícies aceitam os mesmos filtros ([#184](https://github.com/alaorneto/skeleton/issues/184)): a auditoria da organização (`/o/<org>/audit/`), a da plataforma (`/platform/audit/`) e a REST (`/api/v1/o/<org>/audit/`).
+
+- `from` e `to`: uma data, que vale o dia inteiro no fuso da pessoa, ou data e hora ISO 8601.
+- `actor` (UUID), `operation` (`create`, `update`, `soft_delete`, `restore`, `hard_delete`) e `request_id`.
+- Os filtros que já existiam, `model_label` e `record_sysid`.
+
+O parser comum é `skeleton.audit.filters.parse_audit_filters`. Um filtro desconhecido ou inválido responde 400. Os filtros só estreitam o que `authorized_audit_queryset` já permite: um `request_id` de outra organização não revela nada. Os índices `sk_audit_org_actor` (organização, ator, data) e `sk_audit_request` sustentam as buscas.
+
+Com `request_id`, o administrador da organização vê também os eventos de domínio da mesma requisição que ainda estão retidos, com os identificadores e nunca o `data`.
+
+### Exportação CSV
+
+O administrador da organização exporta o resultado filtrado da auditoria em `/o/<org>/audit/` com **Exportar CSV**, que leva os filtros da tela ([#186](https://github.com/alaorneto/skeleton/issues/186)).
+
+- **Como roda:** pelo pipeline de [exportação e importação](data-transfer.md). O job lê pelo `AuditLogService.events` como quem pediu, então as linhas e a redação são as mesmas da tela, e `changes` sai como JSON com os valores sensíveis em `[REDACTED]`.
+- **Limite:** `SKELETON_EXPORT_MAX_ROWS`.
+- **Download:** só o próprio administrador baixa o arquivo.
+- **Fora:** a auditoria global da plataforma, porque toda transferência pertence a uma organização.

@@ -20,6 +20,8 @@ O núcleo exporta e importa registros de tabelas de negócio expostas (`TableSpe
 
 O arquivo fica no storage privado em `org/<organização>/transfers/<uuid>`. Só quem pediu vê o pedido em `/o/<org>/transfers/` e baixa o arquivo; para qualquer outra pessoa, inclusive o administrador, a resposta é 404. Cada download relê a permissão de leitura da tabela, e o arquivo sai sempre como anexo, com `nosniff`, `sandbox` e `no-store`.
 
+A auditoria filtrada usa o mesmo pipeline: veja [auditoria](audit-soft-delete.md#exportação-csv).
+
 ## Importação
 
 1. Na lista de registros, **Importar CSV** abre o envio. Só quem pode criar na tabela entra.
