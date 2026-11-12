@@ -61,7 +61,7 @@ Rodada de 2026-11-11 na branch `test/199-fast-test-suite` ([#196](https://github
 
 | Execução | Antes | Depois |
 |---|---|---|
-| `pytest tests --cov`, serial | 1282 passed, 111 skipped em 26 min 20 s (1320 s de preparação, 246 s de teste); 15353 de 21219 linhas (69,42%) | não repetida até o fim nesta rodada |
+| `pytest tests --cov`, serial | 1282 passed, 111 skipped em 26 min 20 s (1320 s de preparação, 246 s de teste); 15353 de 21219 linhas (69,42%) | sem cobertura: 1329 passed, 111 skipped em 12 min 19 s (606 s de preparação, 124 s de teste) |
 | `pytest tests -n 8` | não existia | 1304 passed, 111 skipped em 3 min 56 s |
 | `pytest tests -n 16` | não existia | 1327 passed, 111 skipped em 3 min 53 s |
 | `pytest tests -n 8 --cov` | não existia | 1327 passed, 111 skipped em 4 min 12 s; 15369 de 21239 linhas (69,43%) |
@@ -71,6 +71,8 @@ Rodada de 2026-11-11 na branch `test/199-fast-test-suite` ([#196](https://github
 Equivalência: os 1393 testes da linha de base aparecem na rodada paralela com o mesmo resultado (comparação dos dois JUnit XML); os 45 a mais são os testes novos de `test_integration_database.py` e `test_suite_shards.py`. Arquivo a arquivo, as linhas executadas só mudaram nos arquivos editados (`skeleton/conf/profiles.py`, `skeleton/system/synchronization.py`, `skeleton/testing/hashers.py`).
 
 `sync_table_catalog` (#197): uma ressincronização sem mudanças caiu de 903 para 215 consultas e grava o mesmo catálogo (638 linhas comparadas com a implementação anterior); `tests/integration/test_table_catalog_sync.py` passa nas duas implementações no teste de reconciliação e só na nova no de número de consultas.
+
+Estabilidade: sete rodadas paralelas completas sem nenhuma falha, com ordens e distribuições diferentes (`-n 8` duas vezes, `-n 16`, `-n 8 --cov`, `-n 16 --dist load`, `-n 8 --dist loadfile`, `-n 12`, `-n 16 --dist worksteal`; as quatro últimas com 1329 passed, 111 skipped em 3 min 40 s a 4 min 6 s). A primeira tentativa com `-n 8` teve 93 erros de `out of shared memory` na restauração do schema; a causa era a tabela de locks do servidor, corrigida com `max_locks_per_transaction` e a conferência prévia.
 
 **Não verificado:** o CI com as fatias (primeiro PR), em especial `POSTGRES_INITDB_ARGS` com `-c` no container `postgres:16.15`; os testes `posix` e o Linux.
 

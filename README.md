@@ -99,7 +99,7 @@ BasedPyright usa `.venv/bin/python` para resolver Django e as demais dependênci
 
 ### Lint, pre-commit e CI
 
-As regras do Ruff (lint, ordem de imports e formatter) ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`. mypy, django-stubs e pytest-cov ficam no lock de desenvolvimento, porque precisam do Django instalado no mesmo ambiente.
+As regras do Ruff (lint, ordem de imports e formatter) ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`. mypy, django-stubs, pytest-cov e pytest-xdist ficam no lock de desenvolvimento, porque precisam do Django instalado no mesmo ambiente.
 
 ```sh
 uvx ruff@0.17.4 check
@@ -107,7 +107,7 @@ uvx ruff@0.17.4 format
 uv tool install pre-commit && pre-commit install  # hooks pre-commit e commit-msg
 .venv/bin/python -m mypy
 eval "$(.venv/bin/python tools/dev_postgres.py env)"
-SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests --cov
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests -n auto --cov  # cerca de 4 min; ver docs/testing.md
 ```
 
 A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
