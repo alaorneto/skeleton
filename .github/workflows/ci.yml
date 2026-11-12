@@ -200,7 +200,9 @@ jobs:
         # Mesma medição de antes da divisão: a suíte do núcleo inteira, por Python.
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
-          python -m coverage combine coverage-data
+          # Arquivos nomeados: num diretório, o coverage só procura nomes ".coverage*", e o
+          # upload-artifact deixa arquivos ocultos de fora.
+          python -m coverage combine coverage-data/coverage.*
           python -m coverage report
           python -m coverage xml
       - uses: actions/upload-artifact@v7
