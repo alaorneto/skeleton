@@ -122,7 +122,7 @@ Subfluxos (uma etapa que inicia outro fluxo) ficam para o [ciclo 2](#o-que-fica-
 
 - **`on`** é o resultado da etapa de origem que dispara a transição: `approved`, `rejected` e `expired` numa aprovação; `expired` numa tarefa; o resultado devolvido pelo handler num serviço; `received` e `timeout` numa espera.
 - Numa **tarefa**, as transições sem `on` são as **ações** que a pessoa pode escolher, identificadas por `key` (obrigatória quando há mais de uma). Uma ação com `condition` só é oferecida quando a condição vale.
-- **`form`** é o formulário da transição: os dados exigidos para seguir por ela (o motivo de uma devolução, por exemplo), além do formulário da etapa.
+- **`form`** é o formulário da transição: os dados exigidos para seguir por ela (o motivo de uma desistência, por exemplo), **além** do formulário da etapa. O formulário da etapa vale para todas as ações dela; o que só interessa a uma ação fica no formulário daquela transição.
 - Uma transição pode apontar para uma etapa anterior: é assim que uma rejeição **devolve** o processo.
 
 ### Condições
@@ -131,7 +131,11 @@ Uma condição é uma **árvore de dados**, não um texto. Os construtores são 
 
 Quando a regra não cabe numa expressão, a app registra uma função e a refere por nome: `call("project_purchases.needs_board")` com `register_flow_condition(nome, função, owner_app=...)`. A função recebe um contexto somente leitura e devolve um booleano.
 
+Uma expressão não compara um campo sensível com um literal (o literal ficaria gravado na definição congelada); só `truthy` o aceita, e o resto vai para uma condição registrada. A avaliação falha fechada na raiz: um nó inesperado torna a árvore inteira falsa, mesmo sob um `negate`.
+
 Nada é avaliado com `eval`, e nenhum nome de classe ou de módulo vem de dados: a definição congelada só guarda nomes que o motor resolve nos registros em código.
+
+Handlers, condições e regras recebem um `FlowContext` somente leitura (organização, instância, fluxo e versão, etapa, registro de negócio, quem iniciou, dados, dados sensíveis e resultados das etapas). O contexto não concede acesso: a função reautoriza o que ler. Um handler devolve `None`, um texto (o resultado) ou `StepResult(outcome, data)`; uma regra de atribuição devolve `Assignees(users, groups, roles)`.
 
 ### Formulários
 
@@ -184,7 +188,7 @@ Resolvida a etapa, as tarefas ainda abertas são canceladas. A decisão aceita c
 - cada valor de `remind_before_seconds` agenda um lembrete (`flows.task_reminder`) ao responsável ou à fila;
 - vencido o prazo, `on_overdue` decide: `notify` avisa o responsável e o escalonamento (`escalate_to`); `reassign` passa a tarefa ao escalonamento; `expire` encerra a etapa com o resultado `expired` e segue a transição `on="expired"`.
 
-Os prazos correm em tempo corrido. Horas úteis e substituição por ausência ficam para o ciclo 2.
+Os prazos correm em tempo corrido. Depois de uma suspensão, o job do vencimento é reagendado; lembretes que venceram durante a pausa não são reenviados. Horas úteis e substituição por ausência ficam para o ciclo 2.
 
 ### Validação estrutural
 
@@ -220,7 +224,7 @@ Seis tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisã
 | Modelo | Guarda | Campos imutáveis |
 |---|---|---|
 | `FlowDefinition` | `key`, `version`, `app_label`, `label`, `digest`, `specification` (JSON) | todos |
-| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `activity_count`, `finished_at` | definição, chave, versão, registro de negócio, quem iniciou, chave de idempotência |
+| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at` | definição, chave, versão, número, registro de negócio, quem iniciou, chave de idempotência |
 | `FlowStepRun` | `instance`, `step_key`, `kind`, `status`, `sequence`, `scope`, `branch`, `via`, `outcome`, `state` (JSON), `due_at`, `finished_at` | instância, etapa, tipo, ordem, escopo, ramo, origem |
 | `FlowTask` | `instance`, `step_run`, `step_key`, `kind`, `status`, `slot`, `assignee`, `candidate_group`, `candidate_role`, `delegated_from`, `decision`, `action`, `comment`, `due_at`, `reminded_count`, `escalated_at`, `completed_by`, `completed_at` | instância, ativação, etapa, tipo, vaga |
 | `FlowSubmission` | `instance`, `step_run`, `task`, `step_key`, `transition_key`, `origin`, `values`, `sensitive_values` | todos |
@@ -241,7 +245,11 @@ Seis tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisã
 
 **Etapas automáticas.** Um serviço enfileira o job `flows.service` na transação do avanço. O job roda em `system_context` da organização e chama o handler com um contexto somente leitura (instância, etapa, registro de negócio, dados). O handler devolve `None`, um resultado (texto) ou `StepResult(outcome, data)`; os dados precisam estar declarados em `outputs`. Os efeitos no banco e o avanço são confirmados juntos. Efeitos externos são **pelo menos uma vez**, como em qualquer [job](jobs.md).
 
-**Falhas.** Se o handler levanta exceção, o motor desfaz o que ele escreveu, conta a tentativa e agenda outra com espera crescente. Esgotado `max_attempts`, a instância fica `failed` e o histórico guarda a classe do erro (nunca a mensagem, que pode ter dados). `retry` reativa a etapa.
+**Falhas.** Se o handler levanta exceção, o motor desfaz o que ele escreveu, conta a tentativa e agenda outra com espera crescente (`retry_seconds`, dobrando a cada tentativa). Esgotado `max_attempts`, a instância fica `failed` e o histórico guarda a classe do erro (nunca a mensagem, que pode ter dados). `retry` reativa a etapa. Uma definição que não consegue avançar (handler, condição ou regra que sumiu do código, resultado sem transição, laço sem fim) também deixa a instância `failed` quando quem avançava era um job; quando era o comando de uma pessoa, o comando é recusado com `Conflict("flow_failed")` e nada muda.
+
+**Jobs e tíquetes.** Cada job leva só o identificador da ativação e um tíquete. Reagendar a etapa (retomada, nova tentativa, app reativada) gera um tíquete novo; um job atrasado ou duplicado encontra outro tíquete, ou uma ativação que já não está ativa, e não faz nada.
+
+**App desativada.** Com a app dona desativada, os jobs que dispararem não fazem nada. Quando a organização reativa a app, o consumidor do evento `app.enabled` reagenda o que as instâncias em andamento esperavam.
 
 **Temporizadores e esperas.** Um temporizador é um job `flows.timer` com `run_after`. Uma espera termina quando a app envia o sinal (`signal`), que pode trazer os dados do formulário da espera; com `timeout_seconds`, um job encerra a espera com `timeout`.
 
@@ -251,7 +259,8 @@ Seis tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisã
 
 - **Um bloqueio por instância.** Todo comando que muda uma instância bloqueia primeiro a linha dela (`SELECT ... FOR UPDATE`) e só depois lê ativações e tarefas. Dois ramos paralelos concluídos ao mesmo tempo são processados um depois do outro: a junção dispara exatamente uma vez. A ordem de bloqueio é sempre instância → tarefa.
 - **CAS.** Ações de tarefa recebem a revisão da tarefa; `cancel`, `suspend`, `resume` e `retry`, a da instância. A revisão é comparada depois do bloqueio. Revisão antiga é `Conflict("stale_revision")`; o serviço não tenta de novo.
-- **Um vencedor.** Dois atores que agem na mesma tarefa leram a mesma revisão: o primeiro vence, o segundo recebe o conflito.
+- **Um vencedor.** Dois atores que agem na mesma tarefa leram a mesma revisão: o primeiro vence, e o segundo recebe o conflito de revisão. Numa tarefa de **fila**, a tarefa encerrada sai da fila do segundo, que então recebe "não encontrado", pela regra de visibilidade. Em nenhum caso há segunda escrita.
+- **Inícios simultâneos.** `start` bloqueia a linha do registro de negócio: dois inícios do mesmo fluxo e registro criam uma instância, e o outro recebe `Conflict("already_running")`.
 - **Idempotência.** `start` aceita `idempotency_key`: a repetição devolve a mesma instância (`created=False`). Os jobs do subsistema usam chaves de idempotência e conferem o estado antes de agir, então uma execução repetida não avança duas vezes.
 
 ## Autorização
@@ -271,6 +280,7 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 - **Inexistente e não autorizado respondem igual** (`NotFound`), inclusive para outra organização.
 - **Revogação imediata.** Quem perde o papel ou sai do grupo deixa de ver a fila na chamada seguinte; não há cache.
 - **Ator explícito.** Todo método recebe `actor`, conferido contra o contexto.
+- **Ordem das verificações.** Visível (senão `NotFound`), autorizado a agir (senão `Forbidden`), revisão (`Conflict("stale_revision")`), estado da instância e da tarefa.
 - O motor nunca abre `system_context` para ampliar o que o ator pode; os jobs do subsistema rodam como sistema porque não agem em nome de ninguém.
 
 **Decisão: autorização derivada, sem `TablePermission` própria.** *Contexto:* as tabelas de fluxos não são `SecuredRecord` expostos, então não recebem `TablePermission`. *Decisão:* a leitura de uma instância deriva do registro de negócio e da participação; a ação numa tarefa deriva da atribuição. *Consequência:* um aprovador que não lê o registro de negócio ainda vê a instância e os dados dos formulários dela, porque precisa deles para decidir; ele não ganha acesso ao registro em si.
@@ -288,6 +298,10 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 
 Os eventos do núcleo sobre a instância não vão para webhooks: a tabela não tem autorização por registro que o principal de um endpoint possa satisfazer.
 
+## Histórico
+
+`FlowActivity` registra, em ordem, o que aconteceu: `instance_started`, `gateway`, `join`, `step_entered`, `step_completed`, `task_created`, `assignment_unresolved`, `task_claimed`, `task_released`, `task_reassigned`, `task_completed`, `task_decided`, `task_cancelled`, `task_reminded`, `task_overdue`, `signal_received`, `service_retry`, `instance_suspended`, `instance_resumed`, `instance_retried`, `instance_failed`, `instance_cancelled` e `instance_completed`. Quem fez é o ator do contexto (`created_by`), nunca um valor enviado; o detalhe traz só identificadores e rótulos; o comentário é texto do processo, visível a quem lê a instância e redigido na auditoria. Os dados de cada passo estão em `FlowSubmission`.
+
 ## Superfícies
 
 - **API de serviços** (`skeleton.service_api.flows.FlowService`): o contrato principal. Veja o [catálogo do núcleo](service-api.md#flowservice).
@@ -297,6 +311,8 @@ Os eventos do núcleo sobre a instância não vão para webhooks: a tabela não 
 Iniciar uma instância não tem rota no núcleo: é uma operação de negócio da app dona, que chama `FlowService().start(...)` da sua própria view ou serviço.
 
 ## O que entra na primeira entrega
+
+O [exemplo Notes](../examples/notes/flows.py) declara o fluxo `example_notes.publication`, com tarefa e formulário, gateway exclusivo, duas aprovações em paralelo, devolução e etapa de serviço; `tools/flow_fixtures.py` tem um fluxo de teste com todos os tipos de etapa.
 
 Tudo o que está descrito acima: declaração em código com validação estrutural; etapas de início, fim, tarefa, aprovação, serviço, temporizador e espera; gateways exclusivo, paralelo e inclusivo; formulários por etapa e por transição; aprovações `any`, `all`, `quorum` e `sequential`; delegação, devolução, comentários, prazos, lembretes e escalonamento; atribuição por pessoa, papel, grupo ou regra; caixa de tarefas; vínculo com o registro de negócio; histórico; cancelar, suspender, retomar e repetir; jobs, eventos, webhooks, notificações, auditoria e sequências; `FlowService`, REST e páginas; e o fluxo de exemplo no Notes.
 
