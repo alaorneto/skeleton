@@ -181,7 +181,7 @@ class SummaryView(TenantAPI):
     openapi = {"GET": Operation("Resumo das anotações", obj({"count": INTEGER, "heading": nullable(string())}))}
 ```
 
-A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([testes](testing.md#openapi-da-api-epic-86)).
+A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([evidência dos testes](testing-evidence.md#openapi-da-api-epic-86)).
 
 ## Tokens de API
 

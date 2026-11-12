@@ -2,7 +2,7 @@
 
 **Documento histórico de decisão, não roteiro de execução nem certificado de aprovação.** Os contratos e a lógica foram implementados posteriormente; este texto conserva a base observada, as escolhas e os critérios do plano aprovado. Os verbos no futuro ou no imperativo nas seções 2–10 registram requisitos daquele plano, não uma lista confiável de funcionalidades ainda por implementar.
 
-Para operar o que existe, use [extensão](extending.md), [deployment](deployment.md) e [autenticação](authentication-sso.md). Para saber o que foi realmente exercitado, use [testing](testing.md): a retomada registrou historicamente **279 testes SQLite, 83 PostgreSQL e 25 SSO**, além do ensaio diretório/SQLite. Isso não comprova um smoke completo Compose/restore PostgreSQL pelo agente nem homologação gov.br.
+Para operar o que existe, use [extensão](extending.md), [deployment](deployment.md) e [autenticação](authentication-sso.md). Para saber o que foi realmente exercitado, use [evidência histórica](testing-evidence.md): a retomada registrou historicamente **279 testes SQLite, 83 PostgreSQL e 25 SSO**, além do ensaio diretório/SQLite. Isso não comprova um smoke completo Compose/restore PostgreSQL pelo agente nem homologação gov.br.
 
 Leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-deployment) e [login e protocolos](concepts.md#login-e-protocolos) para os conceitos. Neste plano, **release** é uma versão identificada de código/dependências; **deployment** é a instalação em execução; **cutover** é a troca para o release preparado. Nenhum deles significa transportar dados automaticamente.
 

@@ -91,4 +91,4 @@ Uma procedure com o mesmo nome, assinatura e corpo não substitui a função exi
 
 
 
-A execução real desses checks e os negativos estão em [testing](testing.md); descrição do contrato não substitui resultado observado.
+A execução real desses checks e os negativos estão na [evidência de testes](testing-evidence.md); descrição do contrato não substitui resultado observado.

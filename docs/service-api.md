@@ -417,7 +417,7 @@ Para cada método público, prove:
   - rollback do chamador não deixa efeitos nem eventos.
 - **Contrato:** `assert_service_contract(ServiceClass)` do kit.
 
-Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre em [testing](testing.md) somente o que rodou de fato.
+Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). Registre na [evidência de testes](testing-evidence.md) somente o que rodou de fato.
 
 ### Kit de testes de contrato
 
