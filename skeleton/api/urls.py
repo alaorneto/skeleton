@@ -3,9 +3,12 @@ from django.urls import path
 from skeleton.api import views
 from skeleton.api.invitation_views import ResendInvitationView
 from skeleton.files.api_views import AttachmentDetailView, AttachmentRestoreView, AttachmentsView
+from skeleton.tenancy.aggregate import aggregate_route
 
 app_name = "api"
 urlpatterns = [
+    # Reads each of the actor's organizations in its own context (#74, #178).
+    path("openapi.json", aggregate_route(views.OpenAPIView.as_view()), name="openapi"),
     path("me/", views.MeView.as_view(), name="me"),
     path("organizations/", views.OrganizationsView.as_view(), name="organizations"),
     path("o/<uuid:organization_id>/catalog/", views.CatalogView.as_view(), name="catalog"),

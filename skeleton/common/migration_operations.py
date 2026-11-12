@@ -80,6 +80,14 @@ def is_operational(specification):
     return specification.get("lifecycle") == "operational"
 
 
+def field_internal_type(field):
+    """Django internal type of a concrete field; a relation reports its target's type.
+
+    Shared by the frozen specification below and the OpenAPI generator (#178).
+    """
+    return field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
+
+
 def build_infrastructure_specification(model, spec):
     """Return the frozen specification to paste into a new migration.
 
@@ -90,7 +98,7 @@ def build_infrastructure_specification(model, spec):
     sensitive = set(spec.sensitive_fields)
     columns = []
     for field in model._meta.concrete_fields:
-        kind = field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
+        kind = field_internal_type(field)
         columns.append(
             {
                 "name": field.column,

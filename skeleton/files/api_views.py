@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from skeleton.access.policies import require_credential_scope
 from skeleton.api.errors import BoundaryError, parse_revision
+from skeleton.api.openapi import TableRoutes
 from skeleton.api.parsers import BoundedJSONParser, BoundedMultiPartParser
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.web.services import exposed_spec
@@ -29,6 +30,7 @@ def _translate(error):
 class AttachmentsView(TenantAPI):
     parser_classes = [BoundedMultiPartParser]
     token_methods = ("GET", "POST")
+    openapi = TableRoutes("attachments")
 
     def get(self, request, organization_id, table_key, sysid):
         require_credential_scope(FILES_READ)
@@ -56,6 +58,7 @@ class AttachmentsView(TenantAPI):
 class AttachmentDetailView(TenantAPI):
     parser_classes = [BoundedJSONParser]
     token_methods = ("DELETE",)
+    openapi = TableRoutes("attachment")
 
     @transaction.atomic
     def delete(self, request, organization_id, table_key, sysid, attachment_id):
@@ -70,6 +73,7 @@ class AttachmentDetailView(TenantAPI):
 class AttachmentRestoreView(TenantAPI):
     parser_classes = [BoundedJSONParser]
     token_methods = ("POST",)
+    openapi = TableRoutes("attachment-restore")
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid, attachment_id):

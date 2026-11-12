@@ -11,10 +11,62 @@ from django.utils.translation import gettext
 from django.views.decorators.cache import add_never_cache_headers
 from rest_framework.response import Response
 
+from skeleton.access.capabilities import INTEGRATIONS_MANAGE
 from skeleton.api.errors import BoundaryError, parse_revision
+from skeleton.api.openapi import BOOLEAN, UUID, Operation, array, model_label_fields, obj, string
 from skeleton.api.views import TenantAPI, etag, page, request_fields
 
 from . import services
+
+ENDPOINT_FIELDS = {
+    "sysid": "sysid",
+    "name": "name",
+    "url": "url",
+    "principal": "principal",
+    "event_types": "event_types",
+    "is_enabled": "is_enabled",
+    "disabled_at": "disabled_at",
+    "disabled_reason": "disabled_reason",
+    "previous_secret_valid_until": "previous_valid_until",
+    "revision": "revision",
+    "created_at": "created_at",
+    "updated_at": "updated_at",
+}
+ENDPOINT = model_label_fields("sk_integrations.WebhookEndpoint", ENDPOINT_FIELDS, event_types=array(string()))
+WITH_SECRET = model_label_fields(
+    "sk_integrations.WebhookEndpoint",
+    ENDPOINT_FIELDS,
+    event_types=array(string()),
+    secret=string(description="Segredo de assinatura, mostrado só nesta resposta."),
+)
+ENDPOINT_INPUT = {
+    "name": string(),
+    "url": string(),
+    "principal": UUID,
+    "event_types": array(string()),
+    "is_enabled": BOOLEAN,
+}
+DELIVERY = model_label_fields(
+    "sk_integrations.WebhookDelivery",
+    {
+        "sysid": "sysid",
+        "event_id": "event_id",
+        "event_type": "event_type",
+        "table_key": "table_key",
+        "record_sysid": "record_sysid",
+        "state": "state",
+        "attempts": "attempts",
+        "status_code": "status_code",
+        "error_code": "error_code",
+        "response_snippet": "response_snippet",
+        "next_attempt_at": "next_attempt_at",
+        "last_attempt_at": "last_attempt_at",
+        "delivered_at": "delivered_at",
+        "resend_of": "resend_of",
+        "created_at": "created_at",
+    },
+)
+SECRET_ONCE = "Exige autenticação recente; o segredo aparece só nesta resposta (Cache-Control: no-store)."
 
 
 def endpoint_data(endpoint):
@@ -78,6 +130,19 @@ def _input(request):
 
 
 class WebhooksView(WebhookAPI):
+    openapi = {
+        "GET": Operation("Webhooks da organização", ENDPOINT, paginated=True, capability=INTEGRATIONS_MANAGE),
+        "POST": Operation(
+            "Cria um webhook",
+            WITH_SECRET,
+            status=201,
+            etag=True,
+            request=obj(ENDPOINT_INPUT, required=("name", "url", "principal", "event_types")),
+            capability=INTEGRATIONS_MANAGE,
+            description=SECRET_ONCE,
+        ),
+    }
+
     def get(self, request, organization_id):
         from .models import WebhookEndpoint
 
@@ -93,6 +158,19 @@ class WebhooksView(WebhookAPI):
 
 
 class WebhookDetailView(WebhookAPI):
+    openapi = {
+        "GET": Operation("Lê um webhook", ENDPOINT, etag=True, capability=INTEGRATIONS_MANAGE),
+        "PATCH": Operation(
+            "Altera um webhook",
+            ENDPOINT,
+            etag=True,
+            if_match=True,
+            request=obj(ENDPOINT_INPUT, required=()),
+            capability=INTEGRATIONS_MANAGE,
+        ),
+        "DELETE": Operation("Remove um webhook", None, status=204, if_match=True, capability=INTEGRATIONS_MANAGE),
+    }
+
     def get(self, request, organization_id, sysid):
         endpoint = self.endpoint(sysid)
         return etag(Response(endpoint_data(endpoint)), endpoint.revision)
@@ -118,6 +196,17 @@ class WebhookDetailView(WebhookAPI):
 
 
 class WebhookRotateView(WebhookAPI):
+    openapi = {
+        "POST": Operation(
+            "Gera um segredo novo",
+            WITH_SECRET,
+            etag=True,
+            if_match=True,
+            capability=INTEGRATIONS_MANAGE,
+            description=SECRET_ONCE,
+        )
+    }
+
     @transaction.atomic
     def post(self, request, organization_id, sysid):
         endpoint = self.endpoint(sysid)
@@ -151,6 +240,10 @@ def delivery_data(delivery):
 
 
 class DeliveriesView(WebhookAPI):
+    openapi = {
+        "GET": Operation("Entregas do webhook", DELIVERY, paginated=True, capability=INTEGRATIONS_MANAGE),
+    }
+
     def get(self, request, organization_id, sysid):
         from .models import WebhookDelivery
 
@@ -162,6 +255,8 @@ class DeliveriesView(WebhookAPI):
 
 
 class DeliveryDetailView(WebhookAPI):
+    openapi = {"GET": Operation("Lê uma entrega", DELIVERY, capability=INTEGRATIONS_MANAGE)}
+
     def delivery(self, sysid, delivery_id):
         from .models import WebhookDelivery
 
@@ -176,6 +271,12 @@ class DeliveryDetailView(WebhookAPI):
 
 class DeliveryResendView(DeliveryDetailView):
     """``POST`` with ``If-Match`` of the endpoint revision: a new delivery of the same event."""
+
+    openapi = {
+        "POST": Operation(
+            "Reenvia o evento numa entrega nova", DELIVERY, status=202, if_match=True, capability=INTEGRATIONS_MANAGE
+        )
+    }
 
     @transaction.atomic
     def post(self, request, organization_id, sysid, delivery_id):
@@ -192,6 +293,12 @@ class DeliveryResendView(DeliveryDetailView):
 
 class WebhookPingView(WebhookAPI):
     """``POST`` with ``If-Match`` of the endpoint revision: sends the reserved ``webhook.ping`` event."""
+
+    openapi = {
+        "POST": Operation(
+            "Envia o evento de teste webhook.ping", DELIVERY, status=202, if_match=True, capability=INTEGRATIONS_MANAGE
+        )
+    }
 
     @transaction.atomic
     def post(self, request, organization_id, sysid):

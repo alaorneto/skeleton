@@ -65,6 +65,8 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests <testes da app
 .venv/bin/python -m pytest tests/integration_postgres <testes PG da app>
 ```
 
+Os casos que só leem o mesmo cenário (default deny, A/B, ator divergente) podem dividir um preparo com o fixture `subtests`, em vez de pagar uma restauração do schema por caso; os comandos que escrevem ficam em testes próprios. As demais regras de custo e de execução paralela estão em [Escrever testes que mantêm a suíte rápida](../../../docs/testing.md#escrever-testes-que-mantêm-a-suíte-rápida).
+
 Registre na issue e em `docs/testing.md` somente o que rodou de fato. Serviço indisponível é bloqueio de verificação, não aprovação.
 
 ## 5. Documentar

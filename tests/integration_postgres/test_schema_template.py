@@ -147,5 +147,6 @@ def test_isolation_probe_row_is_gone_in_next_test(template):
 
 
 def test_session_migrates_once_and_restores_per_test(template, postgres_schema_stats):
-    assert postgres_schema_stats["migrate"] == 1
+    # Migrated in this session, or reused from a run with the same cache key (#350): never both.
+    assert postgres_schema_stats["migrate"] + postgres_schema_stats["cached"] == 1
     assert postgres_schema_stats["restore"] >= 1

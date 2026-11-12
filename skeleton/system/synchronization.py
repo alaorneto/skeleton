@@ -21,8 +21,70 @@ def physical_tables(connection):
         return [row[0] for row in cursor.fetchall()]
 
 
-def _reconcile(model, lookup, physical, defaults, using):
-    record = model.all_objects.using(using).filter(**lookup).first()
+# Same columns as Django's PostgreSQL get_table_description(), for every table of the schema at
+# once. The type comes from pg_attribute instead of a "SELECT * ... LIMIT 1" per table; like the
+# result description of that SELECT, a domain resolves to its base type, through nested domains.
+_COLUMNS = """
+    SELECT c.relname, a.attname,
+           CASE WHEN t.typtype <> 'd' THEN a.atttypid ELSE (
+               WITH RECURSIVE chain (oid, typtype, typbasetype) AS (
+                   SELECT t.oid, t.typtype, t.typbasetype
+                   UNION ALL
+                   SELECT b.oid, b.typtype, b.typbasetype FROM pg_type b JOIN chain ON b.oid = chain.typbasetype
+                   WHERE chain.typtype = 'd'
+               )
+               SELECT oid FROM chain WHERE typtype <> 'd'
+           ) END,
+           NOT (a.attnotnull OR (t.typtype = 'd' AND t.typnotnull)),
+           pg_get_expr(ad.adbin, ad.adrelid),
+           CASE WHEN co.collname = 'default' THEN NULL ELSE co.collname END,
+           a.attidentity != '',
+           col_description(a.attrelid, a.attnum)
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_type t ON t.oid = a.atttypid
+    LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+    LEFT JOIN pg_collation co ON co.oid = a.attcollation
+    WHERE c.relnamespace = %s::regnamespace AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+    ORDER BY c.relname, a.attnum
+"""
+_PRIMARY_KEYS = """
+    SELECT c.relname, a.attname
+    FROM pg_constraint k
+    JOIN pg_class c ON c.oid = k.conrelid
+    JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = ANY (k.conkey)
+    WHERE k.contype = 'p' AND c.relnamespace = %s::regnamespace
+"""
+
+
+def describe_tables(connection, schema="skeleton"):
+    """Columns (Django ``FieldInfo``, in column order) and primary key columns of every table.
+
+    Two catalog queries for the whole schema, where ``get_table_description()`` and
+    ``get_constraints()`` take about four per table. ``tests/integration/test_table_catalog_sync.py``
+    compares both on every table of the schema.
+    """
+    from django.db.backends.postgresql.introspection import FieldInfo
+
+    columns, primary = {}, {}
+    with connection.cursor() as cursor:
+        cursor.execute(_COLUMNS, [schema])
+        for table, name, type_code, null_ok, default, collation, is_autofield, comment in cursor.fetchall():
+            columns.setdefault(table, []).append(
+                FieldInfo(name, type_code, None, None, None, None, null_ok, default, collation, is_autofield, comment)
+            )
+        cursor.execute(_PRIMARY_KEYS, [schema])
+        for table, name in cursor.fetchall():
+            primary.setdefault(table, set()).add(name)
+    return {table: (columns.get(table, []), primary.get(table, set())) for table in columns}
+
+
+def _reconcile(model, record, lookup, physical, defaults, using):
+    """Create the catalog row or update its physical attributes; human texts are kept.
+
+    ``record`` is the existing row for ``lookup`` (None when there is none), read once per
+    synchronization by ``_existing`` instead of one query per table and per column.
+    """
     if record is None:
         record = model(**lookup, **defaults, **physical)
         record.save(using=using)
@@ -35,6 +97,21 @@ def _reconcile(model, lookup, physical, defaults, using):
         if changed:
             record.save(using=using, update_fields=changed)
     return record
+
+
+def _existing(queryset, key):
+    """Rows of the catalog by ``key``, in the order ``.first()`` would pick them."""
+    rows = {}
+    for record in queryset if queryset.ordered else queryset.order_by("pk"):
+        rows.setdefault(key(record), []).append(record)
+    return rows
+
+
+def _installed_model(model):
+    try:
+        return apps.get_model(model._meta.app_label, model._meta.model_name)
+    except LookupError:
+        return None
 
 
 def sync_table_catalog(*, using="default", apps_registry=None):
@@ -64,11 +141,25 @@ def sync_table_catalog(*, using="default", apps_registry=None):
     known = {}
     for model in registry.get_models(include_auto_created=True):
         if not model._meta.proxy and not model._meta.swapped:
+            if registry is not apps and model._meta.auto_created:
+                # Historical m2m tables take DEFAULT_AUTO_FIELD, not their app's default_auto_field
+                # (auth uses AutoField): describe them with the installed model when it exists.
+                model = _installed_model(model) or model
             known.setdefault(model._meta.db_table, model)
     for spec in retained_specs:
         known[spec.model._meta.db_table] = spec.model
     field_count = 0
+    layout = describe_tables(connection, schema)
     with system_context(reason="migrate:catalog", using=using):
+        # Two reads for the whole catalog; the loop below only writes what changed.
+        existing_tables = _existing(
+            TableDefinition.all_objects.using(using).filter(database_alias=using, schema_name=schema),
+            lambda record: record.db_table,
+        )
+        existing_fields = _existing(
+            FieldDefinition.all_objects.using(using).filter(table__database_alias=using, table__schema_name=schema),
+            lambda record: record.table_id,
+        )
         for name in names:
             model, spec = known.get(name), specs.get(name)
             is_owned = spec is not None
@@ -88,7 +179,8 @@ def sync_table_catalog(*, using="default", apps_registry=None):
             uuid_managed = bool(
                 model and model._meta.pk.get_internal_type() == "UUIDField" and model._meta.pk.name == "sysid"
             )
-            operational = bool(model and getattr(model, "lifecycle", None) == "operational")
+            # From the spec's model: historical models (post_migrate) do not keep class attributes.
+            operational = bool(spec and getattr(spec.model, "lifecycle", None) == "operational")
             base_class = (
                 "OperationalRecord"
                 if is_owned and operational
@@ -102,6 +194,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
             )
             table = _reconcile(
                 TableDefinition,
+                next(iter(existing_tables.get(name, ())), None),
                 {"database_alias": using, "schema_name": schema, "db_table": name},
                 {
                     "model_label": model._meta.label_lower if model else None,
@@ -134,16 +227,12 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                 },
                 using,
             )
-            with connection.cursor() as cursor:
-                description = connection.introspection.get_table_description(cursor, name)
-                constraints = connection.introspection.get_constraints(cursor, name)
-            primary_columns = {
-                column
-                for constraint in constraints.values()
-                if constraint.get("primary_key")
-                for column in constraint["columns"]
-            }
+            description, primary_columns = layout.get(name, ([], set()))
             seen = []
+            table_fields = existing_fields.get(table.pk, [])
+            by_column = {}
+            for record in table_fields:
+                by_column.setdefault(record.column, record)
             for column in description:
                 field = fields.get(column.name)
                 seen.append(column.name)
@@ -155,6 +244,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                 sensitive = bool(spec and field and field.name in spec.sensitive_fields)
                 _reconcile(
                     FieldDefinition,
+                    by_column.get(column.name),
                     {"table": table, "column": column.name},
                     {
                         "name": field.name if field else column.name,
@@ -171,21 +261,22 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                     using,
                 )
                 field_count += 1
-            for missing in (
-                FieldDefinition.all_objects.using(using).filter(table=table, available=True).exclude(column__in=seen)
-            ):
+            for missing in table_fields:
+                if missing.available and missing.column not in seen:
+                    missing.available = False
+                    missing.save(using=using, update_fields={"available"})
+        for db_table, records in existing_tables.items():
+            if db_table in names:
+                continue
+            for missing in records:
+                if not missing.available:
+                    continue
                 missing.available = False
                 missing.save(using=using, update_fields={"available"})
-        for missing in (
-            TableDefinition.all_objects.using(using)
-            .filter(database_alias=using, schema_name=schema, available=True)
-            .exclude(db_table__in=names)
-        ):
-            missing.available = False
-            missing.save(using=using, update_fields={"available"})
-            for field in FieldDefinition.all_objects.using(using).filter(table=missing, available=True):
-                field.available = False
-                field.save(using=using, update_fields={"available"})
+                for field in existing_fields.get(missing.pk, []):
+                    if field.available:
+                        field.available = False
+                        field.save(using=using, update_fields={"available"})
         organization_ids = (
             list(
                 Organization.all_objects.using(using)
