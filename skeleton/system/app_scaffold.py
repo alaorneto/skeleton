@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 
+from django.utils.translation import gettext
+
 from skeleton.system.packages import (
     PackageError,
     _identifier,
@@ -156,18 +158,24 @@ def create_application(scaffold, directory):
 def next_steps(scaffold):
     label = scaffold.app_label
     return [
-        f'Adicione "{scaffold.app_config}" a PROJECT_APPS em config/settings/project.py.',
+        gettext('Adicione "%(app_config)s" a PROJECT_APPS em config/settings/project.py.')
+        % {"app_config": scaffold.app_config},
         f"python manage.py makemigrations {label}",
         f"python manage.py record_infrastructure {label} --write",
         "python manage.py migrate",
         "python manage.py sync_table_catalog",
         "python manage.py check_skeleton_schema",
-        "Atualize migrations.leaves no manifest.json (ex.: 0001_initial) e revise docs/spec.md, docs/adr.md "
-        "e docs/service-api.md.",
-        f"Exponha em service_api.py ({scaffold.service_class}) só o que outras apps precisam; "
-        "rode assert_service_contract em tests/.",
+        gettext(
+            "Atualize migrations.leaves no manifest.json (ex.: 0001_initial) e revise docs/spec.md, docs/adr.md "
+            "e docs/service-api.md."
+        ),
+        gettext(
+            "Exponha em service_api.py (%(service_class)s) só o que outras apps precisam; rode assert_service_contract em tests/."
+        )
+        % {"service_class": scaffold.service_class},
         f"python manage.py package doctor applications/{scaffold.package_name}",
-        "Publique com: python manage.py package build --app-root applications/"
-        f"{scaffold.package_name} --manifest applications/{scaffold.package_name}/manifest.json "
-        "--output <fora da app>.skapp --private-key <chave privada>",
+        gettext(
+            "Publique com: python manage.py package build --app-root applications/%(package_name)s --manifest applications/%(package_name)s/manifest.json --output <fora da app>.skapp --private-key <chave privada>"
+        )
+        % {"package_name": scaffold.package_name},
     ]

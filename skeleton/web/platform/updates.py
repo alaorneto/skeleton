@@ -16,6 +16,7 @@ from django.contrib import messages
 from django.core.files.uploadhandler import FileUploadHandler, StopUpload
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
@@ -47,63 +48,67 @@ __all__ = [
 ]
 
 STEPS = (
-    ("installed", "Versões instaladas", "platform:updates"),
-    ("available", "Novas versões", "platform:updates-available"),
+    ("installed", gettext_lazy("Versões instaladas"), "platform:updates"),
+    ("available", gettext_lazy("Novas versões"), "platform:updates-available"),
     ("upload", "Enviar pacote", "platform:updates-upload"),
     ("plan", "Preparar plano", "platform:updates-plan"),
-    ("operations", "Operações", "platform:updates-operations"),
+    ("operations", gettext_lazy("Operações"), "platform:updates-operations"),
 )
 
 
 class UploadForm(forms.Form):
     package = forms.FileField(
-        label="Pacote assinado (.skapp)",
-        help_text="Assinado por um publicador autorizado. O agente verifica assinatura e conteúdo antes de liberar o digest.",
+        label=gettext_lazy("Pacote assinado (.skapp)"),
+        help_text=gettext_lazy(
+            "Assinado por um publicador autorizado. O agente verifica assinatura e conteúdo antes de liberar o digest."
+        ),
     )
 
 
 class PlanForm(forms.Form):
     action = forms.ChoiceField(
-        label="Operação",
+        label=gettext_lazy("Operação"),
         choices=(
             ("install", "Instalar"),
             ("update", "Atualizar"),
-            ("uninstall", "Desinstalar código"),
-            ("reinstall", "Reinstalar código"),
-            ("core_update", "Atualizar núcleo"),
+            ("uninstall", gettext_lazy("Desinstalar código")),
+            ("reinstall", gettext_lazy("Reinstalar código")),
+            ("core_update", gettext_lazy("Atualizar núcleo")),
         ),
     )
     artifacts = forms.CharField(
-        label="Digests dos pacotes",
+        label=gettext_lazy("Digests dos pacotes"),
         required=False,
         widget=forms.Textarea(attrs={"rows": 2}),
-        help_text="SHA-256 devolvidos pelo envio ou pela busca de versões; separe por espaço ou vírgula para atualizar em conjunto.",
+        help_text=gettext_lazy(
+            "SHA-256 devolvidos pelo envio ou pela busca de versões; separe por espaço ou vírgula para atualizar em conjunto."
+        ),
     )
     app_ids = forms.CharField(
-        label="IDs das apps a desinstalar",
+        label=gettext_lazy("IDs das apps a desinstalar"),
         required=False,
-        help_text="Somente para desinstalação. Dados e migrations históricas são preservados.",
+        help_text=gettext_lazy("Somente para desinstalação. Dados e migrations históricas são preservados."),
     )
 
     def clean_artifacts(self):
         values = self.cleaned_data["artifacts"].replace(",", " ").split()
         if len(values) > 32 or any(not re.fullmatch("[0-9a-f]{64}", value) for value in values):
-            raise forms.ValidationError("Use digests SHA-256 retornados pelo upload.")
+            raise forms.ValidationError(gettext("Use digests SHA-256 retornados pelo upload."))
         return list(dict.fromkeys(values))
 
     def clean_app_ids(self):
         values = self.cleaned_data["app_ids"].replace(",", " ").split()
         if len(values) > 32 or any(not re.fullmatch("[a-zA-Z0-9_.-]{1,100}", value) for value in values):
-            raise forms.ValidationError("ID de app inválido.")
+            raise forms.ValidationError(gettext("ID de app inválido."))
         return list(dict.fromkeys(values))
 
     def clean(self):
         values = super().clean()
         if values.get("action") == "uninstall":
             if values.get("artifacts") or not values.get("app_ids"):
-                raise forms.ValidationError("Desinstalação exige IDs de apps, sem pacotes.")
+                raise forms.ValidationError(gettext("Desinstalação exige IDs de apps, sem pacotes."))
         elif not values.get("artifacts") or values.get("app_ids"):
-            raise forms.ValidationError("Instalação/atualização exige pacotes, sem IDs de retirada.")
+            raise forms.ValidationError(gettext("Instalação/atualização exige pacotes, sem IDs de retirada."))
         return values
 
 
@@ -139,21 +144,33 @@ def _context(step, **values):
 
 def _error(request, exc):
     if isinstance(exc, DeploymentUnavailable):
-        messages.error(request, "O agente de deployment não está disponível ou não foi configurado nesta instalação.")
+        messages.error(
+            request, gettext("O agente de deployment não está disponível ou não foi configurado nesta instalação.")
+        )
         return
-    messages.error(request, f"Operação indisponível: {getattr(exc, 'code', type(exc).__name__)}.")
+    messages.error(
+        request, gettext("Operação indisponível: %(value1)s.") % {"value1": getattr(exc, "code", type(exc).__name__)}
+    )
 
 
 PROBLEM_TEXT = {
-    "missing_dependency": "{component} exige {dependency} {required}, que não está instalada nem incluída no plano.",
-    "incompatible_dependency_version": "{component} exige {dependency} {required}; a versão resultante seria {found}.",
-    "dependency_cycle": "Dependência circular: {path}.",
-    "conflicting_release": "{component} declara conflito com {dependency} {required}; a versão resultante seria {found}.",
+    "missing_dependency": gettext_lazy(
+        "{component} exige {dependency} {required}, que não está instalada nem incluída no plano."
+    ),
+    "incompatible_dependency_version": gettext_lazy(
+        "{component} exige {dependency} {required}; a versão resultante seria {found}."
+    ),
+    "dependency_cycle": gettext_lazy("Dependência circular: {path}."),
+    "conflicting_release": gettext_lazy(
+        "{component} declara conflito com {dependency} {required}; a versão resultante seria {found}."
+    ),
     "incompatible_platform": "{component} exige {dependency} {required}; o ambiente-alvo tem {found}.",
-    "identity_collision": "{component} aparece mais de uma vez no plano.",
-    "namespace_collision": "{component} usa um label ou pacote Python já ocupado por outra app.",
+    "identity_collision": gettext_lazy("{component} aparece mais de uma vez no plano."),
+    "namespace_collision": gettext_lazy("{component} usa um label ou pacote Python já ocupado por outra app."),
     "wheel_pin_conflict": "{component} fixa {dependency} {required}, em conflito com {found} fixado por outro componente.",
-    "installed_dependents": "{component} depende de {dependency}: retire as duas no mesmo plano ou mantenha {dependency}.",
+    "installed_dependents": gettext_lazy(
+        "{component} depende de {dependency}: retire as duas no mesmo plano ou mantenha {dependency}."
+    ),
 }
 
 
@@ -168,7 +185,7 @@ def describe_problems(details):
     for detail in details:
         values = _Missing(detail)
         values["path"] = " → ".join(detail.get("path", ())) or "—"
-        text = PROBLEM_TEXT.get(detail["code"], "Problema de dependência: {code} em {component}.")
+        text = PROBLEM_TEXT.get(detail["code"], gettext("Problema de dependência: {code} em {component}."))
         problems.append(
             {
                 "text": text.format_map(values),
@@ -260,7 +277,7 @@ def _upload(request):
     handler = request.upload_handlers[0]
     form = UploadForm(request.POST, request.FILES)
     if handler.exceeded:
-        return HttpResponse("Pacote excede o limite de upload.", status=413)
+        return HttpResponse(gettext("Pacote excede o limite de upload."), status=413)
     if form.is_valid():
         try:
             uploaded = form.cleaned_data["package"]
@@ -271,7 +288,7 @@ def _upload(request):
                         stream.write(chunk)
                 source.chmod(0o600)
                 artifact = agent_client().upload(source)
-            messages.success(request, "Pacote verificado. Confira o plano e visualize o impacto.")
+            messages.success(request, gettext("Pacote verificado. Confira o plano e visualize o impacto."))
             return _plan_page(
                 request,
                 PlanForm(initial={"artifacts": artifact["digest"], "action": "install"}),
@@ -322,10 +339,10 @@ def add_dependency(request):
     recent_authentication(request)
     identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
     if any(not value or len(value) > 128 for value in identifiers.values()):
-        return HttpResponse("Identificação de release inválida.", status=400)
+        return HttpResponse(gettext("Identificação de release inválida."), status=400)
     form = PlanForm({"action": request.POST.get("action", ""), "artifacts": request.POST.get("artifacts", "")})
     if not form.is_valid() or form.cleaned_data["action"] in {"uninstall", "reinstall"}:
-        return HttpResponse("Plano de origem inválido.", status=400)
+        return HttpResponse(gettext("Plano de origem inválido."), status=400)
     try:
         artifact = agent_client().fetch_release(**identifiers)
         action = "update" if request.POST.get("upgrade") == "1" else form.cleaned_data["action"]
@@ -346,13 +363,13 @@ def fetch_release(request):
     try:
         identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
         if any(not value or len(value) > 128 for value in identifiers.values()):
-            return HttpResponse("Identificação de release inválida.", status=400)
+            return HttpResponse(gettext("Identificação de release inválida."), status=400)
         artifact = agent_client().fetch_release(**identifiers)
         if identifiers["component_id"] == "django-skeleton":
             action = "core_update"
         else:
             action = "update" if identifiers["component_id"] in _installed_components() else "install"
-        messages.success(request, "Versão obtida e verificada. Confira o plano e visualize o impacto.")
+        messages.success(request, gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."))
         return _plan_page(
             request, PlanForm(initial={"action": action, "artifacts": artifact["digest"]}), artifact=artifact
         )
@@ -380,14 +397,14 @@ def operation(request, operation_id):
         recent_authentication(request)
         form = ConfirmationForm(request.POST)
         if not form.is_valid() or form.cleaned_data["plan_digest"] != row.plan_digest:
-            return HttpResponse("Confirmação do plano inválida.", status=400)
+            return HttpResponse(gettext("Confirmação do plano inválida."), status=400)
         try:
             if request.POST.get("intent") == "retry":
                 retry_submission(user=request.user, operation_id=row.pk, revision=form.cleaned_data["revision"])
             else:
                 confirm_operation(user=request.user, operation_id=row.pk, revision=form.cleaned_data["revision"])
         except ConcurrentUpdate:
-            return HttpResponse("A operação mudou; atualize o estado antes de confirmar.", status=409)
+            return HttpResponse(gettext("A operação mudou; atualize o estado antes de confirmar."), status=409)
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
         return redirect("platform:updates-operation", operation_id=row.pk)

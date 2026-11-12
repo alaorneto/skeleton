@@ -139,6 +139,15 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - A suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
 - A cobertura sem texto fora do gettext é verificada pela pseudolocalização do #174.
 
+**#171, textos do Python traduzíveis:**
+
+- Por volta de 680 strings em português foram envolvidas por um script AST, com `gettext` em funções e `gettext_lazy` em módulos, classes e registros de inicialização. As f-strings viraram `gettext("… %(nome)s") % {...}`.
+- 55 mensagens de validação em inglês que chegam às pessoas passaram para pt-BR, e o teste que conferia uma delas foi ajustado. Os diagnósticos técnicos ficaram em inglês.
+- Strings de protocolo foram revertidas: `DOCSTRING_SECTIONS`, `SERVICE_API_HEADINGS` e o script `SERVICE_WORKER`.
+- Suíte completa: 1289 passed, 1 failed, 111 skipped. A falha era o `export_schema` serializando a descrição lazy de um spec com `json.dumps`. A correção (`str()` na exportação e no título do push) passou em `test_retained_schema.py`, `test_web_push.py` e `tests/contrib`, com 7 passed, e no `test_retention.py` da agenda, com 2 passed.
+- Suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

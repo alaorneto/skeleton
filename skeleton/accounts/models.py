@@ -7,6 +7,7 @@ from django.contrib.auth.models import PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.models import SystemRecord
 
@@ -15,7 +16,7 @@ from .managers import UserManager
 
 class AccountType(models.TextChoices):
     HUMAN = "human", "Pessoa"
-    SERVICE = "service", "Conta de serviço"
+    SERVICE = "service", gettext_lazy("Conta de serviço")
 
 
 SERVICE_EMAIL_DOMAIN = "service.invalid"
@@ -65,7 +66,9 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
         ]
 
     def __str__(self):
-        return f"{self.email} (conta de serviço)" if self.is_service_account else self.email
+        return (
+            gettext("%(email)s (conta de serviço)") % {"email": self.email} if self.is_service_account else self.email
+        )
 
     @property
     def is_service_account(self):
@@ -79,7 +82,7 @@ class User(SystemRecord, AbstractBaseUser, PermissionsMixin):
         super().clean()
         self.email = UserManager.normalize_email(self.email)
         if self.deleted_at is not None and self.is_active:
-            raise ValidationError({"is_active": "A deleted identity cannot be active."})
+            raise ValidationError({"is_active": gettext("Uma identidade excluída não pode ficar ativa.")})
 
     def save(self, *args, **kwargs):
         previous_revision = self.revision
@@ -131,9 +134,9 @@ class UserProfile(SystemRecord):
             try:
                 ZoneInfo(self.timezone)
             except (ZoneInfoNotFoundError, ValueError):
-                raise ValidationError({"timezone": "Unknown IANA time zone."}) from None
+                raise ValidationError({"timezone": gettext("Fuso horário inválido.")}) from None
         if self.language and self.language not in {code for code, _ in settings.LANGUAGES}:
-            raise ValidationError({"language": "Unsupported language."})
+            raise ValidationError({"language": gettext("Idioma não suportado.")})
 
     def __str__(self):
         return self.display_name or str(self.user_id)

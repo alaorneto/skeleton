@@ -16,6 +16,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from .delivery import absolute, create_delivery
 
@@ -152,5 +153,10 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
     return build_message(
         user,
         type_code="digest",
-        context={"entries": entries, "total": len(entries), "inbox_url": inbox, "label": "Resumo de notificações"},
+        context={
+            "entries": entries,
+            "total": len(entries),
+            "inbox_url": inbox,
+            "label": gettext("Resumo de notificações"),
+        },
     )

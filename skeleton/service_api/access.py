@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import as_uuid
@@ -20,7 +21,7 @@ def _model(table_key: str) -> Any:
     from skeleton.system.registry import get_spec
 
     if not isinstance(table_key, str):
-        raise InvalidInput({"table_key": ["Use o identificador da tabela."]})
+        raise InvalidInput({"table_key": [gettext("Use o identificador da tabela.")]})
     try:
         spec = get_spec(table_key)
     except KeyError:
@@ -34,7 +35,7 @@ def _action(action: str) -> str:
     from skeleton.access.policies import ACTIONS
 
     if action not in ACTIONS:
-        raise InvalidInput({"action": [f"Use uma de: {', '.join(sorted(ACTIONS))}."]})
+        raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(sorted(ACTIONS))}]})
     return action
 
 
@@ -144,14 +145,14 @@ class AccessService(ServiceAPI):
             raise Forbidden()
         model = _model(table_key)
         if model is None:
-            raise InvalidInput({"table_key": ["Tabela desconhecida ou não exposta."]})
+            raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
         if not isinstance(actions, tuple) or not actions:
-            raise InvalidInput({"actions": ["Informe as ações."]})
+            raise InvalidInput({"actions": [gettext("Informe as ações.")]})
         for action in actions:
             _action(action)
         table, role = table_definition(model), Role.objects.filter(code="member", is_builtin=True).first()
         if table is None or role is None:
-            raise InvalidInput({"table_key": ["Catálogo ou papel member indisponível."]})
+            raise InvalidInput({"table_key": [gettext("Catálogo ou papel member indisponível.")]})
         granted = []
         for action in dict.fromkeys(actions):
             if not TablePermission.objects.filter(role=role, table=table, action=action).exists():

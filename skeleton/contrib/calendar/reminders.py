@@ -15,6 +15,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from .models import EventReminder
 
@@ -29,7 +30,7 @@ def add_reminder(*, actor: Any, event_id: Any, minutes_before: int) -> EventRemi
 
     event = require_writable_event(actor, event_id)
     if type(minutes_before) is not int or not 0 <= minutes_before <= 40320:
-        raise ValidationError({"minutes_before": "Use de 0 a 40320 minutos (28 dias)."})
+        raise ValidationError({"minutes_before": gettext("Use de 0 a 40320 minutos (28 dias).")})
     reminder = EventReminder.objects.filter(event=event, minutes_before=minutes_before).first()
     if reminder is None:
         reminder = EventReminder(organization_id=event.organization_id, event=event, minutes_before=minutes_before)
@@ -42,7 +43,7 @@ def remove_reminder(*, actor: Any, reminder_id: Any) -> None:
 
     reminder = EventReminder.objects.filter(pk=reminder_id).first()
     if reminder is None:
-        raise ValidationError({"reminder": "Lembrete indisponível."})
+        raise ValidationError({"reminder": gettext("Lembrete indisponível.")})
     require_writable_event(actor, reminder.event_id)
     reminder.delete()
 

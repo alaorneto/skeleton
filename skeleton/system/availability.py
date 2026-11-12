@@ -16,6 +16,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext
 
 from skeleton.accounts.platform import is_platform_admin
 from skeleton.common.exceptions import ConcurrentUpdate, MissingTenantContext
@@ -92,7 +93,7 @@ def set_app_availability(app_label: str, *, user, mode: str, revision: int):
 
     _require_platform(user)
     if mode not in AppAvailability.Mode.values:
-        raise ValidationError({"mode": "Use all ou selected."})
+        raise ValidationError({"mode": gettext("Use all ou selected.")})
     if type(revision) is not int:
         raise ConcurrentUpdate("Application availability changed.")
     row = _locked_availability(app_label, create=False)
@@ -119,7 +120,7 @@ def _active_organization(organization_id: UUID):
 
     organization = Organization.objects.filter(pk=organization_id, is_active=True).first()
     if organization is None:
-        raise ValidationError({"organization": "Organização indisponível."})
+        raise ValidationError({"organization": gettext("Organização indisponível.")})
     return organization
 
 
@@ -135,7 +136,7 @@ def grant_app(app_label: str, *, user, organization_id: UUID):
         label for label in required_labels(app_label) if not app_available(label, organization_id=organization.pk)
     ]
     if missing:
-        message = f"Dependências indisponíveis para a organização: {', '.join(missing)}."
+        message = gettext("Dependências indisponíveis para a organização: %(value1)s.") % {"value1": ", ".join(missing)}
         raise ValidationError({"app_label": ValidationError(message, code="dependency_unavailable")})
     grant = AppOrganizationGrant.all_objects.filter(availability=row, granted_organization=organization).first()
     if grant is None:
@@ -170,7 +171,7 @@ def revoke_app(app_label: str, *, user, organization_id: UUID):
         ).exists()
     ]
     if blocking:
-        message = f"Revogue antes as apps dependentes: {', '.join(blocking)}."
+        message = gettext("Revogue antes as apps dependentes: %(value1)s.") % {"value1": ", ".join(blocking)}
         raise ValidationError({"app_label": ValidationError(message, code="dependent_granted")})
     grant.delete()
     return grant

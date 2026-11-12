@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.models import OrganizationRecord, SystemRecord
 
@@ -79,7 +80,7 @@ class AppInstallation(OrganizationRecord):
             ):
                 # Retention can disable existing state, never edit or reactivate it.
                 return
-            raise ValidationError({"app_label": "Application is not installed."}) from None
+            raise ValidationError({"app_label": gettext("Aplicativo não instalado.")}) from None
         self.configuration = validate_configuration(manifest, self.configuration)
 
 
@@ -116,11 +117,11 @@ class DeploymentOperation(SystemRecord):
     operation = models.CharField(
         max_length=16,
         choices=(
-            ("install", "Instalação"),
-            ("update", "Atualização"),
-            ("uninstall", "Desinstalação"),
-            ("reinstall", "Reinstalação"),
-            ("core_update", "Atualização do núcleo"),
+            ("install", gettext_lazy("Instalação")),
+            ("update", gettext_lazy("Atualização")),
+            ("uninstall", gettext_lazy("Desinstalação")),
+            ("reinstall", gettext_lazy("Reinstalação")),
+            ("core_update", gettext_lazy("Atualização do núcleo")),
         ),
     )
     state = models.CharField(max_length=24, default="preview")
@@ -140,8 +141,8 @@ class AppAvailability(SystemRecord):
     """Platform gate: whether an installed app may be used by every organization or only by grants."""
 
     class Mode(models.TextChoices):
-        ALL = "all", "Todas as organizações"
-        SELECTED = "selected", "Organizações selecionadas"
+        ALL = "all", gettext_lazy("Todas as organizações")
+        SELECTED = "selected", gettext_lazy("Organizações selecionadas")
 
     app_label = models.CharField(max_length=100, unique=True)
     mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.ALL)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils.translation import gettext
 
 from .models import EventAttendee
 
@@ -29,7 +30,7 @@ def _membership(user_id: Any) -> Any:
         .first()
     )
     if membership is None:
-        raise ValidationError({"user": "Convide só pessoas ativas desta organização (não contas de serviço)."})
+        raise ValidationError({"user": gettext("Convide só pessoas ativas desta organização (não contas de serviço).")})
     return membership
 
 
@@ -58,7 +59,7 @@ def remove(*, actor: Any, attendee_id: Any) -> None:
 
     attendee = EventAttendee.objects.filter(pk=attendee_id).first()
     if attendee is None:
-        raise PermissionDenied("Attendee unavailable.")
+        raise PermissionDenied(gettext("Participante indisponível."))
     require_writable_event(actor, attendee.event_id)
     attendee.delete()
 
@@ -66,12 +67,12 @@ def remove(*, actor: Any, attendee_id: Any) -> None:
 def respond(*, actor: Any, event_id: Any, response: str) -> EventAttendee:
     """RSVP of the actor; someone else's invitation, or none, is missing (404)."""
     if response not in EventAttendee.Response.values:
-        raise ValidationError({"response": "Use accepted, declined, tentative ou needs_action."})
+        raise ValidationError({"response": gettext("Use accepted, declined, tentative ou needs_action.")})
     attendee = EventAttendee.objects.filter(
         event_id=event_id, membership__user_id=actor.pk, membership__is_active=True
     ).first()
     if attendee is None:
-        raise PermissionDenied("Invitation unavailable.")
+        raise PermissionDenied(gettext("Convite indisponível."))
     if attendee.response != response:
         attendee.response = response
         attendee.save(update_fields={"response"})
@@ -107,7 +108,7 @@ def register_attendee_notifications() -> None:
     from skeleton.notifications.registry import NotificationType, register_notification_type
 
     for code, label in (
-        (INVITED, "Convite para evento"),
+        (INVITED, gettext("Convite para evento")),
         (UPDATED, "Evento alterado"),
         (CANCELLED, "Evento cancelado"),
     ):

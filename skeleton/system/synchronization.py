@@ -3,6 +3,7 @@ from pathlib import Path
 
 from django.apps import apps
 from django.db import connections, router, transaction
+from django.utils.translation import gettext
 
 from skeleton.tenancy.context import system_context
 
@@ -129,7 +130,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                     else name,
                     "description": spec.description
                     if spec
-                    else technical.get(name, "Tabela física sem classificação; requer revisão."),
+                    else technical.get(name, gettext("Tabela física sem classificação; requer revisão.")),
                 },
                 using,
             )

@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, router, transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext, gettext_lazy
 
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
 from .querysets import (
@@ -134,13 +135,15 @@ class SystemRecord(models.Model):
                 if related is None:
                     continue  # The FK field validator supplies the missing-target error.
                 if related.deleted_at is not None and target.soft_delete_reference_policy != "retain":
-                    raise ValidationError({field.name: "The referenced record is deleted."})
+                    raise ValidationError({field.name: gettext("O registro referenciado foi excluído.")})
                 if (
                     hasattr(self, "organization_id")
                     and hasattr(related, "organization_id")
                     and self.organization_id != related.organization_id
                 ):
-                    raise ValidationError({field.name: "The referenced record belongs to another organization."})
+                    raise ValidationError(
+                        {field.name: gettext("O registro referenciado pertence a outra organização.")}
+                    )
 
     def save(  # type: ignore[override]
         self,
@@ -278,7 +281,7 @@ class SecuredRecord(OrganizationRecord):
     class Visibility(models.TextChoices):
         PRIVATE = "private", "Privado"
         GROUP = "group", "Grupo"
-        ORGANIZATION = "organization", "Organização"
+        ORGANIZATION = "organization", gettext_lazy("Organização")
 
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="%(app_label)s_%(class)s_owned"
@@ -321,7 +324,7 @@ class SecuredRecord(OrganizationRecord):
                 organization__is_active=True,
                 organization__deleted_at__isnull=True,
             ).exists():
-                raise ValidationError({"owner": "The owner must have an active organization membership."})
+                raise ValidationError({"owner": gettext("O responsável precisa ter vínculo ativo na organização.")})
 
 
 class OperationalRecord(models.Model):

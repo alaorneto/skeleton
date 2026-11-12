@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from skeleton.access.policies import authorized_queryset
 from skeleton.service_api import ServiceAPI, service_method
@@ -172,7 +173,7 @@ class CalendarService(ServiceAPI):
 
         start, end = _window(start, end)
         if not isinstance(user_ids, tuple) or len(user_ids) > 50:
-            raise InvalidInput({"user_ids": ["Informe até 50 pessoas."]})
+            raise InvalidInput({"user_ids": [gettext("Informe até 50 pessoas.")]})
         try:
             readable_calendars(actor).exists()  # The actor needs the calendar table at all.
         except PermissionDenied:
@@ -290,10 +291,10 @@ def _window(start: Any, end: Any) -> tuple[datetime, datetime]:
     from skeleton.service_api import InvalidInput, as_utc
 
     if not isinstance(start, datetime) or not isinstance(end, datetime) or start.tzinfo is None or end.tzinfo is None:
-        raise InvalidInput({"start": ["Use datas e horas com fuso."]})
+        raise InvalidInput({"start": [gettext("Use datas e horas com fuso.")]})
     start, end = as_utc(start), as_utc(end)
     if end <= start:
-        raise InvalidInput({"end": ["O fim precisa ser depois do início."]})
+        raise InvalidInput({"end": [gettext("O fim precisa ser depois do início.")]})
     return start, end
 
 
@@ -339,5 +340,5 @@ def _idempotent_uid(actor: Any, key: str) -> str:
     from skeleton.service_api import InvalidInput
 
     if not isinstance(key, str) or not 1 <= len(key) <= 200:
-        raise InvalidInput({"idempotency_key": ["Chave de 1 a 200 caracteres."]})
+        raise InvalidInput({"idempotency_key": [gettext("Chave de 1 a 200 caracteres.")]})
     return hashlib.sha256(f"{actor.pk}:{key}".encode()).hexdigest() + "@idempotent"

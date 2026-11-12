@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import as_uuid
@@ -163,9 +164,9 @@ class IdentityService(ServiceAPI):
 
         data = {name: value for name, value in (("language", language), ("timezone", timezone)) if value is not None}
         if not data:
-            raise InvalidInput({"non_field_errors": ["Informe language ou timezone."]})
+            raise InvalidInput({"non_field_errors": [gettext("Informe language ou timezone.")]})
         if type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use a revisão inteira do perfil."]})
+            raise InvalidInput({"expected_revision": [gettext("Use a revisão inteira do perfil.")]})
         update_profile(actor, data=data, profile_revision=expected_revision)
         return _me(actor)
 
@@ -190,8 +191,8 @@ class IdentityService(ServiceAPI):
 
         data = dict(changes)
         if len(data) != len(changes):
-            raise InvalidInput({"non_field_errors": ["Campo repetido."]})
+            raise InvalidInput({"non_field_errors": [gettext("Campo repetido.")]})
         if type(expected_user_revision) is not int or type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use revisões inteiras."]})
+            raise InvalidInput({"expected_revision": [gettext("Use revisões inteiras.")]})
         update_profile(actor, data=data, user_revision=expected_user_revision, profile_revision=expected_revision)
         return _me(actor)

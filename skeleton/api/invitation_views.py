@@ -1,5 +1,6 @@
 from django.db import transaction
 from django.http import Http404
+from django.utils.translation import gettext
 from rest_framework.response import Response
 
 from skeleton.access.capabilities import INVITATIONS_MANAGE, require_resource_capability
@@ -15,7 +16,7 @@ class ResendInvitationView(TenantAPI):
     def post(self, request, organization_id, sysid):
         require_resource_capability(request.user, INVITATIONS_MANAGE)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Reenvio não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Reenvio não aceita campos."))
         invitation = Invitation.objects.select_for_update().filter(pk=sysid).first()
         if invitation is None:
             raise Http404

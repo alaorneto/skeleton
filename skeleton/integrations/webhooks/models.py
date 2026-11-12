@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.models import OperationalRecord, OrganizationRecord
@@ -45,7 +46,7 @@ class WebhookDelivery(OperationalRecord):
         RETRYING = "retrying", "Nova tentativa agendada"
         SUCCEEDED = "succeeded", "Entregue"
         FAILED = "failed", "Falhou"
-        UNAUTHORIZED = "unauthorized", "Sem acesso ao registro"
+        UNAUTHORIZED = "unauthorized", gettext_lazy("Sem acesso ao registro")
         SKIPPED = "skipped", "Ignorada"
 
     organization = models.ForeignKey(

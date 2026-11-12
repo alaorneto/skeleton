@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpResponseForbidden
+from django.utils.translation import gettext
 
 from skeleton.accounts.mfa import cipher
 from skeleton.accounts.providers import binding_for_sociallogin
@@ -55,7 +56,7 @@ class AccountAdapter(DefaultAccountAdapter):
             user.email = normalized_email(user.email)
             proof = pending_invitation(request)
             if proof is not None and user.email != proof.email:
-                raise ValidationError({"email": "Invitation email cannot be changed."})
+                raise ValidationError({"email": gettext("O email do convite não pode ser alterado.")})
             if commit:
                 user.save()
                 ensure_profile(user)

@@ -1,5 +1,6 @@
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from skeleton.web.services import assert_fields, coerce_fields, record_data
 
@@ -40,7 +41,7 @@ def dedicated_input(resource, data, *, user, creating=True):
         }.get(resource, tuple(name for name in fields if not model._meta.get_field(name).null))
         missing = [name for name in required if name not in data]
         if missing:
-            raise ValidationError({name: "Campo obrigatório." for name in missing})
+            raise ValidationError({name: gettext("Campo obrigatório.") for name in missing})
     values = dict(data)
     if resource == "memberships" and "user" in values:
         # No global identity list: an administrator must select an existing UUID explicitly.
@@ -48,7 +49,7 @@ def dedicated_input(resource, data, *, user, creating=True):
         try:
             values["user"] = User.objects.get(pk=values["user"], is_active=True)
         except (User.DoesNotExist, ValidationError, ValueError, TypeError):
-            raise ValidationError({"user": "Identidade indisponível."}) from None
+            raise ValidationError({"user": gettext("Identidade indisponível.")}) from None
         rest = {name: value for name, value in values.items() if name != "user"}
         return {"user": values["user"], **coerce_fields(model, rest, user=user)}
     return coerce_fields(model, values, user=user)

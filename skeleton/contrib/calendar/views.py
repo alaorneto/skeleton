@@ -18,6 +18,7 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST
 
 from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound
@@ -77,15 +78,15 @@ def _step(view: str, day: date, direction: int) -> date:
 def home(request, organization_id):
     view = request.GET.get("view", "week")
     if view not in VIEWS:
-        return _bad_request(request, organization_id, "Visão desconhecida: use month, week, day ou list.")
+        return _bad_request(request, organization_id, gettext("Visão desconhecida: use month, week, day ou list."))
     zone = _zone(request.user)
     raw = request.GET.get("date")
     try:
         day = date.fromisoformat(raw) if raw else datetime.now(zone).date()
     except ValueError:
-        return _bad_request(request, organization_id, "Data inválida: use AAAA-MM-DD.")
+        return _bad_request(request, organization_id, gettext("Data inválida: use AAAA-MM-DD."))
     if not date(1900, 1, 1) <= day <= date(2200, 12, 31):
-        return _bad_request(request, organization_id, "Data fora do intervalo aceito.")
+        return _bad_request(request, organization_id, gettext("Data fora do intervalo aceito."))
     first, last = _window(view, day)
     service = CalendarService()
     try:
@@ -129,19 +130,23 @@ def home(request, organization_id):
 
 
 class EventForm(forms.Form):
-    calendar = forms.ChoiceField(label="Calendário")
-    title = forms.CharField(label="Título", max_length=200)
+    calendar = forms.ChoiceField(label=gettext_lazy("Calendário"))
+    title = forms.CharField(label=gettext_lazy("Título"), max_length=200)
     all_day = forms.BooleanField(label="Dia inteiro", required=False)
     day = forms.DateField(label="Data", widget=forms.DateInput(attrs={"type": "date"}))
-    start = forms.TimeField(label="Início", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    start = forms.TimeField(
+        label=gettext_lazy("Início"), required=False, widget=forms.TimeInput(attrs={"type": "time"})
+    )
     end = forms.TimeField(label="Fim", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
     location = forms.CharField(label="Local", max_length=300, required=False)
-    description = forms.CharField(label="Descrição", required=False, widget=forms.Textarea(attrs={"rows": 4}))
-    is_private = forms.BooleanField(label="Privado (os outros veem só Ocupado)", required=False)
+    description = forms.CharField(
+        label=gettext_lazy("Descrição"), required=False, widget=forms.Textarea(attrs={"rows": 4})
+    )
+    is_private = forms.BooleanField(label=gettext_lazy("Privado (os outros veem só Ocupado)"), required=False)
     repeat = forms.ChoiceField(
         label="Repetir",
         choices=(
-            ("none", "Não repete"),
+            ("none", gettext_lazy("Não repete")),
             ("daily", "Diariamente"),
             ("weekly", "Semanalmente"),
             ("monthly", "Mensalmente"),
@@ -157,7 +162,7 @@ class EventForm(forms.Form):
     def clean(self):
         data = super().clean()
         if not data.get("all_day") and (not data.get("start") or not data.get("end")):
-            raise forms.ValidationError("Informe início e fim, ou marque dia inteiro.")
+            raise forms.ValidationError(gettext("Informe início e fim, ou marque dia inteiro."))
         return data
 
     def event_data(self, zone: ZoneInfo) -> dict:
@@ -185,9 +190,9 @@ def _apply_error(form, error):
         for field, problems in dict(details).items():
             form.add_error(field if field in form.fields else None, problems)
         if not details:
-            form.add_error(None, "Verifique os campos informados.")
+            form.add_error(None, gettext("Verifique os campos informados."))
     else:
-        form.add_error(None, "O evento não pôde ser salvo.")
+        form.add_error(None, gettext("O evento não pôde ser salvo."))
 
 
 @require_http_methods(["GET", "POST"])
@@ -212,7 +217,7 @@ def event_new(request, organization_id):
                 _apply_error(form, error)
                 status = 400
             else:
-                messages.success(request, "Evento criado.")
+                messages.success(request, gettext("Evento criado."))
                 day = form.cleaned_data["day"].isoformat()
                 return redirect(
                     reverse("skeleton_calendar:home", kwargs={"organization_id": organization_id})
@@ -234,7 +239,7 @@ def event_cancel(request, organization_id, sysid):
     except (ValueError, NotFound, Forbidden):
         raise Http404 from None
     except Conflict:
-        messages.error(request, "O evento mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O evento mudou. Atualize a página antes de tentar novamente."))
     else:
         messages.success(request, "Evento cancelado.")
     return redirect("skeleton_calendar:home", organization_id=organization_id)
@@ -250,7 +255,8 @@ def member_access(request, organization_id):
     except Forbidden:
         raise Http404 from None
     messages.success(
-        request, "Acesso básico concedido ao papel member." if granted else "O papel member já tinha acesso."
+        request,
+        gettext("Acesso básico concedido ao papel member.") if granted else gettext("O papel member já tinha acesso."),
     )
     return redirect("skeleton_calendar:home", organization_id=organization_id)
 

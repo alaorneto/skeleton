@@ -6,6 +6,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext
 
 from skeleton.access.policies import has_table_permission
 from skeleton.tenancy.context import current_context
@@ -71,7 +72,7 @@ def update_calendar_record(record: Calendar, *, user: Any, values: dict) -> None
 
 def delete_calendar_record(record: Calendar, *, user: Any) -> None:
     if record.kind == Calendar.Kind.PERSONAL and record.is_default:
-        raise ValidationError({"kind": "O calendário pessoal padrão não pode ser excluído."})
+        raise ValidationError({"kind": gettext("O calendário pessoal padrão não pode ser excluído.")})
     record.delete()
 
 
@@ -115,7 +116,7 @@ COPIED_FIELDS = (*EVENT_FIELDS[:-3], "tzid")
 def _event_values(data: dict) -> dict:
     unknown = set(data) - set(EVENT_FIELDS)
     if unknown:
-        raise ValidationError({"__all__": f"Campos não aceitos: {sorted(unknown)}."})
+        raise ValidationError({"__all__": gettext("Campos não aceitos: %(value1)s.") % {"value1": sorted(unknown)}})
     values = dict(data)
     if values.get("all_day"):
         values["starts_at"] = values["ends_at"] = None
@@ -147,7 +148,7 @@ def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: in
 
     event = require_writable_event(actor, event_id)
     if type(expected_revision) is not int or event.revision != expected_revision:
-        raise Conflict("stale_revision", "O evento mudou.")
+        raise Conflict("stale_revision", gettext("O evento mudou."))
     values = _event_values(data)
     for name, value in values.items():
         setattr(event, name, value)
@@ -174,7 +175,7 @@ def delete_event(*, actor: Any, event_id: Any, expected_revision: int) -> None:
 
     event = require_writable_event(actor, event_id)
     if type(expected_revision) is not int or event.revision != expected_revision:
-        raise Conflict("stale_revision", "O evento mudou.")
+        raise Conflict("stale_revision", gettext("O evento mudou."))
     event.delete()
 
 
@@ -190,9 +191,9 @@ def _master(actor: Any, event_id: Any, expected_revision: int) -> Any:
 
     event = require_writable_event(actor, event_id)
     if event.series_id is not None or not event.rrule:
-        raise ValidationError({"event": "Use o evento mestre de uma série recorrente."})
+        raise ValidationError({"event": gettext("Use o evento mestre de uma série recorrente.")})
     if type(expected_revision) is not int or event.revision != expected_revision:
-        raise Conflict("stale_revision", "A série mudou.")
+        raise Conflict("stale_revision", gettext("A série mudou."))
     return event
 
 
@@ -203,7 +204,7 @@ def _occurrence(master: Any, recurrence_id: Any) -> Any:
 
     window = expand(master, recurrence_id - timedelta(days=1), recurrence_id + timedelta(days=1))
     if recurrence_id not in {occurrence.recurrence_id for occurrence in window.occurrences}:
-        raise ValidationError({"recurrence_id": "A série não tem ocorrência nesse instante."})
+        raise ValidationError({"recurrence_id": gettext("A série não tem ocorrência nesse instante.")})
     return recurrence_id
 
 

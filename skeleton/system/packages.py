@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from django.utils.translation import gettext
 from packaging.markers import Marker, default_environment
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name, parse_wheel_filename
@@ -924,7 +925,7 @@ def _validate_archive(path, trust_store=None):
             for name, item in inventory.items():
                 data = _read_member(archive, files[name])
                 if len(data) != item["size"] or hashlib.sha256(data).hexdigest() != item["sha256"]:
-                    _fail("Payload hash or size mismatch.")
+                    _fail(gettext("Payload hash or size mismatch."))
                 if name.startswith("wheels/"):
                     dependency = next(d for d in manifest["python_dependencies"] if d["wheel"] == name)
                     destinations, owned_roots, expanded, members, _ = _wheel(

@@ -7,6 +7,7 @@ from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
@@ -70,7 +71,7 @@ def record_breadcrumbs(spec, organization_id):
         app_label = spec.model._meta.app_label
     key = spec.model._meta.label_lower
     return [
-        {"label": "Organização", "url": reverse("web:dashboard", kwargs={"organization_id": organization_id})},
+        {"label": gettext("Organização"), "url": reverse("web:dashboard", kwargs={"organization_id": organization_id})},
         {
             "label": app_label,
             "url": reverse("web:catalog", kwargs={"organization_id": organization_id})
@@ -119,14 +120,14 @@ def tenant_page(*, admin=False, capability=None):
                 return render(
                     request,
                     "skeleton/web/error.html",
-                    {"detail": "Verifique os campos ou filtros informados."},
+                    {"detail": gettext("Verifique os campos ou filtros informados.")},
                     status=400,
                 )
             except (IntegrityError, service_errors.Conflict):
                 return render(
                     request,
                     "skeleton/web/error.html",
-                    {"detail": "A operação conflita com os dados existentes."},
+                    {"detail": gettext("A operação conflita com os dados existentes.")},
                     status=409,
                 )
 
@@ -144,7 +145,7 @@ def _page_number(request):
         if page < 1:
             raise ValueError
     except ValueError:
-        raise ValidationError("Página inválida.") from None
+        raise ValidationError(gettext("Página inválida.")) from None
     return page
 
 
@@ -191,10 +192,10 @@ def form_error(form, error):
     from skeleton.accounts.platform import LastPlatformAdministrator
 
     if isinstance(error, access_services.LastAdministrator):
-        form.add_error(None, "A organização precisa manter ao menos um administrador ativo.")
+        form.add_error(None, gettext("A organização precisa manter ao menos um administrador ativo."))
         return 409
     if isinstance(error, LastPlatformAdministrator):
-        form.add_error(None, "A plataforma precisa manter ao menos um administrador ativo.")
+        form.add_error(None, gettext("A plataforma precisa manter ao menos um administrador ativo."))
         return 409
     if isinstance(error, ValidationError):
         if hasattr(error, "message_dict"):
@@ -206,17 +207,17 @@ def form_error(form, error):
 
         return 409 if validation_conflict(error) else 400
     if isinstance(error, ConcurrentUpdate):
-        form.add_error(None, "O registro foi alterado. Atualize a página antes de tentar novamente.")
+        form.add_error(None, gettext("O registro foi alterado. Atualize a página antes de tentar novamente."))
     elif isinstance(error, LiveReferencesExist):
-        form.add_error(None, "Existem vínculos ativos. Revogue-os antes de remover.")
+        form.add_error(None, gettext("Existem vínculos ativos. Revogue-os antes de remover."))
     else:
-        form.add_error(None, "A operação conflita com os dados existentes.")
+        form.add_error(None, gettext("A operação conflita com os dados existentes."))
     return 409
 
 
 def check_html_revision(form, record):
     if form.cleaned_data["revision"] != record.revision:
-        raise ConcurrentUpdate("Revisão desatualizada.")
+        raise ConcurrentUpdate(gettext("Revisão desatualizada."))
 
 
 @login_required
@@ -270,12 +271,14 @@ def leave_organization(request, organization_id):
                 access_services.leave_organization(request.user, expected_revision=revision)
         except access_services.LastAdministrator:
             status = 409
-            error = "Você é a última pessoa que administra esta organização. Designe outro administrador antes de sair."
+            error = gettext(
+                "Você é a última pessoa que administra esta organização. Designe outro administrador antes de sair."
+            )
         except ConcurrentUpdate:
             status = 409
-            error = "Seu vínculo mudou desde que esta página foi aberta. Confira e tente de novo."
+            error = gettext("Seu vínculo mudou desde que esta página foi aberta. Confira e tente de novo.")
         else:
-            messages.success(request, f"Você saiu de {organization.name}.")
+            messages.success(request, gettext("Você saiu de %(name)s.") % {"name": organization.name})
             return redirect("web:home")
     return render(
         request,
@@ -293,7 +296,7 @@ def leave_organization(request, organization_id):
 def _service_form_error(form, error):
     """Show a service error on the form with the same codes as the former internal exceptions."""
     if isinstance(error, service_errors.Conflict) and error.code == "stale_revision":
-        return form_error(form, ConcurrentUpdate("Revisão desatualizada."))
+        return form_error(form, ConcurrentUpdate(gettext("Revisão desatualizada.")))
     if isinstance(error, service_errors.InvalidInput):
         return form_error(form, ValidationError({name: list(messages) for name, messages in error.errors.items()}))
     return form_error(form, ValidationError(error.detail))
@@ -319,7 +322,7 @@ def profile(request):
     status = 200
     if request.method == "POST":
         if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
-            form.add_error(None, "Campo não permitido.")
+            form.add_error(None, gettext("Campo não permitido."))
             status = 400
         elif form.is_valid():
             values = dict(form.cleaned_data)
@@ -332,7 +335,7 @@ def profile(request):
                     expected_revision=profile_revision,
                     changes=tuple(values.items()),
                 )
-                messages.success(request, "Perfil atualizado.")
+                messages.success(request, gettext("Perfil atualizado."))
                 return redirect("web:profile")
             except service_errors.ServiceError as exc:
                 status = _service_form_error(form, exc)
@@ -412,7 +415,7 @@ def access_edit(request, organization_id, resource, sysid=None):
     if request.method == "POST":
         allowed = set(form.fields) | {"csrfmiddlewaretoken"}
         if set(request.POST) - allowed:
-            form.add_error(None, "Campo não permitido.")
+            form.add_error(None, gettext("Campo não permitido."))
             status = 400
         elif form.is_valid():
             try:
@@ -440,7 +443,7 @@ def access_edit(request, organization_id, resource, sysid=None):
                         "record-grants": "create_record_grant",
                     }[resource]
                     getattr(access_services, name)(user=request.user, data=values)
-                messages.success(request, "Operação concluída.")
+                messages.success(request, gettext("Operação concluída."))
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
             except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
                 status = form_error(form, exc)
@@ -504,7 +507,12 @@ def catalog(request, organization_id):
     return render(
         request,
         "skeleton/web/catalog.html",
-        {"title": "Catálogo", "specs": specs, "app_groups": grouped_specs(specs), "organization_id": organization_id},
+        {
+            "title": gettext("Catálogo"),
+            "specs": specs,
+            "app_groups": grouped_specs(specs),
+            "organization_id": organization_id,
+        },
     )
 
 
@@ -514,7 +522,7 @@ def audit(request, organization_id):
     from skeleton.service_api.audit import AuditLogService
 
     if set(request.GET) - {"page", "record_sysid", "model_label"}:
-        raise ValidationError("Filtro não permitido.")
+        raise ValidationError(gettext("Filtro não permitido."))
     filters = {
         "model_label": request.GET.get("model_label") or None,
         "record_id": request.GET.get("record_sysid") or None,
@@ -662,7 +670,7 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
     status = 200
     if request.method == "POST":
         if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
-            form.add_error(None, "Campo não permitido.")
+            form.add_error(None, gettext("Campo não permitido."))
             status = 400
         elif form.is_valid():
             try:
@@ -710,11 +718,15 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
             "cancel_url": reverse(cancel_route, kwargs=cancel_kwargs),
             "record": {"sysid": item.sysid} if item else None,
             "operation": operation,
-            "submit_label": {"edit": "Salvar", "delete": "Remover", "restore": "Restaurar", "access": "Salvar acesso"}[
-                operation
-            ],
+            "submit_label": {
+                "edit": "Salvar",
+                "delete": "Remover",
+                "restore": "Restaurar",
+                "access": gettext("Salvar acesso"),
+            }[operation],
             "confirmation": (
-                f"Confirmar {'remoção lógica' if operation == 'delete' else 'restauração'} do registro {item.pk}."
+                gettext("Confirmar %(value1)s do registro %(pk)s.")
+                % {"value1": "remoção lógica" if operation == "delete" else "restauração", "pk": item.pk}
                 if operation in {"delete", "restore"}
                 else None
             ),
@@ -752,7 +764,7 @@ def reference_picker(request, organization_id, table_key, field_name):
         request,
         "skeleton/web/reference_picker.html",
         {
-            "title": "Selecionar referência",
+            "title": gettext("Selecionar referência"),
             "organization_id": organization_id,
             "options": data["results"],
             "count": data["count"],

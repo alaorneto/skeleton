@@ -1,5 +1,6 @@
 from django import forms
 from django.db import models
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.api.serializers import dedicated_model
 
@@ -7,12 +8,16 @@ from skeleton.api.serializers import dedicated_model
 class ProfileForm(forms.Form):
     first_name = forms.CharField(max_length=150, required=False, label="Nome")
     last_name = forms.CharField(max_length=150, required=False, label="Sobrenome")
-    display_name = forms.CharField(max_length=150, required=False, label="Nome de exibição")
+    display_name = forms.CharField(max_length=150, required=False, label=gettext_lazy("Nome de exibição"))
     timezone = forms.ChoiceField(
-        label="Fuso horário", required=False, help_text="Em branco, vale o padrão da organização ou da instância."
+        label=gettext_lazy("Fuso horário"),
+        required=False,
+        help_text=gettext_lazy("Em branco, vale o padrão da organização ou da instância."),
     )
     language = forms.ChoiceField(
-        label="Idioma", required=False, help_text="Em branco, vale o padrão da organização ou da instância."
+        label="Idioma",
+        required=False,
+        help_text=gettext_lazy("Em branco, vale o padrão da organização ou da instância."),
     )
     user_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     profile_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
@@ -23,8 +28,10 @@ class ProfileForm(forms.Form):
         from django.conf import settings
 
         super().__init__(*args, **kwargs)
-        self.fields["timezone"].choices = [("", "Padrão")] + [(zone, zone) for zone in sorted(available_timezones())]
-        self.fields["language"].choices = [("", "Padrão"), *settings.LANGUAGES]
+        self.fields["timezone"].choices = [("", gettext("Padrão"))] + [
+            (zone, zone) for zone in sorted(available_timezones())
+        ]
+        self.fields["language"].choices = [("", gettext("Padrão")), *settings.LANGUAGES]
 
 
 def _model_form_field(field):
@@ -83,7 +90,7 @@ class RecordForm(forms.Form):
             self.fields[control] = forms.BooleanField(
                 required=False,
                 label=f"Alterar {self.fields[name].label}",
-                help_text="Desmarcado mantém o valor atual. Marque para substituir ou limpar.",
+                help_text=gettext("Desmarcado mantém o valor atual. Marque para substituir ou limpar."),
             )
             widget = self.fields[control].widget
             changing = self.is_bound and forms.BooleanField(required=False).clean(
@@ -109,7 +116,7 @@ class RecordForm(forms.Form):
         cleaned = super().clean()
         unknown = set(self.data) - (set(self.fields) | {"csrfmiddlewaretoken"})
         if unknown:
-            raise forms.ValidationError("Campo não permitido.")
+            raise forms.ValidationError(gettext("Campo não permitido."))
         for name in self.write_only:
             if not cleaned.get(CHANGE_PREFIX + name):
                 cleaned.pop(name, None)

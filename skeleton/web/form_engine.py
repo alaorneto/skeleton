@@ -3,6 +3,7 @@
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Field, Layout, LayoutObject
 from django.template.loader import get_template
+from django.utils.translation import gettext
 
 from skeleton.web.forms import CHANGE_PREFIX
 from skeleton.web.presentation import _accessible, resolve_field_span
@@ -72,7 +73,7 @@ def _default_sections(form, visible):
             entry["change_bound"] = form[control]
         fields.append(entry)
     return (
-        [{"id": "fields", "label": "Dados do registro", "tab_id": None, "columns": 1, "fields": fields}]
+        [{"id": "fields", "label": gettext("Dados do registro"), "tab_id": None, "columns": 1, "fields": fields}]
         if fields
         else []
     )

@@ -1,4 +1,5 @@
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy
 
 
 class CalendarConfig(AppConfig):
@@ -21,8 +22,10 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=Calendar,
-                description="Calendários pessoais e compartilhados da organização; eventos herdam a autorização deles.",
-                label="Calendários",
+                description=gettext_lazy(
+                    "Calendários pessoais e compartilhados da organização; eventos herdam a autorização deles."
+                ),
+                label=gettext_lazy("Calendários"),
                 scope="organization",
                 read_fields=("name", "kind", "is_default", "color", "timezone", "description", "owner", "visibility"),
                 write_fields=("name", "color", "timezone", "description"),
@@ -33,7 +36,7 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=Event,
-                description="Eventos dos calendários; leitura e escrita derivadas do calendário.",
+                description=gettext_lazy("Eventos dos calendários; leitura e escrita derivadas do calendário."),
                 label="Eventos",
                 scope="organization",
                 read_fields=(
@@ -59,7 +62,7 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=EventAttendee,
-                description="Membros convidados para um evento e a resposta deles.",
+                description=gettext_lazy("Membros convidados para um evento e a resposta deles."),
                 label="Participantes",
                 scope="organization",
                 read_fields=("event", "membership", "response", "optional"),
@@ -71,7 +74,7 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=EventReminder,
-                description="Lembretes de evento em minutos antes de cada ocorrência.",
+                description=gettext_lazy("Lembretes de evento em minutos antes de cada ocorrência."),
                 label="Lembretes",
                 scope="organization",
                 read_fields=("event", "minutes_before", "channel_hint"),

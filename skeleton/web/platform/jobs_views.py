@@ -11,6 +11,7 @@ from django import forms
 from django.apps import apps
 from django.contrib import messages
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
@@ -76,14 +77,16 @@ def jobs(request):
 def job_action(request, sysid):
     form = JobActionForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Pedido inválido. Atualize a página e tente de novo.")
+        messages.error(request, gettext("Pedido inválido. Atualize a página e tente de novo."))
         return redirect("platform:jobs")
     data = form.cleaned_data
     change = resend_dead_job if data["action"] == "resend" else discard_dead_job
     try:
         change(sysid, expected_updated_at=data["expected_updated_at"], actor=request.user)
     except ConcurrentUpdate:
-        messages.error(request, "O job mudou ou já não está esgotado. Atualize a página.")
+        messages.error(request, gettext("O job mudou ou já não está esgotado. Atualize a página."))
         return redirect("platform:jobs")
-    messages.success(request, "Job reenviado para a fila." if data["action"] == "resend" else "Job descartado.")
+    messages.success(
+        request, gettext("Job reenviado para a fila.") if data["action"] == "resend" else gettext("Job descartado.")
+    )
     return redirect("platform:jobs")

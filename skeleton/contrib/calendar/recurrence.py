@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil import rrule as dateutil_rrule
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 MAX_COUNT = 1000
 MAX_WINDOW_DAYS = 400
@@ -56,7 +57,7 @@ def _invalid(message: str) -> ValidationError:
 
 def parse_rule(text: str) -> dict[str, str]:
     if not isinstance(text, str) or not text.strip():
-        raise _invalid("Informe a regra de recorrência.")
+        raise _invalid(gettext("Informe a regra de recorrência."))
     value = text.strip().upper()
     if value.startswith("RRULE:"):
         value = value[6:]
@@ -66,16 +67,18 @@ def parse_rule(text: str) -> dict[str, str]:
         if not sep or name in parts:
             raise _invalid("Regra malformada.")
         if name not in PARTS:
-            raise _invalid(f"{name} não é aceito; use FREQ, INTERVAL, COUNT, UNTIL e BY* simples.")
+            raise _invalid(
+                gettext("%(name)s não é aceito; use FREQ, INTERVAL, COUNT, UNTIL e BY* simples.") % {"name": name}
+            )
         if not _VALUE[name].match(part):
-            raise _invalid(f"Valor inválido em {name}.")
+            raise _invalid(gettext("Valor inválido em %(name)s.") % {"name": name})
         parts[name] = part
     if "FREQ" not in parts:
-        raise _invalid("FREQ é obrigatório (DAILY, WEEKLY, MONTHLY ou YEARLY).")
+        raise _invalid(gettext("FREQ é obrigatório (DAILY, WEEKLY, MONTHLY ou YEARLY)."))
     if ("COUNT" in parts) == ("UNTIL" in parts):
-        raise _invalid("Limite a série com COUNT ou UNTIL (um dos dois).")
+        raise _invalid(gettext("Limite a série com COUNT ou UNTIL (um dos dois)."))
     if "COUNT" in parts and int(parts["COUNT"]) > MAX_COUNT:
-        raise _invalid(f"COUNT vai até {MAX_COUNT}.")
+        raise _invalid(gettext("COUNT vai até %(MAX_COUNT)s.") % {"MAX_COUNT": MAX_COUNT})
     return parts
 
 
@@ -193,7 +196,12 @@ def series_end(event: Any) -> datetime | None:
 def expand(event: Any, start: datetime, end: datetime, *, overrides=None, limit: int = MAX_OCCURRENCES) -> Expansion:
     """Occurrences of ``event`` that overlap ``[start, end)``, overrides applied."""
     if end <= start or end - start > timedelta(days=MAX_WINDOW_DAYS):
-        raise ValidationError({"window": f"Use uma janela de até {MAX_WINDOW_DAYS} dias."})
+        raise ValidationError(
+            {
+                "window": gettext("Use uma janela de até %(MAX_WINDOW_DAYS)s dias.")
+                % {"MAX_WINDOW_DAYS": MAX_WINDOW_DAYS}
+            }
+        )
     duration = _duration(event)
     result = Expansion()
     if not event.rrule:
@@ -250,7 +258,7 @@ def split_parts(event: Any, occurrence_key_value: datetime) -> tuple[str, str]:
     )
     before = rule.before(local_split, inc=False)
     if before is None:
-        raise ValidationError({"recurrence_id": "Para dividir na primeira ocorrência, edite a série inteira."})
+        raise ValidationError({"recurrence_id": gettext("Para dividir na primeira ocorrência, edite a série inteira.")})
     first = dict(parts)
     second = dict(parts)
     if "COUNT" in parts:

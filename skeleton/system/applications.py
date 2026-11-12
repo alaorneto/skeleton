@@ -3,6 +3,7 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.urls import reverse
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ApplicationUnavailable, ConcurrentUpdate, MissingTenantContext
 from skeleton.tenancy.context import current_context
@@ -48,16 +49,16 @@ def require_application_enabled(app_label):
         return  # The core has no optional tenant activation contract.
     state = application_state(manifest.app_label)
     if not state["available"]:
-        raise ApplicationUnavailable("Application is unavailable to this organization.")
+        raise ApplicationUnavailable(gettext("O aplicativo não está disponível para esta organização."))
     if not state["enabled"]:
-        raise PermissionDenied("Application is disabled in this organization.")
+        raise PermissionDenied(gettext("O aplicativo está desativado nesta organização."))
     # Transitive: a dependency's own disabled or unavailable dependency also closes this application.
     for dependency in required_labels(manifest.app_label):
         state = application_state(dependency)
         if not state["available"]:
             raise ApplicationUnavailable("Application dependency is unavailable.")
         if not state["enabled"]:
-            raise PermissionDenied("Application dependency is disabled.")
+            raise PermissionDenied(gettext("Uma dependência do aplicativo está desativada."))
 
 
 @transaction.atomic
@@ -71,7 +72,7 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     manifest = get_app(app_label)
     validate_dependencies()
     if type(enabled) is not bool:
-        raise ValidationError({"enabled": "Use true or false."})
+        raise ValidationError({"enabled": gettext("Use true or false.")})
     values = validate_configuration(manifest, configuration)
     # Serialize even the first virtual revision=0 transition and dependency changes.
     Organization.objects.select_for_update().get(pk=current_context().organization_id)
@@ -84,18 +85,26 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     if enabled and not available_with_dependencies(app_label):
         # Disabling stays allowed so an organization can close an app the platform withdrew.
         raise ValidationError(
-            {"enabled": ValidationError("Application is unavailable to this organization.", code="app_unavailable")}
+            {
+                "enabled": ValidationError(
+                    gettext("O aplicativo não está disponível para esta organização."), code="app_unavailable"
+                )
+            }
         )
     if enabled:
         pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
         if pending:
             names = ", ".join(get_app(label).label for label in pending)
-            raise ValidationError({"enabled": f"Enable required applications first: {names}."})
+            raise ValidationError(
+                {"enabled": gettext("Ative antes os aplicativos exigidos: %(names)s.") % {"names": names}}
+            )
     else:
         blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
         if blocking:
             names = ", ".join(get_app(label).label for label in blocking)
-            raise ValidationError({"enabled": f"Disable dependent applications first: {names}."})
+            raise ValidationError(
+                {"enabled": gettext("Desative antes os aplicativos dependentes: %(names)s.") % {"names": names}}
+            )
     from skeleton.events.core_events import application_changed
 
     was_enabled = bool(record and record.enabled)

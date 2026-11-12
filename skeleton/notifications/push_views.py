@@ -2,6 +2,7 @@
 
 from django.db import transaction
 from django.http import Http404, HttpResponse
+from django.utils.translation import gettext
 from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_safe
 from rest_framework.response import Response
@@ -40,7 +41,7 @@ class PushSubscriptionsAPI(SessionAPI):
         keys = data.get("keys")
         extra = set(data) - {"endpoint", "keys", "expirationTime"}
         if extra or not isinstance(keys, dict) or set(keys) - {"p256dh", "auth"}:
-            raise BoundaryError("invalid_request", "Envie endpoint e keys (p256dh, auth).")
+            raise BoundaryError("invalid_request", gettext("Envie endpoint e keys (p256dh, auth)."))
         subscription = push.subscribe(
             request.user,
             endpoint=data.get("endpoint"),
@@ -56,7 +57,7 @@ class PushUnsubscribeAPI(SessionAPI):
     def post(self, request):
         data = request_fields(request)
         if set(data) - {"endpoint"}:
-            raise BoundaryError("invalid_request", "Envie só o endpoint.")
+            raise BoundaryError("invalid_request", gettext("Envie só o endpoint."))
         push.unsubscribe(request.user, endpoint=data.get("endpoint"))
         return Response(status=204)
 

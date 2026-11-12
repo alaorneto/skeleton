@@ -16,6 +16,7 @@ from django.contrib import messages
 from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.service_api.tokens import FeedTokenService, authenticate_feed
@@ -67,7 +68,7 @@ def feed_token(request):
                     expires_at=timezone.now() + timedelta(days=365),
                 )
             except (Forbidden, InvalidInput):
-                messages.error(request, "Não foi possível criar o feed.")
+                messages.error(request, gettext("Não foi possível criar o feed."))
             else:
                 url = request.build_absolute_uri(f"/me/apps/{APP_LABEL}/feed/{issued.text}.ics")
     response = render(request, "skeleton_calendar/feed_token.html", {"url": url}, status=201 if url else 200)
@@ -78,4 +79,4 @@ def feed_token(request):
 def register_feed_scope() -> None:
     from skeleton.integrations.tokens.scopes import register_token_scope
 
-    register_token_scope(FEED_SCOPE, "Assinatura da agenda por um cliente de calendário", feed=True)
+    register_token_scope(FEED_SCOPE, gettext("Assinatura da agenda por um cliente de calendário"), feed=True)

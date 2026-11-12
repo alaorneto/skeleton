@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.models import OperationalRecord, SystemRecord
 
@@ -17,7 +18,7 @@ class ApiToken(SystemRecord):
 
     class Kind(models.TextChoices):
         PERSONAL = "personal", "Pessoal"
-        SERVICE = "service", "Conta de serviço"
+        SERVICE = "service", gettext_lazy("Conta de serviço")
         FEED = "feed", "Feed"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sk_api_tokens")

@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from django.utils.translation import gettext
+
 SCHEMA = "skeleton"
 CONNECT_TIMEOUT = 5
 
@@ -36,15 +38,15 @@ class Role:
 
 def parse(dsn: str) -> dict:
     if not isinstance(dsn, str) or urlsplit(dsn).scheme not in ("postgres", "postgresql"):
-        raise DatabaseCheckError("Use uma URL postgres://usuário:senha@host:porta/banco.")
+        raise DatabaseCheckError(gettext("Use uma URL postgres://usuário:senha@host:porta/banco."))
     try:
         import environ  # type: ignore[import-untyped]
 
         config = environ.Env.db_url_config(dsn)
     except Exception:
-        raise DatabaseCheckError("URL de banco inválida.") from None
+        raise DatabaseCheckError(gettext("URL de banco inválida.")) from None
     if not config.get("NAME") or not config.get("USER"):
-        raise DatabaseCheckError("Informe usuário e banco na URL.")
+        raise DatabaseCheckError(gettext("Informe usuário e banco na URL."))
     return config
 
 
@@ -64,7 +66,9 @@ def _connect(dsn: str):
         )
     except psycopg.Error as exc:
         # Never echo the driver message: it can carry the host and the user.
-        raise DatabaseCheckError(f"Não foi possível conectar ({type(exc).__name__}).") from None
+        raise DatabaseCheckError(
+            gettext("Não foi possível conectar (%(__name__)s).") % {"__name__": type(exc).__name__}
+        ) from None
 
 
 def inspect(dsn: str) -> Role:
@@ -96,14 +100,18 @@ def validate_runtime(dsn: str) -> Role:
     role = inspect(dsn)
     if not role.schema_exists:
         raise DatabaseCheckError(
-            "O schema skeleton não existe: provisione o banco com deploy/postgres/bootstrap.sql antes do setup."
+            gettext(
+                "O schema skeleton não existe: provisione o banco com deploy/postgres/bootstrap.sql antes do setup."
+            )
         )
     if role.superuser:
-        raise DatabaseCheckError("A role runtime não pode ser superuser.")
+        raise DatabaseCheckError(gettext("A role runtime não pode ser superuser."))
     if role.bypass_rls:
-        raise DatabaseCheckError("A role runtime não pode ter BYPASSRLS: a RLS deixaria de isolar organizações.")
+        raise DatabaseCheckError(
+            gettext("A role runtime não pode ter BYPASSRLS: a RLS deixaria de isolar organizações.")
+        )
     if role.owns_schema or role.schema_create:
-        raise DatabaseCheckError("A role runtime não pode ser dona do schema skeleton nem ter CREATE nele.")
+        raise DatabaseCheckError(gettext("A role runtime não pode ser dona do schema skeleton nem ter CREATE nele."))
     return role
 
 
@@ -111,13 +119,15 @@ def validate_owner(owner_dsn: str, runtime: Role) -> Role:
     """The transient migration owner: same database as the runtime, a different role."""
     owner = inspect(owner_dsn)
     if (owner.database, owner.host, owner.port) != (runtime.database, runtime.host, runtime.port):
-        raise DatabaseCheckError("A credencial de migração precisa apontar para o mesmo banco da role runtime.")
+        raise DatabaseCheckError(
+            gettext("A credencial de migração precisa apontar para o mesmo banco da role runtime.")
+        )
     if owner.name == runtime.name:
-        raise DatabaseCheckError("A credencial de migração precisa ser outra role, dona do schema skeleton.")
+        raise DatabaseCheckError(gettext("A credencial de migração precisa ser outra role, dona do schema skeleton."))
     if not owner.owns_schema:
-        raise DatabaseCheckError("A credencial de migração precisa ser dona do schema skeleton.")
+        raise DatabaseCheckError(gettext("A credencial de migração precisa ser dona do schema skeleton."))
     if owner.superuser:
-        raise DatabaseCheckError("Use a role dona do schema (skeleton_owner), não um superuser.")
+        raise DatabaseCheckError(gettext("Use a role dona do schema (skeleton_owner), não um superuser."))
     return owner
 
 

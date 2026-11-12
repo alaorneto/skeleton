@@ -20,6 +20,7 @@ from typing import IO, Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -64,7 +65,7 @@ def validate_brand_color(color: str) -> None:
     if not color:
         return
     if not HEX.fullmatch(color):
-        raise ValidationError({"brand_color": "Use uma cor no formato #RRGGBB."})
+        raise ValidationError({"brand_color": gettext("Use uma cor no formato #RRGGBB.")})
     ratio = contrast(_rgb(color), WHITE)
     if ratio < AA:
         raise ValidationError(
@@ -123,12 +124,12 @@ def _checked_logo(upload: Any) -> str:
 
     size = getattr(upload, "size", None)
     if size is None or size > LOGO_MAX_BYTES:
-        raise ValidationError({"logo": "O logo pode ter até 512 KB."})
+        raise ValidationError({"logo": gettext("O logo pode ter até 512 KB.")})
     head = upload.read(HEAD_BYTES)
     upload.seek(0)
     kind = detect(head, getattr(upload, "name", "") or "")
     if kind not in LOGO_TYPES:
-        raise ValidationError({"logo": "Use uma imagem PNG, JPEG ou WebP."})
+        raise ValidationError({"logo": gettext("Use uma imagem PNG, JPEG ou WebP.")})
     return kind
 
 
@@ -144,7 +145,7 @@ def _locked_settings(organization: Any, expected_revision: int) -> Any:
 
 def _check_revision(expected_revision: Any) -> None:
     if type(expected_revision) is not int:
-        raise ValidationError({"revision": "Informe a revisão."})
+        raise ValidationError({"revision": gettext("Informe a revisão.")})
 
 
 def _delete_after_commit(key: str) -> None:
@@ -174,7 +175,7 @@ def replace_logo(*, actor: Any, upload: IO[bytes], expected_revision: int) -> An
         try:
             put_stream(key, upload, max_bytes=LOGO_MAX_BYTES)
         except StorageError:
-            raise ValidationError({"logo": "Não foi possível guardar o logo."}) from None
+            raise ValidationError({"logo": gettext("Não foi possível guardar o logo.")}) from None
         previous = record.logo_key if record is not None else ""
         try:
             with transaction.atomic():

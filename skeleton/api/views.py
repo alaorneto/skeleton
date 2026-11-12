@@ -4,6 +4,7 @@ from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import Http404
+from django.utils.translation import gettext
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -53,7 +54,7 @@ class TenantAPI(SessionAPI):
         if current_context().organization_id is None:
             raise Http404
         if has_any_capability(request.user) and mfa_required(request.user):
-            raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403)
+            raise BoundaryError("mfa_required", gettext("Configure autenticação multifator para continuar."), 403)
 
 
 def page_numbers(request):
@@ -63,7 +64,7 @@ def page_numbers(request):
         if number < 1 or not 1 <= size <= 100:
             raise ValueError
     except ValueError:
-        raise BoundaryError("invalid_pagination", "Página ou tamanho inválido.") from None
+        raise BoundaryError("invalid_pagination", gettext("Página ou tamanho inválido.")) from None
     return number, size
 
 
@@ -83,7 +84,7 @@ def etag(response, *revisions):
 
 def request_fields(request):
     if not isinstance(request.data, Mapping):
-        raise BoundaryError("invalid_request", "Envie um objeto de campos.")
+        raise BoundaryError("invalid_request", gettext("Envie um objeto de campos."))
     return dict(request.data.items())
 
 
@@ -184,7 +185,7 @@ class LeaveOrganizationView(TenantAPI):
     @transaction.atomic
     def post(self, request, organization_id):
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Sair da organização não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Sair da organização não aceita campos."))
         revision = parse_revision(request.headers.get("If-Match"))
         access_services.leave_organization(request.user, expected_revision=revision)
         return Response(status=204)
@@ -205,13 +206,13 @@ class DedicatedView(TenantAPI):
                 raise Http404
             return etag(Response(dedicated_data(resource, record)), record.revision)
         if set(request.query_params) - {"page", "page_size"}:
-            raise BoundaryError("invalid_filter", "Filtro não permitido.")
+            raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
         return page(queryset, request, lambda row: dedicated_data(resource, row))
 
     @transaction.atomic
     def post(self, request, organization_id, resource, sysid=None):
         if sysid:
-            raise BoundaryError("method_not_allowed", "Criação exige a URL da coleção.", 405)
+            raise BoundaryError("method_not_allowed", gettext("Criação exige a URL da coleção."), 405)
         values = dedicated_input(resource, request_fields(request), user=request.user)
         if resource == "invitations":
             record = issue_invitation(user=request.user, request=request, **values)
@@ -232,7 +233,7 @@ class DedicatedView(TenantAPI):
     @transaction.atomic
     def patch(self, request, organization_id, resource, sysid=None):
         if not sysid or resource in LINKS or resource == "invitations":
-            raise BoundaryError("method_not_allowed", "Este recurso não aceita atualização.", 405)
+            raise BoundaryError("method_not_allowed", gettext("Este recurso não aceita atualização."), 405)
         model, fields = dedicated_model(resource)
         with access_services.organization_lock(request.user, capability=self.capability):
             record = model.objects.select_for_update().filter(pk=sysid).first()
@@ -247,9 +248,9 @@ class DedicatedView(TenantAPI):
     @transaction.atomic
     def delete(self, request, organization_id, resource, sysid=None):
         if not sysid:
-            raise BoundaryError("method_not_allowed", "Selecione o registro.", 405)
+            raise BoundaryError("method_not_allowed", gettext("Selecione o registro."), 405)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Remoção não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Remoção não aceita campos."))
         model, fields = dedicated_model(resource)
         with access_services.organization_lock(request.user, capability=self.capability):
             record = model.objects.select_for_update().filter(pk=sysid).first()
@@ -296,13 +297,13 @@ class AuditView(TenantAPI):
         if sysid:
             return Response(audit_data(service.event(actor=request.user, event_id=sysid)))
         if set(request.query_params) - {"page", "page_size", "record_sysid", "model_label"}:
-            raise BoundaryError("invalid_filter", "Filtro não permitido.")
+            raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
         record_id = request.query_params.get("record_sysid")
         if record_id is not None:
             try:
                 record_id = UUID(record_id)
             except ValueError:
-                raise BoundaryError("invalid_filter", "Filtro inválido.") from None
+                raise BoundaryError("invalid_filter", gettext("Filtro inválido.")) from None
         number, size = page_numbers(request)
         log = service.events(
             actor=request.user,
@@ -337,7 +338,7 @@ class RecordsView(TenantAPI):
         try:
             queryset = filter_records(queryset, spec, request.query_params)
         except ValidationError:
-            raise BoundaryError("invalid_filter", "Filtro não permitido ou inválido.") from None
+            raise BoundaryError("invalid_filter", gettext("Filtro não permitido ou inválido.")) from None
         return page(
             queryset, request, serialize_many=lambda rows: records_data(rows, spec.read_fields, user=request.user)
         )
@@ -345,7 +346,7 @@ class RecordsView(TenantAPI):
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid=None):
         if sysid:
-            raise BoundaryError("method_not_allowed", "Use a coleção para criar.", 405)
+            raise BoundaryError("method_not_allowed", gettext("Use a coleção para criar."), 405)
         spec = exposed_spec(table_key)
         record = create_record(spec, user=request.user, data=request_fields(request))
         return etag(Response(record_data(record, spec.read_fields, user=request.user), status=201), record.revision)
@@ -353,7 +354,7 @@ class RecordsView(TenantAPI):
     @transaction.atomic
     def patch(self, request, organization_id, table_key, sysid=None):
         if sysid is None:
-            raise BoundaryError("method_not_allowed", "Selecione o registro.", 405)
+            raise BoundaryError("method_not_allowed", gettext("Selecione o registro."), 405)
         spec = exposed_spec(table_key)
         record = record_queryset(spec, user=request.user, action="update").select_for_update().filter(pk=sysid).first()
         if record is None:
@@ -365,9 +366,9 @@ class RecordsView(TenantAPI):
     @transaction.atomic
     def delete(self, request, organization_id, table_key, sysid=None):
         if sysid is None:
-            raise BoundaryError("method_not_allowed", "Selecione o registro.", 405)
+            raise BoundaryError("method_not_allowed", gettext("Selecione o registro."), 405)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Remoção não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Remoção não aceita campos."))
         spec = exposed_spec(table_key)
         record = record_queryset(spec, user=request.user, action="delete").select_for_update().filter(pk=sysid).first()
         if record is None:
@@ -384,7 +385,7 @@ class RestoreView(TenantAPI):
     def post(self, request, organization_id, table_key, sysid):
         spec = exposed_spec(table_key)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Restauração não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Restauração não aceita campos."))
         record = (
             record_queryset(spec, user=request.user, action="restore", include_deleted=True)
             .select_for_update()

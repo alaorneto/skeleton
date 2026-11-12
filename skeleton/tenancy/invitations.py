@@ -12,6 +12,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext
 
 
 class InvalidInvitation(ValidationError):
@@ -80,7 +81,7 @@ def issue_invitation(*, user, email, role, request=None):
     require_capability(user, INVITATIONS_MANAGE)
     organization_id = current_context().organization_id
     if role.organization_id != organization_id or role.deleted_at:
-        raise ValidationError({"role": "Role must be active in this organization."})
+        raise ValidationError({"role": gettext("O papel precisa estar ativo nesta organização.")})
     require_unprivileged_target(user, role=role)
     organization = Organization.objects.get(pk=organization_id, is_active=True)
     token = secrets.token_urlsafe(32)
@@ -104,7 +105,8 @@ def issue_invitation(*, user, email, role, request=None):
         subject_name = " ".join(organization.name.splitlines())
         message = EmailMultiAlternatives(
             f"Convite: {subject_name}",
-            f"Você recebeu um convite para {organization.name}.\n\n{url}\n\nO convite expira em sete dias.",
+            gettext("Você recebeu um convite para %(name)s.\n\n%(url)s\n\nO convite expira em sete dias.")
+            % {"name": organization.name, "url": url},
             settings.DEFAULT_FROM_EMAIL,
             [invitation.email],
         )
