@@ -28,7 +28,7 @@ from skeleton.system.releases import (
     confirm_operation,
     create_preview,
     reconcile_operation,
-    require_platform,
+    require_release_operator,
     retry_submission,
 )
 
@@ -206,7 +206,7 @@ def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_ac
 # --------------------------------------------------------------------------- steps
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_safe
 def installed(request):
     from skeleton.versioning import core_version
@@ -228,7 +228,7 @@ def installed(request):
     )
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 def available(request):
     updates = None
@@ -241,7 +241,7 @@ def available(request):
 
 
 @csrf_exempt
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 def upload(request):
     # Install the bounded streaming handler before CSRF parses multipart data.
     request.upload_handlers.insert(0, BoundedPackageUpload(request))
@@ -251,7 +251,7 @@ def upload(request):
 @csrf_protect
 @recent_authentication_required(allow_get=True)
 def _upload(request):
-    require_platform(request.user)
+    require_release_operator(request.user)
     if request.method != "POST":
         return render(
             request, "skeleton/web/platform/updates/upload.html", _context("upload", upload_form=UploadForm())
@@ -284,7 +284,7 @@ def _upload(request):
     )
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 @recent_authentication_required(allow_get=True)
 def plan(request):
@@ -314,7 +314,7 @@ def _preview_failure(request, form, exc):
     )
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["POST"])
 @recent_authentication_required(allow_get=True)
 def add_dependency(request):
@@ -338,7 +338,7 @@ def add_dependency(request):
         return _preview_failure(request, form, exc)
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["POST"])
 @recent_authentication_required(allow_get=True)
 def fetch_release(request):
@@ -361,7 +361,7 @@ def fetch_release(request):
         return redirect("platform:updates-available")
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_safe
 def operations(request):
     return render(
@@ -371,7 +371,7 @@ def operations(request):
     )
 
 
-@platform_page
+@platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 @recent_authentication_required(allow_get=True)
 def operation(request, operation_id):

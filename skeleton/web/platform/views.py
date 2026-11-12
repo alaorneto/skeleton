@@ -68,6 +68,8 @@ __all__ = [
     "overview",
     "user_create",
     "user_delete",
+    "user_role_revoke",
+    "user_roles",
     "user_detail",
     "users",
 ]
@@ -208,12 +210,52 @@ def user_detail(request, sysid):
         else:
             status = 400
     profile = _model("sk_accounts.UserProfile").objects.filter(user_id=user.pk).first()
+    roles = _model("sk_accounts.PlatformRoleAssignment").objects.filter(user=user).order_by("role")
     return render(
         request,
         "skeleton/web/platform/user.html",
-        {"platform_section": "users", "subject": user, "profile": profile, "form": form},
+        {"platform_section": "users", "subject": user, "profile": profile, "form": form, "platform_roles": roles},
         status=status,
     )
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def user_roles(request, sysid):
+    """Grant a limited platform role (#34); only the platform administrator."""
+    from skeleton.accounts.platform import grant_platform_role
+
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    try:
+        with transaction.atomic():
+            grant_platform_role(actor=request.user, user=user, role=request.POST.get("role", ""))
+    except ValidationError as exc:
+        messages.error(request, " ".join(exc.messages))
+        return redirect("platform:user", sysid=user.pk)
+    messages.success(request, "Papel de plataforma concedido.")
+    return redirect("platform:user", sysid=user.pk)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def user_role_revoke(request, sysid, assignment):
+    from skeleton.accounts.platform import revoke_platform_role
+
+    user = get_object_or_404(_model("sk_accounts.User").objects, pk=sysid, account_type="human")
+    if not _model("sk_accounts.PlatformRoleAssignment").objects.filter(pk=assignment, user=user).exists():
+        raise Http404
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = None
+    with transaction.atomic():
+        revoke_platform_role(actor=request.user, assignment_id=assignment, expected_revision=revision)
+    messages.success(request, "Papel de plataforma revogado.")
+    return redirect("platform:user", sysid=user.pk)
 
 
 @platform_page
@@ -434,7 +476,7 @@ def _label_form(request, record):
     )
 
 
-@platform_page
+@platform_page(capability="inventory.read")
 @require_safe
 def catalog(request):
     query, filters = _search(request)
@@ -450,7 +492,7 @@ def catalog(request):
     )
 
 
-@platform_page
+@platform_page(capability="inventory.read")
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def catalog_table(request, sysid):
@@ -480,7 +522,7 @@ def catalog_table(request, sysid):
     )
 
 
-@platform_page
+@platform_page(capability="inventory.read")
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def catalog_field(request, sysid):
@@ -521,13 +563,21 @@ def catalog_field(request, sysid):
 # --------------------------------------------------------------------------- audit
 
 
-@platform_page
+@platform_page(capability="audit.read")
 @require_safe
 def audit(request):
+    from skeleton.accounts.platform import is_platform_admin
     from skeleton.api.serializers import audit_data
     from skeleton.service_api.audit import AuditLogService
+    from skeleton.tenancy.context import platform_audit_scope
 
-    rows = service_pagination(request, lambda **page: AuditLogService().events(actor=request.user, **page))
+    def page(**page):
+        if is_platform_admin(request.user):
+            return AuditLogService().events(actor=request.user, **page)
+        with platform_audit_scope(request.user):  # The auditor's GUC, only for this read (#34).
+            return AuditLogService().events(actor=request.user, **page)
+
+    rows = service_pagination(request, page)
     rows.object_list = [audit_data(event) for event in rows]
     return render(request, "skeleton/web/platform/audit.html", {"platform_section": "audit", "rows": rows})
 

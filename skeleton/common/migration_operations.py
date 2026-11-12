@@ -289,7 +289,7 @@ class InstallRecordInfrastructure(Operation):
             mode, column = (None, None) if append else self_discovery_mode(model, self.specification)
             if append:
                 editor.execute(
-                    f"CREATE POLICY skeleton_audit_select ON skeleton.{q(table)} FOR SELECT TO skeleton_runtime USING ({tenant} OR (organization_id IS NULL AND current_setting('skeleton.platform_admin',true)='on'))"
+                    f"CREATE POLICY skeleton_audit_select ON skeleton.{q(table)} FOR SELECT TO skeleton_runtime USING ({tenant} OR (organization_id IS NULL AND (current_setting('skeleton.platform_admin',true)='on' OR current_setting('skeleton.platform_auditor',true)='on')))"
                 )
                 editor.execute(
                     f"CREATE POLICY skeleton_audit_insert ON skeleton.{q(table)} FOR INSERT TO skeleton_audit_writer WITH CHECK ({tenant} OR organization_id IS NULL)"

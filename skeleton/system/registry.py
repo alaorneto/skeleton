@@ -66,6 +66,12 @@ def register_core_specs():
             "global",
             ("secret", "private_key"),
         ),
+        "sk_accounts.platformroleassignment": (
+            "Papéis de plataforma",
+            "Auditor e operador de releases: papéis limitados de plataforma, concedidos pelo administrador.",
+            "global",
+            (),
+        ),
         "sk_tenancy.organization": (
             "Organizações",
             "Fronteira de isolamento organizacional e estado de disponibilidade.",

@@ -38,6 +38,8 @@ class Context:
     using: str = "default"
     # Scopes of the API token that authenticated the request (#46); None for a session.
     credential_scopes: frozenset[str] | None = None
+    # Global audit reading by the platform auditor (#34); only inside ``platform_audit_scope``.
+    platform_auditor: bool = False
 
 
 # The only system contexts an HTTP request may open (docs/access-control.md). Each is chosen by
@@ -66,7 +68,7 @@ _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", defa
 # Per-request memo (#24): created by request_context, gone when the request ends. Never an
 # authorization cache across requests: a revocation still applies on the next request.
 _request_cache: ContextVar[dict[Any, Any] | None] = ContextVar("skeleton_request_cache", default=None)
-_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin")
+_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor")
 
 
 def current_context() -> Context:
@@ -102,6 +104,7 @@ def _apply(context: Context) -> None:
             context.request_id,
             context.source,
             "on" if context.platform_admin else "off",
+            "on" if context.platform_auditor else "off",
         )
         with connection.cursor() as cursor:
             for name, value in zip(_GUCS, values, strict=True):
@@ -255,6 +258,31 @@ def refresh_authenticated_actor(user: Any) -> None:
     )
     _context.set(context)
     _apply(context)
+
+
+@contextmanager
+def platform_audit_scope(user: Any) -> Iterator[Context]:
+    """Read the global audit trail as a platform auditor (#34), and nothing else.
+
+    Turns on ``skeleton.platform_auditor`` for the duration, after checking ``audit.read``,
+    outside any tenant and for a session (never an API token). Administrators already read it.
+    """
+    from skeleton.accounts.platform import AUDIT_READ, has_platform_capability
+
+    prior = _context.get()
+    if prior is None or prior.system or prior.organization_id is not None or prior.credential_scopes is not None:
+        raise InvalidContext("Global audit reading runs in a session request without a tenant.")
+    if prior.actor != _uuid(user) or not has_platform_capability(user, AUDIT_READ):
+        raise PermissionDenied("Platform audit reading required.")
+    context = replace(prior, platform_auditor=True)
+    token = _context.set(context)
+    try:
+        _apply(context)
+        yield context
+    finally:
+        _context.reset(token)
+        if not connections[prior.using].needs_rollback:
+            _apply(prior)
 
 
 @contextmanager
