@@ -33,6 +33,8 @@ O check `skeleton.E023` reprova tipo duplicado, tabela-alvo desconhecida e campo
 
 Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abrir a notificação, a função reautoriza a pessoa e devolve o endereço, ou `None` (página genérica). Os tipos dos [fluxos de processo](flows.md#integrações) (`flows.task_assigned`, `flows.task_reminder` e `flows.task_overdue`) usam isso para levar à tarefa só quem ainda pode vê-la; o payload deles tem o rótulo do fluxo e da etapa, o número do processo e o identificador da tarefa, nunca dados de formulário.
 
+Um tipo sem tabela-alvo também pode declarar `authorize=função(user, notification) -> bool`: o fan-out a chama para cada pessoa e só cria a linha de quem ela aprova, de modo que um acesso revogado entre a notificação e o fan-out impede a entrega. O tipo `comments.mention` ([menções](comments.md#menções), [#188](https://github.com/alaorneto/skeleton/issues/188)) usa os dois ganchos: `authorize` confere que o comentário segue vivo e que a pessoa ainda lê o registro, e `open_url` leva à página do registro só nessa condição. O payload tem só os identificadores do comentário, da tabela e do registro; o texto do comentário nunca vai na notificação.
+
 ## `notify()`
 
 Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. A função interna abaixo é do núcleo.

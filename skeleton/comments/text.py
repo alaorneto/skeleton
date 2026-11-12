@@ -46,4 +46,10 @@ def linkify(body: str) -> SafeString:
         # ``url`` is already escaped: it is safe inside the quoted attribute and as text.
         return f'<a href="{url}" rel="nofollow noopener noreferrer" target="_blank">{url}</a>{tail}'
 
-    return mark_safe(URL.sub(link, escaped))  # noqa: S308 - built from escaped text only
+    from .mentions import TOKEN
+
+    def mention(match: re.Match[str]) -> str:
+        # The label is the token's own (already escaped) text; the sysid stays out of the markup.
+        return f'<span class="mention" data-mention="{match.group(2)}">@{match.group(1)}</span>'
+
+    return mark_safe(URL.sub(link, TOKEN.sub(mention, escaped)))  # noqa: S308 - built from escaped text only

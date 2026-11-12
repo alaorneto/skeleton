@@ -55,7 +55,9 @@ def panel_context(spec, record, *, user):
                 "can_restore": (mine or moderator) and row.deleted_at is not None,
             }
         )
-    return {"rows": items}
+    from .mentions import mentionable
+
+    return {"rows": items, "mentionable": mentionable(spec, record)}
 
 
 @tenant_page()

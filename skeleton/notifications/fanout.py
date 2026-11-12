@@ -83,6 +83,21 @@ def _authorized(people: list[UUID], target) -> list[UUID]:
     return allowed
 
 
+def _type_authorized(notification, people: list[UUID]) -> list[UUID]:
+    """The type's own re-authorization of each person (``NotificationType.authorize``), if any."""
+    from skeleton.accounts.models import User
+
+    from .registry import get_notification_type
+
+    try:
+        check = get_notification_type(notification.type_code).authorize
+    except KeyError:
+        return []
+    if check is None:
+        return people
+    return [user.pk for user in User.objects.filter(pk__in=people).order_by("sysid") if check(user, notification)]
+
+
 def _display(notification) -> dict:
     return {
         "type_code": notification.type_code,
@@ -104,6 +119,7 @@ def fan_out(*, notification_id: str, offset: int) -> int:
         return 0
     people = resolve_people(notification)
     authorized = _authorized(people[offset : offset + BATCH_SIZE], _target(notification))
+    authorized = _type_authorized(notification, authorized)
     batch, channels = _channels(notification, authorized)
     grouped = {}
     if notification.group_key:

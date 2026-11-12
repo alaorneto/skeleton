@@ -16,6 +16,21 @@ Uma **fixture** é o ambiente/dado controlado usado pelo teste; um **smoke** é 
 
 **Ordem para repetir:** provisione dependências e serviços → confirme que o banco é descartável → carregue somente os secrets de fixture → execute o comando da suíte → registre backend, versões, comando e resultado observado → encerre serviços descartáveis. Não exponha secrets para demonstrar que o ambiente existe.
 
+## Menções em comentários (#188, epic #93)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_comment_mentions_parsing.py` e `tests/integration/test_comment_mentions.py`: 7 passed, 9 subtests. Cobrem:
+  - marcadores lidos uma vez, em ordem, ignorando os malformados; rótulo que não quebra a sintaxe; rótulo escapado e `sysid` fora do texto;
+  - o membro mencionado que lê o registro recebe uma notificação, com payload só de identificadores; editar não repete; mencionar a si mesmo não notifica; abrir a notificação leva ao registro;
+  - mencionar membro sem leitura, quem não é membro ou quem só é membro de B responde 400 (REST e serviço), sem gravar; a edição que acrescenta um não leitor também é recusada;
+  - revogar a leitura entre a menção e o fan-out impede a entrega;
+  - o seletor lista só membros que leem o registro, sem email, e responde 404 em outra organização.
+- `python -m pytest tests/integration/test_comment_mentions.py tests/integration/test_notifications_notify.py -q`: 10 passed.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` e a #187 mescladas: 1684 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
+
 ## Comentários em registros (#187, epic #93)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.

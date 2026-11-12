@@ -80,7 +80,11 @@ def add(spec: Any, target_sysid: Any, *, user: Any, body: Any) -> Any:
         body=clean_body(body),
     )
     comment.full_clean(exclude=("organization", "target_table"))
+    from . import mentions
+
+    mentioned = mentions.validate(spec, record, comment.body)
     comment.save()
+    mentions.notify(spec, record, comment, mentioned)
     return comment
 
 
@@ -110,9 +114,15 @@ def edit(spec: Any, target_sysid: Any, comment_id: Any, *, user: Any, body: Any,
     if comment.created_by != user.pk:
         raise PermissionDenied("Only the author edits a comment.")
     _check_revision(comment, revision)
+    from . import mentions
+
     comment.body = clean_body(body)
+    record = readable_target(spec, target_sysid, user=user)
+    mentioned = mentions.validate(spec, record, comment.body)
     comment.edited_at = timezone.now()
     comment.save(update_fields={"body", "edited_at"})
+    # Dedupe by comment and person: an edit notifies only people mentioned for the first time.
+    mentions.notify(spec, record, comment, mentioned)
     return comment
 
 
