@@ -24,6 +24,9 @@ class TableSpec:
     attachments: AttachmentPolicy | None = None
     # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
     sequence_fields: tuple = ()
+    # Personal data (#189): still readable through read_fields, but redacted by the audit
+    # triggers, so the audit names the person only by sysid. Frozen with the infrastructure.
+    personal_fields: tuple = ()
 
 
 _registry = {}
@@ -327,6 +330,11 @@ def register_core_specs():
             (),
         ),
     }
+    # Personal data redacted in the audit (#189); the triggers name the person only by sysid.
+    personal_fields = {
+        "sk_accounts.user": ("email", "first_name", "last_name"),
+        "sk_accounts.userprofile": ("display_name",),
+    }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
     read_fields = {
         "sk_tenancy.membership": ("user",),
@@ -343,5 +351,6 @@ def register_core_specs():
                 scope=scope,
                 read_fields=read_fields.get(key, ()),
                 sensitive_fields=sensitive,
+                personal_fields=personal_fields.get(key, ()),
             )
         )
