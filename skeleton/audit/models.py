@@ -14,10 +14,10 @@ class AuditEvent(SystemRecord):
         RESTORE = "restore", gettext_lazy("Restaurar")
         HARD_DELETE = "hard_delete", gettext_lazy("Excluir fisicamente")
 
-    organization_id = models.UUIDField(null=True, blank=True, db_index=True)
+    organization_id = models.UUIDField(null=True, blank=True)
     table_name = models.CharField(max_length=255)
     model_label = models.CharField(max_length=255)
-    record_sysid = models.UUIDField(db_index=True)
+    record_sysid = models.UUIDField()
     record_revision = models.PositiveBigIntegerField()
     operation = models.CharField(max_length=16, choices=Operation.choices)
     actor_sysid = models.UUIDField(null=True, blank=True)
@@ -30,8 +30,11 @@ class AuditEvent(SystemRecord):
     class Meta(SystemRecord.Meta):
         ordering = ("-created_at", "sysid")
         indexes = [
+            # Each index has a reader (#270). Organization log and platform log
+            # (organization_id IS NULL), newest first.
             models.Index(fields=("organization_id", "created_at"), name="sk_audit_org_created"),
-            models.Index(fields=("table_name", "record_sysid", "record_revision"), name="sk_audit_record_revision"),
+            # History of one record and the record filter of the log, newest first.
+            models.Index(fields=("record_sysid", "created_at"), name="sk_audit_record_created"),
             # Investigation filters (#184): who did it and everything one request did.
             models.Index(fields=("organization_id", "actor_sysid", "created_at"), name="sk_audit_org_actor"),
             models.Index(fields=("request_id",), name="sk_audit_request"),

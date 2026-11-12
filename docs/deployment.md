@@ -18,6 +18,10 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 
 **Ordem segura:** provisione serviços e segredos → crie roles/schema → aplique migrations com owner → verifique com runtime → inicie web → confirme saúde e comportamento. Um check feito como owner não demonstra que o web está isolado.
 
+### Índices da auditoria (`sk_audit.0005`)
+
+A migration `sk_audit.0005_audit_indexes` (#270) cria `sk_audit_record_created` com `CREATE INDEX CONCURRENTLY` e só depois remove os índices sem leitor; ela não roda em transação (`atomic = False`). Em instalações grandes a criação demora e consome I/O, mas não bloqueia as escritas. Se a execução for interrompida, o índice pode ficar inválido e a migration fica sem registro em `django_migrations`: com o owner, rode `DROP INDEX CONCURRENTLY IF EXISTS skeleton.sk_audit_record_created;` e `migrate` de novo. O reverso (`migrate sk_audit 0004`) recria os índices antigos.
+
 ### Core/agente 0.5.0 e apps fechadas por padrão
 
 No core 0.5.0, uma app instalada nasce indisponível e desativada: sem linha de disponibilidade nenhuma organização a usa, e sem `AppInstallation` ela está desativada (#22). **Passo obrigatório do upgrade:** rode `manage.py upgrade_app_activation` depois das migrations e de `sync_table_catalog`; sem ele, as apps somem para todas as organizações (falha fechada). O agente 0.5.0 faz isso sozinho no `finish()`, sob a credencial runtime, quando o core alvo é >=0.5.0; num deploy manual, rode o comando antes de liberar tráfego (`--dry-run` mostra o que vai mudar). O comando é idempotente e retomável; repetir em todo deploy é seguro. A recusa `activation_default_upgrade_requires_review` saiu do agente, porque mudar `runtime.default_enabled` não ativa mais nada. **Rollback:** um release anterior volta a usar o `default_enabled`; as linhas criadas pelo upgrade são compatíveis com ele.
