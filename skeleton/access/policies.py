@@ -202,6 +202,9 @@ def authorized_queryset[RecordT: SecuredRecord](
     from skeleton.system.applications import require_application_enabled
 
     require_application_enabled(model._meta.app_label)
+    if include_deleted and action != "restore":
+        # Reading a tombstone also requires the restore authorization (docs/access-control.md, #229).
+        raise PermissionDenied("Deleted records require the restore action.")
     if action not in ACTIONS or not _scope_allows(model, action):
         raise PermissionDenied("Table permission required.")
     subject = _Subject(user)
@@ -211,6 +214,8 @@ def authorized_queryset[RecordT: SecuredRecord](
 
 
 def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User, action: str) -> RecordT:
+    if record.deleted_at is not None and action != "restore":
+        raise PermissionDenied("Deleted records require the restore action.")
     if (
         not authorized_queryset(type(record), user=user, action=action, include_deleted=record.deleted_at is not None)
         .filter(sysid=record.pk)
