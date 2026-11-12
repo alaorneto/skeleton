@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods
 from rest_framework.response import Response
 
@@ -109,11 +110,11 @@ class PreferenceAPI(SessionAPI):
         self._channel(type_code, channel)
         data = request_fields(request)
         if set(data) - {"mode", "digest_hour"} or "mode" not in data:
-            raise BoundaryError("invalid_request", "Envie mode e, opcionalmente, digest_hour.")
+            raise BoundaryError("invalid_request", gettext("Envie mode e, opcionalmente, digest_hour."))
         header = request.headers.get("If-Match")
         current = _line(request.user, type_code).channels[channel][1]
         if current is not None and header is None:
-            raise BoundaryError("revision_required", "Envie If-Match com a revisão atual.", 428)
+            raise BoundaryError("revision_required", gettext("Envie If-Match com a revisão atual."), 428)
         expected = parse_revision(header) if header is not None else None
         try:
             preferences.set_preference(
@@ -125,7 +126,9 @@ class PreferenceAPI(SessionAPI):
                 expected_revision=expected,
             )
         except ConcurrentUpdate:
-            raise BoundaryError("revision_conflict", "A preferência foi alterada por outra operação.", 412) from None
+            raise BoundaryError(
+                "revision_conflict", gettext("A preferência foi alterada por outra operação."), 412
+            ) from None
         return self._respond(request, type_code, channel)
 
     @transaction.atomic
@@ -135,7 +138,9 @@ class PreferenceAPI(SessionAPI):
         try:
             preferences.clear_preference(request.user, type_code=type_code, channel=channel, expected_revision=expected)
         except ConcurrentUpdate:
-            raise BoundaryError("revision_conflict", "A preferência foi alterada por outra operação.", 412) from None
+            raise BoundaryError(
+                "revision_conflict", gettext("A preferência foi alterada por outra operação."), 412
+            ) from None
         return Response(status=204)
 
 
@@ -162,14 +167,14 @@ def _submitted(request, lines):
                 raw_revision = request.POST.get(names[1], "")
                 expected = int(raw_revision) if raw_revision else None
             except ValueError:
-                raise ValidationError("Valor inválido.") from None
+                raise ValidationError(gettext("Valor inválido.")) from None
             if row is None and expected is None and mode == state.mode and hour == state.digest_hour:
                 continue  # Untouched default: no row is written.
             if row is not None and expected == row.revision and (mode, hour) == (row.mode, row.digest_hour):
                 continue
             changes.append((line, channel, mode, hour, expected))
     if set(request.POST) - allowed:
-        raise ValidationError("Campo não permitido.")
+        raise ValidationError(gettext("Campo não permitido."))
     return changes
 
 
@@ -191,11 +196,11 @@ def preferences_page(request):
                         expected_revision=expected,
                     )
         except (ConcurrentUpdate, IntegrityError):
-            errors, status = ["As preferências foram alteradas em outra aba. Revise e salve de novo."], 409
+            errors, status = [gettext("As preferências foram alteradas em outra aba. Revise e salve de novo.")], 409
         except ValidationError as error:
             errors, status = error.messages, 400
         else:
-            messages.success(request, "Preferências de notificação salvas.")
+            messages.success(request, gettext("Preferências de notificação salvas."))
             return redirect("notifications:preferences")
         lines = preferences.preference_lines(request.user)
     rows = [
@@ -225,7 +230,7 @@ def preferences_page(request):
         request,
         "account/notification_preferences.html",
         {
-            "title": "Notificações",
+            "title": gettext("Notificações"),
             "rows": rows,
             "errors": errors,
             "hours": HOURS,

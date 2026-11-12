@@ -69,6 +69,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    # After the tenant context: reads the organization defaults under RLS (#170).
+    "skeleton.common.locale.LocaleMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -122,8 +124,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
-LANGUAGE_CODE = "pt-br"
-LANGUAGES = [("pt-br", "Português"), ("en", "English")]
+# The core ships pt-BR only (msgids are pt-BR); derived projects add languages with their
+# catalogs in LOCALE_PATHS (#85). Defaults apply to people and organizations without a choice.
+SKELETON_DEFAULT_LANGUAGE = env("SKELETON_DEFAULT_LANGUAGE", default="pt-br")
+SKELETON_DEFAULT_TIMEZONE = env("SKELETON_DEFAULT_TIMEZONE", default="UTC")
+LANGUAGE_CODE = SKELETON_DEFAULT_LANGUAGE
+LANGUAGES = [("pt-br", "Português")]
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True

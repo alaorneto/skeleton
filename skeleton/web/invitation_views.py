@@ -1,6 +1,7 @@
 from django import forms
 from django.http import Http404
 from django.shortcuts import redirect
+from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
 from skeleton.common.exceptions import ConcurrentUpdate
@@ -23,11 +24,13 @@ def resend(request, organization_id, sysid):
     if set(request.POST) - {"revision", "csrfmiddlewaretoken"} or not form.is_valid():
         from django.core.exceptions import ValidationError
 
-        raise ValidationError("Revisão inválida.")
+        raise ValidationError(gettext("Revisão inválida."))
     try:
         resend_invitation(invitation, user=request.user, revision=form.cleaned_data["revision"], request=request)
     except ConcurrentUpdate:
         from django.shortcuts import render
 
-        return render(request, "skeleton/web/error.html", {"detail": "Convite alterado. Atualize a lista."}, status=409)
+        return render(
+            request, "skeleton/web/error.html", {"detail": gettext("Convite alterado. Atualize a lista.")}, status=409
+        )
     return redirect("web:access-list", organization_id=organization_id, resource="invitations")

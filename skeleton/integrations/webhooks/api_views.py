@@ -7,6 +7,7 @@ authentication. ``PATCH``, ``DELETE`` and ``rotate`` require ``If-Match`` with t
 
 from django.db import transaction
 from django.http import Http404
+from django.utils.translation import gettext
 from django.views.decorators.cache import add_never_cache_headers
 from rest_framework.response import Response
 
@@ -103,7 +104,7 @@ class WebhookAPI(TenantAPI):
         from skeleton.accounts.reauthentication import has_recent_authentication
 
         if not has_recent_authentication(request._request):
-            raise BoundaryError("reauthentication_required", "Autentique-se de novo para ver um segredo.", 403)
+            raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para ver um segredo."), 403)
 
     def endpoint(self, sysid):
         from .models import WebhookEndpoint
@@ -117,14 +118,14 @@ class WebhookAPI(TenantAPI):
 def _input(request):
     data = request_fields(request)
     if "principal" in data and not isinstance(data["principal"], str):
-        raise BoundaryError("invalid_request", "principal é o UUID de uma conta de serviço.")
+        raise BoundaryError("invalid_request", gettext("principal é o UUID de uma conta de serviço."))
     if "principal" in data:
         from uuid import UUID
 
         try:
             data["principal"] = UUID(data["principal"])
         except ValueError:
-            raise BoundaryError("invalid_request", "principal é o UUID de uma conta de serviço.") from None
+            raise BoundaryError("invalid_request", gettext("principal é o UUID de uma conta de serviço.")) from None
     return data
 
 
@@ -146,7 +147,7 @@ class WebhooksView(WebhookAPI):
         from .models import WebhookEndpoint
 
         if set(request.query_params) - {"page", "page_size"}:
-            raise BoundaryError("invalid_filter", "Filtro não permitido.")
+            raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
         return page(WebhookEndpoint.objects.order_by("name", "sysid"), request, endpoint_data)
 
     @transaction.atomic
@@ -187,7 +188,7 @@ class WebhookDetailView(WebhookAPI):
     def delete(self, request, organization_id, sysid):
         endpoint = self.endpoint(sysid)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Remoção não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Remoção não aceita campos."))
         services.delete_endpoint(
             endpoint, actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
         )
@@ -210,7 +211,7 @@ class WebhookRotateView(WebhookAPI):
     def post(self, request, organization_id, sysid):
         endpoint = self.endpoint(sysid)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "A rotação não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("A rotação não aceita campos."))
         self.recent_authentication(request)
         issued = services.rotate_secret(
             endpoint, actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
@@ -248,7 +249,7 @@ class DeliveriesView(WebhookAPI):
 
         endpoint = self.endpoint(sysid)
         if set(request.query_params) - {"page", "page_size"}:
-            raise BoundaryError("invalid_filter", "Filtro não permitido.")
+            raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
         rows = WebhookDelivery.objects.filter(endpoint=endpoint).order_by("-created_at", "sysid")
         return page(rows, request, delivery_data)
 
@@ -282,7 +283,7 @@ class DeliveryResendView(DeliveryDetailView):
         from .log import resend_delivery
 
         if request_fields(request):
-            raise BoundaryError("invalid_request", "O reenvio não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("O reenvio não aceita campos."))
         delivery = self.delivery(sysid, delivery_id)
         retry = resend_delivery(
             delivery, actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
@@ -304,7 +305,7 @@ class WebhookPingView(WebhookAPI):
         from .log import ping_endpoint
 
         if request_fields(request):
-            raise BoundaryError("invalid_request", "O teste não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("O teste não aceita campos."))
         ping = ping_endpoint(
             self.endpoint(sysid), actor=request.user, expected_revision=parse_revision(request.headers.get("If-Match"))
         )

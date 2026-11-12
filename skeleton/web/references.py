@@ -3,6 +3,7 @@
 from django.apps import apps
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
+from django.utils.translation import gettext
 
 from skeleton.access.policies import authorized_queryset, is_organization_admin
 from skeleton.common.models import OrganizationRecord, SecuredRecord
@@ -114,7 +115,7 @@ def reference_label(record, *, user):
 
 def reference_options(spec, field_name, *, user, record=None, access=False, page=1, page_size=25, term=None):
     if type(page) is not int or page < 1 or type(page_size) is not int or not 1 <= page_size <= 100:
-        raise ValidationError("Invalid reference pagination.")
+        raise ValidationError(gettext("Paginação inválida."))
     queryset = reference_queryset(spec, field_name, user=user, record=record, access=access)
     name = label_field(queryset.model)
     if term is not None and term != "":
@@ -139,11 +140,11 @@ def reference_options(spec, field_name, *, user, record=None, access=False, page
 def reference_request(spec, field_name, *, user, params):
     """Parse the same constrained picker request for HTML and API."""
     if set(params) - {"record", "access", "page", "page_size", "q"}:
-        raise ValidationError("Invalid reference parameters.")
+        raise ValidationError(gettext("Parâmetros inválidos."))
     if hasattr(params, "getlist") and any(len(params.getlist(key)) != 1 for key in params):
-        raise ValidationError("Duplicate reference parameters.")
+        raise ValidationError(gettext("Parâmetros repetidos."))
     if params.get("access", "0") not in {"0", "1"}:
-        raise ValidationError("Invalid reference action.")
+        raise ValidationError(gettext("Ação inválida."))
     access = params.get("access") == "1"
     record = None
     from skeleton.web.services import record_queryset
@@ -152,7 +153,7 @@ def reference_request(spec, field_name, *, user, params):
         try:
             identity = spec.model._meta.pk.to_python(params["record"])
         except (ValidationError, ValueError, TypeError):
-            raise ValidationError("Invalid source record.") from None
+            raise ValidationError(gettext("Registro de origem inválido.")) from None
         record = (
             record_queryset(spec, user=user, action="manage_access" if access else "update").filter(pk=identity).first()
         )
@@ -162,7 +163,7 @@ def reference_request(spec, field_name, *, user, params):
         page = int(params.get("page", "1"))
         size = int(params.get("page_size", "25"))
     except (ValueError, TypeError):
-        raise ValidationError("Invalid reference pagination.") from None
+        raise ValidationError(gettext("Paginação inválida.")) from None
     return (
         reference_options(
             spec, field_name, user=user, record=record, access=access, page=page, page_size=size, term=params.get("q")

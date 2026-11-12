@@ -1,4 +1,4 @@
-{% comment %}
+{% load i18n %}{% comment %}
 Menu lateral da organização. No desktop fica fixo à esquerda; no celular vira um
 painel recolhível (Flowbite collapse) e, sem JavaScript, permanece aberto.
 Links não concedem acesso: cada tela revalida a autorização no servidor.
@@ -6,35 +6,35 @@ Links não concedem acesso: cada tela revalida a autorização no servidor.
 {% url 'web:dashboard' organization_id as dashboard_url %}{% url 'web:catalog' organization_id as catalog_url %}{% url 'web:audit' organization_id as audit_url %}{% url 'application-list' organization_id as applications_url %}{% url 'web:organization-settings' organization_id as settings_url %}
 <div class="sidebar-wrapper pt-6 sm:pt-8 lg:pb-8">
   <button type="button" class="group btn btn-secondary mb-4 w-full justify-between lg:hidden noscript:hidden" data-collapse-toggle="org-sidebar" aria-controls="org-sidebar" aria-expanded="false">
-    <span class="flex min-w-0 items-center gap-2">{% include "skeleton/web/components/icon.html" with name="building" %}<span class="truncate">{{ current_organization.organization_name|default:"Organização" }}</span></span>
-    <span class="sr-only">— menu da organização</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 transition-transform group-aria-expanded:rotate-180" %}
+    <span class="flex min-w-0 items-center gap-2">{% include "skeleton/web/components/icon.html" with name="building" %}<span class="truncate">{{ current_organization.organization_name|default:_("Organização") }}</span></span>
+    <span class="sr-only">— {% translate "menu da organização" %}</span>{% include "skeleton/web/components/icon.html" with name="chevron-down" class="size-4 transition-transform group-aria-expanded:rotate-180" %}
   </button>
-  <nav id="org-sidebar" aria-label="Organização" class="sidebar hidden lg:block! max-lg:noscript:block! max-lg:mb-6">
+  <nav id="org-sidebar" aria-label="{% translate "Organização" %}" class="sidebar hidden lg:block! max-lg:noscript:block! max-lg:mb-6">
     <div class="sidebar-org">
-      <p class="page-eyebrow">Organização</p>
+      <p class="page-eyebrow">{% translate "Organização" %}</p>
       <p class="truncate text-sm font-semibold text-heading">{{ current_organization.organization_name|default:"—" }}</p>
     </div>
     <ul class="sidebar-list">
-      <li><a class="sidebar-link" href="{{ dashboard_url }}"{% if request.path == dashboard_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="home" %}Início</a></li>
+      <li><a class="sidebar-link" href="{{ dashboard_url }}"{% if request.path == dashboard_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Início" %}</a></li>
     </ul>
     {% if application_navigation and not parameter_panel %}
-    <p class="sidebar-heading" id="sidebar-apps">Aplicativos</p>
+    <p class="sidebar-heading" id="sidebar-apps">{% translate "Aplicativos" %}</p>
     <ul class="sidebar-list" aria-labelledby="sidebar-apps">
       {% for entry in application_navigation %}<li><a class="sidebar-link" href="{{ entry.url }}"{% if request.path == entry.url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}{{ entry.label }}</a></li>{% endfor %}
     </ul>
     {% endif %}
-    <p class="sidebar-heading" id="sidebar-data">Dados</p>
+    <p class="sidebar-heading" id="sidebar-data">{% translate "Dados" %}</p>
     <ul class="sidebar-list" aria-labelledby="sidebar-data">
-      <li><a class="sidebar-link" href="{{ catalog_url }}"{% if request.path == catalog_url or '/tables/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}Tabelas</a></li>
-      {% url 'flows:tasks' organization_id as flow_tasks_url %}<li><a class="sidebar-link" href="{{ flow_tasks_url }}"{% if '/flows/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="check" %}Tarefas</a></li>
-      <li><a class="sidebar-link" href="{{ audit_url }}"{% if request.path == audit_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}Auditoria</a></li>
+      <li><a class="sidebar-link" href="{{ catalog_url }}"{% if request.path == catalog_url or '/tables/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="table" %}{% translate "Tabelas" %}</a></li>
+      {% url 'flows:tasks' organization_id as flow_tasks_url %}<li><a class="sidebar-link" href="{{ flow_tasks_url }}"{% if '/flows/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="check" %}{% translate "Tarefas" %}</a></li>
+      <li><a class="sidebar-link" href="{{ audit_url }}"{% if request.path == audit_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}{% translate "Auditoria" %}</a></li>
     </ul>
     {% if access_sections or can_manage_applications %}
-    <p class="sidebar-heading" id="sidebar-admin">Administração</p>
+    <p class="sidebar-heading" id="sidebar-admin">{% translate "Administração" %}</p>
     <ul class="sidebar-list" aria-labelledby="sidebar-admin">
       {% for section in access_sections %}<li><a class="sidebar-link" href="{{ section.url }}"{% if section.current %} aria-current="page"{% endif %}>{% if section.id == "people" %}{% include "skeleton/web/components/icon.html" with name="users" %}{% elif section.id == "groups" %}{% include "skeleton/web/components/icon.html" with name="user-group" %}{% else %}{% include "skeleton/web/components/icon.html" with name="key" %}{% endif %}{{ section.label }}</a></li>{% endfor %}
-      {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ settings_url }}"{% if request.path == settings_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}Configurações</a></li>{% endif %}
-      {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ applications_url }}"{% if '/apps/' in request.path and parameter_panel %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Aplicativos</a></li>{% endif %}
+      {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ settings_url }}"{% if request.path == settings_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Configurações" %}</a></li>{% endif %}
+      {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ applications_url }}"{% if '/apps/' in request.path and parameter_panel %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Aplicativos" %}</a></li>{% endif %}
     </ul>
     {% endif %}
   </nav>

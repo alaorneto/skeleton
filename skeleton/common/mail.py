@@ -2,6 +2,7 @@ import logging
 
 from django.contrib import messages
 from django.db import transaction
+from django.utils.translation import gettext
 
 from skeleton.common.logging import security_event
 from skeleton.tenancy.context import current_context
@@ -28,6 +29,8 @@ def schedule_mail(message, *, request=None, target_sysid=None):
             if request is not None:
                 request._skeleton_mail_failures = getattr(request, "_skeleton_mail_failures", 0) + 1
                 if hasattr(request, "_messages"):
-                    messages.warning(request, "Dados salvos, mas o email não foi entregue. Use o reenvio explícito.")
+                    messages.warning(
+                        request, gettext("Dados salvos, mas o email não foi entregue. Use o reenvio explícito.")
+                    )
 
     transaction.on_commit(deliver)

@@ -14,12 +14,13 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q, QuerySet
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.access.policies import authorized_queryset
 
 from .models import Calendar, Event
 
-BUSY_TITLE = "Ocupado"
+BUSY_TITLE = gettext_lazy("Ocupado")
 
 
 def readable_calendars(user: Any) -> QuerySet:
@@ -70,7 +71,7 @@ def require_writable_calendar(user: Any, calendar_id: Any) -> Calendar:
 def require_writable_event(user: Any, event_id: Any) -> Event:
     event = Event.objects.select_related("calendar").filter(pk=event_id).first()
     if event is None or not can_write(user, event.calendar):
-        raise PermissionDenied("Event unavailable.")
+        raise PermissionDenied(gettext("Evento indisponível."))
     return event
 
 

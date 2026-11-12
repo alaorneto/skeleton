@@ -16,6 +16,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -41,7 +42,7 @@ def _new_secret() -> str:
 
 def _clean_name(value: Any) -> str:
     if not isinstance(value, str) or not value.strip() or len(value.strip()) > 150:
-        raise ValidationError({"name": "Informe um nome de até 150 caracteres."})
+        raise ValidationError({"name": gettext("Informe um nome de até 150 caracteres.")})
     return value.strip()
 
 
@@ -49,7 +50,7 @@ def _clean_url(value: Any) -> str:
     from skeleton.common.outbound_http import OutboundRequestRefused, validate_url
 
     if not isinstance(value, str) or len(value) > 2000:
-        raise ValidationError({"url": "Informe uma URL HTTPS de até 2000 caracteres."})
+        raise ValidationError({"url": gettext("Informe uma URL HTTPS de até 2000 caracteres.")})
     try:
         validate_url(value)
     except OutboundRequestRefused as exc:
@@ -61,7 +62,7 @@ def _clean_event_types(value: Any) -> list[str]:
     from skeleton.events.registry import get_event_type
 
     if not isinstance(value, list) or not value or not all(isinstance(code, str) for code in value):
-        raise ValidationError({"event_types": "Escolha ao menos um tipo de evento."})
+        raise ValidationError({"event_types": gettext("Escolha ao menos um tipo de evento.")})
     for code in value:
         try:
             exposed = get_event_type(code).webhook
@@ -71,7 +72,8 @@ def _clean_event_types(value: Any) -> list[str]:
             raise ValidationError(
                 {
                     "event_types": ValidationError(
-                        f"Tipo de evento não disponível para webhooks: {code}.", code="event_type"
+                        gettext("Tipo de evento não disponível para webhooks: %(code)s.") % {"code": code},
+                        code="event_type",
                     )
                 }
             )
@@ -94,7 +96,11 @@ def _clean_principal(value: Any) -> Any:
     )
     if principal is None or not Membership.objects.filter(user=principal, is_active=True).exists():
         raise ValidationError(
-            {"principal": ValidationError("Use uma conta de serviço ativa desta organização.", code="principal")}
+            {
+                "principal": ValidationError(
+                    gettext("Use uma conta de serviço ativa desta organização."), code="principal"
+                )
+            }
         )
     return principal
 
@@ -108,7 +114,7 @@ def available_event_types() -> list[str]:
 def clean_values(data: dict[str, Any], *, partial: bool) -> dict[str, Any]:
     unknown = set(data) - set(FIELDS)
     if unknown:
-        raise ValidationError({name: "Campo não permitido." for name in sorted(unknown)})
+        raise ValidationError({name: gettext("Campo não permitido.") for name in sorted(unknown)})
     cleaners = {
         "name": _clean_name,
         "url": _clean_url,
@@ -119,9 +125,9 @@ def clean_values(data: dict[str, Any], *, partial: bool) -> dict[str, Any]:
     if not partial:
         missing = [name for name in ("name", "url", "principal", "event_types") if name not in data]
         if missing:
-            raise ValidationError({name: "Campo obrigatório." for name in missing})
+            raise ValidationError({name: gettext("Campo obrigatório.") for name in missing})
     if "is_enabled" in data and type(data["is_enabled"]) is not bool:
-        raise ValidationError({"is_enabled": "Use true ou false."})
+        raise ValidationError({"is_enabled": gettext("Use true ou false.")})
     return {name: cleaners[name](value) for name, value in data.items()}
 
 

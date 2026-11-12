@@ -24,6 +24,7 @@ CONTEXT = {
 
 def test_english_profile_gets_english_text_in_its_time_zone(settings):
     settings.SKELETON_PUBLIC_URL = "https://app.example.test"
+    settings.LANGUAGES = [("pt-br", "Português"), ("en", "English")]  # The core ships pt-BR only (#170).
     message = build_message(person("en", "America/Sao_Paulo"), type_code="notes.mention", context=CONTEXT)
     assert message.subject == "Você foi mencionado"
     assert "Open: https://app.example.test/o/x/notifications/y/open/" in message.body

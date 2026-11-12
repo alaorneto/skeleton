@@ -9,6 +9,7 @@ from django import forms
 from django.contrib import messages
 from django.db import transaction
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST
 
 from skeleton.service_api import errors
@@ -16,8 +17,12 @@ from skeleton.service_api.flows import FlowService
 from skeleton.web.views import tenant_page
 
 TEMPLATES = "skeleton/flows/"
-SCOPES = {"mine": "Minhas tarefas", "available": "Disponíveis para mim", "all": "Todas que posso ver"}
-STALE = "Os dados mudaram desde que a página foi aberta. Confira o estado atual e tente de novo."
+SCOPES = {
+    "mine": gettext_lazy("Minhas tarefas"),
+    "available": gettext_lazy("Disponíveis para mim"),
+    "all": gettext_lazy("Todas que posso ver"),
+}
+STALE = gettext_lazy("Os dados mudaram desde que a página foi aberta. Confira o estado atual e tente de novo.")
 
 
 def _cursor_page(request, fetch):
@@ -39,9 +44,9 @@ def _django_field(info):
         )
     widgets = {"date": forms.DateInput(attrs={"type": "date"}), "int": forms.NumberInput()}
     if info.type == "datetime" and not help_text:
-        help_text = "Data e hora com fuso, no formato ISO 8601 (2026-12-31T18:00:00-03:00)."
+        help_text = gettext("Data e hora com fuso, no formato ISO 8601 (2026-12-31T18:00:00-03:00).")
     if info.type == "user" and not help_text:
-        help_text = "Identificador (UUID) de uma pessoa com vínculo ativo."
+        help_text = gettext("Identificador (UUID) de uma pessoa com vínculo ativo.")
     return forms.CharField(label=label, required=False, widget=widgets.get(info.type), help_text=help_text)
 
 
@@ -57,7 +62,7 @@ class TaskForm(forms.Form):
             if info.value is not None:
                 self.fields[info.name].initial = info.value
         self.fields["comment"] = forms.CharField(
-            label="Comentário", required=False, widget=forms.Textarea(attrs={"rows": 3}), max_length=4000
+            label=gettext("Comentário"), required=False, widget=forms.Textarea(attrs={"rows": 3}), max_length=4000
         )
 
     def service_data(self):
@@ -156,7 +161,7 @@ def task_detail(request, organization_id, sysid):
             form.add_error(None, STALE if conflict.code == "stale_revision" else conflict.detail)
             status = 409
         else:
-            messages.success(request, "Tarefa atualizada.")
+            messages.success(request, gettext("Tarefa atualizada."))
             if operation in ("claim", "release", "reassign"):
                 return redirect("flows:task", organization_id=organization_id, sysid=sysid)
             return redirect("flows:tasks", organization_id=organization_id)
@@ -209,5 +214,5 @@ def instance_action(request, organization_id, sysid, action):
     except errors.Conflict as conflict:
         messages.error(request, STALE if conflict.code == "stale_revision" else conflict.detail)
     else:
-        messages.success(request, "Instância atualizada.")
+        messages.success(request, gettext("Instância atualizada."))
     return redirect("flows:instance", organization_id=organization_id, sysid=sysid)

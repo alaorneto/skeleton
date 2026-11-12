@@ -1,20 +1,20 @@
-{% extends 'skeleton/web/base.html' %}{% block title %}Entregas de {{ endpoint.name }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Entregas de" %} {{ endpoint.name }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header mb-4! sm:mb-5!">
   <div class="min-w-0">
-    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'integrations:webhooks' organization_id %}">Webhooks</a></li><li><a href="{% url 'integrations:webhook' organization_id endpoint.pk %}">{{ endpoint.name }}</a></li><li><span aria-current="page">Entregas</span></li></ol></nav>
-    <h1>Entregas de {{ endpoint.name }}</h1>
-    <p class="page-description">Cada entrega mostra a última tentativa e até 1 KB da resposta do receptor. Reenviar cria uma entrega nova do mesmo evento; a original não muda.</p>
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'integrations:webhooks' organization_id %}">{% translate "Webhooks" %}</a></li><li><a href="{% url 'integrations:webhook' organization_id endpoint.pk %}">{{ endpoint.name }}</a></li><li><span aria-current="page">{% translate "Entregas" %}</span></li></ol></nav>
+    <h1>{% translate "Entregas de" %} {{ endpoint.name }}</h1>
+    <p class="page-description">{% translate "Cada entrega mostra a última tentativa e até 1 KB da resposta do receptor. Reenviar cria uma entrega nova do mesmo evento; a original não muda." %}</p>
   </div>
-  <nav class="toolbar" aria-label="Ações"><form method="post" action="{% url 'integrations:webhook-ping' organization_id endpoint.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="button"{% if not endpoint.is_enabled %} disabled{% endif %}>Enviar teste (webhook.ping)</button></form></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><form method="post" action="{% url 'integrations:webhook-ping' organization_id endpoint.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="button"{% if not endpoint.is_enabled %} disabled{% endif %}>{% translate "Enviar teste (webhook.ping)" %}</button></form></nav>
 </div>
-<div class="table-scroll"><table><thead><tr><th scope="col">Criada em</th><th scope="col">Evento</th><th scope="col">Estado</th><th scope="col">Tentativas</th><th scope="col">Resposta</th><th scope="col">Ações</th></tr></thead><tbody>{% for delivery in rows %}<tr>
-<td>{{ delivery.created_at }}{% if delivery.resend_of_id %}<br><span class="badge">reenvio</span>{% endif %}</td>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Criada em" %}</th><th scope="col">{% translate "Evento" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Tentativas" %}</th><th scope="col">{% translate "Resposta" %}</th><th scope="col">{% translate "Ações" %}</th></tr></thead><tbody>{% for delivery in rows %}<tr>
+<td>{{ delivery.created_at }}{% if delivery.resend_of_id %}<br><span class="badge">{% translate "reenvio" %}</span>{% endif %}</td>
 <td><code>{{ delivery.event_type }}</code>{% if delivery.record_sysid %}<br><code class="uuid">{{ delivery.record_sysid }}</code>{% endif %}</td>
-<td>{{ delivery.get_state_display }}{% if delivery.next_attempt_at %}<br><span class="text-body-subtle">próxima: {{ delivery.next_attempt_at }}</span>{% endif %}</td>
+<td>{{ delivery.get_state_display }}{% if delivery.next_attempt_at %}<br><span class="text-body-subtle">{% translate "próxima:" %} {{ delivery.next_attempt_at }}</span>{% endif %}</td>
 <td>{{ delivery.attempts }}</td>
 <td>{% if delivery.status_code %}<span class="badge">{{ delivery.status_code }}</span>{% endif %}{% if delivery.error_code %} <code>{{ delivery.error_code }}</code>{% endif %}{% if delivery.response_snippet %}<pre class="mt-1 max-w-md overflow-x-auto text-xs whitespace-pre-wrap" data-snippet>{{ delivery.response_snippet }}</pre>{% endif %}</td>
-<td><form method="post" action="{% url 'integrations:webhook-delivery-resend' organization_id endpoint.pk delivery.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="btn btn-secondary btn-sm"{% if not endpoint.is_enabled %} disabled{% endif %}>Reenviar</button></form></td>
-</tr>{% empty %}<tr><td colspan="6" class="empty-state">Nenhuma entrega ainda.</td></tr>{% endfor %}</tbody></table></div>
+<td><form method="post" action="{% url 'integrations:webhook-delivery-resend' organization_id endpoint.pk delivery.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="btn btn-secondary btn-sm"{% if not endpoint.is_enabled %} disabled{% endif %}>{% translate "Reenviar" %}</button></form></td>
+</tr>{% empty %}<tr><td colspan="6" class="empty-state">{% translate "Nenhuma entrega ainda." %}</td></tr>{% endfor %}</tbody></table></div>
 {% include 'skeleton/web/pagination.html' %}
 {% endblock %}
