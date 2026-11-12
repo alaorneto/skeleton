@@ -51,7 +51,9 @@ def _locked_usage(organization_id: Any) -> Any:
 
     # Lock order: organization, then usage. The organization lock also serializes the first
     # creation of the usage row.
-    Organization.all_objects.select_for_update().filter(pk=organization_id).values_list("pk", flat=True).first()
+    Organization.all_objects.select_for_update(no_key=True).filter(pk=organization_id).values_list(
+        "pk", flat=True
+    ).first()
     usage = StorageUsage.objects.select_for_update().filter(organization_id=organization_id).first()
     if usage is None:
         usage = StorageUsage(organization_id=organization_id, bytes_used=_live_bytes(organization_id))

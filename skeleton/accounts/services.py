@@ -197,7 +197,7 @@ def update_organization(organization, *, actor, data, expected_revision, using="
     if unknown:
         raise ValidationError(gettext("Campo não permitido."))
     with transaction.atomic(using=using):
-        previous = Organization.objects.using(using).select_for_update().get(pk=organization.pk)
+        previous = Organization.objects.using(using).select_for_update(no_key=True).get(pk=organization.pk)
         if expected_revision != previous.revision:
             raise ConcurrentUpdate("The organization form is stale.")
         changed = {key for key, value in data.items() if getattr(previous, key) != value}

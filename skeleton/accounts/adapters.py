@@ -134,7 +134,7 @@ class AccountAdapter(DefaultAccountAdapter):
                         continue
                     organization, role = target
                     with system_context(reason="sso:validated", organization_id=organization.pk):
-                        Organization.objects.select_for_update().get(pk=organization.pk)
+                        Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
                         # A pending initial admission is not authority to undo local offboarding.
                         existed = Membership.objects.with_deleted().filter(user=user).exists()
                         account.extra_data = {"skeleton_binding": binding.fingerprint}
@@ -352,7 +352,7 @@ def request_social_admission(user, binding):
 
     organization, role = SocialAccountAdapter()._resolve_binding(binding)
     with system_context(reason="sso:validated", organization_id=organization.pk), transaction.atomic():
-        Organization.objects.select_for_update().get(pk=organization.pk)
+        Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
         if Membership.objects.filter(user=user, is_active=True).exists():
             return None
         existing = JoinRequest.objects.select_for_update().filter(user=user, status__in=JoinRequest.OPEN).first()

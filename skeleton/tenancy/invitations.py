@@ -158,7 +158,7 @@ def accept_invitation(*, user, organization_id, token=None, proof=None, verified
         raise InvalidInvitation()
     with system_context(reason="invitation:validated", organization_id=organization_id):
         with transaction.atomic():
-            organization = Organization.objects.select_for_update().get(pk=organization_id, is_active=True)
+            organization = Organization.objects.select_for_update(no_key=True).get(pk=organization_id, is_active=True)
             invitation = (
                 Invitation.objects.select_for_update()
                 .filter(

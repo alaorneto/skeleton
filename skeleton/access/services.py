@@ -44,7 +44,9 @@ def organization_lock(user=None, *, capability=None):
     if context.organization_id is None:
         raise PermissionDenied("Organization required.")
     with transaction.atomic(using=context.using):
-        organization = Organization.all_objects.using(context.using).select_for_update().get(pk=context.organization_id)
+        organization = (
+            Organization.all_objects.using(context.using).select_for_update(no_key=True).get(pk=context.organization_id)
+        )
         if not organization.is_active or organization.deleted_at is not None:
             raise PermissionDenied("Organization unavailable.")
         if user is not None:

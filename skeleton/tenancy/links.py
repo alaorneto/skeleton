@@ -196,7 +196,9 @@ def _locked_link(proof: JoinLinkProof) -> tuple[Any, Any, Any]:
     from .models import Organization
 
     models = _models()
-    organization = Organization.objects.select_for_update().filter(pk=proof.organization_id, is_active=True).first()
+    organization = (
+        Organization.objects.select_for_update(no_key=True).filter(pk=proof.organization_id, is_active=True).first()
+    )
     policy = _policy(organization) if organization else None
     link = (
         models.JoinLink.objects.select_for_update()
@@ -311,7 +313,7 @@ def finish_link_signup(user: Any) -> Any:
         with system_context(reason=LINK_REASON, organization_id=organization_id), transaction.atomic():
             from .models import Organization
 
-            organization = Organization.objects.select_for_update().filter(pk=organization_id).first()
+            organization = Organization.objects.select_for_update(no_key=True).filter(pk=organization_id).first()
             record = (
                 models.JoinRequest.objects.select_for_update(of=("self",))
                 .select_related("join_link", "role")
