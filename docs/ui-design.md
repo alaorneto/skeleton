@@ -96,6 +96,15 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 
 Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `pre`, inputs, selects e `button` têm estilo de base. Telas de apps que ainda usam `<h1>`/`<p>` soltos recebem o mesmo ritmo do cabeçalho padrão.
 
+### Linha do tempo do registro
+
+A página de detalhe mostra uma **linha do tempo** que junta a auditoria e os anexos do registro, do mais recente para o mais antigo, com até 50 itens ([#185](https://github.com/alaorneto/skeleton/issues/185)).
+
+- **Auditoria:** passa por `AuditService.history`, que exige o administrador ou a TablePermission `audit` mais a leitura do registro. A linha do tempo mostra só os nomes das colunas alteradas.
+- **Anexos:** seguem a autorização do alvo.
+
+Novas fontes entram com `skeleton.web.timeline.register_timeline_source`, e cada uma devolve só o que já mostraria sozinha.
+
 ### Regras que não mudam
 
 - Sem scripts inline e sem CDN: o JS do Flowbite é servido de `static/skeleton/web/vendor/flowbite-4.0.2/`.

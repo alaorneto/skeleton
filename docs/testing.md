@@ -119,6 +119,14 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - a página e a REST aceitando os filtros e respondendo 400 a inválidos ou desconhecidos;
   - a auditoria da plataforma com filtros.
 
+**#185, linha do tempo do registro:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1483 passed, 111 skipped. Agenda: 59 passed. `npm run check`: sem diferença depois do build.
+- `tests/integration/test_record_timeline.py`: 3 passed. Cobrem:
+  - auditoria e anexos juntos, do mais recente para o mais antigo, na página de detalhe;
+  - sem a TablePermission `audit`, só os anexos aparecem;
+  - o admin de B recebe 404 e quem não tem permissão na tabela recebe 403, como antes.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

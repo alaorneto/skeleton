@@ -1,0 +1,8 @@
+{% load i18n %}<section aria-labelledby="timeline-heading" class="mt-8">
+  <h2 id="timeline-heading" class="section-heading">{% translate "Linha do tempo" %}</h2>
+  {% if timeline %}<ol class="space-y-3">{% for item in timeline %}<li class="card p-3!" data-timeline-kind="{{ item.kind }}">
+    <p class="text-sm text-body-subtle"><time datetime="{{ item.at|date:'c' }}">{{ item.at }}</time>{% if item.extra.revision %} · {% blocktranslate trimmed with revision=item.extra.revision %}revisão {{ revision }}{% endblocktranslate %}{% endif %}</p>
+    <p class="font-medium text-heading">{{ item.title }}</p>
+    {% if item.detail %}<p class="text-sm text-body">{{ item.detail }}</p>{% endif %}
+  </li>{% endfor %}</ol>{% else %}<p class="empty-state">{% translate "Nada para mostrar." %}</p>{% endif %}
+</section>
