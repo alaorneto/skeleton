@@ -96,6 +96,14 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 
 Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `pre`, inputs, selects e `button` têm estilo de base. Telas de apps que ainda usam `<h1>`/`<p>` soltos recebem o mesmo ritmo do cabeçalho padrão.
 
+### Linha do tempo do registro
+
+A página de um registro tem duas visões, em links de aba no topo: **Dados** (os campos e o painel de anexos) e **Linha do tempo** (`?view=timeline`, [#185](https://github.com/alaorneto/skeleton/issues/185)). A linha do tempo junta, do mais recente ao mais antigo, os eventos de auditoria e os anexos do registro (`skeleton/web/timeline.py`):
+
+- cada fonte autoriza os próprios itens para quem vê, a cada página: a auditoria só aparece para o administrador da organização ou para quem tem TablePermission `audit` e lê o registro (a mesma regra do `AuditService.history`), com as mudanças cortadas aos `read_fields` como na tela de auditoria; os anexos seguem a leitura do registro alvo. Quem não tem `audit` vê só os anexos;
+- a paginação é por cursor sobre `(momento, sysid)`: cada fonte lê no máximo uma página mais antiga que o cursor, e o cursor seguinte é o último item da página ("Mais antigos"). Cursor inválido ou parâmetro desconhecido responde 400;
+- é o ponto de extensão de outros subsistemas do núcleo: `register_timeline_source(kind, source)` acrescenta um tipo de item, e `TimelineItem.template` diz como desenhá-lo. Os comentários ([#93](https://github.com/alaorneto/skeleton/issues/93)) entram por aí.
+
 ### Regras que não mudam
 
 - Sem scripts inline e sem CDN: o JS do Flowbite é servido de `static/skeleton/web/vendor/flowbite-4.0.2/`.

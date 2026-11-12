@@ -11,10 +11,12 @@
   </div>
   {% include 'skeleton/web/components/toolbar.html' %}
 </div>
+<nav class="record-view-tabs toolbar mb-4" aria-label="Visões do registro"><a class="btn {% if timeline %}btn-secondary{% else %}btn-primary{% endif %}" href="?"{% if not timeline %} aria-current="page"{% endif %}>Dados</a><a class="btn {% if timeline %}btn-primary{% else %}btn-secondary{% endif %}" href="?view=timeline"{% if timeline %} aria-current="page"{% endif %}>Linha do tempo</a></nav>
+{% if timeline %}{% include 'skeleton/web/components/timeline.html' %}{% else %}
 <div class="record-detail">
 {% include 'skeleton/web/components/tabs.html' %}
 {% crud_detail_fields sections %}
 </div>
-{% if attachments %}{% include 'skeleton/files/attachments_panel.html' %}{% endif %}
+{% if attachments %}{% include 'skeleton/files/attachments_panel.html' %}{% endif %}{% endif %}
 </div>
 {% endblock %}
