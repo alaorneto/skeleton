@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from django.utils.translation import gettext
+
 from .errors import InvalidInput
 
 MAX_PAGE_SIZE = 100
@@ -46,7 +48,7 @@ def decode_cursor(cursor: str | None) -> int:
     """Return the offset of an opaque cursor; anything malformed is ``InvalidInput``."""
     if cursor is None:
         return 0
-    invalid = InvalidInput({"cursor": ["Cursor inválido."]})
+    invalid = InvalidInput({"cursor": [gettext("Cursor inválido.")]})
     if type(cursor) is not str or not cursor or len(cursor) > 64:
         raise invalid
     try:
@@ -61,7 +63,9 @@ def decode_cursor(cursor: str | None) -> int:
 
 def validate_page_size(page_size: object) -> int:
     if type(page_size) is not int or not 1 <= page_size <= MAX_PAGE_SIZE:
-        raise InvalidInput({"page_size": [f"Use um inteiro entre 1 e {MAX_PAGE_SIZE}."]})
+        raise InvalidInput(
+            {"page_size": [gettext("Use um inteiro entre 1 e %(MAX_PAGE_SIZE)s.") % {"MAX_PAGE_SIZE": MAX_PAGE_SIZE}]}
+        )
     return page_size
 
 
@@ -97,7 +101,7 @@ def as_uuid(value: object, *, field: str = "id") -> UUID:
             return UUID(value)
         except ValueError:
             pass
-    raise InvalidInput({field: ["Identificador inválido."]})
+    raise InvalidInput({field: [gettext("Identificador inválido.")]})
 
 
 def as_utc(value: datetime) -> datetime:

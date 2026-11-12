@@ -1,15 +1,15 @@
-{% load static %}<!doctype html>
+{% load static i18n %}<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
-<title>{{ title }} · Configuração do Skeleton</title>
+<title>{{ title }} · {% translate "Configuração do Skeleton" %}</title>
 <link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
 </head>
 <body class="bg-neutral-secondary-soft">
 <main id="conteudo" class="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
-<p class="page-eyebrow">Configuração da instância</p>
+<p class="page-eyebrow">{% translate "Configuração da instância" %}</p>
 <div class="grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10">
-{% if steps %}<nav aria-label="Etapas" class="min-w-0"><ol class="space-y-1">{% for name, label, done in steps %}<li><a class="sidebar-link" href="{% url 'setup:'|add:name %}"{% if step == name %} aria-current="page"{% endif %}>{% if done %}✓ {% endif %}{{ label }}</a></li>{% endfor %}<li><a class="sidebar-link" href="{% url 'setup:finish' %}">Concluir</a></li></ol></nav>{% endif %}
+{% if steps %}<nav aria-label="{% translate "Etapas" %}" class="min-w-0"><ol class="space-y-1">{% for name, label, done in steps %}<li><a class="sidebar-link" href="{% url 'setup:'|add:name %}"{% if step == name %} aria-current="page"{% endif %}>{% if done %}✓ {% endif %}{{ label }}</a></li>{% endfor %}<li><a class="sidebar-link" href="{% url 'setup:finish' %}">{% translate "Concluir" %}</a></li></ol></nav>{% endif %}
 <div class="min-w-0">
 {% if messages %}{% for message in messages %}<p class="mb-4">{{ message }}</p>{% endfor %}{% endif %}
 <h1>{{ title }}</h1>

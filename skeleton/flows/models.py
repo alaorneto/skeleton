@@ -9,6 +9,7 @@ exposed in the generic gateway. Only the services of ``skeleton.flows`` write th
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.models import OrganizationRecord
 
@@ -47,11 +48,11 @@ class FlowInstance(OrganizationRecord):
     """One execution of a flow about one business record of the owning app."""
 
     class Status(models.TextChoices):
-        RUNNING = "running", "Em andamento"
-        SUSPENDED = "suspended", "Suspensa"
-        COMPLETED = "completed", "Concluída"
-        CANCELLED = "cancelled", "Cancelada"
-        FAILED = "failed", "Com falha"
+        RUNNING = "running", gettext_lazy("Em andamento")
+        SUSPENDED = "suspended", gettext_lazy("Suspensa")
+        COMPLETED = "completed", gettext_lazy("Concluída")
+        CANCELLED = "cancelled", gettext_lazy("Cancelada")
+        FAILED = "failed", gettext_lazy("Com falha")
 
     definition = models.ForeignKey(FlowDefinition, on_delete=models.PROTECT, related_name="instances")
     flow_key = models.CharField(max_length=100)
@@ -118,11 +119,11 @@ class FlowStepRun(OrganizationRecord):
     """
 
     class Status(models.TextChoices):
-        ACTIVE = "active", "Ativa"
-        WAITING = "waiting", "Aguardando ramos"
-        COMPLETED = "completed", "Concluída"
-        CANCELLED = "cancelled", "Cancelada"
-        FAILED = "failed", "Com falha"
+        ACTIVE = "active", gettext_lazy("Ativa")
+        WAITING = "waiting", gettext_lazy("Aguardando ramos")
+        COMPLETED = "completed", gettext_lazy("Concluída")
+        CANCELLED = "cancelled", gettext_lazy("Cancelada")
+        FAILED = "failed", gettext_lazy("Com falha")
 
     instance = models.ForeignKey(FlowInstance, on_delete=models.PROTECT, related_name="runs")
     step_key = models.CharField(max_length=64)
@@ -162,9 +163,9 @@ class FlowTask(OrganizationRecord):
     """
 
     class Status(models.TextChoices):
-        OPEN = "open", "Aberta"
-        COMPLETED = "completed", "Concluída"
-        CANCELLED = "cancelled", "Cancelada"
+        OPEN = "open", gettext_lazy("Aberta")
+        COMPLETED = "completed", gettext_lazy("Concluída")
+        CANCELLED = "cancelled", gettext_lazy("Cancelada")
 
     instance = models.ForeignKey(FlowInstance, on_delete=models.PROTECT, related_name="tasks")
     step_run = models.ForeignKey(FlowStepRun, on_delete=models.PROTECT, related_name="tasks")

@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.tenancy.context import current_context
@@ -27,7 +28,9 @@ def _json_value(name: str, value: Any) -> Any:
         return value.isoformat()
     if isinstance(value, Decimal):
         return str(value)
-    raise ValidationError({"data": f"{name}: use valores escalares (texto, número, booleano, UUID ou data)."})
+    raise ValidationError(
+        {"data": gettext("%(name)s: use valores escalares (texto, número, booleano, UUID ou data).") % {"name": name}}
+    )
 
 
 def publish_event(code: str, *, record: Any, data: dict[str, Any] | None = None):
@@ -45,15 +48,15 @@ def publish_event(code: str, *, record: Any, data: dict[str, Any] | None = None)
     try:
         event_type = get_event_type(code)
     except KeyError:
-        raise ValidationError({"event_type": "Tipo de evento desconhecido."}) from None
+        raise ValidationError({"event_type": gettext("Tipo de evento desconhecido.")}) from None
     if record._meta.label_lower != event_type.table_key:
-        raise ValidationError({"record": "O registro não pertence à tabela do tipo de evento."})
+        raise ValidationError({"record": gettext("O registro não pertence à tabela do tipo de evento.")})
     if getattr(record, "organization_id", None) != context.organization_id:
-        raise ValidationError({"record": "O registro pertence a outra organização."})
+        raise ValidationError({"record": gettext("O registro pertence a outra organização.")})
     data = dict(data or {})
     undeclared = set(data) - set(event_type.payload_fields)
     if undeclared:
-        raise ValidationError({"data": f"Campos não declarados: {sorted(undeclared)}."})
+        raise ValidationError({"data": gettext("Campos não declarados: %(value1)s.") % {"value1": sorted(undeclared)}})
     event = DomainEvent(
         organization_id=context.organization_id,
         event_type=event_type.code,

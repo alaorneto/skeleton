@@ -8,6 +8,7 @@ from typing import Any
 
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils.translation import gettext_lazy
 
 from skeleton.tenancy.context import current_context, memberships_for_user
 
@@ -18,21 +19,29 @@ __all__ = ["ACCESS_SECTIONS", "organization_shell"]
 ACCESS_SECTIONS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
         "people",
-        "Pessoas",
-        (("memberships", "Membros"), ("invitations", "Convites"), ("member-roles", "Papéis de membros")),
+        gettext_lazy("Pessoas"),
+        (
+            ("memberships", gettext_lazy("Membros")),
+            ("invitations", gettext_lazy("Convites")),
+            ("member-roles", gettext_lazy("Papéis de membros")),
+        ),
     ),
     (
         "groups",
-        "Grupos",
-        (("groups", "Grupos"), ("group-members", "Membros de grupos"), ("group-roles", "Papéis de grupos")),
+        gettext_lazy("Grupos"),
+        (
+            ("groups", gettext_lazy("Grupos")),
+            ("group-members", gettext_lazy("Membros de grupos")),
+            ("group-roles", gettext_lazy("Papéis de grupos")),
+        ),
     ),
     (
         "roles",
-        "Papéis e permissões",
+        gettext_lazy("Papéis e permissões"),
         (
-            ("roles", "Papéis"),
-            ("table-permissions", "Permissões de tabelas"),
-            ("record-grants", "Concessões de registros"),
+            ("roles", gettext_lazy("Papéis")),
+            ("table-permissions", gettext_lazy("Permissões de tabelas")),
+            ("record-grants", gettext_lazy("Concessões de registros")),
         ),
     ),
 )

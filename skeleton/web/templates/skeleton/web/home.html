@@ -1,22 +1,22 @@
-{% extends 'skeleton/web/base.html' %}{% block title %}Organizações · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Organizações · Skeleton" %}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><h1>Minhas organizações</h1><p class="page-description">Escolha uma organização para consultar registros e administrar o acesso.</p></div></div>
+<div class="page-header"><div class="min-w-0"><h1>{% translate "Minhas organizações" %}</h1><p class="page-description">{% translate "Escolha uma organização para consultar registros e administrar o acesso." %}</p></div></div>
 {% comment %}Join paths (#25). Each block renders only with content: the pending invitation comes from this
 session; join requests (#26) and suggested organizations (#28) plug into the same blocks.{% endcomment %}
 {% if pending_invitation %}<section class="card mb-6" aria-labelledby="home-invitation">
-<h2 id="home-invitation" class="text-base">Convite pendente</h2>
-<p class="mt-1">Há um convite para <strong>{{ pending_invitation.email }}</strong> aberto nesta sessão. Abra de novo o link do convite e confirme para entrar na organização.</p>
+<h2 id="home-invitation" class="text-base">{% translate "Convite pendente" %}</h2>
+<p class="mt-1">{% translate "Há um convite para" %} <strong>{{ pending_invitation.email }}</strong> {% translate "aberto nesta sessão. Abra de novo o link do convite e confirme para entrar na organização." %}</p>
 </section>{% endif %}
 {% block home_join_requests %}{% if join_requests %}<section class="card mb-6" aria-labelledby="home-requests">
-<h2 id="home-requests" class="text-base">Minhas solicitações</h2>
+<h2 id="home-requests" class="text-base">{% translate "Minhas solicitações" %}</h2>
 <ul class="mt-2 space-y-1">{% for item in join_requests %}<li>{{ item.organization_name }} · {{ item.status_label }}</li>{% endfor %}</ul>
 </section>{% endif %}{% endblock %}
 {% block home_suggestions %}{% if suggested_organizations %}<section class="card mb-6" aria-labelledby="home-suggestions">
-<h2 id="home-suggestions" class="text-base">Organizações sugeridas</h2>
+<h2 id="home-suggestions" class="text-base">{% translate "Organizações sugeridas" %}</h2>
 <ul class="mt-2 space-y-1">{% for item in suggested_organizations %}<li>{{ item.organization_name }}</li>{% endfor %}</ul>
 </section>{% endif %}{% endblock %}
 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{% for membership in memberships %}<section class="card flex flex-col gap-4">
 <div class="flex items-center gap-3"><span class="grid size-10 shrink-0 place-items-center rounded-base bg-brand-soft text-base font-semibold text-fg-brand-strong" aria-hidden="true">{{ membership.organization_name|first|upper }}</span><h2 class="min-w-0 text-base">{{ membership.organization_name }}</h2></div>
-<a class="button self-start" href="{% url 'web:dashboard' membership.organization_id %}">Abrir organização{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
-</section>{% empty %}<div class="card sm:col-span-2 lg:col-span-3"><div class="empty-state">{% include "skeleton/web/components/icon.html" with name="building" class="mx-auto mb-3 size-8 text-body-subtle" %}<p class="font-medium text-heading">Você ainda não pertence a uma organização.</p><p class="mt-1">Para entrar, abra o link de um convite recebido por email ou peça um convite a quem administra a organização.</p></div></div>{% endfor %}</div>
+<a class="button self-start" href="{% url 'web:dashboard' membership.organization_id %}">{% translate "Abrir organização" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
+</section>{% empty %}<div class="card sm:col-span-2 lg:col-span-3"><div class="empty-state">{% include "skeleton/web/components/icon.html" with name="building" class="mx-auto mb-3 size-8 text-body-subtle" %}<p class="font-medium text-heading">{% translate "Você ainda não pertence a uma organização." %}</p><p class="mt-1">{% translate "Para entrar, abra o link de um convite recebido por email ou peça um convite a quem administra a organização." %}</p></div></div>{% endfor %}</div>
 {% endblock %}

@@ -1,6 +1,7 @@
 import io
 
 from django.conf import settings
+from django.utils.translation import gettext
 from rest_framework.parsers import JSONParser, MultiPartParser
 
 
@@ -11,7 +12,7 @@ class BoundedJSONParser(JSONParser):
         if len(data) > maximum:
             from skeleton.api.errors import BoundaryError
 
-            raise BoundaryError("request_too_large", "O corpo JSON excede o limite permitido.", 413)
+            raise BoundaryError("request_too_large", gettext("O corpo JSON excede o limite permitido."), 413)
         return super().parse(io.BytesIO(data), media_type, parser_context)
 
 
@@ -30,5 +31,5 @@ class BoundedMultiPartParser(MultiPartParser):
         except ValueError:
             length = 0
         if length > settings.SKELETON_UPLOAD_MAX_BYTES + self.OVERHEAD:
-            raise BoundaryError("request_too_large", "O arquivo excede o limite permitido.", 413)
+            raise BoundaryError("request_too_large", gettext("O arquivo excede o limite permitido."), 413)
         return super().parse(stream, media_type, parser_context)

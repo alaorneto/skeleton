@@ -17,6 +17,7 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.cache import add_never_cache_headers, never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
@@ -39,20 +40,20 @@ def scope_choices(*, feed: bool = False):
 
 
 class TokenForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=150)
-    scopes = forms.MultipleChoiceField(label="Escopos", widget=forms.CheckboxSelectMultiple)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=150)
+    scopes = forms.MultipleChoiceField(label=gettext_lazy("Escopos"), widget=forms.CheckboxSelectMultiple)
     days = forms.IntegerField(label="Validade (dias)", min_value=1, initial=90)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["scopes"].choices = scope_choices()
         self.fields["days"].widget.attrs["max"] = services.max_days()
-        self.fields["days"].help_text = f"No máximo {services.max_days()} dias."
+        self.fields["days"].help_text = gettext("No máximo %(value1)s dias.") % {"value1": services.max_days()}
 
     def clean_days(self):
         days = self.cleaned_data["days"]
         if days > services.max_days():
-            raise forms.ValidationError(f"No máximo {services.max_days()} dias.")
+            raise forms.ValidationError(gettext("No máximo %(value1)s dias.") % {"value1": services.max_days()})
         return days
 
     def expires_at(self):
@@ -148,9 +149,9 @@ def personal_token_revoke(request, sysid):
     except ApiToken.DoesNotExist:
         raise Http404 from None
     except ConcurrentUpdate:
-        messages.error(request, "O token mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O token mudou. Atualize a página antes de tentar novamente."))
         return redirect("integrations:personal-tokens")
-    messages.success(request, "Token revogado.")
+    messages.success(request, gettext("Token revogado."))
     return redirect("integrations:personal-tokens")
 
 
@@ -158,7 +159,7 @@ def personal_token_revoke(request, sysid):
 
 
 class ServiceAccountForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=150)
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=150)
 
 
 def _accounts():
@@ -193,7 +194,7 @@ def service_accounts(request, organization_id):
             except ValidationError as exc:
                 status = _apply_error(form, exc)
             else:
-                messages.success(request, "Conta de serviço criada.")
+                messages.success(request, gettext("Conta de serviço criada."))
                 return redirect("integrations:service-account", organization_id=organization_id, sysid=account.pk)
         else:
             status = 400
@@ -260,7 +261,7 @@ def service_account_deactivate(request, organization_id, sysid):
     from skeleton.accounts.services import deactivate_service_account
 
     deactivate_service_account(actor=request.user, user=_account(sysid))
-    messages.success(request, "Conta de serviço desativada; os tokens dela deixaram de valer.")
+    messages.success(request, gettext("Conta de serviço desativada; os tokens dela deixaram de valer."))
     return redirect("integrations:service-account", organization_id=organization_id, sysid=sysid)
 
 
@@ -284,7 +285,7 @@ def service_token_revoke(request, organization_id, sysid, token_id):
     except ApiToken.DoesNotExist:
         raise Http404 from None
     except ConcurrentUpdate:
-        messages.error(request, "O token mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O token mudou. Atualize a página antes de tentar novamente."))
     else:
-        messages.success(request, "Token revogado.")
+        messages.success(request, gettext("Token revogado."))
     return redirect("integrations:service-account", organization_id=organization_id, sysid=sysid)

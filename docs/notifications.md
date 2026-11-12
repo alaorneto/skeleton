@@ -111,7 +111,19 @@ O job, em `system_context` da organização:
 2. Renderiza no idioma e no fuso do perfil (`translation.override`, `timezone.override`) os templates `notifications/<tipo>/subject.txt`, `body.txt` e `body.html` (opcional), procurando antes `<nome>.<idioma>.<ext>` (`body.en.txt`) e caindo em `notifications/default/`. O contexto traz `label`, `snapshot`, `payload`, `created_at`, `open_url` e `preferences_url`.
 3. Envia com `List-Unsubscribe: <…/profile/notifications/>`. Uma falha conta uma tentativa e agenda outra em 1 min, 5 min, 30 min e 2 h; depois da quinta, a entrega fica `dead`. Uma entrega `sent` nunca sai de novo: a entrega é pelo menos uma vez, idempotente por linha.
 
-Os links usam `SKELETON_PUBLIC_URL`. Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês; os rótulos dos tipos continuam em português até o epic de i18n.
+Os links usam `SKELETON_PUBLIC_URL`. Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês. O inglês só é usado quando o projeto acrescenta `en` a `LANGUAGES`, porque o núcleo entrega apenas pt-BR. O idioma e o fuso de cada destinatário seguem a mesma ordem das telas: perfil, depois organização, depois instância (#170).
+
+### Layout e marca
+
+Os emails HTML do núcleo estendem `skeleton/email/base.html` ([#173](https://github.com/alaorneto/skeleton/issues/173)). Isso inclui a notificação, o resumo e o convite. O layout tem:
+
+- uma faixa e o nome na cor da organização;
+- o logo, quando houver, como parte inline `Content-ID: <organization-logo>` referenciada por `cid:organization-logo`, nunca por URL pública;
+- um rodapé.
+
+Os dados vêm das configurações da organização do contexto em que o email é montado: o job da organização ou a requisição do convite. O logo de uma organização nunca vai no email de outra.
+
+O texto simples continua sem marca. O convite usa os templates `skeleton/tenancy/invitation/{subject,body}.txt` e `body.html`. Ele sai no idioma e no fuso padrão da organização, depois da instância, porque a pessoa convidada pode ainda não ter conta.
 
 ## Resumo diário ou semanal
 

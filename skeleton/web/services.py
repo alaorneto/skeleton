@@ -1,6 +1,7 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
 from django.http import Http404
+from django.utils.translation import gettext
 
 from skeleton.access.policies import authorized_queryset, is_organization_admin, require_record_action
 from skeleton.common.models import SecuredRecord
@@ -45,10 +46,10 @@ def readable_specs(user):
 
 def assert_fields(data, allowed):
     if not isinstance(data, dict):
-        raise ValidationError("Envie um objeto de campos.")
+        raise ValidationError(gettext("Envie um objeto de campos."))
     unknown = set(data) - set(allowed)
     if unknown:
-        raise ValidationError({key: "Campo não permitido." for key in sorted(unknown)})
+        raise ValidationError({key: gettext("Campo não permitido.") for key in sorted(unknown)})
 
 
 def coerce_fields(model, data, *, user):
@@ -63,27 +64,27 @@ def coerce_fields(model, data, *, user):
             try:
                 value = field.target_field.to_python(value)
             except (ValidationError, ValueError, TypeError):
-                raise ValidationError({name: "Referência inválida."}) from None
+                raise ValidationError({name: gettext("Referência inválida.")}) from None
             from skeleton.web.references import target_queryset
 
             queryset = target_queryset(field, user=user, source_model=model, access=name in ACCESS_FIELDS)
             try:
                 values[name] = queryset.get(pk=field.target_field.to_python(value))
             except (related.DoesNotExist, ValidationError, ValueError, TypeError):
-                raise ValidationError({name: "Referência indisponível."}) from None
+                raise ValidationError({name: gettext("Referência indisponível.")}) from None
         else:
             try:
                 if isinstance(field, (models.CharField, models.TextField)) and not isinstance(value, str):
-                    raise ValidationError("Use um valor textual.")
+                    raise ValidationError(gettext("Use um valor textual."))
                 if (
                     isinstance(field, models.BooleanField)
                     and not isinstance(value, bool)
                     and not (value is None and field.null)
                 ):
-                    raise ValidationError("Use true ou false.")
+                    raise ValidationError(gettext("Use true ou false."))
                 values[name] = field.clean(value, None)
             except (ValidationError, ValueError, TypeError) as exc:
-                raise ValidationError({name: getattr(exc, "messages", ["Valor inválido."])}) from None
+                raise ValidationError({name: getattr(exc, "messages", [gettext("Valor inválido.")])}) from None
     return values
 
 
@@ -150,7 +151,7 @@ def filter_records(queryset, spec, params, *, ignore_empty=False):
     }
     allowed = scalar | {"sysid", "owner", "visibility", "page", "page_size"}
     if set(params) - allowed:
-        raise ValidationError("Filtro não permitido.")
+        raise ValidationError(gettext("Filtro não permitido."))
     for name in set(params) - {"page", "page_size"}:
         if ignore_empty and params[name] == "":
             continue
@@ -159,7 +160,7 @@ def filter_records(queryset, spec, params, *, ignore_empty=False):
             value = field.target_field.to_python(params[name]) if field.is_relation else field.to_python(params[name])
             queryset = queryset.filter(**{name: value})
         except (ValidationError, ValueError, TypeError):
-            raise ValidationError({name: "Filtro inválido."}) from None
+            raise ValidationError({name: gettext("Filtro inválido.")}) from None
     return queryset
 
 

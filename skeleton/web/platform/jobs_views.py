@@ -11,6 +11,7 @@ from django import forms
 from django.apps import apps
 from django.contrib import messages
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
@@ -23,13 +24,13 @@ from .guards import platform_page
 
 
 class JobFilterForm(forms.Form):
-    state = forms.ChoiceField(required=False, choices=(("", "Todos"), *Job.State.choices))
+    state = forms.ChoiceField(required=False, choices=(("", gettext_lazy("Todos")), *Job.State.choices))
     queue = forms.RegexField(required=False, max_length=64, regex=r"^[A-Za-z0-9_.:-]*$")
     job_type = forms.RegexField(required=False, max_length=100, regex=r"^[A-Za-z0-9_.:-]*$")
 
 
 class JobActionForm(forms.Form):
-    action = forms.ChoiceField(choices=(("resend", "Reenviar"), ("discard", "Descartar")))
+    action = forms.ChoiceField(choices=(("resend", gettext_lazy("Reenviar")), ("discard", gettext_lazy("Descartar"))))
     expected_updated_at = forms.DateTimeField()
 
 
@@ -76,14 +77,16 @@ def jobs(request):
 def job_action(request, sysid):
     form = JobActionForm(request.POST)
     if not form.is_valid():
-        messages.error(request, "Pedido inválido. Atualize a página e tente de novo.")
+        messages.error(request, gettext("Pedido inválido. Atualize a página e tente de novo."))
         return redirect("platform:jobs")
     data = form.cleaned_data
     change = resend_dead_job if data["action"] == "resend" else discard_dead_job
     try:
         change(sysid, expected_updated_at=data["expected_updated_at"], actor=request.user)
     except ConcurrentUpdate:
-        messages.error(request, "O job mudou ou já não está esgotado. Atualize a página.")
+        messages.error(request, gettext("O job mudou ou já não está esgotado. Atualize a página."))
         return redirect("platform:jobs")
-    messages.success(request, "Job reenviado para a fila." if data["action"] == "resend" else "Job descartado.")
+    messages.success(
+        request, gettext("Job reenviado para a fila.") if data["action"] == "resend" else gettext("Job descartado.")
+    )
     return redirect("platform:jobs")

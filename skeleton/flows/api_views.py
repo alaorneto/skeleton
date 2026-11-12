@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.utils.translation import gettext
 from rest_framework.response import Response
 
 from skeleton.api.errors import BoundaryError, if_match_precondition, parse_revision
@@ -86,7 +87,7 @@ _FORM_BODY = {
 def _filters(request, allowed):
     unknown = set(request.query_params) - set(allowed) - {"cursor", "page_size"}
     if unknown:
-        raise BoundaryError("invalid_filter", "Filtro não permitido.")
+        raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
     values = {name: request.query_params[name] for name in allowed if name in request.query_params}
     if "cursor" in request.query_params:
         values["cursor"] = request.query_params["cursor"]
@@ -94,7 +95,7 @@ def _filters(request, allowed):
         try:
             values["page_size"] = int(request.query_params["page_size"])
         except ValueError:
-            raise BoundaryError("invalid_pagination", "Página ou tamanho inválido.") from None
+            raise BoundaryError("invalid_pagination", gettext("Página ou tamanho inválido.")) from None
     return values
 
 
@@ -109,7 +110,9 @@ def _body(request, allowed):
     unknown = set(data) - set(allowed)
     if unknown:
         raise BoundaryError(
-            "invalid_request", "Campo não permitido.", fields={name: ["Campo não permitido."] for name in unknown}
+            "invalid_request",
+            gettext("Campo não permitido."),
+            fields={name: [gettext("Campo não permitido.")] for name in unknown},
         )
     return data
 
@@ -117,7 +120,7 @@ def _body(request, allowed):
 def _form_data(data):
     values = data.get("data", {})
     if not isinstance(values, dict):
-        raise BoundaryError("invalid_request", "data é um objeto de campos do formulário.")
+        raise BoundaryError("invalid_request", gettext("data é um objeto de campos do formulário."))
     return tuple(values.items())
 
 
@@ -127,7 +130,11 @@ class TasksView(TenantAPI):
             "Caixa de tarefas do ator",
             lambda: _cursor_page(TaskSummary),
             query=(
-                ("scope", string(enum=["mine", "available", "all"]), "Minhas (padrão), das filas ou todas."),
+                (
+                    "scope",
+                    string(enum=["mine", "available", "all"]),
+                    "Minhas (padrão), das filas ou todas.",
+                ),
                 ("status", string(), "Situação da tarefa; só com scope=all."),
                 *_PAGING,
             ),
@@ -204,7 +211,8 @@ TASK_ACTION_OPERATIONS = {
     "claim": _task_command("Assume uma tarefa de fila"),
     "release": _task_command("Devolve uma tarefa à fila"),
     "reassign": _task_command(
-        "Reatribui ou delega a tarefa", obj({"to_user": UUID_SCHEMA, "comment": string()}, required=("to_user",))
+        "Reatribui ou delega a tarefa",
+        obj({"to_user": UUID_SCHEMA, "comment": string()}, required=("to_user",)),
     ),
     "complete": _task_command(
         "Conclui a tarefa por uma das ações", obj({"action": string(), **_FORM_BODY}, required=())
@@ -238,7 +246,9 @@ class InstancesView(TenantAPI):
 class InstanceView(TenantAPI):
     openapi = {
         "GET": Operation(
-            "Instância com etapas ativas e dados não sensíveis", lambda: dto_schema(InstanceInfo), etag=True
+            "Instância com etapas ativas e dados não sensíveis",
+            lambda: dto_schema(InstanceInfo),
+            etag=True,
         )
     }
 

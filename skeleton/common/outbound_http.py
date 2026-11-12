@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.utils.translation import gettext
+
 CONNECT_TIMEOUT = 5.0
 READ_TIMEOUT = 10.0
 MAX_RESPONSE_BYTES = 64 * 1024
@@ -99,10 +101,10 @@ def _addresses(host: str, port: int, resolver: Resolver) -> list[Address]:
     try:
         answers = resolver(host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
     except (OSError, UnicodeError) as exc:
-        raise OutboundRequestRefused("unresolvable", "O nome do destino não resolve.") from exc
+        raise OutboundRequestRefused("unresolvable", gettext("O nome do destino não resolve.")) from exc
     addresses = list(dict.fromkeys(ipaddress.ip_address(answer[4][0].split("%")[0]) for answer in answers))
     if not addresses:
-        raise OutboundRequestRefused("unresolvable", "O nome do destino não resolve.")
+        raise OutboundRequestRefused("unresolvable", gettext("O nome do destino não resolve."))
     return addresses
 
 
@@ -122,19 +124,21 @@ def validate_url(url: str, *, resolver: Resolver | None = None) -> Destination:
         parts = urlsplit(url)
         port = parts.port
     except ValueError as exc:
-        raise OutboundRequestRefused("invalid_url", "URL inválida.") from exc
+        raise OutboundRequestRefused("invalid_url", gettext("URL inválida.")) from exc
     allowed_schemes = {"https", "http"} if override else {"https"}
     if parts.scheme not in allowed_schemes:
-        raise OutboundRequestRefused("scheme", "Somente HTTPS é permitido.")
+        raise OutboundRequestRefused("scheme", gettext("Somente HTTPS é permitido."))
     if not parts.hostname or parts.username is not None or parts.password is not None:
-        raise OutboundRequestRefused("invalid_url", "A URL precisa de um host e não pode ter credenciais.")
+        raise OutboundRequestRefused("invalid_url", gettext("A URL precisa de um host e não pode ter credenciais."))
     port = port or (443 if parts.scheme == "https" else 80)
     if port not in ports and not override:
-        raise OutboundRequestRefused("port", "Porta de destino não permitida.")
+        raise OutboundRequestRefused("port", gettext("Porta de destino não permitida."))
     # Looked up at call time, so tests and callers may replace the module-level resolver.
     addresses = _addresses(parts.hostname, port, resolver or socket.getaddrinfo)
     if not override and any(blocked_address(address) for address in addresses):
-        raise OutboundRequestRefused("blocked_address", "O destino aponta para um endereço interno ou reservado.")
+        raise OutboundRequestRefused(
+            "blocked_address", gettext("O destino aponta para um endereço interno ou reservado.")
+        )
     target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
     return Destination(parts.scheme, parts.hostname, port, target, addresses[0])
 
@@ -194,6 +198,8 @@ def request(
             truncated=len(data) > MAX_RESPONSE_BYTES,
         )
     except (OSError, http.client.HTTPException) as exc:
-        raise OutboundRequestFailed(f"Falha de rede com o destino: {type(exc).__name__}.") from exc
+        raise OutboundRequestFailed(
+            gettext("Falha de rede com o destino: %(__name__)s.") % {"__name__": type(exc).__name__}
+        ) from exc
     finally:
         connection.close()

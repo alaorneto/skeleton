@@ -1,14 +1,14 @@
-{% extends "account/base_manage.html" %}{% block head_title %}Tokens de API{% endblock %}
+{% extends "account/base_manage.html" %}{% load i18n %}{% block head_title %}{% translate "Tokens de API" %}{% endblock %}
 {% block content %}
-<h1>Tokens de API</h1>
-<p class="mt-1 text-sm/6 text-body-subtle">Tokens pessoais para scripts e integrações em <code>/api/v1/</code>. Cada token age como você, só dentro dos escopos escolhidos, e nunca administra a organização. Depois de criado, só o prefixo aparece.</p>
+<h1>{% translate "Tokens de API" %}</h1>
+<p class="mt-1 text-sm/6 text-body-subtle">{% translate "Tokens pessoais para scripts e integrações em" %} <code>/api/v1/</code>. {% translate "Cada token age como você, só dentro dos escopos escolhidos, e nunca administra a organização. Depois de criado, só o prefixo aparece." %}</p>
 <div class="mt-4">{% include "skeleton/integrations/tokens/_token_table.html" %}</div>
 <form method="post" class="mt-6" aria-labelledby="token-new">
-  <h2 id="token-new">Novo token</h2>
+  <h2 id="token-new">{% translate "Novo token" %}</h2>
   {% csrf_token %}
   {% include "skeleton/web/components/form-errors.html" %}
   {% include "skeleton/web/components/form-fields.html" %}
-  <p class="mt-2 text-sm/6 text-body-subtle">Criar exige autenticação recente. O token aparece uma única vez.</p>
-  <div class="form-actions"><button type="submit" class="btn btn-primary">Criar token</button></div>
+  <p class="mt-2 text-sm/6 text-body-subtle">{% translate "Criar exige autenticação recente. O token aparece uma única vez." %}</p>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar token" %}</button></div>
 </form>
 {% endblock %}

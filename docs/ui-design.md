@@ -104,6 +104,9 @@ A página de detalhe mostra uma **linha do tempo** que junta a auditoria e os an
 - **Anexos:** seguem a autorização do alvo.
 
 Novas fontes entram com `skeleton.web.timeline.register_timeline_source`, e cada uma devolve só o que já mostraria sozinha.
+### Texto nos templates
+
+Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skeleton/issues/172)). Isso vale para o conteúdo entre tags, como em `{% translate "Salvar" %}`, e para os atributos visíveis (`alt`, `title`, `placeholder`, `aria-label`). Nos argumentos de tags, use `_("…")`, como em `{% include "…" with label=_("Abrir") %}`. As msgids ficam em pt-BR e o template carrega `{% load i18n %}`. Em frases com variável, prefira `{% blocktranslate trimmed %}` com nomes simples, usando `with` para os atributos. Dados (nomes, emails, valores) nunca entram no gettext.
 
 ### Regras que não mudam
 

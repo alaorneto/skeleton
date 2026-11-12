@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from django.utils.translation import gettext
+
 
 class FlowConflict(Exception):
     """The command conflicts with the current state (``code`` is stable and safe to show)."""
 
     def __init__(self, code: str, detail: str = "") -> None:
         self.code = code
-        self.detail = detail or "A operação conflita com o estado atual do fluxo."
+        self.detail = detail or gettext("A operação conflita com o estado atual do fluxo.")
         super().__init__(self.detail)
 
 

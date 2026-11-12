@@ -17,6 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.utils.translation import gettext
 
 from .applications import calling_app_label
 from .base import ServiceAPI, service_method
@@ -189,7 +190,7 @@ def _data(data: FormData) -> dict[str, Any]:
         raise InvalidInput({"data": ["Envie pares (campo, valor)."]})
     names = [item[0] for item in data]
     if len(set(names)) != len(names):
-        raise InvalidInput({"data": ["Campo repetido."]})
+        raise InvalidInput({"data": [gettext("Campo repetido.")]})
     return dict(data)
 
 
@@ -306,9 +307,9 @@ def _owned_flow(flow_key: str) -> None:
     try:
         spec = get_flow(flow_key)
     except (KeyError, TypeError):
-        raise InvalidInput({"flow_key": ["Fluxo não declarado."]}) from None
+        raise InvalidInput({"flow_key": [gettext("Fluxo não declarado.")]}) from None
     if calling_app_label() != spec.owner_app:
-        raise Forbidden("A app só inicia e sinaliza os próprios fluxos.")
+        raise Forbidden(gettext("A app só inicia e sinaliza os próprios fluxos."))
 
 
 class FlowService(ServiceAPI):
@@ -411,13 +412,13 @@ class FlowService(ServiceAPI):
         rows = policies.visible_instances(actor).select_related("definition")
         if flow_key is not None:
             if not isinstance(flow_key, str):
-                raise InvalidInput({"flow_key": ["Use a chave do fluxo."]})
+                raise InvalidInput({"flow_key": [gettext("Use a chave do fluxo.")]})
             rows = rows.filter(flow_key=flow_key)
         if subject_id is not None:
             rows = rows.filter(subject_sysid=as_uuid(subject_id, field="subject_id"))
         if status is not None:
             if status not in INSTANCE_STATES:
-                raise InvalidInput({"status": ["Estado inválido."]})
+                raise InvalidInput({"status": [gettext("Estado inválido.")]})
             rows = rows.filter(status=status)
         return paginate(rows.order_by("-created_at", "sysid"), convert=_instance, cursor=cursor, page_size=page_size)
 
@@ -482,9 +483,9 @@ class FlowService(ServiceAPI):
         from skeleton.flows import policies
 
         if scope not in TASK_SCOPES:
-            raise InvalidInput({"scope": ["Use mine, available ou all."]})
+            raise InvalidInput({"scope": [gettext("Use mine, available ou all.")]})
         if status is not None and (status not in TASK_STATES or scope != "all"):
-            raise InvalidInput({"status": ["Estado inválido para este escopo."]})
+            raise InvalidInput({"status": [gettext("Estado inválido para este escopo.")]})
         if scope == "all":
             rows = policies.visible_tasks(actor)
             if status is not None:

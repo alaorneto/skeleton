@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
+from django.utils.translation import gettext
 
 SCAN_JOB = "files.scan"
 CHUNK = 64 * 1024
@@ -88,7 +89,7 @@ def parse_reply(reply: bytes) -> Verdict:
         return Verdict(clean=True)
     if status.endswith(" FOUND"):
         return Verdict(clean=False, signature=status.removesuffix(" FOUND").strip()[:100])
-    raise ScannerUnavailable("clamd gave no verdict")
+    raise ScannerUnavailable(gettext("clamd gave no verdict"))
 
 
 def get_scanner() -> Any:

@@ -8,6 +8,7 @@ from django import forms
 from django.apps import apps
 from django.urls import reverse
 from django.utils import formats, timezone
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.system.app_registry import get_app
 from skeleton.system.presentation import SYSTEM_READ_FIELDS, FieldUISpec, FormSectionSpec, get_model_ui
@@ -15,7 +16,7 @@ from skeleton.tenancy.context import current_context
 from skeleton.web.forms import CHANGE_PREFIX
 from skeleton.web.services import SYSTEM_FIELDS, records_data
 
-UNAVAILABLE = "Referência indisponível"
+UNAVAILABLE = gettext_lazy("Referência indisponível")
 
 
 def _title_field(spec):
@@ -49,7 +50,7 @@ def list_fields(spec):
 
 def _field_label(spec, name):
     if name == "__label__":
-        return "Registro"
+        return gettext("Registro")
     for section in get_model_ui(spec.model._meta.label_lower).form.sections:
         for field in section.fields:
             if field.name == name and field.label is not None:
@@ -66,7 +67,7 @@ def _value(field, value):
         label = dict(field.flatchoices).get(value, value)
         return str(label)
     if isinstance(value, bool):
-        return "Sim" if value else "Não"
+        return gettext("Sim") if value else gettext("Não")
     if isinstance(value, datetime):
         value = timezone.localtime(value) if timezone.is_aware(value) else value
         return formats.date_format(value, "DATETIME_FORMAT")
@@ -125,7 +126,7 @@ def grouped_specs(specs):
 def _layout(spec):
     layout = get_model_ui(spec.model._meta.label_lower).form
     sections = layout.sections or (
-        FormSectionSpec("fields", "Dados do registro", tuple(FieldUISpec(name) for name in spec.write_fields)),
+        FormSectionSpec("fields", gettext("Dados do registro"), tuple(FieldUISpec(name) for name in spec.write_fields)),
     )
     return layout, sections
 
@@ -195,7 +196,9 @@ def form_sections(form, spec, *, instance=None, user, operation="edit"):
                 )
             fields.append(entry)
         return {
-            "sections": [{"id": "access", "label": "Gerenciar acesso", "columns": 1, "tab_id": None, "fields": fields}],
+            "sections": [
+                {"id": "access", "label": gettext("Gerenciar acesso"), "columns": 1, "tab_id": None, "fields": fields}
+            ],
             "tabs": [],
             "active_tab": None,
         }
@@ -306,7 +309,7 @@ def detail_sections(record, spec, *, user):
         sections.append(
             {
                 "id": "system-details",
-                "label": "Outros dados",
+                "label": gettext("Outros dados"),
                 "columns": 2,
                 "tab_id": None,
                 "fields": [

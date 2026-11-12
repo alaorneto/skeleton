@@ -12,11 +12,12 @@ from collections.abc import Iterable
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy
 
 TYPES = {
-    "flows.task_assigned": "Tarefa de fluxo atribuída",
-    "flows.task_reminder": "Lembrete de tarefa de fluxo",
-    "flows.task_overdue": "Tarefa de fluxo atrasada",
+    "flows.task_assigned": gettext_lazy("Tarefa de fluxo atribuída"),
+    "flows.task_reminder": gettext_lazy("Lembrete de tarefa de fluxo"),
+    "flows.task_overdue": gettext_lazy("Tarefa de fluxo atrasada"),
 }
 PAYLOAD = ("flow", "step", "number", "task")
 
