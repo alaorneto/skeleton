@@ -121,7 +121,7 @@ class ConfigTest(unittest.TestCase):
         cfg = Config()
         self.assertEqual(cfg.type_for_prefix("fix"), "bug")
         self.assertEqual(cfg.type_level("feature"), "minor")
-        for label in ("bug", "epic", "release", "no-release", "breaking-change", "semver:major"):
+        for label in ("bug", "epic", "release", "breaking-change", "semver:major"):
             self.assertIn(label, cfg.all_labels())
 
     def test_project_values_override_key_by_key_but_types_replace_whole(self):
@@ -130,6 +130,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(cfg.versioning["zero_major"], "breaking-is-minor")
         self.assertEqual(cfg.type_labels, ["task"])
         self.assertNotIn("release", Config({"versioning": {"enabled": False}}).all_labels())
+        self.assertNotIn("no-release", Config().all_labels())
 
     def test_invalid_values_name_the_key(self):
         cases = {

@@ -41,13 +41,10 @@ class CheckPullRequestTest(unittest.TestCase):
         findings = _check(_pr())
         self.assertEqual((findings.errors, findings.warnings), ([], []))
 
-    def test_exactly_one_of_release_and_no_release_is_required(self):
-        for labels in ((), ("release", "no-release")):
-            errors = _check(_pr(labels=labels)).errors
-            self.assertEqual(len(errors), 1, labels)
-            self.assertIn("exatamente um label: `release`", errors[0])
-            self.assertIn("`no-release` (fica acumulado", errors[0])
-        self.assertEqual(_check(_pr(labels=("no-release",))).errors, [])
+    def test_a_pr_without_the_release_label_is_valid_and_simply_accumulates(self):
+        findings = _check(_pr(labels=()))
+        self.assertEqual((findings.errors, findings.warnings), ([], []))
+        self.assertEqual(_check(_pr(labels=("documentation-only", "wip"))).errors, [])
 
     def test_template_sections_must_be_present_and_filled(self):
         empty = PR_BODY.format(issues="Closes #1", summary="x", version="<!-- só a dica do modelo -->\n-")
@@ -63,9 +60,7 @@ class CheckPullRequestTest(unittest.TestCase):
         )
         self.assertEqual(_check(_pr(labels=("release", "semver:patch"), body=with_reason)).errors, [])
         self.assertIn("sem motivo", _check(_pr(labels=("release", "semver:patch"))).errors[0])
-        self.assertIn(
-            "só vale em PR marcado", _check(_pr(labels=("no-release", "semver:patch"), body=with_reason)).errors[0]
-        )
+        self.assertIn("só vale em PR marcado", _check(_pr(labels=("semver:patch",), body=with_reason)).errors[0])
         self.assertIn(
             "Mais de um label",
             _check(_pr(labels=("release", "semver:patch", "semver:major"), body=with_reason)).errors[0],
@@ -97,9 +92,9 @@ class CheckPullRequestTest(unittest.TestCase):
             findings = _check(pr)
             self.assertEqual((findings.errors, len(findings.notes)), ([], 1))
 
-    def test_without_versioning_no_classification_is_asked(self):
+    def test_without_versioning_the_override_labels_are_not_checked(self):
         cfg = Config({"versioning": {"enabled": False}})
-        self.assertEqual(_check(_pr(labels=()), cfg=cfg).errors, [])
+        self.assertEqual(_check(_pr(labels=("semver:patch",)), cfg=cfg).errors, [])
 
     def test_branch_name_comes_from_the_issue(self):
         issue = {"number": 42, "title": "Corrigir a origem pública do convite", "labels": [{"name": "bug"}]}
@@ -145,20 +140,22 @@ class MergedPullRequestTest(SandboxCase):
         self.assertRan(box.run("github_issues.py", "pr-merged", "--pr", "10"))
         self.assertEqual(len(box.state()["comments"]["1"]), 2)
 
-    def test_an_unclassified_merge_becomes_no_release(self):
+    def test_a_merge_without_the_release_label_only_accumulates(self):
         box = self._merge(labels=())
         self.assertRan(box.run("github_issues.py", "pr-merged", "--pr", "10"))
         state = box.state()
-        self.assertEqual([label["name"] for label in state["pulls"]["10"]["labels"]], ["no-release"])
-        self.assertIn("mesclado sem classificação", state["comments"]["10"][0]["body"])
+        self.assertEqual(state["pulls"]["10"]["labels"], [])
+        self.assertNotIn("10", state["comments"])
         self.assertIn("fica acumulada", state["comments"]["1"][0]["body"])
         self.assertIn("Nada a versionar: 1 mudança(s)", self.assertRan(box.release()))
 
     def test_check_pr_reads_the_pr_from_github(self):
-        box = self._merge(labels=())
+        box = self._merge(labels=("semver:patch",))
         completed = box.run("github_issues.py", "check-pr", "--pr", "10")
         self.assertEqual(completed.returncode, 1)
-        self.assertIn("exatamente um label", completed.stdout)
+        self.assertIn("só vale em PR marcado com `release`", completed.stdout)
+        box.update_state(lambda state: state["pulls"]["10"].update(labels=[]))
+        self.assertEqual(box.run("github_issues.py", "check-pr", "--pr", "10").returncode, 0)
 
 
 class CommitMsgHookTest(SandboxCase):

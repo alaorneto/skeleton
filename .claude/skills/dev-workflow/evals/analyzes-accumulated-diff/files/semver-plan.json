@@ -11,9 +11,7 @@
       "kind": "pr",
       "pr": 52,
       "title": "refactor: split the parser module",
-      "labels": [
-        "no-release"
-      ],
+      "labels": [],
       "level": "none",
       "analyzed": false,
       "commits": [

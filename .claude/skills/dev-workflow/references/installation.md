@@ -19,7 +19,7 @@ O que ele faz:
 | Gera os workflows a partir dos modelos | `.github/workflows/pr-check.yml`, `pr-merged.yml`, `release.yml`, `epic-checklist.yml`, `semver-analysis.yml` |
 | Copia os modelos | `.github/ISSUE_TEMPLATE/*.yml`, `.github/pull_request_template.md` |
 | Instala o hook `commit-msg` | `.git/hooks/commit-msg`; se o projeto usa pre-commit, mostra o trecho a acrescentar |
-| Cria os labels | Tipos, `epic`, `release`, `no-release`, `breaking-change`, `semver:major|minor|patch` |
+| Cria os labels | Tipos, `epic`, `release`, `breaking-change`, `semver:major|minor|patch` |
 
 Opções: `--default-branch`, `--initial-version`, `--no-labels`, `--selftest` (instala também o workflow que roda a suíte do skill), `--dry-run`, `--force` (troca arquivos que já existem; sem ele, nada existente é sobrescrito).
 
@@ -73,7 +73,7 @@ Eles lembram o agente de criar as issues quando um plano é aceito e recusam `gi
 
 ## 6. Normas do projeto
 
-Acrescente às instruções do projeto (`AGENTS.md`, `CLAUDE.md`) um parágrafo curto apontando para o skill: todo trabalho versionado nasce de uma issue; branch `<tipo>/<N>-<slug>`; commits com `Refs #N`; PR com `Closes #N` e um label entre `release` e `no-release`; ninguém edita à mão os arquivos de versão nem o changelog.
+Acrescente às instruções do projeto (`AGENTS.md`, `CLAUDE.md`) um parágrafo curto apontando para o skill: todo trabalho versionado nasce de uma issue; branch `<tipo>/<N>-<slug>`; commits com `Refs #N`; PR com `Closes #N` e o label `release` quando o merge deve publicar versão; ninguém edita à mão os arquivos de versão nem o changelog.
 
 ## Atualizar o skill
 

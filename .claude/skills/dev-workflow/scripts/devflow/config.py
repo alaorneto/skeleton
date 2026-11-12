@@ -100,7 +100,6 @@ DEFAULTS: dict[str, Any] = {
     "labels": {
         "epic": "epic",
         "release": "release",
-        "no_release": "no-release",
         "breaking": "breaking-change",
         "override_prefix": "semver:",
         "extra": {},
@@ -131,7 +130,6 @@ DEFAULTS: dict[str, Any] = {
         "exempt_authors": ["dependabot[bot]"],
         "severity": {
             "sections": "error",
-            "classification": "error",
             "title": "error",
             "unchecked_criteria": "warning",
             "issue_sections": "warning",
@@ -310,9 +308,8 @@ class Config:
         if self.versioning_enabled:
             labels[self.label("release")] = (
                 "0e8a16",
-                "O merge deste PR publica uma versão com tudo que está acumulado",
+                "O merge publica uma versão com tudo que está acumulado; sem este label, o PR fica acumulado",
             )
-            labels[self.label("no_release")] = ("e4e669", "O PR não publica versão; fica acumulado para a próxima")
             labels[self.label("breaking")] = ("b60205", "Quebra de compatibilidade para quem usa o projeto")
             for level, text in (("major", "incompatível"), ("minor", "funcionalidade"), ("patch", "correção")):
                 labels[self.override_label(level)] = ("d4c5f9", f"Sobrepõe o nível calculado: {level} ({text})")

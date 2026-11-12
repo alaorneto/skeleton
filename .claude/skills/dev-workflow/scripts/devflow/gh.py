@@ -176,9 +176,6 @@ class GitHub:
     def update_comment(self, comment_id: int, body: str) -> dict[str, Any]:
         return self.api(f"issues/comments/{comment_id}", method="PATCH", body={"body": body})
 
-    def add_labels(self, number: int, labels: Sequence[str]) -> Any:
-        return self.api(f"issues/{number}/labels", method="POST", body={"labels": list(labels)})
-
     def create_release(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.api("releases", method="POST", body=payload)
 

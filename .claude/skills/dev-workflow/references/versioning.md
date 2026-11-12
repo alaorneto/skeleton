@@ -1,6 +1,6 @@
 # Versionamento semântico
 
-Conteúdo: [de onde vem a versão](#de-onde-vem-a-versão) · [classificação do PR](#classificação-do-pr) · [como o nível é decidido](#como-o-nível-é-decidido) · [versões 0.x](#versões-0x) · [análise por agente](#análise-por-agente) · [sobreposição](#sobreposição-pelo-dono) · [publicar sem PR](#publicar-o-acumulado-sem-pr) · [pré-release](#pré-release) · [hotfix](#hotfix-numa-versão-antiga) · [desfazer](#desfazer-uma-release-errada) · [comandos](#comandos)
+Conteúdo: [de onde vem a versão](#de-onde-vem-a-versão) · [o PR gera versão?](#o-pr-gera-versão) · [como o nível é decidido](#como-o-nível-é-decidido) · [versões 0.x](#versões-0x) · [análise por agente](#análise-por-agente) · [sobreposição](#sobreposição-pelo-dono) · [publicar sem PR](#publicar-o-acumulado-sem-pr) · [pré-release](#pré-release) · [hotfix](#hotfix-numa-versão-antiga) · [desfazer](#desfazer-uma-release-errada) · [comandos](#comandos)
 
 `S` é o diretório `scripts/` do skill; `python3` é `py -3` no Windows.
 
@@ -12,16 +12,13 @@ Enquanto o projeto não tem nenhuma tag, vale `versioning.initial_version`. `rel
 
 Consequência prática: para saber o que entra na próxima versão não se consulta label nem lista mantida à mão, só `tag..HEAD`. Apagar uma tag devolve o intervalo ao estado anterior; é por isso que desfazer e refazer uma release funciona.
 
-## Classificação do PR
+## O PR gera versão?
 
-Todo PR leva exatamente um label:
+Só o label **`release`** marca versão. Com ele, o merge publica uma versão que cobre este PR e todos os que entraram desde a última tag sem publicar. Sem ele, nada é publicado e as mudanças ficam acumuladas. Não há label para o caso contrário: a ausência de `release` é a decisão de não publicar agora.
 
-- **`release`**: o merge publica uma versão. A versão cobre este PR e todos os que entraram desde a última tag sem publicar.
-- **`no-release`**: nada é publicado. As mudanças ficam acumuladas.
+Marque `release` quando quem usa o projeto precisa receber o que está acumulado: uma correção que alguém espera, uma funcionalidade concluída. Deixe sem para passos intermediários, manutenção, e sempre que fizer sentido juntar mais mudanças antes de publicar. Não existe "PR que nunca entra em versão": o que foi mesclado sai na próxima.
 
-Um PR sem classificação reprova o check "Verificação do PR". Se for mesclado assim mesmo (repositório sem proteção de branch), a automação o marca `no-release` e avisa no PR: nada se perde, ele entra na próxima versão.
-
-Escolha `release` quando quem usa o projeto precisa receber o que está acumulado: uma correção que alguém espera, uma funcionalidade concluída. Escolha `no-release` para passos intermediários, manutenção, e sempre que fizer sentido juntar mais mudanças antes de publicar. Não existe "PR que nunca entra em versão": o que foi mesclado sai na próxima.
+Esquecer o label não perde nada, só adia: a mudança entra na próxima versão, ou é publicada na hora com uma execução manual (veja [publicar sem PR](#publicar-o-acumulado-sem-pr)). A prévia comentada em todo PR mostra o número que sairia com `release`, para a decisão ser consciente.
 
 ## Como o nível é decidido
 
@@ -64,7 +61,7 @@ Onde roda: localmente, por você, ao abrir ou marcar um PR `release` (passo 5 do
 ### Procedimento
 
 1. Gere o plano: `python3 S/release.py plan --pr <N> --format json` (sem PR aberto: `plan --format json`). Ele traz `base_tag`, e em `changes` cada mudança pendente com `commits`, `signals` e `public_surfaces` (os arquivos de superfície pública tocados, com `action: "review"` nos que exigem análise).
-2. **Analise todas as mudanças de `changes`, não só o PR atual.** As que entraram com `no-release` nunca foram analisadas; é agora que são.
+2. **Analise todas as mudanças de `changes`, não só o PR atual.** As que entraram sem `release` nunca foram analisadas; é agora que são.
 3. Para cada mudança, leia o diff dela: `git show <sha>` para cada commit listado, ou `git diff <base_tag>..<head> -- <arquivos>` quando for mais direto. Comece pelos arquivos de `public_surfaces`; depois veja o resto com olho no que alguém de fora percebe.
 4. Classifique cada mudança pelo efeito em quem usa o projeto, não pelo tamanho do diff:
    - **major**: algo que funcionava deixa de funcionar sem mudança do lado de quem usa. Símbolo, rota, comando, opção ou campo público removido ou renomeado; parâmetro obrigatório novo; tipo de retorno ou formato de saída alterado; default que muda comportamento existente; migração de dados sem caminho automático; requisito mínimo de plataforma elevado.
@@ -111,7 +108,7 @@ Com `versioning.require_analysis = true`, a release para enquanto houver mudanç
 
 O dono do projeto tem a palavra final, para cima ou para baixo:
 
-- No PR de release: label `semver:major`, `semver:minor` ou `semver:patch`, e na seção "Versão" do corpo a linha `Motivo da sobreposição: <por quê>`. O check reprova sobreposição sem motivo ou em PR `no-release`.
+- No PR de release: label `semver:major`, `semver:minor` ou `semver:patch`, e na seção "Versão" do corpo a linha `Motivo da sobreposição: <por quê>`. O check reprova sobreposição sem motivo ou em PR sem `release`.
 - Na execução manual: `--level <nível> --reason "<por quê>"` (ou os campos do disparo manual do workflow).
 
 A sobreposição é literal: `semver:major` em `0.5.0` publica `1.0.0`. O nível calculado, o nível aplicado e o motivo ficam nas notas da release, na anotação da tag e no corpo do commit de release. Um piso de versão declarado no código continua valendo: sobrepor para um número menor que ele é erro.
@@ -136,7 +133,7 @@ gh workflow run release.yml -f force=true -f prerelease=rc
 
 Publica `X.Y.Z-rc.1` (depois `-rc.2`…), em que `X.Y.Z` é a versão que o acumulado pediria. Escreve o número nos arquivos de versão (com `{current_pep440}` a forma é `X.Y.Zrc1`), cria a tag e uma GitHub Release marcada como pré-release. Não toca o changelog nem comenta PRs e issues: isso acontece na versão final, que cobre tudo desde a última versão final.
 
-Como um PR `release` publica a versão final assim que é mesclado, as pré-releases servem para o período em que os PRs entram como `no-release`.
+Como um PR `release` publica a versão final assim que é mesclado, as pré-releases servem para o período em que os PRs entram sem `release`.
 
 ## Hotfix numa versão antiga
 

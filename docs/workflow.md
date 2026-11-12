@@ -16,7 +16,7 @@ Nos comandos abaixo, `S` é `.claude/skills/dev-workflow/scripts` e `python3` é
 1. **Planejar.** No modo de planejamento do Claude Code, o plano termina com a seção `Itens do GitHub`: para cada item, o label de tipo, o título, os critérios de aceite, o plano de testes e a documentação a atualizar. Revisar o plano é também revisar essa decomposição.
 2. **Aceitar → issues.** Quando o plano é aceito, o agente cria as issues antes de qualquer edição: uma por entrega independente e revisável, cada uma detalhada pelo modelo do tipo. Com duas ou mais, cria também uma issue `epic` com a lista ordenada das filhas e as vincula a ele como sub-issues nativos, com as dependências como "blocked by" (veja [Epics](#epics-sub-issues-e-dependências)). Sem modo de planejamento, a issue é identificada ou criada antes da primeira edição.
 3. **Desenvolver.** Branch `<tipo>/<N>-<slug>` a partir de `main` (`python3 S/github_issues.py start <N>` a cria pelo tipo e título da issue). Commits em Conventional Commits, com trailer `Refs #N`. Mudança de escopo atualiza a issue, com o comentário de mudança de escopo, ou abre outra.
-4. **Revisar.** PR para `main` pelo [modelo](../.github/pull_request_template.md), com `Closes #N` (entrega completa) ou `Refs #N` (parcial), somente os testes executados de fato, e **um label de versão**: `release` ou `no-release`. O check "Verificação do PR" confere tudo e comenta a prévia da versão.
+4. **Revisar.** PR para `main` pelo [modelo](../.github/pull_request_template.md), com `Closes #N` (entrega completa) ou `Refs #N` (parcial), somente os testes executados de fato e, **se o merge deve publicar versão, o label `release`**; sem ele, as mudanças ficam acumuladas. O check "Verificação do PR" confere tudo e comenta a prévia da versão.
 5. **Aprovar e fechar.** O merge do PR fecha as issues citadas com `Closes`, e cada issue citada recebe sozinha o comentário de evidências. Se o PR era `release`, o workflow "Versão e release" publica a versão. Sem PR, a issue só fecha com aprovação explícita do responsável, depois de um comentário com commits, testes executados, documentação atualizada e follow-ups. Quem implementa não fecha a própria issue por conta própria.
 
 ## Classificação
@@ -36,7 +36,7 @@ Cada issue tem exatamente um label de tipo. O tipo decide o prefixo de commit e 
 
 Labels adicionais: `security` para qualquer impacto em tenant, RLS, autorização, autenticação, auditoria, segredos, CSRF ou CAS; `epic` para a issue que acompanha um plano. Documentação e testes que acompanham uma feature ou um bug ficam na mesma issue, como parte da definição de pronto.
 
-Labels de PR: `release` ou `no-release` (um dos dois, sempre), `breaking-change` (quebra de compatibilidade) e `semver:major`, `semver:minor`, `semver:patch` (sobreposição do nível pelo responsável).
+Labels de PR: `release` (o merge publica versão; sem ele, o PR fica acumulado), `breaking-change` (quebra de compatibilidade) e `semver:major`, `semver:minor`, `semver:patch` (sobreposição do nível pelo responsável).
 
 ## Conteúdo obrigatório de uma issue
 
@@ -60,7 +60,6 @@ O workflow [pr-check](../.github/workflows/pr-check.yml) roda a cada push, ediç
 
 - o corpo não cita uma issue existente deste repositório com exatamente um label de tipo;
 - falta uma seção do modelo, ou ela está só com o texto do modelo;
-- o PR não tem exatamente um label entre `release` e `no-release`;
 - há `semver:*` sem `release`, sem motivo, ou mais de um;
 - o título não segue Conventional Commits;
 - algum arquivo de versão diverge da versão corrente (edição manual).
@@ -73,7 +72,7 @@ Para que o check impeça o merge, marque "Verificação do PR" como check obriga
 
 ## Fechamento com evidências
 
-No merge, o workflow [pr-merged](../.github/workflows/pr-merged.yml) comenta em cada issue citada pelo PR: os commits, as seções "Testes executados" e "Documentação" do PR, os critérios de aceite que ficaram sem marcar e a situação da versão. Reexecutar não duplica o comentário. Um PR mesclado sem label de versão é marcado `no-release` e avisado: as mudanças entram na próxima versão.
+No merge, o workflow [pr-merged](../.github/workflows/pr-merged.yml) comenta em cada issue citada pelo PR: os commits, as seções "Testes executados" e "Documentação" do PR, os critérios de aceite que ficaram sem marcar e a situação da versão. Reexecutar não duplica o comentário. PR sem `release` não recebe marcação: o comentário na issue diz que a entrega fica acumulada para a próxima versão.
 
 ## Versão
 
@@ -104,7 +103,7 @@ Apps de terceiros (`applications/`, `examples/notes`) têm versão própria, no 
 
 ### Como o nível é decidido
 
-O nível é o maior entre os sinais de **todas as mudanças acumuladas desde a última tag**, inclusive os PRs que entraram como `no-release`:
+O nível é o maior entre os sinais de **todas as mudanças acumuladas desde a última tag**, inclusive os PRs que entraram sem `release`:
 
 - o tipo de cada issue citada (tabela acima);
 - o tipo de cada commit e do título do PR (`feat` minor; `fix` e `perf` patch);
@@ -181,8 +180,8 @@ Nenhum dos comandos remove vínculos. Para desfazer um vínculo, use `gh issue e
 | Configuração | `.github/dev-workflow.toml` | Tipos, seções obrigatórias, arquivos de versão, superfícies públicas, pisos, modo de release |
 | Hook do Claude Code | `.claude/settings.json`, `.claude/skills/dev-workflow/assets/claude/dev-workflow-hook.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
 | Git | `.pre-commit-config.yaml`, `github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts, fixups e o commit de release passam |
-| Verificação do PR | `.github/workflows/pr-check.yml`, `github_issues.py check-pr`, `release.py check` e `preview` | Issue classificada, seções, label de versão, título, arquivos de versão coerentes; prévia de versão comentada |
-| Evidências | `.github/workflows/pr-merged.yml`, `github_issues.py pr-merged` | Comentário de evidências em cada issue do PR; `no-release` para PR sem classificação |
+| Verificação do PR | `.github/workflows/pr-check.yml`, `github_issues.py check-pr`, `release.py check` e `preview` | Issue classificada, seções, sobreposição de versão, título, arquivos de versão coerentes; prévia de versão comentada |
+| Evidências | `.github/workflows/pr-merged.yml`, `github_issues.py pr-merged` | Comentário de evidências em cada issue do PR |
 | Release | `.github/workflows/release.yml`, `release.py run` | Número, arquivos, changelog, tag, GitHub Release e marcações |
 | Análise de versão | o agente, pelo skill; opcionalmente `.github/workflows/semver-analysis.yml` | Nível proposto a partir do diff acumulado, gravado no PR |
 | Epics | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-epic`, `sync-checklist`, `close-epic` | Sub-issues e "blocked by" nativos, caixas e fechamento do epic |
@@ -217,6 +216,6 @@ python3 -m unittest discover -s .claude/skills/dev-workflow/tests
 ## Exceções
 
 - Merges, reverts e fixups gerados pelo git, e o commit de release, não precisam de referência própria.
-- PRs do Dependabot dispensam issue e classificação; entram como mudança acumulada. Uma atualização de dependência feita à mão segue o fluxo com `chore`.
+- PRs do Dependabot dispensam issue; sem `release`, entram como mudança acumulada. Uma atualização de dependência feita à mão segue o fluxo com `chore`.
 - Perguntas, leituras e investigações sem mudança de arquivo não precisam de issue. Se a investigação levar a uma correção, a issue é criada antes da correção, com o diagnóstico no contexto.
 - Commits anteriores à adoção deste fluxo não são reescritos, e o que veio antes da tag de base não entra em changelog.

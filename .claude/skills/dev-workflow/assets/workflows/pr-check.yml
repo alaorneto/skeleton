@@ -1,7 +1,7 @@
 name: Verificação do PR
 
-# Skill dev-workflow: issue vinculada e classificada, seções do modelo, classificação de versão
-# (release / no-release), título, e a prévia da versão que o merge publicaria.
+# Skill dev-workflow: issue vinculada e classificada, seções do modelo, sobreposição de versão,
+# título, e a prévia da versão que o merge publicaria (com o label release) ou acumularia (sem ele).
 
 on:
   pull_request:
@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Issue, seções, classificação e título
+      - name: Issue, seções, sobreposição de versão e título
         # Dados do evento entram por variável de ambiente, nunca interpolados no script.
         env:
           GH_TOKEN: ${{ github.token }}

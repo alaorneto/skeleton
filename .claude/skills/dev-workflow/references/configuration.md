@@ -29,7 +29,7 @@ Um bloco por tipo de issue. O nome do bloco é o label.
 | Chave | Padrão |
 |---|---|
 | `epic` | `"epic"` |
-| `release` / `no_release` | `"release"` / `"no-release"` |
+| `release` | `"release"`: o único label que faz o merge publicar versão |
 | `breaking` | `"breaking-change"` |
 | `override_prefix` | `"semver:"` (gera `semver:major`, `semver:minor`, `semver:patch`) |
 | `[labels.extra.<nome>]` | Labels adicionais que `sync-labels` cria (`color`, `description`) |
@@ -59,13 +59,13 @@ Nível por tipo de Conventional Commits. Padrão: `feat = "minor"`, `fix = "patc
 | `override_reason_marker` | `"Motivo da sobreposição"` | Início da linha com o motivo |
 | `title_pattern` | Conventional Commits | Expressão regular do título |
 | `exempt_authors` | `["dependabot[bot]"]` | Autores isentos do check e das evidências |
-| `[pr.severity]` | — | `error`, `warning` ou `off` para: `sections`, `classification`, `title` (padrão `error`), `unchecked_criteria`, `issue_sections`, `type_mismatch` (padrão `warning`) |
+| `[pr.severity]` | — | `error`, `warning` ou `off` para: `sections`, `title` (padrão `error`), `unchecked_criteria`, `issue_sections`, `type_mismatch` (padrão `warning`) |
 
 ## `[versioning]`
 
 | Chave | Padrão | Significado |
 |---|---|---|
-| `enabled` | `true` | `false` desliga classificação, prévia e release; o fluxo de issues continua |
+| `enabled` | `true` | `false` desliga prévia, sobreposição e release; o fluxo de issues continua |
 | `tag_prefix` | `"v"` | Tags de versão são `<prefixo><semver>` |
 | `initial_version` | `"0.1.0"` | Versão corrente enquanto não existe tag |
 | `zero_major` | `"breaking-is-minor"` | Em 0.x, quebra sobe o minor; `"strict"` a leva a 1.0.0 |

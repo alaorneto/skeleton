@@ -6,20 +6,20 @@ Conteúdo: [ciclo](#ciclo) · [PR sem versão](#o-que-acontece-num-pr-sem-versã
 
 ```
 plano aceito ─► issues (+ epic) ─► branch <tipo>/<N>-<slug> ─► commits "Refs #N"
-      ─► PR "Closes #N" + label release | no-release ─► check + prévia de versão
+      ─► PR "Closes #N" (+ label release, se publica) ─► check + prévia de versão
       ─► merge ─► evidências nas issues ─► [release] versão, changelog, tag, GitHub Release
 ```
 
 1. **Planejar.** O plano termina com "Itens do GitHub". Revisar o plano é revisar a decomposição.
 2. **Issues.** Uma por entrega revisável, um label de tipo cada, todas as seções do modelo. Com duas ou mais, um epic com sub-issues e "blocked by" nativos.
 3. **Desenvolver.** Branch a partir da issue, commits em Conventional Commits com `Refs #N`. Mudança de escopo atualiza a issue ou abre outra.
-4. **Revisar.** PR pelo modelo, classificado como `release` ou `no-release`. O check confere e comenta a prévia.
+4. **Revisar.** PR pelo modelo, com o label `release` se o merge deve publicar versão. O check confere e comenta a prévia.
 5. **Aprovar.** O merge é a aprovação. Evidências, versão e fechamento acontecem sozinhos.
 
 ## O que acontece num PR sem versão
 
-1. O PR é aberto com `Closes #N` e o label `no-release`.
-2. **"Verificação do PR"** roda a cada push, edição e troca de label: issue existe e tem um tipo; seções do modelo preenchidas; exatamente um label de classificação; título em Conventional Commits; arquivos de versão coerentes. Avisa (sem reprovar) sobre critérios de aceite não marcados, seções faltando na issue e tipo do título diferente do tipo da issue.
+1. O PR é aberto com `Closes #N` e sem o label `release`.
+2. **"Verificação do PR"** roda a cada push, edição e troca de label: issue existe e tem um tipo; seções do modelo preenchidas; sobreposição de versão (`semver:*`) só com `release` e com motivo; título em Conventional Commits; arquivos de versão coerentes. Avisa (sem reprovar) sobre critérios de aceite não marcados, seções faltando na issue e tipo do título diferente do tipo da issue.
 3. O mesmo workflow comenta a **prévia**: "este PR não publica versão; fica acumulado com K mudanças; se a versão saísse depois deste merge, seria vX (nível)". É um comentário único, atualizado no lugar.
 4. Merge.
 5. **"Evidências do PR mesclado"** comenta em cada issue citada: commits, testes e documentação declarados no PR, critérios de aceite pendentes, e que a entrega aguarda a próxima versão. O GitHub fecha as issues com `Closes`; a caixa no epic é marcada.
@@ -40,7 +40,7 @@ Depois do merge, "Versão e release":
 5. **Escreve**: a versão em cada arquivo de `[[versioning.files]]` e a seção nova no topo do `CHANGELOG.md`, agrupada por tipo, uma linha por issue entregue com links para a issue e o PR.
 6. **Commita** `chore(release): vX.Y.Z`, com a justificativa no corpo, e faz push na branch. Se a branch andou nesse meio-tempo, descarta, atualiza e recalcula.
 7. **Publica**: tag anotada com as notas, GitHub Release com changelog e "Por que este número".
-8. **Marca**: comentário "publicado na versão vX.Y.Z" em cada PR incluído (inclusive os `no-release` antigos) e em cada issue entregue; milestone `vX.Y.Z` com todos eles, fechada.
+8. **Marca**: comentário "publicado na versão vX.Y.Z" em cada PR incluído (inclusive os antigos, sem `release`) e em cada issue entregue; milestone `vX.Y.Z` com todos eles, fechada.
 9. Dispara o workflow de publicação de artefatos, se configurado.
 
 No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atualiza o PR `release/next` com o commit de release; a publicação acontece quando esse PR é mesclado.
@@ -53,8 +53,8 @@ No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atuali
 | Configuração | `.github/dev-workflow.toml` | Tudo que é do projeto: tipos, seções, arquivos de versão, superfícies, modo de release |
 | Hook do git | `commit-msg` (pre-commit ou `bootstrap.py install-hook`) | Commit sem referência a issue é recusado; `Refs: #N` sai do nome da branch |
 | Hook do Claude Code | `assets/claude/dev-workflow-hook.mjs` | Lembra de criar as issues ao aceitar um plano; recusa `--no-verify` e PR sem referência. Lembrete forte, não barreira |
-| Check do PR | `pr-check.yml` → `github_issues.py check-pr`, `release.py check`, `release.py preview` | Vínculo, seções, classificação, título, coerência dos arquivos de versão, prévia |
-| Evidências | `pr-merged.yml` → `github_issues.py pr-merged` | Comentário de evidências; classificação padrão de PR não classificado |
+| Check do PR | `pr-check.yml` → `github_issues.py check-pr`, `release.py check`, `release.py preview` | Vínculo, seções, sobreposição de versão, título, coerência dos arquivos de versão, prévia |
+| Evidências | `pr-merged.yml` → `github_issues.py pr-merged` | Comentário de evidências nas issues |
 | Release | `release.yml` → `release.py run` | Versão, arquivos, changelog, tag, GitHub Release, marcações |
 | Análise | `semver-analysis.yml` (opcional) ou o agente local | Nível proposto a partir do diff acumulado |
 | Epics | `epic-checklist.yml` → `sync-checklist`, `close-epic` | Caixas e fechamento do epic |
@@ -66,7 +66,9 @@ No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atuali
 
 **Lista declarativa de arquivos, com texto literal ou regex.** Alternativa: suporte embutido a cada ecossistema. O skill não sabe o que é `pyproject.toml` ou `Cargo.toml` na hora do bump; ele troca texto com contagem conferida. Funciona em qualquer tecnologia e falha alto quando o arquivo diverge. O bootstrap reconhece os arquivos mais comuns só para sugerir a configuração.
 
-**Release depois do merge, não dentro do PR.** Alternativa (a sugestão original lida ao pé da letra): commitar o bump no PR antes do merge. Descartada porque: dois PRs `release` abertos ao mesmo tempo calculam o mesmo número e o segundo conflita em changelog e arquivos; o número calculado envelhece se outro PR entra antes; commit feito pelo token do Actions não redispara os checks, e o PR ficaria sem check na ponta; PR de fork não aceita push. Depois do merge há uma fila só (um grupo de concorrência por branch) e um estado só. O que se preserva da sugestão: a classificação é do PR, e a prévia mostra no PR o número que vai sair.
+**Release depois do merge, não dentro do PR.** Alternativa (a sugestão original lida ao pé da letra): commitar o bump no PR antes do merge. Descartada porque: dois PRs `release` abertos ao mesmo tempo calculam o mesmo número e o segundo conflita em changelog e arquivos; o número calculado envelhece se outro PR entra antes; commit feito pelo token do Actions não redispara os checks, e o PR ficaria sem check na ponta; PR de fork não aceita push. Depois do merge há uma fila só (um grupo de concorrência por branch) e um estado só. O que se preserva da sugestão: a decisão de versionar é do PR, e a prévia mostra no PR o número que vai sair.
+
+**Só o PR que publica leva label.** Primeiro desenho: um label obrigatório entre `release` e `no-release`, com o check reprovando PR sem nenhum. Descartado a pedido do dono: o caso comum é não publicar, e exigir um label para ele é atrito sem informação. A ausência de `release` é a decisão; o risco de esquecer o label é baixo, porque nada se perde (a mudança fica acumulada) e a prévia em todo PR mostra o que sairia.
 
 **Dois modos de escrita na branch.** `direct` (padrão) commita na branch e publica na mesma execução: zero passos manuais, mas exige que o token possa escrever nela. `pull-request` abre um PR de release e publica no merge dele: convive com branch que exige PR, ao custo de um clique. O estado é o mesmo nos dois; só muda quem leva o commit à branch.
 

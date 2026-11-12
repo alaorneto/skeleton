@@ -29,7 +29,7 @@ class AccumulationTest(SandboxCase):
         box = self.box
         box.issue(1, "Corrigir a lista vazia", "bug")
         box.issue(2, "Corrigir o arredondamento", "bug")
-        box.merge_pr(10, "fix: handle the empty list", FIX, labels=["no-release"], closes=[1])
+        box.merge_pr(10, "fix: handle the empty list", FIX, closes=[1])
 
         out = self.assertRan(box.release())
         self.assertIn("Nada a versionar: 1 mudança(s) acumulada(s)", out)
@@ -111,7 +111,7 @@ class LevelTest(SandboxCase):
         box = self.box
         box.issue(1, "Exportar em CSV", "feature")
         box.issue(2, "Corrigir a lista vazia", "bug")
-        box.merge_pr(10, "feat: add the export command", FEAT, labels=["no-release"], closes=[1])
+        box.merge_pr(10, "feat: add the export command", FEAT, closes=[1])
         box.merge_pr(11, "fix: handle the empty list", FIX, labels=["release"], closes=[2])
         self.assertRan(box.release())
         self.assertEqual(box.tags(), ["v1.2.0", "v1.3.0"])
@@ -129,7 +129,7 @@ class LevelTest(SandboxCase):
     def test_a_breaking_change_makes_it_major(self):
         box = self.box
         commits = [("feat!: drop the legacy client", None)]
-        box.merge_pr(10, "feat!: drop the legacy client", commits, labels=["no-release"])
+        box.merge_pr(10, "feat!: drop the legacy client", commits)
         box.merge_pr(11, "fix: handle the empty list", FIX, labels=["release"])
         self.assertRan(box.release())
         self.assertEqual(box.tags(), ["v1.2.0", "v2.0.0"])
@@ -161,7 +161,7 @@ class LevelTest(SandboxCase):
     def test_squash_merges_and_direct_commits_are_found_too(self):
         box = self.box
         box.issue(1, "Exportar em CSV", "feature")
-        box.merge_pr(10, "feat: add the export command", FEAT, labels=["no-release"], closes=[1], squash=True)
+        box.merge_pr(10, "feat: add the export command", FEAT, closes=[1], squash=True)
         box.write({"hotfix.txt": "x"})
         box.git("add", "-A")
         box.git("commit", "-q", "-m", "fix: direct push without a PR")
@@ -213,7 +213,7 @@ class OverrideTest(SandboxCase):
 
     def test_a_manual_run_can_force_a_release_of_what_is_pending(self):
         box = self.box
-        box.merge_pr(10, "fix: handle the empty list", FIX, labels=["no-release"])
+        box.merge_pr(10, "fix: handle the empty list", FIX)
         out = self.assertRan(box.release("--force", "--level", "minor", "--reason", "alinha com o anúncio"))
         self.assertIn("alinha com o anúncio", out)
         self.assertEqual(box.tags(), ["v1.2.0", "v1.3.0"])
@@ -480,7 +480,7 @@ class PrereleaseAndMaintenanceTest(SandboxCase):
     def test_prereleases_count_up_and_the_final_release_replaces_them(self):
         box = self.box
         box.issue(1, "Exportar em CSV", "feature")
-        box.merge_pr(10, "feat: add the export command", FEAT, labels=["no-release"], closes=[1])
+        box.merge_pr(10, "feat: add the export command", FEAT, closes=[1])
         self.assertRan(box.release("--force", "--prerelease", "rc"))
         self.assertEqual(box.tags(), ["v1.2.0", "v1.3.0-rc.1"])
         self.assertIn('version = "1.3.0rc1"', box.read("pyproject.toml"))
@@ -490,7 +490,7 @@ class PrereleaseAndMaintenanceTest(SandboxCase):
         self.assertEqual((release["prerelease"], release["make_latest"]), (True, "false"))
         self.assertEqual(box.state()["comments"], {})
 
-        box.merge_pr(11, "fix: handle the empty list", FIX, labels=["no-release"])
+        box.merge_pr(11, "fix: handle the empty list", FIX)
         self.assertRan(box.release("--force", "--prerelease", "rc"))
         self.assertEqual(box.tags(), ["v1.2.0", "v1.3.0-rc.1", "v1.3.0-rc.2"])
 
@@ -562,26 +562,24 @@ class SurroundingsTest(SandboxCase):
 
     def test_the_preview_of_an_open_pr_is_one_comment_kept_up_to_date(self):
         box = self.box
-        box.merge_pr(10, "fix: handle the empty list", FIX, labels=["no-release"])
+        box.merge_pr(10, "fix: handle the empty list", FIX)
         branch = box.open_pr(11, "feat: add the export command", FEAT, labels=["release"])
         args = ("release.py", "preview", "--pr", "11", "--base-ref", "main", "--head-ref", branch, "--comment")
         out = self.assertRan(box.run(*args))
         self.assertIn("ao mesclar, este PR publica **v1.3.0** (minor)", out)
         self.assertIn("este PR e 1 mudança(s) já acumulada(s)", out)
 
-        box.update_state(lambda state: state["pulls"]["11"].update(labels=[{"name": "no-release"}]))
+        box.update_state(lambda state: state["pulls"]["11"].update(labels=[]))
         out = self.assertRan(box.run(*args))
         self.assertIn("este PR não publica versão", out)
+        self.assertIn("Com `release`, o merge publicaria **v1.3.0** (minor)", out)
         comments = _bodies(box.state(), 11)
         self.assertEqual(len(comments), 1)
         self.assertIn("não publica versão", comments[0])
 
-        box.update_state(lambda state: state["pulls"]["11"].update(labels=[]))
-        self.assertIn("PR sem classificação", self.assertRan(box.run(*args)))
-
     def test_without_github_the_history_alone_still_gives_a_plan(self):
         box = self.box
-        box.merge_pr(10, "feat: add the export command", FEAT, labels=["no-release"])
+        box.merge_pr(10, "feat: add the export command", FEAT)
         completed = box.run("release.py", "plan", env={"DEV_WORKFLOW_OFFLINE": "1"})
         self.assertIn("**v1.3.0** (minor)", self.assertRan(completed))
         self.assertEqual(self.assertRan(box.run("release.py", "next", "--level", "major")).strip(), "2.0.0")

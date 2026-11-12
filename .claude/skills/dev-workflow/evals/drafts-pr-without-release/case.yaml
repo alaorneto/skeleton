@@ -3,4 +3,4 @@ name: drafts-pr-without-release
 expected_outcome: |
   pr-body.md segue o modelo do skill (Issues com Closes #12, Resumo, Testes executados com o comando e o
   resultado reais, Documentação com "Não se aplica" e motivo, Versão com o impacto de correção), e
-  pr-command.txt traz um `gh pr create` com título em Conventional Commits, --body-file e o label no-release.
+  pr-command.txt traz um `gh pr create` com título em Conventional Commits, --body-file e sem o label release.

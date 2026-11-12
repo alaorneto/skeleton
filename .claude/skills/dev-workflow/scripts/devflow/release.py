@@ -467,27 +467,21 @@ def run(session: Session, args: argparse.Namespace) -> int:
 def report(plan: Plan, cfg: Config, links: Links, *, pr: int | None = None) -> str:
     lines: list[str] = []
     tag = plan.tag(cfg)
-    release, no_release = cfg.label("release"), cfg.label("no_release")
+    release = cfg.label("release")
     if pr is not None:
         current = next((change for change in plan.changes if change.number == pr), None)
         others = len(plan.changes) - 1
         labels = current.labels if current else set()
-        if release in labels and no_release not in labels:
+        if release in labels:
             lines.append(f"### Prévia de versão: ao mesclar, este PR publica **{tag}** ({plan.level})")
             lines.append(
                 f"Entram nesta versão este PR e {others} mudança(s) já acumulada(s) desde {plan.base_tag or 'o início'}."
             )
-        elif no_release in labels and release not in labels:
+        else:
             lines.append("### Prévia de versão: este PR não publica versão")
             lines.append(
-                f"Ele fica acumulado com {others} mudança(s) pendente(s). Se a versão saísse depois deste merge, "
-                f"seria **{tag}** ({plan.level})."
-            )
-        else:
-            lines.append("### Prévia de versão: PR sem classificação")
-            lines.append(
-                f"Marque `{release}` (o merge publica **{tag}**, nível {plan.level}, com tudo que está acumulado) ou "
-                f"`{no_release}` (acumula para a próxima versão)."
+                f"Sem o label `{release}`, ele fica acumulado com {others} mudança(s) pendente(s) e entra na próxima "
+                f"versão. Com `{release}`, o merge publicaria **{tag}** ({plan.level})."
             )
     elif plan.version is None:
         lines.append(f"Nada acumulado desde {plan.base_tag or 'o início'}.")

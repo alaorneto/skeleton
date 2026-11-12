@@ -1,6 +1,6 @@
 ---
 name: dev-workflow
-description: Fluxo de desenvolvimento rastreável no GitHub, do plano à release, para projetos de qualquer tecnologia - issue antes de qualquer edição, branch e commits vinculados, PR verificado, versão semântica calculada e publicada sozinha. Use SEMPRE que (1) um plano for aceito (ExitPlanMode), para criar as issues; (2) for começar a implementar, corrigir, refatorar, documentar ou mexer em CI ou dependências, para vincular o trabalho a uma issue; (3) criar branch, commitar ou abrir PR; (4) classificar um PR como gerando versão ou não (labels release / no-release), decidir patch, minor ou major, ou analisar o diff acumulado; (5) versionar, gerar changelog, publicar ou desfazer uma release, pré-release ou hotfix; (6) fechar uma issue com evidências; (7) instalar ou conferir este fluxo num projeto. Vale também quando o pedido só diz "sobe a versão", "qual é a próxima versão", "isso quebra compatibilidade?", "abre o PR", "fecha a issue", "o que está pendente de release", semver, changelog, tag, release notes, bump.
+description: Fluxo de desenvolvimento rastreável no GitHub, do plano à release, para projetos de qualquer tecnologia - issue antes de qualquer edição, branch e commits vinculados, PR verificado, versão semântica calculada e publicada sozinha. Use SEMPRE que (1) um plano for aceito (ExitPlanMode), para criar as issues; (2) for começar a implementar, corrigir, refatorar, documentar ou mexer em CI ou dependências, para vincular o trabalho a uma issue; (3) criar branch, commitar ou abrir PR; (4) decidir se um PR gera versão (label release), decidir patch, minor ou major, ou analisar o diff acumulado; (5) versionar, gerar changelog, publicar ou desfazer uma release, pré-release ou hotfix; (6) fechar uma issue com evidências; (7) instalar ou conferir este fluxo num projeto. Vale também quando o pedido só diz "sobe a versão", "qual é a próxima versão", "isso quebra compatibilidade?", "abre o PR", "fecha a issue", "o que está pendente de release", semver, changelog, tag, release notes, bump.
 ---
 
 # Fluxo de desenvolvimento: da issue à release
@@ -14,7 +14,7 @@ Leia conforme a fase:
 | Quando | Leia |
 |---|---|
 | Vai redigir issue, PR, comentário de fechamento ou de mudança de escopo | [references/templates.md](references/templates.md) |
-| Vai classificar um PR, analisar o diff para decidir o nível, publicar, desfazer ou fazer hotfix | [references/versioning.md](references/versioning.md) |
+| Vai decidir se um PR gera versão, analisar o diff para decidir o nível, publicar, desfazer ou fazer hotfix | [references/versioning.md](references/versioning.md) |
 | Quer o passo a passo do que acontece num PR com e sem versão, ou o porquê de uma decisão | [references/flow.md](references/flow.md) |
 | Vai instalar o fluxo num projeto ou mexer na configuração | [references/installation.md](references/installation.md), [references/configuration.md](references/configuration.md) |
 
@@ -81,15 +81,13 @@ Antes da primeira edição de arquivo versionado, identifique a issue (número c
 
 1. Corpo pelo modelo (`.github/pull_request_template.md`): `Closes #N` para entrega completa, `Refs #N` para parcial; só os testes que rodaram, com comando e resultado; a seção "Versão" diz o impacto para quem usa o projeto.
 2. Título em Conventional Commits: ele vira o commit de um squash e entra no changelog.
-3. **Classifique a versão** com exatamente um label, e diga ao usuário qual escolheu e por quê:
-   - `release`: o merge publica uma versão com tudo que está acumulado desde a última tag.
-   - `no-release`: as mudanças ficam acumuladas e entram na próxima versão publicada.
+3. **Decida se o PR gera versão.** Com o label `release`, o merge publica uma versão com tudo que está acumulado desde a última tag. Sem ele, nada é publicado: as mudanças ficam acumuladas e entram na próxima versão. Não existe label para "não gera versão"; a ausência de `release` já diz isso. Diga ao usuário o que escolheu e por quê.
 
-   Se o usuário não disse, pergunte uma vez; se ele não quiser decidir agora, use `no-release`: nada se perde, porque a próxima release olha retroativamente tudo que ficou pendente.
+   Se o usuário não disse, pergunte uma vez; se ele não quiser decidir agora, deixe sem `release`: nada se perde, porque a próxima release olha retroativamente tudo que ficou pendente.
 4. Veja o que o merge publicaria: `python3 S/release.py plan --pr <N>` (ou `status` para o que já está acumulado).
 5. Se o PR está marcado `release`, faça a **análise do diff acumulado** e registre-a no PR, seguindo [references/versioning.md](references/versioning.md#análise-por-agente). A análise cobre todas as mudanças pendentes, não só este PR, e só eleva o nível; ela é o que pega a quebra de compatibilidade que ninguém marcou.
 6. Marque `breaking-change` quando houver quebra. Para sobrepor o nível calculado, o dono usa `semver:major|minor|patch` e escreve `Motivo da sobreposição: ...` na seção "Versão".
-7. `gh pr create --base <padrão> --title "..." --body-file <arquivo> --label release` (ou `no-release`).
+7. `gh pr create --base <padrão> --title "..." --body-file <arquivo>`, com `--label release` só se o PR gera versão.
 
 O check "Verificação do PR" confere tudo isso e comenta a prévia da versão. Antes de abrir, você pode rodar o mesmo check: `python3 S/github_issues.py check-pr --pr <N>`.
 

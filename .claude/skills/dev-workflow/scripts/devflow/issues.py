@@ -5,9 +5,8 @@ Subcomandos (``github_issues.py <subcomando>``), todos só com a biblioteca padr
 - ``commit-msg ARQUIVO``: hook ``commit-msg``. Aceita mensagens que referenciam uma issue; senão
   acrescenta ``Refs: #N`` a partir da branch ``<tipo>/<N>-<slug>``; senão recusa o commit.
 - ``check-pr [--pr N]``: verificação do PR (issue vinculada e classificada, seções do modelo,
-  classificação de versão, título). No CI lê ``PR_NUMBER`` e ``GITHUB_REPOSITORY``.
-- ``pr-merged [--pr N]``: depois do merge, registra as evidências em cada issue do PR e classifica
-  como ``no-release`` o PR que ninguém classificou.
+  sobreposição de versão, título). No CI lê ``PR_NUMBER`` e ``GITHUB_REPOSITORY``.
+- ``pr-merged [--pr N]``: depois do merge, registra as evidências em cada issue do PR.
 - ``start N [--dry-run]``: cria a branch ``<prefixo>/<N>-<slug>`` a partir da issue.
 - ``sync-labels``: cria ou atualiza os labels do fluxo.
 - ``sync-epic``, ``sync-checklist``, ``close-epic``: veja ``epics.py``.
@@ -42,7 +41,6 @@ from .text import (
 
 IssueFetcher = Callable[[int], "dict[str, Any] | None"]
 EVIDENCE_MARK = "<!-- dev-workflow:evidence pr={number} -->"
-UNCLASSIFIED_MARK = "<!-- dev-workflow:unclassified -->"
 
 
 # --- commit-msg --------------------------------------------------------------------------------
@@ -142,12 +140,15 @@ def is_exempt(pr: dict[str, Any], cfg: Config) -> str | None:
     return None
 
 
-def classification(labels: set[str], cfg: Config) -> tuple[str | None, list[str]]:
-    """``("release" | "no-release" | None, níveis de sobreposição)`` lidos dos labels do PR."""
-    chosen = [key for key in ("release", "no_release") if cfg.label(key) in labels]
+def is_release(labels: set[str], cfg: Config) -> bool:
+    """O PR publica versão só quando tem o label de release; sem ele, fica acumulado."""
+    return cfg.label("release") in labels
+
+
+def overrides_of(labels: set[str], cfg: Config) -> list[str]:
+    """Níveis pedidos pelos labels de sobreposição (``semver:*``)."""
     prefix = cfg.label("override_prefix")
-    overrides = sorted(label[len(prefix) :] for label in labels if label.startswith(prefix))
-    return (chosen[0] if len(chosen) == 1 else None), overrides
+    return sorted(label[len(prefix) :] for label in labels if label.startswith(prefix))
 
 
 def override_reason(body: str, cfg: Config) -> str:
@@ -179,22 +180,14 @@ def check_pull_request(pr: dict[str, Any], repository: str, fetch: IssueFetcher,
             )
 
     if cfg.versioning_enabled:
-        release, no_release = cfg.label("release"), cfg.label("no_release")
-        chosen, overrides = classification(labels, cfg)
-        if chosen is None:
-            both = release in labels and no_release in labels
-            findings.add(
-                cfg.severity("classification"),
-                (f"O PR tem os labels `{release}` e `{no_release}`; deixe só um. " if both else "")
-                + f"Classifique o PR com exatamente um label: `{release}` (o merge publica uma versão com tudo que "
-                f"está acumulado desde a última tag) ou `{no_release}` (fica acumulado para a próxima versão).",
-            )
+        release = cfg.label("release")
+        overrides = overrides_of(labels, cfg)
         if len(overrides) > 1:
             findings.errors.append(f"Mais de um label de sobreposição ({', '.join(overrides)}); deixe só um.")
         elif overrides:
             if overrides[0] not in ("major", "minor", "patch"):
                 findings.errors.append(f"`{cfg.override_label(overrides[0])}` não é major, minor nem patch.")
-            if chosen != "release":
+            if not is_release(labels, cfg):
                 findings.errors.append(
                     f"`{cfg.override_label(overrides[0])}` só vale em PR marcado com `{release}`: a sobreposição "
                     "decide o número da versão que este PR publica."
@@ -337,9 +330,8 @@ def evidence_comment(
         else:
             lines.append(f"**Critérios de aceite:** os {len(boxes)} marcados.")
         if cfg.versioning_enabled:
-            chosen, _ = classification(label_names(pr), cfg)
             lines.append("")
-            if chosen == "release":
+            if is_release(label_names(pr), cfg):
                 lines.append(
                     "**Versão:** o PR está marcado para versionar; a automação de release comenta aqui quando a versão sair."
                 )
@@ -359,19 +351,7 @@ def pr_merged(number: int, github: GitHub, cfg: Config) -> int:
         print(f"PR #{number} não foi mesclado; nada a registrar.")
         return 0
     trusted = cfg.versioning["trusted_bots"]
-    labels = label_names(pr)
     exempt = is_exempt(pr, cfg)
-    if cfg.versioning_enabled and str((pr.get("head") or {}).get("ref", "")) != cfg.release["pr_branch"]:
-        chosen, _ = classification(labels, cfg)
-        if chosen is None and cfg.label("release") not in labels:
-            github.add_labels(number, [cfg.label("no_release")])
-            if not exempt and not any(UNCLASSIFIED_MARK in str(c.get("body", "")) for c in github.comments(number)):
-                github.add_comment(
-                    number,
-                    f"{UNCLASSIFIED_MARK}\nEste PR foi mesclado sem classificação de versão. Ficou marcado como "
-                    f"`{cfg.label('no_release')}`: as mudanças estão acumuladas e entram na próxima versão publicada.\n",
-                )
-            print(f"PR #{number} sem classificação: marcado como {cfg.label('no_release')}.")
     if exempt:
         print(exempt)
         return 0

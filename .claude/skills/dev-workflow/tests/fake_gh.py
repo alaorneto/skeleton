@@ -100,12 +100,6 @@ def handle(method, path, query, body, state):
                     comment["body"] = body["body"]
                     return comment
         not_found()
-    match = re.fullmatch(r"issues/(\d+)/labels", path)
-    if match and method == "POST":
-        target = state["issues"].get(match[1]) or state["pulls"].get(match[1]) or not_found()
-        names = {label["name"] for label in target["labels"]}
-        target["labels"] += [{"name": name} for name in body["labels"] if name not in names]
-        return target["labels"]
     if path == "milestones" and method == "GET":
         return state["milestones"]
     if path == "milestones" and method == "POST":

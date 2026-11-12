@@ -126,7 +126,7 @@ O "Plano de testes" de um bug sempre inclui um teste de regressão que falha ant
 
 ## Corpo de PR
 
-O título do PR segue Conventional Commits (`<tipo>(<escopo>): <assunto>`). O PR leva exatamente um label entre `release` e `no-release`.
+O título do PR segue Conventional Commits (`<tipo>(<escopo>): <assunto>`). Acrescente o label `release` só se o merge deve publicar versão; sem ele, o PR fica acumulado para a próxima.
 
 ~~~markdown
 ## Issues
