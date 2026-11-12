@@ -26,7 +26,6 @@ KNOWN_EXCEPTIONS = {
     ("skeleton/api/serializers.py", "skeleton.web.services"): "record gateway lives in web",
     ("skeleton/api/views.py", "skeleton.web.services"): "record gateway lives in web",
     ("skeleton/api/views.py", "skeleton.web.references"): "record gateway lives in web",
-    ("skeleton/web/forms.py", "skeleton.api.serializers"): "dedicated resources live in api",
     ("skeleton/web/presentation.py", "skeleton.api.serializers"): "audit projection lives in api",
     ("skeleton/web/urls.py", "skeleton.api.health"): "health probe lives in api",
     ("skeleton/web/views.py", "skeleton.api.serializers"): "dedicated resources live in api",

@@ -2,7 +2,7 @@ from django import forms
 from django.db import models
 from django.utils.translation import gettext, gettext_lazy
 
-from skeleton.api.serializers import dedicated_model
+from skeleton.access.resources import dedicated_model
 
 
 class ProfileForm(forms.Form):

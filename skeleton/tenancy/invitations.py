@@ -184,6 +184,22 @@ def accept_invitation(*, user, organization_id, token=None, proof=None, verified
 
 
 @transaction.atomic
+def revoke_invitation(invitation, *, user):
+    """Soft-delete an invitation of the current organization; its token stops validating (#265).
+
+    The surfaces already require the capability and compare the revision; the service checks
+    the capability and the organization itself, so no caller depends on the surface for them.
+    """
+    from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
+    from skeleton.tenancy.context import current_context
+
+    require_capability(user, INVITATIONS_MANAGE)
+    if invitation.organization_id != current_context().organization_id:
+        raise InvalidInvitation()
+    invitation.delete()
+
+
+@transaction.atomic
 def resend_invitation(invitation, *, user, revision, request):
     from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
     from skeleton.common.exceptions import ConcurrentUpdate

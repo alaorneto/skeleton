@@ -20,14 +20,14 @@ from skeleton.access.capabilities import (
     resource_capability,
 )
 from skeleton.access.policies import require_record_action
+from skeleton.access.resources import LINKS, create_resource, dedicated_model, delete_resource, update_resource
 from skeleton.accounts.mfa import mfa_required
-from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
+from skeleton.api.serializers import dedicated_input
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
 from skeleton.service_api import errors as service_errors
 from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
-from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
 from skeleton.web.presentation import (
     audit_rows,
@@ -450,25 +450,10 @@ def access_edit(request, organization_id, resource, sysid=None):
                 values = dedicated_input(
                     resource, wire_values(form.cleaned_data), user=request.user, creating=item is None
                 )
-                if resource == "invitations":
-                    issue_invitation(user=request.user, request=request, **values)
-                elif item:
-                    name = {"memberships": "update_membership", "roles": "update_role", "groups": "update_group"}[
-                        resource
-                    ]
-                    getattr(access_services, name)(item, user=request.user, data=values)
+                if item:
+                    update_resource(resource, item, user=request.user, data=values)
                 else:
-                    name = {
-                        "memberships": "create_membership",
-                        "roles": "create_role",
-                        "groups": "create_group",
-                        "member-roles": "assign_member_role",
-                        "group-members": "add_group_member",
-                        "group-roles": "assign_group_role",
-                        "table-permissions": "grant_table_permission",
-                        "record-grants": "create_record_grant",
-                    }[resource]
-                    getattr(access_services, name)(user=request.user, data=values)
+                    create_resource(resource, user=request.user, data=values, request=request)
                 messages.success(request, gettext("Operação concluída."))
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
             except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
@@ -504,16 +489,7 @@ def access_delete(request, organization_id, resource, sysid):
         if form.is_valid():
             try:
                 check_html_revision(form, item)
-                if resource in LINKS:
-                    access_services.revoke_link(item, user=request.user)
-                elif resource == "invitations":
-                    with transaction.atomic():
-                        item.delete()
-                else:
-                    name = {"memberships": "delete_membership", "roles": "delete_role", "groups": "delete_group"}[
-                        resource
-                    ]
-                    getattr(access_services, name)(item, user=request.user)
+                delete_resource(resource, item, user=request.user)
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
             except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
                 status = form_error(form, exc)

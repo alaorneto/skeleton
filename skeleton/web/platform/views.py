@@ -32,6 +32,7 @@ from skeleton.accounts.services import (
     update_platform_user,
 )
 from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.system.catalog_labels import update_catalog_labels
 from skeleton.tenancy.services import create_organization, update_organization
 from skeleton.web.views import form_error, pagination, service_pagination
 
@@ -494,19 +495,6 @@ def organization_administrators(request, sysid):
 # --------------------------------------------------------------------------- catalog
 
 
-def _update_labels(model, pk, data, *, expected_revision):
-    with transaction.atomic():
-        record = model.objects.select_for_update().get(pk=pk)
-        if expected_revision != record.revision:
-            raise ConcurrentUpdate("The catalog form is stale.")
-        changed = {name for name in ("label", "description") if getattr(record, name) != data[name]}
-        if changed:
-            for name in changed:
-                setattr(record, name, data[name])
-            record.save(update_fields=changed)
-        return record
-
-
 def _label_form(request, record):
     return CatalogLabelForm(
         request.POST or None,
@@ -543,7 +531,7 @@ def catalog_table(request, sysid):
             data = dict(form.cleaned_data)
             revision = data.pop("expected_revision")
             try:
-                table = _update_labels(TableDefinition, table.pk, data, expected_revision=revision)
+                table = update_catalog_labels(TableDefinition, table.pk, data, expected_revision=revision)
             except ConcurrentUpdate as exc:
                 status = form_error(form, exc)
             else:
@@ -574,7 +562,7 @@ def catalog_field(request, sysid):
             data = dict(form.cleaned_data)
             revision = data.pop("expected_revision")
             try:
-                _update_labels(FieldDefinition, field.pk, data, expected_revision=revision)
+                update_catalog_labels(FieldDefinition, field.pk, data, expected_revision=revision)
             except ConcurrentUpdate as exc:
                 status = form_error(form, exc)
             else:

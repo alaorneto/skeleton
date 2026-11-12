@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 
 from skeleton.access import services as access_services
 from skeleton.access.capabilities import has_any_capability, require_resource_capability, resource_capability
+from skeleton.access.resources import LINKS, create_resource, dedicated_model, delete_resource, update_resource
 from skeleton.accounts.mfa import mfa_required
 from skeleton.api.errors import BoundaryError, parse_revision, require_revision
 from skeleton.api.openapi import (
@@ -29,11 +30,10 @@ from skeleton.api.openapi import (
     results,
     string,
 )
-from skeleton.api.serializers import LINKS, audit_data, dedicated_data, dedicated_input, dedicated_model
+from skeleton.api.serializers import audit_data, dedicated_data, dedicated_input
 from skeleton.integrations.tokens.authentication import ApiTokenAuthentication
 from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.tenancy.context import current_context
-from skeleton.tenancy.invitations import issue_invitation
 from skeleton.web.services import (
     change_record_access,
     create_record,
@@ -332,20 +332,7 @@ class DedicatedView(TenantAPI):
         if resource == "invitations":
             _refuse_privileged_invitation_role(request.user, fields.get("role"))
         values = dedicated_input(resource, fields, user=request.user)
-        if resource == "invitations":
-            record = issue_invitation(user=request.user, request=request, **values)
-        else:
-            names = {
-                "memberships": "create_membership",
-                "roles": "create_role",
-                "groups": "create_group",
-                "member-roles": "assign_member_role",
-                "group-members": "add_group_member",
-                "group-roles": "assign_group_role",
-                "table-permissions": "grant_table_permission",
-                "record-grants": "create_record_grant",
-            }
-            record = getattr(access_services, names[resource])(user=request.user, data=values)
+        record = create_resource(resource, user=request.user, data=values, request=request)
         return etag(Response(dedicated_data(resource, record), status=201), record.revision)
 
     @transaction.atomic
@@ -359,8 +346,7 @@ class DedicatedView(TenantAPI):
                 raise Http404
             require_revision(request, record)
             values = dedicated_input(resource, request_fields(request), user=request.user, creating=False)
-            name = {"memberships": "update_membership", "roles": "update_role", "groups": "update_group"}[resource]
-            record = getattr(access_services, name)(record, user=request.user, data=values)
+            record = update_resource(resource, record, user=request.user, data=values)
             return etag(Response(dedicated_data(resource, record)), record.revision)
 
     @transaction.atomic
@@ -375,13 +361,7 @@ class DedicatedView(TenantAPI):
             if record is None:
                 raise Http404
             require_revision(request, record)
-            if resource in LINKS:
-                access_services.revoke_link(record, user=request.user)
-            elif resource == "invitations":
-                record.delete()
-            else:
-                name = {"memberships": "delete_membership", "roles": "delete_role", "groups": "delete_group"}[resource]
-                getattr(access_services, name)(record, user=request.user)
+            delete_resource(resource, record, user=request.user)
             return Response(status=204)
 
 

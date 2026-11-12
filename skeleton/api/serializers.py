@@ -2,30 +2,8 @@ from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext
 
+from skeleton.access.resources import DEDICATED, LINKS, dedicated_model  # noqa: E402, F401 - historical path
 from skeleton.web.services import assert_fields, coerce_fields, record_data
-
-DEDICATED = {
-    "memberships": ("sk_tenancy.Membership", ("user", "is_active")),
-    "roles": ("sk_access.Role", ("code", "name", "description")),
-    "groups": ("sk_access.AccessGroup", ("code", "name", "description")),
-    "invitations": ("sk_tenancy.Invitation", ("email", "role")),
-    "member-roles": ("sk_access.MemberRole", ("membership", "role")),
-    "group-members": ("sk_access.GroupMember", ("group", "membership")),
-    "group-roles": ("sk_access.GroupRole", ("group", "role")),
-    "table-permissions": ("sk_access.TablePermission", ("role", "table", "action")),
-    "record-grants": ("sk_access.RecordGrant", ("table", "record_sysid", "membership", "group", "role", "action")),
-}
-LINKS = frozenset({"member-roles", "group-members", "group-roles", "table-permissions", "record-grants"})
-
-
-def dedicated_model(resource):
-    if resource not in DEDICATED:
-        from django.http import Http404
-
-        raise Http404
-    label, fields = DEDICATED[resource]
-    return apps.get_model(label), fields
-
 
 DEDICATED_REQUIRED = {
     "memberships": ("user",),
