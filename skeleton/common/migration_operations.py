@@ -214,18 +214,25 @@ class InstallRecordInfrastructure(Operation):
             return
         require_postgresql(schema_editor.connection)
         model = from_state.apps.get_model(self.app_label, self.model_name)
-        table, q = model._meta.db_table, schema_editor.quote_name
+        self._postgres_backwards(schema_editor, model)
+
+    def _postgres_backwards(self, editor, model):
+        """Remove the infrastructure and leave the table closed to the runtime (fail closed, #306)."""
+        table, q = model._meta.db_table, editor.quote_name
+        # First, so a failure further down never leaves an unprotected table open.
+        editor.execute(f"REVOKE ALL ON skeleton.{q(table)} FROM PUBLIC, skeleton_runtime, skeleton_audit_writer")
         for name in infrastructure_names(table):
-            schema_editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
+            editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
         for kind in ("guard", "audit"):
-            schema_editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
+            editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
         for name in POLICY_NAMES:
-            schema_editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
-        schema_editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
+            editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
+        editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
         for field in self._org_refs(model):
-            schema_editor.execute(
+            editor.execute(
                 f"ALTER TABLE skeleton.{q(table)} DROP CONSTRAINT IF EXISTS {q(table + '_sk_org_' + field.column)}"
             )
+            editor.execute(f"DROP INDEX IF EXISTS skeleton.{q(table + '_sk_idx_' + field.column)}")
 
     def operational(self):
         return is_operational(self.specification)
