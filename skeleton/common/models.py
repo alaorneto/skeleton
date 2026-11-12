@@ -193,21 +193,28 @@ class SystemRecord(models.Model):
                 expected_revision = original["revision"]
                 if self.revision != expected_revision:
                     raise ConcurrentUpdate("The supplied revision does not match the loaded record.")
-                self.created_at = original["created_at"]
-                self.created_by = original["created_by"]
-                self.updated_at = timezone.now()
-                self.updated_by = context().actor
-                self.revision = expected_revision + 1
-                self.full_clean()
-                fields = [field for field in self._meta.concrete_fields if not field.primary_key]
-                if update_fields is not None:
-                    allowed = {"updated_at", "updated_by", "revision"} | update_fields
-                    fields = [field for field in fields if field.name in allowed or field.attname in allowed]
-                values = {field.attname: getattr(self, field.attname) for field in fields}
-                queryset = type(self).all_objects.using(using).filter(pk=self.pk, revision=expected_revision)
-                if models.QuerySet.update(queryset, **values) != 1:
-                    self.revision = expected_revision
-                    raise ConcurrentUpdate("Another writer changed this record.")
+                metadata = ("created_at", "created_by", "updated_at", "updated_by", "revision")
+                before = {name: getattr(self, name) for name in metadata}
+                try:
+                    self.created_at = original["created_at"]
+                    self.created_by = original["created_by"]
+                    self.updated_at = timezone.now()
+                    self.updated_by = context().actor
+                    self.revision = expected_revision + 1
+                    self.full_clean()
+                    fields = [field for field in self._meta.concrete_fields if not field.primary_key]
+                    if update_fields is not None:
+                        allowed = {"updated_at", "updated_by", "revision"} | update_fields
+                        fields = [field for field in fields if field.name in allowed or field.attname in allowed]
+                    values = {field.attname: getattr(self, field.attname) for field in fields}
+                    queryset = type(self).all_objects.using(using).filter(pk=self.pk, revision=expected_revision)
+                    if models.QuerySet.update(queryset, **values) != 1:
+                        raise ConcurrentUpdate("Another writer changed this record.")
+                except BaseException:
+                    # A failed write leaves the instance as it was, so it can be fixed and saved again (#273).
+                    for name, value in before.items():
+                        setattr(self, name, value)
+                    raise
             self._loaded_values = {field.attname: getattr(self, field.attname) for field in self._meta.concrete_fields}
 
     def _check_live_references(self, using: str) -> None:
@@ -223,6 +230,13 @@ class SystemRecord(models.Model):
                 ):
                     raise LiveReferencesExist(f"Live {target._meta.label} records still reference this record.")
 
+    def _memory_state(self) -> dict[str, Any]:
+        return {field.attname: getattr(self, field.attname) for field in self._meta.concrete_fields}
+
+    def _restore_memory_state(self, state: dict[str, Any]) -> None:
+        for name, value in state.items():
+            setattr(self, name, value)
+
     def _prepare_soft_delete(self) -> set[str]:
         return set()
 
@@ -237,12 +251,17 @@ class SystemRecord(models.Model):
         using = using or self._state.db or "default"
         if self.deleted_at is not None:
             return 0, {}
-        with transaction.atomic(using=using):
-            self._check_live_references(using)
-            self.deleted_at = timezone.now()
-            self.deleted_by = context().actor
-            fields = self._prepare_soft_delete()
-            self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        state = self._memory_state()
+        try:
+            with transaction.atomic(using=using):
+                self._check_live_references(using)
+                self.deleted_at = timezone.now()
+                self.deleted_by = context().actor
+                fields = self._prepare_soft_delete()
+                self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        except BaseException:
+            self._restore_memory_state(state)
+            raise
         return 1, {self._meta.label: 1}
 
     def restore(self, using: str | None = None) -> Self:
@@ -253,11 +272,16 @@ class SystemRecord(models.Model):
         if self.deleted_at is None:
             return self
         using = using or self._state.db or "default"
-        with transaction.atomic(using=using):
-            self.deleted_at = None
-            self.deleted_by = None
-            fields = self._prepare_restore()
-            self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        state = self._memory_state()
+        try:
+            with transaction.atomic(using=using):
+                self.deleted_at = None
+                self.deleted_by = None
+                fields = self._prepare_restore()
+                self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        except BaseException:
+            self._restore_memory_state(state)
+            raise
         return self
 
 

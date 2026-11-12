@@ -345,3 +345,48 @@ def test_cas_holds_for_a_global_system_record(records):
         audit = events(first)
     assert [event.operation for event in audit][-1] == "update"
     assert {event.organization_id for event in audit} == {None}
+
+
+def test_failed_validation_does_not_poison_the_next_save(records):
+    """A ValidationError leaves the metadata as it was; fixing the field saves (#273)."""
+    from examples.notes.models import Note
+
+    with actor_tenant(records.alice, records.a):
+        note = Note.objects.get(pk=records.private.pk)
+        revision, updated_at = note.revision, note.updated_at
+        note.title = "x" * 201
+        with pytest.raises(ValidationError):
+            note.save()
+        assert (note.revision, note.updated_at) == (revision, updated_at)
+        note.title = "Fixed"
+        note.save()
+        assert Note.objects.get(pk=note.pk).revision == revision + 1
+
+
+def test_failed_delete_keeps_the_instance_alive(records):
+    from examples.notes.models import Note
+
+    with actor_tenant(records.alice, records.a):
+        first, second = Note.objects.get(pk=records.private.pk), Note.objects.get(pk=records.private.pk)
+        first.title = "winner"
+        first.save(update_fields=["title"])
+        with pytest.raises(ConcurrentUpdate):
+            second.delete()
+        assert second.deleted_at is None and second.deleted_by is None
+        assert Note.objects.filter(pk=second.pk).exists()
+
+
+def test_failed_restore_keeps_the_tombstone_in_memory(records):
+    from examples.notes.models import Note
+
+    with actor_tenant(records.alice, records.a):
+        original = Note.objects.get(pk=records.private.pk)
+        original.delete()
+        replacement = Note(organization=records.a, owner=records.alice, code=original.code, title="New", body="")
+        replacement.save()
+        tombstone = Note.objects.with_deleted().get(pk=original.pk)
+        deleted_at = tombstone.deleted_at
+        with pytest.raises((ValidationError, IntegrityError)):
+            with transaction.atomic():
+                tombstone.restore()
+        assert tombstone.deleted_at == deleted_at and tombstone.deleted_by is not None
