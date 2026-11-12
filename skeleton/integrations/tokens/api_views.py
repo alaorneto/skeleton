@@ -16,6 +16,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
 from django.utils.dateparse import parse_datetime
+from django.utils.translation import gettext
 from django.views.decorators.cache import add_never_cache_headers
 from rest_framework.response import Response
 
@@ -108,7 +109,7 @@ def _require_recent(request):
     from skeleton.accounts.reauthentication import has_recent_authentication
 
     if not has_recent_authentication(request._request):
-        raise BoundaryError("reauthentication_required", "Autentique-se de novo para emitir um token.", 403)
+        raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para emitir um token."), 403)
 
 
 def _revoke(request, token_id):
@@ -119,7 +120,7 @@ def _revoke(request, token_id):
     except ApiToken.DoesNotExist:
         raise Http404 from None
     except ConcurrentUpdate:
-        raise BoundaryError("revision_conflict", "O token mudou.", 412) from None
+        raise BoundaryError("revision_conflict", gettext("O token mudou."), 412) from None
     return Response(status=204)
 
 
@@ -147,7 +148,9 @@ class MeTokensView(SessionAPI):
         try:
             issued = services.issue_personal_token(actor=request.user, name=name, scopes=scopes, expires_at=expires_at)
         except PermissionDenied:
-            raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403) from None
+            raise BoundaryError(
+                "mfa_required", gettext("Configure autenticação multifator para continuar."), 403
+            ) from None
         return _issued(issued)
 
 
@@ -198,7 +201,7 @@ class ServiceAccountsView(ServiceAccountAPI):
 
         fields = request_fields(request)
         if set(fields) != {"name"}:
-            raise BoundaryError("invalid_request", "Envie só name.")
+            raise BoundaryError("invalid_request", gettext("Envie só name."))
         return Response(account_data(create_service_account(actor=request.user, name=fields["name"])), status=201)
 
 
@@ -210,7 +213,7 @@ class ServiceAccountDetailView(ServiceAccountAPI):
         from skeleton.accounts.services import deactivate_service_account
 
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Desativação não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Desativação não aceita campos."))
         deactivate_service_account(actor=request.user, user=self.account(organization_id, sysid))
         return Response(status=204)
 
@@ -244,7 +247,9 @@ class ServiceAccountTokensView(ServiceAccountAPI):
                 actor=request.user, account=account, name=name, scopes=scopes, expires_at=expires_at
             )
         except PermissionDenied:
-            raise BoundaryError("mfa_required", "Configure autenticação multifator para continuar.", 403) from None
+            raise BoundaryError(
+                "mfa_required", gettext("Configure autenticação multifator para continuar."), 403
+            ) from None
         return _issued(issued)
 
 

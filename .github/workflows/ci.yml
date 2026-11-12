@@ -221,6 +221,10 @@ jobs:
       - run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: mypy (módulos listados em pyproject.toml)
         run: python -m mypy
+      - name: Catálogo de tradução válido (makemessages e msgfmt --check-format)
+        run: |
+          sudo apt-get install -y --no-install-recommends gettext
+          python tools/i18n_check.py
 
   deploy-check:
     name: Settings de produção (check --deploy)

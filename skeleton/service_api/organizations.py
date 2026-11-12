@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_uuid, paginate
@@ -127,7 +128,7 @@ class OrganizationService(ServiceAPI):
         rows = _active_members().select_related("user", "user__profile")
         if query is not None:
             if not isinstance(query, str) or len(query.strip()) > 100:
-                raise InvalidInput({"query": ["Use até 100 caracteres."]})
+                raise InvalidInput({"query": [gettext("Use até 100 caracteres.")]})
             term = query.strip()
             if term:
                 rows = rows.filter(

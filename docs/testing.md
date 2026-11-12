@@ -275,6 +275,89 @@ Cobertura nova:
 
 **Não verificado:** os testes do agente que exigem `fcntl` nesta máquina (rodam no CI), `docker compose up` com os serviços `worker` e `scheduler`, as units systemd num host real, smoke de `/platform/jobs/` no navegador (o template é renderizado e conferido pelos testes de integração) e o PostgreSQL 16.15 do CI.
 
+## i18n: idioma, fuso, textos traduzíveis e emails (epic #85)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#169, origem pública do convite:**
+
+- `tests/integration/test_invitation_public_url.py`: 3 passed com a correção e 2 failed sem ela. O patch foi desfeito e reaplicado com `git apply -R`/`git apply`.
+- Os casos cobertos:
+  - sem requisição, o link usa `SKELETON_PUBLIC_URL`;
+  - sem requisição e sem o setting, o erro cita `SKELETON_PUBLIC_URL`;
+  - com requisição, continua valendo o host da requisição.
+
+**#170, idioma e fuso em todas as superfícies:**
+
+- Suíte completa `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, num PostgreSQL só deste worktree: 1257 passed, 3 failed, 111 skipped. As três falhas eram testes antigos que esperavam `UTC` no perfil novo, ou `en` em `LANGUAGES`, ou que o destinatário de email tivesse `is_authenticated`. Os testes foram ajustados e `preferences_for` passou a aceitar o destinatário sem sessão.
+- Depois da correção: `tests/accounts/test_lifecycle_findings.py`, `tests/unit/test_notification_email_render.py` e `tests/integration/test_locale_preferences.py`, 18 passed.
+- Antes, nesta rodada, `test_locale_preferences.py` com `test_core_identity_service.py`, `test_notification_email.py`, `test_notification_digest.py` e `test_organization_settings.py` tinham dado 34 passed.
+- Os testes cobrem a precedência perfil > organização > instância na web da organização, na API, fora de organização e em `/me`, além de:
+  - perfil explícito vencendo a organização;
+  - padrões da instância e `Accept-Language` antes do login (com `Vary`);
+  - organização vinda só do contexto (header ignorado; sem vínculo, 404);
+  - valores efetivos no `IdentityService.me`;
+  - idioma fora de `LANGUAGES` recusado;
+  - `<html lang>` dinâmico.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#172, templates traduzíveis:**
+
+- 93 templates convertidos por um script que usa o lexer do Django. O texto entre tags e os atributos visíveis viraram `{% translate %}`, e os literais de rótulo nas tags viraram `_("…")`.
+- Ficaram de fora os templates `.en.` de email (eles já são a tradução) e os elementos `script`, `style`, `code` e `pre`.
+- Todos os templates de `skeleton/` e `examples/` compilam: 0 erros.
+- `tests/accounts`, `tests/unit` e os testes de integração que renderizam telas e emails: 816 passed, 111 skipped. São navegação, superfícies recuperadas, apresentação de registros, `/platform/`, email, resumo, configurações e marca, administração de apps, webhooks, tokens, anexos, fronteiras HTTP e setup.
+- A suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- A cobertura sem texto fora do gettext é verificada pela pseudolocalização do #174.
+
+**#171, textos do Python traduzíveis:**
+
+- Por volta de 680 strings em português foram envolvidas por um script AST, com `gettext` em funções e `gettext_lazy` em módulos, classes e registros de inicialização. As f-strings viraram `gettext("… %(nome)s") % {...}`.
+- 55 mensagens de validação em inglês que chegam às pessoas passaram para pt-BR, e o teste que conferia uma delas foi ajustado. Os diagnósticos técnicos ficaram em inglês.
+- Strings de protocolo foram revertidas: `DOCSTRING_SECTIONS`, `SERVICE_API_HEADINGS` e o script `SERVICE_WORKER`.
+- Suíte completa: 1289 passed, 1 failed, 111 skipped. A falha era o `export_schema` serializando a descrição lazy de um spec com `json.dumps`. A correção (`str()` na exportação e no título do push) passou em `test_retained_schema.py`, `test_web_push.py` e `tests/contrib`, com 7 passed, e no `test_retention.py` da agenda, com 2 passed.
+- Suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#174, validação dos catálogos:**
+
+- `tests/integration/test_i18n_coverage.py`: 4 passed. O teste troca o gettext por uma pseudotradução que marca cada mensagem com `⟦…⟧` e renderiza as páginas-chave para três perfis:
+  - o admin da organização: painel, catálogo, auditoria, configurações, apps, webhooks, contas de serviço, recursos de acesso, perfil e início;
+  - o admin da plataforma: visão geral, organizações, usuários, auditoria, jobs e apps;
+  - o visitante: login e recuperação de senha.
+- O teste falha se sobrar texto fora das marcas, descontados os dados do cenário: nomes, emails, papéis, manifestos, fusos, endônimos de idioma e códigos crus.
+- O caso negativo (texto fixo e atributo) é detectado.
+- A rodada achou rótulos que tinham escapado e que foram corrigidos no commit seguinte ao #171: `TextChoices`, palavras soltas, `yesno`/`default_if_none` e as colunas dos recursos de acesso.
+- Suíte completa com as correções: 1294 passed, 111 skipped. Agenda: 59 passed.
+- `tools/i18n_check.py` (`makemessages` e `msgfmt --check-format`) entrou no job estático do CI, que instala o `gettext`. Não rodou localmente porque o Windows desta rodada não tem GNU gettext; a evidência é o CI.
+
+**#173, emails com a marca da organização:**
+
+- `tests/integration/test_email_branding.py`: 4 passed. Cobre:
+  - o layout com a cor padrão e o nome da organização;
+  - a cor e o nome configurados e o logo como parte inline `<organization-logo>` referenciada por `cid:`;
+  - o email da organização B sem a marca nem o logo de A;
+  - o convite saindo de templates, com a marca, o link e `<html lang>` no idioma padrão da organização.
+- Suíte completa depois do merge da branch do #90 atualizada com a `main`: 1346 passed, 111 skipped. Agenda: 59 passed.
+- A varredura de texto pós-merge envolveu os rótulos que restavam: "Gestor de apps", "Apps organizacionais", "Disponibilidade de apps", "Assinaturas de push" e "Observabilidade".
+- Não verificado: a renderização num cliente de email real.
+
+**Epic #85 depois do merge da `main` (`da0eb3a`):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`, com 16 bancos de worker de `tools/dev_postgres.py start --workers 16`: 1471 passed, 111 skipped. Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed.
+- A primeira rodada pós-merge teve 1 falha: a sonda de teste de `test_locale_preferences.py` em `/api/v1/` caiu na verificação de contrato OpenAPI do #179. O teste recebeu `@pytest.mark.no_api_contract`, porque a rota só existe no teste.
+- O texto que veio da `main` é documentação OpenAPI e fica fora do gettext, por regra registrada em `docs/extending.md`.
+
+**Epic #85 depois do merge da `main` com os fluxos (#351):**
+
+- Templates e Python do módulo `skeleton/flows` e da app de exemplo passaram pelos mesmos conversores. Ficaram fora, pela regra do `docs/extending.md`:
+  - as regex de URL;
+  - as mensagens técnicas de validação da especificação do fluxo;
+  - os rótulos da especificação de fluxo congelada;
+  - os textos de OpenAPI.
+- A primeira rodada achou um texto de OpenAPI lazy (`test_openapi_schema`). Ele foi corrigido.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1633 passed, 111 skipped. Agenda: 59 passed.
+
 ## Só PostgreSQL, setup e configuração da instância (epic #150)
 
 Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:

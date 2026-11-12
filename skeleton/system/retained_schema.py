@@ -141,8 +141,8 @@ def export_schema(app_label):
             {
                 "model_label": model._meta.label_lower,
                 "db_table": model._meta.db_table,
-                "label": spec.label or str(model._meta.verbose_name),
-                "description": spec.description,
+                "label": str(spec.label or model._meta.verbose_name),
+                "description": str(spec.description),
                 "scope": spec.scope,
                 "sensitive_fields": list(spec.sensitive_fields),
                 "columns": columns,

@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.db import transaction
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 from rest_framework.response import Response
 
@@ -35,9 +36,9 @@ def request_publication(request, organization_id, note_id):
         with transaction.atomic():
             NoteService().request_publication(actor=request.user, note_id=note_id)
     except Conflict:
-        messages.error(request, "Esta anotação já tem um pedido de publicação em andamento.")
+        messages.error(request, gettext("Esta anotação já tem um pedido de publicação em andamento."))
         return redirect("example_notes:home", organization_id=organization_id)
-    messages.success(request, "Pedido de publicação iniciado. Preencha-o na sua caixa de tarefas.")
+    messages.success(request, gettext("Pedido de publicação iniciado. Preencha-o na sua caixa de tarefas."))
     return redirect("flows:tasks", organization_id=organization_id)
 
 

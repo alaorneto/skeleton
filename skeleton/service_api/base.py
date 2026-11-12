@@ -18,6 +18,7 @@ from typing import Any, ClassVar, ParamSpec, TypeVar
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import IntegrityError
 from django.http import Http404
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist, MissingTenantContext
 from skeleton.tenancy.context import current_context
@@ -96,10 +97,10 @@ def _check_caller(spec: ServiceMethodSpec, actor: object) -> None:
         raise ContextRequired()
     if actor is None:
         if not (spec.allow_system and context.system):
-            raise Forbidden("A operação exige um ator.")
+            raise Forbidden(gettext("A operação exige um ator."))
         return
     if context.actor is None or getattr(actor, "pk", None) != context.actor:
-        raise Forbidden("O ator não corresponde ao contexto da chamada.")
+        raise Forbidden(gettext("O ator não corresponde ao contexto da chamada."))
 
 
 def _require_provider(app_label: str) -> None:

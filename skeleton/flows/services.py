@@ -13,6 +13,7 @@ from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
@@ -42,7 +43,7 @@ def published_spec(flow_key: Any) -> FlowSpec:
     try:
         return get_flow(flow_key)
     except (KeyError, TypeError):
-        raise ValidationError({"flow_key": "Fluxo não declarado."}) from None
+        raise ValidationError({"flow_key": gettext("Fluxo não declarado.")}) from None
 
 
 def ensure_definition(spec: FlowSpec) -> FlowDefinition:
@@ -71,7 +72,7 @@ def ensure_definition(spec: FlowSpec) -> FlowDefinition:
             if definition is None:
                 raise
     if definition.digest != spec.digest():
-        raise FlowConflict("definition_changed", "O fluxo mudou sem uma versão nova.")
+        raise FlowConflict("definition_changed", gettext("O fluxo mudou sem uma versão nova."))
     return definition
 
 
@@ -83,7 +84,7 @@ def _subject(spec: FlowSpec, subject_id: Any, actor: Any, *, system: bool) -> An
     try:
         identifier = subject_id if isinstance(subject_id, UUID) else UUID(str(subject_id))
     except (ValueError, TypeError):
-        raise ValidationError({"subject_id": "Identificador inválido."}) from None
+        raise ValidationError({"subject_id": gettext("Identificador inválido.")}) from None
     if system:
         rows = model.objects.all()
     else:
@@ -108,19 +109,19 @@ def start_instance(
     spec = published_spec(flow_key)
     policies.require_flow_app(spec.owner_app)
     if idempotency_key is not None and (not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200):
-        raise ValidationError({"idempotency_key": "Chave de 1 a 200 caracteres."})
+        raise ValidationError({"idempotency_key": gettext("Chave de 1 a 200 caracteres.")})
     subject = _subject(spec, subject_id, actor, system=system)
     values, sensitive = forms.clean((spec.start_form,), data)
     if idempotency_key is not None:
         repeated = FlowInstance.objects.filter(flow_key=spec.key, idempotency_key=idempotency_key).first()
         if repeated is not None:
             if repeated.subject_sysid != subject.pk:
-                raise FlowConflict("idempotency_mismatch", "A chave já foi usada com outro registro.")
+                raise FlowConflict("idempotency_mismatch", gettext("A chave já foi usada com outro registro."))
             return repeated, False
     definition = ensure_definition(spec)
     active = FlowInstance.objects.filter(flow_key=spec.key, subject_sysid=subject.pk, status__in=ACTIVE_STATES)
     if active.exists():
-        raise FlowConflict("already_running", "Já existe uma instância ativa deste fluxo para o registro.")
+        raise FlowConflict("already_running", gettext("Já existe uma instância ativa deste fluxo para o registro."))
     number = ""
     if spec.number_sequence:
         from skeleton.sequences.services import next_number
@@ -147,7 +148,9 @@ def start_instance(
             execution.activate(execution.spec.start_step().key)
             execution.finish()
     except FlowFailure as failure:
-        raise FlowConflict("flow_failed", f"O fluxo não pôde avançar ({failure.code}).") from None
+        raise FlowConflict(
+            "flow_failed", gettext("O fluxo não pôde avançar (%(code)s).") % {"code": failure.code}
+        ) from None
     return instance, True
 
 
@@ -164,7 +167,7 @@ def _locked(instance_id: Any, actor: Any, *, system: bool = False) -> FlowInstan
 
 def _expect_revision(instance: FlowInstance, expected_revision: Any) -> None:
     if type(expected_revision) is not int:
-        raise ValidationError({"expected_revision": "Use a revisão inteira atual."})
+        raise ValidationError({"expected_revision": gettext("Use a revisão inteira atual.")})
     if instance.revision != expected_revision:
         raise ConcurrentUpdate("The flow instance changed.")
 
@@ -174,9 +177,9 @@ def send_signal(instance_id: Any, name: str, *, actor: Any, data: Any = None) ->
     system = _system_call(actor)
     instance = _locked(instance_id, actor, system=system)
     if not isinstance(name, str) or not name:
-        raise ValidationError({"name": "Informe o nome do sinal."})
+        raise ValidationError({"name": gettext("Informe o nome do sinal.")})
     if instance.status == "suspended":
-        raise FlowConflict("instance_suspended", "A instância está suspensa.")
+        raise FlowConflict("instance_suspended", gettext("A instância está suspensa."))
     if instance.status != "running":
         return False
     execution = Execution(instance)
@@ -197,7 +200,9 @@ def send_signal(instance_id: Any, name: str, *, actor: Any, data: Any = None) ->
                 execution.complete(run, "received")
             execution.finish()
     except FlowFailure as failure:
-        raise FlowConflict("flow_failed", f"O fluxo não pôde avançar ({failure.code}).") from None
+        raise FlowConflict(
+            "flow_failed", gettext("O fluxo não pôde avançar (%(code)s).") % {"code": failure.code}
+        ) from None
     return True
 
 
@@ -216,7 +221,7 @@ def cancel_instance(instance_id: Any, *, actor: Any, expected_revision: int, rea
     comment = forms.clean_comment(reason)
     _expect_revision(instance, expected_revision)
     if instance.status not in (*ACTIVE_STATES, "failed"):
-        raise FlowConflict("instance_closed", "A instância já foi encerrada.")
+        raise FlowConflict("instance_closed", gettext("A instância já foi encerrada."))
     # Failed runs stay open for a retry; a cancellation closes them too.
     FlowStepRun.objects.filter(instance=instance, status="failed").update(status="active")
     execution.cancel_runs()
@@ -233,7 +238,7 @@ def suspend_instance(instance_id: Any, *, actor: Any, expected_revision: int, re
     comment = forms.clean_comment(reason)
     _expect_revision(instance, expected_revision)
     if instance.status != "running":
-        raise FlowConflict("not_running", "Só uma instância em andamento pode ser suspensa.")
+        raise FlowConflict("not_running", gettext("Só uma instância em andamento pode ser suspensa."))
     execution = Execution(instance)
     execution.touch(status="suspended")
     execution.log("instance_suspended", comment=comment)
@@ -246,7 +251,7 @@ def resume_instance(instance_id: Any, *, actor: Any, expected_revision: int) -> 
     _require_admin(actor)
     _expect_revision(instance, expected_revision)
     if instance.status != "suspended":
-        raise FlowConflict("not_suspended", "A instância não está suspensa.")
+        raise FlowConflict("not_suspended", gettext("A instância não está suspensa."))
     execution = Execution(instance)
     execution.touch(status="running")
     execution.log("instance_resumed")
@@ -261,7 +266,7 @@ def retry_instance(instance_id: Any, *, actor: Any, expected_revision: int) -> F
     _require_admin(actor)
     _expect_revision(instance, expected_revision)
     if instance.status != "failed":
-        raise FlowConflict("not_failed", "A instância não está com falha.")
+        raise FlowConflict("not_failed", gettext("A instância não está com falha."))
     execution = Execution(instance)
     for run in FlowStepRun.objects.filter(instance=instance, status="failed"):
         run.status = "active"

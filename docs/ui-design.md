@@ -96,6 +96,10 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 
 Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `pre`, inputs, selects e `button` têm estilo de base. Telas de apps que ainda usam `<h1>`/`<p>` soltos recebem o mesmo ritmo do cabeçalho padrão.
 
+### Texto nos templates
+
+Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skeleton/issues/172)). Isso vale para o conteúdo entre tags, como em `{% translate "Salvar" %}`, e para os atributos visíveis (`alt`, `title`, `placeholder`, `aria-label`). Nos argumentos de tags, use `_("…")`, como em `{% include "…" with label=_("Abrir") %}`. As msgids ficam em pt-BR e o template carrega `{% load i18n %}`. Em frases com variável, prefira `{% blocktranslate trimmed %}` com nomes simples, usando `with` para os atributos. Dados (nomes, emails, valores) nunca entram no gettext.
+
 ### Regras que não mudam
 
 - Sem scripts inline e sem CDN: o JS do Flowbite é servido de `static/skeleton/web/vendor/flowbite-4.0.2/`.

@@ -14,6 +14,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -126,7 +127,7 @@ def _locked(task_id: Any, actor: Any) -> tuple[Execution, FlowTask]:
     try:
         identifier = task_id if isinstance(task_id, UUID) else UUID(str(task_id))
     except (ValueError, TypeError):
-        raise ValidationError({"task_id": "Identificador inválido."}) from None
+        raise ValidationError({"task_id": gettext("Identificador inválido.")}) from None
     instance_id = FlowTask.objects.filter(pk=identifier).values_list("instance_id", flat=True).first()
     instance = lock_instance(instance_id) if instance_id else None
     if instance is None:
@@ -141,24 +142,24 @@ def _ready(execution: Execution, task: FlowTask, actor: Any, expected_revision: 
     if acting and task.status == "open" and not policies.actionable_tasks(actor).filter(pk=task.pk).exists():
         raise PermissionDenied("The task belongs to someone else.")
     if type(expected_revision) is not int:
-        raise ValidationError({"expected_revision": "Use a revisão inteira atual."})
+        raise ValidationError({"expected_revision": gettext("Use a revisão inteira atual.")})
     if task.revision != expected_revision:
         raise ConcurrentUpdate("The task changed.")
     if task.status != "open":
         # First: it is the precise reason for whoever lost the race on a queue task.
-        raise FlowConflict("task_closed", "Esta tarefa já foi encerrada, possivelmente por outra pessoa.")
+        raise FlowConflict("task_closed", gettext("Esta tarefa já foi encerrada, possivelmente por outra pessoa."))
     status = execution.instance.status
     if status == "suspended":
-        raise FlowConflict("instance_suspended", "A instância está suspensa.")
+        raise FlowConflict("instance_suspended", gettext("A instância está suspensa."))
     if status != "running":
-        raise FlowConflict("instance_closed", "A instância não está em andamento.")
+        raise FlowConflict("instance_closed", gettext("A instância não está em andamento."))
 
 
 def claim_task(task_id: Any, *, actor: Any, expected_revision: int) -> FlowTask:
     execution, task = _locked(task_id, actor)
     _ready(execution, task, actor, expected_revision)
     if task.assignee_id is not None:
-        raise FlowConflict("not_a_queue_task", "A tarefa já tem responsável.")
+        raise FlowConflict("not_a_queue_task", gettext("A tarefa já tem responsável."))
     task.assignee = actor
     task.save(update_fields={"assignee"})
     execution.log("task_claimed", task=task, step_key=task.step_key)
@@ -170,7 +171,7 @@ def release_task(task_id: Any, *, actor: Any, expected_revision: int) -> FlowTas
     execution, task = _locked(task_id, actor)
     _ready(execution, task, actor, expected_revision)
     if task.assignee_id != actor.pk or (task.candidate_group_id is None and task.candidate_role_id is None):
-        raise FlowConflict("not_claimed", "Só uma tarefa de fila assumida pode ser liberada.")
+        raise FlowConflict("not_claimed", gettext("Só uma tarefa de fila assumida pode ser liberada."))
     task.assignee = None
     task.save(update_fields={"assignee"})
     execution.log("task_released", task=task, step_key=task.step_key)
@@ -194,9 +195,9 @@ def reassign_task(task_id: Any, *, actor: Any, expected_revision: int, to_user_i
     except ValueError:
         people = []
     if not people:
-        raise ValidationError({"to_user_id": "Pessoa sem vínculo ativo nesta organização."})
+        raise ValidationError({"to_user_id": gettext("Pessoa sem vínculo ativo nesta organização.")})
     if people[0] == task.assignee_id:
-        raise ValidationError({"to_user_id": "A tarefa já é dessa pessoa."})
+        raise ValidationError({"to_user_id": gettext("A tarefa já é dessa pessoa.")})
     previous = task.assignee_id
     task.delegated_from_id = previous or actor.pk
     task.assignee_id, task.candidate_group_id, task.candidate_role_id = people[0], None, None
@@ -227,7 +228,9 @@ def _advance(execution: Execution, action: Any) -> None:
             execution.finish()
     except FlowFailure as failure:
         # A person's command changes nothing when the definition cannot go on.
-        raise FlowConflict("flow_failed", f"O fluxo não pôde avançar ({failure.code}).") from None
+        raise FlowConflict(
+            "flow_failed", gettext("O fluxo não pôde avançar (%(code)s).") % {"code": failure.code}
+        ) from None
 
 
 def complete_task(
@@ -237,7 +240,7 @@ def complete_task(
     execution, task = _locked(task_id, actor)
     _ready(execution, task, actor, expected_revision)
     if task.kind != "task":
-        raise FlowConflict("not_a_task", "Use a decisão para uma aprovação.")
+        raise FlowConflict("not_a_task", gettext("Use a decisão para uma aprovação."))
     step = execution.spec.step(task.step_key)
     actions = available_actions(execution, step)
     if action in (None, "") and len(actions) == 1:
@@ -245,7 +248,7 @@ def complete_task(
     else:
         chosen = next((item for item in actions if item.ident == action), None)
     if chosen is None:
-        raise ValidationError({"action": "Escolha uma das ações disponíveis."})
+        raise ValidationError({"action": gettext("Escolha uma das ações disponíveis.")})
     values, sensitive = forms.clean((step.form, chosen.form), data)
     text = forms.clean_comment(comment)
     run = task.step_run
@@ -295,9 +298,9 @@ def decide_task(
     execution, task = _locked(task_id, actor)
     _ready(execution, task, actor, expected_revision)
     if task.kind != "approval":
-        raise FlowConflict("not_an_approval", "Esta tarefa é concluída por uma ação.")
+        raise FlowConflict("not_an_approval", gettext("Esta tarefa é concluída por uma ação."))
     if decision not in DECISIONS:
-        raise ValidationError({"decision": "Use approved ou rejected."})
+        raise ValidationError({"decision": gettext("Use approved ou rejected.")})
     step = execution.spec.step(task.step_key)
     values, sensitive = forms.clean((step.form,), data)
     text = forms.clean_comment(comment)

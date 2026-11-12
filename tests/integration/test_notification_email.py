@@ -10,6 +10,7 @@ import pytest
 from django.core import mail
 from django.core.mail.backends.locmem import EmailBackend
 from django.db import transaction
+from django.test import override_settings
 
 from skeleton.notifications import registry
 from skeleton.notifications.channels import delivery as delivery_module
@@ -72,6 +73,8 @@ def set_language(user, language):
         profile.save(update_fields={"language"})
 
 
+# The core ships pt-BR only (#170); a project that adds English gets the .en templates.
+@override_settings(LANGUAGES=[("pt-br", "Português"), ("en", "English")])
 def test_email_goes_out_in_the_language_of_the_person(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="E-1", title="Plano de voo")
     set_language(scenario.member, "en")
