@@ -115,7 +115,9 @@ def test_settings(base):
             "OPTIONS": {"location": tempfile.mkdtemp(prefix="skeleton-files-"), "base_url": None},
         },
     }
-    PASSWORD_HASHERS = ["django.contrib.auth.hashers.PBKDF2PasswordHasher"]
+    # Same algorithm and hash format as production with a token work factor: the production
+    # iterations cost a third of a second per fixture password.
+    PASSWORD_HASHERS = ["skeleton.testing.hashers.FastPBKDF2PasswordHasher"]
     from skeleton.accounts.providers import load_provider_config
 
     SKELETON_PROVIDER_CONFIGURATION = load_provider_config(env("SSO_PROVIDER_CONFIG_PATH", default=None), debug=DEBUG)

@@ -5,8 +5,16 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+SUFFIX = "_skeleton_test"
+RUNTIME_ENV = "TEST_DATABASE_URL"
+OWNER_ENV = "TEST_MIGRATION_DATABASE_URL"
+# pytest-xdist names its workers gw0, gw1, ...; each one gets a database of its own.
+WORKER_ENV = "PYTEST_XDIST_WORKER"
+_WORKER = re.compile(r"gw(0|[1-9][0-9]{0,2})")
 
 
 @dataclass(frozen=True)
@@ -14,6 +22,112 @@ class DatabasePair:
     runtime: str
     owner: str
     database: str
+
+
+def worker_database_name(database, worker):
+    """Database of one parallel worker: ``ci_skeleton_test`` and ``gw3`` give ``ci_gw3_skeleton_test``.
+
+    The name keeps the ``_skeleton_test`` suffix, so every barrier of
+    ``disposable_database_pair()`` applies to it unchanged.
+    """
+    if not _WORKER.fullmatch(worker or ""):
+        raise RuntimeError(f"Unexpected parallel worker id {worker!r}; expected gw0, gw1, ...")
+    if not database or not database.endswith(SUFFIX) or database == SUFFIX:
+        raise RuntimeError(f"Integration database name must end with {SUFFIX}.")
+    return f"{database[: -len(SUFFIX)]}_{worker}{SUFFIX}"
+
+
+def worker_database_url(url, worker):
+    """The same URL (role, password, host, port, options) pointing at the worker's database."""
+    parts = urlsplit(url)
+    if parts.scheme not in {"postgres", "postgresql"} or not parts.path.startswith("/"):
+        raise RuntimeError("Parallel workers require postgres:// URLs that name a database.")
+    return parts._replace(path="/" + worker_database_name(parts.path[1:], worker)).geturl()
+
+
+def worker_database_urls(count, environment=None):
+    """Runtime and owner URLs of the first ``count`` workers, from the two base variables."""
+    environment = os.environ if environment is None else environment
+    runtime, owner = environment.get(RUNTIME_ENV), environment.get(OWNER_ENV)
+    if not runtime or not owner:
+        raise RuntimeError(f"{RUNTIME_ENV} and {OWNER_ENV} are both required.")
+    return [
+        (worker_database_url(runtime, f"gw{index}"), worker_database_url(owner, f"gw{index}")) for index in range(count)
+    ]
+
+
+def select_worker_database(environment=None):
+    """Point this process (a pytest-xdist worker) at its own disposable database.
+
+    Rewrites both variables in place, so the settings, ``disposable_database_pair()``, tests
+    that read the variables and the subprocesses they start all agree. Returns the worker's
+    database name, or None outside a worker and when the variables are not set. Calling it
+    twice is refused: the second call would derive a database from an already derived name.
+    """
+    environment = os.environ if environment is None else environment
+    worker = environment.get(WORKER_ENV)
+    runtime, owner = environment.get(RUNTIME_ENV), environment.get(OWNER_ENV)
+    if not worker or not runtime or not owner:
+        return None
+    if environment.get(_SELECTED_ENV) == worker:
+        raise RuntimeError("The worker database was already selected for this process.")
+    environment[RUNTIME_ENV] = worker_database_url(runtime, worker)
+    environment[OWNER_ENV] = worker_database_url(owner, worker)
+    environment[_SELECTED_ENV] = worker
+    return _identity(environment[RUNTIME_ENV])[2]
+
+
+_SELECTED_ENV = "SKELETON_TEST_WORKER_DATABASE_SELECTED"
+
+
+# restore_schema() drops and recreates every object of schema skeleton in one transaction and
+# holds one lock per object until the commit: about 2,100 today, counted with pg_locks.
+LOCKS_PER_RESTORE = 3000
+_LOCK_ADVICE = (
+    "raise max_locks_per_transaction and restart the server (`tools/dev_postgres.py start` does "
+    "it for the local one), or run fewer parallel workers"
+)
+
+
+def lock_table_shortfall(count, environment=None):
+    """None when ``count`` workers can restore at once; otherwise the message that says what to raise.
+
+    PostgreSQL shares one lock table of max_locks_per_transaction x (max_connections +
+    max_prepared_transactions) slots among all sessions; any role may read the three settings.
+    """
+    import psycopg
+
+    _, owner = worker_database_urls(1, environment)[0]
+    with psycopg.connect(owner, connect_timeout=10) as connection:
+        per_transaction, sessions = connection.execute(
+            "SELECT current_setting('max_locks_per_transaction')::int, "
+            "current_setting('max_connections')::int + current_setting('max_prepared_transactions')::int"
+        ).fetchone()
+    needed = count * LOCKS_PER_RESTORE
+    if per_transaction * sessions >= needed:
+        return None
+    return (
+        f"{count} workers recreating schema skeleton at once need about {needed} lock slots and the server "
+        f"has {per_transaction * sessions} (max_locks_per_transaction={per_transaction}): set it to at least "
+        f"{-(-needed // sessions)}. To fix it, {_LOCK_ADVICE}."
+    )
+
+
+def missing_worker_databases(count, environment=None):
+    """Names of the worker databases that the owner cannot open, in worker order.
+
+    Read-only: it connects and disconnects. The fixture never creates a database or a role;
+    provisioning them is the operator's step (``tools/dev_postgres.py start`` or the CI).
+    """
+    import psycopg
+
+    missing = []
+    for _, owner in worker_database_urls(count, environment):
+        try:
+            psycopg.connect(owner, connect_timeout=10).close()
+        except psycopg.OperationalError:
+            missing.append(_identity(owner)[2])
+    return missing
 
 
 def _identity(dsn):
@@ -27,15 +141,19 @@ def _identity(dsn):
 def disposable_database_pair():
     if os.environ.get("SKELETON_TEST_ALLOW_SCHEMA_RESET") != "1":
         raise RuntimeError("Set SKELETON_TEST_ALLOW_SCHEMA_RESET=1 for a disposable integration database.")
-    runtime = os.environ.get("TEST_DATABASE_URL")
-    owner = os.environ.get("TEST_MIGRATION_DATABASE_URL")
+    runtime = os.environ.get(RUNTIME_ENV)
+    owner = os.environ.get(OWNER_ENV)
     if not runtime or not owner:
-        raise RuntimeError("TEST_DATABASE_URL and TEST_MIGRATION_DATABASE_URL are both required.")
+        raise RuntimeError(f"{RUNTIME_ENV} and {OWNER_ENV} are both required.")
     identity = _identity(runtime)
     if identity != _identity(owner):
         raise RuntimeError("Runtime and migration DSNs must target the same host, port and database.")
-    if not identity[2].endswith("_skeleton_test"):
-        raise RuntimeError("Integration database name must end with _skeleton_test.")
+    if not identity[2].endswith(SUFFIX):
+        raise RuntimeError(f"Integration database name must end with {SUFFIX}.")
+    worker = os.environ.get(WORKER_ENV)
+    if worker and os.environ.get(_SELECTED_ENV) != worker:
+        # Two workers on one database would recreate each other's schema mid-test.
+        raise RuntimeError("A parallel worker must select its own database before using it.")
     for name in ("DATABASE_URL", "MIGRATION_DATABASE_URL"):
         configured = os.environ.get(name)
         if configured and _identity(configured) == identity:
@@ -166,14 +284,24 @@ def restore_schema(pair, template):
     """Recreate schema skeleton from the template in one transaction, as skeleton_owner."""
     if not isinstance(template, SchemaTemplate):
         raise RuntimeError("restore_schema() requires the SchemaTemplate returned by dump_schema().")
-    with _owner_connection(pair) as connection, connection.transaction():
-        _create_empty_schema(connection)
-        # Audit functions are owned by skeleton_audit_writer; like InstallRecordInfrastructure,
-        # the ownership transfer needs schema CREATE only for the duration of the DDL.
-        connection.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
-        # No parameters: psycopg sends the whole script with the simple query protocol.
-        connection.execute(template.sql)
-        connection.execute("REVOKE CREATE ON SCHEMA skeleton FROM skeleton_audit_writer")
+    import psycopg
+
+    try:
+        with _owner_connection(pair) as connection, connection.transaction():
+            # A lost fixture schema is rebuilt by the next test: do not wait for the WAL flush.
+            connection.execute("SET LOCAL synchronous_commit = off")
+            _create_empty_schema(connection)
+            # Audit functions are owned by skeleton_audit_writer; like InstallRecordInfrastructure,
+            # the ownership transfer needs schema CREATE only for the duration of the DDL.
+            connection.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
+            # No parameters: psycopg sends the whole script with the simple query protocol.
+            connection.execute(template.sql)
+            connection.execute("REVOKE CREATE ON SCHEMA skeleton FROM skeleton_audit_writer")
+    except psycopg.errors.OutOfMemory as exc:
+        # "out of shared memory": the lock table is full, usually with several workers restoring.
+        raise RuntimeError(
+            f"PostgreSQL ran out of lock slots while recreating schema skeleton: {_LOCK_ADVICE}."
+        ) from exc
 
 
 def schema_fingerprint(pair):

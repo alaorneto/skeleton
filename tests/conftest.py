@@ -3,6 +3,10 @@
 The whole suite runs on PostgreSQL (#145): migrations as ``skeleton_owner``, assertions as
 ``skeleton_runtime`` (NOSUPERUSER, NOBYPASSRLS). ``tools/dev_postgres.py start`` provides a
 disposable local server; ``eval "$(tools/dev_postgres.py env)"`` exports the variables.
+
+With ``pytest -n`` (pytest-xdist) every worker process uses a database of its own,
+``<prefix>_gwN_skeleton_test``, provisioned beforehand like the base one. The fixtures never
+create a database or a role: a missing worker database stops the run with a usage error.
 """
 
 import os
@@ -32,8 +36,82 @@ POSIX_FILESYSTEM = hasattr(os, "O_NOFOLLOW")
 collect_ignore = [] if os.environ.get("SSO_FIXTURE_ENV_PATH") else ["sso"]
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--shard",
+        metavar="I/N",
+        default=None,
+        help="Run only slice I of N of the test files (tools/suite_shards.py); the N slices are the whole suite.",
+    )
+
+
+def pytest_configure(config):
+    if config.getoption("shard"):
+        from tools.suite_shards import parse_shard
+
+        try:
+            parse_shard(config.getoption("shard"))
+        except ValueError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+    if hasattr(config, "workerinput"):
+        _select_worker_database()
+    elif getattr(config.option, "numprocesses", None) and not config.option.collectonly:
+        _require_worker_databases(config.option.numprocesses)
+
+
+def _select_worker_database():
+    """In a pytest-xdist worker: this process only ever sees its own database."""
+    from tools.integration_database import RUNTIME_ENV, select_worker_database
+
+    if select_worker_database() is not None and settings.DATABASES.get("default"):
+        # The settings were loaded from the base URL before this hook ran.
+        _configure_postgres(os.environ[RUNTIME_ENV])
+
+
+def _require_worker_databases(count):
+    """In the controller: fail once, before any worker starts, when a database is missing."""
+    from tools.integration_database import (
+        OWNER_ENV,
+        RUNTIME_ENV,
+        lock_table_shortfall,
+        missing_worker_databases,
+    )
+
+    if not os.environ.get(RUNTIME_ENV) or not os.environ.get(OWNER_ENV):
+        return  # Tests without a database still run; the others report the missing variables.
+    try:
+        missing = missing_worker_databases(count)
+        shortfall = None if missing else lock_table_shortfall(count)
+    except RuntimeError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+    if shortfall:
+        raise pytest.UsageError(f"pytest -n {count}: {shortfall}")
+    if missing:
+        raise pytest.UsageError(
+            f"pytest -n {count} needs one disposable database per worker, and {len(missing)} cannot be "
+            f"opened by skeleton_owner (first: {missing[0]}). Provision them with "
+            f"`tools/dev_postgres.py start --workers {count}` (in CI, the provisioning step), check "
+            "that the server is running, or lower -n. The fixtures never create databases."
+        )
+
+
+def _keep_shard(config, items):
+    """--shard I/N: keep the files of one slice; the other slices run them, none is skipped."""
+    from tools.suite_shards import parse_shard, split_shard
+
+    index, total = parse_shard(config.getoption("shard"))
+    selected, _ = split_shard([item.nodeid for item in items], index, total)
+    keep = set(selected)
+    deselected = [item for item in items if item.nodeid not in keep]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if item.nodeid in keep]
+
+
 def pytest_collection_modifyitems(config, items):
     """Production artifact handling is POSIX-only; report it as a skip, never as an error."""
+    if config.getoption("shard"):
+        _keep_shard(config, items)
     if POSIX_FILESYSTEM:
         return
     skip = pytest.mark.skip(reason="Requer os.O_NOFOLLOW/fcntl; execute em Linux ou macOS.")
