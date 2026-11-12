@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 TABLE_ACTIONS = ("read", "create", "update", "delete", "restore")
 MAX_SCOPES = 50
@@ -67,16 +68,22 @@ def table_scope(model, action: str) -> str:
 def validate_scopes(scopes, *, feed: bool) -> list[str]:
     """Normalized, sorted and unique scopes, or ``ValidationError`` (400) for any unknown one."""
     if not isinstance(scopes, list | tuple) or not scopes:
-        raise ValidationError({"scopes": "Informe ao menos um escopo."})
+        raise ValidationError({"scopes": gettext("Informe ao menos um escopo.")})
     if len(scopes) > MAX_SCOPES or not all(isinstance(scope, str) for scope in scopes):
-        raise ValidationError({"scopes": f"Use até {MAX_SCOPES} escopos em texto."})
+        raise ValidationError(
+            {"scopes": gettext("Use até %(MAX_SCOPES)s escopos em texto.") % {"MAX_SCOPES": MAX_SCOPES}}
+        )
     known_tables = set(table_scopes())
     clean = sorted(set(scopes))
     for scope in clean:
         named = _named.get(scope)
         if named is not None:
             if named.feed != feed:
-                raise ValidationError({"scopes": f"Escopo {scope} não vale para este tipo de token."})
+                raise ValidationError(
+                    {"scopes": gettext("Escopo %(scope)s não vale para este tipo de token.") % {"scope": scope}}
+                )
         elif feed or scope not in known_tables:
-            raise ValidationError({"scopes": f"Escopo desconhecido ou de tabela não exposta: {scope}."})
+            raise ValidationError(
+                {"scopes": gettext("Escopo desconhecido ou de tabela não exposta: %(scope)s.") % {"scope": scope}}
+            )
     return clean

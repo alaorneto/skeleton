@@ -19,6 +19,7 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
@@ -47,18 +48,20 @@ def digest(secret: str) -> str:
 
 def _validate_expiry(expires_at: Any) -> datetime:
     if not isinstance(expires_at, datetime) or timezone.is_naive(expires_at):
-        raise ValidationError({"expires_at": "Informe a validade com data, hora e fuso."})
+        raise ValidationError({"expires_at": gettext("Informe a validade com data, hora e fuso.")})
     now = timezone.now()
     if expires_at <= now:
-        raise ValidationError({"expires_at": "A validade precisa estar no futuro."})
+        raise ValidationError({"expires_at": gettext("A validade precisa estar no futuro.")})
     if expires_at > now + timedelta(days=max_days()):
-        raise ValidationError({"expires_at": f"A validade máxima é de {max_days()} dias."})
+        raise ValidationError(
+            {"expires_at": gettext("A validade máxima é de %(value1)s dias.") % {"value1": max_days()}}
+        )
     return expires_at
 
 
 def _validate_name(name: Any) -> str:
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
-        raise ValidationError({"name": "Informe um nome de até 150 caracteres."})
+        raise ValidationError({"name": gettext("Informe um nome de até 150 caracteres.")})
     return name.strip()
 
 
@@ -66,7 +69,7 @@ def _require_mfa_policy(actor: Any) -> None:
     from skeleton.accounts.mfa import mfa_required
 
     if mfa_required(actor):
-        raise PermissionDenied("MFA enrolment is required to issue tokens.")
+        raise PermissionDenied(gettext("Ative a verificação em duas etapas para emitir tokens."))
 
 
 def _require_session_actor(actor: Any) -> None:
@@ -74,7 +77,7 @@ def _require_session_actor(actor: Any) -> None:
     if not getattr(actor, "is_authenticated", False) or context.actor != actor.pk:
         raise PermissionDenied("The actor must be the authenticated user.")
     if getattr(context, "credential_scopes", None) is not None:
-        raise PermissionDenied("A token cannot manage tokens.")
+        raise PermissionDenied(gettext("Um token não pode gerenciar tokens."))
 
 
 def _create(**values: Any) -> IssuedToken:
@@ -99,7 +102,7 @@ def issue_personal_token(*, actor: Any, name: Any, scopes: Any, expires_at: Any,
     _require_session_actor(actor)
     _require_mfa_policy(actor)
     if getattr(actor, "account_type", "human") != "human":
-        raise PermissionDenied("Service accounts receive tokens from their organization.")
+        raise PermissionDenied(gettext("Contas de serviço recebem tokens pela organização."))
     return _create(
         user=actor,
         kind=ApiToken.Kind.FEED if feed else ApiToken.Kind.PERSONAL,
@@ -129,7 +132,7 @@ def issue_service_token(*, actor: Any, account: Any, name: Any, scopes: Any, exp
             .first()
         )
         if user is None:
-            raise ValidationError({"account": "Conta de serviço indisponível."})
+            raise ValidationError({"account": gettext("Conta de serviço indisponível.")})
         return _create(
             user=user,
             kind=ApiToken.Kind.SERVICE,

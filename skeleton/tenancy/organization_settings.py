@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
@@ -33,12 +34,12 @@ def revision_of(settings: Any) -> int:
 def _clean(data: dict[str, Any]) -> dict[str, str]:
     unknown = set(data) - set(WRITE_FIELDS)
     if unknown:
-        raise ValidationError({name: "Campo não permitido." for name in sorted(unknown)})
+        raise ValidationError({name: gettext("Campo não permitido.") for name in sorted(unknown)})
     values = {}
     for name in WRITE_FIELDS:
         value = data.get(name, "")
         if not isinstance(value, str):
-            raise ValidationError({name: "Use um texto."})
+            raise ValidationError({name: gettext("Use um texto.")})
         values[name] = value.strip()
     values["brand_color"] = values["brand_color"].lower()
     from .branding import validate_brand_color
@@ -54,7 +55,7 @@ def update_settings(*, actor: Any, data: dict[str, Any], expected_revision: int)
     from .models import OrganizationSettings
 
     if type(expected_revision) is not int:
-        raise ValidationError({"revision": "Informe a revisão."})
+        raise ValidationError({"revision": gettext("Informe a revisão.")})
     values = _clean(data)
     with organization_lock(actor) as organization:
         record = OrganizationSettings.objects.select_for_update().filter(organization=organization).first()

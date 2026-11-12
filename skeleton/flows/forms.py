@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from .spec import Field, Form
 from .values import InvalidValue, check_bounds, encode, parse
@@ -43,11 +44,11 @@ def clean(forms: Iterable[Form | None], data: Any) -> tuple[dict[str, Any], dict
     if data is None:
         data = {}
     if not isinstance(data, Mapping):
-        raise ValidationError({"data": "Envie os campos do formulário."})
+        raise ValidationError({"data": gettext("Envie os campos do formulário.")})
     errors: dict[str, str] = {}
     for name in data:
         if not isinstance(name, str) or name not in fields:
-            errors[str(name)[:64]] = "Campo não permitido."
+            errors[str(name)[:64]] = gettext("Campo não permitido.")
     values: dict[str, Any] = {}
     sensitive: dict[str, Any] = {}
     for name, field in fields.items():
@@ -58,12 +59,12 @@ def clean(forms: Iterable[Form | None], data: Any) -> tuple[dict[str, Any], dict
             check_bounds(field, value)
             if value is None or (field.type == "bool" and value is False and name not in data):
                 if field.required:
-                    raise InvalidValue("Campo obrigatório.")
+                    raise InvalidValue(gettext("Campo obrigatório."))
                 if name not in data:
                     continue  # Not informed: keep whatever the instance already has.
                 value = None
             if field.type == "user" and value is not None and not _active_member(value):
-                raise InvalidValue("Pessoa sem vínculo ativo nesta organização.")
+                raise InvalidValue(gettext("Pessoa sem vínculo ativo nesta organização."))
         except InvalidValue as error:
             errors[name] = str(error)
             continue
@@ -77,5 +78,7 @@ def clean_comment(comment: Any) -> str:
     if comment is None:
         return ""
     if not isinstance(comment, str) or len(comment) > MAX_COMMENT:
-        raise ValidationError({"comment": f"Use um texto de até {MAX_COMMENT} caracteres."})
+        raise ValidationError(
+            {"comment": gettext("Use um texto de até %(MAX_COMMENT)s caracteres.") % {"MAX_COMMENT": MAX_COMMENT}}
+        )
     return comment.strip()

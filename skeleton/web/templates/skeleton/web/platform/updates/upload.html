@@ -1,11 +1,11 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% block step_title %}Enviar pacote{% endblock %}
+{% load i18n %}{% block step_title %}{% translate "Enviar pacote" %}{% endblock %}
 {% block step %}
 <form method="post" enctype="multipart/form-data" action="{% url 'platform:updates-upload' %}" class="card max-w-3xl">
   {% csrf_token %}
-  <h2>Enviar pacote assinado</h2>
-  <p class="mt-1 mb-5 text-sm/6 text-body">O agente valida assinatura e conteúdo e devolve o digest. Nenhuma migration é executada nesta etapa; o plano passa por uma prévia de impacto antes de qualquer aprovação.</p>
+  <h2>{% translate "Enviar pacote assinado" %}</h2>
+  <p class="mt-1 mb-5 text-sm/6 text-body">{% translate "O agente valida assinatura e conteúdo e devolve o digest. Nenhuma migration é executada nesta etapa; o plano passa por uma prévia de impacto antes de qualquer aprovação." %}</p>
   {% with form=upload_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
-  <div class="form-actions"><button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="check" %}Enviar e validar</button></div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="check" %}{% translate "Enviar e validar" %}</button></div>
 </form>
 {% endblock %}

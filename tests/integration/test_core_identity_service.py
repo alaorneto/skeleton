@@ -3,6 +3,7 @@
 import dataclasses
 
 import pytest
+from django.test import override_settings
 
 from skeleton.service_api.errors import Conflict, ContextRequired, InvalidInput, NotFound
 from skeleton.service_api.identity import IdentityService, PersonSummary, UserProfileInfo
@@ -39,7 +40,8 @@ def scenario():
 def test_me_works_with_and_without_organization(scenario):
     with acting_as(scenario.member, scenario.a) as actor:
         me = IdentityService().me(actor=actor)
-    assert (me.sysid, me.email, me.language, me.kind) == (scenario.member.pk, scenario.member.email, "pt-br", "person")
+    assert (me.sysid, me.email, me.language, me.kind) == (scenario.member.pk, scenario.member.email, "", "person")
+    assert me.effective_language == "pt-br"  # A new profile follows the defaults (#170).
     with request_context(actor=scenario.member, request_id=None, source="test:identity-global"):
         assert IdentityService().me(actor=scenario.member).sysid == scenario.member.pk
     assert_rejects_other_actor(scenario.caller(lambda actor: IdentityService().me(actor=scenario.denied)))
@@ -74,6 +76,7 @@ def test_inactive_membership_is_not_found(scenario):
         IdentityService().get_person(actor=actor, user_id=scenario.denied.pk)
 
 
+@override_settings(LANGUAGES=[("pt-br", "Português"), ("en", "English")])
 def test_update_my_preferences_with_cas(scenario):
     service = IdentityService()
     with acting_as(scenario.member, scenario.a) as actor:

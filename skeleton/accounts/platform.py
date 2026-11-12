@@ -9,6 +9,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 PLATFORM_FLAGS = ("is_staff", "is_superuser")
 
@@ -18,7 +19,7 @@ class LastPlatformAdministrator(ValidationError):
 
     def __init__(self) -> None:
         super().__init__(
-            "A plataforma precisa manter ao menos um administrador ativo.", code="last_platform_administrator"
+            gettext("A plataforma precisa manter ao menos um administrador ativo."), code="last_platform_administrator"
         )
 
 

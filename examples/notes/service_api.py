@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.utils.translation import gettext
+
 from skeleton.access.policies import authorized_queryset, require_record_action
 from skeleton.service_api import InvalidInput, NotFound, Page, ServiceAPI, as_utc, as_uuid, paginate, service_method
 from skeleton.tenancy.context import current_context
@@ -61,7 +63,7 @@ def _summary(note: Note) -> NoteSummary:
 
 
 def _text(values: dict[str, object]) -> dict[str, str]:
-    errors = {name: ["Use um texto."] for name, value in values.items() if not isinstance(value, str)}
+    errors = {name: [gettext("Use um texto.")] for name, value in values.items() if not isinstance(value, str)}
     if errors:
         raise InvalidInput(errors)
     return {name: str(value) for name, value in values.items()}
@@ -155,9 +157,9 @@ class NoteService(ServiceAPI):
             name: value for name, value in zip(_TEXT_FIELDS, (code, title, body), strict=True) if value is not None
         }
         if not changes:
-            raise InvalidInput({"non_field_errors": ["Informe ao menos um campo."]})
+            raise InvalidInput({"non_field_errors": [gettext("Informe ao menos um campo.")]})
         if type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use a revisão inteira atual."]})
+            raise InvalidInput({"expected_revision": [gettext("Use a revisão inteira atual.")]})
         values = _text(changes)
         note = require_record_action(_readable(actor, note_id), user=actor, action="update")
         note.revision = expected_revision  # CAS: save() raises ConcurrentUpdate -> Conflict(stale_revision).

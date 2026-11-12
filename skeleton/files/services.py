@@ -14,6 +14,7 @@ from typing import IO, Any
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import Http404
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -25,7 +26,7 @@ from .storage import StorageError, object_key, put_stream
 
 class UploadTooLarge(ValidationError):
     def __init__(self):
-        super().__init__("O arquivo excede o limite permitido.", code="too_large")
+        super().__init__(gettext("O arquivo excede o limite permitido."), code="too_large")
 
 
 def _precheck_quota(organization_id, size: int) -> None:
@@ -39,7 +40,9 @@ def _precheck_quota(organization_id, size: int) -> None:
 
 class UnsupportedFileType(ValidationError):
     def __init__(self):
-        super().__init__("Tipo de arquivo não permitido ou inconsistente com a extensão.", code="unsupported_type")
+        super().__init__(
+            gettext("Tipo de arquivo não permitido ou inconsistente com a extensão."), code="unsupported_type"
+        )
 
 
 def policy(spec):
@@ -90,7 +93,7 @@ def _clean_filename(name: str) -> str:
 
     name = PurePath(str(name).replace("\\", "/")).name.strip()
     if not name or len(name) > 255 or any(ord(char) < 32 for char in name):
-        raise ValidationError({"file": "Nome de arquivo inválido."})
+        raise ValidationError({"file": gettext("Nome de arquivo inválido.")})
     return name
 
 

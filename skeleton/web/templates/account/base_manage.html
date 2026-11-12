@@ -1,19 +1,19 @@
 {% extends "skeleton/web/base.html" %}
-{% block title %}{% block head_title %}Minha conta{% endblock %} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{% block head_title %}{% translate "Minha conta" %}{% endblock %} · Skeleton{% endblock %}
 {% block main %}
 {% url 'web:profile' as profile_url %}{% url 'notifications:preferences' as notifications_url %}{% url 'account_email' as email_url %}{% url 'account_change_password' as password_url %}{% url 'mfa_index' as mfa_url %}{% url 'integrations:personal-tokens' as tokens_url %}
 <main id="conteudo" tabindex="-1" class="app-main mx-auto w-full max-w-7xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8">
   <div class="grid gap-6 md:grid-cols-[14rem_minmax(0,1fr)] md:gap-10">
     <aside class="min-w-0">
-      <p class="page-eyebrow mb-3 px-3">Minha conta</p>
-      <nav aria-label="Minha conta">
+      <p class="page-eyebrow mb-3 px-3">{% translate "Minha conta" %}</p>
+      <nav aria-label="{% translate "Minha conta" %}">
         <ul class="flex gap-1 overflow-x-auto [&_a]:whitespace-nowrap md:flex-col md:[&_a]:whitespace-normal">
-          <li><a class="sidebar-link" href="{{ profile_url }}"{% if request.path == profile_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="user" %}Perfil</a></li>
-          <li><a class="sidebar-link" href="{{ notifications_url }}"{% if request.path == notifications_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}Notificações</a></li>
-          <li><a class="sidebar-link" href="{{ email_url }}"{% if request.path == email_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" %}Email</a></li>
-          <li><a class="sidebar-link" href="{{ password_url }}"{% if request.path == password_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}Senha</a></li>
-          <li><a class="sidebar-link" href="{{ mfa_url }}"{% if request.path == mfa_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}Autenticação em dois fatores</a></li>
-          {% if user.account_type == "human" %}<li><a class="sidebar-link" href="{{ tokens_url }}"{% if request.path == tokens_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="link" %}Tokens de API</a></li>{% endif %}
+          <li><a class="sidebar-link" href="{{ profile_url }}"{% if request.path == profile_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="user" %}{% translate "Perfil" %}</a></li>
+          <li><a class="sidebar-link" href="{{ notifications_url }}"{% if request.path == notifications_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Notificações" %}</a></li>
+          <li><a class="sidebar-link" href="{{ email_url }}"{% if request.path == email_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" %}{% translate "Email" %}</a></li>
+          <li><a class="sidebar-link" href="{{ password_url }}"{% if request.path == password_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Senha" %}</a></li>
+          <li><a class="sidebar-link" href="{{ mfa_url }}"{% if request.path == mfa_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}{% translate "Autenticação em dois fatores" %}</a></li>
+          {% if user.account_type == "human" %}<li><a class="sidebar-link" href="{{ tokens_url }}"{% if request.path == tokens_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="link" %}{% translate "Tokens de API" %}</a></li>{% endif %}
         </ul>
       </nav>
     </aside>

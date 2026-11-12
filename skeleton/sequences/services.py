@@ -17,6 +17,7 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.tenancy.context import current_context
@@ -52,10 +53,10 @@ def next_number(key: str, *, at: datetime | None = None) -> SequenceNumber:
     try:
         spec = get_sequence(key)
     except KeyError:
-        raise ValidationError({"key": "Sequência não declarada."}) from None
+        raise ValidationError({"key": gettext("Sequência não declarada.")}) from None
     moment = at or timezone.now()
     if timezone.is_naive(moment):
-        raise ValidationError({"at": "Use data e hora com fuso."})
+        raise ValidationError({"at": gettext("Use data e hora com fuso.")})
     period = period_of(spec, moment)
     with transaction.atomic():
         counter = SequenceCounter.objects.select_for_update().filter(key=key, period=period).first()

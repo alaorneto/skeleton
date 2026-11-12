@@ -1,11 +1,11 @@
-{% extends "skeleton/web/base.html" %}{% block title %}Assinar a agenda · Skeleton{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Assinar a agenda · Skeleton" %}{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
-<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">Agenda</p><h1>Assinar a agenda</h1><p class="page-description">Um link para clientes de calendário (como os do celular) assinarem seus eventos de todas as organizações. Ele vale por um ano e pode ser revogado em Tokens de API.</p></div></div>
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Agenda" %}</p><h1>{% translate "Assinar a agenda" %}</h1><p class="page-description">{% translate "Um link para clientes de calendário (como os do celular) assinarem seus eventos de todas as organizações. Ele vale por um ano e pode ser revogado em Tokens de API." %}</p></div></div>
 {% if url %}
-<section class="card" aria-labelledby="feed-url"><h2 id="feed-url">Seu link de assinatura</h2><p class="mt-1 text-sm/6">Copie agora: ele não aparece de novo. Quem tiver o link lê sua agenda; acrescente <code>?busy=1</code> para mostrar só os horários ocupados.</p><p class="mt-4"><code class="break-all select-all" data-feed-url>{{ url }}</code></p></section>
+<section class="card" aria-labelledby="feed-url"><h2 id="feed-url">{% translate "Seu link de assinatura" %}</h2><p class="mt-1 text-sm/6">{% translate "Copie agora: ele não aparece de novo. Quem tiver o link lê sua agenda; acrescente" %} <code>?busy=1</code> {% translate "para mostrar só os horários ocupados." %}</p><p class="mt-4"><code class="break-all select-all" data-feed-url>{{ url }}</code></p></section>
 {% else %}
-<form method="post" class="card">{% csrf_token %}<p class="text-sm/6">O link acompanha as suas permissões: o que você deixar de ler some do feed.</p><div class="form-actions"><button type="submit" class="btn btn-primary">Criar link de assinatura</button></div></form>
+<form method="post" class="card">{% csrf_token %}<p class="text-sm/6">{% translate "O link acompanha as suas permissões: o que você deixar de ler some do feed." %}</p><div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar link de assinatura" %}</button></div></form>
 {% endif %}
 </div>
 {% endblock %}

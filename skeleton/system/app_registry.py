@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from .presentation import (
     AdministrationSpec,
@@ -275,15 +276,15 @@ def all_apps():
 
 def validate_configuration(manifest, values):
     if not isinstance(values, dict):
-        raise ValidationError({"configuration": "Use an object of declared fields."})
+        raise ValidationError({"configuration": gettext("Use um objeto com os campos declarados.")})
     fields = {field.name: field for field in manifest.configuration_fields}
     if set(values) - fields.keys():
-        raise ValidationError({"configuration": "Unknown application configuration field."})
+        raise ValidationError({"configuration": gettext("Campo de configuração desconhecido.")})
     result = {}
     for name, field in fields.items():
         value = values.get(name, field.default)
         if type(value) is not field.value_type or (isinstance(value, str) and len(value) > field.max_length):
-            raise ValidationError({"configuration": f"Invalid value for {name}."})
+            raise ValidationError({"configuration": gettext("Valor inválido para %(name)s.") % {"name": name}})
         result[name] = value
     return result
 
