@@ -26,7 +26,10 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - mencionar membro sem leitura, quem não é membro ou quem só é membro de B responde 400 (REST e serviço), sem gravar; a edição que acrescenta um não leitor também é recusada;
   - revogar a leitura entre a menção e o fan-out impede a entrega;
   - o seletor lista só membros que leem o registro, sem email, e responde 404 em outra organização.
-- `tests/integration/test_comments.py` e os testes de notificações (`-k notification`) seguem passando.
+- `python -m pytest tests/integration/test_comment_mentions.py tests/integration/test_notifications_notify.py -q`: 10 passed.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` e a #187 mescladas: 1684 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
 
 ## Comentários em registros (#187, epic #93)
 
