@@ -23,7 +23,11 @@ def test_gunicorn_timeout_is_the_same_everywhere():
     # The web unit is a file since #318; the documentation keeps the metrics example.
     documented = [
         line
-        for path in (ROOT / "docs" / "deployment.md", ROOT / "deploy" / "systemd" / "skeleton-web.service")
+        for path in (
+            ROOT / "docs" / "deployment.md",
+            ROOT / "deploy" / "systemd" / "skeleton-web.service",
+            ROOT / "compose.sandbox.yaml",  # The sandbox starts Gunicorn itself (#369).
+        )
         for line in path.read_text(encoding="utf-8").splitlines()
         if re.search(r"\bgunicorn config\.wsgi:application\b", line)
     ]

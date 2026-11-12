@@ -301,6 +301,63 @@ Fora do escopo: performance monitoring do Sentry.
 
 Produção sempre exigiu PostgreSQL. Bancos SQLite de desenvolvimento deixam de ser suportados (#144) e não são migrados: recrie o ambiente local com `tools/dev_postgres.py start` e os comandos do README. O transporte de dados SQLite para PostgreSQL foi retirado deste guia.
 
+## Sandbox no Coolify (#369)
+
+Um ambiente de sandbox e testes numa VPS com [Coolify](https://coolify.io), atualizado a cada merge em `main`. Ele **não** é o caminho de produção: não há agente, então não há manutenção coordenada, backup antes da migration nem rollback. Use só dados de teste.
+
+O `compose.sandbox.yaml` da raiz difere do `compose.yaml` em quatro pontos:
+
+| Ponto | `compose.sandbox.yaml` |
+|---|---|
+| Portas | Nenhum serviço publica porta no host; o proxy do Coolify chega ao `web` na 8000 pela rede interna. |
+| PostgreSQL | Imagem `deploy/coolify/postgres.Dockerfile`: aplica `deploy/postgres/bootstrap.sql` e define as senhas de `skeleton_owner` e `skeleton_runtime` **só na criação do volume**. |
+| Migrations | O serviço `migrate` roda a cada deploy, com a credencial owner, `migrate` e `sync_table_catalog`, e sai. O `web` só sobe depois dele (`service_completed_successfully`). A URL owner existe só nesse serviço. |
+| Start do `web` | Com a instância configurada, roda `upgrade_app_activation` e `check_skeleton_schema` com a role runtime antes do Gunicorn, como o agente faz no `finish()`. Uma falha impede o `web` de subir. Sem configuração, sobe em modo setup. |
+
+No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `web`, `worker` e `scheduler`) usam a mesma âncora `x-hardened` (sem capabilities, sem ganho de privilégio e raiz somente leitura, [#318](https://github.com/alaorneto/skeleton/issues/318)), o Redis recebe a senha pelo ambiente do container e não pelo comando renderizado, e o Gunicorn usa o mesmo `--timeout 120` da imagem (#298).
+
+### Criar o recurso
+
+1. **DNS:** um registro A do host do sandbox (por exemplo `sandbox.example.com`) para o IP da VPS.
+2. **Projeto:** no Coolify, crie um projeto e um environment `sandbox`.
+3. **Recurso:** no environment, *+ New* → *Public Repository* (repositório privado: *Private Repository (with GitHub App)*), a URL do repositório e o branch. *Build Pack* `Docker Compose`, *Base Directory* `/` e *Docker Compose Location* `/compose.sandbox.yaml`.
+4. **Variáveis** (aba *Environment Variables*). Gere cada senha com `openssl rand -hex 32`, só letras e dígitos, porque elas entram em URLs sem codificação:
+
+   | Variável | Uso |
+   |---|---|
+   | `SANDBOX_HOST` | Host público, sem esquema: `sandbox.example.com` |
+   | `POSTGRES_PASSWORD` | Administrador do PostgreSQL; só o container do banco a recebe |
+   | `SKELETON_OWNER_DB_PASSWORD` | Role owner; só o `migrate` e o init do banco a recebem |
+   | `SKELETON_RUNTIME_DB_PASSWORD` | Role runtime; digitada no setup |
+   | `REDIS_PASSWORD` | `requirepass` do Redis |
+
+5. **Domínio:** na configuração do serviço `web`, informe `https://<SANDBOX_HOST>:8000`. O sufixo `:8000` é a porta do container, não uma porta pública; o Coolify emite o certificado e o Traefik termina o TLS.
+6. **Auto Deploy:** desligado. Quem dispara o deploy é o CI (abaixo).
+7. *Deploy*. Na primeira vez, o `migrate` cria o schema e o `web` sobe em modo setup.
+
+### Primeiro acesso
+
+O token de uso único aparece nos logs do serviço `web` no Coolify. Abra `https://<SANDBOX_HOST>/setup/` e preencha o [setup](#primeira-instalação-pelo-setup-146) com:
+
+- **Instância:** host `<SANDBOX_HOST>`, origem CSRF `https://<SANDBOX_HOST>` e confiança no proxy ligada (o Traefik substitui o `X-Forwarded-Proto` recebido de fora).
+- **Banco runtime:** `postgres://skeleton_runtime:<SKELETON_RUNTIME_DB_PASSWORD>@postgres:5432/skeleton`.
+- **Schema:** `postgres://skeleton_owner:<SKELETON_OWNER_DB_PASSWORD>@postgres:5432/skeleton`. O `migrate` já aplicou as migrations; o setup só confere.
+- **Cache:** `redis://:<REDIS_PASSWORD>@redis:6379/0`.
+- **Arquivos:** backend local em `/instance/files`, dentro do volume persistente `instance`.
+
+Na conclusão, o processo sai, a política de reinício o traz de volta em modo normal, e o `worker` e o `scheduler` passam a ficar saudáveis.
+
+### Deploy a cada merge em `main`
+
+O job `deploy-sandbox` do `.github/workflows/ci.yml` roda só num push para `main` e só depois do job `CI` verde, e chama a API de deploy do Coolify. Ele nunca roda em pull request. Sem os secrets, o job termina com um aviso, sem disparar nada; projetos derivados sem sandbox não precisam remover o job.
+
+1. **Coolify:** em *Settings*, habilite o acesso à API. Em *Keys & Tokens* → *API tokens*, crie um token com permissão de deploy. Na aba *Webhooks* do recurso, copie a URL de deploy, `https://<coolify>/api/v1/deploy?uuid=<uuid>&force=false`.
+2. **GitHub:** em *Settings* → *Environments*, crie `sandbox` (opcionalmente restrito ao branch `main`) com os secrets `COOLIFY_DEPLOY_URL` e `COOLIFY_TOKEN`.
+
+O deploy no Coolify é assíncrono: o job só confirma que o pedido foi aceito. O resultado aparece em *Deployments* no recurso.
+
+**Limites:** o init do PostgreSQL só roda com o volume vazio. Trocar uma senha depois exige `ALTER ROLE` no banco e a atualização da variável e da configuração da instância. Se uma migration falha, o `migrate` termina com erro e o `web` com o código novo não sobe. Confira os logs do `migrate` no Coolify. Migrations já aplicadas antes da falha continuam no banco, porque o sandbox não tem o backup do agente.
+
 ## Distribuição do core e adoção de projetos derivados
 
 O `pyproject.toml` é a fonte única da versão do `django-skeleton`. O wheel contém somente `skeleton`, incluindo migrations históricas, templates/static, defaults reutilizáveis e inventário técnico. `config`, `applications`, `examples`, `deployment_agent`, `manage.py`, bancos e secrets não pertencem à distribuição. Os imports históricos e os labels `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system` e `sk_audit` permanecem estáveis.
