@@ -51,4 +51,6 @@ def test_picker_tolerates_typos_with_pg_trgm(scenario):
         available = trigram_available()
     if not available:
         pytest.skip("pg_trgm is not installed in this PostgreSQL (the CI image has it).")
-    assert picker(scenario.member, scenario.a, "cntrato")[0] == "S-1"
+    assert picker(scenario.member, scenario.a, "cntrato") == ["S-1"]  # A typo in one word of the label.
+    assert picker(scenario.member, scenario.a, "locaçao") == ["S-1"]  # Missing accent: unaccented anyway.
+    assert picker(scenario.member, scenario.a, "trabalhsta") == ["S-2"]

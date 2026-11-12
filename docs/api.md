@@ -52,7 +52,7 @@ FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nes
 - filtra depois da autorização e antes da paginação, então `count` só conta o que o ator lê;
 - ordena por relevância.
 
-O picker de referências aceita `q` para prefixo do rótulo e, com `pg_trgm`, similaridade, que tolera erro de digitação (#180, #181).
+O picker de referências aceita `q` para prefixo do rótulo e, com `pg_trgm`, similaridade por palavra inteira (`strict_word_similarity`, limiar padrão 0,5), que tolera erro de digitação numa palavra do rótulo, mas não casa pedaços de outra palavra (#180, #181).
 
  Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
 

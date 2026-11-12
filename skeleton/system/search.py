@@ -93,7 +93,14 @@ def trigram_available(using: str = "default") -> bool:
 
 
 def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
-    """Picker filter on the label: prefix always, similarity (typos) when ``pg_trgm`` exists."""
+    """Picker filter on the label: prefix always, similarity (typos) when ``pg_trgm`` exists.
+
+    Similarity is *strict word* similarity (``<<%``, threshold
+    ``pg_trgm.strict_word_similarity_threshold``, 0.5 by default): the term is compared with whole
+    words of the label, so a typo in one word of a long label matches ("cntrato" finds "Contrato
+    de locação") while a fragment of another word does not ("ação" does not find "locação").
+    Plain ``%`` compares the whole label and misses typos in long labels.
+    """
     term = clean_term(term)
     if label is None:
         return queryset.none()
@@ -103,14 +110,16 @@ def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
         return (
             queryset.alias(
                 _sk_label=RawSQL(
-                    f"({expression} LIKE {UNACCENT}(%s) || '%%' OR {expression} %% {UNACCENT}(%s))",
+                    f"({expression} LIKE {UNACCENT}(%s) || '%%' OR {UNACCENT}(%s) <<%% {expression})",
                     (term, term),
                     output_field=BooleanField(),
                 )
             )
             .filter(_sk_label=True)
             .annotate(
-                _sk_similarity=RawSQL(f"similarity({expression}, {UNACCENT}(%s))", (term,), output_field=FloatField())
+                _sk_similarity=RawSQL(
+                    f"strict_word_similarity({UNACCENT}(%s), {expression})", (term,), output_field=FloatField()
+                )
             )
             .order_by("-_sk_similarity", "created_at", "sysid")
         )
