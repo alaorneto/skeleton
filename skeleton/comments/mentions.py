@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils.translation import gettext, gettext_lazy
 
 TYPE = "comments.mention"
 MAX_MENTIONS = 20
@@ -60,13 +61,13 @@ def validate(spec: Any, record: Any, body: str) -> list[UUID]:
     """The people the body mentions; refuses a mention of anyone who is not a reader member."""
     ids = mentioned_ids(body)
     if len(ids) > MAX_MENTIONS:
-        raise ValidationError({"body": f"Mencione até {MAX_MENTIONS} pessoas."})
+        raise ValidationError({"body": gettext("Mencione até %(count)d pessoas.") % {"count": MAX_MENTIONS}})
     if not ids:
         return []
     readers = {user.pk for user in _members(ids) if reads(spec, record.pk, user)}
     if set(ids) - readers:
         # One message for every failure: whether the person exists is not revealed.
-        raise ValidationError({"body": "Só é possível mencionar membros que leem este registro."})
+        raise ValidationError({"body": gettext("Só é possível mencionar membros que leem este registro.")})
     return ids
 
 
@@ -134,7 +135,7 @@ SCAN_LIMIT = 500
 def _name(user: Any, profile: Any) -> str:
     """Display name without the email: members without ``members.view`` never see addresses."""
     name = (getattr(profile, "display_name", "") or "").strip() or f"{user.first_name} {user.last_name}".strip()
-    return name or "Membro"
+    return name or gettext("Membro")
 
 
 def mentionable(spec: Any, record: Any, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -162,7 +163,7 @@ def register_mention_type() -> None:
     register_notification_type(
         NotificationType(
             TYPE,
-            "Menção em comentário",
+            gettext_lazy("Menção em comentário"),
             payload_fields=("comment", "table", "record"),
             owner_app="sk_comments",
             open_url=open_url,
