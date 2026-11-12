@@ -8,6 +8,7 @@ from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
@@ -104,6 +105,9 @@ def tenant_page(*, admin=False, capability=None):
     """
 
     def decorator(view):
+        # Outside login_required, so the login redirect is not cached either: a page of
+        # business data must not come back from the browser history after logout (#289).
+        @never_cache
         @login_required
         @wraps(view)
         def wrapper(request, *args, **kwargs):
@@ -231,6 +235,7 @@ def check_html_revision(form, record):
         raise ConcurrentUpdate(gettext("Revisão desatualizada."))
 
 
+@never_cache
 @login_required
 def home(request):
     from skeleton.service_api.organizations import OrganizationService
@@ -262,6 +267,7 @@ def home(request):
     )
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
@@ -320,6 +326,7 @@ def _service_form_error(form, error):
     return form_error(form, ValidationError(error.detail))
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 @transaction.atomic

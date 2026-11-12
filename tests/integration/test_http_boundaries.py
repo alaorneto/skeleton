@@ -509,3 +509,38 @@ def test_me_patch_rejects_non_text_values(http_identity):
     assert response.json()["code"] == "validation_error"
     assert "display_name" in response.json()["fields"]
     assert client.get(url)["ETag"] == initial["ETag"]
+
+
+def test_authenticated_pages_are_not_cacheable(http_identity, subtests):
+    """Organization pages, home and profile leave no copy in the browser history (#289)."""
+    client, _, organization = http_identity
+    org = {"organization_id": organization.pk}
+    table = {**org, "table_key": "example_notes.note"}
+    created = send(client, "post", notes_url(organization), {"code": "cache-note", "title": "Cache"})
+    urls = [
+        reverse("web:home"),
+        reverse("web:profile"),
+        reverse("web:dashboard", kwargs=org),
+        reverse("web:catalog", kwargs=org),
+        reverse("web:records", kwargs=table),
+        reverse("web:record", kwargs={**table, "sysid": created.json()["sysid"]}),
+        reverse("web:audit", kwargs=org),
+        reverse("web:access-list", kwargs={**org, "resource": "memberships"}),
+        reverse("web:leave-organization", kwargs=org),
+    ]
+    for url in urls:
+        with subtests.test(url):
+            response = client.get(url)
+            assert response.status_code == 200
+            assert "no-store" in response["Cache-Control"] and "private" in response["Cache-Control"]
+    with subtests.test("anonymous redirect"):
+        anonymous = Client().get(reverse("web:dashboard", kwargs=org))
+        assert anonymous.status_code == 302 and "no-store" in anonymous["Cache-Control"]
+
+
+def test_static_files_keep_their_cache():
+    """Negative: static assets are not marked no-store (#289)."""
+    with override_settings(WHITENOISE_USE_FINDERS=True, WHITENOISE_AUTOREFRESH=True):
+        response = Client().get("/static/skeleton/web/site.css")  # WhiteNoise reads its settings per handler.
+    assert response.status_code == 200
+    assert "no-store" not in response.get("Cache-Control", "")
