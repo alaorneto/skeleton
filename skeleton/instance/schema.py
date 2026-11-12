@@ -212,6 +212,11 @@ _SPECS = (
     SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
     SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
+    SettingSpec("export_max_rows", "SKELETON_EXPORT_MAX_ROWS", "int", "Linhas máximas de uma exportação CSV", _int(1)),
+    SettingSpec("import_max_rows", "SKELETON_IMPORT_MAX_ROWS", "int", "Linhas máximas de uma importação CSV", _int(1)),
+    SettingSpec(
+        "transfer_retention_days", "SKELETON_TRANSFER_RETENTION_DAYS", "int", "Retenção dos arquivos CSV", _int(1)
+    ),
     SettingSpec(
         "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list
     ),

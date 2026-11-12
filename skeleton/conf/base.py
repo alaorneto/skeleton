@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "skeleton.files.apps.FilesConfig",
     "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.sequences.apps.SequencesConfig",
+    "skeleton.transfer.apps.TransferConfig",
     "skeleton.flows.apps.FlowsConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
@@ -209,6 +210,10 @@ from skeleton.api.proxy import proxy_settings
 globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
+# CSV export and import (#182, #183).
+SKELETON_EXPORT_MAX_ROWS = env.int("SKELETON_EXPORT_MAX_ROWS", default=100_000)
+SKELETON_IMPORT_MAX_ROWS = env.int("SKELETON_IMPORT_MAX_ROWS", default=10_000)
+SKELETON_TRANSFER_RETENTION_DAYS = env.int("SKELETON_TRANSFER_RETENTION_DAYS", default=7)
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # API tokens (#45): maximum validity in days of a newly issued token.
 SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
