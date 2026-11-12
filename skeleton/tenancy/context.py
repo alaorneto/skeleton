@@ -69,6 +69,8 @@ _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", defa
 # authorization cache across requests: a revocation still applies on the next request.
 _request_cache: ContextVar[dict[Any, Any] | None] = ContextVar("skeleton_request_cache", default=None)
 _GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor")
+# One statement per context entry (#237); the names are constants, the values parameters.
+_SET_GUCS = "SELECT " + ", ".join(f"set_config('skeleton.{name}', %s, true)" for name in _GUCS)
 
 
 def current_context() -> Context:
@@ -106,11 +108,19 @@ def _apply(context: Context) -> None:
             "on" if context.platform_admin else "off",
             "on" if context.platform_auditor else "off",
         )
+        assert len(values) == len(_GUCS)
         with connection.cursor() as cursor:
-            for name, value in zip(_GUCS, values, strict=True):
-                cursor.execute(
-                    "SELECT set_config(%s, %s, true)", ["skeleton." + name, str(value) if value is not None else ""]
-                )
+            cursor.execute(_SET_GUCS, [str(value) if value is not None else "" for value in values])
+
+
+def _transaction_aborted(connection: Any) -> bool:
+    """True when PostgreSQL refuses further statements until a rollback."""
+    raw = connection.connection
+    if raw is None or connection.vendor != "postgresql":
+        return False
+    from psycopg.pq import TransactionStatus
+
+    return bool(raw.info.transaction_status == TransactionStatus.INERROR)
 
 
 @contextmanager
@@ -123,15 +133,19 @@ def _enter(context: Context) -> Iterator[Context]:
         try:
             _apply(context)
             yield context
-        finally:
+        except BaseException:
+            # The savepoint rollback of atomic() restores the prior GUCs (#237): never query an
+            # aborted transaction here, so the original exception leaves the block.
             _context.reset(token)
-            connection = connections[context.using]
-            if prior and not connection.needs_rollback:
-                try:
-                    _apply(prior)
-                except Exception:
-                    connection.close()
-                    raise
+            raise
+        _context.reset(token)
+        connection = connections[context.using]
+        if prior and not connection.needs_rollback and not _transaction_aborted(connection):
+            try:
+                _apply(prior)
+            except Exception:
+                connection.close()
+                raise
 
 
 @contextmanager
@@ -240,8 +254,17 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
     context = replace(
         prior or Context(using=using), organization_id=tenant_id, source="system:" + reason.strip(), system=True
     )
-    with _enter(context) as active:
-        yield active
+    if prior is not None:
+        with _enter(context) as active:
+            yield active
+        return
+    # A top-level system context owns the selected tenant of its unit of work (#237).
+    selected_token = _selected.set(None)
+    try:
+        with _enter(context) as active:
+            yield active
+    finally:
+        _selected.reset(selected_token)
 
 
 def refresh_authenticated_actor(user: Any) -> None:
