@@ -68,6 +68,10 @@ def update_profile(user, *, data, user_revision=None, profile_revision=None):
     allowed = {"first_name", "last_name", "display_name", "timezone", "language"}
     if set(data) - allowed:
         raise ValidationError(gettext("Campos de perfil não permitidos."))
+    for name in ("first_name", "last_name", "display_name"):
+        # Django's CharField would store str() of any value: a dict became "{'a': 1}" (#272).
+        if name in data and not isinstance(data[name], str):
+            raise ValidationError({name: gettext("Use um valor textual.")})
     if "timezone" in data and data["timezone"] != "":
         try:
             ZoneInfo(data["timezone"])

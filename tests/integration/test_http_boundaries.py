@@ -498,3 +498,14 @@ def test_html_audit_page_beyond_max_offset_is_400(http_identity):
     client, _, organization = http_identity
     response = client.get(reverse("web:audit", kwargs={"organization_id": organization.pk}) + "?page=" + str(10**30))
     assert response.status_code == 400
+
+
+def test_me_patch_rejects_non_text_values(http_identity):
+    client, _, _ = http_identity
+    url = reverse("api:me")
+    initial = client.get(url)
+    response = send(client, "patch", url, {"display_name": {"a": 1}}, initial["ETag"])
+    assert response.status_code == 400
+    assert response.json()["code"] == "validation_error"
+    assert "display_name" in response.json()["fields"]
+    assert client.get(url)["ETag"] == initial["ETag"]

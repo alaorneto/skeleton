@@ -54,7 +54,7 @@ Campos de links: member-roles={membership,role}; group-members={group,membership
 
 ## `me` composto
 
-GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos first_name,last_name,display_name,timezone,language; atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
+GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos de texto first_name,last_name,display_name,timezone,language (outro tipo JSON é 400 `validation_error`, #272); atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
 
 O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a resposta reúne duas linhas: User e Profile. O PATCH exige as duas revisões em `If-Match` e as compara dentro da mesma transação. A revisão do perfil sozinha não protegeria o nome da identidade de uma alteração concorrente.
 

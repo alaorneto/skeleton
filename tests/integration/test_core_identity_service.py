@@ -119,3 +119,27 @@ def test_get_person_reads_membership_user_and_profile_in_one_query(scenario):
     assert person.sysid == scenario.denied.pk
     profile_alone = [query["sql"] for query in captured if query["sql"].startswith('SELECT "sk_accounts_userprofile"')]
     assert profile_alone == []
+
+
+@pytest.mark.parametrize("field", ["display_name", "first_name"])
+@pytest.mark.parametrize("value", [{"a": 1}, ["x"], 7, True])
+def test_update_my_profile_rejects_non_text_values(scenario, field, value):
+    """A non-text value is refused, never stored as its Python repr (#272)."""
+    service = IdentityService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        before = service.me(actor=actor)
+        with pytest.raises(InvalidInput) as error:
+            service.update_my_profile(
+                actor=actor,
+                expected_user_revision=before.user_revision,
+                expected_revision=before.revision,
+                changes=((field, value),),
+            )
+        assert field in error.value.errors
+        after = service.me(actor=actor)
+    assert (after.first_name, after.profile_display_name, after.revision, after.user_revision) == (
+        before.first_name,
+        before.profile_display_name,
+        before.revision,
+        before.user_revision,
+    )
