@@ -62,6 +62,12 @@
     </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhum aplicativo instalado.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="organization-identity">
+    <h2 id="organization-identity">Provedores de identidade</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">Login corporativo ligado a esta organização. Quem entra por ele (JIT, papel, domínios) é decidido pela própria organização.</p>
+    <ul class="mt-4 space-y-1">{% for row in identity_providers %}<li><a href="{% url 'platform:identity-provider' row.pk %}">{{ row.name }}</a> <span class="text-sm text-body-subtle">{{ row.get_protocol_display }} · {% if row.enabled %}ativo{% else %}desligado{% endif %}</span></li>{% empty %}<li class="text-body-subtle">Nenhum provedor cadastrado no banco.</li>{% endfor %}</ul>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:identity-provider-create' %}?protocol=oidc">Cadastrar provedor</a></p>
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-storage">
     <h2 id="organization-storage">Armazenamento</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador.</p>

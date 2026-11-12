@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import instance_views, jobs_views, updates, views
+from . import identity_views, instance_views, jobs_views, updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -22,6 +22,14 @@ urlpatterns = [
         name="organization-administrators",
     ),
     path("domains/", views.domains, name="domains"),
+    path("identity-providers/", identity_views.identity_providers, name="identity-providers"),
+    path("identity-providers/new/", identity_views.identity_provider_create, name="identity-provider-create"),
+    path("identity-providers/<uuid:sysid>/", identity_views.identity_provider_detail, name="identity-provider"),
+    path(
+        "identity-providers/<uuid:sysid>/check/",
+        identity_views.identity_provider_check,
+        name="identity-provider-check",
+    ),
     path("domains/<uuid:sysid>/revoke/", views.domain_revoke, name="domain-revoke"),
     path("catalog/", views.catalog, name="catalog"),
     path("catalog/<uuid:sysid>/", views.catalog_table, name="catalog-table"),

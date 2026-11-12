@@ -28,6 +28,7 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/join/` | Pessoa autenticada com email verificado | Ver as organizações abertas a pedidos, pedir ingresso e acompanhar ou retirar os próprios pedidos |
 | `/join/<org>/<token>/` | Quem recebeu um link de ingresso | Entrar direto ou pedir ingresso pelo link; criar conta por ele quando a organização permite |
 | `/o/<org>/admission/domains/` | Administrador da organização | Cadastrar e verificar por DNS os domínios de email que admitem pessoas, com entrada direta ou com aprovação |
+| `/platform/identity-providers/` | Administrador da plataforma | Cadastrar, editar, desligar e testar provedores OIDC e SAML de cada organização, com segredos cifrados e só de escrita |
 | `/platform/domains/` | Administrador da plataforma | Ver e revogar a posse de domínios verificados em disputa |
 | `/o/<org>/admission/links/` | Quem gerencia convites | Criar e revogar links de ingresso com validade, limite de usos e entrada direta ou com aprovação |
 | `/o/<org>/requests/`, `/o/<org>/admission/` | Gestor de pessoas ou administrador; a política só o administrador | Aprovar ou recusar pedidos de ingresso; definir se a organização aceita pedidos, aparece na lista e com que papel entra quem for aprovado |

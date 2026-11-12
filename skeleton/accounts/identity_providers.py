@@ -312,3 +312,62 @@ def database_bindings() -> tuple[Any, ...]:
     if cache is not None:
         cache[_MEMO] = result
     return result
+
+
+# --------------------------------------------------------------------------- connection test (#30)
+
+
+def probe(row: Any) -> str:
+    """Fetch OIDC discovery or SAML metadata with the outbound client's timeouts; no login, no write."""
+    from skeleton.common.outbound_http import OutboundRequestFailed, OutboundRequestRefused, request
+
+    if row.protocol == "oidc":
+        url = row.issuer.rstrip("/") + "/.well-known/openid-configuration"
+    elif row.protocol == "saml":
+        url = (row.settings or {}).get("idp", {}).get("metadata_url")
+        if not url:
+            return "no_metadata_url"
+    else:
+        return "unsupported"
+    try:
+        response = request("GET", url, headers={"Accept": "application/json, application/xml"})
+    except OutboundRequestRefused as exc:
+        return f"refused:{exc.code}"
+    except OutboundRequestFailed:
+        return "unreachable"
+    if response.status != 200:
+        return f"http_{response.status}"
+    if row.protocol == "oidc":
+        try:
+            document = json.loads(response.body)
+        except ValueError:
+            return "invalid_document"
+        issuer = document.get("issuer") if isinstance(document, dict) else None
+        return "ok" if isinstance(issuer, str) and issuer.rstrip("/") == row.issuer.rstrip("/") else "issuer_mismatch"
+    return "ok" if row.entity_id.encode() in response.body else "entity_mismatch"
+
+
+def check_identity_provider(*, actor: Any, provider_id: Any) -> str:
+    """Run ``probe`` outside any lock and record only ``last_check_at``/``last_check_code``."""
+    from django.utils import timezone
+
+    from .models import IdentityProvider
+
+    _require_platform(actor)
+    row = IdentityProvider.objects.filter(pk=provider_id).first()
+    if row is None:
+        raise ValidationError({"provider_id": "Provedor inexistente."})
+    code = probe(row)
+    with transaction.atomic():
+        locked = IdentityProvider.objects.select_for_update().get(pk=row.pk)
+        locked.last_check_at = timezone.now()
+        locked.last_check_code = code[:40]
+        locked.save(update_fields={"last_check_at", "last_check_code"})
+    return code
+
+
+def organization_providers(organization: Any) -> list[Any]:
+    """The providers bound to one organization: global rows, never its tenant data."""
+    from .models import IdentityProvider
+
+    return list(IdentityProvider.objects.filter(bound_organization=organization).order_by("provider_id"))
