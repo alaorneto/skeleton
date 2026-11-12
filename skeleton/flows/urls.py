@@ -3,7 +3,6 @@ from django.urls import path, re_path
 from . import api_views, views
 
 app_name = "flows"
-TASK_ACTIONS = "|".join(api_views.TASK_ACTIONS)
 INSTANCE_ACTIONS = "|".join(api_views.INSTANCE_ACTIONS)
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 urlpatterns = [
@@ -18,10 +17,15 @@ urlpatterns = [
     ),
     path("api/v1/o/<uuid:organization_id>/flows/tasks/", api_views.TasksView.as_view(), name="api-tasks"),
     path("api/v1/o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/", api_views.TaskView.as_view(), name="api-task"),
-    re_path(
-        rf"^api/v1/o/(?P<organization_id>{UUID})/flows/tasks/(?P<sysid>{UUID})/(?P<action>{TASK_ACTIONS})/$",
-        api_views.TaskActionView.as_view(),
-        name="api-task-action",
+    # One literal route per action, so each one is documented in the OpenAPI schema (#178).
+    *(
+        path(
+            f"api/v1/o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/{action}/",
+            view.as_view(),
+            {"action": action},
+            name="api-task-action",
+        )
+        for action, view in api_views.TASK_ACTION_VIEWS.items()
     ),
     path("api/v1/o/<uuid:organization_id>/flows/instances/", api_views.InstancesView.as_view(), name="api-instances"),
     path(
@@ -34,9 +38,13 @@ urlpatterns = [
         api_views.InstanceHistoryView.as_view(),
         name="api-instance-history",
     ),
-    re_path(
-        rf"^api/v1/o/(?P<organization_id>{UUID})/flows/instances/(?P<sysid>{UUID})/(?P<action>{INSTANCE_ACTIONS})/$",
-        api_views.InstanceActionView.as_view(),
-        name="api-instance-action",
+    *(
+        path(
+            f"api/v1/o/<uuid:organization_id>/flows/instances/<uuid:sysid>/{action}/",
+            view.as_view(),
+            {"action": action},
+            name="api-instance-action",
+        )
+        for action, view in api_views.INSTANCE_ACTION_VIEWS.items()
     ),
 ]

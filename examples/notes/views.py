@@ -4,7 +4,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_POST
 from rest_framework.response import Response
 
-from skeleton.api.openapi import INTEGER, Operation, nullable, obj, string
+from skeleton.api.openapi import INTEGER, UUID, Operation, nullable, obj, string
 from skeleton.api.views import TenantAPI, request_fields
 from skeleton.service_api import Conflict
 from skeleton.service_api.applications import ApplicationService
@@ -51,8 +51,25 @@ class SummaryView(TenantAPI):
         return Response({"count": count, "heading": configuration.get("heading")})
 
 
+PUBLICATION = obj({"instance": UUID, "number": string(), "status": string(), "outcome": string(), "revision": INTEGER})
+
+
 class PublicationView(TenantAPI):
     """``POST {"note": "<uuid>"}`` starts the publication flow; ``GET ?note=<uuid>`` reads its state."""
+
+    openapi = {
+        "GET": Operation(
+            "Pedido de publicação de uma anotação",
+            obj({"publication": nullable(PUBLICATION)}),
+            query=(("note", UUID, "Anotação."),),
+        ),
+        "POST": Operation(
+            "Pede a publicação de uma anotação (201 ao criar, 200 se já havia pedido igual)",
+            obj({"publication": PUBLICATION}),
+            status="2XX",
+            request=obj({"note": UUID, "idempotency_key": string()}, required=("note",)),
+        ),
+    }
 
     def get(self, request, organization_id):
         status = NoteService().publication_status(actor=request.user, note_id=request.query_params.get("note"))

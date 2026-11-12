@@ -140,6 +140,7 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 - Tarefa ou instância inexistente, de outra organização, não visível ou de app desativada responde 404. Visível, mas sem direito à ação, 403. Formulário inválido, 400 com `fields`. Estado incompatível (instância suspensa, tarefa encerrada), 409 com o código do conflito.
 - Campo não declarado no formulário da etapa ou da transição é recusado, como no gateway. Ator, organização, responsável e revisão nunca vêm do corpo.
 - Iniciar uma instância não tem rota aqui: é operação da app dona do fluxo.
+- Todas as rotas estão no [schema OpenAPI](#schema-openapi), cada ação com o próprio caminho literal. Os corpos de resposta são gerados dos DTOs do `FlowService` (`skeleton/flows/api_views.py`), e os comandos documentam `If-Match` (412/428) e `ETag`.
 
 ## Schema OpenAPI
 

@@ -3,19 +3,84 @@
 Thin over ``FlowService``: the service authorizes every call. Session only (no view declares
 ``token_methods``). Commands require ``If-Match`` with the revision of the task or of the
 instance and answer 412 when it is stale, like the other core resources.
+
+Every route is documented in ``/api/v1/openapi.json`` (#178). The response schemas are derived
+from the ``FlowService`` DTOs, so they cannot drift from what ``asdict`` renders; each action has
+its own literal route and view class, because the schema leaves regex routes out.
 """
 
+import dataclasses
+import types
+import typing
 from dataclasses import asdict
+from datetime import datetime
+from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 from rest_framework.response import Response
 
 from skeleton.api.errors import BoundaryError, if_match_precondition, parse_revision
+from skeleton.api.openapi import (
+    BOOLEAN,
+    DATETIME,
+    INTEGER,
+    OBJECT,
+    ORGANIZATION_ADMIN,
+    Operation,
+    Schema,
+    array,
+    nullable,
+    obj,
+    string,
+)
+from skeleton.api.openapi import UUID as UUID_SCHEMA
 from skeleton.api.views import TenantAPI, etag, request_fields
-from skeleton.service_api.flows import FlowService
+from skeleton.service_api.flows import ActivityEntry, FlowService, InstanceInfo, TaskDetail, TaskSummary
 
 TASK_ACTIONS = ("claim", "release", "reassign", "complete", "decide")
 INSTANCE_ACTIONS = ("cancel", "suspend", "resume", "retry")
+_PRIMITIVES: dict[Any, Schema] = {str: string(), int: INTEGER, bool: BOOLEAN, UUID: UUID_SCHEMA, datetime: DATETIME}
+_JSON_TYPES = {str: "string", int: "integer", bool: "boolean"}
+
+
+def dto_schema(annotation: Any) -> Schema:
+    """JSON Schema of a DTO as ``asdict`` and the DRF encoder render it."""
+    if dataclasses.is_dataclass(annotation):
+        hints = typing.get_type_hints(annotation)
+        return obj({item.name: dto_schema(hints[item.name]) for item in dataclasses.fields(annotation)})
+    origin, arguments = typing.get_origin(annotation), typing.get_args(annotation)
+    if origin is tuple:
+        return array(dto_schema(arguments[0]))
+    if origin in (types.UnionType, typing.Union):
+        members = [item for item in arguments if item is not type(None)]
+        optional = len(members) < len(arguments)
+        if len(members) == 1:
+            schema = dto_schema(members[0])
+        else:  # A scalar form value: str | int | bool.
+            schema = {"type": [_JSON_TYPES[item] for item in members]}
+        return nullable(schema) if optional else schema
+    return dict(_PRIMITIVES[annotation])
+
+
+def _cursor_page(item: Any) -> Schema:
+    return obj(
+        {
+            "results": array(dto_schema(item)),
+            "next_cursor": nullable(string(description="Cursor da página seguinte; null na última.")),
+            "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+        }
+    )
+
+
+_PAGING = (
+    ("cursor", string(), "Cursor devolvido em next_cursor."),
+    ("page_size", {"type": "integer", "minimum": 1, "maximum": 100, "default": 25}, "Itens por página."),
+)
+_FORM_BODY = {
+    "data": {**OBJECT, "description": "Valores dos campos do formulário da etapa e da transição."},
+    "comment": string(),
+}
 
 
 def _filters(request, allowed):
@@ -57,17 +122,35 @@ def _form_data(data):
 
 
 class TasksView(TenantAPI):
+    openapi = {
+        "GET": Operation(
+            "Caixa de tarefas do ator",
+            lambda: _cursor_page(TaskSummary),
+            query=(
+                ("scope", string(enum=["mine", "available", "all"]), "Minhas (padrão), das filas ou todas."),
+                ("status", string(), "Situação da tarefa; só com scope=all."),
+                *_PAGING,
+            ),
+        )
+    }
+
     def get(self, request, organization_id):
         return _page(FlowService().tasks(actor=request.user, **_filters(request, ("scope", "status"))))
 
 
 class TaskView(TenantAPI):
+    openapi = {
+        "GET": Operation("Tarefa com formulário, ações e dados do processo", lambda: dto_schema(TaskDetail), etag=True)
+    }
+
     def get(self, request, organization_id, sysid):
         detail = FlowService().task(actor=request.user, task_id=sysid)
         return etag(Response(asdict(detail)), detail.task.revision)
 
 
 class TaskActionView(TenantAPI):
+    """The commands on a task; each action is routed to a subclass documenting it."""
+
     @transaction.atomic
     def post(self, request, organization_id, sysid, action):
         revision = parse_revision(request.headers.get("If-Match"))
@@ -111,24 +194,69 @@ class TaskActionView(TenantAPI):
         return etag(Response(asdict(task)), task.revision)
 
 
+def _task_command(summary: str, request: Schema | None = None) -> Operation:
+    return Operation(
+        summary, lambda: dto_schema(TaskSummary), request=request, request_required=False, etag=True, if_match=True
+    )
+
+
+TASK_ACTION_OPERATIONS = {
+    "claim": _task_command("Assume uma tarefa de fila"),
+    "release": _task_command("Devolve uma tarefa à fila"),
+    "reassign": _task_command(
+        "Reatribui ou delega a tarefa", obj({"to_user": UUID_SCHEMA, "comment": string()}, required=("to_user",))
+    ),
+    "complete": _task_command(
+        "Conclui a tarefa por uma das ações", obj({"action": string(), **_FORM_BODY}, required=())
+    ),
+    "decide": _task_command(
+        "Registra a decisão de uma aprovação",
+        obj({"decision": string(enum=["approved", "rejected"]), **_FORM_BODY}, required=("decision",)),
+    ),
+}
+
+
 class InstancesView(TenantAPI):
+    openapi = {
+        "GET": Operation(
+            "Instâncias de fluxo visíveis ao ator",
+            lambda: _cursor_page(InstanceInfo),
+            query=(
+                ("flow_key", string(), "Chave do fluxo."),
+                ("subject_id", UUID_SCHEMA, "Registro do processo."),
+                ("status", string(), "Situação da instância."),
+                *_PAGING,
+            ),
+        )
+    }
+
     def get(self, request, organization_id):
         filters = _filters(request, ("flow_key", "subject_id", "status"))
         return _page(FlowService().instances(actor=request.user, **filters))
 
 
 class InstanceView(TenantAPI):
+    openapi = {
+        "GET": Operation(
+            "Instância com etapas ativas e dados não sensíveis", lambda: dto_schema(InstanceInfo), etag=True
+        )
+    }
+
     def get(self, request, organization_id, sysid):
         instance = FlowService().instance(actor=request.user, instance_id=sysid)
         return etag(Response(asdict(instance)), instance.revision)
 
 
 class InstanceHistoryView(TenantAPI):
+    openapi = {"GET": Operation("Histórico da instância", lambda: _cursor_page(ActivityEntry), query=_PAGING)}
+
     def get(self, request, organization_id, sysid):
         return _page(FlowService().history(actor=request.user, instance_id=sysid, **_filters(request, ())))
 
 
 class InstanceActionView(TenantAPI):
+    """The administration of an instance; each action is routed to a subclass documenting it."""
+
     @transaction.atomic
     def post(self, request, organization_id, sysid, action):
         revision = parse_revision(request.headers.get("If-Match"))
@@ -142,3 +270,38 @@ class InstanceActionView(TenantAPI):
             else:
                 instance = getattr(service, action)(actor=request.user, instance_id=sysid, expected_revision=revision)
         return etag(Response(asdict(instance)), instance.revision)
+
+
+def _instance_command(summary: str, *, reason: bool = False, capability: str | None = None) -> Operation:
+    return Operation(
+        summary,
+        lambda: dto_schema(InstanceInfo),
+        request=obj({"reason": string()}, required=()) if reason else None,
+        request_required=False,
+        etag=True,
+        if_match=True,
+        capability=capability,
+    )
+
+
+INSTANCE_ACTION_OPERATIONS = {
+    "cancel": _instance_command(
+        "Cancela a instância (administrador, ou quem iniciou se o fluxo permitir)", reason=True
+    ),
+    "suspend": _instance_command("Suspende a instância", reason=True, capability=ORGANIZATION_ADMIN),
+    "resume": _instance_command("Retoma a instância suspensa", capability=ORGANIZATION_ADMIN),
+    "retry": _instance_command("Repete a etapa que falhou", capability=ORGANIZATION_ADMIN),
+}
+
+
+def _action_view(base: type, action: str, operation: Operation) -> type:
+    name = f"{action.title()}{base.__name__}"
+    return type(name, (base,), {"__module__": __name__, "__qualname__": name, "openapi": {"POST": operation}})
+
+
+TASK_ACTION_VIEWS = {
+    action: _action_view(TaskActionView, action, TASK_ACTION_OPERATIONS[action]) for action in TASK_ACTIONS
+}
+INSTANCE_ACTION_VIEWS = {
+    action: _action_view(InstanceActionView, action, INSTANCE_ACTION_OPERATIONS[action]) for action in INSTANCE_ACTIONS
+}

@@ -324,3 +324,22 @@ def test_instance_actions_on_the_page_require_post_csrf_and_the_revision(world):
         assert FlowInstance.objects.get(pk=world.instance_id).status == "suspended"
     page = admin.get(url("instance", world, sysid=world.instance_id)).content.decode()
     assert "Retomar" in page and "Cancelar processo" in page
+
+
+def test_every_flow_route_is_in_the_openapi_schema():
+    from skeleton.api.openapi import UNDOCUMENTED
+    from skeleton.testing.openapi import contract_schema
+
+    paths = contract_schema()["paths"]
+    base = "/api/v1/o/{organization_id}/flows/"
+    for path in ("tasks/", "tasks/{sysid}/", "instances/", "instances/{sysid}/", "instances/{sysid}/history/"):
+        assert not paths[base + path]["get"].get(UNDOCUMENTED), path
+    commands = [f"tasks/{{sysid}}/{action}/" for action in ("claim", "release", "reassign", "complete", "decide")]
+    commands += [f"instances/{{sysid}}/{action}/" for action in ("cancel", "suspend", "resume", "retry")]
+    for path in commands:
+        operation = paths[base + path]["post"]
+        assert not operation.get(UNDOCUMENTED), path
+        assert {"412", "428"} <= set(operation["responses"]), path  # If-Match is required.
+        assert operation["security"] == [{"sessionAuth": []}], path  # Session only, no token.
+    detail = paths[base + "tasks/{sysid}/"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert {"task", "fields", "actions", "can_act"} <= set(detail["properties"])
