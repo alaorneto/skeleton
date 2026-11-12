@@ -77,6 +77,8 @@ Apps próprias são identificadas por manifestos explícitos e pelo inventário 
 
 `ComponentInstallation` e `DeploymentOperation` são entidades globais próprias, não exceções técnicas: derivam de SystemRecord, têm specs explícitas sem gateway e guards/auditoria instalados por `sk_system.0004_deployment`. Plano/resultado são sensíveis. Tabelas de apps retiradas permanecem catalogadas e protegidas por cópias congeladas da infraestrutura do release confiável; o catálogo editável não vira fonte de DDL. Histórico de migrations fica separado, somente no migrator; modelos conservados nunca entram no registry/gateway.
 
+As tabelas de [fluxos de processo](flows.md#modelo-de-dados) (`sk_flows.flowdefinition`, `flowinstance`, `flowsteprun`, `flowtask`, `flowsubmission` e `flowactivity`) são entidades organizacionais próprias do núcleo, com specs explícitas sem gateway e infraestrutura congelada em `sk_flows.0001_initial`. `sensitive_data`, `sensitive_values` e `comment` são sensíveis. Só `sk_flows.flowinstance` declara `read_fields` (chave e versão do fluxo, estado, resultado e o registro de negócio): são os campos que os eventos de domínio do subsistema podem levar. Nenhuma delas recebe `TablePermission`.
+
 No PostgreSQL, encontrar um nome conhecido não basta. O check compara:
 
 - a função realmente referenciada pelo trigger (`tgfoid`/schema), momento de execução, eventos, nível, `WHEN` e argumentos;

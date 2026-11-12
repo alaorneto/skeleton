@@ -146,6 +146,10 @@ Com o extra `[metrics]` e `SKELETON_METRICS_TOKEN` definidos (#175), `/metrics` 
 
 Nenhum rótulo traz organização, ator ou payload. Alertas sugeridos: atraso acima do `--max-lag` usado em `check_jobs`, `skeleton_job_workers{state="live"} == 0` e crescimento de `skeleton_jobs_dead`. Configuração do endpoint e do Prometheus em [deployment](deployment.md#métricas-prometheus-175).
 
+## Jobs dos fluxos de processo
+
+O motor de [fluxos](flows.md#execução) registra `flows.service` (etapa de serviço), `flows.timer`, `flows.wait_timeout`, `flows.task_reminder` e `flows.task_due`, todos como sistema e por organização. O payload leva o identificador da ativação ou da tarefa e um tíquete ou índice: um job atrasado, duplicado ou de uma instância suspensa não faz nada. As retentativas de uma etapa de serviço são do motor (novo job com espera crescente), não do worker.
+
 ## Retenção
 
 O job periódico global `jobs.retention` roda a cada 6 horas e é o único caminho que apaga fisicamente linhas de `Job`:

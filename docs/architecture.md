@@ -30,6 +30,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/integrations` | Webhooks da organização: endpoints, entrega assinada com retentativas e log | Saídas HTTP só pelo cliente anti-SSRF; entregas agem como a conta de serviço do endpoint; [webhooks](webhooks.md) |
 | `skeleton/sequences` | Sequências sem lacunas por organização e período | Contador bloqueado na transação do chamador; [sequências](sequences.md) |
 | `skeleton/transfer` | Exportação e importação CSV de tabelas expostas, por job | Só pelo caminho autorizado do gateway; arquivo no storage privado só para quem pediu; retenção declarada; [exportação e importação](data-transfer.md) |
+| `skeleton/flows` | Motor de fluxos de processo de negócio: definições versionadas declaradas pelas apps, instâncias, tarefas, formulários e aprovações | Só o motor; a regra de cada fluxo é da app. Condições são dados ou callables registrados, nunca `eval`; [fluxos](flows.md) |
 | `skeleton/instance` | Configuração da instância num SQLite próprio, com segredos cifrados | Lido antes do Django, sem `DATABASES` nem migrations; nunca guarda dados |
 | `skeleton/web` e `skeleton/api` | Páginas e endpoints | Compartilham serviços e revalidam autorização no servidor |
 | `skeleton/service_api` | API de serviços pública do núcleo e base do contrato entre apps: `ServiceAPI`, `@service_method`, `@deprecated`, `Page`/`paginate`, erros públicos, introspecção do contrato (`contract`) e APIs declaradas pelas apps (`registry`) | Única porta do núcleo para apps; não abre contexto (confere que `actor` é o ator do contexto e que há tenant) e devolve só DTOs imutáveis, nunca modelos |
@@ -49,7 +50,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 
 `sysid` identifica uma linha; código comercial identifica algo segundo o negócio; `table_key` identifica um modelo registrado na interface. Nenhum desses valores é autorização ou um nome SQL livre recebido do cliente.
 
-Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences` e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
+Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences`, `sk_flows` e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
 
 ## Caminho de uma requisição
 

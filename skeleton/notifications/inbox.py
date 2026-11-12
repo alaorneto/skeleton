@@ -105,7 +105,14 @@ def open_target(user, row_id) -> str | None:
     if row.read_at is None:
         mark_read(user, [row.pk])
     if not row.target_sysid:
-        return None
+        from .registry import get_notification_type
+
+        try:
+            resolver = get_notification_type(row.type_code).open_url
+        except KeyError:
+            return None
+        # The type's own resolver re-authorizes the person before giving a link.
+        return resolver(user, row) if resolver is not None else None
     try:
         model = get_spec(row.target_table_key).model
         record = model.objects.filter(pk=row.target_sysid).first()

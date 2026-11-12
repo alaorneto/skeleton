@@ -28,3 +28,6 @@ class NotesConfig(AppConfig):
                 expose_api=True,
             )
         )
+        from .flows import register as register_flows
+
+        register_flows()

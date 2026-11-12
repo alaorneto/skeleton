@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.sequences.apps.SequencesConfig",
     "skeleton.transfer.apps.TransferConfig",
+    "skeleton.flows.apps.FlowsConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",
