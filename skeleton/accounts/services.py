@@ -17,7 +17,9 @@ from skeleton.common.exceptions import ConcurrentUpdate
 def normalized_email(email):
     from django.core.validators import validate_email
 
-    email = email.strip().lower()
+    from skeleton.accounts.emails import normalize_email
+
+    email = normalize_email(email)
     validate_email(email)
     return email
 

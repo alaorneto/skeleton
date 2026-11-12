@@ -1,6 +1,7 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.db import transaction
 
+from skeleton.accounts.emails import normalize_email as _normalize_email
 from skeleton.common.querysets import RecordManager
 
 
@@ -9,7 +10,7 @@ class UserManager(RecordManager, BaseUserManager):
 
     @classmethod
     def normalize_email(cls, email):
-        return super().normalize_email(email).strip().lower() if email else ""
+        return _normalize_email(email) if email else ""
 
     def create_user(self, email, password=None, **extra_fields):
         if not email:
