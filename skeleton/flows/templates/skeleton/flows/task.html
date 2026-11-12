@@ -1,16 +1,16 @@
-{% extends 'skeleton/web/base.html' %}{% block title %}{{ task.step_label }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ task.step_label }} · Skeleton{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header"><div class="min-w-0">
-  <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'flows:tasks' organization_id %}">Tarefas</a></li><li><span aria-current="page">{{ task.step_label }}</span></li></ol></nav>
+  <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:tasks' organization_id %}">{% translate "Tarefas" %}</a></li><li><span aria-current="page">{{ task.step_label }}</span></li></ol></nav>
   <h1>{{ task.step_label }}</h1>
   <p class="page-description"><a href="{% url 'flows:instance' organization_id task.instance_id %}">{{ task.flow_label }}{% if task.number %} {{ task.number }}{% endif %}</a></p>
-  <p class="mt-2">{% if task.status == "open" %}{% if task.assignee_id %}<span class="badge badge-warning">Aberta</span>{% else %}<span class="badge">Na fila</span>{% endif %}{% elif task.status == "completed" %}<span class="badge badge-success">Concluída</span>{% else %}<span class="badge">Cancelada</span>{% endif %}{% if task.decision %} <span class="badge">{{ task.decision }}</span>{% endif %}{% if task.due_at %} <span class="badge">prazo: {{ task.due_at }}</span>{% endif %}{% if detail.instance_status != "running" %} <span class="badge">processo: {{ detail.instance_status }}</span>{% endif %}</p>
+  <p class="mt-2">{% if task.status == "open" %}{% if task.assignee_id %}<span class="badge badge-warning">{% translate "Aberta" %}</span>{% else %}<span class="badge">{% translate "Na fila" %}</span>{% endif %}{% elif task.status == "completed" %}<span class="badge badge-success">{% translate "Concluída" %}</span>{% else %}<span class="badge">{% translate "Cancelada" %}</span>{% endif %}{% if task.decision %} <span class="badge">{{ task.decision }}</span>{% endif %}{% if task.due_at %} <span class="badge">{% translate "prazo:" %} {{ task.due_at }}</span>{% endif %}{% if detail.instance_status != "running" %} <span class="badge">{% translate "processo:" %} {{ detail.instance_status }}</span>{% endif %}</p>
 </div></div>
-{% if detail.data %}<section class="card" aria-labelledby="flow-data"><h2 id="flow-data" class="mb-4">Dados do processo</h2><dl class="meta-list">{% for item in detail.data %}<div><dt>{{ item.name }}</dt><dd>{{ item.value|default_if_none:"—" }}</dd></div>{% endfor %}</dl></section>{% endif %}
+{% if detail.data %}<section class="card" aria-labelledby="flow-data"><h2 id="flow-data" class="mb-4">{% translate "Dados do processo" %}</h2><dl class="meta-list">{% for item in detail.data %}<div><dt>{{ item.name }}</dt><dd>{{ item.value|default_if_none:"—" }}</dd></div>{% endfor %}</dl></section>{% endif %}
 {% if detail.can_claim or detail.can_release %}<section class="card mt-5"><div class="form-actions">
-  {% if detail.can_claim %}<form method="post">{% csrf_token %}<input type="hidden" name="revision" value="{{ task.revision }}"><button type="submit" name="operation" value="claim" class="btn btn-secondary">Assumir a tarefa</button></form>{% endif %}
-  {% if detail.can_release %}<form method="post">{% csrf_token %}<input type="hidden" name="revision" value="{{ task.revision }}"><button type="submit" name="operation" value="release" class="btn btn-secondary">Devolver à fila</button></form>{% endif %}
+  {% if detail.can_claim %}<form method="post">{% csrf_token %}<input type="hidden" name="revision" value="{{ task.revision }}"><button type="submit" name="operation" value="claim" class="btn btn-secondary">{% translate "Assumir a tarefa" %}</button></form>{% endif %}
+  {% if detail.can_release %}<form method="post">{% csrf_token %}<input type="hidden" name="revision" value="{{ task.revision }}"><button type="submit" name="operation" value="release" class="btn btn-secondary">{% translate "Devolver à fila" %}</button></form>{% endif %}
 </div></section>{% endif %}
 {% if detail.can_act %}
 <form method="post" class="card mt-5">
@@ -18,16 +18,16 @@
   {% include "skeleton/web/components/form-errors.html" %}
   {% include "skeleton/web/components/form-fields.html" %}
   <div class="form-actions">
-  {% if task.kind == "approval" %}<button type="submit" name="operation" value="approved" class="btn btn-primary">Aprovar</button><button type="submit" name="operation" value="rejected" class="btn btn-danger">Rejeitar</button>
+  {% if task.kind == "approval" %}<button type="submit" name="operation" value="approved" class="btn btn-primary">{% translate "Aprovar" %}</button><button type="submit" name="operation" value="rejected" class="btn btn-danger">{% translate "Rejeitar" %}</button>
   {% else %}{% for action in detail.actions %}<button type="submit" name="operation" value="{{ action.key }}" class="btn {% if forloop.first %}btn-primary{% else %}btn-secondary{% endif %}">{{ action.label }}</button>{% endfor %}{% endif %}
-  <a class="btn btn-secondary" href="{% url 'flows:tasks' organization_id %}">Voltar</a></div>
+  <a class="btn btn-secondary" href="{% url 'flows:tasks' organization_id %}">{% translate "Voltar" %}</a></div>
 </form>
 {% elif form.non_field_errors %}<div class="card mt-5">{% include "skeleton/web/components/form-errors.html" %}</div>{% endif %}
 {% if detail.can_reassign %}
-<section class="card mt-5" aria-labelledby="flow-reassign"><h2 id="flow-reassign">Reatribuir</h2>
+<section class="card mt-5" aria-labelledby="flow-reassign"><h2 id="flow-reassign">{% translate "Reatribuir" %}</h2>
 <form method="post">{% csrf_token %}<input type="hidden" name="revision" value="{{ task.revision }}">
-  <div class="form-stack"><div class="form-field"><label for="id_to_user">Pessoa (UUID)</label><input type="text" name="to_user" id="id_to_user" required></div><div class="form-field"><label for="id_reassign_comment">Comentário</label><input type="text" name="comment" id="id_reassign_comment" maxlength="4000"></div></div>
-  <div class="form-actions"><button type="submit" name="operation" value="reassign" class="btn btn-secondary">Reatribuir</button></div>
+  <div class="form-stack"><div class="form-field"><label for="id_to_user">{% translate "Pessoa (UUID)" %}</label><input type="text" name="to_user" id="id_to_user" required></div><div class="form-field"><label for="id_reassign_comment">{% translate "Comentário" %}</label><input type="text" name="comment" id="id_reassign_comment" maxlength="4000"></div></div>
+  <div class="form-actions"><button type="submit" name="operation" value="reassign" class="btn btn-secondary">{% translate "Reatribuir" %}</button></div>
 </form></section>
 {% endif %}
 </div>

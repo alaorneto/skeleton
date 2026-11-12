@@ -1,4 +1,4 @@
-{% extends "skeleton/web/base.html" %}{% block title %}Agenda · Skeleton{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Agenda · Skeleton" %}{% endblock %}
 {% block content %}
-<div class="max-w-3xl"><div class="error-summary" role="alert"><h1>Pedido inválido</h1><p class="mt-1">{{ detail }}</p><p class="mt-2"><a href="{% url 'skeleton_calendar:home' organization_id %}">Voltar à agenda</a></p></div></div>
+<div class="max-w-3xl"><div class="error-summary" role="alert"><h1>{% translate "Pedido inválido" %}</h1><p class="mt-1">{{ detail }}</p><p class="mt-2"><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Voltar à agenda" %}</a></p></div></div>
 {% endblock %}

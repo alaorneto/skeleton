@@ -10,6 +10,7 @@ from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate, validate_page_size
@@ -109,7 +110,7 @@ class AuditService(ServiceAPI):
         from skeleton.system.registry import get_spec
 
         if not isinstance(table_key, str):
-            raise InvalidInput({"table_key": ["Use o identificador da tabela."]})
+            raise InvalidInput({"table_key": [gettext("Use o identificador da tabela.")]})
         identifier = as_uuid(record_id, field="record_id")
         try:
             spec = get_spec(table_key)
@@ -239,10 +240,10 @@ class AuditLogService(ServiceAPI):
         Efeitos: nenhum.
         """
         if model_label is not None and not isinstance(model_label, str):
-            raise InvalidInput({"model_label": ["Use o rótulo do modelo."]})
+            raise InvalidInput({"model_label": [gettext("Use o rótulo do modelo.")]})
         size = validate_page_size(page_size)
         if type(page) is not int or page < 1:
-            raise InvalidInput({"page": ["Use um inteiro maior que zero."]})
+            raise InvalidInput({"page": [gettext("Use um inteiro maior que zero.")]})
         events = _authorized_log(actor)
         if model_label is not None:
             events = events.filter(model_label=model_label)
@@ -250,7 +251,7 @@ class AuditLogService(ServiceAPI):
             events = events.filter(record_sysid=as_uuid(record_id, field="record_id"))
         for name, value in (("since", since), ("until", until)):
             if value is not None and not isinstance(value, datetime):
-                raise InvalidInput({name: ["Use data e hora."]})
+                raise InvalidInput({name: [gettext("Use data e hora.")]})
         if since is not None:
             events = events.filter(created_at__gte=as_utc(since))
         if until is not None:
@@ -261,7 +262,7 @@ class AuditLogService(ServiceAPI):
             from skeleton.audit.models import AuditEvent
 
             if operation not in AuditEvent.Operation.values:
-                raise InvalidInput({"operation": ["Operação desconhecida."]})
+                raise InvalidInput({"operation": [gettext("Operação desconhecida.")]})
             events = events.filter(operation=operation)
         if request_id is not None:
             events = events.filter(request_id=as_uuid(request_id, field="request_id"))

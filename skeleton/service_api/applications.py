@@ -8,6 +8,7 @@ from typing import Any
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .errors import Forbidden, InvalidInput, Unavailable
@@ -41,7 +42,7 @@ def _manifest_for(app_id: str) -> Any:
     from skeleton.system.app_registry import all_apps
 
     if not isinstance(app_id, str) or not app_id:
-        raise InvalidInput({"app_id": ["Informe o app_id ou o app_label."]})
+        raise InvalidInput({"app_id": [gettext("Informe o app_id ou o app_label.")]})
     return next((item for item in all_apps() if app_id in (item.app_id, item.app_label)), None)
 
 
@@ -120,7 +121,7 @@ class ApplicationService(ServiceAPI):
 
         active_membership(_user(actor))
         if calling_app_label() != app_label:
-            raise Forbidden("Uma app só lê a própria configuração.")
+            raise Forbidden(gettext("Uma app só lê a própria configuração."))
         if not _enabled(app_label):
             raise Unavailable()
         state = application_state(app_label)

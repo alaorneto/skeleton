@@ -12,6 +12,7 @@ import re
 from django.core.exceptions import ValidationError
 from django.utils.html import escape
 from django.utils.safestring import SafeString, mark_safe
+from django.utils.translation import gettext
 
 from .models import MAX_BODY
 
@@ -22,14 +23,14 @@ FORBIDDEN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 def clean_body(value: object) -> str:
     if not isinstance(value, str):
-        raise ValidationError({"body": "Use um texto."})
+        raise ValidationError({"body": gettext("Use um texto.")})
     body = value.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not body:
-        raise ValidationError({"body": "O comentário está vazio."})
+        raise ValidationError({"body": gettext("O comentário está vazio.")})
     if len(body) > MAX_BODY:
-        raise ValidationError({"body": f"Use até {MAX_BODY} caracteres."})
+        raise ValidationError({"body": gettext("Use até %(count)d caracteres.") % {"count": MAX_BODY}})
     if FORBIDDEN.search(body):
-        raise ValidationError({"body": "O comentário tem caracteres de controle."})
+        raise ValidationError({"body": gettext("O comentário tem caracteres de controle.")})
     return body
 
 

@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from skeleton.notifications.services import Recipients
 
@@ -75,7 +76,7 @@ def _item(row: Any) -> NotificationItem:
 
 def _ids(ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
     if not isinstance(ids, tuple | list) or not 1 <= len(ids) <= 100:
-        raise InvalidInput({"ids": ["Informe de 1 a 100 identificadores."]})
+        raise InvalidInput({"ids": [gettext("Informe de 1 a 100 identificadores.")]})
     return tuple(as_uuid(value, field="ids") for value in ids)
 
 
@@ -109,13 +110,13 @@ class NotificationService(ServiceAPI):
         try:
             kind = get_notification_type(type_code)
         except KeyError:
-            raise InvalidInput({"type_code": ["Tipo de notificação desconhecido."]}) from None
+            raise InvalidInput({"type_code": [gettext("Tipo de notificação desconhecido.")]}) from None
         if calling_app_label() != (kind.owner_app or None):
-            raise Forbidden("A app só notifica com os próprios tipos.")
+            raise Forbidden(gettext("A app só notifica com os próprios tipos."))
         target = None
         if target_id is not None or target_table_key is not None:
             if target_table_key != kind.target_table_key or target_id is None:
-                raise InvalidInput({"target": ["Informe o alvo da tabela declarada no tipo."]})
+                raise InvalidInput({"target": [gettext("Informe o alvo da tabela declarada no tipo.")]})
             target = self._readable_target(actor, kind.target_table_key, as_uuid(target_id, field="target_id"))
         notification = notify(
             kind.code,
@@ -173,7 +174,7 @@ class NotificationService(ServiceAPI):
         from skeleton.notifications.inbox import inbox_queryset
 
         if type(include_archived) is not bool:
-            raise InvalidInput({"include_archived": ["Use true ou false."]})
+            raise InvalidInput({"include_archived": [gettext("Use true ou false.")]})
         rows = inbox_queryset(actor, include_archived=include_archived)
         return paginate(rows, convert=_item, page_size=page_size, cursor=cursor)
 

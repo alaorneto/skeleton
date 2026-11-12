@@ -8,6 +8,7 @@ from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from .applications import calling_app_label
 from .base import ServiceAPI, service_method
@@ -54,9 +55,9 @@ class EventService(ServiceAPI):
         try:
             kind = get_event_type(event_type)
         except KeyError:
-            raise InvalidInput({"event_type": ["Tipo de evento desconhecido."]}) from None
+            raise InvalidInput({"event_type": [gettext("Tipo de evento desconhecido.")]}) from None
         if calling_app_label() != (kind.owner_app or None):
-            raise Forbidden("A app só publica os próprios tipos de evento.")
+            raise Forbidden(gettext("A app só publica os próprios tipos de evento."))
         identifier = as_uuid(record_id, field="record_id")
         model = get_spec(kind.table_key).model
         try:

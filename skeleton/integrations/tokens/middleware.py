@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from django.http import JsonResponse
 from django.urls import Resolver404, resolve
+from django.utils.translation import gettext
 
 from skeleton.common.logging import security_event
 from skeleton.common.ratelimit import hit, peek
@@ -52,7 +53,10 @@ def client_ip(request) -> str:
 def _too_many(request, reason: str, retry_after: int):
     security_event("api_token.rate_limited", reason_code=reason, source="http", request_id=request.request_id)
     return _error(
-        429, "rate_limited", "Muitas requisições. Tente de novo mais tarde.", **{"Retry-After": str(retry_after)}
+        429,
+        "rate_limited",
+        gettext("Muitas requisições. Tente de novo mais tarde."),
+        **{"Retry-After": str(retry_after)},
     )
 
 
@@ -100,7 +104,7 @@ class ApiTokenMiddleware:
         return _error(
             401,
             "invalid_token",
-            "Token inválido, expirado ou revogado.",
+            gettext("Token inválido, expirado ou revogado."),
             **{"WWW-Authenticate": 'Bearer realm="api", error="invalid_token"'},
         )
 
@@ -111,7 +115,7 @@ class ApiTokenMiddleware:
             security_event(
                 "api_token.rejected", reason_code="ambiguous_credentials", source="http", request_id=request.request_id
             )
-            return _error(400, "ambiguous_credentials", "Use a sessão ou o token, não os dois.")
+            return _error(400, "ambiguous_credentials", gettext("Use a sessão ou o token, não os dois."))
         failures = f"token-failure:{client_ip(request)}"
         if peek(failures, window_s=WINDOW_S) >= _limit("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", 20):
             # Brute force of prefixes or secrets: refused before any database lookup.
@@ -128,7 +132,7 @@ class ApiTokenMiddleware:
             security_event(
                 "api_token.rejected", reason_code="token_not_allowed", source="http", request_id=request.request_id
             )
-            return _error(403, "token_not_allowed", "Este recurso não aceita token de API.")
+            return _error(403, "token_not_allowed", gettext("Este recurso não aceita token de API."))
         organization_id = match.kwargs.get("organization_id")
         if token.bound_organization_id is not None and organization_id not in (None, token.bound_organization_id):
             return _error(404, "not_found", "Not found.")

@@ -1,17 +1,18 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.models import SystemRecord
 
 
 class AuditEvent(SystemRecord):
     class Operation(models.TextChoices):
-        CREATE = "create", "Criar"
-        UPDATE = "update", "Atualizar"
-        SOFT_DELETE = "soft_delete", "Excluir logicamente"
-        RESTORE = "restore", "Restaurar"
-        HARD_DELETE = "hard_delete", "Excluir fisicamente"
+        CREATE = "create", gettext_lazy("Criar")
+        UPDATE = "update", gettext_lazy("Atualizar")
+        SOFT_DELETE = "soft_delete", gettext_lazy("Excluir logicamente")
+        RESTORE = "restore", gettext_lazy("Restaurar")
+        HARD_DELETE = "hard_delete", gettext_lazy("Excluir fisicamente")
 
     organization_id = models.UUIDField(null=True, blank=True, db_index=True)
     table_name = models.CharField(max_length=255)

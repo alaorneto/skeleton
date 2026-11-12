@@ -12,6 +12,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext
 
 
 class InvalidInvitation(ValidationError):
@@ -70,6 +71,33 @@ def pending_invitation(request):
         return None
 
 
+def _invitation_message(organization, email, url):
+    """Invitation email from templates, branded, in the organization's default language (#173).
+
+    The invited person may not have an account yet, so the organization default (then the
+    instance) chooses the language and time zone, never the inviter's profile.
+    """
+    from django.template.loader import render_to_string
+    from django.utils import translation
+
+    from skeleton.common.locale import preferences_for
+    from skeleton.tenancy.email_brand import attach_logo, email_brand, template_context
+
+    brand = email_brand()
+    preferences = preferences_for(None)
+    context = {**template_context(brand), "organization_name": brand["name"] or organization.name, "url": url}
+    with translation.override(preferences.language), timezone.override(preferences.timezone):
+        subject = render_to_string("skeleton/tenancy/invitation/subject.txt", context)
+        text = render_to_string("skeleton/tenancy/invitation/body.txt", context)
+        html = render_to_string("skeleton/tenancy/invitation/body.html", context)
+    message = EmailMultiAlternatives(
+        " ".join(subject.split())[:200], text.strip() + "\n", settings.DEFAULT_FROM_EMAIL, [email]
+    )
+    message.attach_alternative(html, "text/html")
+    attach_logo(message, brand)
+    return message
+
+
 def issue_invitation(*, user, email, role, request=None):
     from skeleton.access.capabilities import INVITATIONS_MANAGE, require_capability
     from skeleton.access.services import require_unprivileged_target
@@ -80,7 +108,7 @@ def issue_invitation(*, user, email, role, request=None):
     require_capability(user, INVITATIONS_MANAGE)
     organization_id = current_context().organization_id
     if role.organization_id != organization_id or role.deleted_at:
-        raise ValidationError({"role": "Role must be active in this organization."})
+        raise ValidationError({"role": gettext("O papel precisa estar ativo nesta organização.")})
     require_unprivileged_target(user, role=role)
     organization = Organization.objects.get(pk=organization_id, is_active=True)
     token = secrets.token_urlsafe(32)
@@ -97,17 +125,11 @@ def issue_invitation(*, user, email, role, request=None):
         if request is not None:
             url = request.build_absolute_uri(path)
         else:
-            origin = getattr(settings, "SKELETON_PUBLIC_ORIGIN", "")
+            origin = getattr(settings, "SKELETON_PUBLIC_URL", "")
             if not origin:
-                raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_ORIGIN.")
+                raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_URL.")
             url = origin.rstrip("/") + path
-        subject_name = " ".join(organization.name.splitlines())
-        message = EmailMultiAlternatives(
-            f"Convite: {subject_name}",
-            f"Você recebeu um convite para {organization.name}.\n\n{url}\n\nO convite expira em sete dias.",
-            settings.DEFAULT_FROM_EMAIL,
-            [invitation.email],
-        )
+        message = _invitation_message(organization, invitation.email, url)
         from skeleton.common.mail import schedule_mail
 
         schedule_mail(message, request=request, target_sysid=invitation.pk)

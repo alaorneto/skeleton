@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.models import OperationalRecord
 
@@ -12,12 +13,12 @@ class Job(OperationalRecord):
     """
 
     class State(models.TextChoices):
-        QUEUED = "queued", "Na fila"
-        RUNNING = "running", "Executando"
-        SUCCEEDED = "succeeded", "Concluído"
-        FAILED = "failed", "Falhou"
-        DEAD = "dead", "Esgotado"
-        CANCELLED = "cancelled", "Cancelado"
+        QUEUED = "queued", gettext_lazy("Na fila")
+        RUNNING = "running", gettext_lazy("Executando")
+        SUCCEEDED = "succeeded", gettext_lazy("Concluído")
+        FAILED = "failed", gettext_lazy("Falhou")
+        DEAD = "dead", gettext_lazy("Esgotado")
+        CANCELLED = "cancelled", gettext_lazy("Cancelado")
 
     job_type = models.CharField(max_length=100)
     queue = models.CharField(max_length=64, default="default")

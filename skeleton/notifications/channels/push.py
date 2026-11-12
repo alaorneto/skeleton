@@ -22,15 +22,16 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.utils import timezone
+from django.utils.translation import gettext, gettext_lazy
 
 from .delivery import OPEN_STATES, active_recipient, failed_attempt, finish, open_url, target_readable
 
 DEFAULT_ALLOWED_HOSTS = (
     "fcm.googleapis.com",
     "updates.push.services.mozilla.com",
-    "*.notify.windows.com",
+    gettext_lazy("*.notify.windows.com"),
     "web.push.apple.com",
-    "*.push.apple.com",
+    gettext_lazy("*.push.apple.com"),
 )
 RECORD_SIZE = 4096
 TTL_SECONDS = 24 * 3600
@@ -84,14 +85,14 @@ def validate_subscription(endpoint: Any, p256dh: Any, auth: Any) -> None:
     from cryptography.hazmat.primitives.asymmetric import ec
 
     if not endpoint_allowed(endpoint):
-        raise ValidationError({"endpoint": "Serviço de push não permitido."}, code="push_endpoint_refused")
+        raise ValidationError({"endpoint": gettext("Serviço de push não permitido.")}, code="push_endpoint_refused")
     try:
         ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), b64url_decode(p256dh))
         secret = b64url_decode(auth)
     except (ValueError, TypeError):
-        raise ValidationError({"keys": "Chaves da assinatura inválidas."}) from None
+        raise ValidationError({"keys": gettext("Chaves da assinatura inválidas.")}) from None
     if len(secret) != 16:
-        raise ValidationError({"keys": "Chaves da assinatura inválidas."})
+        raise ValidationError({"keys": gettext("Chaves da assinatura inválidas.")})
 
 
 # --------------------------------------------------------------------------- RFC 8291
@@ -243,7 +244,10 @@ def payload_for(notification: Any, user_id: Any) -> bytes:
         kind = get_notification_type(notification.type_code)
     except KeyError:
         kind = None
-    data: dict[str, Any] = {"title": kind.label if kind else "Notificação", "url": open_url(notification, user_id)}
+    data: dict[str, Any] = {
+        "title": str(kind.label) if kind else gettext("Notificação"),
+        "url": open_url(notification, user_id),
+    }
     if kind is not None and kind.push_snapshot and notification.snapshot:
         data["body"] = " · ".join(str(value) for value in notification.snapshot.values())[:240]
     return json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode()

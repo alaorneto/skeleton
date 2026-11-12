@@ -1,40 +1,40 @@
 {% extends 'skeleton/web/base.html' %}
-{% block title %}{{ organization.name }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{{ organization.name }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
-    <p class="page-eyebrow">Início</p>
+    <p class="page-eyebrow">{% translate "Início" %}</p>
     <h1>{{ organization.name }}</h1>
-    <p class="page-description">Aplicativos e tabelas que você pode usar nesta organização. A auditoria e as demais telas ficam no menu lateral.</p>
+    <p class="page-description">{% translate "Aplicativos e tabelas que você pode usar nesta organização. A auditoria e as demais telas ficam no menu lateral." %}</p>
   </div>
 </div>
-<nav aria-label="Organização" class="space-y-8">
+<nav aria-label="{% translate "Organização" %}" class="space-y-8">
   {% if application_navigation %}
   <section aria-labelledby="dashboard-apps">
-    <h2 id="dashboard-apps" class="section-heading">Aplicativos</h2>
+    <h2 id="dashboard-apps" class="section-heading">{% translate "Aplicativos" %}</h2>
     <ul class="cards grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {% for entry in application_navigation %}<li><a class="link-card" href="{{ entry.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ entry.label }}</span><span class="link-card-text">Abrir aplicativo</span></span></a></li>{% endfor %}
+      {% for entry in application_navigation %}<li><a class="link-card" href="{{ entry.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{{ entry.label }}</span><span class="link-card-text">{% translate "Abrir aplicativo" %}</span></span></a></li>{% endfor %}
     </ul>
   </section>
   {% endif %}
   {% if "members.view" in capabilities or "access.manage" in capabilities or "integrations.manage" in capabilities or can_manage_applications %}
   <section aria-labelledby="dashboard-admin">
-    <h2 id="dashboard-admin" class="section-heading">Administração</h2>
+    <h2 id="dashboard-admin" class="section-heading">{% translate "Administração" %}</h2>
     <ul class="cards grid gap-3 sm:grid-cols-2">
-      {% if "members.view" in capabilities %}<li><a class="link-card" href="{% url 'web:access-list' organization_id 'memberships' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="users" %}</span><span class="min-w-0"><span class="link-card-title">Pessoas</span><span class="link-card-text">Membros, convites e seus papéis.</span></span></a></li>{% endif %}
-      {% if "access.manage" in capabilities %}<li><a class="link-card" href="{% url 'web:access-list' organization_id 'groups' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="user-group" %}</span><span class="min-w-0"><span class="link-card-title">Grupos</span><span class="link-card-text">Equipes, seus membros e papéis.</span></span></a></li>
-      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'roles' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">Papéis e permissões</span><span class="link-card-text">Papéis, permissões de tabelas e concessões.</span></span></a></li>{% endif %}
-      {% if "integrations.manage" in capabilities %}<li><a class="link-card" href="{% url 'integrations:webhooks' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">Webhooks</span><span class="link-card-text">Eventos enviados a sistemas externos.</span></span></a></li><li><a class="link-card" href="{% url 'integrations:service-accounts' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">Contas de serviço</span><span class="link-card-text">Membros não interativos e os tokens de API deles.</span></span></a></li>{% endif %}
-      {% if can_manage_applications %}<li><a class="link-card" href="{% url 'application-list' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="min-w-0"><span class="link-card-title">Aplicativos</span><span class="link-card-text">Ativação e parâmetros das apps.</span></span></a></li>{% endif %}
+      {% if "members.view" in capabilities %}<li><a class="link-card" href="{% url 'web:access-list' organization_id 'memberships' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="users" %}</span><span class="min-w-0"><span class="link-card-title">{% translate "Pessoas" %}</span><span class="link-card-text">{% translate "Membros, convites e seus papéis." %}</span></span></a></li>{% endif %}
+      {% if "access.manage" in capabilities %}<li><a class="link-card" href="{% url 'web:access-list' organization_id 'groups' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="user-group" %}</span><span class="min-w-0"><span class="link-card-title">{% translate "Grupos" %}</span><span class="link-card-text">{% translate "Equipes, seus membros e papéis." %}</span></span></a></li>
+      <li><a class="link-card" href="{% url 'web:access-list' organization_id 'roles' %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">{% translate "Papéis e permissões" %}</span><span class="link-card-text">{% translate "Papéis, permissões de tabelas e concessões." %}</span></span></a></li>{% endif %}
+      {% if "integrations.manage" in capabilities %}<li><a class="link-card" href="{% url 'integrations:webhooks' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="cube" %}</span><span class="min-w-0"><span class="link-card-title">{% translate "Webhooks" %}</span><span class="link-card-text">{% translate "Eventos enviados a sistemas externos." %}</span></span></a></li><li><a class="link-card" href="{% url 'integrations:service-accounts' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="key" %}</span><span class="min-w-0"><span class="link-card-title">{% translate "Contas de serviço" %}</span><span class="link-card-text">{% translate "Membros não interativos e os tokens de API deles." %}</span></span></a></li>{% endif %}
+      {% if can_manage_applications %}<li><a class="link-card" href="{% url 'application-list' organization_id %}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="min-w-0"><span class="link-card-title">{% translate "Aplicativos" %}</span><span class="link-card-text">{% translate "Ativação e parâmetros das apps." %}</span></span></a></li>{% endif %}
     </ul>
   </section>
   {% endif %}
 </nav>
-<h2 class="section-heading mt-10">Tabelas disponíveis</h2>
+<h2 class="section-heading mt-10">{% translate "Tabelas disponíveis" %}</h2>
 {% include 'skeleton/web/components/model-groups.html' %}
 <section class="mt-10" aria-labelledby="dashboard-membership">
-  <h2 id="dashboard-membership" class="section-heading">Seu vínculo</h2>
-  <p class="text-sm/6 text-body-subtle">Você pode deixar esta organização quando quiser; quem a administra sozinho precisa antes designar outra pessoa.</p>
-  <a class="btn btn-secondary mt-3" href="{% url 'web:leave-organization' organization_id %}">Sair da organização</a>
+  <h2 id="dashboard-membership" class="section-heading">{% translate "Seu vínculo" %}</h2>
+  <p class="text-sm/6 text-body-subtle">{% translate "Você pode deixar esta organização quando quiser; quem a administra sozinho precisa antes designar outra pessoa." %}</p>
+  <a class="btn btn-secondary mt-3" href="{% url 'web:leave-organization' organization_id %}">{% translate "Sair da organização" %}</a>
 </section>
 {% endblock %}

@@ -5,6 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
 from skeleton.common.exceptions import ConcurrentUpdate
@@ -64,7 +65,7 @@ def panel_context(spec, record, *, user):
 @transaction.atomic
 def add(request, organization_id, table_key, sysid):
     if set(request.POST) - {"body", "csrfmiddlewaretoken"}:
-        return _error(request, "Campo não permitido.", 400)
+        return _error(request, gettext("Campo não permitido."), 400)
     services.add(exposed_spec(table_key), sysid, user=request.user, body=request.POST.get("body", ""))
     return _detail(organization_id, table_key, sysid)
 
@@ -75,7 +76,7 @@ def add(request, organization_id, table_key, sysid):
 def edit(request, organization_id, table_key, sysid, comment_id):
     form = RevisionForm(request.POST)
     if set(request.POST) - {"body", "revision", "csrfmiddlewaretoken"} or not form.is_valid():
-        return _error(request, "Revisão inválida.", 400)
+        return _error(request, gettext("Revisão inválida."), 400)
     try:
         services.edit(
             exposed_spec(table_key),
@@ -86,18 +87,18 @@ def edit(request, organization_id, table_key, sysid, comment_id):
             revision=form.cleaned_data["revision"],
         )
     except ConcurrentUpdate:
-        return _error(request, "O comentário foi alterado. Atualize a página.", 409)
+        return _error(request, gettext("O comentário foi alterado. Atualize a página."), 409)
     return _detail(organization_id, table_key, sysid)
 
 
 def _lifecycle(request, organization_id, table_key, sysid, comment_id, operation):
     form = RevisionForm(request.POST)
     if set(request.POST) - {"revision", "csrfmiddlewaretoken"} or not form.is_valid():
-        return _error(request, "Revisão inválida.", 400)
+        return _error(request, gettext("Revisão inválida."), 400)
     try:
         operation(exposed_spec(table_key), sysid, comment_id, user=request.user, revision=form.cleaned_data["revision"])
     except ConcurrentUpdate:
-        return _error(request, "O comentário foi alterado. Atualize a página.", 409)
+        return _error(request, gettext("O comentário foi alterado. Atualize a página."), 409)
     except PermissionDenied:
         raise
     return _detail(organization_id, table_key, sysid)
