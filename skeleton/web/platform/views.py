@@ -35,6 +35,9 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.web.views import form_error, pagination, service_pagination
 
 from .forms import (
+    AppAvailabilityForm,
+    AppGrantForm,
+    AppRevokeForm,
     CatalogLabelForm,
     OrganizationAdministratorForm,
     OrganizationCreateForm,
@@ -45,7 +48,10 @@ from .forms import (
 from .guards import platform_page
 
 __all__ = [
+    "app_availability",
     "app_detail",
+    "app_grant",
+    "app_revoke",
     "app_documentation",
     "app_list",
     "app_screen",
@@ -547,6 +553,7 @@ def app_list(request):
 @require_safe
 def app_detail(request, app_label):
     from skeleton.system.administration import application_identity, screen_sections
+    from skeleton.system.availability import availability_summary
 
     manifest = _manifest(app_label)
     return render(
@@ -555,6 +562,7 @@ def app_detail(request, app_label):
         {
             "platform_section": "apps",
             "application": application_identity(manifest),
+            "availability": availability_summary(manifest.app_label, user=request.user),
             "has_documentation": bool(manifest.documentation_root),
             "sections": screen_sections(manifest, user=request.user, scope="platform"),
             "tenant_screens": sorted(
@@ -563,6 +571,119 @@ def app_detail(request, app_label):
             ),
         },
     )
+
+
+def _app_labels(labels):
+    from skeleton.system.app_registry import all_apps
+
+    names = {manifest.app_label: manifest.label for manifest in all_apps()}
+    return [{"app_label": label, "label": names.get(label, label)} for label in labels]
+
+
+def _availability_page(request, manifest, *, mode_form=None, grant_form=None, revoke_error=None, status=200):
+    """Availability of one app (#23): global rows only; no organization's activation is read here."""
+    from skeleton.system.administration import application_identity
+    from skeleton.system.availability import availability_summary
+
+    summary = availability_summary(manifest.app_label, user=request.user)
+    return render(
+        request,
+        "skeleton/web/platform/app_availability.html",
+        {
+            "platform_section": "apps",
+            "application": application_identity(manifest),
+            "availability": summary,
+            "requires": _app_labels(summary.requires),
+            "required_by": _app_labels(summary.required_by),
+            "mode_form": mode_form
+            or AppAvailabilityForm(initial={"mode": summary.mode or "selected", "expected_revision": summary.revision}),
+            "grant_form": grant_form or AppGrantForm(granted_ids=summary.granted_ids),
+            "revoke_error": revoke_error,
+        },
+        status=status,
+    )
+
+
+@platform_page
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+@transaction.atomic
+def app_availability(request, app_label):
+    """Show the gate; POST changes the mode with CAS on the availability row."""
+    from skeleton.system.availability import set_app_availability
+
+    manifest = _manifest(app_label)
+    if request.method != "POST":
+        return _availability_page(request, manifest)
+    form = AppAvailabilityForm(request.POST)
+    if not form.is_valid():
+        return _availability_page(request, manifest, mode_form=form, status=400)
+    try:
+        with transaction.atomic():
+            set_app_availability(
+                manifest.app_label,
+                user=request.user,
+                mode=form.cleaned_data["mode"],
+                revision=form.cleaned_data["expected_revision"],
+            )
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _availability_page(request, manifest, mode_form=form, status=status)
+    messages.success(request, "Disponibilidade atualizada.")
+    return redirect("platform:app-availability", app_label=manifest.app_label)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def app_grant(request, app_label):
+    """Admit one organization to the app; it still decides activation itself."""
+    from skeleton.system.availability import availability_summary, grant_app
+
+    manifest = _manifest(app_label)
+    granted = availability_summary(manifest.app_label, user=request.user).granted_ids
+    form = AppGrantForm(request.POST, granted_ids=granted)
+    if not form.is_valid():
+        return _availability_page(request, manifest, grant_form=form, status=400)
+    organization = form.cleaned_data["organization"]
+    try:
+        with transaction.atomic():
+            grant_app(manifest.app_label, user=request.user, organization_id=organization.pk)
+    except (ValidationError, ConcurrentUpdate) as exc:
+        status = form_error(form, exc)
+        return _availability_page(request, manifest, grant_form=form, status=status)
+    messages.success(request, f"{organization.name} pode usar {manifest.label}.")
+    return redirect("platform:app-availability", app_label=manifest.app_label)
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def app_revoke(request, app_label):
+    """Close the gate for one organization; its activation and configuration are kept (#21)."""
+    from skeleton.system.availability import revoke_app
+
+    manifest = _manifest(app_label)
+    form = AppRevokeForm(request.POST)
+    if not form.is_valid():
+        return _availability_page(request, manifest, revoke_error="Pedido de revogação inválido.", status=400)
+    try:
+        with transaction.atomic():
+            revoke_app(
+                manifest.app_label,
+                user=request.user,
+                organization_id=form.cleaned_data["organization"],
+                expected_revision=form.cleaned_data["expected_revision"],
+            )
+    except ConcurrentUpdate:
+        detail = "A concessão mudou desde que a página foi aberta. Revise antes de revogar."
+        return _availability_page(request, manifest, revoke_error=detail, status=409)
+    except ValidationError as exc:
+        return _availability_page(request, manifest, revoke_error=" ".join(exc.messages), status=400)
+    messages.success(request, "Concessão revogada. A escolha de ativação da organização foi preservada.")
+    return redirect("platform:app-availability", app_label=manifest.app_label)
 
 
 @platform_page

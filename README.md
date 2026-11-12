@@ -28,6 +28,7 @@ Uma conta é global; o vínculo e o papel da pessoa pertencem a cada organizaç�
 | `/o/<org>/apps/` | Administrador da organização | Ativar/desativar apps e ajustar configuração, sem instalar código |
 | `/o/<org>/apps/skeleton_calendar/`, `/me/apps/skeleton_calendar/` | Pessoa com vínculo e permissão de calendário, com a agenda instalada (`SKELETON_BUNDLED_APPS=calendar`) e ativa | Agenda first-party: calendários pessoais e compartilhados, eventos com recorrência, convites, lembretes, Minha agenda entre organizações e feed ICS ([agenda](skeleton/contrib/calendar/docs/spec.md)) |
 | `/platform/` | Administrador da plataforma | Visão geral, usuários, organizações, aplicativos instalados, catálogo de tabelas e auditoria global, em views próprias do site |
+| `/platform/apps/<app>/availability/` | Administrador da plataforma | Disponibilidade da app: todas as organizações ou só as concedidas; revogar fecha o portão e preserva a escolha da organização |
 | `/o/<org>/catalog/`, `/o/<org>/tables/<table_key>/` | Pessoa com permissão de tabela e vínculo ativo | Viewer de negócio: lista, detalhe e formulário, fora do admin |
 | `/platform/updates/` | Administrador da plataforma, com agente provisionado | Versões instaladas, novas versões, envio de pacote, plano com prévia de impacto, aprovação e acompanhamento das operações |
 | `/profile/tokens/` | Pessoa autenticada | Criar e revogar tokens de API pessoais, com escopos e validade; o token aparece uma vez ([API](docs/api.md#gestão-de-tokens)) |

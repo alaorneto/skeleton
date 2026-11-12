@@ -50,6 +50,18 @@
     <p class="mt-4 text-sm/6 text-body-subtle">Reative a organização para designar administradores.</p>
     {% endif %}
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="organization-applications">
+    <h2 id="organization-applications">Aplicativos</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização. Esta leitura não mostra parâmetros nem dados de negócio.</p>
+    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Aplicativo</th><th scope="col">Disponível</th><th scope="col">Ativada pela organização</th><th scope="col">Em uso</th></tr></thead><tbody>
+    {% for app in overview.applications %}<tr>
+      <td><a href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></td>
+      <td>{% if app.available %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
+      <td>{% if app.enabled %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
+      <td>{% if app.effective %}<span class="badge badge-success badge-dot">Sim</span>{% elif app.enabled %}<span class="badge badge-warning badge-dot">Bloqueada</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhum aplicativo instalado.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-storage">
     <h2 id="organization-storage">Armazenamento</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador.</p>
