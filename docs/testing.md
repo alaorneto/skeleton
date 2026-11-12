@@ -70,6 +70,37 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
 - Smoke no navegador do painel, contra um banco PostgreSQL próprio (`local_skeleton_smoke`): modo "selecionadas", concessão de uma organização, tabela de concessões e card da organização; tema escuro e claro; largura de 375 px sem rolagem horizontal da página (a tabela rola dentro do contêiner, como as demais).
 - Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check` (depois de `npm run build`): sem problemas.
 
+**#24, apps disponíveis em `/o/<org>/apps/` e gestor de apps:**
+
+- `python -m pytest tests/integration/test_org_apps_available.py tests/integration/test_core_surfaces_on_services.py -q`: 18 passed. Os 6 testes novos cobrem:
+  - app indisponível fora da lista HTML e REST, telas e detalhe com 404, PUT com 400 `app_unavailable` (ativar ou desativar); a concessão aparece na requisição seguinte e B não vê a app concedida só a A;
+  - app ativa e depois retirada: sinalizada "Indisponibilizada pela plataforma", negócio com 404, reativar recusado com `app_unavailable`, desativar aceito e a app some da lista;
+  - gestor de apps ativa, configura e desativa pela API e abre o formulário; recebe 404 em membros, papéis e configurações da organização; menu com `can_manage_applications` e sem `can_manage_organization`; membro comum recebe 404 no painel, na lista REST e no PUT;
+  - gestor de apps de A recebe 404 em B; revogação vale na requisição seguinte;
+  - estado memoizado na requisição (segunda leitura sem consultas), refeito depois da escrita, e nenhum memo entre requisições;
+  - navegação com o mesmo número de consultas para 1, 5 e 20 apps com menu.
+- `tests/integration/test_application_administration.py`, `test_capabilities.py`, `test_navigation_shell.py`, `test_app_availability.py`, `test_core_application_service.py`, `test_app_activation_upgrade.py` e `test_app_extensions.py` (com as expectativas de 404 para membro e 200 para o gestor de apps atualizadas): passaram.
+- Smoke no navegador como administrador de uma organização concedida: lista só com a app disponível, ativação pela configuração, entrada no menu lateral e links de administração.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`: sem problemas.
+
+**#26, política de admissão e solicitações de ingresso:**
+
+- `python -m pytest tests/integration/test_join_requests.py tests/integration_postgres/test_admission_schema.py tests/integration/test_platform_boundary.py tests/integration/test_capabilities.py tests/integration/test_navigation_shell.py -q`: 47 passed. Os 12 testes de `test_join_requests.py` cobrem:
+  - sem política, nada listado e 404 neutro no HTML e na API, inclusive para organização inexistente; aceitando sem aparecer, só pelo endereço;
+  - conta sem email verificado recusada;
+  - fluxo completo HTML: pedido, reenvio idempotente, fila, aprovação com exatamente um vínculo e o papel do pedido, email só depois do commit;
+  - duas decisões na mesma revisão (uma vence, a outra 409 no HTML) e duas decisões concorrentes em threads no PostgreSQL (um vencedor);
+  - gestor de pessoas recusado (403) ao aprovar pedido com papel que tem capacidade; `organization_admin` recusado como papel padrão;
+  - solicitante vê os pedidos em A e B pela autodescoberta; o aprovador de A não vê, não lê nem decide pedido de B; membro comum sem acesso à fila;
+  - API: If-Match obrigatório (428), campos extras recusados (400), revisão stale 412, decisão repetida 409;
+  - retirada com CAS, estranho recebe 404, expiração derivada em 30 dias e pedido novo substituindo o expirado;
+  - rate limit com 429 e `Retry-After` igual para organização existente ou não;
+  - aprovação de quem saiu reativa o vínculo, com o aviso "Já foi membro";
+  - CAS e auditoria da política, tabelas fora do gateway, política só para `admission.configure`.
+- `tests/integration_postgres/test_admission_schema.py`: RLS forçada e policy de tenant na política, policies de autodescoberta no pedido, índice global sem RLS; sem o guard, sem o trigger de auditoria ou sem as policies, `check_deployed_schema` falha.
+- `python -m pytest tests/accounts tests/integration/test_access_lifecycle_regressions.py tests/integration/test_core_lifecycle_events.py tests/integration/test_http_boundaries.py tests/integration/test_recovered_surfaces.py tests/integration/test_self_discovery.py tests/integration/test_core_surfaces_on_services.py -q` (convites e SSO usam o `admit_member` extraído de `provision_membership`): 169 passed.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
