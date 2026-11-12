@@ -21,20 +21,18 @@ from django.urls import reverse
 from django.utils.translation import gettext
 from django.views.decorators.http import require_http_methods, require_safe
 
+from skeleton.access.administration import designate_organization_admin, organization_overview
 from skeleton.access.services import LastAdministrator
 from skeleton.accounts.platform import LastPlatformAdministrator
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.accounts.services import (
     PLATFORM_USER_FIELDS,
     create_identity,
-    create_organization,
     deactivate_user,
-    designate_organization_admin,
-    organization_overview,
-    update_organization,
     update_platform_user,
 )
 from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.tenancy.services import create_organization, update_organization
 from skeleton.web.views import form_error, pagination, service_pagination
 
 from .forms import (

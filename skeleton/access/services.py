@@ -255,7 +255,7 @@ def create_membership(*, user, data):
         return record
 
 
-def _revoke_membership_links(record):
+def revoke_membership_links(record):
     from .models import GroupMember, MemberRole, RecordGrant
 
     for model in (MemberRole, GroupMember, RecordGrant):
@@ -271,7 +271,7 @@ def update_membership(record, *, user, data):
         require_service_account_manager(user, record)
         if data.get("is_active") is False:
             require_unprivileged_target(user, membership=record)
-            _revoke_membership_links(record)
+            revoke_membership_links(record)
         from skeleton.events.core_events import membership_changed
 
         was_active = record.is_active
@@ -288,7 +288,7 @@ def delete_membership(record, *, user):
             raise ValidationError(gettext("Vínculo indisponível."))
         require_service_account_manager(user, record)
         require_unprivileged_target(user, membership=record)
-        _revoke_membership_links(record)
+        revoke_membership_links(record)
         from skeleton.events.core_events import membership_changed
 
         was_active = record.is_active
@@ -314,7 +314,7 @@ def system_deactivate_membership(record):
     with organization_lock():
         if record.deleted_at is not None or not record.is_active:
             return record
-        _revoke_membership_links(record)
+        revoke_membership_links(record)
         record.is_active = False
         record.save(update_fields={"is_active"})
         membership_changed(record, was_active=True)
@@ -345,7 +345,7 @@ def leave_organization(user, *, expected_revision=None):
             raise PermissionDenied(gettext("Vínculo indisponível."))
         if expected_revision is not None and membership.revision != expected_revision:
             raise ConcurrentUpdate("The membership changed.")
-        _revoke_membership_links(membership)
+        revoke_membership_links(membership)
         from skeleton.events.core_events import membership_changed
 
         membership.is_active = False

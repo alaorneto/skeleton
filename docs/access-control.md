@@ -92,7 +92,7 @@ O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano d
 
 ### Designação de administrador pela plataforma
 
-Quando o administrador de uma organização sai ou fica indisponível, o administrador de plataforma designa outro em `/platform/organizations/<id>/` (card "Administradores"). O serviço é `skeleton.accounts.services.designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None)`:
+Quando o administrador de uma organização sai ou fica indisponível, o administrador de plataforma designa outro em `/platform/organizations/<id>/` (card "Administradores"). O serviço é `skeleton.access.administration.designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None)`:
 
 - roda em `system_context(reason="organization:designate-admin", organization_id=...)`, só dessa organização, e toma `organization_lock()` antes de qualquer vínculo (mesma ordem das demais mudanças administrativas);
 - cria ou reativa o vínculo com `organization_admin` por `provision_membership`. Com `replace`, retira só o papel `organization_admin` **direto** da pessoa substituída (o vínculo dela continua; papel via grupo não é tocado);

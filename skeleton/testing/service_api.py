@@ -240,10 +240,11 @@ def build_service_scenario(model: Any, *, slug: str = "service-contract") -> Ser
 
     from skeleton.access.models import Action, Role, TablePermission
     from skeleton.access.services import provision_membership
-    from skeleton.accounts.services import create_identity, create_organization
+    from skeleton.accounts.services import create_identity
     from skeleton.system.models import TableDefinition
     from skeleton.system.synchronization import sync_table_catalog
     from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.services import create_organization
 
     users = {}
     with system_context(reason="fixture:service-api-identities"):
