@@ -140,3 +140,47 @@ class UserProfile(SystemRecord):
 
     def __str__(self):
         return self.display_name or str(self.user_id)
+
+
+ANONYMIZED_EMAIL_DOMAIN = "anonymized.invalid"
+
+
+class ErasureRequest(SystemRecord):
+    """A person's request to anonymize their identity (#191); the platform decides.
+
+    The person opens it (one pending request at a time) and may cancel it while pending; a
+    platform administrator rejects it with a note or approves it, which anonymizes the identity
+    in the same transaction (``completed``). The row keeps who asked, who decided and when, so
+    the audit shows both steps.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "pending", gettext_lazy("Aguardando aprovação")
+        REJECTED = "rejected", gettext_lazy("Recusado")
+        CANCELLED = "cancelled", gettext_lazy("Cancelado")
+        COMPLETED = "completed", gettext_lazy("Concluído")
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sk_erasure_requests")
+    state = models.CharField(max_length=16, choices=State.choices, default=State.PENDING)
+    decided_by = models.UUIDField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.CharField(max_length=500, blank=True, default="")
+    completed_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("user_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=Q(state__in=("pending", "rejected", "cancelled", "completed")),
+                name="sk_accounts_erasure_state",
+            ),
+            models.UniqueConstraint(
+                fields=("user",),
+                condition=Q(state="pending", deleted_at__isnull=True),
+                name="sk_accounts_erasure_pending",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} erasure {self.state}"

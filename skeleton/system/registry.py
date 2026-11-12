@@ -73,6 +73,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_accounts.erasurerequest": (
+            gettext_lazy("Pedidos de eliminação"),
+            gettext_lazy("Pedido da pessoa para anonimizar a própria identidade, com a decisão da plataforma."),
+            "global",
+            (),
+        ),
         "sk_tenancy.organization": (
             gettext_lazy("Organizações"),
             gettext_lazy("Fronteira de isolamento organizacional e estado de disponibilidade."),

@@ -15,6 +15,7 @@
     <p class="sidebar-heading" id="platform-identity">{% translate "Identidade" %}</p>
     <ul class="sidebar-list" aria-labelledby="platform-identity">
       <li><a class="sidebar-link" href="{% url 'platform:users' %}"{% if platform_section == "users" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}{% translate "Usuários" %}</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:privacy' %}"{% if platform_section == "privacy" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}{% translate "Pedidos de eliminação" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:organizations' %}"{% if platform_section == "organizations" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Organizações" %}</a></li>
     </ul>
     <p class="sidebar-heading" id="platform-apps">{% translate "Aplicativos" %}</p>

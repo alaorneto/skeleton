@@ -75,6 +75,7 @@ Todo apagamento físico é um job declarado em código, por organização quando
 | Arquivos de exportação e importação CSV | `transfer.retention` | `SKELETON_TRANSFER_RETENTION_DAYS` (7) |
 | Objetos sem linha, deixados por rollback | `files.orphans` | `SKELETON_FILES_ORPHAN_GRACE_SECONDS` (1 hora) |
 | Bytes de anexos excluídos | `files.purge` | `SKELETON_FILES_DELETED_RETENTION_DAYS` (90) |
+| Notificações de uma identidade eliminada | `accounts.anonymize_organization`, depois da aprovação do pedido ([privacidade](privacy.md#eliminação-da-identidade)) | — |
 | Auditoria | nenhum: append-only; só os dados pessoais antigos são redigidos uma vez (`redact_audit_personal_data`) | — |
 
 A auditoria é somente leitura. Administradores organizacionais só veem sua organização; outros usuários precisam de `table.audit` **e** leitura autorizada do registro atual (se excluído, restauração autorizada). Filtre antes de contar/paginar. Eventos globais e inventário técnico são exclusivos da plataforma; registros apagados fisicamente offline só são visíveis a administrador organizacional/plataforma.

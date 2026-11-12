@@ -190,6 +190,22 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - quem não tem vínculo recebendo só a identidade.
 - Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
 
+**#191, eliminação da identidade com aprovação da plataforma** (branch com `origin/main` mesclada, incluindo os comentários do #187):
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1694 passed, 111 skipped.
+- `tests/integration/test_erasure.py`: 5 passed. Cobrem:
+  - nada muda antes da aprovação, e pedir de novo devolve o mesmo pedido;
+  - depois da aprovação: email anônimo, nomes vazios, conta inativa e sem senha; emails da allauth apagados, perfil zerado, token recusado, sessão antiga encerrada na hora e login recusado;
+  - as notificações apagadas e os vínculos desativados nas duas organizações, a nota da organização intacta e com o mesmo owner, e as outras pessoas de A e B intactas;
+  - decidir de novo e rodar a limpeza de novo não mudam nada;
+  - a última administradora de uma organização bloqueia a aprovação, com mensagem;
+  - outra pessoa não cancela o pedido, um membro recebe 403 na decisão, o administrador da plataforma não decide o próprio pedido e uma revisão antiga é recusada;
+  - a recusa exige motivo, que a pessoa lê, e um novo pedido pode seguir uma recusa;
+  - a auditoria do pedido e da aprovação, cada evento com o ator certo.
+- `tests/unit/test_erasure_rules.py`: 4 passed (conta de serviço recusada, email anônimo, motivo da recusa e só a plataforma decide).
+- Não verificado: o fluxo completo no navegador. Os testes de integração percorrem as páginas pelo cliente HTTP do Django, com os templates reais.
+- Escopo revisto (comentado na issue): a identidade é anonimizada na transação da aprovação, onde vale o guard SQL de último administrador; só a limpeza de cada organização roda por job.
+
 ## Integração contínua
 
 `.github/workflows/ci.yml` repete em cada push para `main` e em cada pull request os procedimentos deste documento que não dependem de serviços externos. Um job verde vale como evidência apenas para o commit, o backend e as versões em que rodou.

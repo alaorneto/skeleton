@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import instance_views, jobs_views, updates, views
+from . import instance_views, jobs_views, privacy_views, updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -27,6 +27,8 @@ urlpatterns = [
     path("audit/", views.audit, name="audit"),
     path("jobs/", jobs_views.jobs, name="jobs"),
     path("jobs/<uuid:sysid>/", jobs_views.job_action, name="job-action"),
+    path("privacy/", privacy_views.privacy, name="privacy"),
+    path("privacy/<uuid:sysid>/", privacy_views.privacy_decision, name="privacy-decision"),
     path("apps/", views.app_list, name="apps"),
     path("apps/<str:app_label>/", views.app_detail, name="app"),
     path("apps/<str:app_label>/documentation/", views.app_documentation, name="app-documentation"),

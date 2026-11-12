@@ -10,3 +10,6 @@ class AccountsConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
+        from .jobs import register_account_jobs
+
+        register_account_jobs()

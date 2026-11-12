@@ -1,0 +1,25 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% translate "Pedidos de eliminação" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Identidade" %}</p><h1>{% translate "Pedidos de eliminação" %}</h1><p class="page-description">{% translate "Pessoas que pediram a anonimização da própria identidade. Aprovar anonimiza a identidade na hora, de forma irreversível: email e nome viram anônimos, sessões, tokens e métodos de login acabam e os vínculos são desativados. Os registros das organizações continuam íntegros." %}</p></div></div>
+<form method="get" class="mb-4 flex flex-wrap items-end gap-2" aria-label="{% translate "Filtros" %}">
+  <div class="field"><label for="{{ filter_form.state.id_for_label }}">{% translate "Estado" %}</label>{{ filter_form.state }}</div>
+  <button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="filter" %}{% translate "Filtrar" %}</button>
+  <a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>
+</form>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Pessoa" %}</th><th scope="col">{% translate "Pedido em" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Decisão" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for row in rows %}<tr>
+  <td class="break-all"><a href="{% url 'platform:user' row.user_id %}">{{ row.user.email }}</a></td>
+  <td class="whitespace-nowrap!">{{ row.created_at }}</td>
+  <td>{% if row.state == "pending" %}<span class="badge badge-warning badge-dot">{{ row.get_state_display }}</span>{% elif row.state == "completed" %}<span class="badge badge-success badge-dot">{{ row.get_state_display }}</span>{% else %}<span class="badge badge-dot">{{ row.get_state_display }}</span>{% endif %}</td>
+  <td>{% if row.decided_at %}<span class="whitespace-nowrap">{{ row.decided_at }}</span>{% endif %}{% if row.decision_note %}<p class="text-sm text-body-subtle">{{ row.decision_note }}</p>{% endif %}{% if not row.decided_at and not row.decision_note %}<span class="text-body-subtle">—</span>{% endif %}</td>
+  <td>{% if row.state == "pending" %}<form method="post" action="{% url 'platform:privacy-decision' row.pk %}" class="flex flex-wrap items-end gap-2">{% csrf_token %}<input type="hidden" name="expected_revision" value="{{ row.revision }}">
+    <div class="field"><label for="note-{{ row.pk }}">{% translate "Motivo da recusa" %}</label><input type="text" name="note" id="note-{{ row.pk }}" maxlength="500"></div>
+    <button type="submit" name="action" value="approve" class="btn btn-danger btn-sm">{% translate "Aprovar" %}</button>
+    <button type="submit" name="action" value="reject" class="btn btn-secondary btn-sm">{% translate "Recusar" %}</button>
+  </form>{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhum pedido encontrado." %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% include "skeleton/web/pagination.html" %}
+{% endblock %}

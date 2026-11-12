@@ -8,5 +8,25 @@
   <p class="mt-2 text-sm/6 text-body">{% translate "O arquivo é um ZIP com JSON. Ele não inclui os registros de negócio das organizações, que pertencem a cada uma delas." %}</p>
   <a class="btn btn-primary mt-4" href="{% url 'web:privacy-export' %}">{% translate "Baixar meus dados" %}</a>
 </section>
+<section class="card mt-6" aria-labelledby="erasure-title">
+  <h2 id="erasure-title">{% translate "Eliminar minha identidade" %}</h2>
+  <p class="mt-2 text-sm/6 text-body">{% translate "A eliminação anonimiza seu email e seu nome, encerra suas sessões, revoga seus tokens, remove os métodos de login e as notificações e desativa seus vínculos. Os registros que você criou nas organizações continuam lá, sem o seu nome. A administração da plataforma aprova o pedido antes de qualquer mudança." %}</p>
+  {% if erasure and erasure.state == "pending" %}
+  <p class="mt-4"><span class="badge badge-warning badge-dot">{{ erasure.get_state_display }}</span> <span class="text-sm text-body-subtle">{% blocktranslate with date=erasure.created_at %}Pedido em {{ date }}.{% endblocktranslate %}</span></p>
+  {% if erasure.decision_note %}<p class="mt-2 text-sm/6 text-body">{{ erasure.decision_note }}</p>{% endif %}
+  <form method="post" action="{% url 'web:privacy-erasure-cancel' %}" class="mt-4">{% csrf_token %}
+    <input type="hidden" name="request" value="{{ erasure.pk }}"><input type="hidden" name="expected_revision" value="{{ erasure.revision }}">
+    <button type="submit" class="btn btn-secondary">{% translate "Cancelar o pedido" %}</button>
+  </form>
+  {% else %}
+  {% if erasure and erasure.state == "rejected" %}<div class="mt-4"><p><span class="badge badge-dot">{{ erasure.get_state_display }}</span></p><p class="mt-2 text-sm/6 text-body">{{ erasure.decision_note }}</p></div>{% endif %}
+  <form method="post" action="{% url 'web:privacy-erasure' %}" class="mt-4">{% csrf_token %}
+    {% if erasure_form.non_field_errors %}<p class="field-error">{{ erasure_form.non_field_errors|join:" " }}</p>{% endif %}
+    <div class="flex items-start gap-2"><input type="checkbox" name="confirm" id="erasure-confirm" required><label for="erasure-confirm" class="text-sm/6">{{ erasure_form.confirm.label }}</label></div>
+    {% if erasure_form.confirm.errors %}<p class="field-error">{{ erasure_form.confirm.errors|join:" " }}</p>{% endif %}
+    <button type="submit" class="btn btn-danger mt-4">{% translate "Pedir a eliminação" %}</button>
+  </form>
+  {% endif %}
+</section>
 </div>
 {% endblock %}
