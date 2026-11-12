@@ -6,7 +6,7 @@
   <section class="card" aria-labelledby="installed-core">
     <h2 id="installed-core" class="mb-4">{% translate "Núcleo" %}</h2>
     <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>{% translate "Versão em execução" %}</dt><dd>{{ core.version|default:"—" }} <span class="text-body-subtle">· {{ core.origin|default:"—" }}</span></dd></div>
+      <div><dt>{% translate "Versão em execução" %}</dt><dd>{{ core.version|default:"—" }} <span class="text-body-subtle">· {{ core.origin_label|default:"—" }}</span></dd></div>
       {% if inventory %}
       <div><dt>{% translate "Geração ativa" %}</dt><dd>{{ inventory.generation }}</dd></div>
       <div><dt>{% translate "Núcleo ativo no agente" %}</dt><dd>{{ inventory.core.version }} <span class="text-body-subtle">· {{ inventory.core.origin }}, {% translate "publicador" %} {{ inventory.core.publisher }}</span></dd></div>
