@@ -20,6 +20,64 @@ def physical_tables(connection):
         return [row[0] for row in cursor.fetchall()]
 
 
+# Same columns as Django's PostgreSQL get_table_description(), for every table of the schema at
+# once. The type comes from pg_attribute instead of a "SELECT * ... LIMIT 1" per table; like the
+# result description of that SELECT, a domain resolves to its base type, through nested domains.
+_COLUMNS = """
+    SELECT c.relname, a.attname,
+           CASE WHEN t.typtype <> 'd' THEN a.atttypid ELSE (
+               WITH RECURSIVE chain (oid, typtype, typbasetype) AS (
+                   SELECT t.oid, t.typtype, t.typbasetype
+                   UNION ALL
+                   SELECT b.oid, b.typtype, b.typbasetype FROM pg_type b JOIN chain ON b.oid = chain.typbasetype
+                   WHERE chain.typtype = 'd'
+               )
+               SELECT oid FROM chain WHERE typtype <> 'd'
+           ) END,
+           NOT (a.attnotnull OR (t.typtype = 'd' AND t.typnotnull)),
+           pg_get_expr(ad.adbin, ad.adrelid),
+           CASE WHEN co.collname = 'default' THEN NULL ELSE co.collname END,
+           a.attidentity != '',
+           col_description(a.attrelid, a.attnum)
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_type t ON t.oid = a.atttypid
+    LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+    LEFT JOIN pg_collation co ON co.oid = a.attcollation
+    WHERE c.relnamespace = %s::regnamespace AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+    ORDER BY c.relname, a.attnum
+"""
+_PRIMARY_KEYS = """
+    SELECT c.relname, a.attname
+    FROM pg_constraint k
+    JOIN pg_class c ON c.oid = k.conrelid
+    JOIN pg_attribute a ON a.attrelid = k.conrelid AND a.attnum = ANY (k.conkey)
+    WHERE k.contype = 'p' AND c.relnamespace = %s::regnamespace
+"""
+
+
+def describe_tables(connection, schema="skeleton"):
+    """Columns (Django ``FieldInfo``, in column order) and primary key columns of every table.
+
+    Two catalog queries for the whole schema, where ``get_table_description()`` and
+    ``get_constraints()`` take about four per table. ``tests/integration/test_table_catalog_sync.py``
+    compares both on every table of the schema.
+    """
+    from django.db.backends.postgresql.introspection import FieldInfo
+
+    columns, primary = {}, {}
+    with connection.cursor() as cursor:
+        cursor.execute(_COLUMNS, [schema])
+        for table, name, type_code, null_ok, default, collation, is_autofield, comment in cursor.fetchall():
+            columns.setdefault(table, []).append(
+                FieldInfo(name, type_code, None, None, None, None, null_ok, default, collation, is_autofield, comment)
+            )
+        cursor.execute(_PRIMARY_KEYS, [schema])
+        for table, name in cursor.fetchall():
+            primary.setdefault(table, set()).add(name)
+    return {table: (columns.get(table, []), primary.get(table, set())) for table in columns}
+
+
 def _reconcile(model, record, lookup, physical, defaults, using):
     """Create the catalog row or update its physical attributes; human texts are kept.
 
@@ -90,6 +148,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
     for spec in retained_specs:
         known[spec.model._meta.db_table] = spec.model
     field_count = 0
+    layout = describe_tables(connection, schema)
     with system_context(reason="migrate:catalog", using=using):
         # Two reads for the whole catalog; the loop below only writes what changed.
         existing_tables = _existing(
@@ -167,15 +226,7 @@ def sync_table_catalog(*, using="default", apps_registry=None):
                 },
                 using,
             )
-            with connection.cursor() as cursor:
-                description = connection.introspection.get_table_description(cursor, name)
-                constraints = connection.introspection.get_constraints(cursor, name)
-            primary_columns = {
-                column
-                for constraint in constraints.values()
-                if constraint.get("primary_key")
-                for column in constraint["columns"]
-            }
+            description, primary_columns = layout.get(name, ([], set()))
             seen = []
             table_fields = existing_fields.get(table.pk, [])
             by_column = {}
