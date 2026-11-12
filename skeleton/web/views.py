@@ -423,7 +423,7 @@ def access_edit(request, organization_id, resource, sysid=None):
     if sysid:
         if resource in LINKS or resource == "invitations":
             raise Http404
-        item = model.objects.select_for_update().filter(pk=sysid).first()
+        item = _form_record(request, model.objects.filter(pk=sysid))
         if item is None:
             raise Http404
     form = dedicated_form(
@@ -480,7 +480,7 @@ def access_edit(request, organization_id, resource, sysid=None):
 @transaction.atomic
 def access_delete(request, organization_id, resource, sysid):
     model, _ = dedicated_model(resource)
-    item = model.objects.select_for_update().filter(pk=sysid).first()
+    item = _form_record(request, model.objects.filter(pk=sysid))
     if item is None:
         raise Http404
     form = explicit_form(
@@ -668,6 +668,17 @@ def record_detail(request, organization_id, table_key, sysid):
     )
 
 
+def _form_record(request, queryset):
+    """The record a form shows or writes: locked only when the request writes it (#288).
+
+    A GET only renders the page; taking FOR UPDATE there would wait behind concurrent writes
+    and, before the organization lock of a POST, break the documented lock order.
+    """
+    if request.method == "POST":
+        queryset = queryset.select_for_update()
+    return queryset.first()
+
+
 @tenant_page()
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
@@ -676,12 +687,13 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
     item = None
     action = {"edit": "update", "delete": "delete", "restore": "restore", "access": "manage_access"}[operation]
     if sysid:
-        item = (
-            record_queryset(spec, user=request.user, action=action, include_deleted=operation == "restore")
-            .select_for_update()
-            .filter(pk=sysid)
-            .first()
-        )
+        queryset = record_queryset(
+            spec, user=request.user, action=action, include_deleted=operation == "restore"
+        ).filter(pk=sysid)
+        if operation == "restore":
+            # Only a tombstone is restored; a live record answers like a missing one (#288).
+            queryset = queryset.filter(deleted_at__isnull=False)
+        item = _form_record(request, queryset)
         if item is None:
             raise Http404
         if operation == "access":

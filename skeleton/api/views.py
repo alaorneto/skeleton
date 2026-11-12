@@ -524,7 +524,7 @@ class RestoreView(TenantAPI):
         record = (
             record_queryset(spec, user=request.user, action="restore", include_deleted=True)
             .select_for_update()
-            .filter(pk=sysid)
+            .filter(pk=sysid, deleted_at__isnull=False)  # Only a tombstone is restored (#288).
             .first()
         )
         if record is None:
