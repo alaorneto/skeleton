@@ -117,6 +117,29 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 
 `ETAG` inclui aspas do header atual. Releia após cada mutação antes de DELETE/restore. Em HTTPS use URL/origin/referer HTTPS exatos. Cookies/recovery codes não pertencem ao histórico de shell nem arquivos compartilhados. API não oferece export global de Users, hard delete ou bypass de tenant.
 
+## Fluxos de processo
+
+Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Só sessão: um token de API recebe 403 `token_not_allowed`.
+
+| URL relativa ao prefixo | Métodos | Contrato |
+|---|---|---|
+| `o/<org>/flows/tasks/` | GET | Caixa de tarefas do ator; `scope=mine` (padrão), `available` (filas) ou `all`; `status` só com `all` |
+| `o/<org>/flows/tasks/<id>/` | GET | Tarefa com campos do formulário, ações e dados do processo; ETag com a revisão da tarefa |
+| `o/<org>/flows/tasks/<id>/claim/`, `release/` | POST | Assumir ou devolver uma tarefa de fila; corpo vazio |
+| `o/<org>/flows/tasks/<id>/reassign/` | POST | `{"to_user": "<uuid>", "comment": "..."}` |
+| `o/<org>/flows/tasks/<id>/complete/` | POST | `{"action": "<chave>", "data": {campo: valor}, "comment": "..."}` |
+| `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
+| `o/<org>/flows/instances/` | GET | Instâncias visíveis; filtros exatos `flow_key`, `subject_id`, `status` |
+| `o/<org>/flows/instances/<id>/` | GET | Instância com etapas ativas e dados não sensíveis; ETag com a revisão da instância |
+| `o/<org>/flows/instances/<id>/history/` | GET | Histórico ordenado |
+| `o/<org>/flows/instances/<id>/cancel/`, `suspend/`, `resume/`, `retry/` | POST | Administração da instância; `cancel` e `suspend` aceitam `{"reason": "..."}` |
+
+- As listas usam cursor: `{"results": [...], "next_cursor": "..." | null, "page_size": 25}`; envie `cursor` e `page_size` (até 100).
+- Todo POST exige `If-Match` com a revisão lida no GET: da **tarefa** nas ações de tarefa, da **instância** nas demais. Sem o header, 428; revisão antiga, 412; nada é escrito.
+- Tarefa ou instância inexistente, de outra organização, não visível ou de app desativada responde 404. Visível, mas sem direito à ação, 403. Formulário inválido, 400 com `fields`. Estado incompatível (instância suspensa, tarefa encerrada), 409 com o código do conflito.
+- Campo não declarado no formulário da etapa ou da transição é recusado, como no gateway. Ator, organização, responsável e revisão nunca vêm do corpo.
+- Iniciar uma instância não tem rota aqui: é operação da app dona do fluxo.
+
 ## Tokens de API
 
 Além da sessão, a API aceita tokens de API (epic #79). Esta seção descreve o token em si (#45); a autenticação nas requisições está em [Autenticação por token](#autenticação-por-token).
