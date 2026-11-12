@@ -37,7 +37,7 @@
       }
     }]
   },
-  "migrations": {"leaves": ["0001_initial"], "from_versions": ">=0.0.0", "labels": ["example_notes"]},
+  "migrations": {"leaves": ["0002_search_index"], "from_versions": ">=0.0.0", "labels": ["example_notes"]},
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},

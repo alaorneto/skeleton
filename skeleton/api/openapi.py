@@ -511,6 +511,8 @@ def _filters(spec: Any) -> tuple[tuple[str, Schema, str], ...]:
     for name in dict.fromkeys(("sysid", "owner", "visibility", *names)):
         schema = field_schema(spec.model._meta.get_field(name))
         result.append((name, schema, f"Igualdade em {name}."))
+    if getattr(spec, "search_fields", ()):
+        result.append(("q", string(), f"Busca textual em {', '.join(spec.search_fields)} (2 a 200 caracteres)."))
     return tuple(result)
 
 
@@ -601,6 +603,7 @@ class TableRoutes:
             query = (
                 ("record", UUID, "Registro de origem; obrigatório com access=1."),
                 ("access", string(enum=["0", "1"]), "1 para escolher dono ou grupo de um registro."),
+                ("q", string(), "Prefixo do rótulo e, com pg_trgm, similaridade (2 a 200 caracteres)."),
             )
             yield (
                 path.replace("{field_name}", name),

@@ -26,6 +26,7 @@ class NotesConfig(AppConfig):
                 write_fields=("code", "title", "body"),
                 sensitive_fields=("body",),
                 expose_api=True,
+                search_fields=("code", "title"),
             )
         )
         from .flows import register as register_flows

@@ -22,6 +22,9 @@ class TableSpec:
     attachments: AttachmentPolicy | None = None
     # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
     sequence_fields: tuple = ()
+    # Text columns of the full-text search (#180): read_fields, text, never sensitive; the table's
+    # migration installs the index with InstallSearchIndex.
+    search_fields: tuple = ()
 
 
 _registry = {}

@@ -149,9 +149,12 @@ def filter_records(queryset, spec, params, *, ignore_empty=False):
         and not isinstance(spec.model._meta.get_field(name), models.JSONField)
     }
     allowed = scalar | {"sysid", "owner", "visibility", "page", "page_size"}
+    # ``q``: full-text search on the declared search_fields (#180), after the authorization.
+    if getattr(spec, "search_fields", ()):
+        allowed = allowed | {"q"}
     if set(params) - allowed:
         raise ValidationError("Filtro não permitido.")
-    for name in set(params) - {"page", "page_size"}:
+    for name in set(params) - {"page", "page_size", "q"}:
         if ignore_empty and params[name] == "":
             continue
         field = spec.model._meta.get_field(name)
@@ -160,6 +163,11 @@ def filter_records(queryset, spec, params, *, ignore_empty=False):
             queryset = queryset.filter(**{name: value})
         except (ValidationError, ValueError, TypeError):
             raise ValidationError({name: "Filtro inválido."}) from None
+    term = params.get("q") if "q" in params else None
+    if term is not None and not (ignore_empty and term == ""):
+        from skeleton.system.search import apply_search
+
+        queryset = apply_search(queryset, spec, term)
     return queryset
 
 
