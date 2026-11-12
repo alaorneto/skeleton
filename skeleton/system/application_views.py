@@ -93,16 +93,18 @@ class ApplicationAPI(TenantAPI):
         data = request_fields(request)
         if set(data) != {"enabled", "configuration"}:
             raise BoundaryError("invalid_request", "Informe enabled e configuration.")
-        state = application_state(app_label)
-        if not state["available"] and (data["enabled"] is not False or not state["enabled"]):
-            # Only closing an app the platform withdrew is accepted; the rest is unavailable.
-            raise BoundaryError("app_unavailable", "Aplicativo indisponível para esta organização.", 400)
         from skeleton.api.errors import if_match_precondition
         from skeleton.service_api.applications import ApplicationAdministrationService
 
+        service = ApplicationAdministrationService()
+        # The service lists available apps and enabled ones the platform withdrew (#24).
+        state = next((item for item in service.applications(actor=request.user) if item.app_label == app_label), None)
+        if state is None or (not state.available and data["enabled"] is not False):
+            # Only closing an app the platform withdrew is accepted; the rest is unavailable.
+            raise BoundaryError("app_unavailable", "Aplicativo indisponível para esta organização.", 400)
         configuration = data["configuration"]
         with if_match_precondition():
-            state = ApplicationAdministrationService().configure(
+            state = service.configure(
                 actor=request.user,
                 app_label=app_label,
                 enabled=data["enabled"],
