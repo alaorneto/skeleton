@@ -72,8 +72,56 @@ class _SamlOptions(forms.Form):
         return {"idp": idp, "sp": sp, "attribute_mapping": {}}
 
 
-class IdentityProviderCreateForm(_SamlOptions):
-    protocol = forms.ChoiceField(choices=(("oidc", "OpenID Connect"), ("saml", "SAML 2.0")), widget=forms.HiddenInput)
+class _LdapOptions(forms.Form):
+    bind_dn = forms.CharField(label="DN da service account (LDAP)", required=False, max_length=500)
+    user_filter = forms.CharField(
+        label="Filtro de usuário (LDAP)",
+        required=False,
+        max_length=500,
+        initial="(uid={username})",
+        help_text="Com exatamente um {username}; o valor digitado é escapado.",
+    )
+    id_attribute = forms.ChoiceField(
+        label="Identificador estável (LDAP)",
+        required=False,
+        choices=(("entryUUID", "entryUUID"), ("objectGUID", "objectGUID (Active Directory)")),
+    )
+    email_attribute = forms.CharField(label="Atributo de email (LDAP)", required=False, initial="mail")
+    required_group_dn = forms.CharField(
+        label="Grupo exigido (LDAP)", required=False, max_length=500, help_text="DN de um grupo; opcional."
+    )
+    start_tls = forms.BooleanField(label="Usar StartTLS (ldap://)", required=False)
+    ca_bundle = forms.CharField(
+        label="Arquivo da CA (LDAP)", required=False, max_length=500, help_text="Caminho no servidor; opcional."
+    )
+
+    LDAP_FIELDS = (
+        "bind_dn",
+        "user_filter",
+        "id_attribute",
+        "email_attribute",
+        "required_group_dn",
+        "start_tls",
+        "ca_bundle",
+    )
+
+    def ldap_settings(self):
+        data = self.cleaned_data
+        options = {name: data[name] for name in self.LDAP_FIELDS if data.get(name) not in (None, "")}
+        options["start_tls"] = bool(data.get("start_tls"))
+        return options
+
+
+class IdentityProviderCreateForm(_SamlOptions, _LdapOptions):
+    protocol = forms.ChoiceField(
+        choices=(("oidc", "OpenID Connect"), ("saml", "SAML 2.0"), ("ldap", "LDAP")), widget=forms.HiddenInput
+    )
+    directory = forms.CharField(
+        label="Diretório (LDAP)",
+        required=False,
+        max_length=500,
+        help_text="ldaps://servidor/dc=empresa,dc=com (ou ldap:// com StartTLS). Não pode ser alterado depois.",
+    )
     provider_id = forms.RegexField(
         label="Identificador (provider_id)",
         regex=r"^[a-z0-9][a-z0-9_-]{0,63}$",
@@ -111,12 +159,16 @@ class IdentityProviderCreateForm(_SamlOptions):
         field = self.fields["bound_organization"]
         field.queryset = Organization.objects.filter(is_active=True).order_by("name")
         field.label_from_instance = lambda organization: f"{organization.name} ({organization.slug})"
+        saml, ldap = tuple(_SamlOptions.base_fields), tuple(_LdapOptions.base_fields)
         hidden = {
-            "oidc": ("entity_id", "sp_entity_id", "private_key", *_SamlOptions.base_fields),
-            "saml": ("issuer", "secret"),
+            "oidc": ("entity_id", "sp_entity_id", "private_key", "directory", *saml, *ldap),
+            "saml": ("issuer", "secret", "directory", *ldap),
+            "ldap": ("issuer", "entity_id", "sp_entity_id", "private_key", "client_id", *saml),
         }
         for name in hidden[protocol]:
             self.fields.pop(name, None)
+        if protocol == "ldap":
+            self.fields["secret"].label = "Senha da service account"
 
     def service_data(self):
         data = dict(self.cleaned_data)
@@ -128,12 +180,15 @@ class IdentityProviderCreateForm(_SamlOptions):
                 "provider_id",
                 "name",
                 "bound_organization",
-                "client_id",
                 "show_on_login",
                 "trust_verified_email",
             )
         }
-        if protocol == "oidc":
+        if protocol != "ldap":
+            values["client_id"] = data["client_id"]
+        if protocol == "ldap":
+            values.update(directory=data["directory"], secret=data["secret"], settings=self.ldap_settings())
+        elif protocol == "oidc":
             values.update(issuer=data["issuer"], secret=data["secret"])
         else:
             values.update(
@@ -145,7 +200,7 @@ class IdentityProviderCreateForm(_SamlOptions):
         return values
 
 
-class IdentityProviderEditForm(_SamlOptions):
+class IdentityProviderEditForm(_SamlOptions, _LdapOptions):
     name = forms.CharField(label="Nome exibido", max_length=200)
     enabled = forms.BooleanField(label="Ativo", required=False, help_text="Desligado, ninguém entra por ele.")
     show_on_login = forms.BooleanField(label="Mostrar na tela de login", required=False)
@@ -156,9 +211,16 @@ class IdentityProviderEditForm(_SamlOptions):
 
     def __init__(self, *args, protocol="oidc", **kwargs):
         super().__init__(*args, **kwargs)
-        drop = ("private_key", *_SamlOptions.base_fields) if protocol == "oidc" else ("secret",)
+        saml, ldap = tuple(_SamlOptions.base_fields), tuple(_LdapOptions.base_fields)
+        drop = {
+            "oidc": ("private_key", *saml, *ldap),
+            "saml": ("secret", *ldap),
+            "ldap": ("private_key", *saml),
+        }[protocol]
         for name in drop:
             self.fields.pop(name, None)
+        if protocol == "ldap":
+            self.fields["secret"].label = "Nova senha da service account"
         self.protocol = protocol
 
     def service_data(self):
@@ -169,6 +231,8 @@ class IdentityProviderEditForm(_SamlOptions):
                 values[secret] = data[secret]
         if self.protocol == "saml":
             values["settings"] = self.saml_settings()
+        elif self.protocol == "ldap":
+            values["settings"] = self.ldap_settings()
         return values
 
 
@@ -192,6 +256,7 @@ def _edit_initial(row):
         "expected_revision": row.revision,
         **{f"idp_{key}": idp.get(key, "") for key in ("sso_url", "slo_url", "metadata_url", "x509cert")},
         "sp_x509cert": sp.get("x509cert", ""),
+        **{name: (row.settings or {}).get(name, "") for name in _LdapOptions.LDAP_FIELDS if row.protocol == "ldap"},
     }
 
 
@@ -216,7 +281,7 @@ def identity_provider_create(request):
     from skeleton.accounts.identity_providers import create_identity_provider
 
     protocol = request.GET.get("protocol") or request.POST.get("protocol") or "oidc"
-    if protocol not in ("oidc", "saml"):
+    if protocol not in ("oidc", "saml", "ldap"):
         raise Http404
     form = IdentityProviderCreateForm(request.POST if request.method == "POST" else None, protocol=protocol)
     status = 200
@@ -238,7 +303,7 @@ def identity_provider_create(request):
         {
             "platform_section": "identity-providers",
             "form": form,
-            "title": "Novo provedor " + ("OIDC" if protocol == "oidc" else "SAML"),
+            "title": "Novo provedor " + {"oidc": "OIDC", "saml": "SAML", "ldap": "LDAP"}[protocol],
             "eyebrow": "Provedores de identidade",
             "description": "A identidade (provider_id, organização, issuer ou entity ID e client ID) não muda depois. "
             "Segredos são guardados cifrados e não aparecem de novo.",

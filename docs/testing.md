@@ -169,6 +169,20 @@ Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev
   - email fora dos domínios permitidos recebe a recusa neutra (403 "Identity admission denied."); email do domínio passa.
 - Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `npm run check`: sem problemas.
 
+**#32, login LDAP por organização:**
+
+- Spike com Python 3.14.7, `ldap3` 2.9.1 e `pyasn1` 0.6.5 registrado na issue: TLS com `SSLContext`, StartTLS, `MOCK_SYNC` e escape de filtro funcionam; dois `DeprecationWarning` no import.
+- `python -m pytest tests/accounts/test_ldap_login.py -q`: 7 passed, contra o diretório simulado do `ldap3` (`MOCK_SYNC`, trocado em `client.set_connection_factory`). Cobrem:
+  - login cria identidade só-SSO (`local_password_allowed=False`, senha inutilizável) com `SocialAccount(provider, uid=entryUUID)` e o fingerprint, e o vínculo pelo JIT da organização; email mudado no diretório volta para a mesma identidade;
+  - email igual ao de uma conta local recebe a recusa neutra (403), sem conectar;
+  - senha errada, usuário inexistente e filtro injetado (`*)(uid=*`) com a mesma resposta 401; o filtro injetado não encontra ninguém; senha vazia nunca chega a um bind;
+  - limite por usuário com 429 e `Retry-After`;
+  - configuração recusa `ldap://` sem StartTLS, URL sem base, filtro sem parênteses, identificador fora de `entryUUID`/`objectGUID` e opção desconhecida; aceita `ldap://` com StartTLS;
+  - provedor desligado responde 404; `objectGUID` convertido com `bytes_le`;
+  - cadastro LDAP pela plataforma (HTTP recusado, senha cifrada e fora da página) e "Testar" com `ok`.
+- Os testes com contêiner OpenLDAP em `tests/sso/` não rodaram: não há Docker neste ambiente. A MFA no fluxo LDAP é a etapa padrão do allauth e não ganhou teste próprio.
+- `ldap3` e `pyasn1` nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package ldap3`.
+
 ## Configurações e marca da organização (epic #90)
 
 Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
