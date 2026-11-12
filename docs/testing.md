@@ -86,7 +86,7 @@ Estabilidade: dez rodadas paralelas completas sem nenhuma falha (as três da rod
 
 No run 43219085131, o container `postgres:16.15` aplicou os ajustes de `POSTGRES_INITDB_ARGS` (o passo de provisionamento lista `fsync`, `synchronous_commit` e `full_page_writes` em `off` e `max_locks_per_transaction` em 2048), e todos os jobs de teste passaram. O job `coverage` falhou com "No data to combine": num diretório, o `coverage combine` só procura nomes `.coverage*`. A correção, que passa os arquivos das fatias pelo nome, foi reproduzida localmente ("Combined 2 files").
 
-**Não verificado:** o job `coverage` verde no CI depois da correção e o número de cobertura combinado no Linux.
+Com a correção, o run 43220490740 passou inteiro em 6 min 17 s, da criação ao agregador `CI`. O maior job de teste levou 5 min 10 s (3.12, núcleo 2/2), e o job `coverage` combinou as duas fatias de cada Python em 30 s. A cobertura combinada da suíte do núcleo ficou em 77% (linhas e ramos), com 17227 de 21714 linhas cobertas (79,34%). O run 43028212566, antes deste epic, tinha 76%, com 16847 de 21324 linhas (79,00%); o total de linhas cresceu com o código que entrou na `main` nesse meio-tempo.
 
 ## Configurações e marca da organização (epic #90)
 
