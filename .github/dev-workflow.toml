@@ -1,0 +1,211 @@
+# Configuração do fluxo de desenvolvimento (skill dev-workflow). Guia: docs/workflow.md.
+# Referência de todas as chaves: .claude/skills/dev-workflow/references/configuration.md
+# Confira com: python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor
+schema = 1
+
+[repository]
+default_branch = "main"
+# Branches em que um push pode publicar versão. `release/*` são linhas de manutenção.
+release_branches = ["main", "release/*"]
+
+# --- Tipos de issue ----------------------------------------------------------------------------
+# Cada issue tem exatamente um destes labels. `prefixes` são os prefixos de commit e de branch;
+# `level` é o incremento de versão que o tipo pede; `section` é a seção do changelog.
+
+[types.bug]
+color = "d73a4a"
+description = "Comportamento incorreto, regressão ou falha de segurança existente"
+prefixes = ["fix"]
+level = "patch"
+section = "fixes"
+
+[types.feature]
+color = "1d76db"
+description = "Nova funcionalidade"
+prefixes = ["feat"]
+level = "minor"
+section = "features"
+
+[types.enhancement]
+color = "a2eeef"
+description = "Melhoria de funcionalidade existente"
+prefixes = ["feat", "perf"]
+level = "minor"
+section = "improvements"
+
+[types.documentation]
+color = "0075ca"
+description = "Somente documentação"
+prefixes = ["docs"]
+level = "none"
+section = "docs"
+
+[types.refactor]
+color = "fbca04"
+description = "Reestruturação sem mudança de comportamento"
+prefixes = ["refactor"]
+level = "none"
+section = "maintenance"
+
+[types.test]
+color = "bfd4f2"
+description = "Somente testes, fixtures ou evidência de verificação"
+prefixes = ["test"]
+level = "none"
+section = "maintenance"
+
+[types.ci]
+color = "5319e7"
+description = "Pipeline e checks automáticos"
+prefixes = ["ci"]
+level = "none"
+section = "maintenance"
+
+[types.chore]
+color = "c5def5"
+description = "Dependências, ferramentas e configuração de desenvolvimento"
+prefixes = ["chore", "build"]
+level = "none"
+section = "maintenance"
+
+[labels.extra.security]
+color = "b60205"
+description = "Impacto em isolamento, autorização, autenticação, auditoria ou segredos"
+
+[issues.sections]
+default = [
+    "Contexto",
+    "Objetivo",
+    "Escopo",
+    "Abordagem técnica",
+    "Critérios de aceite",
+    "Plano de testes",
+    "Documentação a atualizar",
+    "Segurança e contrato do AGENTS.md",
+    "Riscos e dependências",
+    "Definição de pronto",
+]
+bug = [
+    "Comportamento observado",
+    "Comportamento esperado",
+    "Passos para reproduzir",
+    "Escopo",
+    "Abordagem técnica",
+    "Critérios de aceite",
+    "Plano de testes",
+    "Documentação a atualizar",
+    "Segurança e contrato do AGENTS.md",
+    "Riscos e dependências",
+    "Definição de pronto",
+]
+documentation = ["Contexto", "Objetivo", "Critérios de aceite", "Definição de pronto"]
+
+[pr]
+required_sections = [
+    "Issues",
+    "Resumo",
+    "Testes executados",
+    "Documentação",
+    "Segurança e contrato do AGENTS.md",
+    "Versão",
+]
+exempt_authors = ["dependabot[bot]"]
+
+[pr.severity]
+unchecked_criteria = "warning"
+issue_sections = "warning"
+type_mismatch = "warning"
+
+# --- Versão ------------------------------------------------------------------------------------
+# A versão do projeto é a versão do core (`django-skeleton`). O agente de deployment e as apps
+# first-party de skeleton/contrib andam no mesmo número. Veja docs/workflow.md#versão.
+
+[versioning]
+enabled = true
+tag_prefix = "v"
+# Vale só enquanto não existe tag de versão; depois a fonte é a última tag.
+initial_version = "0.5.0"
+# Em 0.x a quebra de compatibilidade sobe o minor; 1.0.0 só por sobreposição explícita.
+zero_major = "breaking-is-minor"
+require_analysis = false
+
+[[versioning.files]]
+path = "pyproject.toml"
+search = 'version = "{current_pep440}"'
+
+[[versioning.files]]
+path = "deployment_agent/pyproject.toml"
+search = 'version = "{current_pep440}"'
+
+# O agente fixa o core da mesma release.
+[[versioning.files]]
+path = "deployment_agent/pyproject.toml"
+search = '"django-skeleton=={current_pep440}"'
+
+# App first-party: mesma versão do core (o startup recusa manifesto com outro número) e faixa de
+# compatibilidade presa ao minor corrente.
+[[versioning.files]]
+path = "skeleton/contrib/calendar/manifest.json"
+search = '"version": "{current}"'
+
+[[versioning.files]]
+path = "skeleton/contrib/calendar/manifest.json"
+regex = '"skeleton": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
+replace = '"skeleton": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
+
+[[versioning.files]]
+path = "skeleton/contrib/calendar/docs/service-api.md"
+regex = '"org\.skeleton\.calendar": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
+replace = '"org.skeleton.calendar": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
+
+# Contratos que projetos derivados e apps consomem. Remover um arquivo pede major (minor em 0.x);
+# acrescentar ou alterar pede análise do diff.
+[[versioning.public_surfaces]]
+name = "API de serviços e kit de testes"
+globs = ["skeleton/service_api/**", "skeleton/testing/**", "skeleton/contrib/*/service_api.py"]
+
+[[versioning.public_surfaces]]
+name = "Bases de modelo, contexto e autorização"
+globs = [
+    "skeleton/common/models.py",
+    "skeleton/common/querysets.py",
+    "skeleton/tenancy/context.py",
+    "skeleton/access/policies.py",
+    "skeleton/access/services.py",
+]
+
+[[versioning.public_surfaces]]
+name = "Manifesto, pacotes e catálogo de apps"
+globs = ["skeleton/system/packages.py", "skeleton/system/presentation.py", "skeleton/system/app_registry.py"]
+
+[[versioning.public_surfaces]]
+name = "API HTTP"
+globs = ["skeleton/api/**"]
+
+[[versioning.public_surfaces]]
+name = "Migrations do núcleo"
+globs = ["skeleton/*/migrations/**", "skeleton/contrib/*/migrations/**"]
+on_add = "review"
+on_modify = "major"
+
+# Pisos de funcionalidade: "disponível desde a versão X". Não acompanham o bump; a release só não
+# pode sair com número menor que o maior deles.
+[[versioning.floors]]
+globs = ["skeleton/**/*.py", "deployment_agent/*.py"]
+regex = '(?:_CORE_MINIMUM|_UPGRADE_CORE)\s*=\s*(?:Version\()?"(\d+\.\d+\.\d+)"'
+
+[[versioning.floors]]
+globs = ["skeleton/**/*.py"]
+regex = '\bsince="(\d+\.\d+\.\d+)"'
+
+[changelog]
+path = "CHANGELOG.md"
+hide = []
+
+[release]
+# "direct": o workflow commita na branch e publica. "pull-request": abre um PR de release, e a
+# publicação acontece quando ele é mesclado (para quando a `main` exigir PR).
+mode = "direct"
+commit_message = "chore(release): {tag}"
+mark = ["comment", "milestone"]
+dispatch_workflow = ""

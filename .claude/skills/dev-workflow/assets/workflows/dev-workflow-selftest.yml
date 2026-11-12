@@ -1,0 +1,33 @@
+name: Autoteste do skill dev-workflow
+
+# Roda a suíte do próprio skill (só biblioteca padrão e git) nos três sistemas, quando ele muda.
+
+on:
+  pull_request:
+    paths: ["__SKILL_DIR__/**", ".github/dev-workflow.toml"]
+  push:
+    branches: [__DEFAULT_BRANCH__]
+    paths: ["__SKILL_DIR__/**", ".github/dev-workflow.toml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-workflow-selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    name: Suíte do skill (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Testes do skill
+        run: python -m unittest discover -s __SKILL_DIR__/tests

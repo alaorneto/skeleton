@@ -1,0 +1,68 @@
+name: Documentação
+description: "Somente documentação, sem mudar comportamento."
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lacuna ou divergência entre documentação e código.
+        Preencha todas as seções; use "Não se aplica — motivo" quando for o caso. Fluxo: skill dev-workflow.
+  - type: textarea
+    id: contexto
+    attributes:
+      label: "Contexto"
+      description: "Problema atual, quem é afetado e por quê agora. Link para plano ou discussão."
+    validations:
+      required: true
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: "Objetivo"
+      description: "Resultado esperado em 1–3 frases."
+    validations:
+      required: true
+  - type: textarea
+    id: documentos
+    attributes:
+      label: "Documentos afetados"
+      description: "Arquivos e seções."
+      placeholder: |
+        - [ ] docs/....md — 
+    validations:
+      required: true
+  - type: textarea
+    id: publico
+    attributes:
+      label: "Público"
+      description: "Desenvolvedor do derivado, operador, agente, revisor de segurança."
+    validations:
+      required: false
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Critérios de aceite"
+      description: "Conteúdo confere com o código, links válidos, comandos testados."
+      placeholder: |
+        - [ ] Confere com o código em: 
+        - [ ] Links e âncoras válidos
+    validations:
+      required: true
+  - type: textarea
+    id: verificacao
+    attributes:
+      label: "Verificação"
+      description: "Como conferir: arquivos lidos, comandos executados, renderização."
+    validations:
+      required: true
+  - type: checkboxes
+    id: pronto
+    attributes:
+      label: "Definição de pronto"
+      description: "Conferida antes do fechamento (skill dev-workflow)."
+      options:
+        - label: "Critérios de aceite verificados"
+        - label: "Plano de testes executado e registrado (somente o que rodou)"
+        - label: "Documentação atualizada"
+        - label: "CI verde"
+        - label: "Commits com Refs #N e PR com Closes #N"
+        - label: "Aprovado pelo responsável"

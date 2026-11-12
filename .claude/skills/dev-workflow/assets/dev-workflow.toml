@@ -1,0 +1,127 @@
+# Configuração do fluxo de desenvolvimento (skill dev-workflow).
+# Referência de todas as chaves: __SKILL_DIR__/references/configuration.md
+# Confira com: python3 __SKILL_DIR__/scripts/bootstrap.py doctor
+schema = 1
+
+[repository]
+default_branch = "__DEFAULT_BRANCH__"
+# Branches em que um push pode publicar versão. `release/*` são linhas de manutenção.
+release_branches = ["__DEFAULT_BRANCH__", "release/*"]
+
+# --- Tipos de issue ----------------------------------------------------------------------------
+# Cada issue tem exatamente um destes labels. `prefixes` são os prefixos de commit e de branch;
+# `level` é o incremento de versão que o tipo pede; `section` é a seção do changelog.
+
+[types.bug]
+color = "d73a4a"
+description = "Comportamento incorreto ou regressão"
+prefixes = ["fix"]
+level = "patch"
+section = "fixes"
+
+[types.feature]
+color = "1d76db"
+description = "Nova funcionalidade"
+prefixes = ["feat"]
+level = "minor"
+section = "features"
+
+[types.enhancement]
+color = "a2eeef"
+description = "Melhoria de funcionalidade existente"
+prefixes = ["feat", "perf"]
+level = "minor"
+section = "improvements"
+
+[types.documentation]
+color = "0075ca"
+description = "Somente documentação"
+prefixes = ["docs"]
+level = "none"
+section = "docs"
+
+[types.refactor]
+color = "fbca04"
+description = "Reestruturação sem mudança de comportamento"
+prefixes = ["refactor"]
+level = "none"
+section = "maintenance"
+
+[types.test]
+color = "bfd4f2"
+description = "Somente testes, fixtures ou evidência de verificação"
+prefixes = ["test"]
+level = "none"
+section = "maintenance"
+
+[types.ci]
+color = "5319e7"
+description = "Pipeline e checks automáticos"
+prefixes = ["ci"]
+level = "none"
+section = "maintenance"
+
+[types.chore]
+color = "c5def5"
+description = "Dependências, ferramentas e configuração de desenvolvimento"
+prefixes = ["chore", "build"]
+level = "none"
+section = "maintenance"
+
+# Labels adicionais que `sync-labels` também cria, por exemplo:
+# [labels.extra.security]
+# color = "b60205"
+# description = "Impacto em autenticação, autorização ou segredos"
+
+[pr]
+required_sections = ["Issues", "Resumo", "Testes executados", "Documentação", "Versão"]
+# Quem abre PR sem passar pelo fluxo de issues.
+exempt_authors = ["dependabot[bot]"]
+
+[pr.severity]
+# error bloqueia o check, warning só avisa, off desliga.
+unchecked_criteria = "warning" # critérios de aceite sem marcar na issue fechada pelo PR
+issue_sections = "warning"     # seção do modelo faltando na issue
+type_mismatch = "warning"      # tipo do título diferente do tipo da issue
+
+# --- Versão ------------------------------------------------------------------------------------
+
+[versioning]
+enabled = true
+tag_prefix = "v"
+# Vale só enquanto não existe tag de versão; depois a fonte é a última tag.
+initial_version = "__INITIAL_VERSION__"
+# Em 0.x a quebra de compatibilidade sobe o minor; "strict" a leva direto a 1.0.0.
+zero_major = "breaking-is-minor"
+# true: mudança em superfície pública só é publicada com análise registrada ou sobreposição.
+require_analysis = false
+
+# Onde a versão é escrita. `search` é texto literal com {current}; a troca padrão põe {new} no
+# lugar. Use `regex` + `replace` quando o texto não contém a versão corrente inteira.
+# Marcadores: {current} {new} e, para cada um, _pep440 _core _major _minor _patch _next_minor _next_major.
+# __VERSION_FILES__
+# Arquivos cujo diff interessa a quem usa o projeto. Remover um deles pede major; acrescentar ou
+# alterar pede análise (on_add / on_modify / on_remove: none, patch, minor, major ou review).
+# [[versioning.public_surfaces]]
+# name = "API pública"
+# globs = ["src/api/**"]
+
+# Versões que o código declara como piso ("disponível desde"). A release nunca sai menor que elas.
+# [[versioning.floors]]
+# globs = ["src/**/*.py"]
+# regex = 'since="(\d+\.\d+\.\d+)"'
+
+[changelog]
+path = "CHANGELOG.md"
+# Seções que ficam fora do arquivo (as notas da release sempre mostram todas).
+hide = []
+
+[release]
+# "direct": o workflow commita na branch e publica. "pull-request": abre um PR de release, e a
+# publicação acontece quando ele é mesclado (para branch protegida).
+mode = "direct"
+commit_message = "chore(release): {tag}"
+# Como marcar PRs e issues incluídos numa versão.
+mark = ["comment", "milestone"]
+# Workflow a disparar depois da release (por exemplo "publish.yml"), com os inputs version e tag.
+dispatch_workflow = ""

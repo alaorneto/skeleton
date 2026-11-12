@@ -1,0 +1,78 @@
+name: Versão e release
+
+# Skill dev-workflow: a cada push nas branches de release, publica o que estiver pendente.
+# Só há versão quando um PR marcado com o label de release entrou desde a última tag (ou quando a
+# execução manual força). A execução é uma máquina de estados: rodar de novo depois de concluir
+# não faz nada, e rodar depois de uma falha conclui o que faltou.
+
+on:
+  push:
+    branches: [main, "release/**"]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Publicar o que está acumulado mesmo sem PR marcado"
+        type: boolean
+        default: false
+      level:
+        description: "Sobrepor o nível calculado"
+        type: choice
+        options: ["", patch, minor, major]
+        default: ""
+      reason:
+        description: "Motivo da sobreposição (escreva sempre que escolher um nível)"
+        type: string
+        default: ""
+      prerelease:
+        description: "Canal de pré-release (ex.: rc); vazio publica a versão final"
+        type: string
+        default: ""
+      dry_run:
+        description: "Só mostrar o plano"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # commit de release, tag e GitHub Release
+  issues: write # comentário e milestone nas issues incluídas
+  pull-requests: write # comentário nos PRs incluídos; PR de release no modo pull-request
+  actions: write # só usado se release.dispatch_workflow estiver configurado
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Calcular e publicar a versão
+    runs-on: ubuntu-24.04
+    outputs:
+      released: ${{ steps.run.outputs.released }}
+      version: ${{ steps.run.outputs.version }}
+      tag: ${{ steps.run.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A ponta atual da branch, não o SHA do evento: uma execução anterior pode ter publicado.
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          fetch-tags: true
+          # RELEASE_TOKEN (opcional) permite escrever em branch protegida e disparar outros workflows.
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+      - name: Identidade dos commits de release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Publicar o que estiver pendente
+        id: run
+        # Entradas do disparo manual entram por variável de ambiente, nunca interpoladas no script.
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+          RELEASE_FORCE: ${{ inputs.force }}
+          RELEASE_LEVEL: ${{ inputs.level }}
+          RELEASE_REASON: ${{ inputs.reason }}
+          RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_DRY_RUN: ${{ inputs.dry_run }}
+        shell: bash # com pipefail: a falha do script não se perde no tee
+        run: python3 .claude/skills/dev-workflow/scripts/release.py run | tee -a "$GITHUB_STEP_SUMMARY"

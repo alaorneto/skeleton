@@ -1,0 +1,16 @@
+#!/bin/sh
+# Hook commit-msg do skill dev-workflow: todo commit referencia uma issue (Refs #N).
+# Instalado por `bootstrap.py install-hook` em projetos que não usam pre-commit.
+# POSIX sh: o git do Windows roda hooks com o sh que ele mesmo traz.
+root=$(git rev-parse --show-toplevel) || exit 1
+script="$root/__SKILL_DIR__/scripts/github_issues.py"
+[ -f "$script" ] || exit 0 # branch anterior à adoção do fluxo: nada a conferir
+
+# No Windows, `python3` pode ser o atalho da loja, que só imprime um aviso: testa de verdade.
+for candidate in python3 python "py -3"; do
+    if $candidate -c "import sys; sys.exit(sys.version_info < (3, 11))" >/dev/null 2>&1; then
+        exec $candidate "$script" commit-msg "$1"
+    fi
+done
+echo "commit-msg: preciso de Python 3.11 ou mais novo no PATH (python3, python ou py -3)." >&2
+exit 1

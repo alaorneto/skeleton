@@ -1,0 +1,46 @@
+name: Verificação do PR
+
+# Skill dev-workflow: issue vinculada e classificada, seções do modelo, classificação de versão
+# (release / no-release), título, e a prévia da versão que o merge publicaria.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: write # só para o comentário de prévia; PR de fork recebe token de leitura
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-check:
+    name: Verificação do PR
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Issue, seções, classificação e título
+        # Dados do evento entram por variável de ambiente, nunca interpolados no script.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 .claude/skills/dev-workflow/scripts/github_issues.py check-pr
+      - name: Arquivos de versão coerentes com a versão corrente
+        if: always()
+        run: python3 .claude/skills/dev-workflow/scripts/release.py check
+      - name: Prévia de versão
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >
+          python3 .claude/skills/dev-workflow/scripts/release.py preview
+          --pr "$PR_NUMBER" --base-ref "origin/$BASE_REF" --head-ref "$HEAD_SHA" --comment

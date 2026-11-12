@@ -1,0 +1,33 @@
+name: Evidências do PR mesclado
+
+# Skill dev-workflow: ao mesclar um PR, registra em cada issue citada os commits, os testes e a
+# documentação declarados, e marca como no-release o PR que ninguém classificou.
+#
+# Segurança: pull_request_target dá token de escrita. O checkout é o da branch de destino
+# (padrão deste gatilho); nenhum código do PR é baixado nem executado.
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: pr-merged-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    name: Registrar evidências nas issues
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Comentar evidências e classificar PR sem label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 .claude/skills/dev-workflow/scripts/github_issues.py pr-merged
