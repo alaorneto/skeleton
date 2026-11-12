@@ -120,7 +120,7 @@ O decorador confere que `actor` é o mesmo de `current_context().actor` (`skelet
 - Campos permitidos: UUID, `str`, `int`, `bool`, `Decimal`, `date`, `datetime` com fuso, enums de texto, tuplas e outros DTOs. Datas e horas saem em UTC com `tzinfo`. Converter para o fuso da pessoa é trabalho da superfície.
 - Só entram campos que estão em `read_fields` do `TableSpec` e fora de `sensitive_fields`, salvo campo sensível documentado na seção **Autorização** do método.
 - Listas usam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100). Nunca devolva lista ilimitada. Um cursor ou uma página que endereça um deslocamento além de `MAX_OFFSET` (1 000 000 de linhas) é `InvalidInput`: leituras mais fundas usam filtros (#271). Exceção: coleção limitada por natureza e documentada no método pode sair como tupla (as organizações do próprio ator, os grupos do ator, as apps instaladas).
-- Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: `@service_method` recusa o valor na execução, e `assert_service_contract` reprova a anotação de retorno.
+- Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: `@service_method` recusa o valor na execução, e `assert_service_contract` reprova a anotação de retorno. A checagem na execução é uma lista de permitidos, a mesma do contrato: `None`, `bool`, `int`, `str`, `Decimal`, `date`/`datetime`, `UUID`, enum de texto, tupla e dataclass congelada (inclusive `Page`), em profundidade. Gerador, iterador, `float`, `bytes`, `frozenset`, objeto comum, dataclass não congelada e enum que não seja de texto são `TypeError` (#272).
 
 ## Erros
 

@@ -150,21 +150,36 @@ def _translate(exc: Exception) -> ServiceError | None:
 
 
 def require_boundary_value(value: object, *, where: str, depth: int = 0) -> None:
-    """Reject models, querysets, managers and mutable containers crossing the boundary."""
-    from django.db.models import Manager, Model, QuerySet
+    """Accept only what the contract allows: primitives, text enums, tuples and frozen DTOs (#272).
+
+    An allow-list, the same types ``assert_service_contract`` requires of the annotations: a
+    generator over a queryset, a float, bytes or a plain object would otherwise cross the
+    boundary, and a lazy value could read the database after the service context ended.
+    """
+    import enum
+    from datetime import date
+    from decimal import Decimal
+    from uuid import UUID
 
     if depth > _MAX_RESULT_DEPTH:
         raise TypeError(f"{where}: service result is nested too deeply.")
-    if isinstance(value, Model | QuerySet | Manager):
-        raise TypeError(f"{where}: service methods return DTOs, never models or querysets.")
-    if isinstance(value, dict | list | set | bytearray):
-        raise TypeError(f"{where}: service methods return immutable DTOs, not mutable containers.")
-    if isinstance(value, tuple | frozenset):
+    if isinstance(value, enum.Enum):
+        if not isinstance(value, str):
+            raise TypeError(f"{where}: enums crossing the boundary must be text enums.")
+        return
+    if value is None or isinstance(value, bool | int | str | Decimal | date | UUID):
+        return
+    if isinstance(value, tuple):
         for item in value:
             require_boundary_value(item, where=where, depth=depth + 1)
-    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        if not type(value).__dataclass_params__.frozen:  # type: ignore[attr-defined]
+            raise TypeError(f"{where}: DTOs must be frozen dataclasses.")
         for field in dataclasses.fields(value):
             require_boundary_value(getattr(value, field.name), where=where, depth=depth + 1)
+        return
+    raise TypeError(f"{where}: service methods return DTOs, pages, tuples or primitives, not {type(value).__name__}.")
 
 
 def _run_command[T](function: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]) -> T:

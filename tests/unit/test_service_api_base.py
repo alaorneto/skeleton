@@ -1,9 +1,11 @@
 """Service API base: caller contract, boundary values, pages and REST mapping (#97)."""
 
+import enum
 import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -161,6 +163,53 @@ def test_mutable_results_are_refused(value):
             return
         with pytest.raises(TypeError):
             Sample().leak(actor=actor, value=value)
+
+
+@dataclass
+class MutableInfo:
+    name: str
+
+
+class Level(enum.IntEnum):
+    LOW = 1
+
+
+class Color(enum.StrEnum):
+    RED = "red"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [(x for x in ()), iter(()), map(str, ()), 1.5, b"x", frozenset({1}), object(), MutableInfo("x"), Level.LOW],
+    ids=["generator", "iterator", "map", "float", "bytes", "frozenset", "object", "mutable-dataclass", "int-enum"],
+)
+def test_only_contract_values_cross_the_boundary(value):
+    """The return check is an allow-list: anything outside the contract is refused (#272)."""
+    actor = person()
+    with fake_context(actor=actor.pk, organization_id=ORGANIZATION), pytest.raises(TypeError):
+        Sample().leak(actor=actor, value=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        True,
+        1,
+        "x",
+        Decimal("1.0"),
+        date(2026, 11, 12),
+        datetime(2026, 11, 12, tzinfo=UTC),
+        uuid4(),
+        Color.RED,
+        ((Info(sysid=uuid4(), name="a"),), (Info(sysid=uuid4(), name="b"),)),
+        Page((Info(sysid=uuid4(), name="x"),), None, 1),
+    ],
+)
+def test_contract_values_are_accepted(value):
+    actor = person()
+    with fake_context(actor=actor.pk, organization_id=ORGANIZATION):
+        assert Sample().leak(actor=actor, value=value) == value
 
 
 def test_models_and_querysets_are_refused():
