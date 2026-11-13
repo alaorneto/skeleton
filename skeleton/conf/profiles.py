@@ -107,13 +107,18 @@ def test_settings(base):
     DATABASES = {"default": database} if database else {}
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     SKELETON_METRICS_QUEUE_TTL_S = 0  # The suite always reads the queue.
+    import atexit
+    import shutil
     import tempfile
 
+    files_root = tempfile.mkdtemp(prefix="skeleton-files-")
+    # One directory per process importing these settings (pytest, manage.py, mypy): removed on exit (#333).
+    atexit.register(shutil.rmtree, files_root, ignore_errors=True)
     STORAGES = {
         **base["STORAGES"],
         "skeleton_files": {
             "BACKEND": "django.core.files.storage.FileSystemStorage",
-            "OPTIONS": {"location": tempfile.mkdtemp(prefix="skeleton-files-"), "base_url": None},
+            "OPTIONS": {"location": files_root, "base_url": None},
         },
     }
     # Same algorithm and hash format as production with a token work factor: the production

@@ -111,6 +111,8 @@ def database_config(env, variable, *, conn_max_age=60):
     if config["ENGINE"] == "django.db.backends.postgresql":
         config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
         config["CONN_MAX_AGE"] = conn_max_age
+        # A persistent connection may have been closed by the server: probe it before reuse (#333).
+        config["CONN_HEALTH_CHECKS"] = conn_max_age != 0
     return config
 
 
