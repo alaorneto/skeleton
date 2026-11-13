@@ -78,6 +78,64 @@ def expected_policies(model, operation=None):
     return {"skeleton_tenant": ("*", ["skeleton_runtime"], tenant, tenant)}
 
 
+def _catalog_state(cursor):
+    """Grants, effective privileges, sysid columns, trigger functions and tenant FKs of the schema.
+
+    One query each, whatever the number of tables (#252): the checks below compare against
+    these maps exactly what they used to query table by table.
+    """
+    cursor.execute(
+        "SELECT table_name,privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND grantee='skeleton_runtime'"
+    )
+    grants = {}
+    for table, privilege, grantable in cursor.fetchall():
+        grants.setdefault(table, []).append((privilege, grantable))
+    cursor.execute(
+        "SELECT c.relname,a.action,has_table_privilege('skeleton_runtime',c.oid,a.action) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS a(action) WHERE n.nspname='skeleton' AND c.relkind IN ('r','p')"
+    )
+    effective = {(table, action): granted for table, action, granted in cursor.fetchall()}
+    cursor.execute(
+        "SELECT c.relname,a.attname,t.typname FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid WHERE n.nspname='skeleton' AND a.attname='sysid'"
+    )
+    sysid = {row[0]: row[1:] for row in cursor.fetchall()}
+    cursor.execute(
+        "SELECT p.proname,r.rolname,p.prosecdef,p.proconfig,p.prosrc,has_function_privilege('skeleton_runtime',p.oid,'EXECUTE') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname='skeleton' AND p.prokind='f' AND p.pronargs=0 AND p.prorettype='trigger'::regtype"
+    )
+    functions = {}
+    for row in cursor.fetchall():
+        functions.setdefault(row[0], row[1:])  # The first row, as fetchone() returned it.
+    cursor.execute(
+        "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='skeleton'"
+    )
+    function_names = {row[0] for row in cursor.fetchall()}
+    cursor.execute(
+        """
+        SELECT local.relname, c.conname,
+               ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH ORDINALITY k(num,position)
+                     JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.position),
+               tn.nspname, target.relname,
+               ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY k(num,position)
+                     JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num ORDER BY k.position),
+               c.convalidated,c.condeferrable,c.condeferred,c.confupdtype,c.confdeltype,c.confmatchtype
+        FROM pg_constraint c JOIN pg_class local ON local.oid=c.conrelid
+        JOIN pg_namespace ln ON ln.oid=local.relnamespace
+        JOIN pg_class target ON target.oid=c.confrelid JOIN pg_namespace tn ON tn.oid=target.relnamespace
+        WHERE ln.nspname='skeleton' AND c.contype='f'
+    """
+    )
+    foreign_keys = {}
+    for row in cursor.fetchall():
+        foreign_keys.setdefault((row[0], row[1]), row[2:])
+    return {
+        "grants": grants,
+        "effective": effective,
+        "sysid": sysid,
+        "functions": functions,
+        "function_names": function_names,
+        "foreign_keys": foreign_keys,
+    }
+
+
 def check_deployed_schema(*, using="default"):
     from ..models import TableDefinition
 
@@ -152,6 +210,7 @@ def check_deployed_schema(*, using="default"):
         policies = {}
         for row in cursor.fetchall():
             policies.setdefault(row[0], {})[row[1]] = row[2:]
+        catalog_state = _catalog_state(cursor)
         if lifecycle is None:
             errors.append("assert_user_deactivation: migration-owned lifecycle inventory missing.")
         else:
@@ -161,16 +220,11 @@ def check_deployed_schema(*, using="default"):
             if expected is None:
                 errors.append(f"{name}: frozen technical privilege inventory missing.")
                 continue
-            cursor.execute(
-                "SELECT privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND table_name=%s AND grantee='skeleton_runtime'",
-                [name],
-            )
-            grants = cursor.fetchall()
+            grants = catalog_state["grants"].get(name, [])
             if {row[0] for row in grants} != expected or any(row[1] != "NO" for row in grants):
                 errors.append(f"{name}: exact technical runtime grant inventory mismatch.")
             for action in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
-                cursor.execute("SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, action])
-                if cursor.fetchone()[0] != (action in expected):
+                if catalog_state["effective"].get((name, action), False) != (action in expected):
                     errors.append(f"{name}: unexpected effective technical privilege {action}.")
         for name, spec in specs.items():
             if name not in tables:
@@ -242,17 +296,9 @@ def check_deployed_schema(*, using="default"):
             relation = relations.get(name)
             if not relation or relation[:2] != (bool(expected), bool(expected)) or relation[2] != "skeleton_owner":
                 errors.append(f"{name}: RLS/FORCE/ownership mismatch.")
-            cursor.execute(
-                "SELECT a.attname,t.typname FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid WHERE n.nspname='skeleton' AND c.relname=%s AND a.attname='sysid'",
-                [name],
-            )
-            if cursor.fetchone() != ("sysid", "uuid"):
+            if catalog_state["sysid"].get(name) != ("sysid", "uuid"):
                 errors.append(f"{name}: physical UUID sysid missing.")
-            cursor.execute(
-                "SELECT privilege_type,is_grantable FROM information_schema.role_table_grants WHERE table_schema='skeleton' AND table_name=%s AND grantee='skeleton_runtime'",
-                [name],
-            )
-            grants = cursor.fetchall()
+            grants = catalog_state["grants"].get(name, [])
             privileges = {row[0] for row in grants}
             allowed = operation.runtime_privileges(model)
             if privileges != allowed or any(row[1] != "NO" for row in grants):
@@ -266,16 +312,11 @@ def check_deployed_schema(*, using="default"):
                 "REFERENCES",
                 "TRIGGER",
             } - allowed:
-                cursor.execute("SELECT has_table_privilege('skeleton_runtime',%s,%s)", ["skeleton." + name, forbidden])
-                if cursor.fetchone()[0]:
+                if catalog_state["effective"].get((name, forbidden), False):
                     errors.append(f"{name}: runtime unexpectedly has {forbidden}.")
             for kind in ("guard", "audit") if not (append or operational) else ("guard",):
                 function_name = name + "_sk_" + kind + "_fn"
-                cursor.execute(
-                    "SELECT r.rolname,p.prosecdef,p.proconfig,p.prosrc,has_function_privilege('skeleton_runtime',p.oid,'EXECUTE') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner WHERE n.nspname='skeleton' AND p.proname=%s AND p.prokind='f' AND p.pronargs=0 AND p.prorettype='trigger'::regtype",
-                    [function_name],
-                )
-                function = cursor.fetchone()
+                function = catalog_state["functions"].get(function_name)
                 definition = next(
                     (
                         sql
@@ -300,29 +341,13 @@ def check_deployed_schema(*, using="default"):
                         f"{name}: exact {kind} function body/owner/security/search_path/EXECUTE inventory mismatch."
                     )
             if operational:
-                cursor.execute(
-                    "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='skeleton' AND p.proname=%s",
-                    [name + "_sk_audit_fn"],
-                )
-                if cursor.fetchone()[0]:
+                if name + "_sk_audit_fn" in catalog_state["function_names"]:
                     errors.append(f"{name}: operational tables must not carry a row audit function.")
             for field in operation._org_refs(model):
                 constraint_name = name + "_sk_org_" + field.column
-                cursor.execute(
-                    """
-                    SELECT ARRAY(SELECT a.attname FROM unnest(c.conkey) WITH ORDINALITY k(num,position)
-                                 JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.position),
-                           tn.nspname, target.relname,
-                           ARRAY(SELECT a.attname FROM unnest(c.confkey) WITH ORDINALITY k(num,position)
-                                 JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num ORDER BY k.position),
-                           c.convalidated,c.condeferrable,c.condeferred,c.confupdtype,c.confdeltype,c.confmatchtype
-                    FROM pg_constraint c JOIN pg_class local ON local.oid=c.conrelid
-                    JOIN pg_namespace ln ON ln.oid=local.relnamespace
-                    JOIN pg_class target ON target.oid=c.confrelid JOIN pg_namespace tn ON tn.oid=target.relnamespace
-                    WHERE ln.nspname='skeleton' AND local.relname=%s AND c.conname=%s AND c.contype='f'
-                """,
-                    [name, constraint_name],
-                )
+                # PostgreSQL keeps identifiers to 63 bytes; the former ``conname = %s`` compared the same way.
+                stored_name = constraint_name.encode()[:63].decode(errors="ignore")
+                actual_fk = catalog_state["foreign_keys"].get((name, stored_name))
                 expected_fk = (
                     ["organization_id", field.column],
                     "skeleton",
@@ -335,6 +360,6 @@ def check_deployed_schema(*, using="default"):
                     "a",
                     "s",
                 )
-                if cursor.fetchone() != expected_fk:
+                if actual_fk != expected_fk:
                     errors.append(f"{name}.{field.column}: exact composite tenant foreign key mismatch.")
     return errors
