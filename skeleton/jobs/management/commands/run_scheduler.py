@@ -27,9 +27,10 @@ class Command(BaseCommand):
             if hasattr(signal, name):
                 signal.signal(getattr(signal, name), stop)
         total = 0
+        seen: dict = {}  # What this process scheduled in the current windows (#240).
         while not self.stopping:
             if not maintenance_paused():
-                total += schedule_due(using=database)
+                total += schedule_due(using=database, seen=seen)
             if once:
                 break
             time.sleep(interval)

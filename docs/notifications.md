@@ -69,7 +69,7 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 - Destinatários: pessoas citadas, membros dos grupos, quem tem os papéis (diretamente ou por grupo) ou toda a organização. Só vínculos ativos de identidades ativas contam, e o ator nunca recebe a própria notificação. Contas de serviço (#44) ficam de fora: não têm caixa de notificações.
 - Autorização no alvo: cada pessoa precisa passar em `require_record_action(alvo, action="read")`. Quem não lê o alvo não recebe linha, mesmo citado diretamente; um alvo excluído não notifica ninguém.
 - Snapshot dos destinatários: quem saiu do grupo antes do fan-out não recebe, e mudanças posteriores no grupo não reescrevem a história.
-- Lotes de até 10 mil pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`.
+- Lotes de até 500 pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`. A leitura do alvo é decidida para o lote inteiro por `users_who_can_read`, com a mesma regra de `require_record_action` e um número de consultas que não cresce com o lote; as entregas já existentes do lote são lidas numa consulta por canal (#296).
 - Agrupamento: com `group_key`, uma linha não lida e não arquivada da mesma chave recebe `count + 1` e passa a apontar para a notificação mais recente, em vez de criar outra linha.
 
 ## Caixa de notificações
@@ -120,7 +120,7 @@ O job, em `system_context` da organização:
 2. Renderiza no idioma e no fuso do perfil (`translation.override`, `timezone.override`) os templates `notifications/<tipo>/subject.txt`, `body.txt` e `body.html` (opcional), procurando antes `<nome>.<idioma>.<ext>` (`body.en.txt`) e caindo em `notifications/default/`. O contexto traz `label`, `snapshot`, `payload`, `created_at`, `open_url` e `preferences_url`.
 3. Envia com `List-Unsubscribe: <…/profile/notifications/>`. Uma falha conta uma tentativa e agenda outra em 1 min, 5 min, 30 min e 2 h; depois da quinta, a entrega fica `dead`. Uma entrega `sent` nunca sai de novo: a entrega é pelo menos uma vez, idempotente por linha.
 
-Os links usam `SKELETON_PUBLIC_URL`. Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês. O inglês só é usado quando o projeto acrescenta `en` a `LANGUAGES`, porque o núcleo entrega apenas pt-BR. O idioma e o fuso de cada destinatário seguem a mesma ordem das telas: perfil, depois organização, depois instância (#170).
+Os links usam `SKELETON_PUBLIC_URL`, que precisa ser uma origem (`https://app.example.com`, sem caminho): sem ela os links saem relativos e o cabeçalho `List-Unsubscribe` é omitido, e o `check --deploy` avisa com `skeleton.W035` (#279). Emails com token ou link secreto (allauth, convites) continuam em `schedule_mail` e nunca passam por esta fila. Os textos dos templates padrão existem em português e inglês. O inglês só é usado quando o projeto acrescenta `en` a `LANGUAGES`, porque o núcleo entrega apenas pt-BR. O idioma e o fuso de cada destinatário seguem a mesma ordem das telas: perfil, depois organização, depois instância (#170).
 
 ### Layout e marca
 
@@ -143,7 +143,7 @@ Quem escolhe `daily` ou `weekly` no canal `email` recebe um resumo em vez de um 
 - Cria uma `NotificationDelivery` (canal `digest`) por pessoa e hora local, com `dedupe_key` `digest:<pessoa>:<AAAAMMDDHH>`, e o mesmo job `notifications.email` envia com as mesmas retentativas. Rodar a mesma janela de novo não cria outro resumo.
 - Resumo vazio não é criado. Itens lidos ou arquivados entre a criação e o envio saem do email; se nenhum sobrar, a entrega fica `skipped` (`empty_digest`).
 
-Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. Se o worker atrasar além da hora local, o resumo daquele dia é pulado e os itens seguem para o próximo.
+Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. O job recebe a janela para a qual foi agendado (`window`): um job atrasado ainda envia o resumo daquela hora (#276). Continuam puladas só a janela que nunca foi agendada (agendador parado) e a hora local que não existe na mudança de horário; os itens seguem para o próximo resumo. No envio, cada item é reautorizado como no email imediato: um alvo que a pessoa deixou de ler fica fora, e um resumo sem nenhum item legível termina `skipped` (`empty_digest`).
 
 ## Web push
 
@@ -159,9 +159,10 @@ Com o push configurado, a página `/profile/notifications/` mostra a seção "Pu
 
 Quem tem `push` em `immediate` recebe, a cada notificação, uma `NotificationDelivery` (canal `push`) e o job `notifications.push`:
 
-- O job repete as checagens do email (pessoa ativa, preferência, leitura do alvo) e envia a cada assinatura viva da pessoa.
+- O job repete as checagens do email (pessoa ativa, preferência, leitura do alvo) e envia a cada assinatura viva da pessoa. As assinaturas não ficam bloqueadas durante os envios (inscrever e cancelar não esperam o push); o resultado de cada uma é gravado depois do último envio, relendo a linha com lock, e a espera por lock do job é limitada a 5 s (#295).
 - Payload mínimo: `{"title": <rótulo do tipo>, "url": <link de abertura>}`. O snapshot do alvo (o título, por exemplo) só entra quando o tipo declara `push_snapshot=True`.
 - O corpo é cifrado com `aes128gcm` (RFC 8291) e assinado com VAPID ES256 (RFC 8292). Os dois são implementados com `cryptography`, que já está no lock, e não com `pywebpush`, para não trazer `aiohttp`, `requests` e outras dependências. A saída é só pelo `skeleton.common.outbound_http` (anti-SSRF), e de novo só para hosts da allowlist.
+- Cada pessoa tem no máximo 10 assinaturas vivas: uma nova exclui logicamente a mais antiga, e o envio contata só as 10 mais recentes. `last_success_at` é regravado no máximo uma vez por dia, para cada push não virar uma escrita auditada (#314).
 - 2xx conta como enviado. 404 ou 410 exclui logicamente a assinatura, sem retentativa. 429 e 5xx seguem o mesmo calendário de retentativas do email até `dead`.
 
 ## Retenção
@@ -170,8 +171,8 @@ As tabelas de notificação são operacionais, e a exclusão física só acontec
 
 | Setting | Padrão | O que remove |
 |---|---|---|
-| `SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS` | 30 | Entregas finalizadas (`sent`, `skipped`, `dead`) criadas antes do prazo. Entregas `pending` e `retrying` ficam |
+| `SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS` | 30 | Entregas finalizadas (`sent`, `skipped`, `dead`) criadas antes do prazo, e as abertas (`pending`, `retrying`) também: o calendário de retentativas dura horas, então uma entrega aberta há mais tempo que o prazo foi abandonada por um job que morreu (#277). Dentro do prazo, as abertas ficam |
 | `SKELETON_NOTIFICATION_READ_RETENTION_DAYS` | 90 | Linhas da caixa lidas ou arquivadas há mais tempo que o prazo |
-| `SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS` | 180 | Linhas não lidas cuja última atualização (incluindo o agrupamento) é mais antiga que o prazo; e, depois delas, as `Notification` já distribuídas, mais antigas que o prazo, que nenhuma linha nem entrega referencia |
+| `SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS` | 180 | Linhas não lidas cuja última atualização (incluindo o agrupamento) é mais antiga que o prazo; e, depois delas, as `Notification` mais antigas que o prazo, distribuídas ou não (um job de fan-out que morreu deixa `fanned_out_at` vazio, #277), que nenhuma linha nem entrega referencia |
 
 A ordem respeita as referências `PROTECT`: primeiro as entregas, depois as linhas e por último as notificações órfãs. O contador de não lidas continua igual ao número de linhas não lidas que restam. Uma `dedupe_key` volta a aceitar uma notificação nova só depois que a antiga sai pela retenção. A retenção por LGPD (expurgo a pedido) fica para o epic do ciclo 2.

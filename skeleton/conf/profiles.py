@@ -106,6 +106,7 @@ def test_settings(base):
     database = database_config(env, "TEST_DATABASE_URL", conn_max_age=0)
     DATABASES = {"default": database} if database else {}
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    SKELETON_METRICS_QUEUE_TTL_S = 0  # The suite always reads the queue.
     import tempfile
 
     STORAGES = {

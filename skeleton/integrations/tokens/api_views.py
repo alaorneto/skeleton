@@ -3,9 +3,12 @@
 ``/api/v1/me/tokens/`` lists and issues the actor's personal tokens;
 ``/api/v1/o/<org>/service-accounts/`` and its ``tokens/`` need ``integrations.manage`` (404
 otherwise). None of these views declares ``token_methods``: a request authenticated by a
-token gets 403 ``token_not_allowed`` (a token never issues or revokes tokens). Issuing needs a
-recent authentication and returns the token text once, with ``Cache-Control: no-store``;
-revocation needs ``If-Match``.
+token gets 403 ``token_not_allowed`` (a token never issues or revokes tokens). Issuing,
+revoking, creating and deactivating a service account need a recent authentication (403
+``reauthentication_required``, after the 404 of what the actor cannot see) (#327). Issuing
+returns the token text once, with ``Cache-Control: no-store``; revocation needs ``If-Match``.
+Lists are paginated (``page``/``page_size``) and every token carries ``usable``: whether it
+still authenticates (#327).
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from datetime import datetime
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext
 from django.views.decorators.cache import add_never_cache_headers
@@ -22,8 +26,8 @@ from rest_framework.response import Response
 
 from skeleton.access.capabilities import INTEGRATIONS_MANAGE as MANAGE
 from skeleton.api.errors import BoundaryError, parse_revision
-from skeleton.api.openapi import DATETIME, Operation, array, model_label_fields, nullable, obj, results, string
-from skeleton.api.views import SessionAPI, TenantAPI, etag, request_fields
+from skeleton.api.openapi import BOOLEAN, DATETIME, Operation, array, model_label_fields, nullable, obj, string
+from skeleton.api.views import SessionAPI, TenantAPI, etag, page, request_fields
 from skeleton.common.exceptions import ConcurrentUpdate
 
 from . import services
@@ -42,13 +46,18 @@ TOKEN_FIELDS = {
     "created_at": "created_at",
 }
 TOKEN = model_label_fields(
-    "sk_integrations.ApiToken", TOKEN_FIELDS, scopes=array(string()), last_used_at=nullable(DATETIME)
+    "sk_integrations.ApiToken",
+    TOKEN_FIELDS,
+    scopes=array(string()),
+    last_used_at=nullable(DATETIME),
+    usable=nullable(BOOLEAN),
 )
 ISSUED = model_label_fields(
     "sk_integrations.ApiToken",
     TOKEN_FIELDS,
     scopes=array(string()),
     last_used_at=nullable(DATETIME),
+    usable=nullable(BOOLEAN),
     token=string(description="Texto do token, mostrado só nesta resposta."),
 )
 ISSUE_INPUT = obj(
@@ -73,6 +82,7 @@ def token_data(token):
         "revision": token.revision,
         "created_at": token.created_at,
         "last_used_at": getattr(token, "last_used_at", None),
+        "usable": getattr(token, "usable", None),
     }
 
 
@@ -81,9 +91,20 @@ def with_activity(tokens):
 
     rows = list(tokens)
     used = last_used(token.pk for token in rows)
+    now = timezone.now()
     for token in rows:
         token.last_used_at = used.get(token.pk)
+        token.usable = services.is_usable(token, now=now)
     return rows
+
+
+def _tokens(rows):
+    return [token_data(token) for token in with_activity(rows)]
+
+
+def _only_paging(request):
+    if set(request.query_params) - {"page", "page_size"}:
+        raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
 
 
 def account_data(user):
@@ -109,10 +130,11 @@ def _require_recent(request):
     from skeleton.accounts.reauthentication import has_recent_authentication
 
     if not has_recent_authentication(request._request):
-        raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para emitir um token."), 403)
+        raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para continuar."), 403)
 
 
 def _revoke(request, token_id):
+    _require_recent(request)
     revision = parse_revision(request.headers.get("If-Match"))
     try:
         with transaction.atomic():
@@ -126,7 +148,7 @@ def _revoke(request, token_id):
 
 class MeTokensView(SessionAPI):
     openapi = {
-        "GET": Operation("Tokens pessoais do ator", lambda: results(TOKEN())),
+        "GET": Operation("Tokens pessoais do ator", TOKEN, paginated=True),
         "POST": Operation(
             "Emite um token pessoal", ISSUED, status=201, etag=True, request=ISSUE_INPUT, description=NEEDS_RECENT
         ),
@@ -135,9 +157,8 @@ class MeTokensView(SessionAPI):
     def get(self, request):
         if request.user.account_type != "human":
             raise Http404
-        return Response(
-            {"results": [token_data(token) for token in with_activity(services.personal_tokens(request.user))]}
-        )
+        _only_paging(request)
+        return page(services.personal_tokens(request.user), request, serialize_many=_tokens)
 
     @transaction.atomic
     def post(self, request):
@@ -155,7 +176,11 @@ class MeTokensView(SessionAPI):
 
 
 class MeTokenDetailView(SessionAPI):
-    openapi = {"DELETE": Operation("Revoga um token pessoal", None, status=204, if_match=True)}
+    openapi = {
+        "DELETE": Operation(
+            "Revoga um token pessoal", None, status=204, if_match=True, description="Exige autenticação recente."
+        )
+    }
 
     @transaction.atomic
     def delete(self, request, sysid):
@@ -186,19 +211,26 @@ class ServiceAccountAPI(TenantAPI):
 
 class ServiceAccountsView(ServiceAccountAPI):
     openapi = {
-        "GET": Operation("Contas de serviço da organização", lambda: results(ACCOUNT()), capability=MANAGE),
+        "GET": Operation("Contas de serviço da organização", ACCOUNT, paginated=True, capability=MANAGE),
         "POST": Operation(
-            "Cria uma conta de serviço", ACCOUNT, status=201, request=obj({"name": string()}), capability=MANAGE
+            "Cria uma conta de serviço",
+            ACCOUNT,
+            status=201,
+            request=obj({"name": string()}),
+            capability=MANAGE,
+            description="Exige autenticação recente.",
         ),
     }
 
     def get(self, request, organization_id):
-        return Response({"results": [account_data(user) for user in self.accounts(organization_id)]})
+        _only_paging(request)
+        return page(self.accounts(organization_id), request, account_data)
 
     @transaction.atomic
     def post(self, request, organization_id):
         from skeleton.accounts.services import create_service_account
 
+        _require_recent(request)
         fields = request_fields(request)
         if set(fields) != {"name"}:
             raise BoundaryError("invalid_request", gettext("Envie só name."))
@@ -206,21 +238,31 @@ class ServiceAccountsView(ServiceAccountAPI):
 
 
 class ServiceAccountDetailView(ServiceAccountAPI):
-    openapi = {"DELETE": Operation("Desativa a conta de serviço", None, status=204, capability=MANAGE)}
+    openapi = {
+        "DELETE": Operation(
+            "Desativa a conta de serviço",
+            None,
+            status=204,
+            capability=MANAGE,
+            description="Exige autenticação recente.",
+        )
+    }
 
     @transaction.atomic
     def delete(self, request, organization_id, sysid):
         from skeleton.accounts.services import deactivate_service_account
 
+        account = self.account(organization_id, sysid)
+        _require_recent(request)
         if request_fields(request):
             raise BoundaryError("invalid_request", gettext("Desativação não aceita campos."))
-        deactivate_service_account(actor=request.user, user=self.account(organization_id, sysid))
+        deactivate_service_account(actor=request.user, user=account)
         return Response(status=204)
 
 
 class ServiceAccountTokensView(ServiceAccountAPI):
     openapi = {
-        "GET": Operation("Tokens da conta de serviço", lambda: results(TOKEN()), capability=MANAGE),
+        "GET": Operation("Tokens da conta de serviço", TOKEN, paginated=True, capability=MANAGE),
         "POST": Operation(
             "Emite um token da conta de serviço",
             ISSUED,
@@ -234,8 +276,8 @@ class ServiceAccountTokensView(ServiceAccountAPI):
 
     def get(self, request, organization_id, sysid):
         account = self.account(organization_id, sysid)
-        rows = with_activity(services.service_tokens(organization_id, account=account))
-        return Response({"results": [token_data(token) for token in rows]})
+        _only_paging(request)
+        return page(services.service_tokens(organization_id, account=account), request, serialize_many=_tokens)
 
     @transaction.atomic
     def post(self, request, organization_id, sysid):
@@ -255,7 +297,14 @@ class ServiceAccountTokensView(ServiceAccountAPI):
 
 class ServiceAccountTokenDetailView(ServiceAccountAPI):
     openapi = {
-        "DELETE": Operation("Revoga um token da conta de serviço", None, status=204, if_match=True, capability=MANAGE)
+        "DELETE": Operation(
+            "Revoga um token da conta de serviço",
+            None,
+            status=204,
+            if_match=True,
+            capability=MANAGE,
+            description="Exige autenticação recente.",
+        )
     }
 
     @transaction.atomic

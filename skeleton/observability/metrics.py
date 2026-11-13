@@ -98,13 +98,13 @@ def bearer_matches(header: str, token: str) -> bool:
 
 
 def _job_labels() -> tuple[tuple[str, ...], tuple[str, ...], dict[str, str]]:
-    from skeleton.integrations.webhooks.delivery import DELIVER_JOB
     from skeleton.jobs.models import Job
     from skeleton.jobs.registry import all_job_types
-    from skeleton.notifications.channels.delivery import EMAIL_JOB, PUSH_JOB
 
-    types = tuple(job_type.code for job_type in all_job_types())
-    channels = {DELIVER_JOB: "webhook", EMAIL_JOB: "email", PUSH_JOB: "push"}
+    # Each delivery job type declares its channel (#346): a new channel needs no edit here.
+    job_types = all_job_types()
+    types = tuple(job_type.code for job_type in job_types)
+    channels = {job_type.code: job_type.channel for job_type in job_types if job_type.channel}
     return types, tuple(Job.State.values), channels
 
 
@@ -117,6 +117,27 @@ def queue_snapshot() -> tuple[Any, dict[tuple[str, str], int]]:
         return queue_health(), job_type_state_counts()
 
 
+_queue_cache: tuple[float, Any] | None = None
+
+
+def cached_queue_snapshot() -> tuple[Any, dict[tuple[str, str], int]]:
+    """``queue_snapshot()`` reused for ``SKELETON_METRICS_QUEUE_TTL_S`` seconds in this process (#275).
+
+    Each scrape of every process used to run the queue aggregates; with several Prometheus
+    servers or a short interval that was a steady load on the jobs table. A failed read is
+    never cached: the next scrape tries the database again.
+    """
+    global _queue_cache
+    ttl = float(getattr(settings, "SKELETON_METRICS_QUEUE_TTL_S", 0) or 0)
+    now = time.monotonic()
+    if ttl > 0 and _queue_cache is not None and now - _queue_cache[0] < ttl:
+        cached: tuple[Any, dict[tuple[str, str], int]] = _queue_cache[1]
+        return cached
+    snapshot = queue_snapshot()
+    _queue_cache = (now, snapshot) if ttl > 0 else None
+    return snapshot
+
+
 class QueueCollector:
     """Job, webhook and notification delivery figures, computed on every scrape."""
 
@@ -125,7 +146,7 @@ class QueueCollector:
 
         up = GaugeMetricFamily("skeleton_queue_metrics_up", "1 when this scrape read the job queue, 0 when it failed.")
         try:
-            health, counts = queue_snapshot()
+            health, counts = cached_queue_snapshot()
         except Exception:  # noqa: BLE001 - a database outage must not hide the request metrics
             security_event(
                 "metrics.queue_unavailable",

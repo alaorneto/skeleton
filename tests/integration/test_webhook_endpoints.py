@@ -211,3 +211,99 @@ def test_html_pages_issue_the_secret_once_and_require_recent_authentication(webh
     assert stale.status_code == 302 and stale["Location"].startswith(reverse("account_reauthenticate"))
     api_create = api(client, "post", collection(fixture.a), payload(principal))
     assert api_create.status_code == 403 and api_create.json()["code"] == "reauthentication_required"
+
+
+def _in_thread(function):
+    """Run ``function`` in another thread with its own database connection (a second session)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    def run():
+        connections.close_all()
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
+
+
+def test_url_is_validated_before_the_organization_lock(webhooks, monkeypatch):
+    """The URL check resolves a name: it runs before the organization lock (#295)."""
+    from django.db import OperationalError
+
+    from skeleton.common import outbound_http
+    from skeleton.integrations.webhooks.services import create_endpoint
+    from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.models import Organization
+
+    fixture, principal, _ = webhooks
+    original = outbound_http.validate_url
+    seen = []
+
+    def probe():
+        try:
+            with system_context(reason="test:lock-probe"):
+                Organization.all_objects.select_for_update(nowait=True).get(pk=fixture.a.pk)
+            return "free"
+        except OperationalError:
+            return "locked"
+
+    def checked(*args, **kwargs):
+        seen.append(_in_thread(probe))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "validate_url", checked)
+    with actor_tenant(fixture.admin, fixture.a):
+        create_endpoint(actor=fixture.admin, data={**payload(principal), "principal": principal})
+    assert seen == ["free"]
+
+
+def test_without_the_capability_no_name_is_resolved(webhooks, monkeypatch):
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.common import outbound_http
+    from skeleton.integrations.webhooks.services import create_endpoint
+
+    fixture, principal, _ = webhooks
+
+    def never(*args, **kwargs):
+        raise AssertionError("validate_url ran for a caller without integrations.manage")
+
+    monkeypatch.setattr(outbound_http, "validate_url", never)
+    with actor_tenant(fixture.alice, fixture.a), pytest.raises(PermissionDenied):
+        create_endpoint(actor=fixture.alice, data={**payload(principal), "principal": principal})
+
+
+def stale(client):
+    """Age the session's last authentication: the client is still logged in, but not recently."""
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    return client
+
+
+def test_api_change_and_removal_require_recent_authentication(webhooks):
+    """PATCH and DELETE change where events go: like create and rotate, they need a fresh login (#327)."""
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, principal, _ = webhooks
+    created = api(login(fixture.admin), "post", collection(fixture.a), payload(principal)).json()
+    url = detail(fixture.a, created["sysid"])
+    old = stale(login(fixture.admin))
+    for method, data in (("patch", {"name": "Changed"}), ("delete", None)):
+        response = api(old, method, url, data, revision=created["revision"])
+        assert response.status_code == 403 and response.json()["code"] == "reauthentication_required", method
+    # Without integrations.manage the endpoint does not exist, recent authentication or not.
+    for bob in (login(fixture.bob), stale(login(fixture.bob))):
+        for method, data in (("patch", {"name": "Bob"}), ("delete", None)):
+            assert api(bob, method, url, data, revision=created["revision"]).status_code == 404
+    with actor_tenant(fixture.admin, fixture.a):
+        endpoint = WebhookEndpoint.objects.get(pk=created["sysid"])
+    assert (endpoint.name, endpoint.revision) == ("ERP", created["revision"])
+    fresh = login(fixture.admin)
+    changed = api(fresh, "patch", url, {"name": "Changed"}, revision=created["revision"])
+    assert changed.status_code == 200 and changed.json()["name"] == "Changed"
+    assert api(fresh, "delete", url, revision=changed.json()["revision"]).status_code == 204

@@ -11,6 +11,7 @@ from __future__ import annotations
 import socket
 import struct
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import IO, Any
 from urllib.parse import urlsplit
 
@@ -20,6 +21,9 @@ from django.utils import timezone
 from django.utils.translation import gettext
 
 SCAN_JOB = "files.scan"
+RESCAN_JOB = "files.rescan_pending"
+RESCAN_AFTER = timedelta(hours=1)
+RESCAN_LIMIT = 500
 CHUNK = 64 * 1024
 TIMEOUT = 30.0
 
@@ -118,6 +122,8 @@ def scan_attachment(*, attachment_id: str) -> str:
     from .models import Attachment
     from .storage import open_object
 
+    if not scanning_enabled():
+        return "skipped"  # No scanner configured: the attachment stays pending (closed), nothing to retry (#277).
     attachment = Attachment.objects.with_deleted().select_for_update().filter(pk=attachment_id).first()
     if attachment is None or attachment.state != Attachment.State.PENDING:
         return "skipped"
@@ -131,3 +137,45 @@ def scan_attachment(*, attachment_id: str) -> str:
     attachment.scanned_at = timezone.now()
     attachment.save(update_fields={"state", "scan_result_code", "scanned_at"})
     return attachment.state
+
+
+def rescan_pending(*, now: Any = None) -> int:
+    """Job handler (periodic, system context of one organization): requeue scans of stuck attachments.
+
+    An attachment whose ``files.scan`` job ran out of attempts while the antivirus was down
+    stayed pending for good (#277). Every hour, attachments pending for more than an hour
+    with no open scan job get a new one; ``scan_attachment`` ignores anything already decided.
+    """
+    from skeleton.jobs.models import Job
+    from skeleton.jobs.services import enqueue
+    from skeleton.tenancy.context import current_context
+
+    from .models import Attachment
+
+    if not scanning_enabled():
+        return 0
+    now = now or timezone.now()
+    organization_id = current_context().organization_id
+    open_scans = {
+        str(value)
+        for value in Job.all_objects.filter(
+            job_type=SCAN_JOB, job_organization_id=organization_id, state__in=("queued", "running")
+        ).values_list("payload__attachment_id", flat=True)
+    }
+    stuck = list(
+        Attachment.objects.filter(state=Attachment.State.PENDING, created_at__lt=now - RESCAN_AFTER)
+        .order_by("created_at", "sysid")
+        .values_list("pk", flat=True)[:RESCAN_LIMIT]
+    )
+    created = 0
+    for attachment_id in stuck:
+        if str(attachment_id) in open_scans:
+            continue  # The original job is still retrying.
+        receipt = enqueue(
+            SCAN_JOB,
+            organization_id=organization_id,
+            payload={"attachment_id": str(attachment_id)},
+            idempotency_key=f"files-scan:{attachment_id}:{now:%Y%m%dT%H}",
+        )
+        created += receipt.created
+    return created

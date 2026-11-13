@@ -10,6 +10,6 @@ class NotificationsConfig(AppConfig):
 
     def ready(self):
         from . import checks  # noqa: F401 - registra os system checks dos tipos de notificação
-        from .services import register_notification_jobs
+        from .jobs import register_notification_jobs
 
         register_notification_jobs()

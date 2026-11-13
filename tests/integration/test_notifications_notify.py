@@ -146,3 +146,22 @@ def test_declarations_with_sensitive_fields_fail_the_check():
     problems = "\n".join(notification_problems())
     assert "notes.leak: snapshot field body is sensitive" in problems
     assert "notes.leak2: payload field body is sensitive" in problems
+
+
+def test_notify_with_key_reraises_foreign_integrity_errors(tenants, monkeypatch):
+    """Only the dedupe constraint means "already notified" (#278)."""
+    from types import SimpleNamespace
+
+    from django.db import IntegrityError
+
+    alice, alpha, bob, _ = tenants
+
+    def broken_save(self, *args, **kwargs):
+        cause = Exception("driver error")
+        cause.diag = SimpleNamespace(constraint_name="some_other_constraint")
+        raise IntegrityError("other constraint") from cause
+
+    monkeypatch.setattr(Notification, "save", broken_save)
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:notify-foreign-integrity"):
+        with pytest.raises(IntegrityError):
+            notify("system.hello", recipients=Recipients(users=(bob.pk,)), dedupe_key="hello:foreign")

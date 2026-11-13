@@ -32,14 +32,18 @@ Ele aparece **uma única vez**: na resposta da criação e na da rotação, amba
 | `POST …/webhooks/<id>/rotate/` | `POST o/<org>/webhooks/<id>/rotate/` | Rotaciona e devolve o segredo novo |
 | `POST …/webhooks/<id>/delete/` | — | Remove |
 
+Criar, alterar, rotacionar e remover exigem autenticação recente nas duas superfícies (na API, 403 `reauthentication_required`, depois do 404 de quem não tem `integrations.manage` e antes do 428/412 da revisão). Reenviar uma entrega e o ping exigem só a capacidade, CSRF e a revisão do endpoint (#327).
+
 Reativar à mão um endpoint desativado limpa `disabled_at` e `disabled_reason`.
 
 ## Entrega (#64)
 
 1. O consumidor `webhooks.fanout` recebe todo evento de domínio (na transação do `events.consume`, em `system_context` da organização). Para um tipo com `webhook=True`, cria uma `WebhookDelivery` por endpoint ativo inscrito nele e enfileira `webhooks.deliver` como o **principal** do endpoint (`run_as="actor"`). A entrega é idempotente: `(endpoint, evento)` é único.
 2. `webhooks.deliver` revalida tudo como o principal, que precisa ter vínculo ativo: o endpoint continua ativo; o principal lê o registro (senão a entrega fica `unauthorized` e nada é enviado); a URL ainda é um destino HTTPS público. Depois envia por `skeleton.common.outbound_http`.
-3. 2xx: `succeeded`. 5xx, 408, 429, timeout e falha de rede são retentados depois de **1 min, 5 min, 30 min, 2 h, 6 h, 12 h e 24 h** (`retrying`, um job novo com `run_after`). Qualquer outro 4xx, ou um destino recusado, falha na hora (`failed`).
+3. 2xx: `succeeded`. 5xx, 408, 429, timeout (inclusive a resposta que não termina em 20 s, #224) e falha de rede são retentados depois de **1 min, 5 min, 30 min, 2 h, 6 h, 12 h e 24 h** (`retrying`, um job novo com `run_after`). Qualquer outro 4xx, ou um destino recusado, falha na hora (`failed`).
 4. Cada tentativa que falha conta em `WebhookEndpointHealth`, e um sucesso zera a contagem. **Quinze falhas seguidas** desativam o endpoint (`disabled_reason=consecutive_failures`) e notificam os administradores da organização (`webhooks.endpoint_disabled`). Um endpoint desativado não recebe entregas novas, e as já agendadas são ignoradas (`skipped`).
+5. Durante o envio só a linha da entrega fica bloqueada: o endpoint é lido sem lock e bloqueado só depois, por um instante, para registrar o resultado, e a alteração administrativa do endpoint nunca espera uma requisição HTTP. A espera por lock dentro do job é limitada a 5 s (`lock_timeout`); se estourar, o job falha e é retentado. No cadastro e na alteração, a URL (com a resolução do nome) é validada antes do lock da organização (#295).
+6. Quando o principal deixa de poder agir, os webhooks dele param (`disabled_reason=principal_deactivated`, com a mesma notificação aos administradores): na desativação da conta de serviço, na mesma transação, e no fan-out, que não cria entrega para endpoint cujo principal não tem vínculo ativo. Trocar o principal mantém as entregas abertas e as reenfileira como o novo principal. Uma entrega aberta que ficou 48 h sem ser tocada perdeu o job e é fechada como `failed` com `error_code="abandoned"` (#313).
 
 `WebhookDelivery` e `WebhookEndpointHealth` são [tabelas operacionais](data-model.md#tabelas-operacionais-adr): sem revisão, exclusão lógica ou auditoria por linha, e com RLS tenant.
 
@@ -91,4 +95,4 @@ Valem as mesmas regras dos endpoints: só quem tem `integrations.manage`, e entr
 
 **Teste** (`webhook.ping`) usa o mesmo corpo, assinatura e cabeçalhos, com `type: "webhook.ping"`, `data: {}` e sem registro, por isso não depende de leitura.
 
-**Retenção:** o job periódico `webhooks.retention` (a cada 6 horas, por organização) é o único caminho que apaga entregas. Ele remove as que estão num estado final (`succeeded`, `failed`, `unauthorized`, `skipped`) e foram criadas há mais de `SKELETON_WEBHOOK_RETENTION_DAYS` dias (30 por padrão). Uma entrega com retentativa agendada fica, e a original de um reenvio ainda vivo espera o reenvio expirar.
+**Retenção:** o job periódico `webhooks.retention` (a cada 6 horas, por organização) é o único caminho que apaga entregas. A cada rodada ele primeiro fecha as entregas abandonadas (abertas e sem alteração há 48 h), que ficam visíveis no log até uma rodada seguinte (#313). Ele remove as que estão num estado final (`succeeded`, `failed`, `unauthorized`, `skipped`) e foram criadas há mais de `SKELETON_WEBHOOK_RETENTION_DAYS` dias (30 por padrão). Uma entrega com retentativa agendada fica, e a original de um reenvio ainda vivo espera o reenvio expirar.

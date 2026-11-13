@@ -37,3 +37,17 @@ def test_portuguese_is_the_default_and_utc_stays_utc():
     message = build_message(person("pt-br", "UTC"), type_code="notes.mention", context=CONTEXT)
     assert "Abrir: " in message.body and "Recebido em 10/11/2026 12:00." in message.body
     assert "Plano" in message.body
+
+
+def test_list_unsubscribe_is_omitted_without_public_url(settings):
+    """A relative unsubscribe URL is useless to a mail client: no header without the origin (#279)."""
+    settings.SKELETON_PUBLIC_URL = ""
+    message = build_message(person("pt-br", "UTC"), type_code="notes.mention", context=CONTEXT)
+    assert "List-Unsubscribe" not in message.extra_headers
+    assert message.extra_headers["Auto-Submitted"] == "auto-generated"
+
+
+def test_list_unsubscribe_is_absolute_with_public_url(settings):
+    settings.SKELETON_PUBLIC_URL = "https://app.example.test"
+    message = build_message(person("pt-br", "UTC"), type_code="notes.mention", context=CONTEXT)
+    assert message.extra_headers["List-Unsubscribe"] == "<https://app.example.test/profile/notifications/>"

@@ -207,3 +207,128 @@ def test_page_keeps_push_hidden_without_javascript(scenario):
     with override_settings(WEBPUSH_VAPID_PRIVATE_KEY_FILE=""):
         assert "data-push-optin" not in client.get(reverse("notifications:preferences")).content.decode()
         assert client.get(reverse("notifications:service-worker")).status_code == 404
+
+
+def _in_thread(function):
+    """Run ``function`` in another thread with its own database connection (a second session)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    def run():
+        connections.close_all()
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
+
+
+def test_subscriptions_are_not_locked_while_the_push_is_sent(scenario, monkeypatch):
+    """No subscription row is locked during the HTTP push (#295)."""
+    from uuid import uuid4
+
+    from django.db import OperationalError
+
+    from skeleton.tenancy.context import request_context
+
+    service = FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    [subscription] = subscriptions(scenario.member)
+    seen = []
+
+    def probe():
+        try:
+            with request_context(actor=scenario.member, request_id=uuid4(), source="test:probe"):
+                WebPushSubscription.objects.select_for_update(nowait=True).get(pk=subscription.pk)
+            return "free"
+        except OperationalError:
+            return "locked"
+
+    original = service.request
+
+    def request(*args, **kwargs):
+        seen.append(_in_thread(probe))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "request", request)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-L1", title="Lock")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert seen == ["free"]
+    [after] = subscriptions(scenario.member)
+    assert after.last_success_at is not None
+
+
+def test_unsubscribing_during_the_push_does_not_fail_the_job(scenario, monkeypatch):
+    from uuid import uuid4
+
+    from skeleton.notifications.channels.push import unsubscribe
+    from skeleton.tenancy.context import request_context
+
+    service = FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    original = service.request
+
+    def gone_meanwhile():
+        with request_context(actor=scenario.member, request_id=uuid4(), source="test:unsubscribe"):
+            return unsubscribe(scenario.member, endpoint=ENDPOINT)
+
+    def request(*args, **kwargs):
+        assert _in_thread(gone_meanwhile) is True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "request", request)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-L2", title="Gone")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert subscriptions(scenario.member) == []
+    with system_context(reason="test:push-deliveries", organization_id=scenario.a.pk):
+        assert {row.state for row in NotificationDelivery.objects.filter(channel="push")} == {"sent"}
+
+
+def test_repeated_pushes_do_not_write_an_audit_event_each(scenario, monkeypatch):
+    """last_success_at is rewritten at most once a day, not on every push (#314)."""
+    FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-AUD", title="Audit")
+    mention(scenario, note)
+    run_pending_jobs()
+    [first] = subscriptions(scenario.member)
+    assert first.last_success_at is not None
+    for _ in range(3):
+        mention(scenario, note)
+        run_pending_jobs()
+    [after] = subscriptions(scenario.member)
+    # Every audited write bumps the revision: none happened for the three later pushes.
+    assert after.revision == first.revision and after.last_success_at == first.last_success_at
+
+
+def test_eleventh_subscription_evicts_the_oldest(scenario):
+    """At most ten live browsers per person; the oldest goes, logically, with its secrets redacted (#314)."""
+    client = login(scenario.member)
+    endpoints = [f"https://fcm.googleapis.com/fcm/send/browser-{index}" for index in range(11)]
+    for endpoint in endpoints:
+        assert subscribe(client, endpoint=endpoint).status_code == 201
+    live = subscriptions(scenario.member)
+    gone = subscriptions(scenario.member, deleted=True)
+    assert len(live) == 10 and len(gone) == 1
+    assert gone[0].endpoint.reveal() == endpoints[0]
+    assert subscribe(client, endpoint=endpoints[5]).status_code == 201  # A refresh evicts nobody.
+    assert len(subscriptions(scenario.member)) == 10
+
+
+def test_send_push_never_contacts_more_than_the_cap(scenario, monkeypatch):
+    from skeleton.notifications.channels import push
+
+    service = FakePushService(monkeypatch)
+    client = login(scenario.member)
+    for index in range(3):
+        subscribe(client, endpoint=f"https://fcm.googleapis.com/fcm/send/cap-{index}")
+    monkeypatch.setattr(push, "MAX_SUBSCRIPTIONS_PER_USER", 2)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-CAP", title="Cap")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert len(service.calls) == 2

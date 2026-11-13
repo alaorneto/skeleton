@@ -32,6 +32,8 @@ class JobType:
     queue: str = "default"
     scope: str = "organization"
     owner_app: str = ""
+    # Delivery channel for metrics ("webhook", "email", "push"); empty for other jobs (#346).
+    channel: str = ""
 
     def enqueue(self, **kwargs: Any):
         """``django.tasks``-like entry point: ``JobType.enqueue(...)`` returns a receipt with ``id``."""

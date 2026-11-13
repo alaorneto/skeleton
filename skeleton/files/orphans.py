@@ -40,9 +40,13 @@ def orphan_keys(organization_id: Any, *, now: Any = None) -> list[str]:
     if not keys:
         return []
     # Live and soft-deleted rows both keep their bytes (with_deleted keeps the tenant filter).
-    referenced = set(
-        Attachment.objects.with_deleted().filter(storage_key__in=keys).values_list("storage_key", flat=True)
-    )
+    referenced: set[str] = set()
+    for start in range(0, len(keys), 1000):  # Bounded IN lists, whatever the size of the prefix (#308).
+        referenced.update(
+            Attachment.objects.with_deleted()
+            .filter(storage_key__in=keys[start : start + 1000])
+            .values_list("storage_key", flat=True)
+        )
     # The current logo of the organization (#168); replaced logos are deleted after commit.
     referenced |= set(OrganizationSettings.objects.filter(logo_key__in=keys).values_list("logo_key", flat=True))
     # CSV files of exports and imports (#182) leave only with their transfer's retention.

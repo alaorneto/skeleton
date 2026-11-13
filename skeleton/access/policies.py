@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -223,6 +224,108 @@ def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User
     ):
         raise PermissionDenied("Record permission required.")
     return record
+
+
+def users_who_can_read(record: SecuredRecord, user_ids: Iterable[UUID]) -> set[UUID]:
+    """The subset of ``user_ids`` for whom ``require_record_action(record, user=..., action="read")`` passes.
+
+    The same layers as ``authorized_queryset``, decided in memory from a fixed number of
+    ``IN`` queries per call, never one authorization per person (#296): active membership of
+    an active user, effective roles (direct and through live groups), the table's read
+    permission, then the organization administrator, the owner, the visibility and the read
+    grants. Requires a tenant context; an unexposed table, a disabled app, a token without
+    the table's read scope or a deleted record give the empty set. Never raises
+    ``PermissionDenied``.
+    """
+    from skeleton.common.models import SecuredRecord
+    from skeleton.system.applications import require_application_enabled
+    from skeleton.tenancy.models import Membership
+
+    from .models import GroupMember, GroupRole, MemberRole, RecordGrant, Role, TablePermission
+
+    if current_context().organization_id is None:
+        raise MissingTenantContext("Authorization requires a tenant context.")
+    wanted = set(user_ids)
+    model = type(record)
+    if not wanted or record.deleted_at is not None or not issubclass(model, SecuredRecord):
+        return set()
+    try:
+        spec = get_spec(model._meta.label_lower)
+    except KeyError:
+        return set()
+    if not spec.expose_api or not _scope_allows(model, "read"):
+        return set()
+    try:
+        require_application_enabled(model._meta.app_label)
+    except PermissionDenied:  # ApplicationUnavailable included.
+        return set()
+    table = table_definition(model)
+    if table is None:
+        return set()
+    owners = dict(
+        Membership.objects.filter(
+            user_id__in=wanted,
+            is_active=True,
+            organization__is_active=True,
+            organization__deleted_at__isnull=True,
+            user__is_active=True,
+            user__deleted_at__isnull=True,
+        ).values_list("pk", "user_id")
+    )
+    if not owners:
+        return set()
+    groups: dict[UUID, set[UUID]] = {membership: set() for membership in owners}
+    for membership, group in GroupMember.objects.filter(
+        membership_id__in=owners, group__deleted_at__isnull=True
+    ).values_list("membership_id", "group_id"):
+        groups[membership].add(group)
+    roles: dict[UUID, set[UUID]] = {membership: set() for membership in owners}
+    for membership, role in MemberRole.objects.filter(
+        membership_id__in=owners, role__deleted_at__isnull=True
+    ).values_list("membership_id", "role_id"):
+        roles[membership].add(role)
+    every_group = set().union(*groups.values())
+    by_group: dict[UUID, set[UUID]] = {}
+    for group, role in GroupRole.objects.filter(group_id__in=every_group, role__deleted_at__isnull=True).values_list(
+        "group_id", "role_id"
+    ):
+        by_group.setdefault(group, set()).add(role)
+    for membership, member_groups in groups.items():
+        for group in member_groups:
+            roles[membership] |= by_group.get(group, set())
+    every_role = set().union(*roles.values())
+    live_roles = set(Role.objects.filter(pk__in=every_role).values_list("pk", flat=True))
+    readers = set(
+        TablePermission.objects.filter(table=table, role_id__in=live_roles, action="read").values_list(
+            "role_id", flat=True
+        )
+    )
+    admins = set(
+        Role.objects.filter(pk__in=live_roles, code="organization_admin", is_builtin=True).values_list("pk", flat=True)
+    )
+    grants = list(
+        RecordGrant.objects.filter(table=table, action="read", record_sysid=record.pk).values_list(
+            "membership_id", "group_id", "role_id"
+        )
+    )
+    allowed = set()
+    for membership, user_id in owners.items():
+        effective = roles[membership] & live_roles
+        if not effective & readers:
+            continue  # TablePermission is required before anything else.
+        member_groups = groups[membership]
+        if (
+            effective & admins
+            or record.owner_id == user_id
+            or record.visibility == "organization"
+            or (record.visibility == "group" and record.owning_group_id in member_groups)
+            or any(
+                grant_membership == membership or grant_group in member_groups or grant_role in effective
+                for grant_membership, grant_group, grant_role in grants
+            )
+        ):
+            allowed.add(user_id)
+    return allowed
 
 
 def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:

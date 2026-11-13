@@ -23,6 +23,8 @@ PING_EVENT = "webhook.ping"
 RETENTION_JOB = "webhooks.retention"
 DEFAULT_RETENTION_DAYS = 30
 FINAL_STATES = ("succeeded", "failed", "unauthorized", "skipped")
+# Longer than the last retry step (24 h) plus the job's own retries (#313).
+ABANDONED_AFTER = timedelta(hours=48)
 
 
 def _endpoint_for_action(endpoint: Any, expected_revision: int) -> Any:
@@ -95,6 +97,26 @@ def retention_days() -> int:
     return int(getattr(settings, "SKELETON_WEBHOOK_RETENTION_DAYS", DEFAULT_RETENTION_DAYS))
 
 
+def close_abandoned_deliveries(*, now: Any = None) -> list[Any]:
+    """Open deliveries untouched for ``ABANDONED_AFTER`` lost their job: close them as failed (#313).
+
+    A retrying delivery is updated when it is rescheduled, so only rows whose job died (its
+    principal could no longer act, or it ran out of attempts by exception) are closed. Returns
+    the closed ids: they stay in the log until a later retention run removes them.
+    """
+    from .models import WebhookDelivery
+
+    now = now or timezone.now()
+    ids = list(
+        WebhookDelivery.objects.filter(
+            state__in=("pending", "retrying"), updated_at__lt=now - ABANDONED_AFTER
+        ).values_list("pk", flat=True)
+    )
+    if ids:
+        WebhookDelivery.objects.filter(pk__in=ids).update(state="failed", error_code="abandoned", next_attempt_at=None)
+    return ids
+
+
 def purge_expired_deliveries(*, now: Any = None, created_before: Any = None) -> int:
     """Job handler (per organization, system context): the only delete path of deliveries.
 
@@ -102,8 +124,10 @@ def purge_expired_deliveries(*, now: Any = None, created_before: Any = None) -> 
     """
     from .models import WebhookDelivery
 
+    closed = close_abandoned_deliveries(now=now)
     cutoff = (now or timezone.now()) - timedelta(days=retention_days())
-    expired = WebhookDelivery.objects.filter(created_at__lt=cutoff, state__in=FINAL_STATES)
+    # Rows closed just now stay visible in the log until the next run.
+    expired = WebhookDelivery.objects.filter(created_at__lt=cutoff, state__in=FINAL_STATES).exclude(pk__in=closed)
     if created_before is not None:
         expired = expired.filter(created_at__lt=created_before)
     # A live resend still points at its original (PROTECT): keep the original until both expire.

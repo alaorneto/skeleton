@@ -46,6 +46,10 @@ class Effective:
     source: str
 
 
+class PreferenceNotFound(LookupError):
+    """The person has no live row for this type and channel (the view answers 404, #278)."""
+
+
 def type_default(kind: NotificationType, channel: str) -> str:
     return "immediate" if channel in kind.default_channels else "off"
 
@@ -189,9 +193,7 @@ def clear_preference(user: Any, *, type_code: str, channel: str, expected_revisi
     """Remove the person's row (soft delete): the next level of the resolution applies again."""
     row = _live(user, type_code, channel)
     if row is None:
-        from django.http import Http404
-
-        raise Http404
+        raise PreferenceNotFound
     if expected_revision != row.revision:
         raise ConcurrentUpdate("The preference was changed by another operation.")
     row.delete()

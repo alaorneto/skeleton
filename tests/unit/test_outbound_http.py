@@ -3,6 +3,7 @@
 import ipaddress
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -165,6 +166,16 @@ def test_development_override_requires_debug():
             validate_url("https://hooks.example/x", resolver=resolver_for([PUBLIC]))
 
 
+def _drip(handler, pieces, pause=0.2):
+    try:
+        for piece in pieces:
+            handler.wfile.write(piece)
+            handler.wfile.flush()
+            time.sleep(pause)
+    except OSError:
+        pass  # The client gave up: expected.
+
+
 class _Receiver(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -172,6 +183,16 @@ class _Receiver(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0"))
         self.server.received.append((self.path, self.headers.get("Host"), self.rfile.read(length)))
+        if self.path == "/drip-body":
+            self.send_response(200)
+            self.send_header("Content-Length", "200")
+            self.end_headers()
+            _drip(self, [b"x"] * 200)
+            return
+        if self.path == "/drip-headers":
+            self.wfile.write(b"HTTP/1.1 200 OK\r\n")
+            _drip(self, [b"X-Filler: 1\r\n"] * 200)
+            return
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "http://127.0.0.1:1/elsewhere")
@@ -220,3 +241,40 @@ def test_redirects_are_not_followed_bodies_are_truncated_and_proxies_ignored(rec
     assert [path for path, _, _ in receiver.received] == ["/redirect", "/large", "/hook?x=1"]
     assert receiver.received[-1][1] == f"127.0.0.1:{receiver.server_port}"
     assert receiver.received[-1][2] == b'{"a":1}'
+
+
+@pytest.mark.parametrize("path", ["/drip-body", "/drip-headers"])
+def test_total_deadline_bounds_a_dripping_answer(receiver, monkeypatch, path):
+    """Each read is fast, the whole answer is not: the total deadline still ends it (#224)."""
+    monkeypatch.setattr(outbound_http, "TOTAL_TIMEOUT", 1.0)
+    base = f"http://127.0.0.1:{receiver.server_port}"
+    started = time.monotonic()
+    with override_settings(DEBUG=True, SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE=True):
+        with pytest.raises(outbound_http.OutboundRequestFailed):
+            request("POST", base + path, body=b"{}")
+    assert time.monotonic() - started < 5
+
+
+def test_name_resolution_has_its_own_timeout():
+    def slow(*args, **kwargs):
+        time.sleep(3)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (PUBLIC, 443))]
+
+    started = time.monotonic()
+    with pytest.raises(OutboundRequestRefused) as refused:
+        validate_url("https://slow.example/x", resolver=slow, timeout=0.3)
+    assert refused.value.code == "unresolvable" and time.monotonic() - started < 2
+
+
+def test_deadline_timer_is_cancelled_after_the_request(receiver):
+    base = f"http://127.0.0.1:{receiver.server_port}"
+    with override_settings(DEBUG=True, SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE=True):
+        assert request("POST", base + "/hook", body=b"{}").status == 200
+    timers = [thread for thread in threading.enumerate() if isinstance(thread, threading.Timer)]
+    for timer in timers:
+        timer.join(2)  # A cancelled timer thread ends on its own, a moment later.
+    assert not any(timer.is_alive() for timer in timers)
+
+
+def test_tls_context_is_built_once():
+    assert outbound_http._tls_context() is outbound_http._tls_context()

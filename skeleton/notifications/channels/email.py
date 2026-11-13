@@ -64,12 +64,12 @@ def build_message(user: Any, *, type_code: str, context: dict[str, Any]) -> Emai
     }
     with translation.override(language), timezone.override(zone):
         subject, text, html = render_message(type_code=type_code, language=language, context=context)
+    headers = {"Auto-Submitted": "auto-generated"}
+    if unsubscribe.startswith(("https://", "http://")):
+        # A relative URL is useless to a mail client: the header goes only with a public origin (#279).
+        headers["List-Unsubscribe"] = f"<{unsubscribe}>"
     message = EmailMultiAlternatives(
-        subject=subject,
-        body=text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
-        headers={"List-Unsubscribe": f"<{unsubscribe}>", "Auto-Submitted": "auto-generated"},
+        subject=subject, body=text, from_email=settings.DEFAULT_FROM_EMAIL, to=[user.email], headers=headers
     )
     if html:
         message.attach_alternative(html, "text/html")

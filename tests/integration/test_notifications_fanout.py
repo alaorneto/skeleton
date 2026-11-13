@@ -106,3 +106,69 @@ def test_large_audiences_are_split_in_batches(scenario, monkeypatch):
     run_pending_jobs()
     assert Job.all_objects.filter(job_type="notifications.fanout").count() == 2
     assert len(rows(scenario)) == 2
+
+
+def _members(scenario, count, start=0):
+    from skeleton.access.models import Role
+    from skeleton.access.services import provision_membership
+    from skeleton.accounts.services import create_identity
+
+    users = []
+    with system_context(reason="test:fanout-members", organization_id=scenario.a.pk):
+        role = Role.objects.get(code="service-contract")
+        for index in range(start, start + count):
+            user = create_identity(email=f"fan-{index}@fanout.example.test", password=None)
+            provision_membership(organization=scenario.a, user=user, role=role)
+            users.append(user)
+    return users
+
+
+def _authorization_queries(scenario, people, target):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with system_context(reason="test:fanout-cost", organization_id=scenario.a.pk):
+        with CaptureQueriesContext(connection) as captured:
+            fanout._authorized([user.pk for user in people], target)
+    return [
+        query["sql"]
+        for query in captured
+        if query["sql"].startswith("SELECT")
+        and ("sk_access_" in query["sql"] or "sk_tenancy_membership" in query["sql"])
+    ]
+
+
+def test_fanout_authorization_queries_do_not_grow_with_recipients(scenario):
+    """One batch decision, not one authorization per person (#296)."""
+    shared = scenario.create(scenario.a, code="F-COST", title="Shared", visibility="organization")
+    people = _members(scenario, 50)
+    assert len(_authorization_queries(scenario, people[:5], shared)) == len(
+        _authorization_queries(scenario, people, shared)
+    )
+
+
+def test_batches_of_500_chain_until_fanned_out(scenario, monkeypatch):
+    monkeypatch.setattr(fanout, "BATCH_SIZE", 2)
+    assert fanout.BATCH_SIZE == 2
+    people = _members(scenario, 5, start=100)
+    send(scenario, "system.notice", Recipients(users=tuple(user.pk for user in people)))
+    outcomes = run_pending_jobs()
+    assert len([outcome for outcome in outcomes if outcome.job_type == "notifications.fanout"]) == 3
+    assert len(rows(scenario)) == 5
+
+
+def test_existing_deliveries_are_not_recreated_on_rerun(scenario):
+    from skeleton.notifications.channels.delivery import create_delivery
+    from skeleton.notifications.models import NotificationDelivery
+
+    with system_context(reason="test:fanout-rerun", organization_id=scenario.a.pk):
+        assert create_delivery(
+            organization_id=scenario.a.pk, user_id=scenario.member.pk, channel="email", dedupe_key="email:x:y"
+        )
+        assert (
+            create_delivery(
+                organization_id=scenario.a.pk, user_id=scenario.member.pk, channel="email", dedupe_key="email:x:y"
+            )
+            is None
+        )
+        assert NotificationDelivery.objects.filter(dedupe_key="email:x:y").count() == 1

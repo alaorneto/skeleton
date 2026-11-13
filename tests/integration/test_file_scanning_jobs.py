@@ -165,3 +165,62 @@ def test_orphans_of_rolled_back_uploads_go_and_referenced_objects_stay(scenario,
         assert clean_orphans(now=timezone.now() + timedelta(hours=2)) == 1
     keys = set(list_prefix(prefix))
     assert keys == {f"{prefix}{live['sysid']}", f"{prefix}{removed['sysid']}"}  # Live and soft-deleted stay.
+
+
+def _rescan(organization, *, hours=2):
+    with system_context(reason="test:rescan", organization_id=organization.pk):
+        return scanning.rescan_pending(now=timezone.now() + timedelta(hours=hours))
+
+
+def _kill_scan_jobs():
+    from skeleton.jobs.models import Job
+
+    with system_context(reason="test:scan-dead"):
+        Job.all_objects.filter(job_type="files.scan").update(state=Job.State.DEAD, locked_by="", locked_until=None)
+
+
+def test_pending_attachment_is_rescanned_after_the_scanner_returns(scenario, scanner):
+    """The scan job ran out of attempts while the antivirus was down; the hourly sweep retries (#277)."""
+    scanner.available = False
+    note = scenario.create(scenario.a, owner=scenario.member, code="S-R1", title="S")
+    pending = upload(login(scenario.member), scenario, note, TXT).json()
+    _kill_scan_jobs()
+    scanner.available = True
+    run_pending_jobs()
+    assert state(scenario, pending["sysid"]).state == "pending"  # Nothing retries without the sweep.
+    assert _rescan(scenario.a) == 1
+    run_pending_jobs()
+    assert state(scenario, pending["sysid"]).state == "available"
+
+
+def test_rescan_skips_recent_attachments_and_open_scans(scenario, scanner):
+    scanner.available = False
+    note = scenario.create(scenario.a, owner=scenario.member, code="S-R2", title="S")
+    upload(login(scenario.member), scenario, note, TXT)
+    assert _rescan(scenario.a, hours=0) == 0  # Pending for less than an hour.
+    assert _rescan(scenario.a) == 0  # The original scan job is still queued.
+
+
+def test_without_scanner_pending_attachments_stay_closed_and_jobs_do_not_fail(scenario, scanner, settings):
+    scanner.available = False
+    note = scenario.create(scenario.a, owner=scenario.member, code="S-R3", title="S")
+    client = login(scenario.member)
+    pending = upload(client, scenario, note, TXT).json()
+    settings.SKELETON_FILES_SCANNER = "none"
+    assert _rescan(scenario.a) == 0
+    with system_context(reason="test:scan-off", organization_id=scenario.a.pk):
+        assert scanning.scan_attachment(attachment_id=pending["sysid"]) == "skipped"
+    assert state(scenario, pending["sysid"]).state == "pending"
+    assert download(client, scenario, note, pending["sysid"]).status_code == 404
+
+
+def test_rescan_is_scoped_to_its_organization(scenario, scanner):
+    from skeleton.jobs.models import Job
+
+    scanner.available = False
+    note = scenario.create(scenario.a, owner=scenario.member, code="S-R4", title="S")
+    upload(login(scenario.member), scenario, note, TXT)
+    _kill_scan_jobs()
+    assert _rescan(scenario.b) == 0
+    with system_context(reason="test:scan-scope"):
+        assert not Job.all_objects.filter(job_type="files.scan", job_organization_id=scenario.b.pk).exists()

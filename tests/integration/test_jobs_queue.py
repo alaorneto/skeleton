@@ -110,9 +110,10 @@ def test_idempotency_key_returns_the_existing_job(tenants):
         second = enqueue("test.ping", organization_id=alpha.pk, payload=payload, idempotency_key="k1")
     assert first.id == second.id and first.created and not second.created
     with tenant_context(organization_id=beta.pk, actor=bob, source="test:jobs-idempotent-b"):
-        with pytest.raises(ValidationError):
-            enqueue("test.ping", organization_id=beta.pk, payload=payload, idempotency_key="k1")
-    assert len(jobs()) == 1
+        other = enqueue("test.ping", organization_id=beta.pk, payload=payload, idempotency_key="k1")
+    # The key is unique per organization (#241): B gets its own job, never A's identity.
+    assert other.created and other.id != first.id
+    assert len(jobs()) == 2
 
 
 def test_actor_jobs_require_an_organization_and_an_actor(tenants):
@@ -136,3 +137,83 @@ def test_registry_checks_report_duplicates_and_bad_declarations():
     assert "test.bad: handler is not callable" in problems
     assert "test.bad: run_as" in problems
     assert "test.bad: payload types" in problems
+
+
+def test_same_key_in_two_organizations_creates_two_jobs(tenants):
+    """A key chosen by A never blocks B nor hands B the job of A (#241)."""
+    alice, alpha, bob, beta = tenants
+    payload = {"record_id": str(alice.pk), "count": 1}
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:jobs-key-a"):
+        in_a = enqueue("test.ping", organization_id=alpha.pk, payload=payload, idempotency_key="shared")
+    with tenant_context(organization_id=beta.pk, actor=bob, source="test:jobs-key-b"):
+        in_b = enqueue("test.ping", organization_id=beta.pk, payload=payload, idempotency_key="shared")
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:jobs-key-a-again"):
+        again = enqueue("test.ping", organization_id=alpha.pk, payload=payload, idempotency_key="shared")
+    assert in_a.created and in_b.created and in_a.id != in_b.id
+    assert again.id == in_a.id and not again.created
+    owners = dict(Job.all_objects.filter(idempotency_key="shared").values_list("pk", "job_organization_id"))
+    assert owners == {in_a.id: alpha.pk, in_b.id: beta.pk}
+
+
+def test_global_jobs_keep_one_job_per_key(tenants):
+    with system_context(reason="test:jobs-global-key"):
+        first = enqueue("test.global", payload={}, idempotency_key="global-key")
+        second = enqueue("test.global", payload={}, idempotency_key="global-key")
+    assert first.id == second.id and first.created and not second.created
+
+
+def test_enqueue_with_key_reraises_foreign_integrity_errors(tenants, monkeypatch):
+    """Only the idempotency constraints mean "already queued"; any other violation propagates."""
+    from django.db import IntegrityError
+
+    alice, alpha, _, _ = tenants
+
+    def broken_save(self, *args, **kwargs):
+        raise IntegrityError("some other constraint")
+
+    monkeypatch.setattr(Job, "save", broken_save)
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:jobs-foreign-integrity"):
+        with pytest.raises(IntegrityError):
+            enqueue(
+                "test.ping",
+                organization_id=alpha.pk,
+                payload={"record_id": str(alice.pk), "count": 1},
+                idempotency_key="k-foreign",
+            )
+
+
+def test_two_connections_enqueue_the_same_key_in_one_organization(tenants):
+    """Two workers race on one key: one job, one created and one found (#241)."""
+    import threading
+
+    from django.db import connections
+
+    alice, alpha, _, _ = tenants
+    barrier = threading.Barrier(2)
+    receipts, errors = [], []
+
+    def run():
+        try:
+            barrier.wait()
+            with tenant_context(organization_id=alpha.pk, actor=alice, source="test:jobs-race"):
+                receipts.append(
+                    enqueue(
+                        "test.ping",
+                        organization_id=alpha.pk,
+                        payload={"record_id": str(alice.pk), "count": 1},
+                        idempotency_key="race",
+                    )
+                )
+        except Exception as error:  # noqa: BLE001
+            errors.append(error)
+        finally:
+            connections.close_all()
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+    assert sorted(receipt.created for receipt in receipts) == [False, True]
+    assert len({receipt.id for receipt in receipts}) == 1

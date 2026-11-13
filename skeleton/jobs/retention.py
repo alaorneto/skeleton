@@ -50,11 +50,25 @@ def expired(now: datetime | None = None) -> dict[str, Any]:
     return {"jobs": jobs, "heartbeats": heartbeats}
 
 
+BATCH = 1000
+
+
+def _delete_in_batches(queryset: Any) -> int:
+    """Delete in blocks of ``BATCH`` primary keys: no single statement scans a huge backlog (#308)."""
+    total = 0
+    while True:
+        ids = list(queryset.order_by("pk").values_list("pk", flat=True)[:BATCH])
+        if not ids:
+            return total
+        count, _ = queryset.model.all_objects.filter(pk__in=ids).delete()
+        total += count
+
+
 def purge_expired_jobs() -> dict[str, int]:
     """Job handler (global, system context): delete what ``expired()`` selects."""
     selection = expired()
-    jobs, _ = selection["jobs"].delete()
-    heartbeats, _ = selection["heartbeats"].delete()
+    jobs = _delete_in_batches(selection["jobs"])
+    heartbeats = _delete_in_batches(selection["heartbeats"])
     return {"jobs": jobs, "heartbeats": heartbeats}
 
 

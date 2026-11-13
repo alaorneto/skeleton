@@ -119,6 +119,8 @@ DATABASES = {"default": _database} if _database else {}
 CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
 EMAIL_CONFIG = env.email("EMAIL_URL", default="consolemail://")
 vars().update(EMAIL_CONFIG)
+# Seconds an SMTP connection may block; the notification jobs never hang on a mute server (#297).
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=30)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="skeleton@localhost")
 AUTH_USER_MODEL = "sk_accounts.User"
 AUTHENTICATION_BACKENDS = ["skeleton.accounts.backends.SkeletonAuthenticationBackend"]
@@ -168,6 +170,13 @@ STORAGES = {
     "skeleton_files": private_files_storage(env, BASE_DIR),
 }
 SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
+# The bounded handler comes first: no multipart body passes SKELETON_UPLOAD_MAX_BYTES into memory
+# or the temporary directory (#242); the package upload swaps it for its own larger bound.
+FILE_UPLOAD_HANDLERS = [
+    "skeleton.common.uploads.BoundedUploadHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
 # Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
 # Deleted attachments keep their bytes this long, then files.purge removes them (#192).
@@ -222,6 +231,8 @@ SKELETON_TRANSFER_RETENTION_DAYS = env.int("SKELETON_TRANSFER_RETENTION_DAYS", d
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # API tokens (#45): maximum validity in days of a newly issued token.
 SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
+# Live tokens per person or service account; expired ones count until revoked (#327).
+SKELETON_API_TOKEN_MAX_PER_OWNER = env.int("SKELETON_API_TOKEN_MAX_PER_OWNER", default=50)
 # Rate limits (#48): requests per token per minute and failed token authentications per IP per minute.
 SKELETON_API_TOKEN_RATE_PER_MINUTE = env.int("SKELETON_API_TOKEN_RATE_PER_MINUTE", default=600)
 SKELETON_API_TOKEN_FAILURES_PER_MINUTE = env.int("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", default=20)
@@ -234,6 +245,8 @@ SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Observability (#87): each piece stays off until its setting is present and its extra installed.
 # Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.
 SKELETON_METRICS_TOKEN = env("SKELETON_METRICS_TOKEN", default="")
+# Seconds one process reuses the queue figures between scrapes; 0 reads the database on every scrape (#275).
+SKELETON_METRICS_QUEUE_TTL_S = 15
 # Sentry DSN (extra [sentry], #177); without it Sentry is never initialized. Tracing (#176) has no
 # setting here: the SDK reads the standard OTEL_* variables from the environment.
 SKELETON_SENTRY_DSN = env("SKELETON_SENTRY_DSN", default="")

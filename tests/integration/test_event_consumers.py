@@ -130,3 +130,33 @@ def test_retention_deletes_only_expired_events(tenant):
         # A delivery of a purged event is a no-op.
         consume(event_id=str(old.pk), consumer="test.stable")
     assert seen["stable"] == set()
+
+
+def test_event_retention_deletes_in_batches_and_only_its_organization(tenant):
+    """Batched deletes keep the organization filter of the manager (#308)."""
+    from skeleton.accounts.services import bootstrap_identity
+
+    user, organization = tenant
+    other_user, other = bootstrap_identity(
+        email="events-b@example.test", organization="events-b", name="B", password="Events-B-Password-2026!"
+    )
+    old = timezone.now() - timedelta(days=31)
+
+    def seed(org, count):
+        with system_context(reason="test:retention-batches", organization_id=org.pk):
+            for _ in range(count):
+                DomainEvent(
+                    organization_id=org.pk,
+                    event_type="notes.note_created",
+                    table_key="example_notes.note",
+                    record_sysid=org.pk,
+                    source="test",
+                    occurred_at=old,
+                ).save()
+
+    seed(organization, 3)
+    seed(other, 2)
+    with system_context(reason="test:retention-a", organization_id=organization.pk):
+        assert purge_expired_events() == 3
+    with system_context(reason="test:retention-b", organization_id=other.pk):
+        assert DomainEvent.objects.filter(occurred_at__lt=timezone.now() - timedelta(days=30)).count() == 2

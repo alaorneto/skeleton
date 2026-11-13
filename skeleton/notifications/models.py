@@ -95,6 +95,8 @@ class NotificationRecipient(OperationalRecord):
                 name="sk_notif_recipient_unread",
             ),
             models.Index(fields=("organization", "user", "created_at"), name="sk_notif_recipient_inbox"),
+            # The inbox orders by updated_at (grouped rows move up) (#308).
+            models.Index(fields=("organization", "user", "updated_at"), name="sk_notif_recipient_updated"),
         ]
 
     def __str__(self):

@@ -251,6 +251,7 @@ jobs:
           CACHE_URL: rediscache://127.0.0.1:1/0
           EMAIL_URL: smtp://127.0.0.1:1
           DEFAULT_FROM_EMAIL: ci@example.test
+          SKELETON_PUBLIC_URL: https://ci.example.test
 
   build:
     name: Wheel, auditoria e imagem

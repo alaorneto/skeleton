@@ -559,3 +559,19 @@ def test_audit_api_hides_infrastructure_fields_from_non_admin():
     assert response.status_code == 200
     results = response.json()["results"]
     assert results and all(item["db_principal"] == "" and item["table_name"] == "" for item in results)
+
+
+def test_large_multipart_to_a_plain_form_is_stopped_at_the_limit(http_identity, settings):
+    """A form that expects no file is not a way around the upload bound, nor a 500 (#242)."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    client, _, _ = http_identity
+    settings.SKELETON_UPLOAD_MAX_BYTES = 1000
+    response = client.post(
+        reverse("web:profile"),
+        {
+            "file": SimpleUploadedFile("big.bin", b"x" * (200 * 1024)),
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
+    assert response.status_code < 500

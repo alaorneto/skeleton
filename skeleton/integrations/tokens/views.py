@@ -85,9 +85,11 @@ def _rows(tokens, revoke_url):
 
     rows = list(tokens)
     used = last_used(token.pk for token in rows)
+    now = timezone.now()
     for token in rows:
         token.revoke_url = revoke_url(token)
         token.last_used_at = used.get(token.pk)
+        token.usable = services.is_usable(token, now=now)  # Shown as "Inválido" when it no longer authenticates.
     return rows
 
 
@@ -198,10 +200,13 @@ def service_accounts(request, organization_id):
                 return redirect("integrations:service-account", organization_id=organization_id, sysid=account.pk)
         else:
             status = 400
+    from skeleton.web.views import pagination
+
+    rows = pagination(request, _accounts())
     return render(
         request,
         TEMPLATES + "service_accounts.html",
-        {"organization_id": organization_id, "accounts": _accounts(), "form": form},
+        {"organization_id": organization_id, "accounts": rows, "rows": rows, "form": form},
         status=status,
     )
 

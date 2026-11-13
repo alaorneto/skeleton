@@ -11,7 +11,7 @@ receives N digests (accepted in this phase).
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -61,8 +61,17 @@ def _digest_people(organization_id: Any) -> list[Any]:
     )
 
 
-def run_digest(*, now: datetime | None = None) -> int:
-    """Job handler (periodic, system context of one organization); returns digests created."""
+def window_instant(window: str) -> datetime:
+    """The UTC instant of a periodic window stamp (``20261116T080000Z``)."""
+    return datetime.strptime(window, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+
+
+def run_digest(*, window: str | None = None, now: datetime | None = None) -> int:
+    """Job handler (periodic, system context of one organization); returns digests created.
+
+    ``window`` is the start of the hour the job was scheduled for: a late job still sends the
+    digest of its own hour (#276). Jobs queued before the window was passed run on the clock.
+    """
     from skeleton.accounts.models import UserProfile
     from skeleton.tenancy.context import current_context
 
@@ -70,7 +79,8 @@ def run_digest(*, now: datetime | None = None) -> int:
     from ..preferences import resolve, rows_by_user
     from ..registry import all_notification_types
 
-    now = now or timezone.now()
+    if now is None:
+        now = window_instant(window) if window else timezone.now()
     organization_id = current_context().organization_id
     people = _digest_people(organization_id)
     rows = rows_by_user(people)
@@ -126,6 +136,7 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
     from ..models import NotificationRecipient
     from ..preferences import DIGEST_MODES, known_type, own_rows, resolve
     from ..registry import get_notification_type
+    from .delivery import target_readable
     from .email import build_message
 
     preferences = own_rows(user)
@@ -135,6 +146,9 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
     ).order_by("-updated_at", "sysid"):
         kind = known_type(row.type_code)
         if kind is None or resolve(kind, "email", preferences).mode not in DIGEST_MODES:
+            continue
+        if not target_readable(row, user):
+            # Reauthorized at send time, as the immediate email and push are (#276).
             continue
         entries.append(
             {

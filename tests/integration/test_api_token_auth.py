@@ -185,3 +185,41 @@ def test_audit_records_the_token_user_and_prefix(access):
         event = AuditEvent.objects.get(record_sysid=created.json()["sysid"], operation="create")
     assert event.actor_sysid == access.alice.pk
     assert event.source == f"http:token:{issued.token.prefix}"
+
+
+def test_personal_token_stops_working_only_where_the_membership_ended(access):
+    """Ending a membership closes that organization to the token; the token itself stays valid (#328)."""
+    from skeleton.access.services import update_membership
+    from skeleton.tenancy.models import Membership
+
+    client = bearer(token_for(access.bob, [f"{NOTE}:read"]).text)
+    assert client.get(records_url(access.a)).status_code == 200
+    assert client.get(records_url(access.b)).status_code == 200
+    with actor_tenant(access.admin, access.a):
+        membership = Membership.objects.get(user=access.bob)
+        update_membership(membership, user=access.admin, data={"is_active": False})
+    assert client.get(records_url(access.a)).status_code == 404
+    assert client.get(records_url(access.b)).status_code == 200
+    assert client.get(reverse("api:me")).status_code == 200
+
+
+def test_expired_token_is_rejected_like_any_invalid_token(access, monkeypatch):
+    """Expiry is checked at each request, with the same 401 as any other invalid token (#328)."""
+    from types import SimpleNamespace
+
+    from skeleton.integrations.tokens import services
+
+    with request_context(actor=access.alice, request_id=uuid4(), source="test:tokens"):
+        issued = issue_personal_token(
+            actor=access.alice,
+            name="short",
+            scopes=[f"{NOTE}:read"],
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+    client = bearer(issued.text)
+    assert client.get(records_url(access.a)).status_code == 200
+    later = timezone.now() + timedelta(days=1)
+    monkeypatch.setattr(services, "timezone", SimpleNamespace(now=lambda: later))  # verify_token only.
+    response = client.get(records_url(access.a))
+    assert response.status_code == 401 and response.json()["code"] == "invalid_token"
+    assert response["WWW-Authenticate"].startswith("Bearer")

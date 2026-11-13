@@ -223,3 +223,48 @@ def test_check_jobs_reports_lag_dead_and_workers(platform):
     health = queue_health()
     assert (health.due, health.dead, health.live_workers) == (1, 1, 1) and health.oldest_due_lag_s >= 590
     call_command("check_jobs", "--max-lag", "3600", "--require-worker", stdout=StringIO())
+
+
+@pytest.mark.parametrize(("lease", "live", "stale"), [(timedelta(minutes=5), 1, 0), (timedelta(minutes=-1), 0, 1)])
+def test_worker_running_a_long_job_counts_as_live(lease, live, stale):
+    """An old heartbeat with a valid lease is a worker inside a long job, not a dead one (#243)."""
+    now = timezone.now()
+    with system_context(reason="test:long-job"):
+        WorkerHeartbeat.objects.create(worker_id="w-long", last_seen=now - timedelta(minutes=10), state="running")
+        register_job_type(JobType("test.long", noop, {}, scope="global"))
+        receipt = enqueue("test.long", payload={})
+        Job.all_objects.filter(pk=receipt.id).update(
+            state=Job.State.RUNNING, locked_by="w-long", locked_until=now + lease
+        )
+        health = queue_health(now=now)
+    assert (health.live_workers, health.stale_workers) == (live, stale)
+
+
+def test_retention_deletes_in_batches(platform, monkeypatch):
+    """No single DELETE over the whole backlog (#308)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.jobs import retention
+
+    _, organization = platform
+    for _ in range(5):
+        make_job(organization, state="succeeded", finished_days=8)
+    monkeypatch.setattr(retention, "BATCH", 2)
+    with system_context(reason="test:jobs-batches"), CaptureQueriesContext(connection) as captured:
+        assert purge_expired_jobs()["jobs"] == 5
+    deletes = [
+        query["sql"] for query in captured if query["sql"].startswith("DELETE") and "sk_jobs_job" in query["sql"]
+    ]
+    assert len(deletes) == 3
+
+
+def test_job_indexes_exist():
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'skeleton' AND tablename = %s", [Job._meta.db_table]
+        )
+        names = {row[0] for row in cursor.fetchall()}
+    assert {"sk_jobs_job_claim", "sk_jobs_job_created", "sk_jobs_job_finished"} <= names

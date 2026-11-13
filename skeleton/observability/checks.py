@@ -60,6 +60,43 @@ def sentry_problems() -> list[CheckMessage]:
     return []
 
 
+def multiprocess_problems() -> list[CheckMessage]:
+    """skeleton.W034 / skeleton.E034: request metrics need the multiprocess directory with several web processes."""
+    import os
+
+    from .metrics import metrics_enabled
+
+    if not metrics_enabled():
+        return []
+    directory = os.environ.get("PROMETHEUS_MULTIPROC_DIR", "")
+    if not directory:
+        if settings.DEBUG:
+            return []
+        return [
+            Warning(
+                "SKELETON_METRICS_TOKEN is set without PROMETHEUS_MULTIPROC_DIR: with more than one web "
+                "process, each scrape of /metrics shows the requests of a single process.",
+                hint="Set PROMETHEUS_MULTIPROC_DIR to a private, empty, writable directory before the web "
+                "server starts (docs/deployment.md), or silence skeleton.W034 when one process serves the site.",
+                id="skeleton.W034",
+            )
+        ]
+    if not os.path.isdir(directory) or not os.access(directory, os.W_OK):
+        return [
+            Error(
+                "PROMETHEUS_MULTIPROC_DIR is not a writable directory: /metrics would fail.",
+                hint="Create it before the web server starts and empty it on every start.",
+                id="skeleton.E034",
+            )
+        ]
+    return []
+
+
 @register(Tags.security)
 def observability_checks(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
     return [*metrics_problems(), *tracing_problems(), *sentry_problems()]
+
+
+@register(Tags.security, deploy=True)
+def observability_deploy_checks(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
+    return multiprocess_problems()

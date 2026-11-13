@@ -7,7 +7,6 @@ the user, so a file name can never traverse paths, collide or leak in a URL.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
 from typing import IO, Any
 from uuid import UUID
 
@@ -23,6 +22,42 @@ CHUNK = 64 * 1024
 
 class StorageError(Exception):
     pass
+
+
+class ObjectTooLarge(StorageError):
+    pass
+
+
+class _LimitedReader:
+    """File-like handed to the storage: counts and limits in read(), which every backend uses (#225).
+
+    ``FileSystemStorage`` reads through ``File.chunks()`` and ``S3Storage`` through ``read()``;
+    both end here. ``closed`` and ``seekable()`` answer what ``FileProxyMixin`` asks when the
+    S3 backend checks whether to rewind; ``seekable() is False`` keeps it from seeking.
+    """
+
+    closed = False
+
+    def __init__(self, stream: IO[bytes], max_bytes: int):
+        self._stream = stream
+        self._max_bytes = max_bytes
+        self.size = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return False
+
+    def read(self, amount: int | None = -1) -> bytes:
+        chunk = self._stream.read(CHUNK if amount is None or amount < 0 else amount)
+        self.size += len(chunk)
+        if self.size > self._max_bytes:
+            raise ObjectTooLarge("Object too large.")
+        return chunk
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def private_storage():
@@ -45,29 +80,16 @@ def put_stream(key: str, stream: IO[bytes], *, max_bytes: int) -> int:
     key = _checked(key)
     if storage.exists(key):
         raise StorageError("Object already exists.")
-    size = 0
-
-    class Limited(File):
-        def chunks(self, chunk_size: int | None = None) -> Iterator[bytes]:
-            nonlocal size
-            while True:
-                chunk = stream.read(chunk_size or CHUNK)
-                if not chunk:
-                    return
-                size += len(chunk)
-                if size > max_bytes:
-                    raise StorageError("Object too large.")
-                yield chunk
-
+    reader = _LimitedReader(stream, max_bytes)
     try:
-        saved = storage.save(key, Limited(stream, name=key))
+        saved = storage.save(key, File(reader, name=key))
     except StorageError:
         delete(key)
         raise
     if saved != key:
         storage.delete(saved)
         raise StorageError("Storage renamed the object.")
-    return size
+    return reader.size
 
 
 def open_object(key: str) -> IO[bytes]:

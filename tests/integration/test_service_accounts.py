@@ -291,3 +291,10 @@ def test_people_manager_still_restores_people(access):
         delete_membership(fixture.bob_membership, user=fixture.alice)
         create_membership(user=fixture.alice, data={"user": fixture.bob})
         assert Membership.objects.get(user=fixture.bob).is_active
+
+
+def test_deactivation_reports_no_error_without_webhooks(access):
+    """An account that is nobody's webhook principal deactivates as before (#313)."""
+    fixture, service = access
+    with actor_tenant(fixture.admin, fixture.a):
+        assert deactivate_service_account(actor=fixture.admin, user=service).is_active is False
