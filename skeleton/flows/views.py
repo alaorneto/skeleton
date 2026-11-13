@@ -363,6 +363,7 @@ def instance_detail(request, organization_id, sysid):
     service = FlowService()
     instance = service.instance(actor=request.user, instance_id=sysid)
     history = service.history(actor=request.user, instance_id=sysid, page_size=100)
+    from .diagram import for_instance
     from .policies import is_flow_admin
 
     return render(
@@ -375,6 +376,8 @@ def instance_detail(request, organization_id, sysid):
             "more_history": history.next_cursor is not None,
             "is_admin": is_flow_admin(request.user),
             "is_starter": instance.starter_id == request.user.pk,
+            # Read through FlowService above: the instance is visible to the person (#419).
+            "diagram": for_instance(instance.sysid),
         },
     )
 
