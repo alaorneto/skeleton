@@ -238,6 +238,13 @@ class Expansion:
     truncated: bool = False
 
 
+def event_end(event: Any) -> datetime:
+    """UTC instant where one event row ends (all-day rows end at UTC midnight of ``end_date``)."""
+    if event.all_day:
+        return datetime.combine(event.end_date, time(), tzinfo=UTC)
+    return event.ends_at
+
+
 def series_end(event: Any) -> datetime | None:
     """Last instant the series may cover (``recurrence_end``), or ``None`` for an unbounded rule."""
     if not event.rrule:

@@ -151,6 +151,9 @@ def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: in
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O evento mudou."))
     values = _event_values(data)
+    if not values:
+        # An empty change would bump revision and sequence and notify for nothing (#294).
+        raise ValidationError({"__all__": gettext("Informe ao menos um campo.")})
     for name, value in values.items():
         setattr(event, name, value)
     event.sequence += 1
@@ -260,32 +263,40 @@ def edit_occurrence(
     _occurrence(master, recurrence_id)
     values = _event_values({key: value for key, value in data.items() if key not in ("rrule", "rdates", "exdates")})
     if mode == "this":
-        override = Event.objects.filter(series=master, recurrence_id=recurrence_id).first()
-        if override is None:
-            override = _copy(master, **{**_shifted(master, recurrence_id), **values})
-            override.uid, override.series, override.recurrence_id = master.uid, master, recurrence_id
-            override.rrule, override.rdates, override.exdates = "", [], []
-            override.save()
-        else:
-            for name, value in values.items():
-                setattr(override, name, value)
-            override.sequence += 1
-            override.save(update_fields={*values, "sequence"})
+        with transaction.atomic(using=current_context().using):
+            override = Event.objects.filter(series=master, recurrence_id=recurrence_id).first()
+            if override is None:
+                override = _copy(master, **{**_shifted(master, recurrence_id), **values})
+                override.uid, override.series, override.recurrence_id = master.uid, master, recurrence_id
+                override.rrule, override.rdates, override.exdates = "", [], []
+                override.save()
+            else:
+                for name, value in values.items():
+                    setattr(override, name, value)
+                override.sequence += 1
+                override.save(update_fields={*values, "sequence"})
+            # The master is written too (#294): its end covers the override, and the expected
+            # revision is consumed, so a second edit with the same revision is a stale one.
+            master.sequence += 1
+            master.save(update_fields={"sequence", "recurrence_end"})
         return override
     from .recurrence import split_parts
 
-    first, second = split_parts(master, recurrence_id)
-    master.rrule = first
-    master.sequence += 1
-    master.save(update_fields={"rrule", "sequence", "recurrence_end"})
-    following = _copy(master, **{**_shifted(master, recurrence_id), **values})
-    following.rrule = second
-    following.exdates = [value for value in master.exdates if value >= recurrence_id.isoformat()]
-    following.save()
-    # Later overrides now belong to the new series, keeping their IDs and content.
-    for override in Event.objects.filter(series=master, recurrence_id__gte=recurrence_id):
-        override.series = following
-        override.save(update_fields={"series"})
+    with transaction.atomic(using=current_context().using):
+        first, second = split_parts(master, recurrence_id)
+        following = _copy(master, **{**_shifted(master, recurrence_id), **values})
+        following.rrule = second
+        following.exdates = [value for value in master.exdates if value >= recurrence_id.isoformat()]
+        following.save()
+        # Later overrides now belong to the new series, keeping their IDs and content.
+        for override in Event.objects.filter(series=master, recurrence_id__gte=recurrence_id):
+            override.series = following
+            override.save(update_fields={"series"})
+        # Each master is written once its overrides are in place, so both ends are right (#294).
+        master.rrule = first
+        master.sequence += 1
+        master.save(update_fields={"rrule", "sequence", "recurrence_end"})
+        following.save(update_fields={"recurrence_end"})
     return following
 
 

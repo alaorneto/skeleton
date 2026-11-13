@@ -200,3 +200,21 @@ def test_delete_event_requires_calendar_write(agenda):
     with actor_tenant(agenda.bob, agenda.a), pytest.raises(PermissionDenied):
         services.delete_event(actor=agenda.bob, event_id=event.pk, expected_revision=event.revision)
     assert all(deleted is None for rows in _rows(agenda, event).values() for _, deleted in rows)
+
+
+def test_empty_update_is_refused_and_notifies_nobody(agenda):
+    from skeleton.contrib.calendar import attendees
+    from skeleton.notifications.models import Notification
+
+    calendar = shared_calendar(agenda)
+    with actor_tenant(agenda.alice, agenda.a):
+        event = services.create_event(actor=agenda.alice, calendar_id=calendar.pk, data=timed())
+        attendees.invite(actor=agenda.alice, event_id=event.pk, user_ids=(agenda.bob.pk,))
+        event.refresh_from_db()
+        revision, sequence = event.revision, event.sequence
+        before = Notification.objects.filter(type_code="calendar.updated").count()
+        with pytest.raises(ValidationError):
+            services.update_event(actor=agenda.alice, event_id=event.pk, data={}, expected_revision=revision)
+        event.refresh_from_db()
+        assert (event.revision, event.sequence) == (revision, sequence)
+        assert Notification.objects.filter(type_code="calendar.updated").count() == before

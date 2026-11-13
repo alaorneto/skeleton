@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 
 from skeleton.contrib.calendar import services
 from skeleton.contrib.calendar.models import Calendar, Event
@@ -332,3 +332,134 @@ def test_event_dates_outside_the_accepted_years_are_refused(agenda):
     with pytest.raises(ValidationError) as error:
         _create(agenda, calendar, starts_at=far, ends_at=far + timedelta(hours=1))
     assert "starts_at" in error.value.message_dict
+
+
+# --------------------------------------------------------------------------- series end and CAS (#294)
+
+BASE = datetime(2027, 2, 1, 10, 0, tzinfo=UTC)
+
+
+def _daily(agenda, calendar, count=3):
+    with actor_tenant(agenda.alice, agenda.a):
+        return services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={
+                "title": "Diária",
+                "starts_at": BASE,
+                "ends_at": BASE + timedelta(hours=1),
+                "rrule": f"FREQ=DAILY;COUNT={count}",
+            },
+        )
+
+
+def _move_last(agenda, event, days_later=10):
+    last = BASE + timedelta(days=2)
+    moved = last + timedelta(days=days_later)
+    with actor_tenant(agenda.alice, agenda.a):
+        event.refresh_from_db()
+        return services.edit_occurrence(
+            actor=agenda.alice,
+            event_id=event.pk,
+            recurrence_id=last,
+            mode="this",
+            data={"starts_at": moved, "ends_at": moved + timedelta(hours=1)},
+            expected_revision=event.revision,
+        )
+
+
+def test_override_moved_past_the_series_end_is_listed(agenda):
+    from skeleton.contrib.calendar.service_api import CalendarService
+
+    event = _daily(agenda, calendar_of(agenda))
+    override = _move_last(agenda, event)
+    with actor_tenant(agenda.alice, agenda.a):
+        event.refresh_from_db()
+        assert event.recurrence_end >= override.ends_at
+        window = CalendarService().upcoming(
+            actor=agenda.alice, start=override.starts_at - timedelta(hours=1), end=override.ends_at + timedelta(hours=1)
+        )
+    assert [item.starts_at for item in window] == [override.starts_at]
+
+
+def test_recurrence_end_shrinks_when_the_override_is_removed(agenda):
+    event = _daily(agenda, calendar_of(agenda))
+    override = _move_last(agenda, event)
+    with actor_tenant(agenda.alice, agenda.a):
+        override.delete()
+        event.refresh_from_db()
+        event.save(update_fields={"recurrence_end"})
+        event.refresh_from_db()
+        assert event.recurrence_end == BASE + timedelta(days=2, hours=1)
+
+
+def test_two_edits_of_one_occurrence_with_the_same_revision_have_one_winner(agenda):
+    from skeleton.contrib.calendar.models import Event
+    from skeleton.service_api import Conflict
+
+    event = _daily(agenda, calendar_of(agenda))
+    second = BASE + timedelta(days=1)
+    with actor_tenant(agenda.alice, agenda.a):
+        event.refresh_from_db()
+        revision = event.revision
+        services.edit_occurrence(
+            actor=agenda.alice,
+            event_id=event.pk,
+            recurrence_id=second,
+            mode="this",
+            data={"title": "Primeira"},
+            expected_revision=revision,
+        )
+        with pytest.raises(Conflict) as error:
+            services.edit_occurrence(
+                actor=agenda.alice,
+                event_id=event.pk,
+                recurrence_id=second,
+                mode="this",
+                data={"title": "Segunda"},
+                expected_revision=revision,
+            )
+        assert error.value.code == "stale_revision"
+        assert Event.objects.get(series=event, recurrence_id=second).title == "Primeira"
+    with actor_tenant(agenda.bob, agenda.a), pytest.raises(PermissionDenied):
+        event.refresh_from_db()
+        services.edit_occurrence(
+            actor=agenda.bob,
+            event_id=event.pk,
+            recurrence_id=second,
+            mode="this",
+            data={"title": "Bob"},
+            expected_revision=event.revision,
+        )
+
+
+def test_following_split_recomputes_the_end_of_both_series(agenda):
+    from skeleton.contrib.calendar.models import Event
+
+    event = _daily(agenda, calendar_of(agenda), count=5)
+    last = BASE + timedelta(days=4)
+    moved = last + timedelta(days=20)
+    with actor_tenant(agenda.alice, agenda.a):
+        event.refresh_from_db()
+        override = services.edit_occurrence(
+            actor=agenda.alice,
+            event_id=event.pk,
+            recurrence_id=last,
+            mode="this",
+            data={"starts_at": moved, "ends_at": moved + timedelta(hours=1)},
+            expected_revision=event.revision,
+        )
+        event.refresh_from_db()
+        following = services.edit_occurrence(
+            actor=agenda.alice,
+            event_id=event.pk,
+            recurrence_id=BASE + timedelta(days=2),
+            mode="following",
+            data={"title": "Depois"},
+            expected_revision=event.revision,
+        )
+        event.refresh_from_db()
+        following.refresh_from_db()
+        assert Event.objects.get(pk=override.pk).series_id == following.pk  # Same sysid, new series.
+        assert following.recurrence_end >= moved + timedelta(hours=1)
+        assert event.recurrence_end == BASE + timedelta(days=1, hours=1)

@@ -228,9 +228,14 @@ class Event(OrganizationRecord):
         if self.calendar_id and self.organization_id and self.calendar.organization_id != self.organization_id:
             raise ValidationError({"calendar": gettext("O calendário é de outra organização.")})
         if self.series_id is None and (self.starts_at or self.start_date):
-            from .recurrence import series_end
+            from .recurrence import event_end, series_end
 
-            self.recurrence_end = series_end(self)
+            end = series_end(self)
+            if not self._state.adding and self.rrule:
+                # An override moved past the rule's last occurrence keeps the series in the window (#294).
+                ends = [event_end(row) for row in type(self).objects.filter(series_id=self.pk)]
+                end = max([end, *ends]) if end is not None else end
+            self.recurrence_end = end
 
     def __str__(self):
         return self.title
