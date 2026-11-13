@@ -1,5 +1,7 @@
 """HTML administration of the organization's apps (/o/<org>/apps/), over the service API (#338)."""
 
+from dataclasses import asdict
+
 from django import forms
 from django.contrib import messages
 from django.shortcuts import redirect, render
@@ -18,6 +20,11 @@ from skeleton.system.administration import (
 )
 from skeleton.system.app_registry import get_app
 from skeleton.web.views import tenant_page
+
+
+def _template_state(state):
+    """The page context keeps the shape of the former state dict: keys, configuration by name."""
+    return {**asdict(state), "configuration": {item.name: item.value for item in state.configuration}}
 
 
 def _apps_capability(request, kwargs):
@@ -45,7 +52,8 @@ def application_list(request, organization_id):
         {
             "organization_id": organization_id,
             "parameter_panel": True,
-            "applications": list(states),  # Available apps and enabled ones the platform withdrew.
+            # Available apps and enabled ones the platform withdrew.
+            "applications": [_template_state(state) for state in states],
         },
     )
 
@@ -62,7 +70,7 @@ def application_admin(request, organization_id, app_label):
             "organization_id": organization_id,
             "application": application_identity(manifest),
             "parameter_panel": True,
-            "state": state,
+            "state": _template_state(state),
             "sections": screen_sections(manifest, user=request.user, scope="organization"),
         },
     )
