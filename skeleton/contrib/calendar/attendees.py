@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -102,12 +103,18 @@ def notify_attendees(event: Any, type_code: str, *, users: tuple | None = None, 
     if not targets:
         return
     title = event.title if not event.is_private else gettext("Ocupado")
+    key = f"{type_code}:{event.pk}:{event.sequence}"
+    if users is not None:
+        # An invitation is addressed to specific people: two batches must not share a key (#235).
+        # Only a digest of the UUIDs enters the key, never a name or an email.
+        digest = hashlib.sha256(",".join(sorted(str(user) for user in targets)).encode()).hexdigest()[:16]
+        key = f"{key}:{digest}"
     NotificationService().notify(
         actor=actor,
         type_code=type_code,
         recipients=Recipients(users=targets),
         payload=(("title", title), ("event", str(event.series_id or event.pk))),
-        dedupe_key=f"{type_code}:{event.pk}:{event.sequence}",
+        dedupe_key=key,
     )
 
 

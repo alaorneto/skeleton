@@ -97,3 +97,28 @@ def test_shared_calendar_readers_and_inactive_attendees(agenda, meeting):
     with actor_tenant(agenda.alice, agenda.a):
         assert attendees.attendee_users(meeting) == ()  # Inactive members are no longer notified.
         assert EventAttendee.objects.filter(event=meeting).count() == 1  # The row stays (history).
+
+
+def _invited(organization):
+    from skeleton.notifications.models import Notification
+    from skeleton.tenancy.context import system_context
+
+    with system_context(reason="test:invited-notifications", organization_id=organization.pk):
+        return list(Notification.objects.filter(type_code="calendar.invited").values_list("recipients", flat=True))
+
+
+def test_second_invitation_batch_is_notified(agenda, meeting):
+    """Two batches of invitations to the same event notify each batch (#235)."""
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.admin.pk,))
+    recipients = sorted(row["users"] for row in _invited(agenda.a))
+    assert recipients == sorted([[str(agenda.bob.pk)], [str(agenda.admin.pk)]])
+    assert _invited(agenda.b) == []
+
+
+def test_same_invitation_twice_does_not_duplicate_the_notification(agenda, meeting):
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        assert attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,)) == []
+    assert len(_invited(agenda.a)) == 1
