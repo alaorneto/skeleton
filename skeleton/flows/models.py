@@ -198,6 +198,8 @@ class FlowTask(OrganizationRecord):
         COMPLETED = "completed", gettext_lazy("Concluída")
         CANCELLED = "cancelled", gettext_lazy("Cancelada")
 
+    # A person reads their own tasks of every organization (#409), frozen in sk_flows 0003.
+    self_discovery_field = "assignee"
     instance = models.ForeignKey(FlowInstance, on_delete=models.PROTECT, related_name="tasks")
     step_run = models.ForeignKey(FlowStepRun, on_delete=models.PROTECT, related_name="tasks")
     step_key = models.CharField(max_length=64)

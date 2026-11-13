@@ -321,6 +321,7 @@ Os eventos do núcleo sobre a instância não vão para webhooks: a tabela não 
 - **API de serviços** (`skeleton.service_api.flows.FlowService`): o contrato principal. Veja o [catálogo do núcleo](service-api.md#flowservice).
 - **REST** em `/api/v1/o/<org>/flows/`: tarefas, instâncias, histórico e as ações, com `If-Match`. Veja [API](api.md#fluxos-de-processo).
 - **Páginas** em `/o/<org>/flows/`: caixa de tarefas, tarefa, instâncias e instância com histórico, sem JavaScript.
+- **Minhas tarefas** em `/flows/tasks/` e o contador **Tarefas** no cabeçalho ([#409](https://github.com/alaorneto/skeleton/issues/409)): as tarefas abertas atribuídas à pessoa em todas as organizações com vínculo ativo, por autodescoberta em `FlowTask.assignee`. Tarefas de fila ficam na caixa de cada organização, porque a fila depende dos grupos e papéis daquele tenant. A linha leva à tarefa na organização, onde a autorização é revalidada.
 - **Painel de operação** em `/o/<org>/flows/operations/` (e `GET /api/v1/o/<org>/flows/operations/`), só para quem administra fluxos ([#408](https://github.com/alaorneto/skeleton/issues/408)): conta e lista as instâncias com falha e as tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas, com filtro por fluxo e versão, e leva às ações que já existem (reatribuir, retomar, cancelar). Mostra identificadores, situações e datas, nunca valores de formulário, e faz o mesmo número de consultas qualquer que seja o volume (no máximo 50 itens por lista).
 
 Iniciar uma instância não tem rota no núcleo: é uma operação de negócio da app dona, que chama `FlowService().start(...)` da sua própria view ou serviço.
@@ -338,7 +339,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 | Item | Por que não agora |
 |---|---|
 | Subfluxos | Exigem fixar a versão do fluxo filho e propagar cancelamento, suspensão e falha entre instâncias |
-| Caixa de tarefas entre organizações e contador no cabeçalho | Exige autodescoberta em `FlowTask` e leitura agregada |
 | Espera por tipo de evento de domínio | O sinal explícito, enviado pelo consumidor de eventos da app, cobre o caso sem acoplar o motor ao outbox |
 | Token de API nas rotas de fluxos | Exige escopos próprios; a primeira entrega só aceita sessão |
 | SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |

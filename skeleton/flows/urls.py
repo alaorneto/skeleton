@@ -6,6 +6,7 @@ app_name = "flows"
 INSTANCE_ACTIONS = "|".join(api_views.INSTANCE_ACTIONS)
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 urlpatterns = [
+    path("flows/tasks/", views.global_tasks, name="global-tasks"),
     path("o/<uuid:organization_id>/flows/tasks/", views.task_list, name="tasks"),
     path("o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/", views.task_detail, name="task"),
     path("o/<uuid:organization_id>/flows/operations/", views.operations, name="operations"),

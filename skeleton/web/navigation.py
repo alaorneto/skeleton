@@ -78,13 +78,18 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     if not getattr(user, "is_authenticated", False):
         return {}
     memberships = memberships_for_user(user)
+    from skeleton.flows.inbox import open_task_count
     from skeleton.notifications.inbox import counter_label, unread_count
 
-    unread = unread_count(user, organization_ids=[item["organization_id"] for item in memberships])
+    organization_ids = [item["organization_id"] for item in memberships]
+    unread = unread_count(user, organization_ids=organization_ids)
+    tasks = open_task_count(user, organization_ids=organization_ids)  # Own tasks of every organization (#409).
     values: dict[str, Any] = {
         "organization_memberships": memberships,
         "notifications_unread": unread,
         "notifications_label": counter_label(unread),
+        "flow_tasks_open": tasks,
+        "flow_tasks_label": counter_label(tasks),
     }
     organization_id = current_context().organization_id
     if organization_id is None:

@@ -7,10 +7,12 @@ service refuses is shown again with its errors.
 
 from django import forms
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext, gettext_lazy
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from skeleton.service_api import errors
 from skeleton.service_api.flows import FlowService
@@ -85,6 +87,20 @@ def _revision(request):
         return int(request.POST.get("revision", ""))
     except ValueError:
         return 0
+
+
+@login_required
+@never_cache
+@require_safe
+def global_tasks(request):
+    """Open tasks assigned to the person in every organization (#409).
+
+    Like the global notification inbox: the middleware's global context of the person is what
+    the self-discovery policy reads (an aggregate route would run without any actor).
+    """
+    from .inbox import open_tasks
+
+    return render(request, TEMPLATES + "global_tasks.html", {"rows": open_tasks(request.user)})
 
 
 @tenant_page()

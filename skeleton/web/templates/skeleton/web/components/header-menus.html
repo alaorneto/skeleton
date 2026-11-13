@@ -25,6 +25,8 @@ JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
 <div class="header-end">
   {% url 'notifications:global' as notifications_url %}
   <a class="header-link" href="{{ notifications_url }}"{% if request.path == notifications_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" class="size-4" %}<span>{% translate "Notificações" %}</span>{% if notifications_unread %} <span class="badge badge-brand" aria-label="{{ notifications_unread }} {% translate "não lidas" %}">{{ notifications_label }}</span>{% endif %}</a>
+  {% url 'flows:global-tasks' as flow_tasks_url %}
+  <a class="header-link" href="{{ flow_tasks_url }}"{% if request.path == flow_tasks_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="check-circle" class="size-4" %}<span>{% translate "Tarefas" %}</span>{% if flow_tasks_open %} <span class="badge badge-brand" aria-label="{{ flow_tasks_open }} {% translate "tarefas abertas" %}" data-flow-tasks>{{ flow_tasks_label }}</span>{% endif %}</a>
   {% if platform_admin %}{% url 'platform:overview' as platform_url %}{% elif "audit.read" in platform_capabilities %}{% url 'platform:audit' as platform_url %}{% elif "updates.operate" in platform_capabilities %}{% url 'platform:updates' as platform_url %}{% endif %}
   {% if platform_url %}
   <a class="header-link" href="{{ platform_url }}"{% if request.path|slice:":10" == "/platform/" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" class="size-4" %}<span>{% translate "Plataforma" %}</span></a>
