@@ -111,7 +111,7 @@ def available_event_types() -> list[str]:
     return [event_type.code for event_type in all_event_types() if event_type.webhook]
 
 
-def clean_values(data: dict[str, Any], *, partial: bool) -> dict[str, Any]:
+def clean_values(data: dict[str, Any], *, partial: bool, skip: tuple[str, ...] = ()) -> dict[str, Any]:
     unknown = set(data) - set(FIELDS)
     if unknown:
         raise ValidationError({name: gettext("Campo não permitido.") for name in sorted(unknown)})
@@ -128,7 +128,7 @@ def clean_values(data: dict[str, Any], *, partial: bool) -> dict[str, Any]:
             raise ValidationError({name: gettext("Campo obrigatório.") for name in missing})
     if "is_enabled" in data and type(data["is_enabled"]) is not bool:
         raise ValidationError({"is_enabled": gettext("Use true ou false.")})
-    return {name: cleaners[name](value) for name, value in data.items()}
+    return {name: cleaners[name](value) for name, value in data.items() if name not in skip}
 
 
 def _lock(actor: Any) -> Any:
@@ -136,6 +136,13 @@ def _lock(actor: Any) -> Any:
     from skeleton.access.services import organization_lock
 
     return organization_lock(actor, capability=INTEGRATIONS_MANAGE)
+
+
+def _require_manage(actor: Any) -> None:
+    """The denial ``_lock`` would give, before any outbound name lookup runs for the caller."""
+    from skeleton.access.capabilities import INTEGRATIONS_MANAGE, require_capability
+
+    require_capability(actor, INTEGRATIONS_MANAGE)
 
 
 def _locked_endpoint(endpoint: Any, expected_revision: int | None) -> Any:
@@ -152,8 +159,11 @@ def _locked_endpoint(endpoint: Any, expected_revision: int | None) -> Any:
 def create_endpoint(*, actor: Any, data: dict[str, Any]) -> IssuedSecret:
     from .models import WebhookEndpoint
 
+    _require_manage(actor)
+    # The URL check resolves a name: it runs before the organization lock, never under it (#295).
+    values = clean_values(data, partial=False, skip=("principal",))
     with _lock(actor) as organization:
-        values = clean_values(data, partial=False)
+        values["principal"] = _clean_principal(data["principal"])
         secret = _new_secret()
         endpoint = WebhookEndpoint(organization=organization, secret_ciphertext=secret, **values)
         endpoint.save()
@@ -161,8 +171,12 @@ def create_endpoint(*, actor: Any, data: dict[str, Any]) -> IssuedSecret:
 
 
 def update_endpoint(endpoint: Any, *, actor: Any, data: dict[str, Any], expected_revision: int) -> Any:
+    _require_manage(actor)
+    values = clean_values(data, partial=True, skip=("principal",))
     with _lock(actor):
-        values = clean_values(data, partial=True)
+        if "principal" in data:
+            # The principal depends on the memberships: it is checked under the lock.
+            values["principal"] = _clean_principal(data["principal"])
         locked = _locked_endpoint(endpoint, expected_revision)
         changed = {name for name, value in values.items() if getattr(locked, name) != value}
         for name in changed:

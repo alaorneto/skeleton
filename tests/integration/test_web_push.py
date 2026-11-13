@@ -207,3 +207,83 @@ def test_page_keeps_push_hidden_without_javascript(scenario):
     with override_settings(WEBPUSH_VAPID_PRIVATE_KEY_FILE=""):
         assert "data-push-optin" not in client.get(reverse("notifications:preferences")).content.decode()
         assert client.get(reverse("notifications:service-worker")).status_code == 404
+
+
+def _in_thread(function):
+    """Run ``function`` in another thread with its own database connection (a second session)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    def run():
+        connections.close_all()
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
+
+
+def test_subscriptions_are_not_locked_while_the_push_is_sent(scenario, monkeypatch):
+    """No subscription row is locked during the HTTP push (#295)."""
+    from uuid import uuid4
+
+    from django.db import OperationalError
+
+    from skeleton.tenancy.context import request_context
+
+    service = FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    [subscription] = subscriptions(scenario.member)
+    seen = []
+
+    def probe():
+        try:
+            with request_context(actor=scenario.member, request_id=uuid4(), source="test:probe"):
+                WebPushSubscription.objects.select_for_update(nowait=True).get(pk=subscription.pk)
+            return "free"
+        except OperationalError:
+            return "locked"
+
+    original = service.request
+
+    def request(*args, **kwargs):
+        seen.append(_in_thread(probe))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "request", request)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-L1", title="Lock")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert seen == ["free"]
+    [after] = subscriptions(scenario.member)
+    assert after.last_success_at is not None
+
+
+def test_unsubscribing_during_the_push_does_not_fail_the_job(scenario, monkeypatch):
+    from uuid import uuid4
+
+    from skeleton.notifications.channels.push import unsubscribe
+    from skeleton.tenancy.context import request_context
+
+    service = FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    original = service.request
+
+    def gone_meanwhile():
+        with request_context(actor=scenario.member, request_id=uuid4(), source="test:unsubscribe"):
+            return unsubscribe(scenario.member, endpoint=ENDPOINT)
+
+    def request(*args, **kwargs):
+        assert _in_thread(gone_meanwhile) is True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "request", request)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-L2", title="Gone")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert subscriptions(scenario.member) == []
+    with system_context(reason="test:push-deliveries", organization_id=scenario.a.pk):
+        assert {row.state for row in NotificationDelivery.objects.filter(channel="push")} == {"sent"}

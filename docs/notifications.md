@@ -159,7 +159,7 @@ Com o push configurado, a página `/profile/notifications/` mostra a seção "Pu
 
 Quem tem `push` em `immediate` recebe, a cada notificação, uma `NotificationDelivery` (canal `push`) e o job `notifications.push`:
 
-- O job repete as checagens do email (pessoa ativa, preferência, leitura do alvo) e envia a cada assinatura viva da pessoa.
+- O job repete as checagens do email (pessoa ativa, preferência, leitura do alvo) e envia a cada assinatura viva da pessoa. As assinaturas não ficam bloqueadas durante os envios (inscrever e cancelar não esperam o push); o resultado de cada uma é gravado depois do último envio, relendo a linha com lock, e a espera por lock do job é limitada a 5 s (#295).
 - Payload mínimo: `{"title": <rótulo do tipo>, "url": <link de abertura>}`. O snapshot do alvo (o título, por exemplo) só entra quando o tipo declara `push_snapshot=True`.
 - O corpo é cifrado com `aes128gcm` (RFC 8291) e assinado com VAPID ES256 (RFC 8292). Os dois são implementados com `cryptography`, que já está no lock, e não com `pywebpush`, para não trazer `aiohttp`, `requests` e outras dependências. A saída é só pelo `skeleton.common.outbound_http` (anti-SSRF), e de novo só para hosts da allowlist.
 - 2xx conta como enviado. 404 ou 410 exclui logicamente a assinatura, sem retentativa. 429 e 5xx seguem o mesmo calendário de retentativas do email até `dead`.

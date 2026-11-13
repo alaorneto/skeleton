@@ -153,18 +153,29 @@ def _disable(endpoint: Any, now: Any) -> None:
     )
 
 
-def _record_attempt(delivery: Any, endpoint: Any, *, ok: bool, now: Any) -> None:
+def _record_attempt(endpoint_id: Any, *, ok: bool, now: Any) -> bool:
+    """Count the attempt on the endpoint's health; returns whether the endpoint is still enabled.
+
+    Runs after the HTTP request: the endpoint row is locked only here, for the short write (#295).
+    The lock also serializes the creation of the health row between two deliveries of one endpoint.
+    """
+    from .models import WebhookEndpoint
+
+    endpoint = WebhookEndpoint.objects.select_for_update().filter(pk=endpoint_id).first()
+    if endpoint is None:
+        return False  # Removed while the request was in flight: nothing to count.
     health = _health(endpoint)
     if ok:
         health.consecutive_failures = 0
         health.last_success_at = now
         health.save(update_fields={"consecutive_failures", "last_success_at"})
-        return
+        return bool(endpoint.is_enabled)
     health.consecutive_failures += 1
     health.last_failure_at = now
     health.save(update_fields={"consecutive_failures", "last_failure_at"})
     if health.consecutive_failures >= MAX_CONSECUTIVE_FAILURES and endpoint.is_enabled:
         _disable(endpoint, now)
+    return bool(endpoint.is_enabled)
 
 
 def _finish(delivery: Any, state: str, *, now: Any, **values: Any) -> None:
@@ -178,17 +189,21 @@ def _finish(delivery: Any, state: str, *, now: Any, **values: Any) -> None:
 def deliver(*, delivery_id: str, actor: Any) -> None:
     """Job handler, as the endpoint's principal in the delivery's tenant; never raises for HTTP outcomes."""
     from skeleton.access.policies import authorized_queryset
+    from skeleton.common.db import bound_lock_waits
     from skeleton.common.outbound_http import OutboundRequestFailed, OutboundRequestRefused, request
     from skeleton.system.registry import get_spec
+    from skeleton.tenancy.context import current_context
 
     from .models import WebhookDelivery, WebhookEndpoint
     from .services import signing_secrets
 
     now = timezone.now()
+    bound_lock_waits(using=current_context().using)  # A held row fails the job in 5 s, it never hangs it.
     delivery = WebhookDelivery.objects.select_for_update().filter(pk=delivery_id).first()
     if delivery is None or delivery.state not in (WebhookDelivery.State.PENDING, WebhookDelivery.State.RETRYING):
         return  # Retention removed it, or an earlier run already decided it.
-    endpoint = WebhookEndpoint.objects.select_for_update().filter(pk=delivery.endpoint_id).first()
+    # Read without a lock: only the delivery row stays locked while the request is in flight (#295).
+    endpoint = WebhookEndpoint.objects.filter(pk=delivery.endpoint_id).first()
     if endpoint is None or not endpoint.is_enabled or endpoint.principal_id != actor.pk:
         _finish(delivery, WebhookDelivery.State.SKIPPED, now=now, error_code="endpoint_unavailable")
         return
@@ -222,12 +237,12 @@ def deliver(*, delivery_id: str, actor: Any) -> None:
     common = {"attempts": delivery.attempts, "last_attempt_at": now, "status_code": status, "response_snippet": snippet}
     if status is not None and 200 <= status < 300:
         _finish(delivery, WebhookDelivery.State.SUCCEEDED, now=now, delivered_at=now, error_code="", **common)
-        _record_attempt(delivery, endpoint, ok=True, now=now)
+        _record_attempt(endpoint.pk, ok=True, now=now)
         return
-    _record_attempt(delivery, endpoint, ok=False, now=now)
+    still_enabled = _record_attempt(endpoint.pk, ok=False, now=now)
     refused = bool(error) and error != "network_error"
     delay = None if refused else retry_delay(delivery.attempts)
-    if delay is not None and retryable(status) and endpoint.is_enabled:
+    if delay is not None and retryable(status) and still_enabled:
         delivery.state = WebhookDelivery.State.RETRYING
         delivery.next_attempt_at = now + delay
         delivery.error_code = error or f"http_{status}"

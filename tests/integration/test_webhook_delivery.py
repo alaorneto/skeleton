@@ -379,3 +379,75 @@ def test_retention_deletes_only_expired_final_deliveries(pipeline, receiver):
         remaining = set(WebhookDelivery.objects.values_list("pk", flat=True))
     # Not final yet, or the original of a live resend: both wait.
     assert remaining == {referenced.pk, retrying.pk, resend.pk}
+
+
+def _in_thread(function):
+    """Run ``function`` in another thread with its own database connection (a second session)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    def run():
+        connections.close_all()
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
+
+
+def _ok():
+    from skeleton.common import outbound_http
+
+    return outbound_http.OutboundResponse(status=200, headers={}, body=b"ok", truncated=False)
+
+
+def test_endpoint_is_not_locked_while_the_request_is_in_flight(pipeline, monkeypatch):
+    """Only the delivery row stays locked during the HTTP request (#295)."""
+    from django.db import OperationalError
+
+    from skeleton.common import outbound_http
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    seen = []
+
+    def probe():
+        try:
+            with actor_tenant(fixture.admin, fixture.a):
+                WebhookEndpoint.objects.select_for_update(nowait=True).get(pk=issued.endpoint.pk)
+            return "free"
+        except OperationalError:  # Lock not available.
+            return "locked"
+
+    def fake_request(*args, **kwargs):
+        seen.append(_in_thread(probe))
+        return _ok()
+
+    monkeypatch.setattr(outbound_http, "request", fake_request)
+    publish(fixture, fixture.shared)
+    drain()
+    assert seen == ["free"]
+    assert [delivery.state for delivery in deliveries(fixture)] == ["succeeded"]
+
+
+def test_lock_waits_are_bounded_inside_the_delivery(pipeline, monkeypatch):
+    from django.db import connection
+
+    from skeleton.common import outbound_http
+
+    fixture, _, _ = pipeline
+    seen = []
+
+    def fake_request(*args, **kwargs):
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW lock_timeout")
+            seen.append(cursor.fetchone()[0])
+        return _ok()
+
+    monkeypatch.setattr(outbound_http, "request", fake_request)
+    publish(fixture, fixture.shared)
+    drain()
+    assert seen == ["5s"]

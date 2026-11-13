@@ -261,10 +261,13 @@ def _still_wanted(user: Any, type_code: str) -> bool:
 
 def send_push(*, delivery_id: str) -> None:
     """Job handler (system context of the organization); never raises for a push outcome."""
+    from skeleton.common.db import bound_lock_waits
     from skeleton.common.outbound_http import OutboundRequestFailed, OutboundRequestRefused, request
+    from skeleton.tenancy.context import current_context
 
     from ..models import NotificationDelivery, WebPushSubscription
 
+    bound_lock_waits(using=current_context().using)  # A held row fails the job in 5 s, it never hangs it.
     delivery = NotificationDelivery.objects.select_for_update().filter(pk=delivery_id).first()
     if delivery is None or delivery.state not in OPEN_STATES:
         return
@@ -282,16 +285,18 @@ def send_push(*, delivery_id: str) -> None:
     if not push_configured():
         finish(delivery, "skipped", error_code="push_unconfigured")
         return
-    subscriptions = list(WebPushSubscription.objects.select_for_update().filter(user_id=user.pk).order_by("sysid"))
+    # No lock while the pushes are in flight: subscribe/unsubscribe of the person never wait on them (#295).
+    subscriptions = list(WebPushSubscription.objects.filter(user_id=user.pk).order_by("sysid"))
     if not subscriptions:
         finish(delivery, "skipped", error_code="no_subscription")
         return
     payload = payload_for(notification, user.pk)
     sent, retry, error = 0, False, ""
+    outcomes: list[tuple[Any, str]] = []  # (subscription pk, "sent" | "gone"), written after every request
     for subscription in subscriptions:
         endpoint = subscription.endpoint.reveal()
         if not endpoint_allowed(endpoint):
-            subscription.delete()
+            outcomes.append((subscription.pk, "gone"))
             continue
         body = encrypt(payload, p256dh=subscription.p256dh.reveal(), auth=subscription.auth_secret.reveal())
         headers = {
@@ -311,13 +316,22 @@ def send_push(*, delivery_id: str) -> None:
             continue
         if 200 <= response.status < 300:
             sent += 1
-            subscription.last_success_at = timezone.now()
-            subscription.save(update_fields={"last_success_at"})
+            outcomes.append((subscription.pk, "sent"))
         elif response.status in GONE:
-            subscription.delete()  # The browser revoked it: logical delete, never retried.
+            outcomes.append((subscription.pk, "gone"))  # The browser revoked it: logical delete, never retried.
         else:
             error = f"http_{response.status}"
             retry = retry or response.status == 429 or response.status >= 500
+    # Short writes after the last request: each row is re-read under its lock (it may have changed meanwhile).
+    for pk, outcome in outcomes:
+        current = WebPushSubscription.objects.select_for_update().filter(pk=pk).first()
+        if current is None:
+            continue  # Unsubscribed while the push was in flight.
+        if outcome == "gone":
+            current.delete()
+        else:
+            current.last_success_at = timezone.now()
+            current.save(update_fields={"last_success_at"})
     if sent:
         finish(delivery, "sent", attempts=delivery.attempts + 1, sent_at=timezone.now(), error_code="")
     elif retry:
