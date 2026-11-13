@@ -293,6 +293,13 @@ _SPECS = (
         _int(0),
     ),
     SettingSpec(
+        "billing_usage_retention_days",
+        "SKELETON_BILLING_USAGE_RETENTION_DAYS",
+        "int",
+        "Dias de histórico diário de armazenamento",
+        _int(31),
+    ),
+    SettingSpec(
         "billing_trial_requires_payment_method",
         "SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD",
         "bool",

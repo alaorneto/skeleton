@@ -14,7 +14,12 @@ from typing import Literal
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
-from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist, MissingTenantContext
+from skeleton.common.exceptions import (
+    ConcurrentUpdate,
+    LiveReferencesExist,
+    MissingTenantContext,
+    QuotaLimitExceeded,
+)
 
 Kind = Literal["conflict", "invalid", "context"]
 
@@ -57,6 +62,8 @@ def classify(exc: BaseException) -> InternalError | None:
         return InternalError("conflict", "last_administrator")
     if isinstance(exc, LastPlatformAdministrator):
         return InternalError("conflict", "last_platform_administrator")
+    if isinstance(exc, QuotaLimitExceeded):
+        return InternalError("conflict", "quota_exceeded")
     if isinstance(exc, ValidationError):
         if is_unique_conflict(exc):
             return InternalError("conflict", "integrity_conflict", validation_fields(exc))

@@ -494,6 +494,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_billing.usagesnapshot": (
+            gettext_lazy("Uso de armazenamento por dia"),
+            gettext_lazy("Bytes dos anexos de uma organização num dia, com a quebra por app; operacional."),
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),
             gettext_lazy("Histórico transacional imutável de alterações, com dados sensíveis redigidos."),

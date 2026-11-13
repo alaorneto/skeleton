@@ -201,6 +201,8 @@ SKELETON_BILLING_INVOICE_PREFIX = env("SKELETON_BILLING_INVOICE_PREFIX", default
 # Currency of a new billing account, the days to pay an invoice and whether a trial needs a payment method (#396).
 SKELETON_BILLING_DEFAULT_CURRENCY = env("SKELETON_BILLING_DEFAULT_CURRENCY", default="BRL")
 SKELETON_BILLING_PAYMENT_TERMS_DAYS = env.int("SKELETON_BILLING_PAYMENT_TERMS_DAYS", default=7)
+# Daily storage snapshots kept for the overage and the usage report (#398).
+SKELETON_BILLING_USAGE_RETENTION_DAYS = env.int("SKELETON_BILLING_USAGE_RETENTION_DAYS", default=400)
 SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD = env.bool(
     "SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD", default=False
 )

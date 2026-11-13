@@ -37,5 +37,16 @@ class OrganizationAccessLimited(PermissionDenied):
         super().__init__(code)
 
 
+class QuotaLimitExceeded(ValidationError):
+    """The plan limit of a metric would be passed (#398); surfaces answer 409 ``quota_exceeded``."""
+
+    def __init__(self, metric, limit):
+        self.metric = metric
+        self.limit = limit
+        super().__init__(
+            {"__all__": ValidationError(f"Plan limit of {metric} reached ({limit}).", code="quota_exceeded")}
+        )
+
+
 class ApplicationUnavailable(PermissionDenied):
     """The platform withdrew the app from this organization; surfaces answer 404, not 403."""

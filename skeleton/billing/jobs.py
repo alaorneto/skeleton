@@ -9,9 +9,10 @@ nothing.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
 
 CYCLE_JOB = "billing.cycle"
+USAGE_JOB = "billing.usage_snapshot"
 MAX_PERIODS_PER_RUN = 24
 
 
@@ -36,8 +37,15 @@ def register_billing_jobs(*, enabled: bool) -> None:
     from skeleton.jobs.periodic import register_periodic
     from skeleton.jobs.registry import JobType, register_job_type
 
+    from .quota import snapshot_job
+
     register_job_type(
         JobType(CYCLE_JOB, cycle, {"window": "str"}, run_as="system", max_attempts=5, owner_app="sk_billing")
     )
+    register_job_type(
+        JobType(USAGE_JOB, snapshot_job, {"window": "str"}, run_as="system", max_attempts=3, owner_app="sk_billing")
+    )
     if enabled:
         register_periodic("billing-cycle", CYCLE_JOB, every=timedelta(hours=1))
+        # Late in the UTC day, so the day's snapshot exists before a midnight renewal.
+        register_periodic("billing-usage", USAGE_JOB, daily_at=time(23, 50))

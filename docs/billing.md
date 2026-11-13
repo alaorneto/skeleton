@@ -38,6 +38,7 @@ O catálogo é global (`SystemRecord`) e só a plataforma o escreve. O que perte
 | `SubscriptionItem` | organização | Uma linha precificada da assinatura (plano, app ou pacote), com quantidade, situação (`pending`, `active`, `ended`), datas e fim do trial. Preço e app são imutáveis; as linhas encerradas são o histórico que impede um segundo trial do mesmo produto. |
 | `Invoice` | organização | O valor devido. Número, moeda, subtotal, desconto, imposto, total, período e emissão são **imutáveis** depois de emitida; só o estado de cobrança muda (`open`, `paid`, `void`, `uncollectible`, valor pago e datas), sempre com a revisão. O banco confere `total = subtotal − desconto + imposto`, valor pago ≤ total e que uma fatura paga tem data e valor integral. |
 | `InvoiceLine` | organização | Uma linha da fatura (`subscription`, `proration`, `overage`, `discount`, `adjustment`). **Nunca muda nem é excluída**: todas as colunas, inclusive as de exclusão lógica, são imutáveis no guard do banco. Desconto é negativo. |
+| `UsageSnapshot` | operacional | O armazenamento da organização num dia UTC, com a quebra por app; base do excedente e do relatório de uso. |
 | `Payment` | organização | Uma tentativa de pagamento: método (`card`, `pix`, `boleto`, `offline`), situação, valor na moeda da fatura, provedor e a referência dele (única por provedor). O pagamento `offline` é o registro manual da plataforma e não tem provedor. |
 
 ### Numeração das faturas
@@ -53,6 +54,7 @@ Quem emite as faturas é a plataforma, então a numeração é **global e sem la
 | `SKELETON_BILLING_DEFAULT_CURRENCY` | `BRL` | Moeda das novas contas de cobrança e do preço padrão que elas recebem |
 | `SKELETON_BILLING_PAYMENT_TERMS_DAYS` | `7` | Dias para pagar uma fatura de renovação |
 | `SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD` | `false` | Trial só com meio de pagamento cadastrado |
+| `SKELETON_BILLING_USAGE_RETENTION_DAYS` | `400` | Dias de fotografias diárias de armazenamento (mínimo 31) |
 | `BILLING_ENCRYPTION_KEYS` | vazio | Keyring Fernet dos segredos dos provedores de pagamento, separado dos outros e nunca derivado de `SECRET_KEY`. O primeiro cifra e todos decifram. |
 
 Todos ficam no catálogo da [instância](deployment.md), editáveis em `/platform/instance/`. Com a cobrança ligada e sem o keyring, `manage.py check` falha com `skeleton.E037`. Um keyring inválido é `skeleton.E026`, como os demais.
@@ -107,6 +109,17 @@ A plataforma cria vouchers (`Voucher`, global, termos imutáveis) e a organizaç
 
 O código é guardado normalizado (sem espaços, em maiúsculas), então o resgate ignora caixa e espaços. Código inexistente, inativo, fora da validade, esgotado (`max_redemptions`, contado sob o lock da linha do voucher, então o último uso tem um vencedor) ou de outra moeda respondem igual, `invalid_voucher`; o mesmo voucher de novo na organização é `already_redeemed`. As tentativas são limitadas a 10 por hora por organização e por pessoa (`too_many_attempts`), no cache compartilhado.
 
+### Cotas
+
+**Armazenamento.** A franquia é a soma de `included_storage_bytes × quantity` dos itens ativos, num pool da organização. O preço do plano base diz o que acontece acima dela:
+
+- `block` (padrão): o upload além da franquia é recusado (409 `quota_exceeded`);
+- `bill`: o upload segue até `overage_hard_cap_bytes` (sem teto, ilimitado), e a renovação cobra o excesso do período que fecha, em blocos de `overage_unit_bytes` a `overage_unit_amount`, pelo **pico** das fotografias diárias daquele período (linha `overage`).
+
+Sem assinatura, ou com franquia zero, vale o padrão da instância (`SKELETON_FILES_ORG_QUOTA_BYTES`), e a `StorageQuota` da plataforma continua tendo precedência ([arquivos](files.md#cota-por-organização)). O job diário `billing.usage_snapshot` (23h50 UTC) grava `UsageSnapshot`: os bytes dos anexos vivos da organização naquele dia e, como relatório, a quebra por app (pelo label da app da tabela de cada anexo). Fotografias mais antigas que `SKELETON_BILLING_USAGE_RETENTION_DAYS` (padrão 400) são apagadas pelo mesmo job.
+
+**Limites de plano.** Uma métrica é registrada em código com `skeleton.billing.quota.register_quota_metric(código, contador)`, em que `contador(organization_id)` devolve a quantidade atual no contexto da organização. O núcleo registra `members` (vínculos ativos), conferida ao admitir ou reativar um vínculo (`admit_member`, `update_membership`, pelo gancho `check_limit` de `skeleton.common.entitlements`). Uma app registra as suas como `<app_label>.<nome>`. O `limits` de um preço dá o máximo de cada métrica; os limites dos itens ativos se somam (um pacote de assentos soma ao plano); uma métrica que nenhum item limita é ilimitada. Passar do limite levanta `QuotaLimitExceeded`, que as superfícies e a API de serviços tratam como conflito `quota_exceeded`.
+
 ### Impostos
 
 O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora com `skeleton.billing.tax.register_tax_calculator(...)` em `ready()`: ela recebe a conta e as linhas e devolve o imposto na menor unidade da moeda. Nota fiscal fica fora do núcleo; um consumidor de `billing.invoice_paid` pode entregá-la a um emissor.
@@ -115,7 +128,6 @@ O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora co
 
 | Issue | Entrega |
 |---|---|
-| [#398](https://github.com/alaorneto/skeleton/issues/398) | Cotas: excedente de armazenamento e limites de plano |
 | [#399](https://github.com/alaorneto/skeleton/issues/399) | Régua de inadimplência e bloqueio progressivo |
 | [#400](https://github.com/alaorneto/skeleton/issues/400) | Interface de provedor, webhooks de entrada e conciliação |
 | [#401](https://github.com/alaorneto/skeleton/issues/401), [#402](https://github.com/alaorneto/skeleton/issues/402), [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |

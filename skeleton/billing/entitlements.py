@@ -6,8 +6,10 @@ What an organization may use comes from its current subscription:
   while an active item sells it, or while an active base plan includes it. An app without a
   product is free and never closed by billing.
 - **Access:** the account's ``access_state``, kept by the dunning job (#399).
-- **Storage:** the sum of ``included_storage_bytes × quantity`` of the active items; ``NO_OPINION``
+- **Storage:** the sum of ``included_storage_bytes × quantity`` of the active items, or the
+  overage hard cap when the base plan bills the excess (``quota.storage_quota``); ``NO_OPINION``
   without a subscription or when no item includes storage, so the platform setting applies.
+- **Limits:** the plan limits of the registered quota metrics (``quota.check_quota``).
 - **Exempt routes:** the billing pages, for the organization administrator (#404 narrows it to
   the billing capability).
 
@@ -62,20 +64,27 @@ def _load(organization_id: UUID) -> Summary:
     subscription = current_subscription()
     if subscription is None:
         return Summary(paid, frozenset(), access, NO_OPINION)
+    from .quota import storage_quota
+
     items = live_items(subscription, now=engine.clock())
     entitled: set[str] = set()
-    storage = 0
     for item in items:
         if item.app_label:
             entitled.add(item.app_label)
         if item.price.product.kind == Product.Kind.BASE_PLAN:
             entitled.update(item.price.included_apps)
-        storage += item.price.included_storage_bytes * item.quantity
-    # No item sets an allowance: the instance default applies, never a quota of zero bytes.
-    return Summary(paid, frozenset(entitled), access, storage or NO_OPINION)
+    # Block: the allowance (zero means the instance default); bill: the hard cap (#398).
+    return Summary(paid, frozenset(entitled), access, storage_quota(items))
 
 
 class BillingPolicy:
+    def check_limit(self, organization_id: UUID, metric: str, increment: int) -> None:
+        from .quota import check_quota, registered_metrics
+
+        if current_context().organization_id != organization_id or metric not in registered_metrics():
+            return
+        check_quota(metric, increment=increment)
+
     def entitled_apps(self, organization_id: UUID, app_labels: tuple[str, ...]) -> dict[str, bool]:
         summary = _summary(organization_id)
         if summary is None:

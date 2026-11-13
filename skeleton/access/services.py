@@ -243,6 +243,10 @@ def admit_member(*, organization: Organization, user: User, role: Role) -> Membe
 
     membership = Membership.all_objects.filter(organization=organization, user=user).first()
     was_active = membership is not None and membership.is_active and membership.deleted_at is None
+    if not was_active:
+        from skeleton.common.entitlements import check_limit
+
+        check_limit(organization.pk, "members", 1)  # The plan's seats (#398).
     if membership is None:
         membership = Membership(organization=organization, user=user, is_active=True)
         membership.save()
@@ -311,6 +315,10 @@ def update_membership(record: Membership, *, user: User | None, data: Mapping[st
 
         was_active = record.is_active
         record.is_active = data.get("is_active", record.is_active)
+        if record.is_active and not was_active:
+            from skeleton.common.entitlements import check_limit
+
+            check_limit(record.organization_id, "members", 1)  # The plan's seats (#398).
         record.save(update_fields={"is_active"})
         membership_changed(record, was_active=was_active)
         ensure_last_admin()

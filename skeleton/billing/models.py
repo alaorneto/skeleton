@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.exceptions import ImmutableRecord
-from skeleton.common.models import OrganizationRecord, SystemRecord
+from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
 
 from .money import validate_currency
 
@@ -661,3 +661,27 @@ class VoucherRedemption(OrganizationRecord):
 
     def __str__(self):
         return f"{self.voucher_id} {self.remaining_cycles}"
+
+
+class UsageSnapshot(OperationalRecord):
+    """Storage of one organization on one UTC day (#398): the overage reads the period's peak.
+
+    ``by_app`` is a report (bytes per app label of the attachments' tables); retention deletes
+    rows older than ``SKELETON_BILLING_USAGE_RETENTION_DAYS``.
+    """
+
+    organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_billing_usage_snapshots"
+    )
+    day = models.DateField()
+    bytes_used = models.PositiveBigIntegerField(default=0)
+    by_app = models.JSONField(default=dict)
+    immutable_fields = ("day",)
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=("organization", "day"), name="sk_billing_usage_day"),
+        ]
+
+    def __str__(self):
+        return f"{self.organization_id} {self.day} {self.bytes_used}"
