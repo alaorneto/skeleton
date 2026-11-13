@@ -216,6 +216,18 @@ def _run_handler(job: Job, job_type, worker_id: str, using: str) -> None:
             raise RuntimeError("Job lease was lost.")
 
 
+def _owner_app_enabled(job: Job, job_type: Any, using: str) -> bool:
+    """A job of an app disabled in its organization is cancelled before the handler (#337)."""
+    if job.job_organization_id is None:
+        return True
+    from skeleton.tenancy.context import system_context
+
+    from .registry import owner_app_enabled
+
+    with system_context(reason=f"job-gate:{job.job_type}", organization_id=job.job_organization_id, using=using):
+        return owner_app_enabled(job_type)
+
+
 def _organization_active(job: Job, using: str) -> bool:
     if job.job_organization_id is None:
         return True
@@ -250,6 +262,10 @@ def _execute(job: Job, worker_id: str, *, using: str) -> Outcome:
     if not _organization_active(job, using):
         _finish(job, worker_id, Job.State.CANCELLED, using=using, last_error_code="organization_inactive")
         _log("job.skipped", job, reason_code="organization_inactive")
+        return Outcome(job.pk, job.job_type, Job.State.CANCELLED)
+    if not _owner_app_enabled(job, job_type, using):
+        _finish(job, worker_id, Job.State.CANCELLED, using=using, last_error_code="application_disabled")
+        _log("job.skipped", job, reason_code="application_disabled")
         return Outcome(job.pk, job.job_type, Job.State.CANCELLED)
     try:
         _run_handler(job, job_type, worker_id, using)

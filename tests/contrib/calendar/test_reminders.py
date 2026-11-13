@@ -90,3 +90,27 @@ def test_the_periodic_job_is_registered_per_organization(agenda, daily):
             Job.all_objects.filter(job_type=reminders.JOB).values_list("job_organization_id", flat=True)
         )
     assert {agenda.a.pk, agenda.b.pk} <= organizations
+
+
+def test_reminder_job_is_not_scheduled_for_an_organization_without_the_app(agenda, daily):
+    """With the calendar disabled in B, the reminder job is scheduled for A only (#337)."""
+    from skeleton.jobs.models import Job
+    from skeleton.jobs.periodic import schedule_due
+    from skeleton.system.applications import application_state, configure_application
+
+    with actor_tenant(agenda.bob, agenda.b):
+        state = application_state("skeleton_calendar")
+        configure_application(
+            "skeleton_calendar",
+            user=agenda.bob,
+            enabled=False,
+            configuration=state["configuration"],
+            revision=state["revision"],
+        )
+    schedule_due(now=NOW)
+    with system_context(reason="test:reminders-jobs"):
+        organizations = set(
+            Job.all_objects.filter(job_type=reminders.JOB).values_list("job_organization_id", flat=True)
+        )
+    assert agenda.a.pk in organizations
+    assert agenda.b.pk not in organizations
