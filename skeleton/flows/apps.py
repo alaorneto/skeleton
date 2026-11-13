@@ -25,5 +25,8 @@ class FlowsConfig(AppConfig):
 
         register_event_waits()
         register_automatic_steps()
+        from .subflows import register_subflows
+
+        register_subflows()
         register_human_steps()
         register_flow_notification_types()

@@ -290,6 +290,9 @@ def suspend_instance(instance_id: Any, *, actor: Any, expected_revision: int, re
     execution.touch(status="suspended")
     execution.log("instance_suspended", comment=comment)
     execution.finish()
+    from .subflows import suspend_children
+
+    suspend_children(instance)  # Its running subflows pause with it (#412).
     return instance
 
 

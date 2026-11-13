@@ -103,6 +103,9 @@ class FlowInstance(OrganizationRecord):
     run_count = models.PositiveIntegerField(default=0)
     activity_count = models.PositiveIntegerField(default=0)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # A subflow (#412): the instance that started this one and the step run waiting for it.
+    parent = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="children")
+    parent_run = models.ForeignKey("FlowStepRun", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
     immutable_fields = (
         "definition_id",
         "flow_key",
@@ -112,6 +115,8 @@ class FlowInstance(OrganizationRecord):
         "subject_sysid",
         "starter_id",
         "idempotency_key",
+        "parent_id",
+        "parent_run_id",
     )
 
     class Meta(OrganizationRecord.Meta):

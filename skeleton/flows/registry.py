@@ -42,6 +42,7 @@ from .spec import (
     parallel,
     service,
     start,
+    subflow,
     task,
     timer,
     truthy,
@@ -87,6 +88,7 @@ __all__ = [
     "register_flow_handler",
     "service",
     "start",
+    "subflow",
     "task",
     "timer",
     "truthy",
@@ -226,6 +228,31 @@ def spec_problems(spec: FlowSpec) -> list[str]:
     )
 
 
+def _subflow_cycles() -> list[str]:
+    """Flows declared in code that start each other in a loop (#412)."""
+    edges = {
+        spec.key: sorted({step.flow for step in spec.steps if step.kind == "subflow" and step.flow in _flows})
+        for spec in all_flows()
+    }
+    problems: list[str] = []
+    state: dict[str, int] = {}
+
+    def visit(key: str, path: list[str]) -> None:
+        state[key] = 1
+        for target in edges.get(key, ()):
+            if state.get(target) == 1:
+                cycle = path[path.index(target) :] + [target]
+                problems.append("subflow cycle: " + " -> ".join(cycle))
+            elif target not in state:
+                visit(target, [*path, target])
+        state[key] = 2
+
+    for key in sorted(edges):
+        if key not in state:
+            visit(key, [key])
+    return problems
+
+
 def flow_problems() -> list[str]:
     """Every problem the system check ``skeleton.E029`` reports."""
     problems = [f"{name}: duplicate registration" for name in sorted(set(_duplicates))]
@@ -236,6 +263,7 @@ def flow_problems() -> list[str]:
                 problems.append(f"{kind} {name}: not callable")
             if not entry.owner_app:
                 problems.append(f"{kind} {name}: owner_app is required")
+    problems.extend(_subflow_cycles())
     for spec in all_flows():
         if not spec.owner_app:
             problems.append(f"{spec.key}: owner_app is required")

@@ -255,6 +255,16 @@ def _step_problems(step: Step, spec: FlowSpec) -> list[str]:
             problems.append(f"{where}: a wait has the received transition and, with a timeout, the timeout one")
         if type(step.timeout_seconds) is not int or not 0 <= step.timeout_seconds <= 366 * 86400:
             problems.append(f"{where}: invalid timeout")
+    elif kind == "subflow":
+        if not FLOW_KEY.fullmatch(step.flow or "") or len(step.flow) > 100:
+            problems.append(f"{where}: a subflow needs the key of the child flow")
+        if type(step.flow_version) is not int or step.flow_version < 1:
+            problems.append(f"{where}: a subflow pins a version from 1")
+        results = [item.on for item in out]
+        if not out or not all(results) or len(set(results)) != len(results):
+            problems.append(f"{where}: a subflow has one transition per child outcome")
+        if step.form is not None or step.assignees:
+            problems.append(f"{where}: a subflow has no form nor assignees")
     elif kind == "exclusive" or kind == "inclusive":
         if len(out) < 2:
             problems.append(f"{where}: a gateway needs at least two outgoing transitions")
@@ -469,6 +479,22 @@ def _subject_problems(spec: FlowSpec) -> list[str]:
                 problems.append(f"number sequence {spec.number_sequence!r} belongs to another app")
     from skeleton.events.registry import get_event_type
 
+    from .registry import get_flow
+
+    for step in spec.steps:
+        if step.kind != "subflow":
+            continue
+        try:
+            child = get_flow(step.flow)
+        except KeyError:
+            problems.append(f"step {step.key}: child flow {step.flow!r} is not declared in code")
+            continue
+        if child.owner_app != spec.owner_app:
+            problems.append(f"step {step.key}: child flow {step.flow!r} must be the app's own")
+        if child.subject_table != spec.subject_table:
+            problems.append(f"step {step.key}: child flow {step.flow!r} must run on the same table")
+        if step.flow == spec.key:
+            problems.append(f"step {step.key}: a flow cannot start itself")
     for step in spec.steps:
         if step.kind != "wait" or not step.event:
             continue

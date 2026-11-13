@@ -25,6 +25,7 @@ STEP_KINDS = (
     "service",
     "timer",
     "wait",
+    "subflow",
     "exclusive",
     "parallel",
     "inclusive",
@@ -234,6 +235,9 @@ class Step:
     # A wait advanced by a domain event instead of a signal (#411); see ``wait``.
     event: str = ""
     correlate: str = ""
+    # A subflow (#412): the child flow and the version pinned for it.
+    flow: str = ""
+    flow_version: int = 0
     timeout_seconds: int = 0
     outcome: str = ""
     join: str = ""
@@ -342,6 +346,15 @@ def wait(
     )
 
 
+def subflow(key: str, *, flow: str, version: int, label: str = "") -> Step:
+    """Start the flow ``flow`` at the pinned ``version`` on the same record, and wait for its end (#412).
+
+    The transitions take the child's outcome (``on="approved"``); a failed child fails this step,
+    and cancelling or suspending this flow does the same to the child.
+    """
+    return Step(key, "subflow", label, flow=flow, flow_version=version)
+
+
 def exclusive(key: str, *, label: str = "") -> Step:
     return Step(key, "exclusive", label)
 
@@ -375,7 +388,9 @@ class Transition:
         return self.key or f"{self.source}>{self.target}" + (f":{self.on}" if self.on else "")
 
 
-OPTIONAL_STEP_FIELDS = ("event", "correlate")
+# Step fields added after the first release, with the default that keeps them out of the
+# canonical form (and so out of the digest of every flow frozen before them).
+OPTIONAL_STEP_FIELDS = {"event": "", "correlate": "", "flow": "", "flow_version": 0}
 
 
 @dataclass(frozen=True)
@@ -453,8 +468,8 @@ class FlowSpec:
         for step in raw["steps"]:
             # Fields added after the first release stay out of the canonical form while empty,
             # so the digest of every flow frozen before them does not change (#411).
-            for name in OPTIONAL_STEP_FIELDS:
-                if step.get(name) == "":
+            for name, default in OPTIONAL_STEP_FIELDS.items():
+                if step.get(name) == default:
                     step.pop(name)
         return json.loads(json.dumps(raw))
 

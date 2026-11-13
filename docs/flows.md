@@ -108,6 +108,7 @@ def ready(self):
 | Aprovação | `approval(key, assignees=..., policy=..., quorum=..., form=..., sla=...)` | Cria uma tarefa por vaga de aprovador | A política resolve para `approved` ou `rejected` |
 | Serviço | `service(key, handler=..., outputs=..., max_attempts=3)` | Roda um handler registrado pela app, num job | O handler devolve um resultado opcional |
 | Temporizador | `timer(key, delay_seconds=...)` | Espera um tempo | O job do temporizador dispara |
+| Subfluxo | `subflow(key, flow="app.filho", version=N)` | Inicia o fluxo filho na versão fixada, sobre o mesmo registro, e espera o fim dele ([#412](https://github.com/alaorneto/skeleton/issues/412)) | o resultado (`outcome`) do filho |
 | Espera | `wait(key, signal=..., timeout_seconds=..., form=...)` ou `wait(key, event=..., correlate=...)` | Espera um sinal enviado pela app, ou um evento de domínio da app ([#411](https://github.com/alaorneto/skeleton/issues/411)) | `received` ou `timeout` |
 | Gateway exclusivo | `exclusive(key)` | Escolhe **uma** saída: a primeira condição verdadeira, na ordem declarada, ou a padrão | Imediato |
 | Bifurcação paralela | `parallel(key, join=...)` | Ativa **todas** as saídas | Imediato |
@@ -117,6 +118,8 @@ def ready(self):
 Subfluxos (uma etapa que inicia outro fluxo) ficam para o [ciclo 2](#o-que-fica-para-depois).
 
 **Espera por evento** ([#411](https://github.com/alaorneto/skeleton/issues/411)). `wait(key, event="app.tipo")` avança quando um evento de domínio daquele tipo é publicado sobre o registro de negócio da instância. Com `correlate="campo"`, avança quando esse campo declarado do evento traz o `sysid` do registro, para eventos de outra tabela. O tipo precisa ser da própria app e, sem `correlate`, sobre a tabela do registro; a espera por evento não tem formulário e aceita `timeout_seconds` como a de sinal. Quem entrega é o consumidor do núcleo `flows.event_waits`, que recebe só os eventos das apps, no contexto da organização do evento: um evento de outra organização nunca avança a instância, e uma entrega repetida encontra a espera já concluída e não faz nada. Os campos novos ficam fora da forma canônica enquanto vazios, então o digest dos fluxos já publicados não muda.
+
+**Subfluxos** ([#412](https://github.com/alaorneto/skeleton/issues/412)). A etapa `subflow` inicia o fluxo filho na versão fixada na própria spec (`version=N`), sobre o mesmo registro de negócio: publicar uma versão nova do filho não muda um pai em andamento. O filho nasce dentro do comando do pai (ordem de trava: pai, depois filho) e guarda `parent` e `parent_run`, imutáveis. O fim do filho chega ao pai por um job (`flows.subflow_finished`): concluído, a etapa segue pela transição do resultado do filho (`on="approved"`); com falha ou cancelado por fora, a etapa do pai falha. Cancelar o pai cancela o filho; suspender suspende, e retomar retoma. O check exige que o filho seja declarado em código pela mesma app, sobre a mesma tabela, uma transição por resultado e nenhum ciclo entre fluxos (`subflow cycle`). Um filho em dados e subfluxos de outra app ficam de fora.
 
 ### Transições
 
@@ -238,7 +241,7 @@ Sete tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisã
 |---|---|---|
 | `FlowDefinition` | `key`, `version`, `app_label`, `label`, `digest`, `specification` (JSON) | todos |
 | `FlowDraft` | `key`, `label`, `app_label`, `specification` (JSON, sem a versão), `published_version`, `published_at` | chave |
-| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at` | definição, chave, versão, número, registro de negócio, quem iniciou, chave de idempotência |
+| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at`, `parent`, `parent_run` | definição, chave, versão, número, registro de negócio, quem iniciou, chave de idempotência, pai e etapa do pai |
 | `FlowStepRun` | `instance`, `step_key`, `kind`, `status`, `sequence`, `scope`, `branch`, `via`, `outcome`, `state` (JSON), `due_at`, `finished_at` | instância, etapa, tipo, ordem, escopo, ramo, origem |
 | `FlowTask` | `instance`, `step_run`, `step_key`, `kind`, `status`, `slot`, `assignee`, `candidate_group`, `candidate_role`, `delegated_from`, `decision`, `action`, `comment`, `due_at`, `reminded_count`, `escalated_at`, `completed_by`, `completed_at` | instância, ativação, etapa, tipo, vaga |
 | `FlowSubmission` | `instance`, `step_run`, `task`, `step_key`, `transition_key`, `origin`, `values`, `sensitive_values` | todos |
@@ -340,7 +343,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 
 | Item | Por que não agora |
 |---|---|
-| Subfluxos | Exigem fixar a versão do fluxo filho e propagar cancelamento, suspensão e falha entre instâncias |
 | SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |
 | Migrar instâncias para outra versão | Precisa de um mapa de etapas entre versões e de regras para tarefas abertas |
 | Diagrama do fluxo e métricas | Apresentação e operação, sem efeito no contrato |
