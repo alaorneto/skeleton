@@ -203,6 +203,9 @@ class BillingAccount(OrganizationRecord):
     access_state_since = models.DateTimeField(default=timezone.now)
     terms_version_accepted = models.CharField(max_length=32, blank=True, default="")
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    # A platform extension (#399): the access level stays active until then, whatever is owed.
+    access_override_until = models.DateTimeField(null=True, blank=True)
+    access_override_reason = models.CharField(max_length=500, blank=True, default="")
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
@@ -370,6 +373,9 @@ class Invoice(OrganizationRecord):
     due_at = models.DateTimeField()
     paid_at = models.DateTimeField(null=True, blank=True)
     voided_at = models.DateTimeField(null=True, blank=True)
+    # Collection attempts of an auto-charge invoice and when the next one is due (#399).
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
     immutable_fields = (
         "account_id",
         "subscription_id",

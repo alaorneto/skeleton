@@ -273,10 +273,11 @@ def test_cancel_at_period_end_and_resume(billing):
         assert engine.current_subscription() is None
 
 
-def test_the_cycle_job_closes_every_missed_period(billing):
+def test_the_cycle_job_closes_every_missed_period(billing, settings):
     from skeleton.billing.jobs import cycle
     from skeleton.billing.models import Invoice
 
+    settings.SKELETON_BILLING_CANCEL_AFTER_DAYS = 3650  # Dunning (#399) would cancel a year-old debt.
     scenario, prices = billing
     with in_org(scenario.a):
         subscription = engine.start_subscription(prices["basic"], now=datetime(2025, 12, 1, tzinfo=UTC))

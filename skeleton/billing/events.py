@@ -5,6 +5,7 @@
   in process with ``register_consumer``.
 - ``billing.subscription_changed``: the subscription started, changed plan, renewed out of a
   trial, was scheduled to cancel or was canceled (its status).
+- ``billing.access_state_changed``: the derived access level of the organization changed (#399).
 
 Identifiers and amounts only, never contact data of the account. These types are not offered
 to outbound webhooks: the delivery re-authorizes a record read by the endpoint principal, and
@@ -18,6 +19,7 @@ EVENT_TYPES = (
     ("billing.invoice_finalized", "sk_billing.invoice", INVOICE_FIELDS),
     ("billing.invoice_paid", "sk_billing.invoice", INVOICE_FIELDS),
     ("billing.subscription_changed", "sk_billing.subscription", ("status",)),
+    ("billing.access_state_changed", "sk_billing.billingaccount", ("access_state",)),
 )
 
 

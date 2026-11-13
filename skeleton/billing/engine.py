@@ -77,6 +77,24 @@ def register_line_source(source: LineSource, *, order: int = 100) -> None:
     _line_sources.sort(key=lambda entry: entry[0])
 
 
+# Called after an invoice was issued: (invoice). The notices module (#399) registers one.
+_after_issue: list[Callable[[Any], None]] = []
+
+
+def register_after_issue(callback: Callable[[Any], None]) -> None:
+    if callback not in _after_issue:
+        _after_issue.append(callback)
+
+
+# Called after an invoice was paid: (invoice). The notices module (#399) registers one.
+_after_payment: list[Callable[[Any], None]] = []
+
+
+def register_after_payment(callback: Callable[[Any], None]) -> None:
+    if callback not in _after_payment:
+        _after_payment.append(callback)
+
+
 def register_after_settlement(callback: Callable[[Any, datetime], None]) -> None:
     if callback not in _after_settlement:
         _after_settlement.append(callback)
@@ -266,6 +284,8 @@ def issue_invoice(
         invoice,
         {"number": invoice.number, "status": invoice.status, "currency": currency, "total": invoice.total},
     )
+    for callback in _after_issue:
+        callback(invoice)
     if invoice.total == 0:
         settle_invoice(invoice, now=now)
     return invoice
@@ -279,10 +299,12 @@ def settle_invoice(invoice: Any, *, now: datetime | None = None) -> Any:
     invoice = Invoice.objects.select_for_update().get(pk=invoice.pk)
     if invoice.status == Invoice.Status.PAID:
         return invoice
-    if invoice.status != Invoice.Status.OPEN:
+    # An uncollectible invoice can still be paid (offline, by the platform): it clears the debt.
+    if invoice.status not in (Invoice.Status.OPEN, Invoice.Status.UNCOLLECTIBLE):
         raise _invalid("invoice", gettext("Só uma fatura em aberto pode ser paga."), "invoice_not_open")
     invoice.status, invoice.amount_paid, invoice.paid_at = Invoice.Status.PAID, invoice.total, now
-    invoice.save(update_fields={"status", "amount_paid", "paid_at"})
+    invoice.next_attempt_at = None
+    invoice.save(update_fields={"status", "amount_paid", "paid_at", "next_attempt_at"})
     activated = []
     for line in invoice.lines.filter(subscription_item__isnull=False).select_related("subscription_item"):
         item = SubscriptionItem.objects.select_for_update().get(pk=line.subscription_item_id)
@@ -317,6 +339,8 @@ def settle_invoice(invoice: Any, *, now: datetime | None = None) -> Any:
     forget()
     for callback in _after_settlement:
         callback(invoice.account, now)
+    for paid in _after_payment:
+        paid(invoice)
     activate_apps([item.app_label for item in activated if item.app_label])
     return invoice
 

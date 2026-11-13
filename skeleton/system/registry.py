@@ -525,6 +525,7 @@ def register_core_specs():
         # What the billing events carry (#396); contact data of the account never.
         "sk_billing.invoice": ("number", "status", "currency", "total"),
         "sk_billing.subscription": ("status",),
+        "sk_billing.billingaccount": ("access_state",),
     }
     for key, (label, description, scope, sensitive) in definitions.items():
         register(

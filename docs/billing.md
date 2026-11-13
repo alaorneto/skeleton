@@ -54,6 +54,11 @@ Quem emite as faturas é a plataforma, então a numeração é **global e sem la
 | `SKELETON_BILLING_DEFAULT_CURRENCY` | `BRL` | Moeda das novas contas de cobrança e do preço padrão que elas recebem |
 | `SKELETON_BILLING_PAYMENT_TERMS_DAYS` | `7` | Dias para pagar uma fatura de renovação |
 | `SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD` | `false` | Trial só com meio de pagamento cadastrado |
+| `SKELETON_BILLING_GRACE_DAYS` | `7` | Dias completos de atraso até o modo só leitura |
+| `SKELETON_BILLING_SUSPEND_AFTER_DAYS` | `30` | Dias de atraso até a suspensão |
+| `SKELETON_BILLING_CANCEL_AFTER_DAYS` | `60` | Dias de atraso até o cancelamento e a fatura incobrável |
+| `SKELETON_BILLING_RETRY_SCHEDULE_DAYS` | `1,3,5` | Dias após o vencimento das novas tentativas de cobrança automática |
+| `SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS` | `3` | Dias em que um pagamento pendente segura o bloqueio |
 | `SKELETON_BILLING_USAGE_RETENTION_DAYS` | `400` | Dias de fotografias diárias de armazenamento (mínimo 31) |
 | `BILLING_ENCRYPTION_KEYS` | vazio | Keyring Fernet dos segredos dos provedores de pagamento, separado dos outros e nunca derivado de `SECRET_KEY`. O primeiro cifra e todos decifram. |
 
@@ -120,6 +125,25 @@ Sem assinatura, ou com franquia zero, vale o padrão da instância (`SKELETON_FI
 
 **Limites de plano.** Uma métrica é registrada em código com `skeleton.billing.quota.register_quota_metric(código, contador)`, em que `contador(organization_id)` devolve a quantidade atual no contexto da organização. O núcleo registra `members` (vínculos ativos), conferida ao admitir ou reativar um vínculo (`admit_member`, `update_membership`, pelo gancho `check_limit` de `skeleton.common.entitlements`). Uma app registra as suas como `<app_label>.<nome>`. O `limits` de um preço dá o máximo de cada métrica; os limites dos itens ativos se somam (um pacote de assentos soma ao plano); uma métrica que nenhum item limita é ilimitada. Passar do limite levanta `QuotaLimitExceeded`, que as superfícies e a API de serviços tratam como conflito `quota_exceeded`.
 
+### Inadimplência
+
+O estado de acesso da organização é **derivado**, nunca digitado: da fatura em aberto mais antiga, dos prazos da instância e de uma prorrogação da plataforma. O `billing.cycle` (de hora em hora) o recalcula depois das renovações, e cada fatura paga o recalcula na hora (`skeleton/billing/dunning.py`).
+
+| Fatura em aberto mais antiga | Estado | Efeito ([ganchos](#ganchos-de-direito)) |
+|---|---|---|
+| nenhuma vencida | `active` | Normal |
+| vencida há menos de `SKELETON_BILLING_GRACE_DAYS` (7) dias completos | `past_due` | Acesso normal, com aviso |
+| menos de `SKELETON_BILLING_SUSPEND_AFTER_DAYS` (30) | `restricted` | Só leitura para pessoas |
+| a partir daí, ou uma fatura `uncollectible` | `suspended` | Só a cobrança, para o administrador |
+
+- Um pagamento ainda compensando (`pending`, criado nos últimos `SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS`, 3) segura o estado em `past_due`: um boleto ou Pix em trânsito não bloqueia quem pagou.
+- A prorrogação da plataforma (`access_override_until`, com motivo) mantém `active` até expirar.
+- Depois de `SKELETON_BILLING_CANCEL_AFTER_DAYS` (60), a assinatura é cancelada e as faturas vencidas viram `uncollectible`; a organização continua suspensa e **nenhum dado é apagado**. Pagar uma fatura incobrável (baixa manual da plataforma) a quita e reativa.
+- Assinaturas `auto_charge` têm novas tentativas `SKELETON_BILLING_RETRY_SCHEDULE_DAYS` dias depois do vencimento (`1,3,5`), pelos cobradores que o provedor registra (`dunning.register_collector`, [#400](https://github.com/alaorneto/skeleton/issues/400)).
+- O evento `billing.access_state_changed` (com `access_state`) sai a cada mudança.
+
+**Avisos.** Notificações obrigatórias, por email e na aplicação, para o papel de administrador da organização, sem tabela-alvo (a entrega reconfere que a pessoa ainda administra a organização). Cada etapa sai uma vez (`dedupe_key`), mesmo com o job rodando de novo: `billing.trial_ending` (três dias antes do fim do trial), `billing.invoice_issued`, `billing.invoice_overdue`, `billing.payment_failed`, `billing.payment_received`, `billing.access_restricted` e `billing.access_suspended`.
+
 ### Impostos
 
 O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora com `skeleton.billing.tax.register_tax_calculator(...)` em `ready()`: ela recebe a conta e as linhas e devolve o imposto na menor unidade da moeda. Nota fiscal fica fora do núcleo; um consumidor de `billing.invoice_paid` pode entregá-la a um emissor.
@@ -128,7 +152,6 @@ O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora co
 
 | Issue | Entrega |
 |---|---|
-| [#399](https://github.com/alaorneto/skeleton/issues/399) | Régua de inadimplência e bloqueio progressivo |
 | [#400](https://github.com/alaorneto/skeleton/issues/400) | Interface de provedor, webhooks de entrada e conciliação |
 | [#401](https://github.com/alaorneto/skeleton/issues/401), [#402](https://github.com/alaorneto/skeleton/issues/402), [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
 | [#404](https://github.com/alaorneto/skeleton/issues/404) | Páginas de cobrança da organização, API e `BillingService` |

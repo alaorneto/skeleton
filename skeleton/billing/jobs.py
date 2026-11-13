@@ -2,7 +2,7 @@
 
 ``billing.cycle`` runs in ``system_context`` of each active organization: it gives an
 organization without a subscription the default plan (an instance that turned billing on
-later) and closes every period that ended, one invoice per period. The periodic schedule is
+later), closes every period that ended (one invoice per period) and runs the dunning (#399). The periodic schedule is
 registered only with billing on, so an installation that does not sell the platform queues
 nothing.
 """
@@ -26,11 +26,14 @@ def cycle(**payload: object) -> None:
     for _ in range(MAX_PERIODS_PER_RUN):
         before = engine.current_subscription()
         if before is None:
-            return
+            break
         engine.renew_due()
         after = engine.current_subscription()
         if after is None or (after.pk == before.pk and after.current_period_end == before.current_period_end):
-            return
+            break
+    from .dunning import run
+
+    run()
 
 
 def register_billing_jobs(*, enabled: bool) -> None:

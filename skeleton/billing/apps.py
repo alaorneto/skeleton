@@ -15,10 +15,12 @@ class BillingConfig(AppConfig):
         from skeleton.common.organization_hooks import register_organization_created
 
         from . import checks  # noqa: F401 - registers the billing checks
+        from .dunning import register_dunning
         from .entitlements import POLICY
         from .events import register_billing_events
         from .jobs import register_billing_jobs
         from .lifecycle import organization_created
+        from .notices import register_notices
         from .quota import register_quota
         from .vouchers import register_voucher_lines
 
@@ -30,4 +32,6 @@ class BillingConfig(AppConfig):
         register_billing_events()
         register_voucher_lines()
         register_quota()
+        register_dunning()
+        register_notices()
         register_billing_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))
