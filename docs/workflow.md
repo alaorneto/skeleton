@@ -96,6 +96,8 @@ Ao mesclar, o workflow "Evidências no merge" comenta em cada issue fechada pelo
 
 A versão do projeto segue o versionamento semântico e é decidida por ferramenta, nunca editada à mão ([referência](../.claude/skills/dev-workflow/references/versioning.md)). A fonte única é a última tag de versão alcançável; os arquivos declarados em `versioning.files` são projeções reescritas a cada release. Só o label `release` faz um merge publicar versão: PRs sem ele se acumulam e entram, todos, na análise do próximo que tiver o label. O nível é o maior entre os sinais (labels de tipo das issues, Conventional Commits, marcador de breaking, superfícies públicas, pisos de versão no código e a análise por agente registrada no PR), e um label `semver:*` com motivo sobrepõe o cálculo. Em 0.x, uma quebra sobe o minor, e 1.0.0 só sai por decisão explícita (`semver:major`).
 
+Neste repositório, a versão do projeto é a do core (`django-skeleton`): o agente de deployment (`deployment_agent/pyproject.toml`, inclusive o pino `django-skeleton==`) e as apps first-party (manifesto e faixa recomendada da agenda) seguem o mesmo número, todos declarados em `.github/dev-workflow.toml`. Os pisos de core (`SERVICE_API_CORE_MINIMUM`, `MANIFEST_V2_CORE_MINIMUM`, `FIELD_DIMENSIONS_CORE_MINIMUM`, a faixa do manifesto do exemplo e os `since=` dos serviços) são pisos de funcionalidade: não acompanham o bump, e `release.py check` só confere que nenhum é maior que a versão publicada. Um piso novo acima da versão corrente é sinal de que a próxima versão precisa alcançá-lo.
+
 O workflow de release roda depois do merge, nunca no PR, para dois PRs simultâneos não disputarem o mesmo número. Ele escreve a versão, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release e marca os PRs e issues incluídos (comentário e milestone). É idempotente: reexecutar depois de concluir não faz nada, e depois de uma falha parcial conclui o que faltou. Há modo direto e modo por PR de release, pré-release (`--prerelease rc`), branch de manutenção `maint/X.Y` e reversão documentada.
 
 ## Mecanismos
@@ -111,11 +113,24 @@ O workflow de release roda depois do merge, nunca no PR, para dois PRs simultân
 | Epics | `.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
 | Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
 | Fechamento do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py close-epic` | Ao fechar a última sub-issue aberta, fecha o epic com comentário-resumo e sobe para o epic de cima |
-| CI | `.github/workflows/issue-link.yml` | O PR precisa citar uma issue existente deste repositório com exatamente um label de tipo. PRs do Dependabot ficam isentos |
+| PR | `.github/workflows/pr-check.yml` | "Verificação do PR": issue classificada, seções do PR, título e classificação de versão; avisos de critérios pendentes. Um segundo job comenta a prévia da versão. PRs do Dependabot e o PR de release ficam isentos |
+| Merge | `.github/workflows/pr-merged.yml` | Comentário de evidências em cada issue fechada pelo PR, uma vez |
+| Release | `.github/workflows/release.yml`, `release.py run` | No push da `main` (ou de `maint/**`), versiona se o PR mesclado tem o label `release`: arquivos, `CHANGELOG.md`, tag, GitHub Release e marcação |
+| Análise de versão | `.github/workflows/semver-analysis.yml` | Opcional: com o segredo `ANTHROPIC_API_KEY`, um agente registra no PR rotulado `release` o nível que o diff exige |
+| Autoteste | `.github/workflows/dev-workflow-selftest.yml` | A suíte do skill em Linux, Windows e macOS e `release.py check` |
 | Locks do Dependabot | `.github/workflows/dependabot-locks.yml`, `tools/workflow/dependabot_locks.py` | Regenera com uv os locks dos PRs de pip do Dependabot e commita no branch do PR, com `Refs #140`. Ver [testes](testing.md#locks-dos-prs-do-dependabot) |
 | GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
 
-O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona `.github/dev-workflow.toml` ou o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "PR vinculado a issue classificada" como check obrigatório na proteção da branch `main`.
+O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona `.github/dev-workflow.toml` ou o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "Verificação do PR" como check obrigatório na proteção da branch `main`.
+
+## Passos únicos do responsável
+
+A ferramenta não cria tag, release nem proteção de branch por conta própria. Uma vez:
+
+1. Tag de base: `py -3 .claude/skills/dev-workflow/scripts/release.py baseline 0.5.0` e `git push origin v0.5.0`. Sem ela, nada é versionado (`bootstrap.py doctor` mostra a pendência).
+2. Permissões do Actions: "Read and write permissions" para o `GITHUB_TOKEN` (o release grava commit, tag e release).
+3. Proteção da `main`: marque "Verificação do PR" como obrigatório. Se a `main` exigir PR para todo push, o commit de release é recusado: use `versioning.mode = "pr"` ou um token com bypass num segredo.
+4. Opcional: o segredo `ANTHROPIC_API_KEY`, para a análise de versão por agente.
 
 ## Preparação de um checkout
 

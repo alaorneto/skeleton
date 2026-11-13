@@ -1,9 +1,9 @@
 name: Caixas do epic
 
-# Ao fechar ou reabrir uma issue, marca [x] ou [ ] no item dela na seção "Itens" do epic pai
+# Ao fechar ou reabrir uma issue, marca [x] ou [ ] no item dela na seção de itens do epic pai
 # nativo (sub-issue). Cada execução reconcilia o epic inteiro e relê o corpo depois de gravar,
 # então execuções concorrentes para filhas do mesmo epic convergem. Ao fechar a última
-# sub-issue aberta, fecha também o epic com um comentário-resumo. Veja docs/workflow.md.
+# sub-issue aberta, fecha também o epic com um comentário-resumo (skill dev-workflow).
 
 on:
   issues:
@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Reconciliar a seção Itens do epic pai
+      - name: Reconciliar a seção de itens do epic pai
         # O número entra por variável de ambiente, nunca interpolado no script.
         env:
           GH_TOKEN: ${{ github.token }}

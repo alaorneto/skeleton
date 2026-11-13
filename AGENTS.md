@@ -21,7 +21,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
 - Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
 - Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`. Nunca `--no-verify`.
-- Versão: nunca editada à mão. Só o label `release` faz o merge publicar uma versão; PR sem ele fica acumulado. O nível vem da ferramenta (`release.py plan --pr N`) e um `semver:*` com motivo o sobrepõe ([docs/workflow.md](docs/workflow.md#versão-e-release)).
+- Versão: nunca editada à mão. Só o label `release` faz o merge publicar uma versão; PR sem ele fica acumulado. O nível vem da ferramenta (`release.py plan --pr N`) e um `semver:*` com motivo o sobrepõe ([docs/workflow.md](docs/workflow.md#versão-e-release)). A versão do projeto é a do core; agente e apps first-party seguem o mesmo número, e pisos de core (`*_CORE_MINIMUM`, `since=`, faixas de manifestos) não acompanham o bump.
 - A issue fecha só depois de aprovada: pelo merge do PR ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue ou abre outra.
 
 ## Fronteiras de código

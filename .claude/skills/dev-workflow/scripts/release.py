@@ -118,10 +118,23 @@ def file_versions(root: Path, item: VersionFile) -> list[str]:
     return [match.group("version") for match in re.finditer(pattern, text)]
 
 
+def placeholders(version: str) -> dict[str, object]:
+    """``{version}`` and the derived parts a range needs, such as ``<{major}.{next_minor}.0``."""
+    parsed = Version.parse(version)
+    return {
+        "version": version,
+        "major": parsed.major,
+        "minor": parsed.minor,
+        "patch": parsed.patch,
+        "next_minor": parsed.minor + 1,
+        "next_major": parsed.major + 1,
+    }
+
+
 def write_version(root: Path, item: VersionFile, current: str, new: str) -> bool:
     """Rewrite the entry from current to new; False when the file already carries new."""
     text = _read(root, item)
-    replacement = item.replace.format(version=new)
+    replacement = item.replace.format(**placeholders(new))
     if item.regex is not None:
         compiled = re.compile(item.regex, re.MULTILINE)
         matches = list(compiled.finditer(text))
@@ -133,9 +146,9 @@ def write_version(root: Path, item: VersionFile, current: str, new: str) -> bool
             raise ReleaseError(f"{item.path}: a versão no arquivo diverge de {current}.")
         updated = compiled.sub(lambda match: replacement, text)
     else:
-        old = item.search.format(version=current)  # type: ignore[union-attr]
+        old = item.search.format(**placeholders(current))  # type: ignore[union-attr]
         if old not in text:
-            if item.search.format(version=new) in text:  # type: ignore[union-attr]
+            if item.search.format(**placeholders(new)) in text:  # type: ignore[union-attr]
                 return False
             raise ReleaseError(f"{item.path}: {old!r} não foi encontrado.")
         updated = text.replace(old, replacement)
@@ -148,8 +161,8 @@ def check_files(config: Config, root: Path, version: str | None = None) -> list[
     problems: list[str] = []
     if version is None:
         try:
-            version = str(current_version(Context(config, root, "", _process("git", root), _process("gh", root))))
-        except ReleaseError as exc:
+            version = str(declared_version(Context(config, root, "", _process("git", root), _process("gh", root))))
+        except (ReleaseError, VersionError) as exc:
             return [str(exc)]
     published = Version.parse(version)
     for item in config.versioning.files:
@@ -250,6 +263,17 @@ def current_version(context: Context) -> Version:
     if tag is None:
         raise ReleaseError("nenhuma tag de versão alcançável: o responsável cria a de base com `release.py baseline`.")
     return Version.parse(tag[len(context.config.versioning.tag_prefix) :])
+
+
+def declared_version(context: Context) -> Version:
+    """The last reachable tag or, before the base tag exists, the version of the first declared file."""
+    if last_tag(context) is not None:
+        return current_version(context)
+    files = context.config.versioning.files
+    found = file_versions(context.root, files[0]) if files else []
+    if not found:
+        raise ReleaseError("sem tag de base e sem versão no primeiro arquivo de versioning.files.")
+    return Version.parse(found[0])
 
 
 def commits_since(context: Context, tag: str) -> list[Commit]:
@@ -773,7 +797,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print("arquivos de versão coerentes")
             return 1 if problems else 0
         if options.command == "bump":
-            current = str(current_version(context))
+            current = str(declared_version(context))
             new = str(Version.parse(options.version))
             for item in config.versioning.files:
                 write_version(config.root, item, current, new)

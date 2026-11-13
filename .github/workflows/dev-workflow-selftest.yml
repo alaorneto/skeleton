@@ -1,0 +1,35 @@
+name: Autoteste do dev-workflow
+
+# A suíte do próprio skill (unittest, só biblioteca padrão) nos três sistemas, mais a coerência
+# dos arquivos de versão com a configuração deste repositório.
+
+on:
+  push:
+    branches: [main]
+    paths: [".claude/skills/dev-workflow/**", ".github/dev-workflow.toml", ".github/workflows/dev-workflow-selftest.yml"]
+  pull_request:
+    paths: [".claude/skills/dev-workflow/**", ".github/dev-workflow.toml", ".github/workflows/dev-workflow-selftest.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: Skill dev-workflow (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+        python: ["3.11", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Testes do skill
+        run: python -m unittest discover -s .claude/skills/dev-workflow/tests -t .claude/skills/dev-workflow
+      - name: Arquivos de versão coerentes
+        run: python .claude/skills/dev-workflow/scripts/release.py check

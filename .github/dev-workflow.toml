@@ -98,7 +98,11 @@ conventional_title = true
 pending_criteria = "warning"
 
 [versioning]
-enabled = false
+# A versão do projeto é a do core (django-skeleton); o agente de deployment e as apps first-party
+# seguem o mesmo número. Pisos de core (constantes *_CORE_MINIMUM, faixas de manifestos de terceiros,
+# since=) são pisos de funcionalidade: não acompanham o bump, e `release.py check` só confere que
+# nenhum é maior que a versão publicada (docs/workflow.md, "Versão e release").
+enabled = true
 tag_prefix = "v"
 changelog = "CHANGELOG.md"
 release_label = "release"
@@ -106,7 +110,23 @@ breaking_label = "breaking-change"
 override_prefix = "semver:"
 mode = "direct"
 analysis_authors = ["github-actions[bot]"]
-# files = [{ path = "pyproject.toml", regex = '^version = "(?P<version>[^"]+)"', replace = 'version = "{version}"' }]
-files = []
-public_surfaces = []
-floors = []
+files = [
+  { path = "pyproject.toml", regex = '^version = "(?P<version>[^"]+)"', replace = 'version = "{version}"' },
+  { path = "deployment_agent/pyproject.toml", regex = '^version = "(?P<version>[^"]+)"', replace = 'version = "{version}"' },
+  { path = "deployment_agent/pyproject.toml", regex = '"django-skeleton==(?P<version>[^"]+)"', replace = '"django-skeleton=={version}"' },
+  { path = "skeleton/contrib/calendar/manifest.json", regex = '^  "version": "(?P<version>[^"]+)"', replace = '  "version": "{version}"' },
+  { path = "skeleton/contrib/calendar/manifest.json", regex = '"skeleton": ">=(?P<version>[^,]+),<[^"]+"', replace = '"skeleton": ">={version},<{major}.{next_minor}.0"' },
+  { path = "skeleton/contrib/calendar/docs/service-api.md", regex = '"org\.skeleton\.calendar": ">=(?P<version>[^,]+),<[^"]+"', replace = '"org.skeleton.calendar": ">={version},<{major}.{next_minor}.0"' },
+]
+floors = [
+  { path = "skeleton/system/packaging/limits.py", regex = 'SERVICE_API_CORE_MINIMUM = "(?P<version>[^"]+)"', replace = 'SERVICE_API_CORE_MINIMUM = "{version}"' },
+  { path = "skeleton/system/presentation/specs.py", regex = '_CORE_MINIMUM = "(?P<version>[^"]+)"', replace = '_CORE_MINIMUM = "{version}"' },
+  { path = "examples/notes/manifest.json", regex = '"skeleton": ">=(?P<version>[^,]+),', replace = '"skeleton": ">={version},' },
+]
+public_surfaces = [
+  "skeleton/service_api/*",
+  "skeleton/testing/*",
+  "skeleton/system/import_boundary.py",
+  "docs/service-api.md",
+  "docs/api.md",
+]

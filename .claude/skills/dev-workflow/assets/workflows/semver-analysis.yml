@@ -3,7 +3,7 @@ name: Análise de versão
 # Opcional: quando um PR recebe o label `release`, um agente lê o diff e registra no PR o nível
 # SemVer que a mudança exige (release.py record-analysis). A análise só eleva o nível, nunca reduz,
 # e só vale de autores com permissão de escrita ou do bot do Actions. Exige o segredo
-# ANTHROPIC_API_KEY; sem ele, o job não roda. PRs de forks não recebem segredos.
+# ANTHROPIC_API_KEY; sem ele, a análise é pulada. PRs de forks não recebem segredos.
 
 on:
   pull_request:
@@ -23,7 +23,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: anthropics/claude-code-action@v1
+      - name: Conferir o segredo
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "Sem ANTHROPIC_API_KEY: análise pulada."; fi
+      - if: steps.key.outputs.present == 'true'
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |

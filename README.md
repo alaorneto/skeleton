@@ -124,7 +124,7 @@ SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests -n auto --cov 
 
 A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
 
-O hook `commit-msg` exige que cada commit referencie uma issue (`Refs #N`), e o workflow `.github/workflows/issue-link.yml` exige que o PR cite uma issue classificada; ver [fluxo de trabalho](docs/workflow.md).
+O hook `commit-msg` exige que cada commit referencie uma issue (`Refs #N`), e o workflow `.github/workflows/pr-check.yml` ("Verificação do PR") exige que o PR cite uma issue classificada e preencha as seções do modelo. A versão é decidida e publicada pelo skill `dev-workflow` depois do merge; ver [fluxo de trabalho](docs/workflow.md).
 
 O workflow `.github/workflows/ci.yml` roda o lint, a verificação do CSS compilado, a suíte inteira em PostgreSQL com a role runtime (Python 3.12 e 3.14), o smoke do runtime, `check --deploy`, a auditoria dos locks, o wheel e a imagem. Testes marcados `posix` e os do agente de deployment são pulados fora de Linux/macOS, porque o código de produção usa `os.O_NOFOLLOW` e `fcntl`. Ver [testes](docs/testing.md#integração-contínua).
 
