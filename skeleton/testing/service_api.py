@@ -10,11 +10,15 @@ and in PostgreSQL with the runtime role, because they only call public services.
 - ``assert_tenant_isolated``, ``assert_denied_as_not_found``, ``assert_unavailable_when_disabled``,
   ``assert_cas_conflict`` and ``assert_rejects_other_actor`` prove the security properties.
 
-The scenario writes committed rows through the public identity and provisioning services; use it
-inside the project's isolated test database fixture, never against a shared database.
+Identities, organizations and memberships come from the public identity and provisioning
+services. Roles, table permissions, app activation and the example records are written as
+fixtures in ``system_context``: they set the precondition an operator would create, and no
+service under test runs with that context (#321). Use the scenario inside the project's
+isolated test database fixture, never against a shared database.
 """
 
 import dataclasses
+import secrets
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -35,7 +39,8 @@ __all__ = [
     "build_service_scenario",
 ]
 
-FIXTURE_PASSWORD = "Service-contract-fixture-2026!"  # Disposable test identities only.
+# Drawn once per process (#321): no literal password in the kit; ``ServiceScenario.password`` holds it.
+FIXTURE_PASSWORD = secrets.token_urlsafe(24)
 _MAX_DEPTH = 16
 
 
@@ -70,22 +75,47 @@ def assert_unavailable_when_disabled(call: Callable[[], object], *, disabled: Ca
     """Inside ``disabled()`` (a context manager such as ``scenario.application_disabled``) the call is Unavailable.
 
     ``call`` opens its own context (``scenario.caller``): the app is disabled by an administrator first.
+    The call runs once before, as a control: with the app enabled it must not be ``Unavailable``,
+    or an ``Unavailable`` for any other reason would pass (#321). Another service error in the
+    control (a repeated command answering ``Conflict``, say) still proves that the call got past
+    the availability check.
     """
+    try:
+        call()
+    except Unavailable as exc:
+        raise AssertionError("The call is already Unavailable before disabling the app.") from exc
+    except ServiceError:
+        pass
     with disabled():
         _expect(Unavailable, call, "call with the provider app disabled")
 
 
 def assert_rejects_other_actor(call: Callable[[], object]) -> None:
-    """A call whose ``actor`` differs from the context actor is Forbidden."""
-    _expect(Forbidden, call, "call with an actor other than the context")
+    """A call whose ``actor`` differs from the context actor (or is missing) is Forbidden(code="actor_mismatch").
+
+    Any other ``Forbidden`` (lack of permission) does not prove the check: use a fully
+    authorized person as the other actor (#321).
+    """
+    error = _expect(Forbidden, call, "call with an actor other than the context")
+    if error.code != "actor_mismatch":
+        raise AssertionError("Forbidden for another reason: use a fully authorized person as the other actor.")
 
 
-def assert_cas_conflict(first: Callable[[], object], second: Callable[[], object]) -> object:
-    """Two writes with the same expected revision: the first wins, the second is Conflict(stale_revision)."""
+def assert_cas_conflict(
+    first: Callable[[], object], second: Callable[[], object], *, reread: Callable[[], object] | None = None
+) -> object:
+    """Two writes with the same expected revision: the first wins, the second is Conflict(stale_revision).
+
+    With ``reread``, the record read after the first write must equal the one read after the
+    conflict: the losing write changed nothing (#321).
+    """
     result = first()
+    before = reread() if reread is not None else None
     conflict = _expect(Conflict, second, "second write with the same revision")
     if conflict.code != "stale_revision":
         raise AssertionError(f"Expected Conflict(code='stale_revision'), got code {conflict.code!r}.")
+    if reread is not None and reread() != before:
+        raise AssertionError("The conflicting write changed the record.")
     return result
 
 
@@ -121,16 +151,29 @@ def _leaks(value: object, identifiers: set[UUID], texts: set[str], depth: int = 
     return None
 
 
-def assert_tenant_isolated(call: Callable[[], object], *, foreign: Iterable[object]) -> object:
-    """Nothing of the other organization appears in the result, page, count or error.
+def assert_tenant_isolated(
+    call: Callable[[], object],
+    *,
+    foreign: Iterable[object],
+    allowed_errors: tuple[type[ServiceError], ...] = (NotFound,),
+    expected_count: int | None = None,
+) -> object:
+    """Nothing of the other organization appears in the result, page or error.
 
     ``foreign`` lists records, UUIDs or distinctive strings (codes, titles) created in the other
-    organization. An error is accepted only when it is a service error that reveals none of them.
+    organization; at least one is required. An error is accepted only when it is one of
+    ``allowed_errors`` (``NotFound`` by default) and reveals none of them. A count says nothing by
+    itself: pass ``expected_count`` to check an ``int`` result (#321).
     """
     identifiers, texts = _markers(foreign)
+    if not identifiers and not texts:
+        raise TypeError("foreign must list at least one marker of the other organization.")
     try:
         result = call()
     except ServiceError as exc:
+        if not isinstance(exc, allowed_errors):
+            names = ", ".join(error.__name__ for error in allowed_errors)
+            raise AssertionError(f"Expected a result or {names}, got {type(exc).__name__} ({exc.code}).") from exc
         messages = [exc.detail, exc.code, *getattr(exc, "errors", {}).keys()]
         messages += [message for values in getattr(exc, "errors", {}).values() for message in values]
         leak = _leaks(tuple(str(item) for item in messages), identifiers, texts)
@@ -140,6 +183,8 @@ def assert_tenant_isolated(call: Callable[[], object], *, foreign: Iterable[obje
     leak = _leaks(result, identifiers, texts)
     if leak:
         raise AssertionError(f"The result leaks data of another organization: {leak!r}.")
+    if expected_count is not None and isinstance(result, int) and result != expected_count:
+        raise AssertionError(f"Expected count {expected_count}, got {result}: another organization may be counted.")
     return result
 
 
@@ -172,6 +217,7 @@ class ServiceScenario:
     member: Any
     denied: Any
     outsider: Any
+    password: str = ""  # The identities' password, for tests that log in (#321).
 
     def acting(self, user: Any, organization: Any | None = None) -> Any:
         return acting_as(user, organization or self.a)
@@ -280,4 +326,5 @@ def build_service_scenario(model: Any, *, slug: str = "service-contract") -> Ser
         member=users["member"],
         denied=users["denied"],
         outsider=users["outsider"],
+        password=FIXTURE_PASSWORD,
     )

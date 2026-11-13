@@ -7,7 +7,7 @@ import pytest
 
 from skeleton.contrib.calendar.models import Calendar
 from skeleton.contrib.calendar.service_api import BusyBlock, CalendarService, EventInfo
-from skeleton.service_api import Forbidden, NotFound
+from skeleton.service_api import Forbidden
 from skeleton.testing.service_api import (
     assert_cas_conflict,
     assert_denied_as_not_found,
@@ -100,7 +100,7 @@ def test_default_deny_read_only_and_other_actor(scenario):
     calendar = shared(scenario, visibility="organization")
     with pytest.raises(Forbidden):
         scenario.caller(lambda actor: CalendarService().my_calendars(actor=actor), user=scenario.denied)()
-    assert_rejects_other_actor(scenario.caller(lambda actor: CalendarService().my_calendars(actor=scenario.denied)))
+    assert_rejects_other_actor(scenario.caller(lambda actor: CalendarService().my_calendars(actor=scenario.admin_a)))
     # A reader without update on the calendar cannot create in it.
     from skeleton.testing.service_api import acting_as
 
@@ -110,7 +110,7 @@ def test_default_deny_read_only_and_other_actor(scenario):
         AccessService().grant_member_table_access(
             actor=admin, table_key="skeleton_calendar.calendar", actions=("read",)
         )
-    with pytest.raises((Forbidden, NotFound)):
+    with pytest.raises(Forbidden):
         scenario.caller(
             lambda actor: CalendarService().create_event(actor=actor, calendar_id=calendar.pk, data=event_data()),
             user=scenario.denied,

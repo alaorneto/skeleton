@@ -170,11 +170,20 @@ def test_unavailable_other_actor_and_cas_helpers():
         entered.append(True)
         yield
 
-    assert_unavailable_when_disabled(raise_(Unavailable()), disabled=disabled)
+    def unavailable_once_disabled():
+        if entered:
+            raise Unavailable()
+        return 1
+
+    assert_unavailable_when_disabled(unavailable_once_disabled, disabled=disabled)
     assert entered == [True]
     with pytest.raises(AssertionError):
         assert_unavailable_when_disabled(lambda: 1, disabled=disabled)
-    assert_rejects_other_actor(raise_(Forbidden()))
+    with pytest.raises(AssertionError, match="already Unavailable"):  # #321: Unavailable before disabling.
+        assert_unavailable_when_disabled(raise_(Unavailable()), disabled=disabled)
+    assert_rejects_other_actor(raise_(Forbidden(code="actor_mismatch")))
+    with pytest.raises(AssertionError, match="another reason"):  # #321: Forbidden for lack of permission.
+        assert_rejects_other_actor(raise_(Forbidden()))
     with pytest.raises(AssertionError):
         assert_rejects_other_actor(lambda: 1)
     assert assert_cas_conflict(lambda: "first", raise_(Conflict("stale_revision"))) == "first"
@@ -182,3 +191,38 @@ def test_unavailable_other_actor_and_cas_helpers():
         assert_cas_conflict(lambda: "first", raise_(Conflict("integrity_conflict")))
     with pytest.raises(AssertionError):
         assert_cas_conflict(lambda: "first", lambda: "second wins too")
+
+
+def test_assert_tenant_isolated_requires_markers():
+    """Without a marker of the other organization nothing is checked: refuse it (#321)."""
+    with pytest.raises(TypeError, match="at least one marker"):
+        assert_tenant_isolated(lambda: "anything", foreign=[])
+
+
+def test_assert_tenant_isolated_checks_expected_count():
+    foreign_id = uuid4()
+    assert assert_tenant_isolated(lambda: 2, foreign=[foreign_id], expected_count=2) == 2
+    with pytest.raises(AssertionError, match="Expected count 2"):
+        assert_tenant_isolated(lambda: 3, foreign=[foreign_id], expected_count=2)
+    assert assert_tenant_isolated(lambda: 3, foreign=[foreign_id]) == 3  # Without expected_count, unchecked.
+    with pytest.raises(AssertionError, match="got Forbidden"):
+        assert_tenant_isolated(raise_(Forbidden()), foreign=[foreign_id])
+    error = assert_tenant_isolated(raise_(Forbidden()), foreign=[foreign_id], allowed_errors=(Forbidden,))
+    assert isinstance(error, Forbidden)
+
+
+def test_assert_cas_conflict_with_reread():
+    record = {"title": "original"}
+
+    def first():
+        record["title"] = "first"
+        return "first"
+
+    def losing_but_writes():
+        record["title"] = "second"
+        raise Conflict("stale_revision")
+
+    with pytest.raises(AssertionError, match="changed the record"):
+        assert_cas_conflict(first, losing_but_writes, reread=lambda: dict(record))
+    record["title"] = "original"
+    assert assert_cas_conflict(first, raise_(Conflict("stale_revision")), reread=lambda: dict(record)) == "first"

@@ -130,7 +130,7 @@ Os erros públicos ficam em `skeleton.service_api.errors` ([#97](https://github.
 | Erro | Quando | HTTP correspondente |
 |---|---|---|
 | `NotFound` | Alvo inexistente, de outra organização ou não legível | 404 |
-| `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto | 403 |
+| `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto ou ausente, com o código próprio `actor_mismatch` (#321) | 403 |
 | `InvalidInput(errors)` | Validação de campos; `errors` mapeia campo → mensagens | 400 |
 | `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade (`integrity_conflict`), vínculos ativos (`live_references`), último admin (`last_administrator`, `last_platform_administrator`), cota | 409 |
 | `Unavailable` | App provedora desativada, indisponível ou não instalada na organização | 404 |
@@ -434,13 +434,13 @@ Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). R
 | Helper | Prova |
 |---|---|
 | `assert_service_contract(Service)` | Estrutura do E018 mais anotações de retorno só com DTO congelado, `Page[T]`, tupla, enum de texto ou primitivo (nunca modelo, `QuerySet`, `dict`, `list`, `Any` ou `float`), parâmetros anotados (exceto `actor`) e docstring com `Autorização:`, `Erros:` e `Efeitos:` |
-| `build_service_scenario(Model)` | Organizações A/B, `member` com `TablePermission` em todas as ações nas duas, `denied` em A sem permissão, `outsider` sem vínculo e a app ativa nas duas, tudo pelos serviços públicos de identidade e provisionamento |
+| `build_service_scenario(Model)` | Organizações A/B, `member` com `TablePermission` em todas as ações nas duas, `denied` em A sem permissão, `outsider` sem vínculo e a app ativa nas duas. Identidades, organizações e vínculos vêm dos serviços públicos de identidade e provisionamento; papéis, permissões, ativação e registros são fixture em `system_context`. `scenario.password` é a senha das identidades (sorteada por processo) para os testes que fazem login (#321) |
 | `scenario.caller(fn, user=..., organization=...)` | Uma chamada `fn(actor)` dentro do próprio contexto (contextos não aninham nem trocam de ator) |
-| `assert_tenant_isolated(call, foreign=[...])` | Nenhum UUID, código ou título de B aparece em retorno, página, contagem ou mensagem de erro |
+| `assert_tenant_isolated(call, foreign=[...], allowed_errors=(NotFound,), expected_count=None)` | Nenhum UUID, código ou título de B aparece em retorno, página ou mensagem de erro. `foreign` vazio é `TypeError`; um erro fora de `allowed_errors` reprova; uma contagem só é conferida com `expected_count` (#321) |
 | `assert_denied_as_not_found(call, missing=...)` | Negado responde `NotFound` idêntico ao de um alvo inexistente |
-| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Com a app desativada na organização, `Unavailable` |
-| `assert_rejects_other_actor(call)` | `actor` diferente do contexto, `Forbidden` |
-| `assert_cas_conflict(first, second)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")` |
+| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Com a app desativada na organização, `Unavailable`. Antes, uma chamada de controle com a app ativa não pode ser `Unavailable` (outro erro de serviço é aceito: ele prova que a chamada passou da verificação de disponibilidade) |
+| `assert_rejects_other_actor(call)` | `actor` diferente do contexto (ou `None` fora de `system_context`), `Forbidden(code="actor_mismatch")`. Outro `Forbidden` reprova: use como "outro ator" uma pessoa plenamente autorizada |
+| `assert_cas_conflict(first, second, reread=None)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")`; com `reread`, o registro lido depois da primeira escrita é igual ao lido depois do conflito |
 
 O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado do projeto, nunca num banco compartilhado. `tests/integration/test_notes_service_api.py` é o exemplo completo, executado em PostgreSQL com a role runtime. O gerador cria `tests/test_service_api.py` com o teste de contrato, que não usa banco.
 
