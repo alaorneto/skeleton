@@ -130,7 +130,7 @@ Os erros públicos ficam em `skeleton.service_api.errors` ([#97](https://github.
 | Erro | Quando | HTTP correspondente |
 |---|---|---|
 | `NotFound` | Alvo inexistente, de outra organização ou não legível | 404 |
-| `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto | 403 |
+| `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto ou ausente, com o código próprio `actor_mismatch` (#321) | 403 |
 | `InvalidInput(errors)` | Validação de campos; `errors` mapeia campo → mensagens | 400 |
 | `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade (`integrity_conflict`), vínculos ativos (`live_references`), último admin (`last_administrator`, `last_platform_administrator`), cota | 409 |
 | `Unavailable` | App provedora desativada, indisponível ou não instalada na organização | 404 |
@@ -204,7 +204,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.sequences.registry` | `SequenceSpec`, `register_sequence` em `ready()`; numerar é pelo `SequenceService` |
 | `skeleton.flows.registry` | `FlowSpec` e os construtores de etapas, transições, formulários e condições; `register_flow`, `register_flow_handler`, `register_flow_condition`, `register_flow_assignment` em `ready()`; iniciar e operar é pelo `FlowService` ([fluxos](flows.md)) |
 | `skeleton.integrations.tokens.scopes` | `register_token_scope` em `ready()` (escopos nomeados, como o feed da agenda) |
-| `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) |
+| `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) e `user_context` (contexto global da pessoa na parte sem organização de uma rota agregada; recusa aninhar, #343) |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
 Para ler a própria configuração ou a ativação de outra app, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` continua permitido nesta versão e sai da lista numa próxima. Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
@@ -227,8 +227,8 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
-| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
-| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
+| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
@@ -267,6 +267,7 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
 | `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
 | `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
+| `member_refs(*, actor, user_ids, include_service_accounts=False) -> tuple[MemberRef, ...]` | Vínculos ativos da organização entre `user_ids` (`user_id`, `membership_id`, ordenados por `user_id`), só pessoas por padrão; sem nome nem email. Vínculo ativo do ator, ou `actor=None` em `system_context` (jobs) (#343) | `InvalidInput` (identificador inválido, mais de 500) |
 | `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
 | `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
 
@@ -281,6 +282,7 @@ O diretório traz só vínculos ativos de identidades ativas da organização at
 | `can(*, actor, action, table_key, record_id=None) -> bool` | Exatamente `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro, quando informado); tabela desconhecida ou não exposta, registro inexistente ou de outra organização: `False` | `InvalidInput` (ação ou UUID inválidos) |
 | `require(*, actor, action, table_key, record_id=None) -> None` | Igual a `can`, mas levanta | `NotFound` se não for legível (inclusive de outra organização); `Forbidden` se for legível e a ação for negada |
 | `capabilities(*, actor) -> tuple[str, ...]` | Capacidades dos papéis internos do ator, ordenadas (tupla: o contrato não admite `frozenset`) | — |
+| `granted_record_ids(*, actor, table_key, record_ids, action="read") -> tuple[UUID, ...]` | Quais de `record_ids` têm concessão de registro viva ao vínculo do ator, a um grupo dele ou a um papel efetivo, na organização do contexto; não dispensa a `TablePermission` nem diz se o registro existe (inexistente e de outra organização simplesmente não aparecem) (#343) | `InvalidInput` (tabela não exposta, ação fora de `read`/`update`/`delete`, identificador inválido, mais de 500) |
 | `my_groups(*, actor) -> tuple[GroupSummary, ...]` | Grupos vivos do ator na organização | `Forbidden` sem vínculo |
 | `grant_member_table_access(*, actor, table_key, actions) -> tuple[str, ...]` | Dá ao papel interno `member` as ações numa tabela exposta, pelo serviço de concessão da gestão de acesso (lock e auditoria); devolve só as ações acrescentadas, então repetir não muda nada. Usado pela ação "acesso básico" da agenda (#68) | `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta, ação inválida, catálogo ou papel indisponível) |
 
@@ -434,13 +436,13 @@ Rode em PostgreSQL com a role runtime, como exige o [AGENTS.md](../AGENTS.md). R
 | Helper | Prova |
 |---|---|
 | `assert_service_contract(Service)` | Estrutura do E018 mais anotações de retorno só com DTO congelado, `Page[T]`, tupla, enum de texto ou primitivo (nunca modelo, `QuerySet`, `dict`, `list`, `Any` ou `float`), parâmetros anotados (exceto `actor`) e docstring com `Autorização:`, `Erros:` e `Efeitos:` |
-| `build_service_scenario(Model)` | Organizações A/B, `member` com `TablePermission` em todas as ações nas duas, `denied` em A sem permissão, `outsider` sem vínculo e a app ativa nas duas, tudo pelos serviços públicos de identidade e provisionamento |
+| `build_service_scenario(Model)` | Organizações A/B, `member` com `TablePermission` em todas as ações nas duas, `denied` em A sem permissão, `outsider` sem vínculo e a app ativa nas duas. Identidades, organizações e vínculos vêm dos serviços públicos de identidade e provisionamento; papéis, permissões, ativação e registros são fixture em `system_context`. `scenario.password` é a senha das identidades (sorteada por processo) para os testes que fazem login (#321) |
 | `scenario.caller(fn, user=..., organization=...)` | Uma chamada `fn(actor)` dentro do próprio contexto (contextos não aninham nem trocam de ator) |
-| `assert_tenant_isolated(call, foreign=[...])` | Nenhum UUID, código ou título de B aparece em retorno, página, contagem ou mensagem de erro |
+| `assert_tenant_isolated(call, foreign=[...], allowed_errors=(NotFound,), expected_count=None)` | Nenhum UUID, código ou título de B aparece em retorno, página ou mensagem de erro. `foreign` vazio é `TypeError`; um erro fora de `allowed_errors` reprova; uma contagem só é conferida com `expected_count` (#321) |
 | `assert_denied_as_not_found(call, missing=...)` | Negado responde `NotFound` idêntico ao de um alvo inexistente |
-| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Com a app desativada na organização, `Unavailable` |
-| `assert_rejects_other_actor(call)` | `actor` diferente do contexto, `Forbidden` |
-| `assert_cas_conflict(first, second)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")` |
+| `assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)` | Com a app desativada na organização, `Unavailable`. Antes, uma chamada de controle com a app ativa não pode ser `Unavailable` (outro erro de serviço é aceito: ele prova que a chamada passou da verificação de disponibilidade) |
+| `assert_rejects_other_actor(call)` | `actor` diferente do contexto (ou `None` fora de `system_context`), `Forbidden(code="actor_mismatch")`. Outro `Forbidden` reprova: use como "outro ator" uma pessoa plenamente autorizada |
+| `assert_cas_conflict(first, second, reread=None)` | Duas escritas na mesma revisão: uma vence, a outra recebe `Conflict("stale_revision")`; com `reread`, o registro lido depois da primeira escrita é igual ao lido depois do conflito |
 
 O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado do projeto, nunca num banco compartilhado. `tests/integration/test_notes_service_api.py` é o exemplo completo, executado em PostgreSQL com a role runtime. O gerador cria `tests/test_service_api.py` com o teste de contrato, que não usa banco.
 

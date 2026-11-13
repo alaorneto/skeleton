@@ -137,3 +137,29 @@ def test_marked_routes_run_without_the_request_transaction(access):
     assert response.status_code == 200
     assert set(response.json()["organizations"]) == {str(access.a.pk), str(access.b.pk)}
     assert "X-Request-ID" in response
+
+
+def test_user_context_opens_a_global_context(access):
+    """The non-tenant part of an aggregate route runs as the signed-in person, without organization (#343)."""
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from skeleton.tenancy.aggregate import user_context
+    from skeleton.tenancy.context import current_context
+
+    request = SimpleNamespace(user=access.alice, request_id=uuid4())
+    with user_context(request, source="test:user-context"):
+        context = current_context()
+        assert context.actor == access.alice.pk and context.organization_id is None and not context.system
+
+
+def test_user_context_refuses_nesting(access):
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from skeleton.tenancy.aggregate import user_context
+
+    request = SimpleNamespace(user=access.alice, request_id=uuid4())
+    with actor_tenant(access.alice, access.a), pytest.raises(InvalidContext):
+        with user_context(request, source="test:user-context-nested"):
+            pass

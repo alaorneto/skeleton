@@ -92,6 +92,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 | Falha | A transação do handler é desfeita; numa transação nova o job volta à fila com backoff exponencial (`backoff × 2^(tentativa−1)`, com jitter de 0,5 a 1,5) e `last_error_class/code`. Esgotado `max_attempts`, fica `dead` |
 | Acesso revogado | Job de ator sem vínculo ativo falha fechado, sem escrita, e vai direto para `dead` (`actor_unauthorized`) |
 | Organização inativa | O job é pulado e fica `cancelled` (`organization_inactive`) |
+| App dona (`owner_app`) desativada ou indisponível na organização | O job é pulado antes do handler e fica `cancelled` (`application_disabled`); tipos do núcleo (sem dono ou com dono que não é app registrada) não passam por essa checagem (#337) |
 | SIGTERM/SIGINT | Para de reivindicar, termina o job atual e sai |
 | Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker pausa (heartbeat `paused`) |
 | Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload; `job.failed` e `job.dead` trazem `error_stack` (arquivo:linha:função), nunca a mensagem da exceção nem o payload (#243) |
@@ -119,7 +120,7 @@ register_periodic("jobs.retention", "jobs.retention", every=timedelta(hours=6), 
 - A chave de idempotência é `periodic:<code>:<organização>:<início da janela>`. Vários agendadores podem rodar ao mesmo tempo, sem eleição de líder: o banco guarda exatamente um job por janela e organização.
 - Um tipo que declara `window` (`"str"`) no `payload_schema` recebe o início da janela em UTC (`AAAAMMDDTHHMMSSZ`), para decidir pela janela agendada e não pela hora em que roda; os demais recebem o payload declarado, sem `window` (#276).
 - Antes de enfileirar, o agendador lê de uma vez as chaves da janela que já estão na fila e só insere as que faltam; entre verificações, cada processo lembra o que já agendou na janela em curso e nem consulta de novo. Uma organização criada no meio da janela recebe o job na verificação seguinte. O `INSERT` em savepoint continua como proteção quando dois agendadores correm ao mesmo tempo (#240).
-- Com `per_organization=True`, os IDs das organizações ativas e não excluídas são materializados antes, e cada organização enfileira na própria transação `system_context`. Nenhuma transação global envolve o laço.
+- Com `per_organization=True`, os IDs das organizações ativas e não excluídas são materializados antes, e cada organização enfileira na própria transação `system_context`. Nenhuma transação global envolve o laço. Uma organização onde a app dona do tipo está desativada ou indisponível não recebe o job, e não fica lembrada na janela: reativar a app agenda a mesma janela no tick seguinte (#337).
 - Só a janela em curso é agendada: um agendador parado recupera no máximo uma janela, nunca um acúmulo.
 - Mudar o agendamento vale a partir da próxima janela calculada com a nova cadência.
 - Jobs periódicos rodam como sistema; o tipo precisa ter `scope` coerente com `per_organization` (check `skeleton.E021`).

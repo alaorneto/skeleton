@@ -163,11 +163,29 @@ class Event(OrganizationRecord):
                 violation_error_code="unique",
             ),
         ]
-        indexes = [models.Index(fields=("calendar", "starts_at"), name="skeleton_cal_event_start")]
+        indexes = [
+            models.Index(fields=("calendar", "starts_at"), name="skeleton_cal_event_start"),
+            # The window queries (#291): series still running, all-day events, and the reminders job.
+            models.Index(
+                fields=("calendar", "recurrence_end"),
+                condition=Q(series__isnull=True, deleted_at__isnull=True),
+                name="skeleton_cal_event_rec_end",
+            ),
+            models.Index(fields=("calendar", "start_date"), name="skeleton_cal_event_day"),
+            models.Index(
+                fields=("organization", "recurrence_end"),
+                condition=Q(series__isnull=True, deleted_at__isnull=True),
+                name="skeleton_cal_event_org_end",
+            ),
+        ]
         ordering = ("starts_at", "start_date", "sysid")
 
     def clean(self):
         super().clean()
+        try:
+            validate_timezone(self.tzid)
+        except ValidationError:
+            return  # The field validator reports it; the recurrence cannot be computed without a zone.
         if self.all_day:
             if self.start_date is None or self.end_date is None:
                 raise ValidationError({"start_date": gettext("Informe as datas do evento de dia inteiro.")})
@@ -178,22 +196,46 @@ class Event(OrganizationRecord):
                 raise ValidationError({"starts_at": gettext("Informe início e fim do evento.")})
             if self.ends_at <= self.starts_at:
                 raise ValidationError({"ends_at": gettext("O fim precisa ser depois do início.")})
+        from .recurrence import YEARS, _instant
+
+        if self.all_day:
+            years, field_name = (self.start_date.year, self.end_date.year), "start_date"
+        else:
+            years, field_name = (self.starts_at.year, self.ends_at.year), "starts_at"
+        if not all(YEARS[0] <= year <= YEARS[1] for year in years):
+            raise ValidationError({field_name: gettext("Data fora do intervalo aceito.")})
         if self.rrule:
             from .recurrence import validate_rule
 
             self.rrule = validate_rule(self.rrule)
         for name in ("rdates", "exdates"):
             values = getattr(self, name)
-            if not isinstance(values, list) or len(values) > 1000 or not all(isinstance(v, str) for v in values):
-                raise ValidationError({name: gettext("Use uma lista de até 1000 datas ISO 8601.")})
+            message = gettext("Use uma lista de até 1000 datas ISO 8601.")
+            if not isinstance(values, list) or len(values) > 1000:
+                raise ValidationError({name: message})
+            normalized = []
+            for value in values:
+                try:
+                    moment = _instant(value, self) if isinstance(value, str) else None
+                except (ValueError, OverflowError):
+                    moment = None
+                if moment is None or not YEARS[0] <= moment.year <= YEARS[1]:
+                    raise ValidationError({name: message})
+                normalized.append(moment.isoformat())  # Stored as ISO 8601 in UTC (#236).
+            setattr(self, name, normalized)
         if self.series_id and self.series_id == self.pk:
             raise ValidationError({"series": gettext("Um evento não substitui a si mesmo.")})
         if self.calendar_id and self.organization_id and self.calendar.organization_id != self.organization_id:
             raise ValidationError({"calendar": gettext("O calendário é de outra organização.")})
         if self.series_id is None and (self.starts_at or self.start_date):
-            from .recurrence import series_end
+            from .recurrence import event_end, series_end
 
-            self.recurrence_end = series_end(self)
+            end = series_end(self)
+            if not self._state.adding and self.rrule:
+                # An override moved past the rule's last occurrence keeps the series in the window (#294).
+                ends = [event_end(row) for row in type(self).objects.filter(series_id=self.pk)]
+                end = max([end, *ends]) if end is not None else end
+            self.recurrence_end = end
 
     def __str__(self):
         return self.title

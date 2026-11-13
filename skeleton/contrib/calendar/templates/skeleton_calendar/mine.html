@@ -7,6 +7,7 @@
 {% if organizations %}
 <nav class="mb-4" aria-label="{% translate "Novo evento por organização" %}"><p class="text-sm text-body-subtle">{% translate "Novo evento em:" %}</p><ul class="mt-1 flex flex-wrap gap-2">{% for organization in organizations %}<li><a class="btn btn-secondary" href="{{ organization.new_url }}">{{ organization.name }}</a></li>{% endfor %}</ul></nav>
 {% endif %}
+{% if skipped %}<p class="alert mb-4" role="status">{% translate "Eventos demais para listar em:" %} {{ skipped|join:", " }}.</p>{% endif %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Quando" %}</th><th scope="col">{% translate "Evento" %}</th><th scope="col">{% translate "Organização" %}</th></tr></thead><tbody>
 {% for item in items %}<tr><td class="whitespace-nowrap!">{% if item.occurrence.all_day %}{{ item.occurrence.start_date|date:"d/m" }} ({% translate "dia inteiro)" %}{% else %}<time datetime="{{ item.start|date:'c' }}">{{ item.start|date:"D d/m H:i" }}</time>{% endif %}</td><td>{% if item.occurrence.busy_only %}<span class="text-body-subtle">{% translate "Ocupado" %}</span>{% else %}{{ item.occurrence.title }}{% endif %}</td><td>{{ item.organization }}</td></tr>
 {% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nada nos próximos 14 dias." %}</td></tr>{% endfor %}

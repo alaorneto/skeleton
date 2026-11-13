@@ -3,6 +3,7 @@
 from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.urls import resolve, reverse
+from django.utils.translation import gettext
 
 from skeleton.access.capabilities import APPS_MANAGE, require_capability
 from skeleton.tenancy.context import current_context
@@ -94,8 +95,23 @@ def guard_application_screen(request, view_name, *, app_label=None):
     require_application_enabled(manifest.app_label)
 
 
+def _administrative_mfa_missing(user):
+    """Same gate as tenant_page and TenantAPI: any capability requires MFA when the policy is on (#322)."""
+    from skeleton.access.capabilities import has_any_capability
+    from skeleton.accounts.mfa import mfa_required
+
+    if not getattr(user, "is_authenticated", False):
+        return False
+    return has_any_capability(user) and mfa_required(user)
+
+
 def guard_application_urls(patterns, manifest):
-    """Clone the URL tree so module-owned URLPattern objects stay untouched."""
+    """Clone the URL tree so module-owned URLPattern objects stay untouched.
+
+    Before the view (#322): an anonymous visitor goes to the login page, a person without a
+    tenant context gets 404, the app must be active (or the screen allowed), and anyone holding
+    a capability passes the administrative MFA gate, whether or not the view uses ``tenant_page``.
+    """
     from functools import wraps
 
     from django.urls.resolvers import URLPattern, URLResolver
@@ -117,7 +133,17 @@ def guard_application_urls(patterns, manifest):
             def protect(callback):
                 @wraps(callback)
                 def guarded(request, *args, **kwargs):
+                    if not request.user.is_authenticated:
+                        from django.contrib.auth.views import redirect_to_login
+
+                        return redirect_to_login(request.get_full_path())
+                    if current_context().organization_id is None:
+                        raise Http404
                     guard_application_screen(request, request.resolver_match.view_name, app_label=manifest.app_label)
+                    if _administrative_mfa_missing(request.user):
+                        from django.shortcuts import redirect
+
+                        return redirect("mfa_index")
                     return callback(request, *args, **kwargs)
 
                 return guarded
@@ -172,6 +198,14 @@ def guard_application_api_urls(patterns, manifest):
                         require_application_enabled(manifest.app_label)
                     except (KeyError, PermissionDenied):
                         return JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
+                    if _administrative_mfa_missing(request.user):  # The answer of TenantAPI (#322).
+                        return JsonResponse(
+                            {
+                                "code": "mfa_required",
+                                "detail": gettext("Configure autenticação multifator para continuar."),
+                            },
+                            status=403,
+                        )
                     return callback(request, *args, **kwargs)
 
                 return guarded

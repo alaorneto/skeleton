@@ -133,7 +133,7 @@ def schedule_due(
     """
     from skeleton.tenancy.context import system_context
 
-    from .registry import get_job_type
+    from .registry import get_job_type, owner_app_enabled
     from .services import enqueue
 
     now = now or timezone.now()
@@ -144,7 +144,8 @@ def schedule_due(
         stamp = window.strftime("%Y%m%dT%H%M%SZ")
         done = _window_memory(seen, periodic.code, stamp)
         payload = dict(periodic.payload)
-        if "window" in get_job_type(periodic.job_type).payload_schema:
+        job_type = get_job_type(periodic.job_type)
+        if "window" in job_type.payload_schema:
             # The handler decides by the window it was scheduled for, not by when it runs (#276).
             payload["window"] = stamp
         if periodic.per_organization:
@@ -161,6 +162,10 @@ def schedule_due(
                     with system_context(
                         reason=f"periodic:{periodic.code}", organization_id=organization_id, using=using
                     ):
+                        if not owner_app_enabled(job_type):
+                            # The app is off here (#337): not remembered, so enabling it again
+                            # schedules this same window on the next tick.
+                            continue
                         receipt = enqueue(
                             periodic.job_type,
                             organization_id=organization_id,
