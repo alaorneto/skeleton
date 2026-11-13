@@ -111,7 +111,7 @@ EVENT_FIELDS = (
     "rdates",
     "exdates",
 )
-COPIED_FIELDS = (*EVENT_FIELDS[:-3], "tzid")
+COPIED_FIELDS = EVENT_FIELDS[:-3]  # Without rrule, rdates and exdates; tzid once (#345).
 
 
 def _event_values(data: dict) -> dict:
@@ -228,6 +228,13 @@ def _occurrence(master: Any, recurrence_id: Any) -> Any:
     return recurrence_id
 
 
+def _exdate_instants(master: Any) -> list:
+    """The instant of each stored EXDATE, ``None`` for an invalid one (kept aligned with the list)."""
+    from .recurrence import _instants
+
+    return [next(iter(_instants([value], master)), None) for value in master.exdates]
+
+
 def _copy(master: Any, **changes: Any) -> Any:
     from .models import Event
 
@@ -286,7 +293,12 @@ def edit_occurrence(
         first, second = split_parts(master, recurrence_id)
         following = _copy(master, **{**_shifted(master, recurrence_id), **values})
         following.rrule = second
-        following.exdates = [value for value in master.exdates if value >= recurrence_id.isoformat()]
+        # By instant, not by text: a stored item may carry another offset (#345).
+        following.exdates = [
+            value
+            for value, moment in zip(master.exdates, _exdate_instants(master), strict=True)
+            if moment is not None and moment >= recurrence_id
+        ]
         following.save()
         # Later overrides now belong to the new series, keeping their IDs and content.
         for override in Event.objects.filter(series=master, recurrence_id__gte=recurrence_id):

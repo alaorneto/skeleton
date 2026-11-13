@@ -463,3 +463,48 @@ def test_following_split_recomputes_the_end_of_both_series(agenda):
         assert Event.objects.get(pk=override.pk).series_id == following.pk  # Same sysid, new series.
         assert following.recurrence_end >= moved + timedelta(hours=1)
         assert event.recurrence_end == BASE + timedelta(days=1, hours=1)
+
+
+def test_following_split_partitions_exdates_by_instant(agenda):
+    """A stored EXDATE in another offset goes to the half its instant belongs to (#345)."""
+    from skeleton.contrib.calendar.models import Event
+
+    calendar = calendar_of(agenda)
+    start = datetime(2027, 4, 5, 13, 0, tzinfo=UTC)
+    with actor_tenant(agenda.alice, agenda.a):
+        event = services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={
+                "title": "Diária",
+                "starts_at": start,
+                "ends_at": start + timedelta(hours=1),
+                "rrule": "FREQ=DAILY;COUNT=6",
+            },
+        )
+        # 15:00 UTC of the split day, written at -05:00: as text it sorts before the split point.
+        legacy = "2027-04-07T10:00:00-05:00"
+        # A row written before #236 normalized the dates: the ORM would normalize it again, so
+        # the legacy value is stored directly (runtime role, tenant context, audited by the trigger).
+        import json
+
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE {Event._meta.db_table} SET exdates = %s, revision = revision + 1 WHERE sysid = %s",
+                [json.dumps([legacy]), event.pk],
+            )
+        event.refresh_from_db()
+        assert event.exdates == [legacy]
+        split = start + timedelta(days=2)
+        following = services.edit_occurrence(
+            actor=agenda.alice,
+            event_id=event.pk,
+            recurrence_id=split,
+            mode="following",
+            data={"title": "Depois"},
+            expected_revision=event.revision,
+        )
+        following.refresh_from_db()
+    assert following.exdates == ["2027-04-07T15:00:00+00:00"]

@@ -59,7 +59,8 @@ def vevent(reader: Any, event: Any, *, busy_only: bool = False, view: Any = None
     else:
         item.add("dtstart", event.starts_at.astimezone(zone))
         item.add("dtend", event.ends_at.astimezone(zone))
-    item.add("status", event.status.upper())
+    # An override marked is_cancelled is a cancelled occurrence, as the expansion already reads it (#345).
+    item.add("status", "CANCELLED" if getattr(event, "is_cancelled", False) else event.status.upper())
     if event.rrule:
         item.add("rrule", vRecur.from_ical(_export_rule(event)))
         for name, values in (("exdate", event.exdates), ("rdate", event.rdates)):

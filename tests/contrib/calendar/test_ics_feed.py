@@ -299,3 +299,23 @@ def test_ics_exdate_and_recurrence_id_are_the_stored_instants(agenda, login, ser
 def test_ics_contains_the_timezone_definition(agenda, login, series):
     body = _export(agenda, login, series)
     assert b"BEGIN:VTIMEZONE" in body and b"TZID:Europe/Berlin" in body
+
+
+def test_cancelled_override_is_exported_as_cancelled(agenda, login, series):
+    """An override marked is_cancelled leaves the expansion and is exported as STATUS:CANCELLED (#345)."""
+    from skeleton.contrib.calendar.models import Event
+    from skeleton.contrib.calendar.service_api import CalendarService
+
+    with actor_tenant(agenda.alice, agenda.a):
+        master = Event.objects.get(calendar=series, series__isnull=True, rrule__startswith="FREQ=WEEKLY")
+        override = Event.objects.get(series=master)
+        override.is_cancelled = True
+        override.save(update_fields={"is_cancelled"})
+        listed = CalendarService().upcoming(
+            actor=agenda.alice, start=override.starts_at - timedelta(hours=1), end=override.ends_at + timedelta(hours=1)
+        )
+    assert override.pk not in {item.event_id for item in listed if item.recurrence_id == override.recurrence_id}
+    assert all(item.recurrence_id != override.recurrence_id for item in listed)
+    url = reverse("skeleton_calendar:calendar-ics", kwargs={"organization_id": agenda.a.pk, "sysid": series.pk})
+    exported = next(item for item in components(login(agenda.alice).get(url).content) if "RECURRENCE-ID" in item)
+    assert str(exported["STATUS"]) == "CANCELLED"

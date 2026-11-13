@@ -103,6 +103,8 @@ def _candidates(now: Any) -> tuple[list, dict, dict, set]:
 def send_due_reminders(*, now: Any = None) -> int:
     """Job handler (system context of the organization): notify the reminders that are due.
 
+    Returns how many due reminders were processed (a repeated run counts the deduplicated ones too).
+
     Does nothing while the calendar is off in the organization (#223). The organizer is notified
     only while still a member; an occurrence nobody active can receive is skipped, and a
     notification refused as invalid input is logged without rolling the others back.

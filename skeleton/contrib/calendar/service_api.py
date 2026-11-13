@@ -60,7 +60,8 @@ class CalendarService(ServiceAPI):
 
         Autorização: TablePermission read em skeleton_calendar.calendar e visibilidade dos registros.
         Erros: Forbidden sem a permissão de tabela; Unavailable com a app desativada.
-        Efeitos: cria o calendário pessoal padrão do ator na primeira chamada.
+        Efeitos: cria o calendário pessoal padrão do ator na primeira chamada, para qualquer ator
+        com TablePermission de leitura, inclusive conta de serviço.
         """
         from .services import ensure_personal_calendar
 

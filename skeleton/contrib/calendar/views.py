@@ -2,8 +2,9 @@
 
 Server-rendered month, week, day and list views on a CSS grid, without JavaScript. ``?view=`` and
 ``?date=`` are validated (anything else is a 400 page). Times are shown in the profile time zone.
-Every read goes through ``CalendarService``, so an unreadable event is never rendered and private
-events show as "Ocupado".
+The pages read through ``CalendarService``, so an unreadable event is never rendered and private
+events show as "Ocupado"; the ICS download (and the feed) read ``policies.readable_events`` with the
+same masking.
 """
 
 from __future__ import annotations

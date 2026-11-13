@@ -15,7 +15,7 @@ Todos os métodos exigem a app ativa na organização (`Unavailable`), o context
 Calendários que o ator lê, o pessoal padrão primeiro (criado na primeira chamada).
 - **Autorização:** TablePermission read em `skeleton_calendar.calendar`.
 - **Erros:** `Forbidden` sem a permissão; `Unavailable`.
-- **Efeitos:** cria o calendário pessoal padrão na primeira chamada.
+- **Efeitos:** cria o calendário pessoal padrão na primeira chamada, para qualquer ator com `TablePermission` de leitura, inclusive conta de serviço (#345).
 
 #### `upcoming(*, actor, start, end, calendar_ids=None) -> tuple[EventOccurrence, ...]`
 Ocorrências legíveis em `[start, end)`, no máximo 400 dias, com a recorrência expandida.
