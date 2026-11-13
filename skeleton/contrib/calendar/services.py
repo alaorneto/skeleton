@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -110,7 +111,7 @@ EVENT_FIELDS = (
     "rdates",
     "exdates",
 )
-COPIED_FIELDS = (*EVENT_FIELDS[:-3], "tzid")
+COPIED_FIELDS = EVENT_FIELDS[:-3]  # Without rrule, rdates and exdates; tzid once (#345).
 
 
 def _event_values(data: dict) -> dict:
@@ -150,6 +151,9 @@ def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: in
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O evento mudou."))
     values = _event_values(data)
+    if not values:
+        # An empty change would bump revision and sequence and notify for nothing (#294).
+        raise ValidationError({"__all__": gettext("Informe ao menos um campo.")})
     for name, value in values.items():
         setattr(event, name, value)
     event.sequence += 1
@@ -169,14 +173,30 @@ def cancel_event(*, actor: Any, event_id: Any, expected_revision: int) -> Any:
 
 
 def delete_event(*, actor: Any, event_id: Any, expected_revision: int) -> None:
+    """Soft delete the event with its reminders, attendees and overrides, one row at a time (#292).
+
+    The attendees are told first; each ``delete()`` is a soft delete audited by the trigger.
+    """
     from skeleton.service_api import Conflict
 
+    from .attendees import CANCELLED, notify_attendees
+    from .models import Event, EventAttendee, EventReminder
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O evento mudou."))
-    event.delete()
+    with transaction.atomic(using=current_context().using):
+        notify_attendees(event, CANCELLED, actor=actor)  # Before the invitations go.
+        rows = [event, *Event.objects.filter(series=event)] if event.series_id is None else [event]
+        for row in rows:
+            for reminder in EventReminder.objects.filter(event=row):
+                reminder.delete()
+            for attendee in EventAttendee.objects.filter(event=row):
+                attendee.delete()
+        for override in rows[1:]:
+            override.delete()
+        event.delete()
 
 
 # --------------------------------------------------------------------------- recurrence edits (#70)
@@ -206,6 +226,13 @@ def _occurrence(master: Any, recurrence_id: Any) -> Any:
     if recurrence_id not in {occurrence.recurrence_id for occurrence in window.occurrences}:
         raise ValidationError({"recurrence_id": gettext("A série não tem ocorrência nesse instante.")})
     return recurrence_id
+
+
+def _exdate_instants(master: Any) -> list:
+    """The instant of each stored EXDATE, ``None`` for an invalid one (kept aligned with the list)."""
+    from .recurrence import _instants
+
+    return [next(iter(_instants([value], master)), None) for value in master.exdates]
 
 
 def _copy(master: Any, **changes: Any) -> Any:
@@ -243,32 +270,45 @@ def edit_occurrence(
     _occurrence(master, recurrence_id)
     values = _event_values({key: value for key, value in data.items() if key not in ("rrule", "rdates", "exdates")})
     if mode == "this":
-        override = Event.objects.filter(series=master, recurrence_id=recurrence_id).first()
-        if override is None:
-            override = _copy(master, **{**_shifted(master, recurrence_id), **values})
-            override.uid, override.series, override.recurrence_id = master.uid, master, recurrence_id
-            override.rrule, override.rdates, override.exdates = "", [], []
-            override.save()
-        else:
-            for name, value in values.items():
-                setattr(override, name, value)
-            override.sequence += 1
-            override.save(update_fields={*values, "sequence"})
+        with transaction.atomic(using=current_context().using):
+            override = Event.objects.filter(series=master, recurrence_id=recurrence_id).first()
+            if override is None:
+                override = _copy(master, **{**_shifted(master, recurrence_id), **values})
+                override.uid, override.series, override.recurrence_id = master.uid, master, recurrence_id
+                override.rrule, override.rdates, override.exdates = "", [], []
+                override.save()
+            else:
+                for name, value in values.items():
+                    setattr(override, name, value)
+                override.sequence += 1
+                override.save(update_fields={*values, "sequence"})
+            # The master is written too (#294): its end covers the override, and the expected
+            # revision is consumed, so a second edit with the same revision is a stale one.
+            master.sequence += 1
+            master.save(update_fields={"sequence", "recurrence_end"})
         return override
     from .recurrence import split_parts
 
-    first, second = split_parts(master, recurrence_id)
-    master.rrule = first
-    master.sequence += 1
-    master.save(update_fields={"rrule", "sequence", "recurrence_end"})
-    following = _copy(master, **{**_shifted(master, recurrence_id), **values})
-    following.rrule = second
-    following.exdates = [value for value in master.exdates if value >= recurrence_id.isoformat()]
-    following.save()
-    # Later overrides now belong to the new series, keeping their IDs and content.
-    for override in Event.objects.filter(series=master, recurrence_id__gte=recurrence_id):
-        override.series = following
-        override.save(update_fields={"series"})
+    with transaction.atomic(using=current_context().using):
+        first, second = split_parts(master, recurrence_id)
+        following = _copy(master, **{**_shifted(master, recurrence_id), **values})
+        following.rrule = second
+        # By instant, not by text: a stored item may carry another offset (#345).
+        following.exdates = [
+            value
+            for value, moment in zip(master.exdates, _exdate_instants(master), strict=True)
+            if moment is not None and moment >= recurrence_id
+        ]
+        following.save()
+        # Later overrides now belong to the new series, keeping their IDs and content.
+        for override in Event.objects.filter(series=master, recurrence_id__gte=recurrence_id):
+            override.series = following
+            override.save(update_fields={"series"})
+        # Each master is written once its overrides are in place, so both ends are right (#294).
+        master.rrule = first
+        master.sequence += 1
+        master.save(update_fields={"rrule", "sequence", "recurrence_end"})
+        following.save(update_fields={"recurrence_end"})
     return following
 
 
@@ -276,7 +316,7 @@ def cancel_occurrence(*, actor: Any, event_id: Any, recurrence_id: Any, expected
     """Remove one occurrence (EXDATE); the rest of the series is untouched."""
     master = _master(actor, event_id, expected_revision)
     _occurrence(master, recurrence_id)
-    key = recurrence_id.isoformat()
+    key = recurrence_id.astimezone(UTC).isoformat()  # The normalized form Event.clean stores (#236).
     if key not in master.exdates:
         master.exdates = [*master.exdates, key]
         master.sequence += 1

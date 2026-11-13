@@ -80,3 +80,27 @@ def job_type_problems() -> list[str]:
         if not 1 <= job_type.max_attempts <= 100 or job_type.backoff <= 0 or job_type.timeout_s <= 0:
             problems.append(f"{job_type.code}: invalid retry or timeout settings")
     return problems
+
+
+def owner_app_enabled(job_type: JobType) -> bool:
+    """Whether the job type's owner app is usable in the organization of the current context (#337).
+
+    Core subsystems (empty owner or a label that is not a registered app) are always usable.
+    Call it inside a context that carries the job's organization.
+    """
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.system.app_registry import get_app
+    from skeleton.system.applications import require_application_enabled
+
+    if not job_type.owner_app:
+        return True
+    try:
+        get_app(job_type.owner_app)
+    except KeyError:
+        return True
+    try:
+        require_application_enabled(job_type.owner_app)
+    except PermissionDenied:
+        return False
+    return True

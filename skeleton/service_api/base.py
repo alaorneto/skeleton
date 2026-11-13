@@ -95,10 +95,10 @@ def _check_caller(spec: ServiceMethodSpec, actor: object) -> None:
         raise ContextRequired()
     if actor is None:
         if not (spec.allow_system and context.system):
-            raise Forbidden(gettext("A operação exige um ator."))
+            raise Forbidden(gettext("A operação exige um ator."), code="actor_mismatch")
         return
     if context.actor is None or getattr(actor, "pk", None) != context.actor:
-        raise Forbidden(gettext("O ator não corresponde ao contexto da chamada."))
+        raise Forbidden(gettext("O ator não corresponde ao contexto da chamada."), code="actor_mismatch")
 
 
 def _require_provider(app_label: str) -> None:

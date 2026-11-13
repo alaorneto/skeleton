@@ -129,3 +129,193 @@ def test_feed_token_page_shows_the_url_once(agenda, login):
     created = client.post(url, {"csrfmiddlewaretoken": client.cookies["csrftoken"].value})
     assert created.status_code == 201 and "no-store" in created["Cache-Control"]
     assert "/me/apps/skeleton_calendar/feed/skt_" in created.content.decode()
+
+
+def test_feed_is_windowed_and_capped(agenda, series, monkeypatch):
+    """Ended over 30 days ago and single events beyond 400 days stay out; the file stays valid (#291)."""
+    from skeleton.contrib.calendar import ics
+
+    now = timezone.now()
+    with actor_tenant(agenda.alice, agenda.a):
+        calendar = Calendar.objects.get(pk=series.pk)
+        for title, moment in (("Antigo", now - timedelta(days=40)), ("Distante", now + timedelta(days=500))):
+            services.create_event(
+                actor=agenda.alice,
+                calendar_id=calendar.pk,
+                data={"title": title, "starts_at": moment, "ends_at": moment + timedelta(hours=1)},
+            )
+        recent = now + timedelta(days=2)
+        services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={"title": "Próximo", "starts_at": recent, "ends_at": recent + timedelta(hours=1)},
+        )
+    url = f"/me/apps/skeleton_calendar/feed/{issue(agenda.bob).text}.ics"
+    summaries = [str(item["SUMMARY"]) for item in components(Client().get(url).content)]
+    assert "Próximo" in summaries and "Antigo" not in summaries and "Distante" not in summaries
+    monkeypatch.setattr(ics, "MAX_COMPONENTS", 2)
+    assert len(components(Client().get(url).content)) == 2
+
+
+def test_export_query_count_is_constant(agenda, login, series):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    url = reverse("skeleton_calendar:calendar-ics", kwargs={"organization_id": agenda.a.pk, "sysid": series.pk})
+    client = login(agenda.bob)
+
+    def measured():
+        with CaptureQueriesContext(connection) as queries:
+            assert client.get(url).status_code == 200
+        return len(queries)
+
+    few = measured()
+    with actor_tenant(agenda.alice, agenda.a):
+        for index in range(10):
+            moment = START + timedelta(days=30 + index)
+            services.create_event(
+                actor=agenda.alice,
+                calendar_id=series.pk,
+                data={
+                    "title": f"Série {index}",
+                    "starts_at": moment,
+                    "ends_at": moment + timedelta(hours=1),
+                    "rrule": "FREQ=DAILY;COUNT=3",
+                },
+            )
+    assert measured() == few
+
+
+# --------------------------------------------------------------------------- local time of series (#293)
+
+
+def _shared_calendar(agenda):
+    with actor_tenant(agenda.alice, agenda.a):
+        calendar = Calendar(
+            organization_id=agenda.a.pk, owner=agenda.alice, name="Berlim", kind="shared", visibility="organization"
+        )
+        calendar.save()
+    return calendar
+
+
+def _export(agenda, login, calendar):
+    url = reverse("skeleton_calendar:calendar-ics", kwargs={"organization_id": agenda.a.pk, "sysid": calendar.pk})
+    response = login(agenda.alice).get(url)
+    assert response.status_code == 200
+    return response.content
+
+
+def test_ics_recurring_event_keeps_local_time_across_dst(agenda, login):
+    from zoneinfo import ZoneInfo
+
+    from dateutil.rrule import rrulestr
+
+    from skeleton.contrib.calendar.service_api import CalendarService
+
+    berlin = ZoneInfo("Europe/Berlin")
+    calendar = _shared_calendar(agenda)
+    start = datetime(2027, 3, 15, 9, 0, tzinfo=berlin)
+    with actor_tenant(agenda.alice, agenda.a):
+        services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={
+                "title": "Semanal em Berlim",
+                "starts_at": start,
+                "ends_at": start + timedelta(hours=1),
+                "tzid": "Europe/Berlin",
+                "rrule": "FREQ=WEEKLY;COUNT=4",
+            },
+        )
+        expected = [
+            occurrence.starts_at
+            for occurrence in CalendarService().upcoming(
+                actor=agenda.alice, start=start - timedelta(days=1), end=start + timedelta(days=60)
+            )
+        ]
+    [vevent] = components(_export(agenda, login, calendar))
+    dtstart = vevent["DTSTART"].dt
+    assert str(dtstart.tzinfo) == "Europe/Berlin" and (dtstart.hour, dtstart.minute) == (9, 0)
+    rule = vevent["RRULE"].to_ical().decode()
+    starts = [
+        moment.replace(tzinfo=dtstart.tzinfo).astimezone(UTC)
+        for moment in rrulestr(rule, dtstart=dtstart.replace(tzinfo=None))
+    ]
+    assert starts == expected and len(starts) == 4
+
+
+def test_ics_until_is_exported_in_utc(agenda, login):
+    calendar = _shared_calendar(agenda)
+    start = datetime(2027, 3, 15, 8, 0, tzinfo=UTC)
+    with actor_tenant(agenda.alice, agenda.a):
+        services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={
+                "title": "Diária com hora",
+                "starts_at": start,
+                "ends_at": start + timedelta(hours=1),
+                "tzid": "Europe/Berlin",
+                "rrule": "FREQ=DAILY;UNTIL=20270320",
+            },
+        )
+        services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={
+                "title": "Diária de dia inteiro",
+                "all_day": True,
+                "start_date": start.date(),
+                "end_date": start.date() + timedelta(days=1),
+                "rrule": "FREQ=DAILY;UNTIL=20270320",
+            },
+        )
+    rules = {
+        str(item["SUMMARY"]): item["RRULE"].to_ical().decode() for item in components(_export(agenda, login, calendar))
+    }
+    timed_until = rules["Diária com hora"].split("UNTIL=")[1].split(";")[0]
+    day_until = rules["Diária de dia inteiro"].split("UNTIL=")[1].split(";")[0]
+    assert timed_until.endswith("Z") and len(timed_until) == 16
+    assert day_until == "20270320"
+
+
+def test_ics_exdate_and_recurrence_id_are_the_stored_instants(agenda, login, series):
+    from skeleton.contrib.calendar.models import Event
+    from skeleton.contrib.calendar.recurrence import _instants
+
+    events = components(_export(agenda, login, series))
+    master = next(item for item in events if "RRULE" in item)
+    exported = []
+    for prop in master.get("EXDATE") if isinstance(master.get("EXDATE"), list) else [master.get("EXDATE")]:
+        exported.extend(value.dt.astimezone(UTC) for value in prop.dts)
+    override = next(item for item in events if "RECURRENCE-ID" in item)
+    with actor_tenant(agenda.alice, agenda.a):
+        stored = Event.objects.get(uid=str(master["UID"]), series__isnull=True)
+        moved = Event.objects.get(series=stored)
+        assert sorted(exported) == sorted(_instants(stored.exdates, stored))
+        assert override["RECURRENCE-ID"].dt.astimezone(UTC) == moved.recurrence_id
+
+
+def test_ics_contains_the_timezone_definition(agenda, login, series):
+    body = _export(agenda, login, series)
+    assert b"BEGIN:VTIMEZONE" in body and b"TZID:Europe/Berlin" in body
+
+
+def test_cancelled_override_is_exported_as_cancelled(agenda, login, series):
+    """An override marked is_cancelled leaves the expansion and is exported as STATUS:CANCELLED (#345)."""
+    from skeleton.contrib.calendar.models import Event
+    from skeleton.contrib.calendar.service_api import CalendarService
+
+    with actor_tenant(agenda.alice, agenda.a):
+        master = Event.objects.get(calendar=series, series__isnull=True, rrule__startswith="FREQ=WEEKLY")
+        override = Event.objects.get(series=master)
+        override.is_cancelled = True
+        override.save(update_fields={"is_cancelled"})
+        listed = CalendarService().upcoming(
+            actor=agenda.alice, start=override.starts_at - timedelta(hours=1), end=override.ends_at + timedelta(hours=1)
+        )
+    assert override.pk not in {item.event_id for item in listed if item.recurrence_id == override.recurrence_id}
+    assert all(item.recurrence_id != override.recurrence_id for item in listed)
+    url = reverse("skeleton_calendar:calendar-ics", kwargs={"organization_id": agenda.a.pk, "sysid": series.pk})
+    exported = next(item for item in components(login(agenda.alice).get(url).content) if "RECURRENCE-ID" in item)
+    assert str(exported["STATUS"]) == "CANCELLED"

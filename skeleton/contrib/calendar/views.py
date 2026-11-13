@@ -2,14 +2,15 @@
 
 Server-rendered month, week, day and list views on a CSS grid, without JavaScript. ``?view=`` and
 ``?date=`` are validated (anything else is a 400 page). Times are shown in the profile time zone.
-Every read goes through ``CalendarService``, so an unreadable event is never rendered and private
-events show as "Ocupado".
+The pages read through ``CalendarService``, so an unreadable event is never rendered and private
+events show as "Ocupado"; the ICS download (and the feed) read ``policies.readable_events`` with the
+same masking.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 from django.contrib import messages
@@ -22,6 +23,7 @@ from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST
 
 from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound
+from skeleton.web.views import tenant_page
 
 from .service_api import CalendarService
 
@@ -40,7 +42,7 @@ def _zone(user) -> ZoneInfo:
 
     try:
         return ZoneInfo(IdentityService().me(actor=user).timezone or "UTC")
-    except Exception:  # noqa: BLE001 - an unknown stored zone falls back to UTC for display
+    except (ZoneInfoNotFoundError, ValueError):  # An unknown stored zone falls back to UTC for display.
         return ZoneInfo("UTC")
 
 
@@ -75,6 +77,7 @@ def _step(view: str, day: date, direction: int) -> date:
     return day + timedelta(days={"day": 1, "week": 7, "list": 30}[view] * direction)
 
 
+@tenant_page()
 def home(request, organization_id):
     view = request.GET.get("view", "week")
     if view not in VIEWS:
@@ -98,6 +101,8 @@ def home(request, organization_id):
         )
     except (PermissionDenied, Forbidden):
         raise Http404 from None
+    except InvalidInput:
+        return _bad_request(request, organization_id, gettext("Há eventos demais neste período; use uma visão menor."))
     days = {first + timedelta(days=index): [] for index in range((last - first).days)}
     for occurrence in occurrences:
         local = occurrence.starts_at.date() if occurrence.all_day else occurrence.starts_at.astimezone(zone).date()
@@ -186,25 +191,37 @@ class EventForm(forms.Form):
         return values
 
 
+# Fields of the service and the model that the form shows under another name (#234).
+FIELD_OF = {"starts_at": "start", "ends_at": "end", "start_date": "day", "end_date": "day", "rrule": "repeat"}
+
+
 def _apply_error(form, error):
-    if isinstance(error, (ValidationError, InvalidInput)):
-        details = getattr(error, "message_dict", None) or getattr(error, "fields", None) or {}
-        for field, problems in dict(details).items():
-            form.add_error(field if field in form.fields else None, problems)
-        if not details:
-            form.add_error(None, gettext("Verifique os campos informados."))
+    """Each message next to its field: InvalidInput carries ``errors``, ValidationError ``message_dict``."""
+    if isinstance(error, InvalidInput):
+        details = dict(error.errors)
+    elif isinstance(error, ValidationError):
+        details = dict(getattr(error, "message_dict", {}) or {})
     else:
         form.add_error(None, gettext("O evento não pôde ser salvo."))
+        return
+    if not details:
+        form.add_error(None, gettext("Verifique os campos informados."))
+    for field, problems in details.items():
+        target = FIELD_OF.get(field, field)
+        form.add_error(target if target in form.fields else None, list(problems))
 
 
 @require_http_methods(["GET", "POST"])
+@tenant_page()
 @transaction.atomic
 def event_new(request, organization_id):
     service = CalendarService()
     try:
-        calendars = service.my_calendars(actor=request.user)
+        calendars = [item for item in service.my_calendars(actor=request.user) if item.writable]  # #344
     except (PermissionDenied, Forbidden):
         raise Http404 from None
+    if not calendars:
+        raise Http404
     zone = _zone(request.user)
     form = EventForm(request.POST or None, calendars=calendars, initial={"day": datetime.now(zone).date()})
     status = 200
@@ -233,6 +250,7 @@ def event_new(request, organization_id):
 
 
 @require_POST
+@tenant_page()
 @transaction.atomic
 def event_cancel(request, organization_id, sysid):
     try:
@@ -248,6 +266,7 @@ def event_cancel(request, organization_id, sysid):
 
 
 @require_POST
+@tenant_page()
 @transaction.atomic
 def member_access(request, organization_id):
     from .services import grant_member_access
@@ -263,11 +282,12 @@ def member_access(request, organization_id):
     return redirect("skeleton_calendar:home", organization_id=organization_id)
 
 
+@tenant_page()
 def calendar_ics(request, organization_id, sysid):
     """Download one calendar as .ics (session), masked like the pages."""
     from django.http import HttpResponse
 
-    from .ics import calendar_bytes, calendar_components
+    from .ics import calendar_bytes, calendar_components, capped
     from .policies import readable_calendars, readable_events
 
     calendar = readable_calendars(request.user).filter(pk=sysid).first()
@@ -276,7 +296,11 @@ def calendar_ics(request, organization_id, sysid):
     busy_only = request.GET.get("busy") == "1"
     body = calendar_bytes(
         calendar.name,
-        calendar_components(request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only),
+        capped(
+            calendar_components(
+                request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only
+            )
+        ),
     )
     response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="agenda-{calendar.pk}.ics"'

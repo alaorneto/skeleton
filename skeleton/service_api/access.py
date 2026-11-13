@@ -15,6 +15,9 @@ from .errors import Forbidden, InvalidInput, NotFound
 from .identity import _user
 from .organizations import GroupSummary
 
+GRANT_ACTIONS = ("read", "update", "delete")
+MAX_RECORD_IDS = 500
+
 
 def _model(table_key: str) -> Any:
     from skeleton.common.models import SecuredRecord
@@ -96,6 +99,38 @@ class AccessService(ServiceAPI):
             raise NotFound()
         if not allowed:
             raise Forbidden()
+
+    @service_method(read_only=True, since="0.6.0")
+    def granted_record_ids(
+        self, *, actor: AbstractBaseUser, table_key: str, record_ids: tuple[UUID, ...], action: str = "read"
+    ) -> tuple[UUID, ...]:
+        """Which of ``record_ids`` the actor holds an explicit record grant for (membership, group or role).
+
+        Autorização: vínculo ativo do ator; só as concessões do próprio ator, na organização do
+        contexto; não dispensa a TablePermission nem diz se o registro existe (#343).
+        Erros: InvalidInput para tabela desconhecida ou não exposta, ação fora de read/update/delete,
+        identificador inválido ou mais de 500 identificadores.
+        Efeitos: nenhum.
+        """
+        from skeleton.access.policies import _grant_ids
+
+        if action not in GRANT_ACTIONS:
+            raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(GRANT_ACTIONS)}]})
+        model = _model(table_key)
+        if model is None:
+            raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
+        if not isinstance(record_ids, tuple) or len(record_ids) > MAX_RECORD_IDS:
+            raise InvalidInput(
+                {"record_ids": [gettext("Informe até %(value1)s identificadores.") % {"value1": MAX_RECORD_IDS}]}
+            )
+        identifiers = [as_uuid(value, field="record_ids") for value in record_ids]
+        if not identifiers:
+            return ()
+        try:
+            granted = set(_grant_ids(model, _user(actor), action).filter(record_sysid__in=identifiers))
+        except PermissionDenied:
+            return ()
+        return tuple(sorted(granted, key=str))
 
     @service_method(read_only=True, since="0.5.0")
     def capabilities(self, *, actor: AbstractBaseUser) -> tuple[str, ...]:

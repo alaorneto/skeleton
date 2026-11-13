@@ -3,7 +3,7 @@
 import pytest
 
 from skeleton.service_api.dto import Page
-from skeleton.service_api.errors import InvalidInput, NotFound
+from skeleton.service_api.errors import Forbidden, InvalidInput, NotFound
 from skeleton.service_api.organizations import OrganizationService
 from skeleton.tenancy.context import request_context, system_context
 from skeleton.testing.service_api import (
@@ -170,3 +170,66 @@ def test_tampered_keyset_cursor_is_invalid_input(scenario):
         # A cursor positioned at a person of B only moves inside A's authorized members.
         page = service.members(actor=actor, page_size=100, cursor=encode_key_cursor([str(scenario.admin_b.pk)]))
     assert scenario.admin_b.pk not in {person.sysid for person in page.items}
+
+
+# --------------------------------------------------------------------------- member_refs (#343)
+
+
+@pytest.mark.needs_example_app
+def test_member_refs_lists_only_active_members_of_this_organization(scenario):
+    from uuid import uuid4
+
+    from skeleton.tenancy.models import Membership
+
+    service = OrganizationService()
+    people = (scenario.member, scenario.denied, scenario.admin_b, scenario.outsider)
+    with acting_as(scenario.admin_a, scenario.a) as actor:
+        refs = service.member_refs(actor=actor, user_ids=tuple(user.pk for user in people) + (uuid4(),))
+    with system_context(reason="test:member-refs", organization_id=scenario.a.pk):
+        expected = {
+            (row.user_id, row.pk) for row in Membership.objects.filter(user__in=[scenario.member, scenario.denied])
+        }
+    assert {(ref.user_id, ref.membership_id) for ref in refs} == expected
+    assert [ref.user_id for ref in refs] == sorted((ref.user_id for ref in refs), key=str)
+    # An inactive membership disappears.
+    with system_context(reason="test:member-refs-inactive", organization_id=scenario.a.pk):
+        membership = Membership.objects.get(user=scenario.denied)
+        membership.is_active = False
+        membership.save(update_fields={"is_active"})
+    with acting_as(scenario.admin_a, scenario.a) as actor:
+        assert [ref.user_id for ref in service.member_refs(actor=actor, user_ids=(scenario.denied.pk,))] == []
+        with pytest.raises(InvalidInput):
+            service.member_refs(actor=actor, user_ids=tuple(uuid4() for _ in range(501)))
+        with pytest.raises(InvalidInput):
+            service.member_refs(actor=actor, user_ids=("x",))
+
+
+@pytest.mark.needs_example_app
+def test_member_refs_excludes_service_accounts_by_default(scenario):
+    from skeleton.accounts.services import create_service_account
+
+    with acting_as(scenario.admin_a, scenario.a) as actor:
+        account = create_service_account(actor=actor, name="Robot")
+        service = OrganizationService()
+        assert service.member_refs(actor=actor, user_ids=(account.pk,)) == ()
+        [ref] = service.member_refs(actor=actor, user_ids=(account.pk,), include_service_accounts=True)
+        assert ref.user_id == account.pk
+
+
+@pytest.mark.needs_example_app
+def test_member_refs_in_system_context_without_actor(scenario):
+    service = OrganizationService()
+    with system_context(reason="test:member-refs-job", organization_id=scenario.a.pk):
+        [ref] = service.member_refs(actor=None, user_ids=(scenario.member.pk,))
+    assert ref.user_id == scenario.member.pk
+    with acting_as(scenario.member, scenario.a), pytest.raises(Forbidden):
+        service.member_refs(actor=None, user_ids=(scenario.member.pk,))
+
+
+@pytest.mark.needs_example_app
+def test_member_refs_rejects_other_actor(scenario):
+    assert_rejects_other_actor(
+        scenario.caller(
+            lambda actor: OrganizationService().member_refs(actor=scenario.admin_a, user_ids=(scenario.member.pk,))
+        )
+    )

@@ -25,7 +25,7 @@ Os critérios abaixo descrevem comportamentos observáveis, não resultados de t
 - Desligar a app bloqueia também seu gateway e remove a navegação, preservando dados e auditoria. Reativar conserva UUIDs e ACL (regras de acesso), sem conceder novas permissões.
 - Depois de alterar `body`, o evento comprova a alteração sem apresentar seu conteúdo. Uma mudança de configuração também não expõe o JSON no histórico.
 - Duas alterações com a mesma revisão não vencem ambas. Uma restauração que colide com um código vivo retorna conflito sem substituir o outro registro.
-- `NoteService` passa em `assert_service_contract` e, em SQLite e PostgreSQL com a role runtime, nega por padrão, isola A/B, responde `Unavailable` com a app desativada, recusa ator divergente e tem um único vencedor no CAS.
+- `NoteService` passa em `assert_service_contract` e, em PostgreSQL com a role runtime, nega por padrão, isola A/B, responde `Unavailable` com a app desativada, recusa ator divergente e tem um único vencedor no CAS.
 - O check estático exige `spec.md`, `adr.md` e `service-api.md` com as seções obrigatórias (E012) e a API declarada bem formada (E018). Ele verifica o contrato documental, não substitui os testes de isolamento, autorização e concorrência.
 
 ## Fluxo de publicação

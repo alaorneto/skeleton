@@ -25,6 +25,7 @@ Writing across organizations is out of scope: a write always happens in one orga
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from types import GeneratorType
 from typing import Any
@@ -51,6 +52,18 @@ class OrganizationResult:
     organization_id: UUID
     organization_name: str
     value: Any
+
+
+@contextmanager
+def user_context(request: Any, *, source: str, using: str = "default") -> Iterator[None]:
+    """Global (no organization) context of the signed-in person, for the non-tenant part of an aggregate route.
+
+    Apps use it instead of opening ``request_context`` themselves (#343); it refuses to nest.
+    """
+    if in_context():
+        raise InvalidContext("user_context runs outside any context (mark the view with aggregate_route).")
+    with request_context(actor=request.user, request_id=request.request_id, source=source, using=using):
+        yield
 
 
 def aggregate_route(view: Callable) -> Callable:
