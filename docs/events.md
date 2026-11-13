@@ -65,7 +65,7 @@ register_consumer("tasks.task_closed", "notifications.task_closed", on_task_clos
 register_consumer("*", "audit.mirror", mirror, accepts=lambda event_type: event_type.owner_app == "tasks")
 ```
 
-Um consumidor `"*"` pode declarar `accepts(event_type)`: os tipos recusados não geram job de entrega. O fan-out de webhooks usa `accepts` para receber só os tipos `webhook=True`, de modo que os eventos de vínculo e de ativação de apps não enfileiram nada para ele.
+Um consumidor `"*"` pode declarar `accepts(event_type)`: os tipos recusados não geram job de entrega. O fan-out de webhooks usa `accepts` para receber só os tipos `webhook=True`, de modo que os eventos de vínculo e de ativação de apps não enfileiram nada para ele. O consumidor `flows.event_waits` do núcleo aceita só os eventos das apps (não os `sk_*`) e avança as [esperas por evento](flows.md#etapas) dos fluxos (#411).
 
 - `publish_event` enfileira, na mesma transação, **um job `events.consume` por consumidor**, com a chave `event:<id>:<consumidor>`. A falha de um consumidor é retentada pelo [worker](jobs.md#executar-run_worker) sem afetar os outros.
 - O handler recebe um `EventEnvelope` imutável (`event_id`, `event_type`, `version`, `organization_id`, `table_key`, `record_sysid`, `record_revision`, `actor_id`, `request_id`, `occurred_at` e `data` somente leitura) e roda em `system_context` da organização. Ele **reautoriza** o que for ler: o envelope não concede acesso a nada.
@@ -81,7 +81,7 @@ Os serviços de lifecycle do núcleo publicam quatro tipos (`skeleton/events/cor
 |---|---|---|---|
 | `membership.created` | `sk_tenancy.membership` | `user` | O vínculo passou a ativo: criado, restaurado ou reativado por `provision_membership` (convite, designação, bootstrap), `create_membership`, `update_membership` ou pela criação de uma conta de serviço |
 | `membership.deactivated` | `sk_tenancy.membership` | `user` | Um vínculo ativo foi desativado (`update_membership`, `deactivate_service_account`), removido (`delete_membership`) ou deixado (`leave_organization`) |
-| `app.enabled` | `sk_system.appinstallation` | `app_label` | A organização ativou a app (`configure_application`, pela tela ou pelo `ApplicationAdministrationService`, ou `manage.py set_app_availability --enable`, #282) |
+| `app.enabled` | `sk_system.appinstallation` | `app_label` | A organização ativou a app (`configure_application`, pela tela ou pelo `ApplicationAdministrationService`, ou `manage.py set_app_availability --enable`, #282), ou a [cobrança](billing.md#ciclo-de-vida) a ativou quando o pagamento deu o direito (`activate_for_entitlement`, #396) |
 | `app.disabled` | `sk_system.appinstallation` | `app_label` | A organização desativou a app, ou a app foi retirada com os dados preservados (first-party em `SKELETON_BUNDLED_RETAINED` ou `schema_retained` no inventário do agente): um evento por organização em que ela estava ativa (#282) |
 
 - O payload só tem identificadores: `user` é o UUID da identidade, e `record_sysid` é o vínculo ou a ativação. O consumidor relê e reautoriza o resto. Os `TableSpec` dessas duas tabelas declaram só esses campos em `read_fields`.
@@ -96,6 +96,10 @@ register_consumer("membership.created", "tasks.welcome_member", welcome)  # welc
 ```
 
 Use o código do evento como texto (primeira coluna da tabela acima); o módulo `skeleton.events.core_events` é interno.
+
+## Eventos da cobrança
+
+A [cobrança](billing.md#eventos) publica `billing.invoice_finalized` e `billing.invoice_paid` sobre `sk_billing.invoice` (`number`, `status`, `currency`, `total`) e `billing.subscription_changed` sobre `sk_billing.subscription` (`status`), na transação do motor. Dados de contato da conta nunca entram no payload. Esses tipos não vão para webhooks; um emissor fiscal externo consome `billing.invoice_paid` em processo (`register_consumer`).
 
 ## Eventos de fluxos de processo
 

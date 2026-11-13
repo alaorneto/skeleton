@@ -158,7 +158,7 @@ CASES = [
     ),
     (
         lambda s, t: replace_step(s, "prepare", form=flows.Form(*PREPARE.fields, flows.Field("reason", "int"))),
-        "field reason: type, sensitivity and choices must agree",
+        "field reason: type, sensitivity, personal and choices must agree",
     ),
     (
         lambda s, t: replace_step(s, "prepare", form=flows.Form(flows.Field("when", "moment"))),

@@ -35,6 +35,7 @@ O corpo é texto simples, de 1 a 5.000 caracteres, sem Markdown nem HTML e sem c
 ## Superfícies
 
 - **Página do registro:** painel **Comentários** com a lista, o formulário de novo comentário e, conforme a regra, editar, excluir e restaurar.
+- **Telas de fluxo:** a tarefa e a instância de um [fluxo de processo](flows.md#superfícies) mostram o mesmo painel do registro de negócio da instância ([#421](https://github.com/alaorneto/skeleton/issues/421)), com a mesma autorização: só quem lê o registro vê o painel, e só se a tabela tiver `CommentPolicy`. Os formulários mandam `next` com o caminho da tela, aceito só dentro de `/o/<org>/flows/` da mesma organização; fora disso, a resposta volta à página do registro.
 - **Linha do tempo:** cada comentário que a pessoa lê aparece como item (`register_timeline_source("comments", ...)`).
 - **REST** (`/api/v1/o/<org>/tables/<tabela>/records/<id>/`): `comments/` (GET, POST `{"body": "..."}`), `comments/<comentário>/` (PATCH `{"body": "..."}` e DELETE, com `If-Match`) e `comments/<comentário>/restore/` (POST com `If-Match`). O schema OpenAPI só descreve essas rotas para tabelas com a política que o ator lê.
 - **API de serviços:** `CommentService` (`skeleton.service_api.comments`): `comments`, `add_comment`, `edit_comment`, `delete_comment` e `restore_comment`. Veja [o catálogo](service-api.md#commentservice).

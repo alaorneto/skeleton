@@ -34,12 +34,18 @@ class Usage:
 
 
 def quota_for(organization_id: Any) -> tuple[int | None, bool]:
-    """``(quota, overridden)``: the platform override or the default setting."""
+    """``(quota, overridden)``: the platform override, the subscription's allowance or the default setting."""
+    from skeleton.common.entitlements import NO_OPINION, storage_quota
+
     from .models import StorageQuota
 
     row = StorageQuota.objects.filter(quota_organization_id=organization_id).first()
     if row is not None:
         return row.quota_bytes, True
+    # The allowance of the organization's subscription (#395), when a billing policy has one.
+    allowance = storage_quota(organization_id)
+    if allowance is not NO_OPINION:
+        return allowance, False  # type: ignore[return-value]
     default = getattr(settings, "SKELETON_FILES_ORG_QUOTA_BYTES", None)
     return (default or None), False
 

@@ -31,6 +31,7 @@ from .spec import (
 
 FLOW_KEY = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*")
 NAME = re.compile(r"[a-z][a-z0-9_]*")
+EVENT_CODE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")
 CODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*")
 MAX_STEPS = 200
 MAX_FIELDS = 100
@@ -53,6 +54,9 @@ def _reach(starts: Iterable[str], edges: Mapping[str, list[str]], *, stop: froze
         if key not in stop:
             pending.extend(edges.get(key, ()))
     return seen
+
+
+MAX_RETENTION_DAYS = 36500
 
 
 def _form_problems(where: str, form: Any) -> list[str]:
@@ -80,6 +84,8 @@ def _form_problems(where: str, form: Any) -> list[str]:
             problems.append(f"{label}: only choice fields declare choices")
         if type(item.max_length) is not int or item.max_length < 0 or item.max_length > 20000:
             problems.append(f"{label}: invalid max_length")
+        if type(item.personal) is not bool:
+            problems.append(f"{label}: personal is true or false")
         if item.max_length and item.type not in ("str", "text"):
             problems.append(f"{label}: only text fields declare max_length")
         for bound in (item.minimum, item.maximum):
@@ -97,9 +103,9 @@ def _field_coherence(spec: FlowSpec) -> list[str]:
         if not isinstance(form, Form):
             continue
         for item in form.fields:
-            shape = (item.type, item.sensitive, tuple(item.choices))
+            shape = (item.type, item.sensitive, item.personal, tuple(item.choices))
             if seen.setdefault(item.name, shape) != shape:
-                problems.append(f"field {item.name}: type, sensitivity and choices must agree in every form")
+                problems.append(f"field {item.name}: type, sensitivity, personal and choices must agree in every form")
     return sorted(set(problems))
 
 
@@ -140,6 +146,8 @@ def _human_problems(step: Step, out: list[Transition], spec: FlowSpec) -> list[s
         sla = step.sla
         if type(sla.due_seconds) is not int or not 60 <= sla.due_seconds <= 366 * 86400:
             problems.append(f"{where}: the SLA is due between one minute and one year")
+        if type(sla.business_hours) is not bool:
+            problems.append(f"{where}: business_hours is true or false")
         if sla.on_overdue not in OVERDUE_ACTIONS:
             problems.append(f"{where}: unknown overdue action {sla.on_overdue!r}")
         if len(sla.remind_before_seconds) > 5 or any(
@@ -235,8 +243,17 @@ def _step_problems(step: Step, spec: FlowSpec) -> list[str]:
         if len(out) != 1 or not plain:
             problems.append(f"{where}: a timer has exactly one plain outgoing transition")
     elif kind == "wait":
-        if not NAME.fullmatch(step.signal or "") or len(step.signal) > 64:
+        if step.event:
+            if step.signal or not EVENT_CODE.fullmatch(step.event) or len(step.event) > 100:
+                problems.append(f"{where}: a wait takes either a signal or a valid event type")
+            if step.correlate and not NAME.fullmatch(step.correlate):
+                problems.append(f"{where}: invalid correlation field")
+            if step.form is not None:
+                problems.append(f"{where}: an event wait has no form")
+        elif not NAME.fullmatch(step.signal or "") or len(step.signal) > 64:
             problems.append(f"{where}: a wait needs a signal name")
+        elif step.correlate:
+            problems.append(f"{where}: only an event wait correlates")
         if step.form is not None:
             problems.extend(_form_problems(f"{where} form", step.form))
         results = [item.on or "received" for item in out]
@@ -245,6 +262,16 @@ def _step_problems(step: Step, spec: FlowSpec) -> list[str]:
             problems.append(f"{where}: a wait has the received transition and, with a timeout, the timeout one")
         if type(step.timeout_seconds) is not int or not 0 <= step.timeout_seconds <= 366 * 86400:
             problems.append(f"{where}: invalid timeout")
+    elif kind == "subflow":
+        if not FLOW_KEY.fullmatch(step.flow or "") or len(step.flow) > 100:
+            problems.append(f"{where}: a subflow needs the key of the child flow")
+        if type(step.flow_version) is not int or step.flow_version < 1:
+            problems.append(f"{where}: a subflow pins a version from 1")
+        results = [item.on for item in out]
+        if not out or not all(results) or len(set(results)) != len(results):
+            problems.append(f"{where}: a subflow has one transition per child outcome")
+        if step.form is not None or step.assignees:
+            problems.append(f"{where}: a subflow has no form nor assignees")
     elif kind == "exclusive" or kind == "inclusive":
         if len(out) < 2:
             problems.append(f"{where}: a gateway needs at least two outgoing transitions")
@@ -322,6 +349,8 @@ def structural_problems(spec: Any) -> list[str]:
         problems.append("label is required (up to 200 characters)")
     if spec.start_action not in ("read", "update"):
         problems.append("start_action must be read or update")
+    if type(spec.retention_days) is not int or not 0 <= spec.retention_days <= MAX_RETENTION_DAYS:
+        problems.append(f"retention_days must be an integer from 0 to {MAX_RETENTION_DAYS}")
     if not spec.steps or len(spec.steps) > MAX_STEPS or len(spec.transitions) > 4 * MAX_STEPS:
         return [*problems, f"a flow declares between 1 and {MAX_STEPS} steps"]
     keys = [item.key for item in spec.steps]
@@ -459,6 +488,36 @@ def _subject_problems(spec: FlowSpec) -> list[str]:
                 problems.append(f"number sequence {spec.number_sequence!r} belongs to another app")
     from skeleton.events.registry import get_event_type
 
+    from .registry import get_flow
+
+    for step in spec.steps:
+        if step.kind != "subflow":
+            continue
+        try:
+            child = get_flow(step.flow)
+        except KeyError:
+            problems.append(f"step {step.key}: child flow {step.flow!r} is not declared in code")
+            continue
+        if child.owner_app != spec.owner_app:
+            problems.append(f"step {step.key}: child flow {step.flow!r} must be the app's own")
+        if child.subject_table != spec.subject_table:
+            problems.append(f"step {step.key}: child flow {step.flow!r} must run on the same table")
+        if step.flow == spec.key:
+            problems.append(f"step {step.key}: a flow cannot start itself")
+    for step in spec.steps:
+        if step.kind != "wait" or not step.event:
+            continue
+        try:
+            awaited = get_event_type(step.event)
+        except KeyError:
+            problems.append(f"step {step.key}: event type {step.event!r} is not registered")
+            continue
+        if awaited.owner_app != spec.owner_app:
+            problems.append(f"step {step.key}: event type {step.event!r} must be the app's own")
+        elif step.correlate and step.correlate not in awaited.payload_fields:
+            problems.append(f"step {step.key}: {step.correlate!r} is not a payload field of {step.event!r}")
+        elif not step.correlate and awaited.table_key != spec.subject_table:
+            problems.append(f"step {step.key}: event type {step.event!r} is not about the subject; correlate a field")
     for moment, code in spec.subject_events:
         try:
             event_type = get_event_type(code)

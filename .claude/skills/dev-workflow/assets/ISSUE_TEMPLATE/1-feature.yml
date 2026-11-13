@@ -38,11 +38,11 @@ body:
     id: abordagem
     attributes:
       label: "Abordagem técnica"
-      description: "Módulos/arquivos afetados, decisões, regras do projeto envolvidas."
+      description: "Módulos/arquivos afetados, decisões, limites de arquitetura envolvidos."
       placeholder: |
         - Módulos e arquivos: 
         - Decisões: 
-        - Regras do projeto envolvidas: 
+        - Limites de arquitetura: 
     validations:
       required: true
   - type: textarea
@@ -63,7 +63,7 @@ body:
       placeholder: |
         - [ ] Unitários (tests/unit): 
         - [ ] Integração: 
-        - [ ] Negativos de segurança: 
+        - [ ] Negativos (o que deve ser recusado): 
         - [ ] Smoke manual/navegador: 
         
         Comandos:
@@ -73,19 +73,9 @@ body:
     id: documentacao
     attributes:
       label: "Documentação a atualizar"
-      description: "Arquivos de documentação afetados e onde fica a evidência dos testes."
+      description: "Arquivos de documentação que mudam com esta entrega."
       placeholder: |
         - [ ] docs/....md — 
-        - [ ] docs/testing.md — evidência
-    validations:
-      required: true
-  - type: textarea
-    id: seguranca
-    attributes:
-      label: "Segurança"
-      description: "Itens pertinentes do contrato, ou \"Sem impacto — motivo\"."
-      placeholder: |
-        - [ ] 
     validations:
       required: true
   - type: textarea
@@ -102,7 +92,7 @@ body:
     id: pronto
     attributes:
       label: "Definição de pronto"
-      description: "Conferida antes do fechamento."
+      description: "Conferida antes do fechamento (skill dev-workflow)."
       options:
         - label: "Critérios de aceite verificados"
         - label: "Plano de testes executado e registrado (somente o que rodou)"

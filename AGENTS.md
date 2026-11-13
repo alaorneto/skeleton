@@ -11,18 +11,28 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md` e `docs/sequences.md` antes de usar ou alterar o subsistema correspondente.
 6. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
 7. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
-8. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
+8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
 
-## Rastreabilidade: plano, issue, commit e fechamento
+## Rastreabilidade: plano, issue, commit, versão e fechamento
 
-Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub. O procedimento é o skill `dev-workflow` (`.claude/skills/dev-workflow/`, configurado por `.github/dev-workflow.toml`); o racional e os mecanismos estão em [docs/workflow.md](docs/workflow.md).
+Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub, e toda versão é calculada e escrita pela automação. O procedimento é o skill `dev-workflow` (`.claude/skills/dev-workflow/`, configurado em `.github/dev-workflow.toml`). Carregue-o e siga-o: no Claude Code, pela ferramenta Skill; em outro agente ou à mão, lendo `.claude/skills/dev-workflow/SKILL.md`. Este contrato não repete o procedimento: diz quando o skill é obrigatório e o que é próprio deste repositório.
 
-- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic`).
-- **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
-- Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
-- Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`. Nunca `--no-verify`.
-- Versão: nunca editada à mão. Só o label `release` faz o merge publicar uma versão; PR sem ele fica acumulado. O nível vem da ferramenta (`release.py plan --pr N`) e um `semver:*` com motivo o sobrepõe ([docs/workflow.md](docs/workflow.md#versão-e-release)). A versão do projeto é a do core; agente e apps first-party seguem o mesmo número, e pisos de core (`*_CORE_MINIMUM`, `since=`, faixas de manifestos) não acompanham o bump.
-- A issue fecha só depois de aprovada: pelo merge do PR ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue ou abre outra.
+Carregue o skill sempre que:
+
+- entrar no modo de planejamento ou escrever um plano: o plano termina com a seção `Itens do GitHub`;
+- um plano for aceito: as issues, e um `epic` com sub-issues e "blocked by" nativos quando houver duas ou mais, são criadas antes de qualquer edição;
+- for começar, sem plano, qualquer mudança em arquivo versionado;
+- for criar ou atualizar uma issue ou um epic, criar branch, commitar ou abrir PR;
+- for decidir se um PR publica versão (label `release`) e com que nível, ou mexer em release, changelog, tag ou piso de versão;
+- for fechar uma issue ou registrar uma mudança de escopo.
+
+Perguntas e investigações sem mudança de arquivo não precisam do skill. Valem sempre, com ou sem ele: nenhuma mudança versionada sem issue; nunca `--no-verify`; a issue só fecha depois de aprovada (merge do PR ou aprovação explícita do responsável); ninguém edita a versão nem o `CHANGELOG.md` à mão. No Claude Code, os hooks do projeto (`.claude/settings.json`) lembram o skill nesses momentos e recusam commit sem o hook `commit-msg` ou PR sem issue; as barreiras finais são o hook `commit-msg` e o check "Verificação do PR".
+
+Próprio deste repositório (detalhes em [docs/workflow.md](docs/workflow.md)):
+
+- Issues e PRs têm também a seção "Segurança e contrato do AGENTS.md". O label `security` marca impacto em tenant, RLS, autorização, autenticação, auditoria, segredos, CSRF ou CAS.
+- A versão do projeto é a do core; o agente de deployment e as apps de `skeleton/contrib` seguem o mesmo número, e uma app first-party nova acrescenta suas entradas em `[[versioning.files]]` no mesmo PR. Pisos de funcionalidade (`*_CORE_MINIMUM`, `since=`, `compatibility.skeleton` de apps) não acompanham o bump: recebem a versão em que a capacidade será publicada (`release.py next --level minor`).
+- O skill é uma cópia do repositório próprio dele; atualize-o com `bootstrap.py update` a partir da versão nova, numa issue `chore`, nunca editando a cópia à mão.
 
 ## Fronteiras de código
 
@@ -42,6 +52,7 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/transfer`: exportação e importação CSV de tabelas expostas por job, com o arquivo no storage privado e a retenção declarada (`TransferJob`, operacional); só pelo caminho autorizado de leitura e escrita do gateway.
 - `skeleton/flows`: motor de fluxos de processo de negócio (definições versionadas, instâncias, tarefas, formulários, aprovações; [docs/flows.md](docs/flows.md)). É só o motor: apps declaram os fluxos em código por `skeleton.flows.registry` e os usam pelo `FlowService`. Condições são árvores de dados ou callables registrados, nunca `eval`; nenhuma regra de negócio de um fluxo entra no núcleo.
 - `skeleton/comments`: comentários em registros ([docs/comments.md](docs/comments.md)). A autorização vem do registro alvo (como os anexos), a tabela precisa de `TableSpec.comments`; só o autor edita, autor e administrador excluem. Texto simples sempre escapado; nenhuma regra de negócio de app.
+- `skeleton/billing`: cobrança da plataforma vendida como SaaS ([docs/billing.md](docs/billing.md), epic #406): catálogo global de produtos e preços, conta de cobrança, assinatura, faturas e pagamentos por organização. O núcleo é a fonte de verdade e o provedor só recebe o pagamento; dinheiro só em inteiros da menor unidade (`skeleton.billing.money`), nunca `float`; termos de um preço e linhas de fatura nunca mudam; desligado por padrão (`SKELETON_BILLING_ENABLED`). Preços e planos são dados da plataforma, não regra de código.
 - `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
 - `skeleton/observability`: métricas, tracing e relato de erros, todos opt-in; nenhum rótulo ou atributo carrega `sysid` de organização ou de pessoa, slug, email, token ou segredo, e os eventos de erro só levam os campos estruturados permitidos aos logs.
@@ -92,7 +103,7 @@ Não aceite actor/tenant/sysid/revision/flags de usuário por mass assignment. P
 
 `delete` é soft delete. `restore` valida unicidade/referências ativas; não recria UUID. `bulk_update` e bulk conflict upsert são proibidos. User/Organization retêm vínculos históricos; os demais registros protegem referências vivas. Use serviços de lifecycle/revogação para não esquecer `auth_version`, último admin e relações de acesso.
 
-Não implemente purge por HTTP/admin/manager. O único expurgo de conteúdo de negócio é o job `files.purge` (#192), declarado em código: ele apaga os bytes de anexos excluídos há mais de `SKELETON_FILES_DELETED_RETENTION_DAYS` e mantém a linha como tombstone `purged`. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. A única exceção é `manage.py redact_audit_personal_data --confirm`: só o owner pode rodá-lo, e ele redige os `personal_fields` de eventos antigos numa transação que religa o guard (#189). DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
+Não implemente purge por HTTP/admin/manager. O único expurgo de conteúdo de negócio é o job `files.purge` (#192), declarado em código: ele apaga os bytes de anexos excluídos há mais de `SKELETON_FILES_DELETED_RETENTION_DAYS` e mantém a linha como tombstone `purged`. A outra exceção nominal é o job `flows.purge_form_data` (#422): ele esvazia os valores de formulário (`data`, `sensitive_data`, `values`, `sensitive_values`) de instâncias de fluxo encerradas há mais que a retenção declarada (`FlowSpec.retention_days` ou `SKELETON_FLOWS_FORM_RETENTION_DAYS`) e mantém o esqueleto da instância. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. A única exceção é `manage.py redact_audit_personal_data --confirm`: só o owner pode rodá-lo, e ele redige os `personal_fields` de eventos antigos numa transação que religa o guard (#189). DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
 
 ## Checklist mínimo de nova tabela
 

@@ -11,6 +11,7 @@ KEYRINGS = (
     ("MFA_ENCRYPTION_KEYS", "MFA"),
     ("IDENTITY_PROVIDER_ENCRYPTION_KEYS", "identity provider"),
     ("INTEGRATION_ENCRYPTION_KEYS", "integration"),
+    ("BILLING_ENCRYPTION_KEYS", "billing"),
 )
 
 

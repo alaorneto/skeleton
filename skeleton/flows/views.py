@@ -7,10 +7,12 @@ service refuses is shown again with its errors.
 
 from django import forms
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.utils.translation import gettext, gettext_lazy
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
 from skeleton.service_api import errors
 from skeleton.service_api.flows import FlowService
@@ -85,6 +87,20 @@ def _revision(request):
         return int(request.POST.get("revision", ""))
     except ValueError:
         return 0
+
+
+@login_required
+@never_cache
+@require_safe
+def global_tasks(request):
+    """Open tasks assigned to the person in every organization (#409).
+
+    Like the global notification inbox: the middleware's global context of the person is what
+    the self-discovery policy reads (an aggregate route would run without any actor).
+    """
+    from .inbox import open_tasks
+
+    return render(request, TEMPLATES + "global_tasks.html", {"rows": open_tasks(request.user)})
 
 
 @tenant_page()
@@ -168,15 +184,213 @@ def task_detail(request, organization_id, sysid):
     return render(
         request,
         TEMPLATES + "task.html",
-        {"organization_id": organization_id, "detail": detail, "task": detail.task, "form": form},
+        {
+            "organization_id": organization_id,
+            "detail": detail,
+            "task": detail.task,
+            "form": form,
+            "subject_comments": _subject_comments(request, detail.subject_table, detail.subject_id),
+        },
         status=status,
     )
 
 
+def _subject_comments(request, subject_table, subject_id):
+    """The business record's comment panel (#421), only for who reads the record.
+
+    The authorization is the record's own (``readable_target``), as on the record page: who
+    only has the task, without reading the record, sees no panel; a table without
+    ``CommentPolicy`` shows none either.
+    """
+    from django.http import Http404
+
+    from skeleton.comments.services import readable_target
+    from skeleton.comments.views import panel_context
+    from skeleton.system.registry import get_spec
+
+    try:
+        spec = get_spec(subject_table)
+    except (KeyError, LookupError):
+        return None
+    if spec is None or getattr(spec, "comments", None) is None or not spec.expose_api:
+        return None
+    try:
+        record = readable_target(spec, subject_id, user=request.user)
+    except Http404:
+        return None
+    panel = panel_context(spec, record, user=request.user, next_url=request.path)
+    if panel is None:
+        return None
+    return {"comments": panel, "table_key": subject_table, "record": {"sysid": record.pk}}
+
+
+def _version(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+@tenant_page()
+def operations(request, organization_id):
+    """Operations panel (#408): failed instances and the open tasks that need someone."""
+    from .operations import overview
+
+    flow_key = (request.GET.get("flow_key") or "").strip()[:100]
+    flow_version = _version(request.GET.get("version"))
+    panel = overview(request.user, flow_key=flow_key, flow_version=flow_version)
+    return render(
+        request,
+        TEMPLATES + "operations.html",
+        {
+            "organization_id": organization_id,
+            "panel": panel,
+            "flow_key": flow_key,
+            "flow_version": flow_version or "",
+        },
+    )
+
+
+def _draft_steps(specification):
+    """Rows for the editor's tables; tolerant of a half-written specification."""
+    steps = specification.get("steps") if isinstance(specification, dict) else None
+    transitions = specification.get("transitions") if isinstance(specification, dict) else None
+    keep = lambda rows: [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []  # noqa: E731
+    return keep(steps), keep(transitions)
+
+
+def _draft_page(request, organization_id, *, item=None, text="", errors=(), status=200):
+    import json
+
+    from .registry import registered_names
+
+    specification = item.specification if item is not None else {}
+    steps, transitions = _draft_steps(specification)
+    return render(
+        request,
+        TEMPLATES + "draft.html",
+        {
+            "organization_id": organization_id,
+            "draft": item,
+            "text": text or (json.dumps(specification, indent=2, ensure_ascii=False) if item is not None else ""),
+            "errors": list(errors),
+            "steps": steps,
+            "transitions": transitions,
+            "registered": registered_names(),
+        },
+        status=status,
+    )
+
+
+def _parse_specification(text):
+    import json
+
+    try:
+        value = json.loads(text or "")
+    except ValueError as error:
+        return None, [gettext("JSON inválido: %(error)s") % {"error": error}]
+    return value, []
+
+
+def _draft_messages(error):
+    if hasattr(error, "message_dict"):
+        found = error.message_dict.get("specification")
+        if found:
+            return found
+    return error.messages
+
+
+@tenant_page()
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def draft_list(request, organization_id):
+    """Flows authored as data (#415): the drafts, and a new one from a pasted specification."""
+    from django.core.exceptions import ValidationError
+
+    from . import definitions
+
+    if request.method == "POST":
+        specification, errors = _parse_specification(request.POST.get("specification"))
+        if not errors:
+            try:
+                with transaction.atomic():  # A refused write rolls back to here; the page still renders.
+                    created = definitions.save_draft(request.user, specification=specification)
+            except ValidationError as error:
+                errors = _draft_messages(error)
+            else:
+                return redirect("flows:draft", organization_id=organization_id, sysid=created.sysid)
+        rows = definitions.drafts(request.user)
+        return render(
+            request,
+            TEMPLATES + "drafts.html",
+            {
+                "organization_id": organization_id,
+                "rows": rows,
+                "errors": errors,
+                "text": request.POST.get("specification", ""),
+            },
+            status=400,
+        )
+    rows = definitions.drafts(request.user)
+    return render(
+        request, TEMPLATES + "drafts.html", {"organization_id": organization_id, "rows": rows, "errors": [], "text": ""}
+    )
+
+
+@tenant_page()
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def draft_detail(request, organization_id, sysid):
+    from django.core.exceptions import ValidationError
+    from django.http import Http404
+
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    from . import definitions
+    from .models import FlowDraft
+
+    try:
+        item = definitions.draft(request.user, sysid)
+    except FlowDraft.DoesNotExist:
+        raise Http404 from None
+    if request.method == "GET":
+        return _draft_page(request, organization_id, item=item)
+    revision = _revision(request)
+    text = request.POST.get("specification", "")
+    try:
+        if request.POST.get("intent") == "publish":
+            with transaction.atomic():  # A refused publication rolls back to here; the page still renders.
+                published = definitions.publish_draft(request.user, draft_id=sysid, expected_revision=revision)
+            messages.success(
+                request, gettext("Versão %(version)s publicada.") % {"version": published.published_version}
+            )
+            return redirect("flows:draft", organization_id=organization_id, sysid=sysid)
+        specification, errors = _parse_specification(text)
+        if errors:
+            return _draft_page(request, organization_id, item=item, text=text, errors=errors, status=400)
+        with transaction.atomic():
+            definitions.save_draft(
+                request.user, specification=specification, draft_id=sysid, expected_revision=revision
+            )
+    except ConcurrentUpdate:
+        return _draft_page(request, organization_id, item=item, text=text, errors=[STALE], status=409)
+    except ValidationError as error:
+        return _draft_page(request, organization_id, item=item, text=text, errors=_draft_messages(error), status=400)
+    messages.success(request, gettext("Rascunho salvo."))
+    return redirect("flows:draft", organization_id=organization_id, sysid=sysid)
+
+
 @tenant_page()
 def instance_list(request, organization_id):
+    from .policies import is_flow_admin
+
     page = _cursor_page(request, lambda cursor: FlowService().instances(actor=request.user, cursor=cursor))
-    return render(request, TEMPLATES + "instances.html", {"organization_id": organization_id, "page": page})
+    return render(
+        request,
+        TEMPLATES + "instances.html",
+        {"organization_id": organization_id, "page": page, "can_operate": is_flow_admin(request.user)},
+    )
 
 
 @tenant_page()
@@ -184,7 +398,8 @@ def instance_detail(request, organization_id, sysid):
     service = FlowService()
     instance = service.instance(actor=request.user, instance_id=sysid)
     history = service.history(actor=request.user, instance_id=sysid, page_size=100)
-    from skeleton.access.policies import is_organization_admin
+    from .diagram import for_instance
+    from .policies import is_flow_admin
 
     return render(
         request,
@@ -194,8 +409,11 @@ def instance_detail(request, organization_id, sysid):
             "instance": instance,
             "history": history.items,
             "more_history": history.next_cursor is not None,
-            "is_admin": is_organization_admin(request.user),
+            "is_admin": is_flow_admin(request.user),
             "is_starter": instance.starter_id == request.user.pk,
+            # Read through FlowService above: the instance is visible to the person (#419).
+            "diagram": for_instance(instance.sysid),
+            "subject_comments": _subject_comments(request, instance.subject_table, instance.subject_id),
         },
     )
 

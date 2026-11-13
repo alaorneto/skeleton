@@ -1,0 +1,13 @@
+# Trecho para .pre-commit-config.yaml de projetos que já usam pre-commit (https://pre-commit.com).
+# Acrescente `commit-msg` a `default_install_hook_types` e rode `pre-commit install`.
+#
+# default_install_hook_types: [pre-commit, commit-msg]
+repos:
+  - repo: local
+    hooks:
+      # Todo commit referencia uma issue (Refs #N); skill dev-workflow.
+      - id: issue-reference
+        name: referência a issue do GitHub
+        entry: python __SKILL_DIR__/scripts/github_issues.py commit-msg
+        language: python
+        stages: [commit-msg]

@@ -58,6 +58,8 @@ class ServiceAPI:
 
     __slots__ = ()
     app_label: ClassVar[str | None] = None
+    # Services that settle the organization's account stay usable while its access is limited (#395).
+    access_exempt: ClassVar[bool] = False
 
     @classmethod
     def service_methods(cls) -> dict[str, ServiceMethodSpec]:
@@ -99,6 +101,24 @@ def _check_caller(spec: ServiceMethodSpec, actor: object) -> None:
         return
     if context.actor is None or getattr(actor, "pk", None) != context.actor:
         raise Forbidden(gettext("O ator não corresponde ao contexto da chamada."), code="actor_mismatch")
+
+
+def _require_organization_access(spec: ServiceMethodSpec, service: type[ServiceAPI]) -> None:
+    """The billing standing of the organization (#395): read only when restricted, apps closed when suspended.
+
+    Infrastructure (``system_context``) is not limited; core reads stay available so the pages
+    that settle the account still render.
+    """
+    from skeleton.common.entitlements import AccessLevel, limited_code, organization_access, writes_allowed
+
+    context = current_context()
+    if context.organization_id is None or context.system or service.access_exempt:
+        return
+    level = organization_access(context.organization_id)
+    if writes_allowed(level):
+        return
+    if not spec.read_only or (level is AccessLevel.SUSPENDED and service.app_label is not None):
+        raise Unavailable(code=limited_code(level))
 
 
 def _require_provider(app_label: str) -> None:
@@ -211,6 +231,7 @@ def service_method(
             if "actor" not in kwargs:
                 raise TypeError(f"{function.__qualname__}: the 'actor' keyword is required.")
             _check_caller(spec, kwargs["actor"])
+            _require_organization_access(spec, type(args[0]))
             provider = type(args[0]).app_label
             try:
                 if provider is not None:

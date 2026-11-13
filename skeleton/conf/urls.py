@@ -12,6 +12,8 @@ def application_urls(project_urls=()):
     routes = [
         path("", include("skeleton.web.application_urls")),
         path("", include("skeleton.api.application_urls")),
+        path("", include("skeleton.web.billing_urls")),
+        path("", include("skeleton.api.billing_urls")),
         *application_urlpatterns(),
         path("accounts/oidc/<str:provider_id>/login/", oidc.login, name="openid_connect_login"),
         path("accounts/oidc/<str:provider_id>/login/callback/", oidc.callback, name="openid_connect_callback"),
@@ -25,6 +27,7 @@ def application_urls(project_urls=()):
         routes.append(path("", include(project_urls)))
     routes.append(path("", include("skeleton.notifications.urls")))
     routes.append(path("", include("skeleton.files.urls")))
+    routes.append(path("", include("skeleton.billing.urls")))
     routes.append(path("", include("skeleton.comments.urls")))
     routes.append(path("", include("skeleton.transfer.urls")))
     # Before api/v1/: its generic o/<org>/<resource>/ would otherwise capture webhooks/.

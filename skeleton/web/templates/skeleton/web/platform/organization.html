@@ -68,6 +68,11 @@
     <ul class="mt-4 space-y-1">{% for row in identity_providers %}<li><a href="{% url 'platform:identity-provider' row.pk %}">{{ row.name }}</a> <span class="text-sm text-body-subtle">{{ row.get_protocol_display }} · {% if row.enabled %}ativo{% else %}desligado{% endif %}</span></li>{% empty %}<li class="text-body-subtle">Nenhum provedor cadastrado no banco.</li>{% endfor %}</ul>
     <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:identity-provider-create' %}?protocol=oidc">Cadastrar provedor</a></p>
   </section>
+  <section class="card" aria-labelledby="organization-billing">
+    <h2 id="organization-billing">{% translate "Cobrança" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Assinatura, faturas, pagamentos, baixa manual, prorrogação e cortesia." %}</p>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:organization-billing' subject.pk %}">{% translate "Abrir a cobrança" %}</a></p>
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-storage">
     <h2 id="organization-storage">{% translate "Armazenamento" %}</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador." %}</p>

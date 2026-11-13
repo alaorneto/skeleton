@@ -8,7 +8,7 @@ Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://g
 
 - a identidade (email, nomes, criação, último login) e o perfil (nome de exibição, idioma, fuso);
 - os metadados dos tokens de API: prefixo, nome, escopos, validade e revogação, nunca o digest;
-- em cada organização em que a pessoa tem vínculo ativo, o vínculo, as notificações recebidas (tipo, datas, alvo e snapshot) e os metadados dos anexos que ela enviou.
+- em cada organização em que a pessoa tem vínculo ativo, o vínculo, as notificações recebidas (tipo, datas, alvo e snapshot), os metadados dos anexos que ela enviou e os formulários de fluxo que ela enviou (`flow_submissions`: fluxo, instância, etapa, data e valores, inclusive os sensíveis, que são dela; [#422](https://github.com/alaorneto/skeleton/issues/422)).
 
 A exportação é montada na própria requisição. Ela é uma rota agregada que lê cada organização num contexto só de leitura, com o vínculo revalidado. O ZIP sai como anexo e com `no-store`, então não há arquivo guardado para proteger ou expirar. O download exige autenticação recente e grava o evento de segurança `privacy.export`. Nunca aparecem dados de outra pessoa, segredos ou registros de negócio.
 
@@ -26,7 +26,7 @@ Um administrador da plataforma decide em `/platform/privacy/`, por POST com CSRF
 
 A aprovação passa pela mesma guarda da desativação (`skeleton.assert_user_deactivation`): quem é o último administrador ativo de alguma organização não é anonimizado, e a mensagem pede que outro administrador seja designado antes. A guarda mantém as travas das organizações até o commit, então ninguém torna a pessoa a última administradora no meio da operação. Qualquer recusa desfaz a transação inteira e o pedido continua pendente.
 
-A mesma transação enfileira um job `accounts.forget_in_organization` por organização. Cada um roda no contexto da própria organização, porque as linhas de tenant só são alcançáveis ali, e apaga as linhas de caixa de entrada e as entregas de notificação da pessoa (`forget_person`, ao lado da retenção) e desativa os webhooks que agem como ela. O job é idempotente: rodar de novo não encontra mais nada.
+A mesma transação enfileira um job `accounts.forget_in_organization` por organização. Cada um roda no contexto da própria organização, porque as linhas de tenant só são alcançáveis ali, e apaga as linhas de caixa de entrada e as entregas de notificação da pessoa (`forget_person`, ao lado da retenção) e desativa os webhooks que agem como ela. Nos fluxos de processo, ele remove dos formulários que a pessoa enviou os campos declarados `personal=True`, e também dos dados da instância enquanto eles guardam o valor que ela enviou ([#422](https://github.com/alaorneto/skeleton/issues/422)); os outros campos e os envios de outras pessoas ficam. O job é idempotente: rodar de novo não encontra mais nada.
 
 Os registros de negócio das organizações não mudam: continuam apontando para a mesma identidade, agora anônima (as relações são `PROTECT`), e os vínculos ficam como histórico. A auditoria antiga também fica; os `personal_fields` já saem `[REDACTED]` nos eventos novos e o comando `redact_audit_personal_data` (#189) redige os antigos. A eliminação não tem volta: a aprovação é a salvaguarda.
 

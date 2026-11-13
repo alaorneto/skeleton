@@ -20,6 +20,14 @@ OPEN, CLOSE = "⟦", "⟧"
 PLATFORM_PASSWORD = "Platform-i18n-coverage-2026!913"
 # Product names and raw codes shown as data (the origin of the core, for example).
 ALWAYS_ALLOWED = {
+    # Day codes of the business calendar field (#416): syntax of the value, not interface text.
+    "seg",
+    "ter",
+    "qua",
+    "qui",
+    "sex",
+    "sab",
+    "dom",
     "source",
     "read",
     "delete",

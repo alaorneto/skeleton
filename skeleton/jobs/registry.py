@@ -82,6 +82,26 @@ def job_type_problems() -> list[str]:
     return problems
 
 
+def owner_app_suspended(job_type: JobType) -> bool:
+    """Whether the job type belongs to an app and its organization is suspended for billing (#395).
+
+    Core jobs keep running, so the organization can still be billed and notified. Call it inside
+    a context that carries the job's organization.
+    """
+    from skeleton.common.entitlements import AccessLevel, organization_access
+    from skeleton.system.app_registry import get_app
+    from skeleton.tenancy.context import current_context
+
+    organization_id = current_context().organization_id
+    if not job_type.owner_app or organization_id is None:
+        return False
+    try:
+        get_app(job_type.owner_app)
+    except KeyError:
+        return False
+    return organization_access(organization_id) is AccessLevel.SUSPENDED
+
+
 def owner_app_enabled(job_type: JobType) -> bool:
     """Whether the job type's owner app is usable in the organization of the current context (#337).
 

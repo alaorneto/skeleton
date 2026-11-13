@@ -39,12 +39,17 @@ def forget_application_states(*, everywhere=False):
 
 
 def _load_states():
-    from .availability import availability_map
+    from skeleton.common.entitlements import entitled_apps
+
+    from .availability import platform_availability_map
     from .models import AppInstallation
 
     manifests = all_apps()
     labels = [manifest.app_label for manifest in manifests]
-    available = availability_map(labels)
+    offered = platform_availability_map(labels)
+    entitled = entitled_apps(current_context().organization_id, [label for label in labels if offered[label]])
+    # Effective availability (#395): offered by the platform and, with billing, paid for.
+    available = {label: offered[label] and entitled.get(label, True) for label in labels}
     records = {record.app_label: record for record in AppInstallation.objects.filter(app_label__in=labels)}
     states = {}
     for manifest in manifests:
@@ -59,6 +64,8 @@ def _load_states():
         states[manifest.app_label] = {
             "app_label": manifest.app_label,
             "available": available[manifest.app_label],
+            # Offered by the platform but not contracted: the apps page offers to contract it (#404).
+            "contract_required": offered[manifest.app_label] and not available[manifest.app_label],
             "label": manifest.label,
             "description": manifest.description,
             "app_id": manifest.app_id,
@@ -143,9 +150,29 @@ def require_activation_allowed(app_label, *, enabled):
     No actor authorization here: callers authorize first (configure_application) or run as
     infrastructure under system_context (CLI). Reads the organization of the current context.
     """
-    from .availability import available_with_dependencies
+    from skeleton.common.entitlements import entitled_apps
+    from skeleton.common.exceptions import ApplicationNotEntitled
+
+    from .availability import available_with_dependencies, platform_availability_map
 
     forget_application_states()
+    if enabled:
+        closure = [app_label, *required_labels(app_label)]
+        organization_id = current_context().organization_id
+        offered = platform_availability_map(closure, organization_id=organization_id)
+        if all(offered.values()):
+            missing = [label for label, ok in entitled_apps(organization_id, closure).items() if not ok]
+            if missing:
+                # Offered by the platform but not paid for (#395): the surfaces offer to contract it.
+                names = ", ".join(get_app(label).label for label in missing)
+                raise ApplicationNotEntitled(
+                    {
+                        "enabled": ValidationError(
+                            gettext("Contrate o aplicativo para ativá-lo: %(names)s.") % {"names": names},
+                            code="app_not_entitled",
+                        )
+                    }
+                )
     if enabled and not available_with_dependencies(app_label):
         # Disabling stays allowed so an organization can close an app the platform withdrew.
         raise ValidationError(
@@ -169,6 +196,43 @@ def require_activation_allowed(app_label, *, enabled):
             raise ValidationError(
                 {"enabled": gettext("Desative antes os aplicativos dependentes: %(names)s.") % {"names": names}}
             )
+
+
+@transaction.atomic
+def activate_for_entitlement(app_label):
+    """Turn ``app_label`` on in the current organization because billing granted the right (#396).
+
+    Infrastructure only (``system_context`` of the organization, no actor): the same lock,
+    availability and dependency checks as ``configure_application``, the stored configuration
+    kept (defaults for a first activation) and the same ``app.enabled`` event. Already enabled
+    is a no-op; a refusal raises ``ValidationError``.
+    """
+    from skeleton.access.services import organization_lock
+    from skeleton.events.core_events import application_changed
+
+    from .models import AppInstallation
+
+    manifest = get_app(app_label)
+    with organization_lock():
+        record = AppInstallation.objects.filter(app_label=app_label).first()
+        if record is not None and record.enabled:
+            return record
+        values = validate_configuration(manifest, record.configuration if record else {})
+        require_activation_allowed(app_label, enabled=True)
+        if record is None:
+            record = AppInstallation(
+                organization_id=current_context().organization_id,
+                app_label=app_label,
+                enabled=True,
+                configuration=values,
+            )
+            record.save()
+        else:
+            record.enabled = True
+            record.save(update_fields={"enabled"})
+        forget_application_states(everywhere=True)
+        application_changed(record, was_enabled=False)
+        return record
 
 
 @transaction.atomic
@@ -274,11 +338,16 @@ def application_navigation(request):
     context = current_context()
     if context.organization_id is None or not getattr(request.user, "is_authenticated", False):
         return {}
-    from skeleton.access.capabilities import APPS_MANAGE, capabilities_for
+    from django.conf import settings
+
+    from skeleton.access.capabilities import APPS_MANAGE, BILLING_VIEW, capabilities_for
     from skeleton.access.policies import is_organization_admin
 
+    capabilities = capabilities_for(request.user)
     return {
         "application_navigation": navigation_for_user(request.user),
-        "can_manage_applications": APPS_MANAGE in capabilities_for(request.user),
+        "can_manage_applications": APPS_MANAGE in capabilities,
         "can_manage_organization": is_organization_admin(request.user),
+        # The billing area (#404), only when the platform is sold with billing on.
+        "can_view_billing": bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)) and BILLING_VIEW in capabilities,
     }

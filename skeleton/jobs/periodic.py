@@ -133,7 +133,7 @@ def schedule_due(
     """
     from skeleton.tenancy.context import system_context
 
-    from .registry import get_job_type, owner_app_enabled
+    from .registry import get_job_type, owner_app_enabled, owner_app_suspended
     from .services import enqueue
 
     now = now or timezone.now()
@@ -162,9 +162,9 @@ def schedule_due(
                     with system_context(
                         reason=f"periodic:{periodic.code}", organization_id=organization_id, using=using
                     ):
-                        if not owner_app_enabled(job_type):
-                            # The app is off here (#337): not remembered, so enabling it again
-                            # schedules this same window on the next tick.
+                        if not owner_app_enabled(job_type) or owner_app_suspended(job_type):
+                            # The app is off here (#337), or its organization is suspended (#395):
+                            # not remembered, so reopening it schedules this same window on the next tick.
                             continue
                         receipt = enqueue(
                             periodic.job_type,
