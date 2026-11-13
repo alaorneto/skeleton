@@ -11,9 +11,10 @@ from .build import build_package, sign_package
 from .catalog import build_catalog, catalog_entry, validate_catalog
 from .doctor import doctor
 from .errors import _fail
-from .manifest import default_service_class, load_manifest, manifest_template
+from .manifest import load_manifest
 from .primitives import _json, canonical_json
 from .signing import initialize_keys, load_trust_store
+from .template import default_service_class, manifest_template
 
 
 def configure_parser(parser):

@@ -29,6 +29,8 @@ from .packaging.signing import (
 )
 from .packaging.manifest import (
     _validate_service_api, _validate_manifest, validate_manifest, load_manifest, required_documents,
+)
+from .packaging.template import (
     default_service_class, manifest_template,
 )
 from .packaging.zipio import (
