@@ -9,12 +9,17 @@ class FlowsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
+        from skeleton.integrations.tokens.scopes import register_token_scope
+
         from . import checks  # noqa: F401 - registers the flow checks (skeleton.E029)
+        from .api_views import FLOWS_READ, FLOWS_WRITE
         from .automatic import register_automatic_steps
         from .events import register_flow_event_types
         from .notifications import register_flow_notification_types
         from .tasks import register_human_steps
 
+        register_token_scope(FLOWS_READ, gettext_lazy("Ler tarefas, instâncias e histórico de fluxos"))
+        register_token_scope(FLOWS_WRITE, gettext_lazy("Agir em tarefas e instâncias de fluxos"))
         register_flow_event_types()
         register_automatic_steps()
         register_human_steps()

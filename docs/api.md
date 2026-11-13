@@ -144,7 +144,7 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 
 ## Fluxos de processo
 
-Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Só sessão: um token de API recebe 403 `token_not_allowed`.
+Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Desde [#410](https://github.com/alaorneto/skeleton/issues/410), tarefas e instâncias aceitam token de API (pessoal ou de conta de serviço) com os escopos `flows:read` (leituras) e `flows:write` (comandos em tarefas e instâncias); sem o escopo, 403. O escopo só abre a rota: a autorização continua a do `FlowService`, e ver uma instância pela leitura do registro de negócio também exige o escopo de leitura daquela tabela. Painel de operação e rascunhos continuam só sessão, porque um token nunca carrega capacidade, e por isso os comandos de administração (suspender, retomar, repetir) também são recusados a tokens.
 
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|

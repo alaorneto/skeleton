@@ -1,7 +1,8 @@
 """REST of the process flows under ``/api/v1/o/<org>/flows/`` (docs/api.md, "Fluxos de processo").
 
-Thin over ``FlowService``: the service authorizes every call. Session only (no view declares
-``token_methods``). Commands require ``If-Match`` with the revision of the task or of the
+Thin over ``FlowService``: the service authorizes every call. Since #410, API tokens reach the
+tasks and instances with the scopes ``flows:read`` (reads) and ``flows:write`` (commands); the
+operations panel and the drafts stay session only, because tokens never carry a capability. Commands require ``If-Match`` with the revision of the task or of the
 instance and answer 412 when it is stale, like the other core resources.
 
 Every route is documented in ``/api/v1/openapi.json`` (#178). The response schemas are derived
@@ -22,6 +23,7 @@ from django.utils.translation import gettext
 from rest_framework.response import Response
 
 from skeleton.access.capabilities import FLOWS_MANAGE
+from skeleton.access.policies import require_credential_scope
 from skeleton.api.errors import BoundaryError, if_match_precondition, parse_revision
 from skeleton.api.openapi import (
     BOOLEAN,
@@ -39,6 +41,8 @@ from skeleton.api.openapi import UUID as UUID_SCHEMA
 from skeleton.api.views import TenantAPI, etag, request_fields
 from skeleton.service_api.flows import ActivityEntry, FlowService, InstanceInfo, TaskDetail, TaskSummary
 
+FLOWS_READ = "flows:read"
+FLOWS_WRITE = "flows:write"
 TASK_ACTIONS = ("claim", "release", "reassign", "complete", "decide")
 INSTANCE_ACTIONS = ("cancel", "suspend", "resume", "retry")
 _PRIMITIVES: dict[Any, Schema] = {str: string(), int: INTEGER, bool: BOOLEAN, UUID: UUID_SCHEMA, datetime: DATETIME}
@@ -125,10 +129,12 @@ def _form_data(data):
 
 
 class TasksView(TenantAPI):
+    token_methods = ("GET",)
     openapi = {
         "GET": Operation(
             "Caixa de tarefas do ator",
             lambda: _cursor_page(TaskSummary),
+            scope=FLOWS_READ,
             query=(
                 (
                     "scope",
@@ -142,15 +148,23 @@ class TasksView(TenantAPI):
     }
 
     def get(self, request, organization_id):
+        require_credential_scope(FLOWS_READ)
         return _page(FlowService().tasks(actor=request.user, **_filters(request, ("scope", "status"))))
 
 
 class TaskView(TenantAPI):
+    token_methods = ("GET",)
     openapi = {
-        "GET": Operation("Tarefa com formulário, ações e dados do processo", lambda: dto_schema(TaskDetail), etag=True)
+        "GET": Operation(
+            "Tarefa com formulário, ações e dados do processo",
+            lambda: dto_schema(TaskDetail),
+            etag=True,
+            scope=FLOWS_READ,
+        )
     }
 
     def get(self, request, organization_id, sysid):
+        require_credential_scope(FLOWS_READ)
         detail = FlowService().task(actor=request.user, task_id=sysid)
         return etag(Response(asdict(detail)), detail.task.revision)
 
@@ -158,8 +172,11 @@ class TaskView(TenantAPI):
 class TaskActionView(TenantAPI):
     """The commands on a task; each action is routed to a subclass documenting it."""
 
+    token_methods = ("POST",)
+
     @transaction.atomic
     def post(self, request, organization_id, sysid, action):
+        require_credential_scope(FLOWS_WRITE)
         revision = parse_revision(request.headers.get("If-Match"))
         service, actor = FlowService(), request.user
         with if_match_precondition():
@@ -203,7 +220,13 @@ class TaskActionView(TenantAPI):
 
 def _task_command(summary: str, request: Schema | None = None) -> Operation:
     return Operation(
-        summary, lambda: dto_schema(TaskSummary), request=request, request_required=False, etag=True, if_match=True
+        summary,
+        lambda: dto_schema(TaskSummary),
+        request=request,
+        request_required=False,
+        etag=True,
+        if_match=True,
+        scope=FLOWS_WRITE,
     )
 
 
@@ -400,10 +423,12 @@ def _operations_overview():
 
 
 class InstancesView(TenantAPI):
+    token_methods = ("GET",)
     openapi = {
         "GET": Operation(
             "Instâncias de fluxo visíveis ao ator",
             lambda: _cursor_page(InstanceInfo),
+            scope=FLOWS_READ,
             query=(
                 ("flow_key", string(), "Chave do fluxo."),
                 ("subject_id", UUID_SCHEMA, "Registro do processo."),
@@ -414,36 +439,47 @@ class InstancesView(TenantAPI):
     }
 
     def get(self, request, organization_id):
+        require_credential_scope(FLOWS_READ)
         filters = _filters(request, ("flow_key", "subject_id", "status"))
         return _page(FlowService().instances(actor=request.user, **filters))
 
 
 class InstanceView(TenantAPI):
+    token_methods = ("GET",)
     openapi = {
         "GET": Operation(
             "Instância com etapas ativas e dados não sensíveis",
             lambda: dto_schema(InstanceInfo),
             etag=True,
+            scope=FLOWS_READ,
         )
     }
 
     def get(self, request, organization_id, sysid):
+        require_credential_scope(FLOWS_READ)
         instance = FlowService().instance(actor=request.user, instance_id=sysid)
         return etag(Response(asdict(instance)), instance.revision)
 
 
 class InstanceHistoryView(TenantAPI):
-    openapi = {"GET": Operation("Histórico da instância", lambda: _cursor_page(ActivityEntry), query=_PAGING)}
+    token_methods = ("GET",)
+    openapi = {
+        "GET": Operation("Histórico da instância", lambda: _cursor_page(ActivityEntry), query=_PAGING, scope=FLOWS_READ)
+    }
 
     def get(self, request, organization_id, sysid):
+        require_credential_scope(FLOWS_READ)
         return _page(FlowService().history(actor=request.user, instance_id=sysid, **_filters(request, ())))
 
 
 class InstanceActionView(TenantAPI):
     """The administration of an instance; each action is routed to a subclass documenting it."""
 
+    token_methods = ("POST",)
+
     @transaction.atomic
     def post(self, request, organization_id, sysid, action):
+        require_credential_scope(FLOWS_WRITE)
         revision = parse_revision(request.headers.get("If-Match"))
         service = FlowService()
         data = _body(request, ("reason",) if action in ("cancel", "suspend") else ())
@@ -466,6 +502,7 @@ def _instance_command(summary: str, *, reason: bool = False, capability: str | N
         etag=True,
         if_match=True,
         capability=capability,
+        scope=FLOWS_WRITE,
     )
 
 
