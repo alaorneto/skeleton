@@ -85,7 +85,9 @@ def test_grant_picker_offers_only_active_organizations(setup):
 
     platform, org_a, _, org_b, client = setup
     with request_context(actor=platform, request_id=uuid4(), source="test:availability-screens-inactive"):
-        update_organization(org_b, data={"name": org_b.name, "is_active": False}, expected_revision=org_b.revision)
+        update_organization(
+            org_b, actor=platform, data={"name": org_b.name, "is_active": False}, expected_revision=org_b.revision
+        )
     page = client.get(reverse("platform:app-availability", kwargs={"app_label": NOTES}))
     assert page.status_code == 200
     offered = set(page.context["grant_form"].fields["organization"].queryset.values_list("pk", flat=True))

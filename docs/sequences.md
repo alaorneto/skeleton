@@ -22,7 +22,7 @@ def ready(self):
 | `key` | `app_label.nome`, até 100 caracteres |
 | `period` | `year` (recomeça a cada ano, padrão), `month` (a cada mês) ou `none` (nunca); calendário em UTC |
 | `template` | `str.format` com `{number}` obrigatório e, opcionalmente, `{year}`, `{month}` e `{period}` |
-| `owner_app` | A app que pode numerar com a sequência pela API de serviços |
+| `owner_app` | A app que pode numerar com a sequência pela API de serviços; sem ele, nenhum chamador numera pelo serviço (#272) |
 
 O check `skeleton.E028` reprova chave mal formada, período desconhecido, modelo sem `{number}` ou com campo desconhecido, e declaração duplicada diferente.
 
@@ -40,6 +40,8 @@ ticket.code = number.formatted  # "AT-2026-0042"; number.number == 42, number.pe
 A função interna do núcleo é `skeleton.sequences.services.next_number(key, *, at=None)`. As duas exigem contexto tenant; `at` (com fuso, padrão agora) escolhe o período.
 
 ## Garantias
+
+A primeira numeração de um período serializa na linha da organização com `FOR NO KEY UPDATE`, que não conflita com as inserções já feitas pela transação (#239).
 
 - **Sem lacunas:** o contador de `(organização, chave, período)` é uma linha `SequenceCounter` bloqueada com `SELECT … FOR UPDATE` e incrementada **na transação do chamador**. Se a escrita do negócio é desfeita, o incremento também é, e a próxima alocação reutiliza o número.
 - **Sem duplicatas:** alocações concorrentes da mesma sequência e período esperam o bloqueio e recebem números consecutivos. A primeira criação do contador é serializada no bloqueio da organização, de modo que duas transações nunca criam o mesmo contador.

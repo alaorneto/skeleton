@@ -120,3 +120,51 @@ def test_pending_or_quarantined_has_no_download_url(scenario):
         Attachment.objects.filter(pk=info.sysid).update(state="quarantined")
     with acting_as(scenario.member, scenario.a) as actor, pytest.raises(NotFound):
         service.download_url(actor=actor, attachment_id=info.sysid)
+
+
+@pytest.mark.needs_example_app
+def test_list_walks_oldest_first_with_keyset(scenario):
+    """Keyset pages over (created_at, sysid) (#305)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-KEY", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        created = [attach(service, actor, note, name=f"doc-{index}.pdf").sysid for index in range(3)]
+        first = service.list(actor=actor, table_key=TABLE, record_id=note.pk, page_size=2)
+        rest = service.list(actor=actor, table_key=TABLE, record_id=note.pk, page_size=2, cursor=first.next_cursor)
+    assert [item.sysid for item in (*first.items, *rest.items)] == created
+    assert rest.next_cursor is None
+
+
+@pytest.mark.needs_example_app
+def test_remove_twice_with_the_same_revision(scenario):
+    """Two removals with one revision: one wins; the other finds no live attachment (#319).
+
+    A removal is the attachment's only write, so the loser does not see a newer revision: it
+    sees a tombstone, which the service answers as NotFound ("inexistente"), never a second
+    removal. A stale revision on a live attachment is Conflict (see the test above).
+    """
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-CAS", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        info = attach(service, actor, note)
+
+    def remove(actor):
+        return service.remove(actor=actor, attachment_id=info.sysid, expected_revision=info.revision)
+
+    scenario.caller(remove)()
+    with pytest.raises(NotFound):
+        scenario.caller(remove)()
+
+
+@pytest.mark.needs_example_app
+def test_file_methods_follow_table_app_activation(scenario):
+    """With the table's app disabled, attach and list answer an error, never data (#319)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-OFF", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        attach(service, actor, note)
+    with scenario.application_disabled(scenario.a), acting_as(scenario.member, scenario.a) as actor:
+        with pytest.raises((NotFound, Forbidden)):
+            service.list(actor=actor, table_key=TABLE, record_id=note.pk)
+        with pytest.raises((NotFound, Forbidden)):
+            attach(service, actor, note, name="other.pdf")

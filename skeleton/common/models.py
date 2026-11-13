@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 
+from .context import is_tenant_model
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
 from .querysets import (
     InfrastructureManager,
@@ -105,6 +106,7 @@ class SystemRecord(models.Model):
         self.revision = 1
         self._validate_context()
 
+    # hasattr() is deliberate here: it also covers a plain organization_id column (AuditEvent); see is_tenant_model.
     def _validate_context(self) -> None:
         if hasattr(self, "organization_id"):
             tenant = context().organization_id
@@ -127,19 +129,22 @@ class SystemRecord(models.Model):
                 target = field.remote_field.model if field.remote_field is not None else None
                 if not isinstance(target, type) or not issubclass(target, SystemRecord):
                     continue
+                # Only the two columns the checks read, never the whole target row (#341).
+                has_organization = hasattr(target, "organization_id")
                 related = (
                     target.all_objects.using(self._state.db or "default")
                     .filter(pk=getattr(self, field.attname))
+                    .values("deleted_at", *(("organization_id",) if has_organization else ()))
                     .first()
                 )
                 if related is None:
                     continue  # The FK field validator supplies the missing-target error.
-                if related.deleted_at is not None and target.soft_delete_reference_policy != "retain":
+                if related["deleted_at"] is not None and target.soft_delete_reference_policy != "retain":
                     raise ValidationError({field.name: gettext("O registro referenciado foi excluído.")})
                 if (
                     hasattr(self, "organization_id")
-                    and hasattr(related, "organization_id")
-                    and self.organization_id != related.organization_id
+                    and has_organization
+                    and self.organization_id != related["organization_id"]
                 ):
                     raise ValidationError(
                         {field.name: gettext("O registro referenciado pertence a outra organização.")}
@@ -193,21 +198,28 @@ class SystemRecord(models.Model):
                 expected_revision = original["revision"]
                 if self.revision != expected_revision:
                     raise ConcurrentUpdate("The supplied revision does not match the loaded record.")
-                self.created_at = original["created_at"]
-                self.created_by = original["created_by"]
-                self.updated_at = timezone.now()
-                self.updated_by = context().actor
-                self.revision = expected_revision + 1
-                self.full_clean()
-                fields = [field for field in self._meta.concrete_fields if not field.primary_key]
-                if update_fields is not None:
-                    allowed = {"updated_at", "updated_by", "revision"} | update_fields
-                    fields = [field for field in fields if field.name in allowed or field.attname in allowed]
-                values = {field.attname: getattr(self, field.attname) for field in fields}
-                queryset = type(self).all_objects.using(using).filter(pk=self.pk, revision=expected_revision)
-                if models.QuerySet.update(queryset, **values) != 1:
-                    self.revision = expected_revision
-                    raise ConcurrentUpdate("Another writer changed this record.")
+                metadata = ("created_at", "created_by", "updated_at", "updated_by", "revision")
+                before = {name: getattr(self, name) for name in metadata}
+                try:
+                    self.created_at = original["created_at"]
+                    self.created_by = original["created_by"]
+                    self.updated_at = timezone.now()
+                    self.updated_by = context().actor
+                    self.revision = expected_revision + 1
+                    self.full_clean()
+                    fields = [field for field in self._meta.concrete_fields if not field.primary_key]
+                    if update_fields is not None:
+                        allowed = {"updated_at", "updated_by", "revision"} | update_fields
+                        fields = [field for field in fields if field.name in allowed or field.attname in allowed]
+                    values = {field.attname: getattr(self, field.attname) for field in fields}
+                    queryset = type(self).all_objects.using(using).filter(pk=self.pk, revision=expected_revision)
+                    if models.QuerySet.update(queryset, **values) != 1:
+                        raise ConcurrentUpdate("Another writer changed this record.")
+                except BaseException:
+                    # A failed write leaves the instance as it was, so it can be fixed and saved again (#273).
+                    for name, value in before.items():
+                        setattr(self, name, value)
+                    raise
             self._loaded_values = {field.attname: getattr(self, field.attname) for field in self._meta.concrete_fields}
 
     def _check_live_references(self, using: str) -> None:
@@ -223,6 +235,13 @@ class SystemRecord(models.Model):
                 ):
                     raise LiveReferencesExist(f"Live {target._meta.label} records still reference this record.")
 
+    def _memory_state(self) -> dict[str, Any]:
+        return {field.attname: getattr(self, field.attname) for field in self._meta.concrete_fields}
+
+    def _restore_memory_state(self, state: dict[str, Any]) -> None:
+        for name, value in state.items():
+            setattr(self, name, value)
+
     def _prepare_soft_delete(self) -> set[str]:
         return set()
 
@@ -237,12 +256,17 @@ class SystemRecord(models.Model):
         using = using or self._state.db or "default"
         if self.deleted_at is not None:
             return 0, {}
-        with transaction.atomic(using=using):
-            self._check_live_references(using)
-            self.deleted_at = timezone.now()
-            self.deleted_by = context().actor
-            fields = self._prepare_soft_delete()
-            self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        state = self._memory_state()
+        try:
+            with transaction.atomic(using=using):
+                self._check_live_references(using)
+                self.deleted_at = timezone.now()
+                self.deleted_by = context().actor
+                fields = self._prepare_soft_delete()
+                self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        except BaseException:
+            self._restore_memory_state(state)
+            raise
         return 1, {self._meta.label: 1}
 
     def restore(self, using: str | None = None) -> Self:
@@ -253,11 +277,16 @@ class SystemRecord(models.Model):
         if self.deleted_at is None:
             return self
         using = using or self._state.db or "default"
-        with transaction.atomic(using=using):
-            self.deleted_at = None
-            self.deleted_by = None
-            fields = self._prepare_restore()
-            self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        state = self._memory_state()
+        try:
+            with transaction.atomic(using=using):
+                self.deleted_at = None
+                self.deleted_by = None
+                fields = self._prepare_restore()
+                self.save(using=using, update_fields={"deleted_at", "deleted_by"} | fields)
+        except BaseException:
+            self._restore_memory_state(state)
+            raise
         return self
 
 
@@ -345,6 +374,30 @@ class OperationalRecord(models.Model):
     all_objects = OperationalInfrastructureManager()
     immutable_fields: ClassVar[tuple[str, ...]] = ()
     lifecycle: ClassVar[str] = "operational"
+    _loaded_values: dict[str, Any]
+
+    @classmethod
+    def from_db(
+        cls,
+        db: str | None,
+        field_names: Collection[str],
+        values: Collection[Any],
+        *,
+        fetch_mode: "FetchMode | None" = None,
+    ) -> Self:
+        # Django 6.1 passes fetch_mode; Django 5.2 neither passes nor accepts it.
+        if fetch_mode is None:
+            instance = super().from_db(db, field_names, values)
+        else:
+            instance = super().from_db(db, field_names, values, fetch_mode=fetch_mode)
+        instance._loaded_values = dict(zip(field_names, values, strict=True))
+        return instance
+
+    def _identity_names(self) -> tuple[str, ...]:
+        names = ("sysid", "created_at", *self.immutable_fields)
+        if is_tenant_model(type(self)):
+            names = (*names, "organization_id")
+        return names
 
     class Meta:
         abstract = True
@@ -352,7 +405,7 @@ class OperationalRecord(models.Model):
         default_manager_name = "objects"
 
     def _validate_context(self) -> None:
-        if any(field.name == "organization" for field in self._meta.fields):
+        if is_tenant_model(type(self)):
             tenant = context().organization_id
             if tenant is None:
                 raise MissingTenantContext("An organizational write requires tenant context.")
@@ -367,10 +420,13 @@ class OperationalRecord(models.Model):
             self.created_at = self.updated_at = timezone.now()
         else:
             using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
-            names = ("sysid", "created_at", *self.immutable_fields)
-            if any(field.name == "organization" for field in self._meta.fields):
-                names = (*names, "organization_id")
-            persisted = type(self).all_objects.using(using).filter(pk=self.pk).values(*names).first()
+            names = self._identity_names()
+            loaded = getattr(self, "_loaded_values", {})
+            # The identity read when the instance was loaded or saved; the database only without it (#341).
+            if all(name in loaded for name in names):
+                persisted: dict[str, Any] | None = loaded
+            else:
+                persisted = type(self).all_objects.using(using).filter(pk=self.pk).values(*names).first()
             if persisted is not None and any(getattr(self, name) != persisted[name] for name in names):
                 raise ImmutableRecord("Operational identity cannot change.")
             self._validate_context()
@@ -378,3 +434,5 @@ class OperationalRecord(models.Model):
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = set(kwargs["update_fields"]) | {"updated_at"}
         super().save(**kwargs)
+        identity = {name: getattr(self, name) for name in self._identity_names()}
+        self._loaded_values = {**getattr(self, "_loaded_values", {}), **identity}

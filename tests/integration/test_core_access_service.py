@@ -108,3 +108,79 @@ def test_capabilities_and_groups(scenario):
         assert "access.manage" in service.capabilities(actor=admin)
         assert service.my_groups(actor=admin) == ()
     assert_rejects_other_actor(scenario.caller(lambda actor: service.capabilities(actor=scenario.denied)))
+
+
+def _member_permissions(organization):
+    from skeleton.access.models import Role, TablePermission
+
+    with system_context(reason="test:member-permissions", organization_id=organization.pk):
+        role = Role.objects.get(code="member", is_builtin=True)
+        return set(TablePermission.objects.filter(role=role).values_list("table__model_label", "action"))
+
+
+@pytest.mark.needs_example_app
+def test_grant_member_table_access_requires_access_manage(scenario):
+    before = _member_permissions(scenario.a)
+    with acting_as(scenario.member, scenario.a) as actor, pytest.raises(Forbidden):
+        AccessService().grant_member_table_access(actor=actor, table_key=TABLE, actions=("read",))
+    assert _member_permissions(scenario.a) == before
+
+
+@pytest.mark.needs_example_app
+def test_grant_member_table_access_adds_only_missing_actions(scenario):
+    service = AccessService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        assert service.grant_member_table_access(actor=admin, table_key=TABLE, actions=("read", "create")) == (
+            "read",
+            "create",
+        )
+    after = _member_permissions(scenario.a)
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        assert service.grant_member_table_access(actor=admin, table_key=TABLE, actions=("read", "create")) == ()
+    assert _member_permissions(scenario.a) == after >= {(TABLE, "read"), (TABLE, "create")}
+
+
+@pytest.mark.needs_example_app
+def test_grant_member_table_access_rejects_unknown_table_and_action(scenario):
+    service = AccessService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        for arguments in (
+            {"table_key": "nope.nope", "actions": ("read",)},
+            {"table_key": TABLE, "actions": ("fly",)},
+            {"table_key": TABLE, "actions": ()},
+        ):
+            with pytest.raises(InvalidInput):
+                service.grant_member_table_access(actor=admin, **arguments)
+
+
+@pytest.mark.needs_example_app
+def test_grant_member_table_access_stays_in_the_organization(scenario):
+    before_b = _member_permissions(scenario.b)
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        AccessService().grant_member_table_access(actor=admin, table_key=TABLE, actions=("read",))
+    assert _member_permissions(scenario.b) == before_b
+
+
+@pytest.mark.needs_example_app
+def test_grant_member_table_access_rejects_other_actor(scenario):
+    assert_rejects_other_actor(
+        scenario.caller(
+            lambda actor: AccessService().grant_member_table_access(
+                actor=scenario.denied, table_key=TABLE, actions=("read",)
+            ),
+            user=scenario.admin_a,
+        )
+    )
+
+
+@pytest.mark.needs_example_app
+def test_disabled_table_app_denies_can_and_require(scenario):
+    """The table authorization includes the activation of its app (#319): no answer reveals data."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="ACC-OFF", title="T")
+    service = AccessService()
+    with scenario.application_disabled(scenario.a):
+        with acting_as(scenario.member, scenario.a) as actor:
+            assert service.can(actor=actor, action="read", table_key=TABLE) is False
+            assert service.can(actor=actor, action="read", table_key=TABLE, record_id=note.pk) is False
+            with pytest.raises((NotFound, Forbidden)):
+                service.require(actor=actor, action="read", table_key=TABLE, record_id=note.pk)

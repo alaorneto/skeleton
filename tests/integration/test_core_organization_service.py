@@ -107,3 +107,66 @@ def test_search_group_filter_and_pagination(scenario):
             service.members(actor=actor, page_size=101)
         groups = service.groups(actor=actor)
         assert [item.code for item in groups.items] == ["ops"]
+
+
+@pytest.mark.needs_example_app
+def test_members_pagination_is_stable_when_a_member_leaves_between_pages(scenario):
+    """Keyset pages (#305): a member leaving after page one never makes the walk skip another."""
+    from skeleton.access.models import Role
+    from skeleton.access.services import provision_membership
+    from skeleton.accounts.services import create_identity
+    from skeleton.tenancy.models import Membership
+
+    with system_context(reason="test:keyset-members", organization_id=scenario.a.pk):
+        role = Role.objects.get(code="member")
+        for index in range(3):
+            user = create_identity(email=f"keyset-{index}@directory.example.test", password=None)
+            provision_membership(organization=scenario.a, user=user, role=role)
+    service = OrganizationService()
+    with acting_as(scenario.admin_a, scenario.a) as actor:
+        everyone = {person.sysid for person in service.members(actor=actor, page_size=100).items}
+        first = service.members(actor=actor, page_size=2)
+    leaving = next(person.sysid for person in first.items if person.sysid != scenario.admin_a.pk)
+    with system_context(reason="test:keyset-leave", organization_id=scenario.a.pk):
+        Membership.objects.filter(user_id=leaving).update(is_active=False)
+    seen = [person.sysid for person in first.items]
+    cursor = first.next_cursor
+    with acting_as(scenario.admin_a, scenario.a) as actor:
+        while cursor:
+            page = service.members(actor=actor, page_size=2, cursor=cursor)
+            seen.extend(person.sysid for person in page.items)
+            cursor = page.next_cursor
+    assert len(seen) == len(set(seen))
+    assert set(seen) >= everyone - {leaving}
+
+
+@pytest.mark.needs_example_app
+def test_groups_walk_in_code_order_with_keyset(scenario):
+    from skeleton.access.models import AccessGroup
+
+    with system_context(reason="test:keyset-groups", organization_id=scenario.a.pk):
+        for code in ("c-group", "a-group", "b-group"):
+            AccessGroup(organization=scenario.a, code=code, name=code).save()
+    service = OrganizationService()
+    codes, cursor = [], None
+    with acting_as(scenario.member, scenario.a) as actor:
+        while True:
+            page = service.groups(actor=actor, page_size=1, cursor=cursor)
+            codes.extend(group.code for group in page.items)
+            cursor = page.next_cursor
+            if cursor is None:
+                break
+    assert codes == sorted(codes) and {"a-group", "b-group", "c-group"} <= set(codes)
+
+
+@pytest.mark.needs_example_app
+def test_tampered_keyset_cursor_is_invalid_input(scenario):
+    from skeleton.service_api.dto import encode_key_cursor
+
+    service = OrganizationService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        with pytest.raises(InvalidInput):
+            service.members(actor=actor, cursor=encode_key_cursor(["not-a-uuid"]))
+        # A cursor positioned at a person of B only moves inside A's authorized members.
+        page = service.members(actor=actor, page_size=100, cursor=encode_key_cursor([str(scenario.admin_b.pk)]))
+    assert scenario.admin_b.pk not in {person.sysid for person in page.items}

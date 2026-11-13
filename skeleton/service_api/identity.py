@@ -131,7 +131,7 @@ class IdentityService(ServiceAPI):
             Membership.objects.filter(
                 user_id=identifier, is_active=True, user__is_active=True, user__deleted_at__isnull=True
             )
-            .select_related("user")
+            .select_related("user", "user__profile")
             .first()
         )
         if membership is None:
@@ -139,7 +139,7 @@ class IdentityService(ServiceAPI):
         person = membership.user
         return PersonSummary(
             sysid=person.pk,
-            display_name=_display_name(person, _profile(person)),
+            display_name=_display_name(person, getattr(person, "profile", None)),
             email=person.email if has_capability(_user(actor), MEMBERS_VIEW) else None,
             kind=_kind(person),
         )

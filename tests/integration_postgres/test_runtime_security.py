@@ -148,7 +148,7 @@ def test_global_user_lifecycle_preserves_last_admin_across_organizations(skeleto
     version = fixture.bob.auth_version
     with pytest.raises(LastAdministrator):
         with request_context(actor=platform, request_id=uuid4(), source="test:global-lifecycle"):
-            deactivate_user(fixture.bob, delete=delete)
+            deactivate_user(fixture.bob, actor=platform, delete=delete)
     fixture.bob.refresh_from_db()
     assert fixture.bob.is_active and fixture.bob.deleted_at is None
     assert fixture.bob.auth_version == version
@@ -156,7 +156,7 @@ def test_global_user_lifecycle_preserves_last_admin_across_organizations(skeleto
         role = Role.objects.get(code="organization_admin")
         provision_membership(organization=fixture.b, user=fixture.alice, role=role)
     with request_context(actor=platform, request_id=uuid4(), source="test:global-lifecycle"):
-        changed = deactivate_user(fixture.bob, delete=delete)
+        changed = deactivate_user(fixture.bob, actor=platform, delete=delete)
     assert changed.pk == fixture.bob.pk and not changed.is_active
     assert (changed.deleted_at is not None) is delete
     assert changed.auth_version > version

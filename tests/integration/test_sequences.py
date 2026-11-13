@@ -127,3 +127,16 @@ def test_service_contract_actor_and_context(tenants):
             call(actor=None, key=KEY, at=JAN)
     with pytest.raises(ContextRequired), system_context(reason="test:sequence-service-global"):
         call(actor=None, key=KEY, at=JAN)
+
+
+def test_sequence_without_owner_is_forbidden_for_everyone(tenants):
+    """A sequence without owner_app is usable by no caller of the service, app or not (#272)."""
+    from skeleton.service_api.errors import Forbidden
+    from skeleton.service_api.sequences import SequenceService
+
+    service = SequenceService()
+    with actor_tenant(tenants.admin, tenants.a):
+        for call in (service.next_number, as_module("examples.notes.services", service.next_number)):
+            with pytest.raises(Forbidden):
+                call(actor=tenants.admin, key="example_notes.monthly", at=JAN)
+    assert draw(tenants, tenants.a, key="example_notes.monthly").number == 1  # The internal function still works.

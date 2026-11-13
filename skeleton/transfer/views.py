@@ -85,7 +85,7 @@ def transfer_list(request, organization_id):
 @require_safe
 def transfer_download(request, organization_id, sysid):
     from skeleton.common.responses import DetachedFileResponse
-    from skeleton.web.services import record_queryset
+    from skeleton.records.services import record_queryset
 
     from .exports import exportable_spec
     from .models import TransferJob
@@ -113,7 +113,7 @@ def transfer_download(request, organization_id, sysid):
 @require_http_methods(["GET", "POST"])
 def import_request(request, organization_id, table_key):
     """Upload a CSV; the preview job validates it without writing anything."""
-    from skeleton.web.services import record_queryset
+    from skeleton.records.services import record_queryset
 
     from .exports import exportable_spec
     from .imports import CONTROL_COLUMNS, importable_columns, request_import

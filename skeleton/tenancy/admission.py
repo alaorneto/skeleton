@@ -273,7 +273,9 @@ def submit_join_request(*, user: Any, organization_id: Any, message: Any = "") -
     target = accepting(organization_id)
     with system_context(reason=JOIN_REASON, organization_id=target.organization_id), transaction.atomic():
         organization = (
-            Organization.objects.select_for_update().filter(pk=target.organization_id, is_active=True).first()
+            Organization.objects.select_for_update(no_key=True)
+            .filter(pk=target.organization_id, is_active=True)
+            .first()
         )
         policy = models.OrganizationAdmissionPolicy.objects.filter(organization=organization).first()
         if organization is None or policy is None or not policy.join_requests_enabled:
@@ -321,7 +323,7 @@ def withdraw_join_request(*, user: Any, join_request_id: Any, expected_revision:
     if organization_id is None:
         raise JoinUnavailable
     with system_context(reason=JOIN_REASON, organization_id=organization_id), transaction.atomic():
-        Organization.objects.select_for_update().get(pk=organization_id)
+        Organization.objects.select_for_update(no_key=True).get(pk=organization_id)
         record = (
             models.JoinRequest.objects.select_for_update(of=("self",))
             .select_related("organization")

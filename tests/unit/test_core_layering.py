@@ -14,10 +14,7 @@ UNRESTRICTED = {"web", "api", "setup", "conf", "contrib", "testing"}
 
 # (file, imported module): reason and the issue that removes it.
 KNOWN_EXCEPTIONS = {
-    ("skeleton/common/logging.py", "skeleton.tenancy.context"): "context lives in tenancy",
-    ("skeleton/common/mail.py", "skeleton.tenancy.context"): "context lives in tenancy",
     ("skeleton/common/models.py", "skeleton.tenancy.models"): "owner membership check",
-    ("skeleton/common/querysets.py", "skeleton.tenancy.context"): "context lives in tenancy",
     ("skeleton/common/responses.py", "skeleton.files"): "private download response",
     ("skeleton/system/application_views.py", "skeleton.api.errors"): "app views live in system",
     ("skeleton/system/application_views.py", "skeleton.api.views"): "app views live in system",
@@ -26,27 +23,14 @@ KNOWN_EXCEPTIONS = {
     ("skeleton/system/checks.py", "skeleton.service_api.contract"): "check E018 inspects the declared API",
     ("skeleton/system/checks.py", "skeleton.service_api.registry"): "check E018 inspects the declared API",
     ("skeleton/tenancy/aggregate.py", "skeleton.service_api.errors"): "skips organizations denied by a service",
-    ("skeleton/api/serializers.py", "skeleton.web.services"): "record gateway lives in web",
-    ("skeleton/api/views.py", "skeleton.web.services"): "record gateway lives in web",
-    ("skeleton/api/views.py", "skeleton.web.references"): "record gateway lives in web",
-    ("skeleton/web/forms.py", "skeleton.api.serializers"): "dedicated resources live in api",
-    ("skeleton/web/platform/views.py", "skeleton.api.serializers"): "audit projection lives in api",
     ("skeleton/web/urls.py", "skeleton.api.health"): "health probe lives in api",
-    ("skeleton/web/views.py", "skeleton.api.serializers"): "dedicated resources live in api",
-    ("skeleton/web/views.py", "skeleton.api.errors"): "validation conflict lives in api",
-    ("skeleton/api/openapi.py", "skeleton.web.references"): "record gateway lives in web",
-    ("skeleton/api/openapi.py", "skeleton.web.services"): "record gateway lives in web",
     ("skeleton/comments/apps.py", "skeleton.web.timeline"): "timeline registry lives in web",
     ("skeleton/comments/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",
     ("skeleton/comments/timeline.py", "skeleton.web.timeline"): "timeline registry lives in web",
-    ("skeleton/common/locale.py", "skeleton.tenancy.context"): "context lives in tenancy",
     ("skeleton/common/locale.py", "skeleton.tenancy.organization_settings"): "organization locale settings",
     ("skeleton/common/migration_operations.py", "skeleton.system.search"): "search index DDL lives in system",
     ("skeleton/files/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",
     ("skeleton/system/application_views.py", "skeleton.api.openapi"): "app views live in system",
-    ("skeleton/transfer/audit_export.py", "skeleton.api.serializers"): "audit projection lives in api",
-    ("skeleton/transfer/exports.py", "skeleton.web.services"): "record gateway lives in web",
-    ("skeleton/transfer/imports.py", "skeleton.web.services"): "record gateway lives in web",
 }
 
 

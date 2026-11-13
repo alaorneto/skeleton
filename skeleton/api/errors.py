@@ -1,8 +1,6 @@
 import re
 from contextlib import contextmanager
 
-from django.core.exceptions import ValidationError
-from django.db import IntegrityError
 from django.utils.translation import gettext
 from rest_framework.exceptions import APIException
 from rest_framework.views import exception_handler as drf_exception_handler
@@ -33,12 +31,10 @@ def require_revision(request, record):
 
 
 def validation_conflict(error):
-    errors = (
-        [item for values in error.error_dict.values() for item in values]
-        if hasattr(error, "error_dict")
-        else error.error_list
-    )
-    return any(item.code in {"unique", "unique_together"} for item in errors)
+    """Kept for callers of the REST module; the rule lives in the shared classifier (#325)."""
+    from skeleton.service_api.internal_errors import is_unique_conflict
+
+    return is_unique_conflict(error)
 
 
 def service_error_response(exc):
@@ -75,10 +71,37 @@ def if_match_precondition():
         raise BoundaryError("revision_conflict", gettext("O registro foi alterado por outra operação."), 412) from exc
 
 
+def _internal_error_response(exc):
+    """REST presentation of a classified internal exception (``internal_errors``, #325)."""
+    from skeleton.service_api.internal_errors import classify
+
+    internal = classify(exc)
+    if internal is None or internal.kind == "context":
+        return None  # MissingTenantContext and unknown errors stay a 500.
+    if internal.kind == "invalid":
+        return BoundaryError("validation_error", gettext("Verifique os campos informados."), 400, internal.fields)
+    if internal.code == "integrity_conflict" and internal.fields is not None:
+        return BoundaryError("integrity_conflict", gettext("Verifique os campos informados."), 409, internal.fields)
+    status, code, detail = {
+        "stale_revision": (412, "revision_conflict", gettext("O registro foi alterado por outra operação.")),
+        "live_references": (409, "live_references", gettext("Existem vínculos ativos com este registro.")),
+        "last_administrator": (
+            409,
+            "last_administrator",
+            gettext("A organização precisa manter ao menos um administrador ativo."),
+        ),
+        "last_platform_administrator": (
+            409,
+            "last_platform_administrator",
+            gettext("A plataforma precisa manter ao menos um administrador ativo."),
+        ),
+        "integrity_conflict": (409, "integrity_conflict", gettext("A operação conflita com os dados existentes.")),
+    }[internal.code]
+    return BoundaryError(code, detail, status)
+
+
 def exception_handler(exc, context):
-    from skeleton.access.services import LastAdministrator
-    from skeleton.accounts.platform import LastPlatformAdministrator
-    from skeleton.common.exceptions import ApplicationUnavailable, ConcurrentUpdate, LiveReferencesExist
+    from skeleton.common.exceptions import ApplicationUnavailable
     from skeleton.service_api.errors import ServiceError
 
     if isinstance(exc, ApplicationUnavailable):
@@ -88,29 +111,7 @@ def exception_handler(exc, context):
         if mapped is None:
             return None  # ContextRequired and unknown service errors are programming errors (500).
         exc = mapped
-    if isinstance(exc, ConcurrentUpdate):
-        exc = BoundaryError("revision_conflict", gettext("O registro foi alterado por outra operação."), 412)
-    elif isinstance(exc, LiveReferencesExist):
-        exc = BoundaryError("live_references", gettext("Existem vínculos ativos com este registro."), 409)
-    elif isinstance(exc, LastAdministrator):
-        exc = BoundaryError(
-            "last_administrator", gettext("A organização precisa manter ao menos um administrador ativo."), 409
-        )
-    elif isinstance(exc, LastPlatformAdministrator):
-        exc = BoundaryError(
-            "last_platform_administrator", gettext("A plataforma precisa manter ao menos um administrador ativo."), 409
-        )
-    elif isinstance(exc, ValidationError):
-        fields = exc.message_dict if hasattr(exc, "message_dict") else {"non_field_errors": exc.messages}
-        conflict = validation_conflict(exc)
-        exc = BoundaryError(
-            "integrity_conflict" if conflict else "validation_error",
-            gettext("Verifique os campos informados."),
-            409 if conflict else 400,
-            fields,
-        )
-    elif isinstance(exc, IntegrityError):
-        exc = BoundaryError("integrity_conflict", gettext("A operação conflita com os dados existentes."), 409)
+    exc = _internal_error_response(exc) or exc
     response = drf_exception_handler(exc, context)
     if response is not None and not isinstance(exc, BoundaryError):
         codes = {

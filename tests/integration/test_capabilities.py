@@ -175,7 +175,12 @@ def test_people_manager_cannot_escalate(org):
     invitations = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
     for code in ("organization_admin", "app_manager", "people_manager"):
         response = send(client, "post", invitations, {"email": f"{code}@example.test", "role": str(roles[code].pk)})
-        assert response.status_code in (400, 403), code  # ver #365
+        assert response.status_code == 403, (code, response.content)
+        assert response.json()["code"] == "privileged_role"
+    from uuid import uuid4
+
+    unknown = send(client, "post", invitations, {"email": "unknown-role@example.test", "role": str(uuid4())})
+    assert unknown.status_code == 400  # A role that is not this organization's stays an unavailable reference.
     response = send(client, "post", invitations, {"email": "new-member@example.test", "role": str(roles["member"].pk)})
     assert response.status_code == 201, response.content
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:escalate-check"):
@@ -269,3 +274,78 @@ def test_sidebar_shows_only_sections_of_the_capability(org):
     assert reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "memberships"}) in page
     assert reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"}) not in page
     assert reverse("application-list", kwargs={"organization_id": organization.pk}) not in page
+
+
+def test_custom_role_cannot_take_a_reserved_code(skeleton_db):
+    from django.core.exceptions import ValidationError
+
+    from skeleton.access.models import Role
+    from skeleton.access.services import create_role, update_role
+    from tools.security_fixtures import actor_tenant, build_security_fixture
+
+    fixture = build_security_fixture()
+    with actor_tenant(fixture.admin, fixture.a):
+        custom = create_role(user=fixture.admin, data={"code": "auditors", "name": "Auditors", "description": ""})
+        for code in ("app_manager", "organization_admin", "member"):
+            with pytest.raises(ValidationError, match="reservado"):
+                update_role(Role.objects.get(pk=custom.pk), user=fixture.admin, data={"code": code})
+        assert Role.objects.get(pk=custom.pk).code == "auditors"
+        renamed = update_role(Role.objects.get(pk=custom.pk), user=fixture.admin, data={"code": "reviewers"})
+        assert renamed.code == "reviewers"
+        builtin = Role.objects.get(code="member")
+        assert update_role(builtin, user=fixture.admin, data={"name": "Members"}).name == "Members"
+
+
+def test_generic_services_refuse_records_of_another_kind(skeleton_db):
+    from skeleton.access.models import AccessGroup, MemberRole, Role
+    from skeleton.access.services import delete_group, delete_role, revoke_link, update_group, update_role
+    from skeleton.tenancy.models import Membership
+    from tools.security_fixtures import actor_tenant, build_security_fixture
+
+    fixture = build_security_fixture()
+    with actor_tenant(fixture.admin, fixture.a):
+        membership = Membership.objects.get(pk=fixture.bob_membership.pk)
+        group = AccessGroup.objects.get(pk=fixture.group.pk)
+        role = Role.objects.get(code="member")
+        calls = [
+            lambda: revoke_link(membership, user=fixture.admin),
+            lambda: delete_role(group, user=fixture.admin),
+            lambda: delete_group(role, user=fixture.admin),
+            lambda: update_role(group, user=fixture.admin, data={"name": "x"}),
+            lambda: update_group(role, user=fixture.admin, data={"name": "x"}),
+        ]
+        for call in calls:
+            with pytest.raises(TypeError):
+                call()
+        assert Membership.objects.get(pk=membership.pk).is_active
+        assert AccessGroup.objects.get(pk=group.pk).name == group.name
+        assert Role.objects.get(pk=role.pk).name == role.name
+        link = MemberRole.objects.filter(membership=membership).first()
+        revoke_link(link, user=fixture.admin)
+        assert not MemberRole.objects.filter(pk=link.pk).exists()
+
+
+def test_invitation_resend_with_stale_revision_is_412(org):
+    """The service locks and compares the revision; the view only reads If-Match (#340)."""
+    from skeleton.access.models import Role
+    from skeleton.tenancy.models import Invitation
+
+    owner, organization = org
+    client = login(owner)
+    with tenant_context(organization_id=organization.pk, actor=owner, source="test:resend"):
+        member = Role.objects.get(code="member", is_builtin=True)
+    invitations = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
+    with override_settings(SKELETON_PUBLIC_URL="https://app.example.test"):
+        created = send(client, "post", invitations, {"email": "resend@example.test", "role": str(member.pk)})
+        assert created.status_code == 201, created.content
+        resend = reverse(
+            "api:invitation-resend", kwargs={"organization_id": organization.pk, "sysid": created.json()["sysid"]}
+        )
+        stale = send(client, "post", resend, None, '"99"')
+        assert stale.status_code == 412 and stale.json()["code"] == "revision_conflict"
+        assert send(client, "post", resend, None).status_code == 428
+        assert send(client, "post", resend, None, "nope").status_code == 400
+        fresh = send(client, "post", resend, None, created["ETag"])
+        assert fresh.status_code == 201 and fresh.json()["sysid"] != created.json()["sysid"]
+    with tenant_context(organization_id=organization.pk, actor=owner, source="test:resend-check"):
+        assert Invitation.objects.filter(email="resend@example.test").count() == 1  # The old one was replaced.

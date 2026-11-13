@@ -47,6 +47,7 @@ def scenario(monkeypatch):
             )
         )
         register_notification_type(NotificationType("other.ping", "Ping", owner_app="other_app"))
+        register_notification_type(NotificationType("orphan.ping", "Ping"))  # No owner_app (#272).
         yield build_service_scenario(Note, slug="notify-service")
 
 
@@ -134,3 +135,51 @@ def test_caller_rollback_leaves_no_notification_and_system_consumers_need_no_act
         notify_as_notes(actor=None, **kwargs)
         assert Notification.objects.count() == 1
     assert_rejects_other_actor(scenario.caller(lambda actor: NotificationService().unread_count(actor=scenario.denied)))
+
+
+@pytest.mark.needs_example_app
+def test_type_without_owner_is_forbidden_for_everyone(scenario):
+    """A type without owner_app is usable by no caller of the service, app or not (#272)."""
+    recipients = Recipients(users=(scenario.member.pk,))
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        with pytest.raises(Forbidden):
+            NotificationService().notify(actor=admin, type_code="orphan.ping", recipients=recipients)
+        with pytest.raises(Forbidden):
+            notify_as_notes(actor=admin, type_code="orphan.ping", recipients=recipients)
+
+
+@pytest.mark.needs_example_app
+def test_inbox_and_unread_count_are_tenant_isolated(scenario):
+    """The member has notifications in A and B; the context of A shows only A's (#319)."""
+    from skeleton.testing.service_api import assert_tenant_isolated
+
+    for organization, admin, code in ((scenario.a, scenario.admin_a, "ISO-A"), (scenario.b, scenario.admin_b, "ISO-B")):
+        note = scenario.create(organization, owner=admin, code=code, title=code, visibility="organization")
+        with acting_as(admin, organization) as actor:
+            notify_as_notes(
+                actor=actor,
+                type_code="notes.shared",
+                recipients=Recipients(users=(scenario.member.pk,)),
+                payload=(("message", code),),
+                target_table_key="example_notes.note",
+                target_id=note.pk,
+            )
+    run_pending_jobs()
+    service = NotificationService()
+    with system_context(reason="test:inbox-foreign", organization_id=scenario.b.pk):
+        from skeleton.notifications.models import NotificationRecipient
+
+        foreign = (
+            NotificationRecipient.all_objects.filter(user=scenario.member, organization=scenario.b)
+            .values_list("sysid", flat=True)
+            .first()
+        )
+    assert foreign is not None
+    page = assert_tenant_isolated(scenario.caller(lambda actor: service.inbox(actor=actor)), foreign=[foreign, "ISO-B"])
+    assert [item.organization_id for item in page.items] == [scenario.a.pk]
+    # Documented: the count is the person's own unread rows in every organization with an active
+    # membership (the bell of the shell), so it is 2 here; it never reaches another person's rows.
+    assert scenario.caller(lambda actor: service.unread_count(actor=actor))() == 2
+    assert scenario.caller(lambda actor: service.unread_count(actor=actor), user=scenario.denied)() == 0
+    with acting_as(scenario.member, scenario.a) as actor, pytest.raises(NotFound):
+        service.mark_read(actor=actor, ids=(foreign,))

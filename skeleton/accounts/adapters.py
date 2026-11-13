@@ -1,5 +1,7 @@
 """Admission decisions live in adapters, not race-prone social signals."""
 
+import logging
+
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.mfa.adapter import DefaultMFAAdapter
@@ -13,6 +15,7 @@ from django.utils.translation import gettext
 from skeleton.accounts.mfa import cipher
 from skeleton.accounts.providers import admission_for, binding_for_sociallogin
 from skeleton.accounts.services import ensure_profile, normalized_email, password_allowed
+from skeleton.common.logging import security_event
 from skeleton.tenancy.invitations import accept_invitation, pending_invitation
 
 
@@ -124,9 +127,14 @@ class AccountAdapter(DefaultAccountAdapter):
                         and account.extra_data.get("skeleton_binding") == binding.fingerprint
                     ):
                         continue
-                    organization, role = SocialAccountAdapter()._resolve_binding(binding)
+                    target = SocialAccountAdapter()._binding_target(binding)
+                    if target is None:
+                        # The admission is no longer possible; the email confirmation itself must not fail.
+                        security_event("sso.jit_admission_skipped", level=logging.WARNING, target_sysid=str(user.pk))
+                        continue
+                    organization, role = target
                     with system_context(reason="sso:validated", organization_id=organization.pk):
-                        Organization.objects.select_for_update().get(pk=organization.pk)
+                        Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
                         # A pending initial admission is not authority to undo local offboarding.
                         existed = Membership.objects.with_deleted().filter(user=user).exists()
                         account.extra_data = {"skeleton_binding": binding.fingerprint}
@@ -193,45 +201,67 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         )
 
     def pre_social_login(self, request, sociallogin):
-        from skeleton.accounts.models import User
+        """One step per concern, in the order they apply (#304)."""
+        self._refuse_service_account(request, sociallogin)
+        binding = binding_for_sociallogin(sociallogin)
+        connecting = sociallogin.state.get("process") == "connect"
+        if connecting:
+            self._require_recent_connect(request)
+        if sociallogin.is_existing:
+            self._check_existing(request, sociallogin, binding, connecting)
+        elif not connecting:
+            self._check_first_login(request, sociallogin, binding)
+        self._minimize(sociallogin, binding)
+        if binding.organization_slug:
+            self._resolve_binding(binding)
+        if connecting and binding.protocol == "govbr":
+            # Connecting also opens a government browser session. Only a
+            # validated, recently authenticated flow can set this provider ID.
+            request.session["skeleton_govbr_logout_provider"] = binding.provider_id
 
+    def _refuse_service_account(self, request, sociallogin):
         if getattr(getattr(request, "user", None), "is_service_account", False) or (
             sociallogin.is_existing and sociallogin.user.is_service_account
         ):
             _deny()  # Service accounts never connect or log in through a provider (#44).
-        binding = binding_for_sociallogin(sociallogin)
-        connecting = sociallogin.state.get("process") == "connect"
-        if connecting:
-            from skeleton.accounts.reauthentication import has_recent_authentication
 
-            # SSO-only accounts get no fallback: connecting needs a recent record for this user.
-            if not has_recent_authentication(request) or request.user.deleted_at:
-                _deny()
-        if sociallogin.is_existing:
-            user = sociallogin.user
-            if user.deleted_at or not user.is_active:
-                _deny()
-            stored = sociallogin.account.extra_data.get("skeleton_binding")
-            if stored != binding.fingerprint:
-                _deny()
-            if connecting and user.pk != request.user.pk:
-                _deny()
-        elif not connecting:
-            email = normalized_email(sociallogin.user.email) if sociallogin.user.email else ""
-            if email and User.all_objects.filter(email=email).exists():
-                # Existing emails must log in and explicitly connect after reauthentication.
-                _deny()
-            if not email and (binding.protocol != "govbr" or not self.is_open_for_signup(request, sociallogin)):
-                _deny()
-            proof = pending_invitation(request)
-            if proof is not None and email and email != proof.email:
-                _deny()
-            if binding.organization_slug and proof is None:
-                allowed = admission_for(binding).allowed_email_domains
-                from skeleton.tenancy.domains import email_domain
+    def _require_recent_connect(self, request):
+        from skeleton.accounts.reauthentication import has_recent_authentication
 
-                if allowed and (not email or email_domain(email) not in allowed):
-                    _deny()  # Same neutral answer: the rule itself is never revealed (#31).
+        # SSO-only accounts get no fallback: connecting needs a recent record for this user.
+        if not has_recent_authentication(request) or request.user.deleted_at:
+            _deny()
+
+    def _check_existing(self, request, sociallogin, binding, connecting):
+        user = sociallogin.user
+        if user.deleted_at or not user.is_active:
+            _deny()
+        stored = sociallogin.account.extra_data.get("skeleton_binding")
+        if stored != binding.fingerprint:
+            _deny()
+        if connecting and user.pk != request.user.pk:
+            _deny()
+
+    def _check_first_login(self, request, sociallogin, binding):
+        from skeleton.accounts.models import User
+
+        email = normalized_email(sociallogin.user.email) if sociallogin.user.email else ""
+        if email and User.all_objects.filter(email=email).exists():
+            # Existing emails must log in and explicitly connect after reauthentication.
+            _deny()
+        if not email and (binding.protocol != "govbr" or not self.is_open_for_signup(request, sociallogin)):
+            _deny()
+        proof = pending_invitation(request)
+        if proof is not None and email and email != proof.email:
+            _deny()
+        if binding.organization_slug and proof is None:
+            allowed = admission_for(binding).allowed_email_domains
+            from skeleton.tenancy.domains import email_domain
+
+            if allowed and (not email or email_domain(email) not in allowed):
+                _deny()  # Same neutral answer: the rule itself is never revealed (#31).
+
+    def _minimize(self, sociallogin, binding):
         # Trust only assertions already validated by the library and explicitly permitted by config.
         for address in sociallogin.email_addresses:
             address.verified = bool(address.verified and binding.trust_verified_email)
@@ -250,31 +280,36 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         sociallogin.state = {
             key: sociallogin.state[key] for key in ("process", "next", "headless") if key in sociallogin.state
         }
-        if binding.organization_slug:
-            self._resolve_binding(binding)
-        if connecting and binding.protocol == "govbr":
-            # Connecting also opens a government browser session. Only a
-            # validated, recently authenticated flow can set this provider ID.
-            request.session["skeleton_govbr_logout_provider"] = binding.provider_id
 
-    def _resolve_binding(self, binding):
+    def _binding_target(self, binding):
+        """Organization and default role of a binding, or None when it cannot admit anyone now."""
+        from skeleton.access.capabilities import privileged_role
         from skeleton.access.models import Role
         from skeleton.tenancy.context import system_context
         from skeleton.tenancy.models import Organization
 
         organization = Organization.objects.filter(slug=binding.organization_slug, is_active=True).first()
         if organization is None:
-            _deny()
+            return None
         admission = admission_for(binding)
         with system_context(reason="sso:validated", organization_id=organization.pk):
             # The role comes from the organization's rules or the file, never from a claim.
             if admission.default_role_id is not None:
+                # Chosen in the organization's admission rules by someone with access.manage (#31).
                 role = Role.objects.filter(pk=admission.default_role_id).first()
             else:
                 role = Role.objects.filter(code=admission.default_role_code).first()
+                if role is not None and privileged_role(role):
+                    role = None  # A file binding never hands out an administrative capability (#228).
             if role is None:
-                _deny()
+                return None
             return organization, role
+
+    def _resolve_binding(self, binding):
+        target = self._binding_target(binding)
+        if target is None:
+            _deny()
+        return target
 
     def save_user(self, request, sociallogin, form=None):
         binding = binding_for_sociallogin(sociallogin)
@@ -333,7 +368,7 @@ def request_social_admission(user, binding):
 
     organization, role = SocialAccountAdapter()._resolve_binding(binding)
     with system_context(reason="sso:validated", organization_id=organization.pk), transaction.atomic():
-        Organization.objects.select_for_update().get(pk=organization.pk)
+        Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
         if Membership.objects.filter(user=user, is_active=True).exists():
             return None
         existing = JoinRequest.objects.select_for_update().filter(user=user, status__in=JoinRequest.OPEN).first()

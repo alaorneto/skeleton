@@ -35,7 +35,7 @@ Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abr
 
 ## `notify()`
 
-Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. A função interna do núcleo é `skeleton.notifications.services.notify(type_code, *, recipients, target=None, payload=None, …)`; apps não a importam.
+Apps usam `NotificationService` de `skeleton.service_api.notifications` ([API de serviços](service-api.md#notificationservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o alvo. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272). A função interna do núcleo é `skeleton.notifications.services.notify(type_code, *, recipients, target=None, payload=None, …)`; apps não a importam.
 
 ```python
 from skeleton.service_api.notifications import NotificationService, Recipients

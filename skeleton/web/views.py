@@ -8,6 +8,7 @@ from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
@@ -19,33 +20,36 @@ from skeleton.access.capabilities import (
     resource_capability,
 )
 from skeleton.access.policies import require_record_action
+from skeleton.access.resources import LINKS, create_resource, dedicated_model, delete_resource, update_resource
 from skeleton.accounts.mfa import mfa_required
-from skeleton.api.serializers import LINKS, dedicated_input, dedicated_model
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
-from skeleton.service_api import errors as service_errors
-from skeleton.system.registry import get_spec
-from skeleton.tenancy.context import current_context
-from skeleton.tenancy.invitations import issue_invitation
-from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
-from skeleton.web.presentation import (
-    detail_sections,
-    form_sections,
-    grouped_specs,
-    list_context,
-    list_fields,
-    safe_record_label,
-)
-from skeleton.web.services import (
+from skeleton.records.dedicated import dedicated_input
+from skeleton.records.services import (
     ACCESS_FIELDS,
     change_record_access,
     create_record,
     delete_record,
     exposed_spec,
     readable_specs,
+    record_permissions,
     record_queryset,
     require_access_management,
     restore_record,
     update_record,
+)
+from skeleton.service_api import errors as service_errors
+from skeleton.service_api.dto import MAX_OFFSET
+from skeleton.system.registry import get_spec
+from skeleton.tenancy.context import current_context
+from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
+from skeleton.web.presentation import (
+    audit_rows,
+    detail_sections,
+    form_sections,
+    grouped_specs,
+    list_context,
+    list_fields,
+    safe_record_label,
 )
 
 
@@ -102,6 +106,9 @@ def tenant_page(*, admin=False, capability=None):
     """
 
     def decorator(view):
+        # Outside login_required, so the login redirect is not cached either: a page of
+        # business data must not come back from the browser history after logout (#289).
+        @never_cache
         @login_required
         @wraps(view)
         def wrapper(request, *args, **kwargs):
@@ -151,7 +158,7 @@ PAGE_SIZE = 25
 def _page_number(request):
     try:
         page = int(request.GET.get("page", "1"))
-        if page < 1:
+        if page < 1 or (page - 1) * PAGE_SIZE > MAX_OFFSET:
             raise ValueError
     except ValueError:
         raise ValidationError(gettext("Página inválida.")) from None
@@ -198,12 +205,15 @@ def _page_links(rows, validated_filters):
 
 
 def form_error(form, error):
-    from skeleton.accounts.platform import LastPlatformAdministrator
+    """Put an internal error on the form and return the status (#325: shared classification)."""
+    from skeleton.service_api.internal_errors import classify
 
-    if isinstance(error, access_services.LastAdministrator):
+    internal = classify(error)
+    code = internal.code if internal is not None else None
+    if code == "last_administrator":
         form.add_error(None, gettext("A organização precisa manter ao menos um administrador ativo."))
         return 409
-    if isinstance(error, LastPlatformAdministrator):
+    if code == "last_platform_administrator":
         form.add_error(None, gettext("A plataforma precisa manter ao menos um administrador ativo."))
         return 409
     if isinstance(error, ValidationError):
@@ -212,12 +222,10 @@ def form_error(form, error):
                 form.add_error(field if field in form.fields else None, errors)
         else:
             form.add_error(None, error.messages)
-        from skeleton.api.errors import validation_conflict
-
-        return 409 if validation_conflict(error) else 400
-    if isinstance(error, ConcurrentUpdate):
+        return 409 if code == "integrity_conflict" else 400
+    if code == "stale_revision":
         form.add_error(None, gettext("O registro foi alterado. Atualize a página antes de tentar novamente."))
-    elif isinstance(error, LiveReferencesExist):
+    elif code == "live_references":
         form.add_error(None, gettext("Existem vínculos ativos. Revogue-os antes de remover."))
     else:
         form.add_error(None, gettext("A operação conflita com os dados existentes."))
@@ -229,6 +237,7 @@ def check_html_revision(form, record):
         raise ConcurrentUpdate(gettext("Revisão desatualizada."))
 
 
+@never_cache
 @login_required
 def home(request):
     from skeleton.service_api.organizations import OrganizationService
@@ -260,6 +269,7 @@ def home(request):
     )
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
@@ -318,6 +328,7 @@ def _service_form_error(form, error):
     return form_error(form, ValidationError(error.detail))
 
 
+@never_cache
 @login_required
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
@@ -388,6 +399,8 @@ def access_list(request, organization_id, resource):
     model, fields = dedicated_model(resource)
     queryset = model.objects.order_by("created_at", "sysid")
     relations = [name for name in fields if model._meta.get_field(name).is_relation]
+    if "membership" in relations:
+        relations.append("membership__user")  # Membership.__str__ reads the user's email (#302).
     if relations:
         queryset = queryset.select_related(*relations)
     rows = pagination(request, queryset)
@@ -421,7 +434,7 @@ def access_edit(request, organization_id, resource, sysid=None):
     if sysid:
         if resource in LINKS or resource == "invitations":
             raise Http404
-        item = model.objects.select_for_update().filter(pk=sysid).first()
+        item = _form_record(request, model.objects.filter(pk=sysid))
         if item is None:
             raise Http404
     form = dedicated_form(
@@ -440,25 +453,10 @@ def access_edit(request, organization_id, resource, sysid=None):
                 values = dedicated_input(
                     resource, wire_values(form.cleaned_data), user=request.user, creating=item is None
                 )
-                if resource == "invitations":
-                    issue_invitation(user=request.user, request=request, **values)
-                elif item:
-                    name = {"memberships": "update_membership", "roles": "update_role", "groups": "update_group"}[
-                        resource
-                    ]
-                    getattr(access_services, name)(item, user=request.user, data=values)
+                if item:
+                    update_resource(resource, item, user=request.user, data=values)
                 else:
-                    name = {
-                        "memberships": "create_membership",
-                        "roles": "create_role",
-                        "groups": "create_group",
-                        "member-roles": "assign_member_role",
-                        "group-members": "add_group_member",
-                        "group-roles": "assign_group_role",
-                        "table-permissions": "grant_table_permission",
-                        "record-grants": "create_record_grant",
-                    }[resource]
-                    getattr(access_services, name)(user=request.user, data=values)
+                    create_resource(resource, user=request.user, data=values, request=request)
                 messages.success(request, gettext("Operação concluída."))
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
             except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
@@ -478,7 +476,7 @@ def access_edit(request, organization_id, resource, sysid=None):
 @transaction.atomic
 def access_delete(request, organization_id, resource, sysid):
     model, _ = dedicated_model(resource)
-    item = model.objects.select_for_update().filter(pk=sysid).first()
+    item = _form_record(request, model.objects.filter(pk=sysid))
     if item is None:
         raise Http404
     form = explicit_form(
@@ -494,16 +492,7 @@ def access_delete(request, organization_id, resource, sysid):
         if form.is_valid():
             try:
                 check_html_revision(form, item)
-                if resource in LINKS:
-                    access_services.revoke_link(item, user=request.user)
-                elif resource == "invitations":
-                    with transaction.atomic():
-                        item.delete()
-                else:
-                    name = {"memberships": "delete_membership", "roles": "delete_role", "groups": "delete_group"}[
-                        resource
-                    ]
-                    getattr(access_services, name)(item, user=request.user)
+                delete_resource(resource, item, user=request.user)
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
             except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
                 status = form_error(form, exc)
@@ -535,7 +524,6 @@ def catalog(request, organization_id):
 @tenant_page()
 def audit(request, organization_id):
     from skeleton.access.policies import is_organization_admin
-    from skeleton.api.serializers import audit_data
     from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
 
@@ -545,7 +533,7 @@ def audit(request, organization_id):
         lambda **page: AuditLogService().events(actor=request.user, **filters, **page),
         validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
     )
-    rows.object_list = [audit_data(event) for event in rows]
+    rows.object_list = audit_rows(rows)
     # Domain events of the same request, still retained, for the administrator (#184).
     related = ()
     if "request_id" in filters and is_organization_admin(request.user):
@@ -574,7 +562,7 @@ def records(request, organization_id, table_key, deleted=False):
     ).order_by("created_at", "sysid")
     if deleted:
         queryset = queryset.filter(deleted_at__isnull=False)
-    from skeleton.web.services import filter_records
+    from skeleton.records.services import filter_records
 
     queryset = filter_records(queryset, spec, request.GET, ignore_empty=True)
     filters = {name: value for name, value in request.GET.items() if value != ""}
@@ -603,11 +591,15 @@ def records(request, organization_id, table_key, deleted=False):
 
 
 def can_action(spec, user, action):
+    """Whether to offer a table action; the list already authorized the table and its app (#302)."""
+    from skeleton.access.policies import has_table_permission
+    from skeleton.system.record_operations import require_operation
+
     try:
-        record_queryset(spec, user=user, action=action)
+        require_operation(spec, action)
     except PermissionDenied:
         return False
-    return True
+    return has_table_permission(spec.model, user=user, action=action)
 
 
 @tenant_page()
@@ -616,19 +608,7 @@ def record_detail(request, organization_id, table_key, sysid):
     item = record_queryset(spec, user=request.user).filter(pk=sysid).first()
     if item is None:
         raise Http404
-    permissions = {}
-    for action in ("update", "delete"):
-        try:
-            record_queryset(spec, user=request.user, action=action)
-            require_record_action(item, user=request.user, action=action)
-            permissions[action] = True
-        except PermissionDenied:
-            permissions[action] = False
-    try:
-        require_access_management(item, user=request.user)
-        permissions["manage_access"] = True
-    except PermissionDenied:
-        permissions["manage_access"] = False
+    permissions = record_permissions(item, spec, user=request.user)
     names = {
         "update": ("web:record-edit", gettext("Editar")),
         "delete": ("web:record-delete", gettext("Remover")),
@@ -667,6 +647,17 @@ def record_detail(request, organization_id, table_key, sysid):
     )
 
 
+def _form_record(request, queryset):
+    """The record a form shows or writes: locked only when the request writes it (#288).
+
+    A GET only renders the page; taking FOR UPDATE there would wait behind concurrent writes
+    and, before the organization lock of a POST, break the documented lock order.
+    """
+    if request.method == "POST":
+        queryset = queryset.select_for_update()
+    return queryset.first()
+
+
 @tenant_page()
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
@@ -675,12 +666,13 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
     item = None
     action = {"edit": "update", "delete": "delete", "restore": "restore", "access": "manage_access"}[operation]
     if sysid:
-        item = (
-            record_queryset(spec, user=request.user, action=action, include_deleted=operation == "restore")
-            .select_for_update()
-            .filter(pk=sysid)
-            .first()
-        )
+        queryset = record_queryset(
+            spec, user=request.user, action=action, include_deleted=operation == "restore"
+        ).filter(pk=sysid)
+        if operation == "restore":
+            # Only a tombstone is restored; a live record answers like a missing one (#288).
+            queryset = queryset.filter(deleted_at__isnull=False)
+        item = _form_record(request, queryset)
         if item is None:
             raise Http404
         if operation == "access":
@@ -783,7 +775,7 @@ def reference_picker(request, organization_id, table_key, field_name):
 
     from django.urls import reverse
 
-    from skeleton.web.references import reference_request
+    from skeleton.records.references import reference_request
 
     spec = exposed_spec(table_key)
     data, item, access = reference_request(spec, field_name, user=request.user, params=request.GET)

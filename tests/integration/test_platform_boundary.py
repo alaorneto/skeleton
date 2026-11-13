@@ -194,7 +194,7 @@ def test_platform_creates_identity_and_organization_through_services(platform_ac
     assert duplicate.status_code == 409
     organization = client.post(
         reverse("platform:organization-create"),
-        {"name": "Created org", "slug": "created-org", "owner": str(person.pk), "csrfmiddlewaretoken": token},
+        {"name": "Created org", "slug": "created-org", "owner": person.email, "csrfmiddlewaretoken": token},
     )
     assert organization.status_code == 302
     created_org = Organization.objects.get(slug="created-org")
@@ -454,3 +454,133 @@ def test_platform_admin_does_not_enter_the_organization_it_administers(platform_
     for name in ("web:dashboard", "web:catalog"):
         assert client.get(reverse(name, kwargs={"organization_id": organization.pk})).status_code == 404
     assert client.get(f"/api/v1/o/{organization.pk}/memberships/").status_code in {403, 404}
+
+
+def test_user_delete_requires_current_revision(platform_actor):
+    from skeleton.accounts.models import User
+
+    _, _, client = platform_actor
+    person = _person("delete-revision@example.test")
+    url = reverse("platform:user-delete", args=[person.pk])
+    page = client.get(url).content.decode()
+    current = User.all_objects.get(pk=person.pk).revision
+    assert f'name="expected_revision" value="{current}"' in page
+    token = client.cookies["csrftoken"].value
+    assert client.post(url, {"csrfmiddlewaretoken": token}).status_code == 400
+    assert client.post(url, {"csrfmiddlewaretoken": token, "expected_revision": current + 1}).status_code == 409
+    assert User.all_objects.get(pk=person.pk).deleted_at is None
+    response = client.post(url, {"csrfmiddlewaretoken": token, "expected_revision": current})
+    assert response.status_code == 302
+    assert User.all_objects.get(pk=person.pk).deleted_at is not None
+
+
+def test_identity_and_organization_changes_require_recent_authentication(platform_actor, foreign_organization):
+    from skeleton.accounts.models import User
+    from skeleton.tenancy.models import Organization
+
+    user, _, client = platform_actor
+    organization, owner, _ = foreign_organization
+    person = _person("recent-auth@example.test")
+    with system_context(reason="test:recent-auth-state"):
+        before_org = Organization.objects.get(pk=organization.pk)
+    before_person = User.all_objects.get(pk=person.pk)
+    pages = {
+        "platform:user-create": ((), {"email": "created@example.test", "password1": "x", "password2": "x"}),
+        "platform:user": (
+            (person.pk,),
+            {"first_name": "Changed", "is_active": "on", "expected_revision": before_person.revision},
+        ),
+        "platform:user-delete": ((person.pk,), {"expected_revision": before_person.revision}),
+        "platform:organization-create": ((), {"name": "Created", "slug": "created-recent", "owner": str(user.pk)}),
+        "platform:organization": (
+            (organization.pk,),
+            {"name": "Changed", "is_active": "on", "expected_revision": before_org.revision},
+        ),
+    }
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    token = client.cookies["csrftoken"].value
+    for name, (args, data) in pages.items():
+        url = reverse(name, args=args)
+        assert client.get(url).status_code == 200, name
+        response = client.post(url, {**data, "csrfmiddlewaretoken": token})
+        assert response.status_code == 302 and response["Location"].startswith(reverse("account_reauthenticate")), name
+    after_person = User.all_objects.get(pk=person.pk)
+    assert (after_person.revision, after_person.first_name, after_person.deleted_at) == (
+        before_person.revision,
+        before_person.first_name,
+        None,
+    )
+    assert not User.all_objects.filter(email="created@example.test").exists()
+    with system_context(reason="test:recent-auth-state"):
+        assert Organization.objects.get(pk=organization.pk).revision == before_org.revision
+        assert not Organization.objects.filter(slug="created-recent").exists()
+
+
+def test_update_mutations_still_require_recent_authentication(platform_actor):
+    """One mechanism, the decorator: every POST of /platform/updates/ needs it; GETs open (#311)."""
+    from uuid import uuid4
+
+    _, _, client = platform_actor
+    operation = reverse("platform:updates-operation", args=[uuid4()])
+    gets = [reverse("platform:updates-plan"), reverse("platform:updates-upload")]
+    for url in gets:
+        assert client.get(url).status_code in (200, 503), url  # The agent is not configured in tests.
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    token = client.cookies["csrftoken"].value
+    for name in ("updates-plan", "updates-add-dependency", "updates-fetch", "updates-upload"):
+        response = client.post(reverse(f"platform:{name}"), {"csrfmiddlewaretoken": token})
+        assert response.status_code == 302, name
+        assert response["Location"].startswith(reverse("account_reauthenticate")), name
+    response = client.post(operation, {"csrfmiddlewaretoken": token})
+    assert response.status_code in (302, 404)  # Missing operation: 404 before or after the reauthentication.
+    for url in gets:
+        assert client.get(url).status_code in (200, 503), url
+
+
+def test_organization_create_takes_owner_email(platform_actor):
+    from skeleton.accounts.services import create_identity, create_service_account
+    from skeleton.tenancy.context import system_context
+    from skeleton.tenancy.models import Organization
+    from skeleton.testing.service_api import acting_as
+
+    user, organization, client = platform_actor
+    token = client.cookies["csrftoken"].value
+    url = reverse("platform:organization-create")
+    with acting_as(user, organization):
+        service = create_service_account(actor=user, name="Integration")
+    with system_context(reason="test:owner-email"):
+        active = create_identity(email="owner-email@example.test", password=PASSWORD)
+        inactive = create_identity(email="owner-inactive@example.test", password=PASSWORD)
+        inactive.is_active = False
+        inactive.save(update_fields=["is_active"])
+    for slug, email in (
+        ("by-unknown", "nobody@example.test"),
+        ("by-inactive", inactive.email),
+        ("by-service", service.email),
+    ):
+        response = client.post(url, {"name": "X", "slug": slug, "owner": email, "csrfmiddlewaretoken": token})
+        assert response.status_code == 400, email
+        with system_context(reason="test:owner-email-check"):
+            assert not Organization.objects.filter(slug=slug).exists()
+    created = client.post(
+        url, {"name": "Y", "slug": "by-email", "owner": "Owner-Email@Example.test", "csrfmiddlewaretoken": token}
+    )
+    assert created.status_code == 302
+    with system_context(reason="test:owner-email-created"):
+        assert Organization.objects.filter(slug="by-email").exists()
+    assert active.email
+
+
+def test_organization_create_form_does_not_list_identities(platform_actor):
+    from skeleton.accounts.services import create_identity
+    from skeleton.tenancy.context import system_context
+
+    _, _, client = platform_actor
+    with system_context(reason="test:no-identity-list"):
+        create_identity(email="hidden-person@example.test", password=PASSWORD)
+    html = client.get(reverse("platform:organization-create")).content.decode()
+    assert "hidden-person@example.test" not in html and "<select" not in html.split('name="owner"')[0][-200:]

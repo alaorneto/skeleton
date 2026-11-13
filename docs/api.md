@@ -18,17 +18,17 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/join-links/`, `join-links/<id>/revoke/` | GET, POST; POST com If-Match | Capacidade `invitations.manage`. A lista nunca traz token nem resumo. POST `{label, role, mode, days, max_uses}` (exatamente esses campos) cria e devolve a `url` com o token uma única vez (201, `Cache-Control: no-store`); papel com capacidade pedido pelo gestor de pessoas responde 403 `privileged_role`. Revogar exige If-Match (412 se stale) |
 | `o/<org>/join-requests/`, `join-requests/<id>/` | GET; POST decisão com If-Match | Capacidade `admission.decide`; só pedidos abertos da organização. POST `{"decision": "approve"\|"reject"}` (sem outros campos); revisão stale 412, pedido já decidido ou expirado 409 `not_pending`; o gestor de pessoas recebe 403 num pedido com papel que carrega capacidade |
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
-| `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter` |
+| `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter`; `table_name` e `db_principal` vêm vazios para quem não administra a organização (#324) |
 | `o/<org>/membership/` | GET | O próprio vínculo do ator nesta organização (sysid, revisão) com ETag; 404 sem vínculo ativo |
 | `o/<org>/membership/leave/` | POST | O ator sai da organização; exige `If-Match` com a revisão do próprio vínculo (428 sem ele, 412 se mudou), corpo vazio; 204; 409 `last_administrator` para o último administrador |
 | `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
 | `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description; is_builtin read-only |
 | `o/<org>/groups/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description |
-| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade; digest/token/estado não graváveis; sem PATCH |
+| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade (papel interno com capacidade responde 403 `privileged_role`, sem escrita, como nos links de ingresso); digest/token/estado não graváveis; sem PATCH |
 | `o/<org>/member-roles/`, `group-members/`, `group-roles/`, `table-permissions/`, `record-grants/` | GET/POST coleção; GET/DELETE detalhe | `access.manage`; links explícitos; sem nested write/PATCH |
 | `o/<org>/tables/<table_key>/records/` | GET, POST | Gateway allowlist de SecuredRecord exposto |
 | `.../records/<sysid>/` | GET, PATCH, DELETE | Um registro autorizado; ETag/revisão |
-| `.../records/<sysid>/restore/` | POST | Restore autorizado com If-Match |
+| `.../records/<sysid>/restore/` | POST | Restore autorizado com If-Match; registro que não está excluído responde 404 (#288) |
 | `.../records/<sysid>/access/` | GET, PATCH | Manage_access + ownership/org admin; If-Match no PATCH |
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
@@ -39,7 +39,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
 | `me/tokens/`, `me/tokens/<id>/` | GET, POST; DELETE no detalhe | Tokens pessoais do próprio ator; [gestão de tokens](#gestão-de-tokens) (`skeleton/integrations/urls.py`) |
-| `o/<org>/service-accounts/`, `<id>/`, `<id>/tokens/`, `<id>/tokens/<token_id>/` | GET, POST na coleção; DELETE no detalhe; GET, POST nos tokens; DELETE num token | Contas de serviço e seus tokens; [gestão de tokens](#gestão-de-tokens) |
+| `o/<org>/service-accounts/`, `<id>/`, `<id>/tokens/`, `<id>/tokens/<token_id>/` | GET, POST na coleção; DELETE no detalhe (idempotente; não usa `If-Match`); GET, POST nos tokens; DELETE num token | Contas de serviço e seus tokens; [gestão de tokens](#gestão-de-tokens) |
 | `o/<org>/webhooks/`, `<id>/`, `<id>/rotate/`, `<id>/ping/`, `<id>/deliveries/`, `<id>/deliveries/<delivery_id>/`, `.../resend/` | GET, POST na coleção; GET, PATCH, DELETE no detalhe; POST em `rotate`, `ping` e `resend`; GET nas entregas | Endpoints, segredo, teste e log de entregas; [webhooks](webhooks.md) |
 | `notifications/`, `o/<org>/notifications/actions/` | GET; POST | Caixa de notificações do ator e ações sobre ela; [notificações](notifications.md) (`skeleton/notifications/urls.py`) |
 | `me/notification-preferences/`, `me/notification-preferences/<type_code>/<channel>/` | GET; GET, PUT, DELETE | Preferências por tipo e canal; [notificações](notifications.md#preferências) |
@@ -54,7 +54,7 @@ Campos de links: member-roles={membership,role}; group-members={group,membership
 
 ## `me` composto
 
-GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos first_name,last_name,display_name,timezone,language; atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
+GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos de texto first_name,last_name,display_name,timezone,language (outro tipo JSON é 400 `validation_error`, #272); atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
 
 O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a resposta reúne duas linhas: User e Profile. O PATCH exige as duas revisões em `If-Match` e as compara dentro da mesma transação. A revisão do perfil sozinha não protegeria o nome da identidade de uma alteração concorrente.
 
@@ -70,13 +70,13 @@ FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nes
 
 O picker de referências aceita `q` para prefixo do rótulo e, com `pg_trgm`, similaridade por palavra inteira (`strict_word_similarity`, limiar padrão 0,5), que tolera erro de digitação numa palavra do rótulo, mas não casa pedaços de outra palavra (#180, #181).
 
- Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
+ Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100; o deslocamento máximo é de 1 000 000 de linhas, e uma página além disso é 400 `invalid_pagination` (#271). Conte/count/lista/audit são autorizados antes de paginação.
 
 Referências invisíveis são representadas como null, sem UUID/label e sem `__str__` de negócio. A projeção da lista autoriza alvos em lote por política/modelo. O recurso `references/<field>/` aceita somente `record`, `access=0/1`, `page` e `page_size`, sem duplicatas. Sem `record`, exige create na origem; com registro, update; com access, manage_access. Retorna `{count,page,page_size,results}` de UUID/label autorizados; máximo 100. Referências de identidade/acesso usam vínculos ativos/resolvedores dedicados, nunca enumeração global. HTML tem seletor equivalente fora do admin e fallback para copiar UUID; toda escrita revalida FK.
 
 Apps podem registrar `RecordOperations` em código para impor serviços próprios nas mesmas operações HTML/API. Core valida autorização/allowlists/coerção antes do serviço; se um adaptador não declara uma operação, ela é negada sem fallback. Metadados de apresentação não mudam o contrato JSON ou grants. Nullable boolean mantém null quando o modelo o permite; write-only nunca é acrescentado à leitura pela presença de um widget.
 
-Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamente lidos antes da decodificação (default 1048576), inclusive stream sem Content-Length confiável; excesso é 413 `request_too_large`, sem escrita parcial. Alinhe um limite de corpo igual ou menor no proxy. Paginação HTML preserva filtros já validados ao trocar page, com URL encoding.
+Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamente lidos antes da decodificação (default 1048576), inclusive stream sem Content-Length confiável; excesso é 413 `request_too_large`, sem escrita parcial. Alinhe um limite de corpo igual ou menor no proxy. Paginação HTML preserva filtros já validados ao trocar page, com URL encoding. As respostas também são sempre JSON: a interface HTML do DRF (Browsable API) fica desligada, e um `Accept` que não admite JSON recebe 406 com corpo JSON (#230).
 
 
 ## Concorrência e erros

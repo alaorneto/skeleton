@@ -86,7 +86,9 @@ def sync_provider(
     staying = sorted({user_id for uid, user_id in accounts if uid in present}, key=str)
     try:
         with system_context(reason=REASON, organization_id=row.bound_organization_id), transaction.atomic():
-            organization = Organization.objects.select_for_update().filter(pk=row.bound_organization_id).first()
+            organization = (
+                Organization.objects.select_for_update(no_key=True).filter(pk=row.bound_organization_id).first()
+            )
             if organization is None or not organization.is_active:
                 report.aborted = "organization_inactive"
                 raise _Rollback

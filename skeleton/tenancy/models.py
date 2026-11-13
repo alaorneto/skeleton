@@ -4,6 +4,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils.translation import gettext
 
+from skeleton.accounts.emails import normalize_email
 from skeleton.common.models import OrganizationRecord, SystemRecord
 
 
@@ -123,12 +124,12 @@ class Invitation(OrganizationRecord):
         ]
 
     def clean_fields(self, exclude=None):
-        self.email = self.email.strip().lower()
+        self.email = normalize_email(self.email)
         super().clean_fields(exclude=exclude)
 
     def clean(self):
         super().clean()
-        self.email = self.email.strip().lower()
+        self.email = normalize_email(self.email)
         if len(self.token_digest) != 64 or any(char not in "0123456789abcdef" for char in self.token_digest):
             raise ValidationError({"token_digest": "A SHA256 hexadecimal digest is required."})
 

@@ -290,7 +290,7 @@ def apply_verified_email_admission(user: Any, email: str) -> str:
     if domain is None or claim is None:
         return "none"
     with system_context(reason=DOMAIN_REASON, organization_id=claim), transaction.atomic():
-        organization = Organization.objects.select_for_update().filter(pk=claim, is_active=True).first()
+        organization = Organization.objects.select_for_update(no_key=True).filter(pk=claim, is_active=True).first()
         policy = models.OrganizationAdmissionPolicy.objects.filter(organization=organization).first()
         record = (
             models.VerifiedDomain.objects.select_related("role")

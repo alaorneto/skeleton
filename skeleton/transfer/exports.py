@@ -59,8 +59,8 @@ def _clean_filters(params: dict[str, Any]) -> dict[str, str]:
 def request_export(*, user: Any, table_key: str, params: dict[str, Any]) -> Any:
     """Record the export and enqueue its job in the caller's transaction."""
     from skeleton.jobs.services import enqueue
+    from skeleton.records.services import filter_records, record_queryset
     from skeleton.tenancy.context import current_context
-    from skeleton.web.services import filter_records, record_queryset
 
     from .models import TransferJob
 
@@ -102,7 +102,7 @@ def _fail(transfer: Any, code: str) -> None:
 
 def run_export(*, actor: Any, transfer_id: Any) -> None:
     """Job handler (tenant context of the requester)."""
-    from skeleton.web.services import filter_records, record_queryset, records_data
+    from skeleton.records.services import filter_records, record_queryset, records_data
 
     from .csvio import write_csv
     from .models import TransferJob
@@ -136,7 +136,7 @@ def run_export(*, actor: Any, transfer_id: Any) -> None:
         _fail(transfer, "too_many_rows")
         return
     fields = export_fields(spec)
-    from skeleton.web.services import SYSTEM_FIELDS
+    from skeleton.records.services import SYSTEM_FIELDS
 
     header = tuple(dict.fromkeys((*SYSTEM_FIELDS, *fields)))
     data = []

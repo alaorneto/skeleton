@@ -13,10 +13,10 @@ from django.utils.translation import gettext
 
 from skeleton.notifications.services import Recipients
 
-from .applications import calling_app_label
+from .applications import require_owning_app
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate
-from .errors import Forbidden, InvalidInput, NotFound
+from .errors import InvalidInput, NotFound
 
 __all__ = ["NotificationItem", "NotificationReceipt", "NotificationService", "NotificationValue", "Recipients"]
 
@@ -111,8 +111,7 @@ class NotificationService(ServiceAPI):
             kind = get_notification_type(type_code)
         except KeyError:
             raise InvalidInput({"type_code": [gettext("Tipo de notificação desconhecido.")]}) from None
-        if calling_app_label() != (kind.owner_app or None):
-            raise Forbidden(gettext("A app só notifica com os próprios tipos."))
+        require_owning_app(kind.owner_app, gettext("A app só notifica com os próprios tipos."))
         target = None
         if target_id is not None or target_table_key is not None:
             if target_table_key != kind.target_table_key or target_id is None:

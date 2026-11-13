@@ -8,9 +8,9 @@ from datetime import datetime
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.utils.translation import gettext
 
-from .applications import calling_app_label
+from .applications import require_owning_app
 from .base import ServiceAPI, service_method
-from .errors import Forbidden, InvalidInput
+from .errors import InvalidInput
 
 __all__ = ["SequenceNumber", "SequenceService"]
 
@@ -46,8 +46,7 @@ class SequenceService(ServiceAPI):
             spec = get_sequence(key)
         except KeyError:
             raise InvalidInput({"key": [gettext("Sequência não declarada.")]}) from None
-        if calling_app_label() != (spec.owner_app or None):
-            raise Forbidden(gettext("A app só numera com as próprias sequências."))
+        require_owning_app(spec.owner_app, gettext("A app só numera com as próprias sequências."))
         try:
             allocated = next_number(spec.key, at=at)
         except ValidationError as exc:

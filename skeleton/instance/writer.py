@@ -33,7 +33,22 @@ def write_setting(base_dir: Path, key: str, raw: str, *, source: str) -> Setting
     return spec
 
 
-def clear_setting(base_dir: Path, key: str, *, source: str) -> bool:
+REQUIRED_KEY_MESSAGE = "Esta chave é obrigatória para a instância iniciar: grave um novo valor em vez de removê-la."
+
+
+def can_clear(spec: SettingSpec, environment: Mapping[str, str] | None = None) -> bool:
+    """A required key may leave the store only while the environment supplies it (#267).
+
+    Without it the next start falls into setup mode, whose pages answer 404 once the setup
+    is complete: the whole site would be unreachable until someone edits the host.
+    """
+    environment = os.environ if environment is None else environment
+    return not spec.required_for_setup or spec.env in environment
+
+
+def clear_setting(base_dir: Path, key: str, *, source: str, allow_required: bool = False) -> bool:
     spec = spec_for(key)
+    if not allow_required and not can_clear(spec):
+        raise ValueError(REQUIRED_KEY_MESSAGE)
     store, _ = open_store(base_dir)
     return store.delete(spec.key, source=source)

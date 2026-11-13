@@ -49,6 +49,8 @@ def scenario(monkeypatch):
         register_job_type(JobType("other.work", handler, {}, owner_app="other_app"))
         register_event_type(EventType("notes.closed", "example_notes.note", ("code",), owner_app="example_notes"))
         register_event_type(EventType("other.happened", "example_notes.note", (), owner_app="other_app"))
+        register_job_type(JobType("orphan.work", handler, {}))  # No owner_app: belongs to nobody (#272).
+        register_event_type(EventType("orphan.happened", "example_notes.note", ()))
         yield build_service_scenario(Note, slug="jobs-events")
 
 
@@ -122,3 +124,27 @@ def test_publish_refuses_foreign_type_record_and_rolls_back(scenario):
         raise RuntimeError("caller failure")
     with system_context(reason="test:events-none", organization_id=scenario.a.pk):
         assert not DomainEvent.objects.exclude(event_type__in=CORE_EVENT_TYPES).exists()
+
+
+@pytest.mark.needs_example_app
+def test_type_without_owner_is_forbidden_for_everyone(scenario):
+    """A type without owner_app is usable by no caller of the service, app or not (#272)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="EV-ORPHAN", title="T")
+    with acting_as(scenario.member, scenario.a) as actor:
+        for call in (
+            lambda: JobService().enqueue(actor=actor, job_type="orphan.work"),
+            lambda: enqueue_as_notes(actor=actor, job_type="orphan.work"),
+            lambda: EventService().publish(actor=actor, event_type="orphan.happened", record_id=note.pk),
+            lambda: publish_as_notes(actor=actor, event_type="orphan.happened", record_id=note.pk),
+        ):
+            with pytest.raises(Forbidden):
+                call()
+
+
+@pytest.mark.needs_example_app
+def test_publish_follows_table_app_activation(scenario):
+    """With the record's app disabled, publishing about it is refused, never accepted (#319)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="EV-OFF", title="T")
+    with scenario.application_disabled(scenario.a), acting_as(scenario.member, scenario.a) as actor:
+        with pytest.raises((NotFound, Forbidden)):
+            publish_as_notes(actor=actor, event_type="notes.closed", record_id=note.pk, data=(("code", "EV-OFF"),))

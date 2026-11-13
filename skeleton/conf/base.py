@@ -55,6 +55,7 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = ("skeleton_crud",)
 CRISPY_FAIL_SILENTLY = False
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "skeleton.common.http_logging.RequestCompletionMiddleware",
     # Serves /metrics before session, auth and tenant; removes itself without SKELETON_METRICS_TOKEN (#175).
@@ -85,6 +86,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.template.context_processors.csp",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "skeleton.system.applications.application_navigation",
@@ -266,6 +268,24 @@ MFA_ALLOW_UNVERIFIED_EMAIL = False
 MFA_RECOVERY_CODES_SHOW_ONCE = True
 MFA_TRUST_ENABLED = False
 X_FRAME_OPTIONS = "DENY"
+from django.utils.csp import CSP as _CSP  # noqa: E402  Underscore: the overlay's star import must not export it.
+
+# Same-origin only (#266). No inline script exists in the core templates (json_script blocks
+# are data); the only inline style is the organization's brand palette, allowed by nonce.
+# No form-action: SSO starts with a POST to this origin that redirects to the identity
+# provider, and Chromium applies form-action to the redirect target too.
+SKELETON_CSP = {
+    "default-src": [_CSP.SELF],
+    "script-src": [_CSP.SELF],
+    "style-src": [_CSP.SELF, _CSP.NONCE],
+    "img-src": [_CSP.SELF, "data:"],  # allauth renders the TOTP QR code as a data: image.
+    "font-src": [_CSP.SELF],
+    "connect-src": [_CSP.SELF],
+    "object-src": [_CSP.NONE],
+    "base-uri": [_CSP.SELF],
+    "frame-ancestors": [_CSP.NONE],
+}
+SECURE_CSP = SKELETON_CSP
 SKELETON_JSON_MAX_BYTES = env.int("SKELETON_JSON_MAX_BYTES", default=1048576)
 if SKELETON_JSON_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured
@@ -275,8 +295,8 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "skeleton.api.errors.exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 25,
+    # JSON only: the DRF browsable API (HTML) is never served (docs/api.md, #230).
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["skeleton.api.parsers.BoundedJSONParser"],
 }
 LOGGING = {
