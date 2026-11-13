@@ -394,6 +394,20 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos. `manage.py makemigrations --check`: sem mudanças. O snapshot SQL ganhou só `sk_accounts.erasurerequest`.
 - A role runtime só lê `socialaccount_socialtoken`; por isso a conta social sai sem o coletor de cascata, e o primeiro teste mostrou o `DELETE` recusado antes da correção.
 
+## Menções em comentários (#188, epic #93)
+
+A implementação foi feita em 2026-11-12 (PR #361), mas aquele PR entrou na branch de #187 depois que ela já tinha chegado à `main`, e o código não chegou à `main`. Os dois commits foram reaplicados sobre a pilha atual sem mudança de código; só a evidência, que vivia em `docs/testing.md`, passou para cá. Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6`: 2573 passed, 100 skipped e 1 failed; a falha era a regra do #264 (o módulo de menções com um skip próprio em vez do marcador `needs_example_app`), corrigida no commit seguinte e conferida com `tests/unit/test_example_app_requirement.py` passando.
+- `tests/unit/test_comment_mentions_parsing.py`, `tests/integration/test_comment_mentions.py`, `tests/integration/test_comments.py` e `tests/unit/test_comment_text.py`: 17 passed, 24 subtests. Cobrem:
+  - marcadores lidos uma vez, em ordem, ignorando os malformados; rótulo que não quebra a sintaxe; rótulo escapado e `sysid` fora do texto;
+  - o membro mencionado que lê o registro recebe uma notificação, com payload só de identificadores; editar não repete; mencionar a si mesmo não notifica; abrir a notificação leva ao registro;
+  - mencionar membro sem leitura, quem não é membro ou quem só é membro de B responde 400 (REST e serviço), sem gravar; a edição que acrescenta um não leitor também é recusada;
+  - revogar a leitura entre a menção e o fan-out impede a entrega;
+  - o seletor lista só membros que leem o registro, sem email, e responde 404 em outra organização;
+  - os testes de comentários do #187 seguem passando.
+- `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos. `manage.py makemigrations --check`: sem mudanças. `npm run check`: assets em dia.
+
 ## Apps por organização, perfis e ingresso (epic #35)
 
 Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.

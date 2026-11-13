@@ -12,6 +12,7 @@
   <form class="mt-4" method="post" action="{% url 'comments:add' organization_id table_key record.sysid %}">{% csrf_token %}
     <label class="mb-2 block text-sm font-medium text-heading" for="comment-body">{% translate "Novo comentário (texto simples, até 5.000 caracteres)" %}</label>
     <textarea id="comment-body" name="body" maxlength="5000" rows="3" required></textarea>
+    {% if comments.mentionable %}<details class="mt-2"><summary class="text-sm">{% translate "Mencionar alguém" %}</summary><p class="text-sm text-body-subtle">{% translate "Copie o marcador da pessoa para o texto; ela será notificada." %}</p><ul class="mt-1 text-sm">{% for person in comments.mentionable %}<li><span class="text-heading">{{ person.name }}</span> <code>{{ person.token }}</code></li>{% endfor %}</ul></details>{% endif %}
     <button class="btn btn-primary btn-sm mt-2" type="submit">{% translate "Comentar" %}</button>
   </form>
 </section>
