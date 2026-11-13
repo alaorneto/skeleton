@@ -155,6 +155,8 @@ class ApplicationState:
     configuration: tuple[ConfigurationValue, ...]
     revision: int
     sysid: str | None
+    # False when the stored configuration no longer fits the manifest (#251): the app stays closed.
+    configuration_valid: bool = True
 
 
 def _state(app_label: str) -> ApplicationState:
@@ -172,6 +174,7 @@ def _state(app_label: str) -> ApplicationState:
         configuration=tuple(ConfigurationValue(name, value) for name, value in state["configuration"].items()),
         revision=state["revision"],
         sysid=state["sysid"],
+        configuration_valid=state["configuration_valid"],
     )
 
 

@@ -242,8 +242,9 @@ def test_custom_parameter_wrapper_guards_direct_route_without_activation_gate(
     from django.core.exceptions import PermissionDenied
     from django.test import RequestFactory
 
-    from skeleton.system.administration import guard_application_urls, screen_sections
-    from skeleton.system.application_views import application_configuration
+    from skeleton.system.administration import screen_sections
+    from skeleton.web.app_routing import guard_application_urls
+    from skeleton.web.applications import application_configuration
 
     user, organization, client = actor
     member, member_client = member_actor
@@ -385,7 +386,7 @@ def test_api_namespace_wrapper_uses_owning_app_activation(actor, app_screens, mo
     from django.test import RequestFactory
 
     from examples.notes.views import SummaryView
-    from skeleton.system.administration import guard_application_urls
+    from skeleton.web.app_routing import guard_application_urls
 
     user, organization, _ = actor
     summary = SummaryView.as_view()
@@ -423,7 +424,9 @@ def bare_api_urlconf(monkeypatch):
     changed = replace(original, api_urls=([path("v/", include(nested))], "example_notes_api"))
     monkeypatch.setitem(app_registry._manifests, original.app_label, changed)
     urlconf = types.ModuleType("tests_application_api_guard_urlconf")
-    urlconf.urlpatterns = [*app_registry.application_urlpatterns(), *import_module(settings.ROOT_URLCONF).urlpatterns]
+    from skeleton.web.app_routing import application_urlpatterns
+
+    urlconf.urlpatterns = [*application_urlpatterns(), *import_module(settings.ROOT_URLCONF).urlpatterns]
     monkeypatch.setitem(sys.modules, urlconf.__name__, urlconf)
     return urlconf.__name__
 
@@ -500,7 +503,7 @@ def test_removed_app_api_route_answers_not_found(api_guard, monkeypatch):
 
 
 def test_api_guard_clones_nested_patterns_and_keeps_view_attributes(app_screens):
-    from skeleton.system.administration import guard_application_api_urls
+    from skeleton.web.app_routing import guard_application_api_urls
 
     view = BareAPI.as_view()
     nested = [path("bare/", view, name="bare")]
@@ -638,3 +641,38 @@ def test_configure_application_requires_role_under_lock(actor, monkeypatch):
             revision=state["revision"],
         )
     assert calls and calls[0][0] == user and calls[0][1].get("capability") == "apps.manage"
+
+
+def test_configuration_form_reports_specific_service_error(actor, monkeypatch):
+    """The form shows the service's own message, not a generic one (#338)."""
+    from django.core.exceptions import ValidationError
+
+    from skeleton.system import applications
+
+    user, organization, client = actor
+    url = reverse(
+        "application-configuration", kwargs={"organization_id": organization.pk, "app_label": "example_notes"}
+    )
+    client.get(url)
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:read-revision"):
+        current = activation_revision("example_notes")
+
+    def refuse(*args, **kwargs):
+        raise ValidationError(
+            {"enabled": ValidationError("Ative antes a dependência Base.", code="dependency_disabled")}
+        )
+
+    monkeypatch.setattr(applications, "configure_application", refuse)
+    response = client.post(
+        url,
+        {
+            "enabled": "on",
+            "revision": str(current),
+            "heading": "Any",
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
+    assert response.status_code == 400
+    page = response.content.decode()
+    assert "Ative antes a dependência Base." in page
+    assert "Verifique os campos e as dependências ativas." not in page

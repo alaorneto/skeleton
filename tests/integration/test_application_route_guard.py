@@ -80,8 +80,8 @@ def _guarded(view, *, api_route=False):
     """The core guard around a plain view that applies no gate of its own."""
     from django.urls import path
 
-    from skeleton.system.administration import guard_application_api_urls, guard_application_urls
     from skeleton.system.app_registry import get_app
+    from skeleton.web.app_routing import guard_application_api_urls, guard_application_urls
 
     guard = guard_application_api_urls if api_route else guard_application_urls
     [pattern] = guard([path("plain/", view, name="plain")], get_app("example_notes"))
