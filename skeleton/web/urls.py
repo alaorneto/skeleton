@@ -11,6 +11,7 @@ urlpatterns = [
     path("profile/", views.profile, name="profile"),
     path("profile/privacy/", privacy_views.privacy, name="privacy"),
     path("profile/privacy/export/", privacy_views.privacy_export, name="privacy-export"),
+    path("profile/privacy/erasure/", privacy_views.privacy_erasure, name="privacy-erasure"),
     path("health/live/", probe_response, name="health-live"),
     path("health/ready/", probe_response, name="health-ready"),
     path("join/", admission_views.join_directory, name="join"),

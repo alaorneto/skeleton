@@ -104,6 +104,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_accounts.erasurerequest": (
+            "Pedidos de eliminação",
+            "Pedido de uma pessoa para anonimizar a identidade, aprovado pela plataforma (#191).",
+            "global",
+            (),
+        ),
         "sk_tenancy.organization": (
             gettext_lazy("Organizações"),
             gettext_lazy("Fronteira de isolamento organizacional e estado de disponibilidade."),

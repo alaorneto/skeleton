@@ -241,3 +241,46 @@ class PlatformRoleAssignment(SystemRecord):
 
     def __str__(self):
         return f"{self.user_id}: {self.role}"
+
+
+class ErasureRequest(SystemRecord):
+    """A person's request to anonymize their identity, decided by a platform administrator (#191).
+
+    ``pending`` → ``completed`` (the approval anonymizes, in its transaction) or ``rejected``;
+    the person may withdraw a pending request (``cancelled``). One pending request per person. The
+    row keeps only identifiers and dates: it outlives the anonymization as its record.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", gettext_lazy("Aguardando aprovação")
+        COMPLETED = "completed", gettext_lazy("Concluído")
+        REJECTED = "rejected", gettext_lazy("Recusado")
+        CANCELLED = "cancelled", gettext_lazy("Retirado")
+
+    OPEN = (Status.PENDING,)
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="erasure_requests")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("user_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("user",),
+                condition=Q(status="pending", deleted_at__isnull=True),
+                name="sk_accounts_erasure_open",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=("pending", "completed", "rejected", "cancelled")),
+                name="sk_accounts_erasure_status",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id}: {self.status}"
