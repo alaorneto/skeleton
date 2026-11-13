@@ -224,3 +224,30 @@ def test_deleted_event_sends_no_reminder(agenda, daily):
         daily.refresh_from_db()
         services.delete_event(actor=agenda.alice, event_id=daily.pk, expected_revision=daily.revision)
     assert run(agenda, NOW) == 0
+
+
+def test_all_day_reminder_counts_from_local_midnight(agenda):
+    """A 0-minute reminder of an all-day event in Sao Paulo fires at local midnight, not UTC's (#312)."""
+    day = datetime(2027, 3, 10).date()
+    with actor_tenant(agenda.alice, agenda.a):
+        calendar = services.ensure_personal_calendar(agenda.alice)
+        event = services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={
+                "title": "Dia todo",
+                "all_day": True,
+                "start_date": day,
+                "end_date": day + timedelta(days=1),
+                "tzid": "America/Sao_Paulo",
+            },
+        )
+        reminders.add_reminder(actor=agenda.alice, event_id=event.pk, minutes_before=0)
+    eve = datetime(2027, 3, 9, 21, 5, tzinfo=UTC)
+    utc_midnight = datetime(2027, 3, 10, 0, 5, tzinfo=UTC)
+    local_midnight = datetime(2027, 3, 10, 3, 5, tzinfo=UTC)
+    assert run(agenda, eve) == 0
+    assert run(agenda, utc_midnight) == 0
+    assert run(agenda, local_midnight) == 1
+    assert run(agenda, local_midnight + timedelta(minutes=5)) == 1  # Same dedupe key.
+    assert len(notifications(agenda)) == 1

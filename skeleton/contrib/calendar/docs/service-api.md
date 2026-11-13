@@ -47,8 +47,9 @@ Horários ocupados das pessoas nos calendários pessoais delas, nunca títulos o
 ## DTOs
 - `CalendarInfo`: `sysid`, `name`, `kind`, `is_default`, `color`, `timezone`, `owner_id`, `revision`.
 - `EventInfo`: `sysid`, `calendar_id`, `title`, `description`, `location`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `status`, `organizer_id`, `revision`.
-- `EventOccurrence`: `event_id`, `calendar_id`, `recurrence_id`, `title`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `status`.
-- `BusyBlock`: `user_id`, `starts_at`, `ends_at`.
+- `EventOccurrence`: `event_id`, `calendar_id`, `recurrence_id`, `title`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `status`, e, só para dia inteiro, `start_date` (primeiro dia) e `end_date` (dia seguinte ao último, exclusivo); `None` em evento com hora (#312).
+- `BusyBlock`: `user_id`, `starts_at`, `ends_at`. Um bloco de dia inteiro usa a meia-noite UTC das datas.
 
 ## Histórico de versões
 - 0.5.0: `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
+- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312), campos com valor padrão; nada muda para quem não os lê.

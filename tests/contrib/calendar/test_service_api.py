@@ -281,3 +281,26 @@ def test_actor_view_does_not_leak_between_actors(scenario):
     assert [item.busy_only for item in delegated] == [False]
     _, other = _upcoming_queries(scenario, scenario.admin_a)  # Administrator, but no delegation.
     assert [item.busy_only for item in other] == [True]
+
+
+def test_all_day_occurrences_carry_dates(scenario):
+    from skeleton.testing.service_api import acting_as
+
+    calendar = shared(scenario).pk
+    day = START.date()
+    with acting_as(scenario.member, scenario.a) as actor:
+        CalendarService().create_event(
+            actor=actor,
+            calendar_id=calendar,
+            data={"title": "Dia", "all_day": True, "start_date": day, "end_date": day + timedelta(days=2)},
+        )
+        CalendarService().create_event(actor=actor, calendar_id=calendar, data=event_data(title="Hora"))
+        rows = {
+            item.title: item
+            for item in CalendarService().upcoming(
+                actor=actor, start=START - timedelta(days=1), end=START + timedelta(days=3)
+            )
+        }
+    assert (rows["Dia"].start_date, rows["Dia"].end_date) == (day, day + timedelta(days=2))
+    assert (rows["Hora"].start_date, rows["Hora"].end_date) == (None, None)
+    assert_service_contract(CalendarService)

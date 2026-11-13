@@ -11,8 +11,9 @@ notification preferences.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -122,9 +123,17 @@ def send_due_reminders(*, now: Any = None) -> int:
     reminders, overrides, invited, organizers = _candidates(now)
     for reminder in reminders:
         event, lead = reminder.event, timedelta(minutes=reminder.minutes_before)
-        window = expand(event, now - GRACE + lead, now + lead + EVERY, overrides=overrides.get(event.pk, []))
+        # Local midnight of an all-day event is up to 14 hours from UTC midnight: read a day more each side.
+        span = timedelta(days=1) if event.all_day else timedelta()
+        window = expand(
+            event, now - GRACE + lead - span, now + lead + EVERY + span, overrides=overrides.get(event.pk, [])
+        )
         for occurrence in window.occurrences:
-            due = occurrence.starts_at - lead
+            starts = occurrence.starts_at
+            if occurrence.event.all_day:
+                # An all-day event starts at midnight in its own zone (#312).
+                starts = datetime.combine(starts.date(), time(), tzinfo=ZoneInfo(occurrence.event.tzid))
+            due = starts - lead
             if not (now - GRACE < due <= now) or occurrence.event.status == Event.Status.CANCELLED:
                 continue
             users = _recipients(event, invited, organizers)
@@ -142,7 +151,7 @@ def send_due_reminders(*, now: Any = None) -> int:
                                 "title",
                                 occurrence.event.title if not occurrence.event.is_private else gettext("Ocupado"),
                             ),
-                            ("starts_at", occurrence.starts_at.isoformat()),
+                            ("starts_at", starts.isoformat()),
                             ("event", str(event.pk)),
                         ),
                         dedupe_key=f"reminder:{event.pk}:{key}:{reminder.minutes_before}",

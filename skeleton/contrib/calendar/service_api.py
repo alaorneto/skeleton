@@ -257,6 +257,8 @@ class EventOccurrence:
     starts_at: datetime
     ends_at: datetime
     status: str
+    start_date: date | None = None  # All-day only: the first day (#312).
+    end_date: date | None = None  # All-day only: the day after the last one (exclusive).
 
 
 @dataclass(frozen=True, slots=True)
@@ -363,6 +365,8 @@ def occurrences_in(actor: Any, events: Any, start: datetime, end: datetime) -> l
                 starts_at=occurrence.starts_at,
                 ends_at=occurrence.ends_at,
                 status=target.status,
+                start_date=occurrence.starts_at.date() if target.all_day else None,
+                end_date=occurrence.ends_at.date() if target.all_day else None,
             )
         )
     rows.sort(key=lambda row: (row.starts_at, str(row.event_id)))
