@@ -331,7 +331,7 @@ No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `w
 
    | Variável | Uso |
    |---|---|
-   | `SANDBOX_HOST` | Host público, sem esquema: `sandbox.example.com` |
+   | `SANDBOX_HOST` | Host público, sem esquema: `sandbox.example.com`. O compose acrescenta `localhost` aos hosts do setup, porque é o Host que o healthcheck manda em modo setup (#436) |
    | `POSTGRES_PASSWORD` | Administrador do PostgreSQL; só o container do banco a recebe |
    | `SKELETON_OWNER_DB_PASSWORD` | Role owner; só o `migrate` e o init do banco a recebem |
    | `SKELETON_RUNTIME_DB_PASSWORD` | Role runtime; digitada no setup |

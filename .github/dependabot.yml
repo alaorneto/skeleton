@@ -20,10 +20,22 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A versão minor do Python é decisão de suporte (matriz do CI, os três FROM,
+    # tests/unit/test_workflow_pins.py, wheels de lxml/xmlsec), não bump automático:
+    # só os patches da 3.14 chegam por aqui (#432, PR #385).
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: docker
     directory: /deploy/agent
     schedule:
       interval: weekly
+    # A versão minor do Python é decisão de suporte (matriz do CI, os três FROM,
+    # tests/unit/test_workflow_pins.py, wheels de lxml/xmlsec), não bump automático:
+    # só os patches da 3.14 chegam por aqui (#432, PR #385).
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
