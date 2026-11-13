@@ -230,6 +230,21 @@ class ProviderAccount(SystemRecord):
                 validate_currency(code)
             except ValidationError as exc:
                 raise ValidationError({"currencies": exc.messages}) from None
+        from .providers.base import _providers
+
+        provider = _providers.get(self.provider)
+        accepted = provider.currencies(self) if provider is not None else None
+        if accepted is not None:
+            # An account of a provider that collects only some currencies says so (Asaas: BRL, #403).
+            if not codes:
+                self.currencies = codes = sorted(accepted)
+            if set(codes) - set(accepted):
+                raise ValidationError(
+                    {
+                        "currencies": gettext("Moeda não aceita por este provedor: %(codes)s.")
+                        % {"codes": ", ".join(sorted(set(codes) - set(accepted)))}
+                    }
+                )
 
     def set_secrets(self, *, api_key=None, webhook_secret=None):
         """Replace the secrets given; an empty or missing value keeps the current one."""

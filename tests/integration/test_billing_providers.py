@@ -97,7 +97,8 @@ def test_bad_signature_and_forged_bodies_have_no_effect(billing):
     attempt = checkout(scenario, invoice)
     body, signature = FakeProvider.webhook(attempt.reference)
     assert post(account, body, "0" * 64).status_code == 400
-    assert post(account, body, signature[:-1] + "0").status_code == 400
+    flipped = signature[:-1] + ("1" if signature[-1] == "0" else "0")  # One character changed.
+    assert post(account, body, flipped).status_code == 400
     # Authentic notification, but the provider says the payment is still pending: nothing is paid.
     assert post(account, body, signature).status_code == 200
     run_pending_jobs()

@@ -22,7 +22,7 @@ class BillingConfig(AppConfig):
         from .lifecycle import organization_created
         from .notices import register_notices
         from .payments import register_payment_jobs
-        from .providers import mercadopago, stripe
+        from .providers import asaas, mercadopago, stripe
         from .quota import register_quota
         from .vouchers import register_voucher_lines
 
@@ -39,4 +39,5 @@ class BillingConfig(AppConfig):
         register_payment_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))
         stripe.register()
         mercadopago.register()
+        asaas.register()
         register_billing_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))

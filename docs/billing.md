@@ -182,12 +182,20 @@ Não existe padrão aberto que abstraia assinaturas entre provedores, então o n
 - Webhook: `x-signature` com `ts` e `v1`, HMAC-SHA256 do manifesto `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` (o `data.id` da query string, em minúsculas, ou do corpo), cinco minutos de tolerância.
 - Todo POST leva `X-Idempotency-Key`.
 
+### Asaas
+
+`skeleton/billing/providers/asaas.py` (código `asaas`), só BRL: uma conta Asaas com outra moeda é recusada já no cadastro, e uma conta sem moedas fica com BRL. A chave é a API key (`$aact_…`); o modo diz se as chamadas vão para `api-sandbox.asaas.com` ou `api.asaas.com`. No painel, cadastre o webhook `https://<origem pública>/billing/webhooks/asaas/<sysid da conta>/` com os eventos de cobrança e um **token de autenticação**, que é o segredo de webhook da conta. O cliente precisa do CPF ou CNPJ (o documento da conta de cobrança).
+
+- Checkout: `POST /v3/payments` com `billingType=UNDEFINED` (a pessoa escolhe Pix, boleto ou cartão em `invoiceUrl`) e a referência em `externalReference`. O Asaas não tem cabeçalho de idempotência: uma cobrança aberta com a mesma referência é procurada antes e reaproveitada, então uma nova tentativa nunca cria a segunda cobrança.
+- Cobrança automática: `billingType=CREDIT_CARD` com o `creditCardToken` devolvido pelo primeiro pagamento com cartão. A verificar no sandbox: algumas contas Asaas exigem `remoteIp` na cobrança tokenizada.
+- Consulta: `GET /v3/payments/<id>`: `RECEIVED`, `CONFIRMED` e `RECEIVED_IN_CASH` pagam; `REFUNDED` estorna; `OVERDUE` continua pendente (quem decide o atraso é a régua do núcleo). Estorno: `POST /v3/payments/<id>/refund`.
+- Webhook: o Asaas manda o token no cabeçalho `asaas-access-token`, sem HMAC. Ele é comparado em tempo constante e, como em todo provedor, o pagamento é sempre consultado antes de qualquer efeito: um corpo forjado não muda nada.
+
 Para testes, `skeleton.testing.billing.use_fake_provider()` registra um provedor em memória, determinístico e sem rede, com a conta de provedor padrão. Com a cobrança ligada e sem `SKELETON_PUBLIC_URL` válido, o `check --deploy` avisa com `skeleton.W037`: o provedor não teria para onde mandar os webhooks nem para onde devolver a pessoa depois do checkout.
 
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
 | [#404](https://github.com/alaorneto/skeleton/issues/404) | Páginas de cobrança da organização, API e `BillingService` |
 | [#405](https://github.com/alaorneto/skeleton/issues/405) | Administração da plataforma |
