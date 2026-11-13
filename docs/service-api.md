@@ -245,6 +245,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `FeedTokenService` | `skeleton.service_api.tokens` | `issue` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
+| `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
 ### IdentityService
@@ -379,6 +380,27 @@ Apps não acessam o armazenamento diretamente.
 | `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto | `Forbidden` (sequência de outra app); `InvalidInput` (sequência não declarada, data sem fuso) |
 
 `SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
+
+### BillingService
+
+A [cobrança](billing.md) da organização. As apps leem a situação dela e conferem os próprios limites; as páginas e a API de cobrança do núcleo usam o resto. O serviço continua usável com o acesso limitado (`access_exempt = True`): é por ele que a conta é regularizada. Métodos com `since="0.6.0"`.
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `access_state(*, actor) -> AccessState` | qualquer membro, ou `system_context` | — |
+| `entitlement(*, actor, app_label) -> bool` | qualquer membro, ou `system_context`; uma app sem preço sempre tem direito | — |
+| `storage_allowance(*, actor) -> StorageAllowance` | qualquer membro, ou `system_context` | — |
+| `check_quota(*, actor, metric, increment=1) -> None` | qualquer membro, ou `system_context` | `Conflict("quota_exceeded")` acima do limite; `InvalidInput` para métrica não registrada |
+| `subscription(*, actor) -> SubscriptionSummary \| None` | `billing.view` | `NotFound` sem a capacidade |
+| `list_invoices(*, actor, page_size=20, cursor=None) -> Page[InvoiceSummary]` | `billing.view` | `NotFound` sem a capacidade |
+| `offers(*, actor) -> tuple[PriceOffer, ...]` | `billing.view`; preços públicos e ativos na moeda e no ciclo da organização | `NotFound` sem a capacidade |
+| `contract(*, actor, price_id, terms_version="") -> SubscriptionSummary` | `billing.manage`; um plano inicia ou troca a assinatura, uma app ou pacote vira item | `NotFound` (preço inexistente ou não público); `InvalidInput` (ciclo, app já contratada); `Conflict("organization_restricted")` com o acesso limitado |
+| `remove_item(*, actor, item_id)`, `cancel(*, actor, at_period_end=True)`, `resume(*, actor)` | `billing.manage` | `NotFound`; `InvalidInput` |
+| `redeem_voucher(*, actor, code)` | `billing.manage` | `InvalidInput` com o código do motivo (`invalid_voucher`, `already_redeemed`, `not_trialing`, `too_many_attempts`) |
+| `update_account(*, actor, legal_name, billing_email, tax_id, country) -> None` | `billing.manage` | `InvalidInput` |
+| `checkout(*, actor, invoice_id, return_url) -> CheckoutLink` | `billing.manage` | `NotFound` (fatura de outra organização); `InvalidInput` (fatura não aberta, sem provedor) |
+
+`AccessState` tem `level` e `since`; `StorageAllowance`, `quota_bytes` (`None`: ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Os DTOs de assinatura, item, fatura e oferta trazem só identificadores, valores na menor unidade da moeda e datas; dados de contato da conta nunca saem por eles.
 
 ### FlowService
 

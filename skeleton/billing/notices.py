@@ -26,9 +26,9 @@ TYPES = {
 
 
 def _authorize(user: Any, notification: Any) -> bool:
-    from skeleton.access.policies import is_organization_admin
+    from skeleton.access.capabilities import BILLING_VIEW, has_capability
 
-    return is_organization_admin(user)
+    return has_capability(user, BILLING_VIEW)
 
 
 def _open_url(user: Any, row: Any) -> str | None:
@@ -37,7 +37,7 @@ def _open_url(user: Any, row: Any) -> str | None:
     from skeleton.tenancy.context import current_context
 
     organization_id = current_context().organization_id
-    for name in ("billing:overview", "web:dashboard"):
+    for name in ("billing-overview", "web:dashboard"):
         try:
             return reverse(name, kwargs={"organization_id": organization_id})
         except NoReverseMatch:

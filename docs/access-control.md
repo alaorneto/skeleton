@@ -153,7 +153,7 @@ O exemplo acima ilustra o contexto, não concede permissão HTTP nem `BYPASSRLS`
 
 ### Direitos da assinatura
 
-Com a [cobrança](billing.md#ganchos-de-direito) ligada, a situação de pagamento da organização é mais um limite, aplicado depois da validação do vínculo e antes de qualquer autorização de registro: uma app paga sem direito fica indisponível como uma app retirada pela plataforma, uma organização `restricted` fica só leitura para pessoas e uma `suspended` só deixa passar as rotas de cobrança para quem pode regularizá-la. Quem não é membro continua recebendo 404, sem saber o estado. O estado vem da política registrada no servidor, nunca de body ou header, e não concede nada: ele só fecha.
+As capacidades `billing.view` e `billing.manage` (só do administrador da organização) controlam a [área de cobrança](billing.md#superfícies). Com a [cobrança](billing.md#ganchos-de-direito) ligada, a situação de pagamento da organização é mais um limite, aplicado depois da validação do vínculo e antes de qualquer autorização de registro: uma app paga sem direito fica indisponível como uma app retirada pela plataforma, uma organização `restricted` fica só leitura para pessoas e uma `suspended` só deixa passar as rotas de cobrança para quem pode regularizá-la. Quem não é membro continua recebendo 404, sem saber o estado. O estado vem da política registrada no servidor, nunca de body ou header, e não concede nada: ele só fecha.
 
 ### Leitura agregada entre organizações
 

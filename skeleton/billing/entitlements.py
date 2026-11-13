@@ -10,8 +10,7 @@ What an organization may use comes from its current subscription:
   overage hard cap when the base plan bills the excess (``quota.storage_quota``); ``NO_OPINION``
   without a subscription or when no item includes storage, so the platform setting applies.
 - **Limits:** the plan limits of the registered quota metrics (``quota.check_quota``).
-- **Exempt routes:** the billing pages, for the organization administrator (#404 narrows it to
-  the billing capability).
+- **Exempt routes:** the billing pages, for who holds ``billing.manage`` (#404).
 
 With billing off (``SKELETON_BILLING_ENABLED``) every answer allows everything. The summary is
 memoized for the current request and dropped by every billing write (``engine.forget``).
@@ -100,11 +99,11 @@ class BillingPolicy:
         return NO_OPINION if summary is None else summary.storage
 
     def may_use_exempt_routes(self, organization_id: UUID, user: Any) -> bool:
-        from skeleton.access.policies import is_organization_admin
+        from skeleton.access.capabilities import BILLING_MANAGE, has_capability
 
         if current_context().organization_id != organization_id or user is None or not user.is_authenticated:
             return False
-        return is_organization_admin(user)
+        return has_capability(user, BILLING_MANAGE)
 
 
 POLICY = BillingPolicy()

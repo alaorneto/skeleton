@@ -193,9 +193,16 @@ Não existe padrão aberto que abstraia assinaturas entre provedores, então o n
 
 Para testes, `skeleton.testing.billing.use_fake_provider()` registra um provedor em memória, determinístico e sem rede, com a conta de provedor padrão. Com a cobrança ligada e sem `SKELETON_PUBLIC_URL` válido, o `check --deploy` avisa com `skeleton.W037`: o provedor não teria para onde mandar os webhooks nem para onde devolver a pessoa depois do checkout.
 
+## Superfícies
+
+- **Capacidades.** `billing.view` (ler assinatura e faturas) e `billing.manage` (contratar, pagar, cancelar, resgatar voucher, editar os dados de cobrança), do papel de administrador da organização. As rotas isentas do modo suspenso valem para quem tem `billing.manage`; os avisos vão para quem tem `billing.view`.
+- **Página** `/o/<org>/billing/`: estado de acesso, assinatura e itens (remover, cancelar ou retomar), faturas com o botão **Pagar** (redireciona para a página hospedada do provedor; roda sem o lock da organização, para nenhuma linha ficar travada durante a chamada), armazenamento com a quebra por app da última fotografia, ofertas com **Contratar** (o aceite dos termos é obrigatório e a versão aceita fica na conta), voucher e dados de cobrança. Continua acessível com o acesso limitado.
+- **Apps da organização** (`/o/<org>/apps/`): uma app que a plataforma oferece mas a organização não contratou aparece como "Não contratada", com o botão **Contratar** para a cobrança (`ApplicationState.contract_required`).
+- **API** `/api/v1/o/<org>/billing/` e `/api/v1/o/<org>/billing/<ação>/` ([API](api.md#recursos)).
+- **API de serviços:** `BillingService` ([API de serviços](service-api.md#billingservice)).
+
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#404](https://github.com/alaorneto/skeleton/issues/404) | Páginas de cobrança da organização, API e `BillingService` |
 | [#405](https://github.com/alaorneto/skeleton/issues/405) | Administração da plataforma |

@@ -12,6 +12,8 @@ def application_urls(project_urls=()):
     routes = [
         path("", include("skeleton.web.application_urls")),
         path("", include("skeleton.api.application_urls")),
+        path("", include("skeleton.web.billing_urls")),
+        path("", include("skeleton.api.billing_urls")),
         *application_urlpatterns(),
         path("accounts/oidc/<str:provider_id>/login/", oidc.login, name="openid_connect_login"),
         path("accounts/oidc/<str:provider_id>/login/callback/", oidc.callback, name="openid_connect_callback"),

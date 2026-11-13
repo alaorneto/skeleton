@@ -39,12 +39,17 @@ def forget_application_states(*, everywhere=False):
 
 
 def _load_states():
-    from .availability import availability_map
+    from skeleton.common.entitlements import entitled_apps
+
+    from .availability import platform_availability_map
     from .models import AppInstallation
 
     manifests = all_apps()
     labels = [manifest.app_label for manifest in manifests]
-    available = availability_map(labels)
+    offered = platform_availability_map(labels)
+    entitled = entitled_apps(current_context().organization_id, [label for label in labels if offered[label]])
+    # Effective availability (#395): offered by the platform and, with billing, paid for.
+    available = {label: offered[label] and entitled.get(label, True) for label in labels}
     records = {record.app_label: record for record in AppInstallation.objects.filter(app_label__in=labels)}
     states = {}
     for manifest in manifests:
@@ -59,6 +64,8 @@ def _load_states():
         states[manifest.app_label] = {
             "app_label": manifest.app_label,
             "available": available[manifest.app_label],
+            # Offered by the platform but not contracted: the apps page offers to contract it (#404).
+            "contract_required": offered[manifest.app_label] and not available[manifest.app_label],
             "label": manifest.label,
             "description": manifest.description,
             "app_id": manifest.app_id,
