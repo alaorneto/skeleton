@@ -439,6 +439,9 @@ def register_core_specs():
     personal_fields = {
         "sk_accounts.user": ("email", "first_name", "last_name"),
         "sk_accounts.userprofile": ("display_name",),
+        # Form data may carry anyone's personal data: the audit never copies it (#422).
+        "sk_flows.flowinstance": ("data",),
+        "sk_flows.flowsubmission": ("values",),
     }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
     read_fields = {

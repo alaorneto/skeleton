@@ -77,6 +77,8 @@ class Field:
     minimum: str = ""
     maximum: str = ""
     help_text: str = ""
+    # Personal data of who submits it: removed from their submissions on erasure (#422).
+    personal: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "choices", tuple(self.choices))
@@ -410,6 +412,8 @@ class FlowSpec:
     number_sequence: str = ""
     # ((moment, event type code), ...): app events about the subject record, which reach webhooks.
     subject_events: tuple[tuple[str, str], ...] = ()
+    # Days the form data of a closed instance is kept (#422); 0 uses SKELETON_FLOWS_FORM_RETENTION_DAYS.
+    retention_days: int = 0
     _index: dict[str, Any] = field(default_factory=dict, compare=False, repr=False, hash=False)
 
     def __post_init__(self) -> None:
@@ -475,6 +479,16 @@ class FlowSpec:
                     step.pop(name)
             if step.get("sla") and step["sla"].get("business_hours") is False:
                 step["sla"].pop("business_hours")  # Same rule for the SLA flag of #417.
+        # And for the retention and the personal flag of #422.
+        if raw.get("retention_days") == 0:
+            raw.pop("retention_days")
+        forms = [raw.get("start_form")]
+        forms += [step.get(name) for step in raw["steps"] for name in ("form", "outputs")]
+        forms += [item.get("form") for item in raw["transitions"]]
+        for form in forms:
+            for item in (form or {}).get("fields", ()):
+                if item.get("personal") is False:
+                    item.pop("personal")
         return json.loads(json.dumps(raw))
 
     def canonical(self) -> str:
@@ -498,6 +512,7 @@ class FlowSpec:
             starter_can_cancel=data.get("starter_can_cancel", True),
             number_sequence=data.get("number_sequence", ""),
             subject_events=tuple((moment, code) for moment, code in data.get("subject_events", ())),
+            retention_days=data.get("retention_days", 0),
         )
 
 

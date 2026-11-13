@@ -187,6 +187,8 @@ FILE_UPLOAD_HANDLERS = [
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
 # Deleted attachments keep their bytes this long, then files.purge removes them (#192).
 SKELETON_FILES_DELETED_RETENTION_DAYS = env.int("SKELETON_FILES_DELETED_RETENTION_DAYS", default=90)
+# Form data of closed flow instances is emptied after this many days; 0 keeps it (#422).
+SKELETON_FLOWS_FORM_RETENTION_DAYS = env.int("SKELETON_FLOWS_FORM_RETENTION_DAYS", default=0)
 # Antivirus (#62): "none" (files are available at once) or "clamav" (clamd INSTREAM).
 SKELETON_FILES_SCANNER = env("SKELETON_FILES_SCANNER", default="none")
 SKELETON_FILES_CLAMAV_ADDRESS = env("SKELETON_FILES_CLAMAV_ADDRESS", default="")

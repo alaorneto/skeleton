@@ -205,12 +205,15 @@ def _enqueue_forgetting(user_id: UUID, request_id: UUID) -> None:
 
 
 def forget_in_organization(*, user_id: str) -> None:
-    """Job handler (system context of one organization): the person's inbox, deliveries and webhooks."""
+    """Job handler (system context of one organization): the person's inbox, deliveries, webhooks
+    and the personal fields of the flow forms they sent (#422)."""
+    from skeleton.flows.retention import forget_person as forget_in_flows
     from skeleton.integrations.webhooks.services import disable_endpoints_of_principal
     from skeleton.notifications.retention import forget_person
 
     forget_person(UUID(user_id))
     disable_endpoints_of_principal(UUID(user_id))
+    forget_in_flows(UUID(user_id))
 
 
 def register_erasure_jobs() -> None:

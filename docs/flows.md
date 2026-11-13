@@ -115,8 +115,6 @@ def ready(self):
 | Bifurcação inclusiva | `inclusive(key, join=...)` | Ativa **todas as saídas cuja condição é verdadeira**; se nenhuma, a padrão | Imediato |
 | Junção | `join(key)` | Espera todos os ramos que a bifurcação correspondente ativou | Quando o último ramo chega |
 
-Subfluxos (uma etapa que inicia outro fluxo) ficam para o [ciclo 2](#o-que-fica-para-depois).
-
 **Espera por evento** ([#411](https://github.com/alaorneto/skeleton/issues/411)). `wait(key, event="app.tipo")` avança quando um evento de domínio daquele tipo é publicado sobre o registro de negócio da instância. Com `correlate="campo"`, avança quando esse campo declarado do evento traz o `sysid` do registro, para eventos de outra tabela. O tipo precisa ser da própria app e, sem `correlate`, sobre a tabela do registro; a espera por evento não tem formulário e aceita `timeout_seconds` como a de sinal. Quem entrega é o consumidor do núcleo `flows.event_waits`, que recebe só os eventos das apps, no contexto da organização do evento: um evento de outra organização nunca avança a instância, e uma entrega repetida encontra a espera já concluída e não faz nada. Os campos novos ficam fora da forma canônica enquanto vazios, então o digest dos fluxos já publicados não muda.
 
 **Subfluxos** ([#412](https://github.com/alaorneto/skeleton/issues/412)). A etapa `subflow` inicia o fluxo filho na versão fixada na própria spec (`version=N`), sobre o mesmo registro de negócio: publicar uma versão nova do filho não muda um pai em andamento. O filho nasce dentro do comando do pai (ordem de trava: pai, depois filho) e guarda `parent` e `parent_run`, imutáveis. O fim do filho chega ao pai por um job (`flows.subflow_finished`): concluído, a etapa segue pela transição do resultado do filho (`on="approved"`); com falha ou cancelado por fora, a etapa do pai falha. Cancelar o pai cancela o filho; suspender suspende, e retomar retoma. O check exige que o filho seja declarado em código pela mesma app, sobre a mesma tabela, uma transição por resultado e nenhum ciclo entre fluxos (`subflow cycle`). Um filho em dados e subfluxos de outra app ficam de fora.
@@ -149,8 +147,14 @@ Handlers, condições e regras recebem um `FlowContext` somente leitura (organiz
 - **Allowlist:** um campo não declarado no formulário da etapa ou da transição é recusado, não ignorado.
 - **Validação no servidor:** obrigatório, tipo, tamanho, mínimo e máximo, escolha válida, pessoa da mesma organização.
 - **Sensíveis:** um campo `sensitive=True` é guardado numa coluna à parte (`sensitive_data` na instância, `sensitive_values` no envio), que a auditoria redige por inteiro. Ele não entra em eventos nem em notificações, e só é devolvido a quem pode agir numa tarefa da instância.
-- **Histórico:** cada envio é uma linha `FlowSubmission` imutável. A instância guarda os valores mais recentes de cada campo (`data`), que as condições leem.
-- Um mesmo nome de campo tem o mesmo tipo e a mesma sensibilidade em todos os formulários do fluxo; o check reprova a divergência.
+- **Histórico:** cada envio é uma linha `FlowSubmission`, imutável salvo pelos valores, que só a retenção e a eliminação da pessoa alteram. A instância guarda os valores mais recentes de cada campo (`data`), que as condições leem.
+- **Pessoais:** um campo `personal=True` é dado pessoal de quem o envia. Quando a pessoa é eliminada (#191), o campo sai dos envios dela e dos dados da instância que ainda guardam o valor enviado ([#422](https://github.com/alaorneto/skeleton/issues/422)).
+- **Auditoria:** os valores (`data` da instância, `values` do envio) são campos pessoais das tabelas e saem `[REDACTED]` nos eventos; a auditoria registra que mudaram, nunca o conteúdo.
+- Um mesmo nome de campo tem o mesmo tipo, a mesma sensibilidade e a mesma marca de pessoal em todos os formulários do fluxo; o check reprova a divergência.
+
+### Retenção dos dados de formulário
+
+`FlowSpec.retention_days` diz por quantos dias os valores de formulário de uma instância encerrada (concluída ou cancelada) ficam; 0 usa `SKELETON_FLOWS_FORM_RETENTION_DAYS`, cujo padrão 0 mantém os dados. O job diário `flows.purge_form_data`, por organização, esvazia `data` e `sensitive_data` da instância e `values` e `sensitive_values` de cada envio, e marca `form_purged_at`. Ficam as etapas, tarefas, decisões, datas, resultado e histórico. Instâncias em andamento, suspensas ou com falha não são tocadas, e rodar o job de novo não muda nada. O prazo é o da versão congelada da instância. Os dois campos ficam fora da forma canônica enquanto estão no padrão, então o digest das versões já publicadas não muda.
 
 O fluxo pode declarar `start_form`: os dados que a app informa ao iniciar a instância.
 
@@ -365,13 +369,9 @@ O [exemplo Notes](../examples/notes/flows.py) declara o fluxo `example_notes.pub
 
 Tudo o que está descrito acima: declaração em código com validação estrutural; etapas de início, fim, tarefa, aprovação, serviço, temporizador e espera; gateways exclusivo, paralelo e inclusivo; formulários por etapa e por transição; aprovações `any`, `all`, `quorum` e `sequential`; delegação, devolução, comentários, prazos, lembretes e escalonamento; atribuição por pessoa, papel, grupo ou regra; caixa de tarefas; vínculo com o registro de negócio; histórico; cancelar, suspender, retomar e repetir; jobs, eventos, webhooks, notificações, auditoria e sequências; `FlowService`, REST e páginas; e o fluxo de exemplo no Notes.
 
-## O que fica para depois
+## Evoluções do epic #208
 
-Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issues/208), com o motivo:
-
-| Item | Por que não agora |
-|---|---|
-| Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |
+Os itens deixados para depois da primeira entrega foram entregues no epic [#208](https://github.com/alaorneto/skeleton/issues/208): o gestor de processos (#407), o painel de operação (#408), a caixa global (#409), os tokens (#410), as esperas por evento (#411), os subfluxos (#412), a migração de instâncias (#413), os fluxos em dados e o editor (#414, #415), o calendário útil e o SLA em horas úteis (#416, #417), as ausências (#418), o diagrama (#419), as métricas (#420), os comentários do registro (#421) e a retenção dos formulários (#422).
 
 ## Decisões confirmadas pelo responsável
 

@@ -31,5 +31,8 @@ class FlowsConfig(AppConfig):
         from .migration import register_migration_job
 
         register_migration_job()
+        from .retention import register_retention_job
+
+        register_retention_job()
         register_human_steps()
         register_flow_notification_types()

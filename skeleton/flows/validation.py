@@ -56,6 +56,9 @@ def _reach(starts: Iterable[str], edges: Mapping[str, list[str]], *, stop: froze
     return seen
 
 
+MAX_RETENTION_DAYS = 36500
+
+
 def _form_problems(where: str, form: Any) -> list[str]:
     if not isinstance(form, Form):
         return [f"{where}: form must be a Form"]
@@ -81,6 +84,8 @@ def _form_problems(where: str, form: Any) -> list[str]:
             problems.append(f"{label}: only choice fields declare choices")
         if type(item.max_length) is not int or item.max_length < 0 or item.max_length > 20000:
             problems.append(f"{label}: invalid max_length")
+        if type(item.personal) is not bool:
+            problems.append(f"{label}: personal is true or false")
         if item.max_length and item.type not in ("str", "text"):
             problems.append(f"{label}: only text fields declare max_length")
         for bound in (item.minimum, item.maximum):
@@ -98,9 +103,9 @@ def _field_coherence(spec: FlowSpec) -> list[str]:
         if not isinstance(form, Form):
             continue
         for item in form.fields:
-            shape = (item.type, item.sensitive, tuple(item.choices))
+            shape = (item.type, item.sensitive, item.personal, tuple(item.choices))
             if seen.setdefault(item.name, shape) != shape:
-                problems.append(f"field {item.name}: type, sensitivity and choices must agree in every form")
+                problems.append(f"field {item.name}: type, sensitivity, personal and choices must agree in every form")
     return sorted(set(problems))
 
 
@@ -344,6 +349,8 @@ def structural_problems(spec: Any) -> list[str]:
         problems.append("label is required (up to 200 characters)")
     if spec.start_action not in ("read", "update"):
         problems.append("start_action must be read or update")
+    if type(spec.retention_days) is not int or not 0 <= spec.retention_days <= MAX_RETENTION_DAYS:
+        problems.append(f"retention_days must be an integer from 0 to {MAX_RETENTION_DAYS}")
     if not spec.steps or len(spec.steps) > MAX_STEPS or len(spec.transitions) > 4 * MAX_STEPS:
         return [*problems, f"a flow declares between 1 and {MAX_STEPS} steps"]
     keys = [item.key for item in spec.steps]

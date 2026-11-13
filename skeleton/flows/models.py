@@ -127,6 +127,8 @@ class FlowInstance(OrganizationRecord):
     run_count = models.PositiveIntegerField(default=0)
     activity_count = models.PositiveIntegerField(default=0)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # When the retention purge emptied the form data (#422); the skeleton of the instance stays.
+    form_purged_at = models.DateTimeField(null=True, blank=True)
     # A subflow (#412): the instance that started this one and the step run waiting for it.
     parent = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="children")
     parent_run = models.ForeignKey("FlowStepRun", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
@@ -291,16 +293,8 @@ class FlowSubmission(OrganizationRecord):
     origin = models.CharField(max_length=16)
     values = models.JSONField(default=dict, blank=True)
     sensitive_values = models.JSONField(default=dict, blank=True)
-    immutable_fields = (
-        "instance_id",
-        "step_run_id",
-        "task_id",
-        "step_key",
-        "transition_key",
-        "origin",
-        "values",
-        "sensitive_values",
-    )
+    # The values change only through the retention purge and the erasure of the person (#422).
+    immutable_fields = ("instance_id", "step_run_id", "task_id", "step_key", "transition_key", "origin")
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
