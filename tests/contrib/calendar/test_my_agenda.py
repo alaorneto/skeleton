@@ -83,3 +83,19 @@ def test_anonymous_is_sent_to_login(agenda):
 
     response = Client().get(URL)
     assert response.status_code == 302 and "/accounts/login/" in response["Location"]
+
+
+def test_an_organization_over_the_limit_is_reported_not_fatal(agenda, login, monkeypatch):
+    """One organization above the occurrence cap is named apart; the others still list (#291)."""
+    from skeleton.contrib.calendar import service_api
+
+    grant_b(agenda)
+    for index in range(3):
+        plan(agenda, agenda.a, agenda.alice, f"Muitos {index}")
+    plan(agenda, agenda.b, agenda.alice, "Reunião em B")
+    monkeypatch.setattr(service_api, "MAX_OCCURRENCES_PER_CALL", 2)
+    response = login(agenda.alice).get(URL)
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "Reunião em B" in html and "Muitos 0" not in html
+    assert "Eventos demais para listar em:" in html and agenda.a.name in html

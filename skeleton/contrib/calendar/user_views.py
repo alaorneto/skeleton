@@ -33,7 +33,12 @@ def my_agenda(request):
     end = start + timedelta(days=14)
 
     def read(organization_id):
-        return CalendarService().upcoming(actor=request.user, start=start, end=end)
+        from skeleton.service_api import InvalidInput
+
+        try:
+            return CalendarService().upcoming(actor=request.user, start=start, end=end)
+        except InvalidInput:
+            return None  # Too many occurrences here: listed apart, never fatal for the page (#291).
 
     results = for_each_organization(
         request.user, read, source="http:calendar-mine", request_id=request.request_id, app_label=APP_LABEL
@@ -47,6 +52,7 @@ def my_agenda(request):
                 "start": occurrence.starts_at.astimezone(zone),
             }
             for row in results
+            if row.value is not None
             for occurrence in row.value
         ),
         key=lambda item: (item["start"], item["organization"]),
@@ -61,5 +67,11 @@ def my_agenda(request):
     return render(
         request,
         "skeleton_calendar/mine.html",
-        {"items": items, "organizations": organizations, "day": day, "zone": str(zone)},
+        {
+            "items": items,
+            "organizations": organizations,
+            "day": day,
+            "zone": str(zone),
+            "skipped": [row.organization_name for row in results if row.value is None],
+        },
     )

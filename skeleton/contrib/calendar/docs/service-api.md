@@ -20,7 +20,7 @@ Calendários que o ator lê, o pessoal padrão primeiro (criado na primeira cham
 #### `upcoming(*, actor, start, end, calendar_ids=None) -> tuple[EventOccurrence, ...]`
 Ocorrências legíveis em `[start, end)`, no máximo 400 dias, com a recorrência expandida.
 - **Autorização:** leitura do calendário ou convite.
-- **Erros:** `InvalidInput` (janela inválida, sem fuso ou longa demais); `NotFound` (calendário ilegível em `calendar_ids`).
+- **Erros:** `InvalidInput` (janela inválida, sem fuso ou acima de 400 dias, conferida mesmo sem eventos; mais de 5000 ocorrências na janela, nunca cortadas em silêncio, #291); `NotFound` (calendário ilegível em `calendar_ids`).
 - **Efeitos:** nenhum.
 
 #### `create_event(*, actor, calendar_id, data, idempotency_key=None) -> EventInfo`
@@ -41,7 +41,7 @@ Cria um evento; o ator é o organizador. `data` aceita `title`, `description`, `
 #### `free_busy(*, actor, user_ids, start, end) -> tuple[BusyBlock, ...]`
 Horários ocupados das pessoas nos calendários pessoais delas, nunca títulos ou detalhes; até 50 pessoas.
 - **Autorização:** TablePermission read em `skeleton_calendar.calendar`; só pessoas com vínculo ativo nesta organização.
-- **Erros:** `Forbidden`; `InvalidInput`.
+- **Erros:** `Forbidden`; `InvalidInput` (janela acima de 400 dias, mais de 50 pessoas ou ocorrências demais, #291).
 - **Efeitos:** nenhum.
 
 ## DTOs

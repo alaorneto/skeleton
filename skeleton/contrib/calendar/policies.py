@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from django.core.exceptions import PermissionDenied
@@ -77,7 +78,39 @@ def require_writable_event(user: Any, event_id: Any) -> Event:
     return event
 
 
-def sees_details(user: Any, event: Event) -> bool:
+@dataclass(frozen=True, slots=True)
+class ActorView:
+    """What decides masking for one actor, loaded once per call and never kept beyond it (#291)."""
+
+    delegated_calendar_ids: frozenset
+    invited_event_ids: frozenset
+
+
+def actor_view(user: Any, *, calendar_ids: Any, event_ids: Any) -> ActorView:
+    """Delegations on ``calendar_ids`` and invitations to ``event_ids``, in a fixed number of queries."""
+    from skeleton.service_api import Forbidden
+    from skeleton.service_api.access import AccessService
+
+    calendars = tuple(dict.fromkeys(calendar_ids))
+    delegated: set = set()
+    try:
+        for first in range(0, len(calendars), 500):  # The service answers up to 500 identifiers.
+            delegated.update(
+                AccessService().granted_record_ids(
+                    actor=user, table_key=TABLE_KEY, record_ids=calendars[first : first + 500]
+                )
+            )
+    except Forbidden:
+        delegated = set()
+    events = list(dict.fromkeys(event_ids))
+    invited_rows = attendee_event_ids(user)
+    invited: frozenset = frozenset()
+    if invited_rows is not None and events:
+        invited = frozenset(invited_rows.filter(event_id__in=events).values_list("event_id", flat=True))
+    return ActorView(frozenset(delegated), invited)
+
+
+def sees_details(user: Any, event: Event, view: ActorView | None = None) -> bool:
     """Whether ``user`` sees the content of ``event`` or only a busy block.
 
     The organizer and the calendar owner always see it. A private event is a busy block for
@@ -91,6 +124,8 @@ def sees_details(user: Any, event: Event) -> bool:
     if event.is_private:
         return False
     if calendar.kind == Calendar.Kind.PERSONAL:
+        if view is not None:
+            return calendar.pk in view.delegated_calendar_ids or (event.series_id or event.pk) in view.invited_event_ids
         return is_delegate(user, calendar) or is_attendee(user, event)
     return True
 

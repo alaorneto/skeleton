@@ -129,3 +129,58 @@ def test_feed_token_page_shows_the_url_once(agenda, login):
     created = client.post(url, {"csrfmiddlewaretoken": client.cookies["csrftoken"].value})
     assert created.status_code == 201 and "no-store" in created["Cache-Control"]
     assert "/me/apps/skeleton_calendar/feed/skt_" in created.content.decode()
+
+
+def test_feed_is_windowed_and_capped(agenda, series, monkeypatch):
+    """Ended over 30 days ago and single events beyond 400 days stay out; the file stays valid (#291)."""
+    from skeleton.contrib.calendar import ics
+
+    now = timezone.now()
+    with actor_tenant(agenda.alice, agenda.a):
+        calendar = Calendar.objects.get(pk=series.pk)
+        for title, moment in (("Antigo", now - timedelta(days=40)), ("Distante", now + timedelta(days=500))):
+            services.create_event(
+                actor=agenda.alice,
+                calendar_id=calendar.pk,
+                data={"title": title, "starts_at": moment, "ends_at": moment + timedelta(hours=1)},
+            )
+        recent = now + timedelta(days=2)
+        services.create_event(
+            actor=agenda.alice,
+            calendar_id=calendar.pk,
+            data={"title": "Próximo", "starts_at": recent, "ends_at": recent + timedelta(hours=1)},
+        )
+    url = f"/me/apps/skeleton_calendar/feed/{issue(agenda.bob).text}.ics"
+    summaries = [str(item["SUMMARY"]) for item in components(Client().get(url).content)]
+    assert "Próximo" in summaries and "Antigo" not in summaries and "Distante" not in summaries
+    monkeypatch.setattr(ics, "MAX_COMPONENTS", 2)
+    assert len(components(Client().get(url).content)) == 2
+
+
+def test_export_query_count_is_constant(agenda, login, series):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    url = reverse("skeleton_calendar:calendar-ics", kwargs={"organization_id": agenda.a.pk, "sysid": series.pk})
+    client = login(agenda.bob)
+
+    def measured():
+        with CaptureQueriesContext(connection) as queries:
+            assert client.get(url).status_code == 200
+        return len(queries)
+
+    few = measured()
+    with actor_tenant(agenda.alice, agenda.a):
+        for index in range(10):
+            moment = START + timedelta(days=30 + index)
+            services.create_event(
+                actor=agenda.alice,
+                calendar_id=series.pk,
+                data={
+                    "title": f"Série {index}",
+                    "starts_at": moment,
+                    "ends_at": moment + timedelta(hours=1),
+                    "rrule": "FREQ=DAILY;COUNT=3",
+                },
+            )
+    assert measured() == few

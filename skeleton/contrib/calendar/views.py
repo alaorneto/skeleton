@@ -100,6 +100,8 @@ def home(request, organization_id):
         )
     except (PermissionDenied, Forbidden):
         raise Http404 from None
+    except InvalidInput:
+        return _bad_request(request, organization_id, gettext("Há eventos demais neste período; use uma visão menor."))
     days = {first + timedelta(days=index): [] for index in range((last - first).days)}
     for occurrence in occurrences:
         local = occurrence.starts_at.date() if occurrence.all_day else occurrence.starts_at.astimezone(zone).date()
@@ -282,7 +284,7 @@ def calendar_ics(request, organization_id, sysid):
     """Download one calendar as .ics (session), masked like the pages."""
     from django.http import HttpResponse
 
-    from .ics import calendar_bytes, calendar_components
+    from .ics import calendar_bytes, calendar_components, capped
     from .policies import readable_calendars, readable_events
 
     calendar = readable_calendars(request.user).filter(pk=sysid).first()
@@ -291,7 +293,11 @@ def calendar_ics(request, organization_id, sysid):
     busy_only = request.GET.get("busy") == "1"
     body = calendar_bytes(
         calendar.name,
-        calendar_components(request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only),
+        capped(
+            calendar_components(
+                request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only
+            )
+        ),
     )
     response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="agenda-{calendar.pk}.ics"'

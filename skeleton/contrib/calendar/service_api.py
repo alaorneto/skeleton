@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +16,8 @@ from skeleton.service_api import ServiceAPI, service_method
 from .models import Calendar
 
 APP_LABEL = "skeleton_calendar"
+MAX_OCCURRENCES_PER_CALL = 5000  # Above it the call is InvalidInput, never cut in silence (#291).
+MAX_WINDOW_DAYS = 400
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,18 +182,22 @@ class CalendarService(ServiceAPI):
         identifiers = tuple(as_uuid(value, field="user_ids") for value in user_ids)
         refs = OrganizationService().member_refs(actor=actor, user_ids=identifiers, include_service_accounts=True)
         members = {ref.user_id for ref in refs}
-        busy = []
-        for user_id in sorted(members, key=str):
-            # Personal calendars of the person, outside the actor's visibility: only times leave.
-            events = Event.objects.filter(
-                calendar__owner_id=user_id,
-                calendar__kind=Calendar.Kind.PERSONAL,
-                status__in=("confirmed", "tentative"),
-            )
-            for occurrence in occurrences_in(actor, events, start, end):
-                if occurrence.status != "cancelled":
-                    busy.append(BusyBlock(user_id, occurrence.starts_at, occurrence.ends_at))
-        return tuple(busy)
+        if not members:
+            return ()
+        # Personal calendars of the people, outside the actor's visibility: only times leave.
+        # One query for everyone (#291).
+        events = Event.objects.filter(
+            calendar__owner_id__in=members,
+            calendar__kind=Calendar.Kind.PERSONAL,
+            status__in=("confirmed", "tentative"),
+        )
+        blocks = [
+            BusyBlock(master.calendar.owner_id, occurrence.starts_at, occurrence.ends_at)
+            for master, occurrence in _expanded(events, start, end)
+            if occurrence.event.status != "cancelled"
+        ]
+        blocks.sort(key=lambda block: (str(block.user_id), block.starts_at, block.ends_at))
+        return tuple(blocks)
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,41 +297,74 @@ def _window(start: Any, end: Any) -> tuple[datetime, datetime]:
     start, end = as_utc(start), as_utc(end)
     if end <= start:
         raise InvalidInput({"end": [gettext("O fim precisa ser depois do início.")]})
+    if end - start > timedelta(days=MAX_WINDOW_DAYS):
+        raise InvalidInput(
+            {"end": [gettext("Use uma janela de até %(days)s dias.") % {"days": MAX_WINDOW_DAYS}]}
+        )  # Checked before any query, even without events (#291).
     return start, end
+
+
+def _expanded(events: Any, start: datetime, end: datetime) -> list:
+    """(master, occurrence) pairs overlapping the window, with a bounded number of queries (#291).
+
+    A single event that starts after the window is never loaded; the overrides of every master
+    come in one query; more than ``MAX_OCCURRENCES_PER_CALL`` occurrences is ``InvalidInput``.
+    """
+    from django.db.models import Q
+
+    from skeleton.service_api import InvalidInput
+
+    from .models import Event
+    from .recurrence import expand
+
+    single = Q(rrule="") & (Q(starts_at__lt=end) | Q(start_date__lte=end.date()))
+    masters = list(
+        events.filter(series__isnull=True)
+        .filter(Q(recurrence_end__gte=start) | Q(recurrence_end__isnull=True))
+        .filter(single | ~Q(rrule=""))
+        .select_related("calendar")
+    )
+    overrides: dict = {}
+    recurring = [master.pk for master in masters if master.rrule]
+    if recurring:
+        for row in Event.objects.filter(series_id__in=recurring).select_related("calendar"):
+            overrides.setdefault(row.series_id, []).append(row)
+    pairs: list = []
+    for master in masters:
+        expansion = expand(master, start, end, overrides=overrides.get(master.pk, ()))
+        if expansion.truncated or len(pairs) + len(expansion.occurrences) > MAX_OCCURRENCES_PER_CALL:
+            raise InvalidInput({"window": [gettext("Há ocorrências demais neste período; reduza a janela.")]})
+        pairs.extend((master, occurrence) for occurrence in expansion.occurrences)
+    return pairs
 
 
 def occurrences_in(actor: Any, events: Any, start: datetime, end: datetime) -> list[EventOccurrence]:
     """Masked occurrences of ``events`` overlapping the window (masters expanded, overrides applied)."""
-    from django.db.models import Q
+    from .policies import actor_view, sees_details
 
-    from .models import Event
-    from .policies import sees_details
-    from .recurrence import expand
-
-    masters = (
-        events.filter(series__isnull=True)
-        .filter(Q(recurrence_end__gte=start) | Q(recurrence_end__isnull=True))
-        .select_related("calendar")
+    pairs = _expanded(events, start, end)
+    view = actor_view(
+        actor,
+        calendar_ids={occurrence.event.calendar_id for _, occurrence in pairs},
+        event_ids={master.pk for master, _ in pairs},
     )
     rows = []
-    for event in masters:
-        overrides = list(Event.objects.filter(series=event).select_related("calendar"))
-        for occurrence in expand(event, start, end, overrides=overrides).occurrences:
-            target = occurrence.event
-            details = sees_details(actor, target)
-            rows.append(
-                EventOccurrence(
-                    event_id=event.pk,
-                    calendar_id=event.calendar_id,
-                    recurrence_id=occurrence.recurrence_id,
-                    title=target.title if details else gettext("Ocupado"),
-                    busy_only=not details,
-                    all_day=target.all_day,
-                    starts_at=occurrence.starts_at,
-                    ends_at=occurrence.ends_at,
-                    status=target.status,
-                )
+    for event, occurrence in pairs:
+        target = occurrence.event
+        details = sees_details(actor, target, view)
+        rows.append(
+            EventOccurrence(
+                event_id=event.pk,
+                calendar_id=event.calendar_id,
+                recurrence_id=occurrence.recurrence_id,
+                title=target.title if details else gettext("Ocupado"),
+                busy_only=not details,
+                all_day=target.all_day,
+                starts_at=occurrence.starts_at,
+                ends_at=occurrence.ends_at,
+                status=target.status,
             )
+        )
     rows.sort(key=lambda row: (row.starts_at, str(row.event_id)))
     return rows
 

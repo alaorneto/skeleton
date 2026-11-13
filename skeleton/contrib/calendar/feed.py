@@ -24,24 +24,31 @@ from skeleton.tenancy.aggregate import aggregate_route, for_each_organization
 
 FEED_SCOPE = "calendar.feed"
 APP_LABEL = "skeleton_calendar"
+FEED_PAST = timedelta(days=30)  # Events that ended longer ago leave the feed (#291).
+FEED_FUTURE = timedelta(days=400)  # Single events that start later are not exported yet.
 
 
 @aggregate_route
 @require_safe
 def feed(request, token):
-    from .ics import calendar_bytes, calendar_components
+    from django.db.models import Q
+
+    from .ics import calendar_bytes, calendar_components, capped
     from .policies import readable_events
 
     user = authenticate_feed(request, token, scope=FEED_SCOPE)
     if user is None:
         raise Http404
     busy_only = request.GET.get("busy") == "1"
+    now = timezone.now()
+    recent = Q(recurrence_end__gte=now - FEED_PAST) | Q(recurrence_end__isnull=True)
+    soon = ~Q(rrule="") | Q(starts_at__lt=now + FEED_FUTURE) | Q(start_date__lte=(now + FEED_FUTURE).date())
 
     def read(organization_id):
-        return calendar_components(user, readable_events(user), busy_only=busy_only)
+        return calendar_components(user, readable_events(user).filter(recent).filter(soon), busy_only=busy_only)
 
     results = for_each_organization(user, read, source="http:calendar-feed", app_label=APP_LABEL)
-    body = calendar_bytes(gettext("Agenda"), [component for row in results for component in row.value])
+    body = calendar_bytes(gettext("Agenda"), capped([component for row in results for component in row.value]))
     response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
     response["Cache-Control"] = "no-store"
     return response

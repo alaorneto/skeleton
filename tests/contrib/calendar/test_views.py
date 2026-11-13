@@ -181,3 +181,21 @@ def test_event_form_shows_field_errors(agenda, login):
     assert "O fim precisa ser depois do início." in html
     form = response.context["form"]
     assert form.errors.get("end") == ["O fim precisa ser depois do início."]
+
+
+def test_too_many_events_answers_400(agenda, login, monkeypatch):
+    from skeleton.contrib.calendar import service_api
+
+    with actor_tenant(agenda.alice, agenda.a):
+        calendar = services.ensure_personal_calendar(agenda.alice)
+        for index in range(3):
+            moment = START + timedelta(hours=index)
+            services.create_event(
+                actor=agenda.alice,
+                calendar_id=calendar.pk,
+                data={"title": f"E{index}", "starts_at": moment, "ends_at": moment + timedelta(minutes=30)},
+            )
+    monkeypatch.setattr(service_api, "MAX_OCCURRENCES_PER_CALL", 2)
+    response = login(agenda.alice).get(home(agenda.a) + f"?view=week&date={DAY}")
+    assert response.status_code == 400
+    assert "Há eventos demais neste período" in response.content.decode()

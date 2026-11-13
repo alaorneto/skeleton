@@ -163,7 +163,21 @@ class Event(OrganizationRecord):
                 violation_error_code="unique",
             ),
         ]
-        indexes = [models.Index(fields=("calendar", "starts_at"), name="skeleton_cal_event_start")]
+        indexes = [
+            models.Index(fields=("calendar", "starts_at"), name="skeleton_cal_event_start"),
+            # The window queries (#291): series still running, all-day events, and the reminders job.
+            models.Index(
+                fields=("calendar", "recurrence_end"),
+                condition=Q(series__isnull=True, deleted_at__isnull=True),
+                name="skeleton_cal_event_rec_end",
+            ),
+            models.Index(fields=("calendar", "start_date"), name="skeleton_cal_event_day"),
+            models.Index(
+                fields=("organization", "recurrence_end"),
+                condition=Q(series__isnull=True, deleted_at__isnull=True),
+                name="skeleton_cal_event_org_end",
+            ),
+        ]
         ordering = ("starts_at", "start_date", "sysid")
 
     def clean(self):

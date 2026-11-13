@@ -18,10 +18,10 @@ from .policies import BUSY_TITLE, sees_details
 PRODID = "-//Skeleton//Agenda//PT-BR"
 
 
-def vevent(reader: Any, event: Any, *, busy_only: bool = False) -> IEvent:
-    from .recurrence import _instant
+def vevent(reader: Any, event: Any, *, busy_only: bool = False, view: Any = None) -> IEvent:
+    from .recurrence import _instants
 
-    details = not busy_only and sees_details(reader, event)
+    details = not busy_only and sees_details(reader, event, view)
     item = IEvent()
     item.add("uid", event.uid)
     item.add("dtstamp", event.updated_at)
@@ -43,8 +43,7 @@ def vevent(reader: Any, event: Any, *, busy_only: bool = False) -> IEvent:
     if event.rrule:
         item.add("rrule", vRecur.from_ical(event.rrule))
         for name, values in (("exdate", event.exdates), ("rdate", event.rdates)):
-            for value in values:
-                moment = _instant(value, event)
+            for moment in _instants(values, event):
                 item.add(name, moment.date() if event.all_day else moment)
     if event.recurrence_id is not None:
         item.add("recurrence-id", event.recurrence_id.date() if event.all_day else event.recurrence_id)
@@ -62,12 +61,42 @@ def calendar_bytes(name: str, components: list[IEvent]) -> bytes:
 
 
 def calendar_components(reader: Any, events: Any, *, busy_only: bool = False) -> list[IEvent]:
-    """Components of the masters in ``events`` and their overrides, masked for ``reader``."""
-    from .models import Event
+    """Components of the masters in ``events`` and their overrides, masked for ``reader``.
 
+    A fixed number of queries whatever the number of events (#291).
+    """
+    from .models import Event
+    from .policies import actor_view
+
+    masters = list(
+        events.filter(series__isnull=True).select_related("calendar").order_by("starts_at", "start_date", "sysid")
+    )
+    overrides: dict = {}
+    if masters:
+        for row in Event.objects.filter(series_id__in=[master.pk for master in masters]).select_related("calendar"):
+            overrides.setdefault(row.series_id, []).append(row)
+    view = None
+    if not busy_only:
+        view = actor_view(
+            reader, calendar_ids={master.calendar_id for master in masters}, event_ids={master.pk for master in masters}
+        )
     rows = []
-    for master in events.filter(series__isnull=True).select_related("calendar").order_by("starts_at", "start_date"):
-        rows.append(vevent(reader, master, busy_only=busy_only))
-        for override in Event.objects.filter(series=master).select_related("calendar"):
-            rows.append(vevent(reader, override, busy_only=busy_only))
+    for master in masters:
+        rows.append(vevent(reader, master, busy_only=busy_only, view=view))
+        for override in overrides.get(master.pk, ()):
+            rows.append(vevent(reader, override, busy_only=busy_only, view=view))
     return rows
+
+
+MAX_COMPONENTS = 2000
+
+
+def capped(components: list[IEvent]) -> list[IEvent]:
+    """At most ``MAX_COMPONENTS`` components; a cut is logged without any data of the events (#291)."""
+    import logging
+
+    if len(components) > MAX_COMPONENTS:
+        logging.getLogger("skeleton.contrib.calendar").warning(
+            "calendar.feed_truncated", extra={"event": "calendar.feed_truncated"}
+        )
+    return components[:MAX_COMPONENTS]
