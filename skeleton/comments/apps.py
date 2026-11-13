@@ -14,3 +14,6 @@ class CommentsConfig(AppConfig):
 
         # Each comment is read through the target's authorization, like every other source.
         register_timeline_source("comments", comment_items)
+        from .mentions import register_mention_type
+
+        register_mention_type()

@@ -15,7 +15,12 @@ from django.core.exceptions import PermissionDenied
 from django.utils.translation import gettext_lazy
 
 if TYPE_CHECKING:
+    from django_stubs_ext import StrOrPromise
+
     from skeleton.accounts.models import User
+    from skeleton.tenancy.models import Membership
+
+    from .models import Role
 
 MEMBERS_VIEW = "members.view"
 MEMBERS_MANAGE = "members.manage"
@@ -46,7 +51,7 @@ CAPABILITIES: frozenset[str] = frozenset(
 @dataclass(frozen=True, slots=True)
 class BuiltinRole:
     code: str
-    name: str
+    name: StrOrPromise  # Translated lazily.
     capabilities: frozenset[str]
 
 
@@ -125,12 +130,12 @@ def require_capability(user: User, capability: str) -> None:
         raise PermissionDenied("Organization capability required.")
 
 
-def privileged_role(role) -> bool:
+def privileged_role(role: Role) -> bool:
     """A role whose assignment would hand out an administrative capability."""
     return bool(role_capabilities(role.code, is_builtin=role.is_builtin))
 
 
-def membership_holds_capability(membership) -> bool:
+def membership_holds_capability(membership: Membership) -> bool:
     """Whether a membership currently holds a capability role, directly or by a group."""
     from .models import GroupMember, GroupRole, MemberRole
 

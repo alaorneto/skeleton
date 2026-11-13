@@ -17,7 +17,7 @@
 <form method="post" action="{% url 'platform:updates-plan' %}" class="card max-w-3xl">
   {% csrf_token %}
   <h2>{% translate "Plano" %}</h2>
-  <p class="mt-1 mb-5 text-sm/6 text-body">{% translate 'Escolha a operação e os pacotes. "Visualizar impacto" pede ao agente uma prévia; a aprovação acontece na tela da operação.' %}</p>
+  <p class="mt-1 mb-5 text-sm/6 text-body">{% translate 'Escolha a operação e os pacotes. "Visualizar impacto" pede ao agente uma prévia; o agente a prepara em segundo plano e, quando ficar pronta, a aprovação acontece na tela da operação.' %}</p>
   {% with form=plan_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
   <p class="mt-5 text-sm/6 text-body-subtle">{% translate "Desinstalar remove código e integrações ativas, preservando dados e migrations históricas. Não existe exclusão de dados pela interface." %}</p>
   <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Visualizar impacto" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</button></div>

@@ -86,7 +86,7 @@ def failed_attempt(delivery: Any, error_code: str, *, retry: bool = True) -> Non
         delivery.state = "retrying"
         delivery.error_code = error_code[:64]
         delay = RetrySchedule(RETRY_SCHEDULE).delay_after(delivery.attempts)  # Read at call time.
-        assert delay is not None  # attempts < MAX_ATTEMPTS
+        assert delay is not None  # noqa: S101 - attempts < MAX_ATTEMPTS
         delivery.next_attempt_at = timezone.now() + delay
         delivery.save(update_fields={"state", "attempts", "error_code", "next_attempt_at"})
         enqueue_attempt(delivery, run_after=delivery.next_attempt_at)

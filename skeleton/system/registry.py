@@ -1,6 +1,10 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from django.utils.translation import gettext_lazy
+
+if TYPE_CHECKING:
+    from django_stubs_ext import StrOrPromise
 
 
 @dataclass(frozen=True)
@@ -21,8 +25,8 @@ class CommentPolicy:
 @dataclass(frozen=True)
 class TableSpec:
     model: type
-    description: str
-    label: str | None = None
+    description: "StrOrPromise"  # Translated lazily.
+    label: "StrOrPromise | None" = None
     scope: str = "organization"
     read_fields: tuple = ()
     write_fields: tuple = ()
@@ -97,6 +101,12 @@ def register_core_specs():
         "sk_accounts.platformroleassignment": (
             "Papéis de plataforma",
             "Auditor e operador de releases: papéis limitados de plataforma, concedidos pelo administrador.",
+            "global",
+            (),
+        ),
+        "sk_accounts.erasurerequest": (
+            "Pedidos de eliminação",
+            "Pedido de uma pessoa para anonimizar a identidade, aprovado pela plataforma (#191).",
             "global",
             (),
         ),

@@ -23,13 +23,16 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.system.deployment_client import AgentError, sanitize_details
 from skeleton.system.models import ComponentInstallation, DeploymentOperation
 from skeleton.system.releases import (
     DeploymentUnavailable,
     agent_client,
     confirm_operation,
-    create_preview,
+    preview_status,
     reconcile_operation,
+    record_preview,
+    request_preview,
     require_release_operator,
     retry_submission,
     submission_can_retry,
@@ -45,6 +48,7 @@ __all__ = [
     "operation",
     "operations",
     "plan",
+    "preview",
     "upload",
 ]
 
@@ -325,8 +329,8 @@ def plan(request):
     form = PlanForm(request.POST)
     if form.is_valid():
         try:
-            row = create_preview(user=request.user, **form.cleaned_data)
-            return redirect("platform:updates-operation", operation_id=row.pk)
+            plan_id = request_preview(user=request.user, **form.cleaned_data)
+            return redirect("platform:updates-preview", plan_id=plan_id)
         except (ValueError, RuntimeError, OSError) as exc:
             return _preview_failure(request, form, exc)
     return _plan_page(request, form, status=400)
@@ -346,6 +350,51 @@ def _preview_failure(request, form, exc):
 
 
 @platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def preview(request, plan_id):
+    """Follow a plan the agent prepares (#298). GET only reads; Continue (POST) records the operation."""
+    if request.method == "POST":
+        try:
+            row = record_preview(user=request.user, plan_id=plan_id)
+        except (ValueError, RuntimeError, OSError) as exc:
+            _error(request, exc)
+            return redirect("platform:updates-preview", plan_id=plan_id)
+        return redirect("platform:updates-operation", operation_id=row.pk)
+    try:
+        status = preview_status(user=request.user, plan_id=plan_id)
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return redirect("platform:updates-plan")
+    if status["state"] == "failed":
+        source = status.get("request") or {}
+        form = PlanForm(
+            {
+                "action": source.get("action", ""),
+                "artifacts": " ".join(source.get("artifacts") or ()),
+                "app_ids": " ".join(source.get("app_ids") or ()),
+            }
+        )
+        form.is_valid()
+        return _preview_failure(request, form, _PreparationFailed(status))
+    return render(
+        request,
+        "skeleton/web/platform/updates/preview.html",
+        _context("plan", plan_id=str(plan_id), plan_state=status["state"], plan=status.get("plan") or {}),
+    )
+
+
+class _PreparationFailed(AgentError):
+    """A failed preparation shown exactly like a synchronous preview failure."""
+
+    def __init__(self, status):
+        code = status.get("error")
+        if not isinstance(code, str) or not code.replace("_", "").isalnum() or len(code) > 100:
+            code = "agent_request_failed"
+        super().__init__(code, 409, sanitize_details(status.get("details")))
+
+
+@platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["POST"])
 @recent_authentication_required
 def add_dependency(request):
@@ -362,8 +411,8 @@ def add_dependency(request):
         artifacts = list(dict.fromkeys([*form.cleaned_data["artifacts"], artifact["digest"]]))
         form = PlanForm({"action": action, "artifacts": " ".join(artifacts)})
         form.is_valid()
-        row = create_preview(user=request.user, action=action, artifacts=artifacts)
-        return redirect("platform:updates-operation", operation_id=row.pk)
+        plan_id = request_preview(user=request.user, action=action, artifacts=artifacts)
+        return redirect("platform:updates-preview", plan_id=plan_id)
     except (ValueError, RuntimeError, OSError) as exc:
         return _preview_failure(request, form, exc)
 

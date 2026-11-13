@@ -13,7 +13,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -25,6 +25,11 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
 
 from .scopes import validate_scopes
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from .models import ApiToken
 
 TOKEN_PATTERN = re.compile(r"^skt_([0-9a-f]{8})_([A-Za-z0-9_-]{43})$")
 DEFAULT_MAX_DAYS = 365
@@ -202,7 +207,7 @@ def revoke_token(*, actor: Any, token_id: Any, expected_revision: int) -> Any:
         return token
 
 
-def personal_tokens(user: Any):
+def personal_tokens(user: Any) -> QuerySet[ApiToken]:
     from .models import ApiToken
 
     return (
@@ -212,7 +217,7 @@ def personal_tokens(user: Any):
     )
 
 
-def service_tokens(organization_id: Any, *, account: Any = None):
+def service_tokens(organization_id: Any, *, account: Any = None) -> QuerySet[ApiToken]:
     from .models import ApiToken
 
     queryset = ApiToken.objects.filter(kind=ApiToken.Kind.SERVICE, bound_organization_id=organization_id)

@@ -1,0 +1,25 @@
+# Independent deployment agent. Provisioned by the operator, never by a package; keep it out of
+# the services it drains and restarts.
+[Unit]
+Description=Skeleton deployment agent
+After=network.target
+[Service]
+User=skeleton-agent
+Group=skeleton-web
+UMask=0077
+ExecStart=/opt/skeleton-agent/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
+Restart=on-failure
+# SIGTERM: stop accepting requests and wait for the running operation (#280).
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=1800
+# Sandbox (#318), reduced on purpose: the lifecycle hooks call "/usr/bin/sudo -n
+# /usr/bin/systemctl ...", and sudo does not work under NoNewPrivileges=yes. That also rules out
+# PrivateDevices= and ProtectKernelTunables=, which imply NoNewPrivileges= for a unit with User=.
+# ProtectSystem=strict is not used either: the agent writes releases_root, storage_root and the
+# directory of the active link.
+ProtectHome=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,9 @@
 """Admission decisions live in adapters, not race-prone social signals."""
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
@@ -9,7 +12,7 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.http import HttpResponseForbidden
+from django.http import HttpRequest, HttpResponseForbidden
 from django.utils.translation import gettext
 
 from skeleton.accounts.mfa import cipher
@@ -18,8 +21,15 @@ from skeleton.accounts.services import ensure_profile, normalized_email, passwor
 from skeleton.common.logging import security_event
 from skeleton.tenancy.invitations import accept_invitation, pending_invitation
 
+if TYPE_CHECKING:
+    from skeleton.access.models import Role
+    from skeleton.accounts.models import User
+    from skeleton.accounts.providers import ProviderBinding
+    from skeleton.tenancy.links import JoinLinkProof
+    from skeleton.tenancy.models import JoinRequest, Membership, Organization
 
-def _domain_admission(user, email):
+
+def _domain_admission(user: User, email: str) -> str:
     """Admission by verified email domain (#28); skipped if this request already chose a tenant."""
     from skeleton.tenancy.context import InvalidContext
     from skeleton.tenancy.domains import apply_verified_email_admission
@@ -32,11 +42,11 @@ def _domain_admission(user, email):
         return "skipped"
 
 
-def _deny():
+def _deny() -> NoReturn:
     raise ImmediateHttpResponse(HttpResponseForbidden("Identity admission denied."))
 
 
-def _accept_pending(request, user):
+def _accept_pending(request: Any, user: User) -> bool:
     proof = pending_invitation(request)
     if proof is None:
         return False
@@ -47,7 +57,7 @@ def _accept_pending(request, user):
     return True
 
 
-def _link_signup(request):
+def _link_signup(request: HttpRequest) -> JoinLinkProof | None:
     """The join link this session opened, when its organization lets people sign up through it (#27)."""
     from skeleton.tenancy.links import pending_join_link
 
@@ -56,29 +66,29 @@ def _link_signup(request):
 
 
 class AccountAdapter(DefaultAccountAdapter):
-    def pre_login(self, request, user, **kwargs):
+    def pre_login(self, request: HttpRequest, user: User, **kwargs: Any) -> Any:
         # Defense in depth after the backend: no interactive login path admits a service account (#44).
         if getattr(user, "is_service_account", False):
             _deny()
         return super().pre_login(request, user, **kwargs)
 
-    def is_open_for_signup(self, request):
+    def is_open_for_signup(self, request: HttpRequest) -> bool:
         return (
             pending_invitation(request) is not None
             or getattr(settings, "SKELETON_PUBLIC_SIGNUP", False)
             or _link_signup(request) is not None
         )
 
-    def clean_email(self, email):
+    def clean_email(self, email: str) -> str:
         return normalized_email(super().clean_email(email))
 
-    def is_email_verified(self, request, email):
+    def is_email_verified(self, request: HttpRequest, email: str) -> bool:
         if getattr(request, "_skeleton_verified_invitation_email", None) == normalized_email(email):
             return True
         proof = pending_invitation(request)
         return bool(proof and proof.email == normalized_email(email)) or super().is_email_verified(request, email)
 
-    def save_user(self, request, user, form, commit=True):
+    def save_user(self, request: HttpRequest, user: User, form: Any, commit: bool = True) -> User:
         with transaction.atomic():
             user = super().save_user(request, user, form, commit=False)
             user.email = normalized_email(user.email)
@@ -98,7 +108,7 @@ class AccountAdapter(DefaultAccountAdapter):
                         forget(request)
             return user
 
-    def confirm_email(self, request, email_address):
+    def confirm_email(self, request: HttpRequest, email_address: Any) -> Any:
         with transaction.atomic():
             confirmed = super().confirm_email(request, email_address)
             if confirmed and email_address.user.is_active and not email_address.user.deleted_at:
@@ -143,17 +153,17 @@ class AccountAdapter(DefaultAccountAdapter):
                             admit_or_request_social(user, binding)
             return confirmed
 
-    def send_password_reset_mail(self, user, email, context):
+    def send_password_reset_mail(self, user: User, email: str, context: dict[str, Any]) -> Any:
         if password_allowed(user):
             return super().send_password_reset_mail(user, email, context)
         return None
 
-    def set_password(self, user, password):
+    def set_password(self, user: User, password: str) -> None:
         from skeleton.accounts.services import set_local_password
 
         set_local_password(user, password)
 
-    def send_mail(self, template_prefix, email, context):
+    def send_mail(self, template_prefix: str, email: str, context: dict[str, Any]) -> None:
         # Render now; the commit callback holds only materialized email, never lazy tenant ORM.
         message = self.render_mail(template_prefix, email, context)
         from allauth.core import context as allauth_context
@@ -166,7 +176,7 @@ class AccountAdapter(DefaultAccountAdapter):
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
     PROVIDER_CLASSES = {"oidc": "openid_connect", "saml": "saml", "ldap": "ldap"}
 
-    def list_apps(self, request, provider=None, client_id=None):
+    def list_apps(self, request: HttpRequest, provider: str | None = None, client_id: str | None = None) -> list[Any]:
         """File apps plus database providers (#29), built in memory per request, never saved."""
         from allauth.socialaccount.models import SocialApp
 
@@ -185,14 +195,14 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             apps.append(app)
         return apps
 
-    def is_email_verified(self, provider, email):
+    def is_email_verified(self, provider: Any, email: str) -> bool:
         # Preserve protocol evidence, never fabricate it from operator/domain overrides.
         return False
 
-    def can_authenticate_by_email(self, login, email):
+    def can_authenticate_by_email(self, login: Any, email: str) -> bool:
         return False
 
-    def is_open_for_signup(self, request, sociallogin):
+    def is_open_for_signup(self, request: HttpRequest, sociallogin: Any) -> bool:
         binding = binding_for_sociallogin(sociallogin)
         return (
             pending_invitation(request) is not None
@@ -200,7 +210,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             or bool(not binding.organization_slug and getattr(settings, "SKELETON_PUBLIC_SIGNUP", False))
         )
 
-    def pre_social_login(self, request, sociallogin):
+    def pre_social_login(self, request: HttpRequest, sociallogin: Any) -> None:
         """One step per concern, in the order they apply (#304)."""
         self._refuse_service_account(request, sociallogin)
         binding = binding_for_sociallogin(sociallogin)
@@ -219,20 +229,23 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             # validated, recently authenticated flow can set this provider ID.
             request.session["skeleton_govbr_logout_provider"] = binding.provider_id
 
-    def _refuse_service_account(self, request, sociallogin):
+    def _refuse_service_account(self, request: HttpRequest, sociallogin: Any) -> None:
         if getattr(getattr(request, "user", None), "is_service_account", False) or (
             sociallogin.is_existing and sociallogin.user.is_service_account
         ):
             _deny()  # Service accounts never connect or log in through a provider (#44).
 
-    def _require_recent_connect(self, request):
+    # Any: request.user is known authenticated here only through has_recent_authentication().
+    def _require_recent_connect(self, request: Any) -> None:
         from skeleton.accounts.reauthentication import has_recent_authentication
 
         # SSO-only accounts get no fallback: connecting needs a recent record for this user.
         if not has_recent_authentication(request) or request.user.deleted_at:
             _deny()
 
-    def _check_existing(self, request, sociallogin, binding, connecting):
+    def _check_existing(
+        self, request: HttpRequest, sociallogin: Any, binding: ProviderBinding, connecting: bool
+    ) -> None:
         user = sociallogin.user
         if user.deleted_at or not user.is_active:
             _deny()
@@ -242,7 +255,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if connecting and user.pk != request.user.pk:
             _deny()
 
-    def _check_first_login(self, request, sociallogin, binding):
+    def _check_first_login(self, request: HttpRequest, sociallogin: Any, binding: ProviderBinding) -> None:
         from skeleton.accounts.models import User
 
         email = normalized_email(sociallogin.user.email) if sociallogin.user.email else ""
@@ -261,7 +274,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             if allowed and (not email or email_domain(email) not in allowed):
                 _deny()  # Same neutral answer: the rule itself is never revealed (#31).
 
-    def _minimize(self, sociallogin, binding):
+    def _minimize(self, sociallogin: Any, binding: ProviderBinding) -> None:
         # Trust only assertions already validated by the library and explicitly permitted by config.
         for address in sociallogin.email_addresses:
             address.verified = bool(address.verified and binding.trust_verified_email)
@@ -281,7 +294,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             key: sociallogin.state[key] for key in ("process", "next", "headless") if key in sociallogin.state
         }
 
-    def _binding_target(self, binding):
+    def _binding_target(self, binding: ProviderBinding) -> tuple[Organization, Role] | None:
         """Organization and default role of a binding, or None when it cannot admit anyone now."""
         from skeleton.access.capabilities import privileged_role
         from skeleton.access.models import Role
@@ -305,13 +318,13 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
                 return None
             return organization, role
 
-    def _resolve_binding(self, binding):
+    def _resolve_binding(self, binding: ProviderBinding) -> tuple[Organization, Role]:
         target = self._binding_target(binding)
         if target is None:
             _deny()
         return target
 
-    def save_user(self, request, sociallogin, form=None):
+    def save_user(self, request: HttpRequest, sociallogin: Any, form: Any = None) -> User:
         binding = binding_for_sociallogin(sociallogin)
         with transaction.atomic():
             if not self.is_open_for_signup(request, sociallogin):
@@ -352,14 +365,14 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             return user
 
 
-def admit_or_request_social(user, binding):
+def admit_or_request_social(user: User, binding: ProviderBinding) -> Membership | JoinRequest | None:
     """JIT admission (#29, #31): the membership, or a pending ``sso`` request when approval is on."""
     if admission_for(binding).jit_requires_approval:
         return request_social_admission(user, binding)
     return provision_social_membership(user, binding)
 
 
-def request_social_admission(user, binding):
+def request_social_admission(user: User, binding: ProviderBinding) -> JoinRequest | None:
     from django.utils import timezone
 
     from skeleton.tenancy.admission import REQUEST_TTL, effective_status
@@ -389,7 +402,7 @@ def request_social_admission(user, binding):
         return record
 
 
-def provision_social_membership(user, binding):
+def provision_social_membership(user: User, binding: ProviderBinding) -> Membership:
     from skeleton.access.services import provision_membership
     from skeleton.tenancy.context import system_context
 
@@ -399,8 +412,8 @@ def provision_social_membership(user, binding):
 
 
 class EncryptedMFAAdapter(DefaultMFAAdapter):
-    def encrypt(self, text):
+    def encrypt(self, text: str) -> str:
         return cipher().encrypt(text.encode()).decode()
 
-    def decrypt(self, encrypted_text):
+    def decrypt(self, encrypted_text: str) -> str:
         return cipher().decrypt(encrypted_text.encode()).decode()

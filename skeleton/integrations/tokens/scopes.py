@@ -14,6 +14,11 @@ permission, record visibility and app activation.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from django.db.models import Model
+
 import re
 from dataclasses import dataclass
 
@@ -61,11 +66,11 @@ def table_scopes() -> tuple[str, ...]:
     )
 
 
-def table_scope(model, action: str) -> str:
+def table_scope(model: type[Model], action: str) -> str:
     return f"{model._meta.label_lower}:{action}"
 
 
-def validate_scopes(scopes, *, feed: bool) -> list[str]:
+def validate_scopes(scopes: object, *, feed: bool) -> list[str]:
     """Normalized, sorted and unique scopes, or ``ValidationError`` (400) for any unknown one."""
     if not isinstance(scopes, list | tuple) or not scopes:
         raise ValidationError({"scopes": gettext("Informe ao menos um escopo.")})

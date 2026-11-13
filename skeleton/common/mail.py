@@ -18,7 +18,7 @@ def schedule_mail(message, *, request=None, target_sysid=None):
         try:
             if message.send(fail_silently=False) != 1:
                 raise RuntimeError("Email backend did not accept the message.")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - any backend failure is logged as a security event
             security_event(
                 "mail.delivery_failed",
                 level=logging.ERROR,

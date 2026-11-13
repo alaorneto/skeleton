@@ -676,8 +676,8 @@ def reconcile_checklist(
 _LINK_FIELDS = (
     "__typename ... on Issue { number state stateReason title "
     "parent { number repository { nameWithOwner } } "
-    "subIssues(first: 100) { nodes { number repository { nameWithOwner } } } "
-    "blockedBy(first: 100) { nodes { number repository { nameWithOwner } } } }"
+    "subIssues(first: 100) { pageInfo { hasNextPage } nodes { number repository { nameWithOwner } } } "
+    "blockedBy(first: 100) { pageInfo { hasNextPage } nodes { number repository { nameWithOwner } } } }"
 )
 GRAPHQL_BATCH = 50
 
@@ -703,10 +703,24 @@ def _nodes(value: object, repository: str) -> tuple[int | str, ...]:
     return tuple(ref for ref in refs if ref is not None)
 
 
+def _truncated(value: object) -> bool:
+    page = value.get("pageInfo") if isinstance(value, dict) else None
+    return isinstance(page, dict) and bool(page.get("hasNextPage"))  # Sem pageInfo: página única.
+
+
 def parse_links(data: Mapping[str, object] | None, repository: str) -> IssueLinks | None:
-    """Converte um nó do GraphQL; ``None`` para inexistente ou pull request."""
+    """Converte um nó do GraphQL; ``None`` para inexistente ou pull request.
+
+    Falha fechado se ``subIssues`` ou ``blockedBy`` tiver outra página: com a lista
+    incompleta, nenhuma ação automática (fechar o epic, criar vínculos) é segura.
+    """
     if not data or data.get("__typename") != "Issue":
         return None
+    if _truncated(data.get("subIssues")) or _truncated(data.get("blockedBy")):
+        raise RuntimeError(
+            f"#{data['number']} tem mais de 100 sub-issues ou bloqueios; a leitura está incompleta "
+            "e nenhuma ação automática é segura."
+        )
     return IssueLinks(
         number=int(str(data["number"])),
         parent=_node_ref(data.get("parent"), repository),

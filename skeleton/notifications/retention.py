@@ -86,3 +86,17 @@ def purge_expired_notifications(*, now: Any = None) -> dict[str, int]:
     # Re-evaluated after the deletes above: they free notifications from their PROTECT references.
     result["notifications"] = _delete(expired(now)["notifications"])
     return result
+
+
+def forget_person(user_id: Any) -> dict[str, int]:
+    """Erasure of one person (#191), in the system context of one organization: their deliveries
+    and inbox rows, the only notification rows that name them. Declared here, beside the retention,
+    as the other path that physically deletes notification rows; the notifications themselves stay
+    (other people may hold rows of them) and the retention removes them once unreferenced.
+    """
+    from .models import NotificationDelivery, NotificationRecipient
+
+    return {
+        "deliveries": _delete(NotificationDelivery.objects.filter(user_id=user_id)),
+        "rows": _delete(NotificationRecipient.objects.filter(user_id=user_id)),
+    }

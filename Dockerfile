@@ -1,4 +1,5 @@
-FROM python:3.14-slim AS core-builder
+# syntax=docker/dockerfile:1
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS core-builder
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1 && rm -rf /var/lib/apt/lists/*
@@ -9,10 +10,12 @@ COPY skeleton ./skeleton
 RUN pip wheel --no-deps --no-build-isolation --wheel-dir /core-wheel .
 
 FROM core-builder AS project-assets
-COPY . /project-source
-RUN mkdir -p /project-assets/templates && if [ -d /project-source/templates ]; then cp -a /project-source/templates/. /project-assets/templates/; fi
+# Bind mount only during the RUN: the build context never becomes an image layer (#248).
+RUN --mount=type=bind,target=/project-source \
+    mkdir -p /project-assets/templates && \
+    if [ -d /project-source/templates ]; then cp -a /project-source/templates/. /project-assets/templates/; fi
 
-FROM python:3.14-slim AS runtime
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SKELETON_PROJECT_ROOT=/app
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1 && rm -rf /var/lib/apt/lists/*
@@ -22,7 +25,10 @@ COPY --from=core-builder /core-wheel /core-wheel
 RUN pip install --no-cache-dir --no-deps /core-wheel/*.whl && rm -rf /core-wheel
 COPY config ./config
 COPY applications ./applications
+# The example app is opt-in at runtime; --build-arg INCLUDE_EXAMPLES=false leaves it out (#318).
+ARG INCLUDE_EXAMPLES=true
 COPY examples ./examples
+RUN if [ "$INCLUDE_EXAMPLES" != "true" ]; then rm -rf ./examples && mkdir ./examples && touch ./examples/__init__.py; fi
 COPY manage.py ./
 COPY --from=project-assets /project-assets/templates ./templates
 RUN DJANGO_SETTINGS_MODULE=config.settings.build python manage.py collectstatic --noinput && useradd --uid 10001 --create-home skeleton && chown -R skeleton:skeleton /app/staticfiles
@@ -30,4 +36,4 @@ RUN DJANGO_SETTINGS_MODULE=config.settings.build python manage.py collectstatic 
 RUN mkdir -p /instance/keys && chown -R skeleton:skeleton /instance && chmod 700 /instance /instance/keys
 USER skeleton
 EXPOSE 8000
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import identity_views, instance_views, jobs_views, updates, views
+from . import identity_views, instance_views, jobs_views, privacy_views, updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -39,6 +39,8 @@ urlpatterns = [
     path("audit/", views.audit, name="audit"),
     path("jobs/", jobs_views.jobs, name="jobs"),
     path("jobs/<uuid:sysid>/", jobs_views.job_action, name="job-action"),
+    path("privacy/", privacy_views.privacy, name="privacy"),
+    path("privacy/<uuid:sysid>/decide/", privacy_views.privacy_decide, name="privacy-decide"),
     path("apps/", views.app_list, name="apps"),
     path("apps/<str:app_label>/", views.app_detail, name="app"),
     path("apps/<str:app_label>/availability/", views.app_availability, name="app-availability"),
@@ -52,6 +54,7 @@ urlpatterns = [
     path("updates/upload/", updates.upload, name="updates-upload"),
     path("updates/plan/", updates.plan, name="updates-plan"),
     path("updates/plan/add-dependency/", updates.add_dependency, name="updates-add-dependency"),
+    path("updates/plan/<uuid:plan_id>/", updates.preview, name="updates-preview"),
     path("updates/operations/", updates.operations, name="updates-operations"),
     path("updates/operations/<uuid:operation_id>/", updates.operation, name="updates-operation"),
 ]

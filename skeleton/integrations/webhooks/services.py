@@ -20,7 +20,7 @@ from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
-SECRET_PREFIX = "whsec_"
+SECRET_PREFIX = "whsec_"  # noqa: S105 - public prefix of generated secrets
 ROTATION_OVERLAP = timedelta(hours=24)
 FIELDS = ("name", "url", "principal", "event_types", "is_enabled")
 

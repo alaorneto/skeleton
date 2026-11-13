@@ -1,0 +1,28 @@
+# Web (Gunicorn WSGI). Provisioned by the operator, never by a package.
+# The deployment agent drains and restarts it (commands.drain/restart/stop).
+[Unit]
+Description=Skeleton web
+After=network.target
+[Service]
+User=skeleton-web
+Group=skeleton-web
+WorkingDirectory=/srv/skeleton/current
+EnvironmentFile=/srv/skeleton/private/runtime.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
+KillSignal=SIGTERM
+TimeoutStopSec=1800
+# Sandbox (#318): the whole file system is read-only except ReadWritePaths.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Example paths: list only what this service writes (private files, instance SQLite and master
+# key, PROMETHEUS_MULTIPROC_DIR). A leading "-" ignores a path that does not exist.
+ReadWritePaths=-/srv/skeleton/files -/srv/skeleton/instance
+[Install]
+WantedBy=multi-user.target

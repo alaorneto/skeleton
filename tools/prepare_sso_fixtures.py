@@ -20,7 +20,7 @@ from cryptography.x509.oid import NameOID
 
 
 def fetch(url):
-    with urlopen(url, timeout=15) as response:
+    with urlopen(url, timeout=15) as response:  # noqa: S310 - fixed local Keycloak URL of the fixture
         return response.read()
 
 
@@ -58,7 +58,7 @@ def prepare(output):
             }
         )
         metadata_url = issuer + "/protocol/saml/descriptor"
-        root = ET.fromstring(fetch(metadata_url))
+        root = ET.fromstring(fetch(metadata_url))  # noqa: S314 - metadata of the local fixture IdP the tool just started
         ns = {"md": "urn:oasis:names:tc:SAML:2.0:metadata", "ds": "http://www.w3.org/2000/09/xmldsig#"}
         signing = root.find('.//md:KeyDescriptor[@use="signing"]//ds:X509Certificate', ns)
         if signing is None or not signing.text:

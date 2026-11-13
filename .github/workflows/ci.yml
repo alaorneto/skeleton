@@ -21,12 +21,22 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/ruff-action@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # The local hooks again, for commits made without pre-commit installed (#329). The Ruff
+      # hooks are skipped (the steps below run them) and commit-msg is not a pre-commit stage.
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: false
+      - name: Hooks do pre-commit (exceto o commit-msg)
+        run: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
+        env:
+          SKIP: ruff-check,ruff-format
+      - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         with:
           version: "0.17.4"
           args: check --output-format github
-      - uses: astral-sh/ruff-action@v3
+      - uses: astral-sh/ruff-action@4919ec5cf1f49eff0871dbcea0da843445b837e6 # v3
         with:
           version: "0.17.4"
           args: format --check --diff
@@ -35,8 +45,8 @@ jobs:
     name: CSS compilado e assets vendorizados
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           cache: npm
@@ -53,8 +63,8 @@ jobs:
     name: Locks correspondem aos requirements .in
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # Versão fixa: o formato e o cabeçalho do lock dependem do uv.
           version: "0.12.7"
@@ -123,8 +133,8 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: ci-superuser-only
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -163,7 +173,9 @@ jobs:
           COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
         run: |
           mkdir -p coverage-data
-          .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report=
+          # A slice covers only part of the code: the floor (fail_under) applies to the combined
+          # report of the "coverage" job, never to a slice (#329).
+          .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report= --cov-fail-under=0
       - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
         # Its own suite and checks with the app installed; the core slices run without it.
         if: matrix.slug == 'calendar'
@@ -171,7 +183,7 @@ jobs:
       - name: Smoke de segurança do runtime
         if: matrix.python == '3.14' && matrix.slug == 'core-1'
         run: .venv/bin/python tools/smoke_postgres.py
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: matrix.shard
         with:
           name: coverage-data-py${{ matrix.python }}-${{ matrix.slug }}
@@ -187,13 +199,13 @@ jobs:
       matrix:
         python: ["3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements-dev.txt
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: coverage-data-py${{ matrix.python }}-*
           path: coverage-data
@@ -207,7 +219,7 @@ jobs:
           python -m coverage combine coverage-data/coverage.*
           python -m coverage report
           python -m coverage xml
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-postgres-py${{ matrix.python }}
           path: coverage.xml
@@ -215,13 +227,16 @@ jobs:
   typecheck:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
       - run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: mypy (módulos listados em pyproject.toml)
+        # The calendar is checked strictly (#348): the Django plugin must load its models.
+        env:
+          SKELETON_BUNDLED_APPS: calendar
         run: python -m mypy
       - name: Catálogo de tradução válido (makemessages e msgfmt --check-format)
         run: |
@@ -232,8 +247,8 @@ jobs:
     name: Settings de produção (check --deploy)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
@@ -257,8 +272,8 @@ jobs:
     name: Wheel, auditoria e imagem
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.14"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
@@ -266,14 +281,29 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
           python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist .
-      - name: Auditar dependências travadas
+      - name: Construir e instalar o wheel do agente
+        # A distribuição separada do operador (#309): construída, instalada num venv limpo só com
+        # o lock e executável. Os pins de execução dela coincidem com o lock auditado abaixo.
         run: |
-          python -m pip install "pip-audit==2.9.0"
-          pip-audit --strict --require-hashes --disable-pip -r requirements.txt
-          pip-audit --strict --require-hashes --disable-pip -r requirements-dev.txt
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir dist-agent ./deployment_agent
+          python -m venv /tmp/agent-venv
+          /tmp/agent-venv/bin/python -m pip install --require-hashes -r requirements.txt
+          /tmp/agent-venv/bin/python -m pip install --no-deps dist/*.whl dist-agent/*.whl
+          /tmp/agent-venv/bin/python -m pip check
+          /tmp/agent-venv/bin/skeleton-deployment-agent --help
+      - name: Auditar dependências travadas
+        # pip-audit isolado: nada é instalado no ambiente em que o lock foi instalado.
+        run: |
+          python -m pip install --target /tmp/pip-audit "pip-audit==2.9.0"
+          PYTHONPATH=/tmp/pip-audit python -m pip_audit --strict --require-hashes --disable-pip -r requirements.txt
+          PYTHONPATH=/tmp/pip-audit python -m pip_audit --strict --require-hashes --disable-pip -r requirements-dev.txt
       - name: Construir imagem
         run: docker build --tag django-skeleton:ci .
-      - uses: actions/upload-artifact@v7
+      - name: Contexto de build não vira camada
+        run: |
+          docker build --target project-assets --tag django-skeleton:assets .
+          docker run --rm django-skeleton:assets sh -c '! test -e /project-source'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: core-wheel
           path: dist/*.whl

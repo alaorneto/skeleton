@@ -5,35 +5,118 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
 
+from packaging.markers import default_environment
+
 from .config import read_environment
-from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
+from .storage import (
+    AgentError,
+    atomic_bytes,
+    atomic_json,
+    file_hash,
+    identifier,
+    inventory_files,
+    load_json,
+    private_file,
+)
+from .types import StrPath
+
+if TYPE_CHECKING:
+    from .config import Config
+    from .storage import Store
+
+# Each command of an operation keeps its last output bytes in a private log (#244).
+MAX_COMMAND_LOG_BYTES = 256 * 1024
 
 
 class Backend:
-    def __init__(self, config, store):
+    def __init__(self, config: "Config", store: "Store") -> None:
         self.config = config
         self.store = store
+        self.log_directory: Path | None = None
 
-    def run(self, arguments, *, env=None, cwd=None, code="command_failed"):
+    @contextmanager
+    def logging_to(self, operation_id: str) -> Iterator[Path]:
+        """Inside an operation, every command writes its output to ``logs/<operation>/NN-<code>.log``.
+
+        The files may hold anything a command printed with the owner credential in its environment:
+        0700 directory and 0600 files inside the agent's private storage, never the API or stderr.
+        """
+        directory = self.store.root / "logs" / identifier(operation_id)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        previous, self.log_directory = self.log_directory, directory
+        try:
+            yield directory
+        finally:
+            self.log_directory = previous
+
+    def _open_log(self, code: str) -> tuple[Path, int] | tuple[None, None]:
+        """A new private log file (O_EXCL: never follows a planted link), or None outside an operation."""
+        if self.log_directory is None:
+            return None, None
+        number = sum(1 for _ in self.log_directory.glob("*.log")) + 1
+        path = self.log_directory / f"{number:02d}-{code}.log"
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        return path, descriptor
+
+    @staticmethod
+    def _bound_log(path: Path, descriptor: int) -> None:
+        """Keep the last MAX_COMMAND_LOG_BYTES of the output."""
+        os.close(descriptor)
+        size = path.stat().st_size
+        if size > MAX_COMMAND_LOG_BYTES:
+            with path.open("rb") as handle:
+                handle.seek(size - MAX_COMMAND_LOG_BYTES)
+                tail = handle.read()
+            with path.open("r+b") as handle:
+                handle.write(tail)
+                handle.truncate()
+
+    def run(
+        self,
+        arguments: Sequence[StrPath],
+        *,
+        env: dict[str, str] | None = None,
+        cwd: StrPath | None = None,
+        code: str = "command_failed",
+    ) -> None:
+        path, descriptor = self._open_log(code)
         try:
             subprocess.run(
                 [str(argument) for argument in arguments],
                 env=env or self.operator_env(),
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL if descriptor is None else descriptor,
+                stderr=subprocess.DEVNULL if descriptor is None else subprocess.STDOUT,
                 check=True,
                 timeout=self.config.get("command_timeout", 1800),
             )
         except (OSError, subprocess.SubprocessError):
-            raise AgentError(code, 409) from None
+            error = AgentError(code, 409)
+            error.log = path.name if path else None
+            raise error from None
+        finally:
+            if path is not None and descriptor is not None:
+                self._bound_log(path, descriptor)
 
-    def capture(self, arguments, *, env=None, cwd=None, code="command_failed"):
+    def capture(
+        self,
+        arguments: Sequence[StrPath],
+        *,
+        env: dict[str, str] | None = None,
+        cwd: StrPath | None = None,
+        code: str = "command_failed",
+    ) -> bytes:
+        # stdout is data, kept in memory; only stderr goes to the operation log.
+        path, descriptor = self._open_log(code)
         try:
             result = subprocess.run(
                 [str(argument) for argument in arguments],
@@ -41,7 +124,7 @@ class Backend:
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL if descriptor is None else descriptor,
                 check=True,
                 timeout=self.config.get("command_timeout", 1800),
             )
@@ -49,22 +132,49 @@ class Backend:
                 raise AgentError("command_output_too_large", 409)
             return result.stdout
         except (OSError, subprocess.SubprocessError):
-            raise AgentError(code, 409) from None
+            error = AgentError(code, 409)
+            error.log = path.name if path else None
+            raise error from None
+        finally:
+            if path is not None and descriptor is not None:
+                self._bound_log(path, descriptor)
 
-    def target_environment(self):
+    def preflight(self, release: StrPath) -> None:
+        """Configuration problems that would otherwise surface after maintenance and drain (#246)."""
+        for source in self.config.get("recovery_paths", []):
+            source = Path(source)
+            if not source.is_absolute() or source.is_symlink() or not source.exists():
+                raise AgentError("invalid_recovery_path", 409)
+            if source.is_dir() and any(path.is_symlink() for path in source.rglob("*")):
+                raise AgentError("recovery_path_symlink", 409)
+        for key, default in (
+            ("pg_dump", "/usr/bin/pg_dump"),
+            ("pg_restore", "/usr/bin/pg_restore"),
+            ("psql", "/usr/bin/psql"),
+        ):
+            tool = Path(self.config.get(key, default))
+            if not tool.is_file() or not os.access(tool, os.X_OK):
+                raise AgentError("backup_tool_unavailable", 409)
+        if self.config.get("smoke_token_file"):
+            try:
+                private_file(self.config["smoke_token_file"])
+            except OSError:
+                raise AgentError("insecure_private_file", 409) from None
+
+    def target_environment(self) -> Any:
         script = "import json,os,platform,sys; print(json.dumps(dict(implementation_name=sys.implementation.name,implementation_version=platform.python_version(),os_name=os.name,platform_machine=platform.machine(),platform_release=platform.release(),platform_system=platform.system(),platform_version=platform.version(),python_full_version=platform.python_version(),platform_python_implementation=platform.python_implementation(),python_version='.'.join(map(str,sys.version_info[:2])),sys_platform=sys.platform)))"
         return json.loads(
             self.capture([self.config.get("python", sys.executable), "-c", script], code="target_python_unavailable")
         )
 
-    def operator_env(self):
+    def operator_env(self) -> dict[str, str]:
         return {
             "PATH": self.config.get("operator_path", "/usr/local/bin:/usr/bin:/bin"),
             "LANG": "C.UTF-8",
             "HOME": self.config["storage_root"],
         }
 
-    def hook(self, name, release, operation=None):
+    def hook(self, name: str, release: StrPath, operation: str | None = None) -> None:
         replacements = {
             "{release}": str(release),
             "{active}": self.config["active_link"],
@@ -75,7 +185,7 @@ class Backend:
             arguments = [argument.replace(old, new) for argument in arguments]
         self.run(arguments, code=f"{name}_failed")
 
-    def prepare(self, release):
+    def prepare(self, release: Path) -> None:
         self.run([self.config.get("python", sys.executable), "-m", "venv", release / ".venv"], code="venv_failed")
         self.run(
             [
@@ -96,7 +206,9 @@ class Backend:
         )
         self.run([release / ".venv/bin/python", "-m", "pip", "check"], code="dependency_conflict")
 
-    def python(self, release, arguments, profile, *, code="release_command_failed"):
+    def python(
+        self, release: StrPath, arguments: Sequence[StrPath], profile: str, *, code: str = "release_command_failed"
+    ) -> None:
         self.run(
             [Path(release) / ".venv/bin/python", *arguments],
             env=self.config.environment(profile, release),
@@ -104,10 +216,12 @@ class Backend:
             code=code,
         )
 
-    def manage(self, release, arguments, profile, *, code="management_command_failed"):
+    def manage(
+        self, release: StrPath, arguments: Sequence[StrPath], profile: str, *, code: str = "management_command_failed"
+    ) -> None:
         self.python(release, ["manage.py", *arguments], profile, code=code)
 
-    def probe(self, release):
+    def probe(self, release: StrPath) -> Any:
         path = self.store.root / f"probe-{uuid4()}.json"
         try:
             # Keep sys.path rooted in the release, not beside the agent's config.py.
@@ -122,21 +236,21 @@ class Backend:
         finally:
             path.unlink(missing_ok=True)
 
-    def export_schema(self, release, app_label, destination):
+    def export_schema(self, release: StrPath, app_label: str, destination: StrPath, profile: str = "runtime") -> None:
         temporary = self.store.root / "probe" / f"schema-{uuid4()}.json"
         temporary.parent.mkdir(exist_ok=True, mode=0o700)
         try:
             self.manage(
                 release,
                 ["export_record_schema", "--app-label", app_label, "--output", temporary],
-                "runtime",
+                profile,
                 code="schema_export_failed",
             )
             atomic_bytes(destination, temporary.read_bytes(), 0o644)
         finally:
             temporary.unlink(missing_ok=True)
 
-    def export_infrastructure(self, release, destination):
+    def export_infrastructure(self, release: StrPath, destination: StrPath) -> None:
         temporary = self.store.root / "probe" / f"infrastructure-{uuid4()}.json"
         temporary.parent.mkdir(exist_ok=True, mode=0o700)
         try:
@@ -150,13 +264,13 @@ class Backend:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def active(self):
+    def active(self) -> Path:
         path = Path(self.config["active_link"])
         if not path.is_symlink():
             raise AgentError("active_release_missing", 409)
         return path.resolve(strict=True)
 
-    def cutover(self, release):
+    def cutover(self, release: StrPath) -> None:
         active = Path(self.config["active_link"])
         temporary = active.with_name(f".{active.name}.{uuid4()}")
         temporary.symlink_to(release, target_is_directory=True)
@@ -167,32 +281,32 @@ class Backend:
         finally:
             os.close(descriptor)
 
-    def has_worker_hooks(self):
+    def has_worker_hooks(self) -> bool:
         commands = self.config["commands"]
         return "worker_stop" in commands and "worker_restart" in commands
 
-    def stop_workers(self, release, operation):
+    def stop_workers(self, release: StrPath, operation: str) -> None:
         """Stop the job workers and schedulers (#40): SIGTERM lets the current job finish."""
         if self.has_worker_hooks():
             self.hook("worker_stop", release, operation)
 
-    def start_workers(self, release, operation):
+    def start_workers(self, release: StrPath, operation: str) -> None:
         if self.has_worker_hooks():
             self.hook("worker_restart", release, operation)
 
-    def start(self, release, operation):
+    def start(self, release: StrPath, operation: str) -> None:
         self.hook("restart", release, operation)
         self.start_workers(release, operation)
 
-    def drain(self, release, operation):
+    def drain(self, release: StrPath, operation: str) -> None:
         self.hook("drain", release, operation)
         self.stop_workers(release, operation)
 
-    def stop(self, release, operation):
+    def stop(self, release: StrPath, operation: str) -> None:
         self.hook("stop", release, operation)
         self.stop_workers(release, operation)
 
-    def pg_environment(self, release):
+    def pg_environment(self, release: StrPath) -> dict[str, str]:
         result = self.operator_env()
         if self.config.get("backup_env_file"):
             url = urlsplit(read_environment(self.config["backup_env_file"])["MIGRATION_DATABASE_URL"])
@@ -207,8 +321,6 @@ class Backend:
                 "PGPASSWORD": unquote(url.password or ""),
             }
         )
-        from urllib.parse import parse_qs
-
         allowed = {
             "sslmode": "PGSSLMODE",
             "sslrootcert": "PGSSLROOTCERT",
@@ -222,7 +334,7 @@ class Backend:
             result[allowed[key]] = values[0]
         return result
 
-    def backup(self, release, operation):
+    def backup(self, release: StrPath, operation: str) -> str:
         root = self.store.root / "backups" / operation
         if root.exists():
             # Preserve a partial snapshot left by a crash instead of merging or deleting it.
@@ -277,7 +389,7 @@ class Backend:
             os.chmod(path, 0o700 if path.is_dir() else 0o600)
         return str(root / "backup.json")
 
-    def restore(self, backup, release):
+    def restore(self, backup: StrPath, release: StrPath) -> None:
         metadata = load_json(backup)
         database = Path(metadata["database"])
         if file_hash(database) != metadata["database_sha256"]:
@@ -332,10 +444,16 @@ class Backend:
 
 
 class ComposeBackend(Backend):
-    def image(self, release):
+    def preflight(self, release: StrPath) -> None:
+        super().preflight(release)
+        docker = Path(self.config.get("docker", "/usr/bin/docker"))
+        if not docker.is_file() or not os.access(docker, os.X_OK):
+            raise AgentError("docker_unavailable", 409)
+
+    def image(self, release: StrPath) -> str:
         return f"{self.config['compose'].get('image_repository', 'skeleton-managed')}:{Path(release).name}"
 
-    def base_arguments(self):
+    def base_arguments(self) -> list[StrPath]:
         compose = self.config["compose"]
         return [
             self.config.get("docker", "/usr/bin/docker"),
@@ -348,14 +466,33 @@ class ComposeBackend(Backend):
             compose["file"],
         ]
 
-    def base(self, release, profile="runtime"):
-        return [*self.base_arguments(), "--file", self.override(release, profile)]
+    @contextmanager
+    def composed(self, release: StrPath, profile: str = "runtime") -> Iterator[list[StrPath]]:
+        """Compose arguments with a private override that exists only while the command runs (#245).
 
-    def override(self, release, profile):
+        The override holds the whole environment of the profile, the owner credential included for
+        ``migration``: it is written 0600 under a unique name and removed afterwards, even on failure.
+        """
+        path = self.override(release, profile)
+        try:
+            yield [*self.base_arguments(), "--file", path]
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def remove_stale_overrides(self) -> int:
+        """Overrides left by a run that ended abruptly; the daemon removes them when it starts."""
+        removed = 0
+        for path in self.store.root.glob("compose-*.json"):
+            if path.is_file() and not path.is_symlink():
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
+
+    def override(self, release: StrPath, profile: str) -> Path:
         compose = self.config["compose"]
         release = Path(release)
-        path = self.store.root / f"compose-{release.name}-{profile}.json"
-        env = self.config.environment("runtime" if profile == "export" else profile, release)
+        path = self.store.root / f"compose-{release.name}-{profile}-{uuid4()}.json"
+        env: dict[str, Any] = self.config.environment("runtime" if profile == "export" else profile, release)
         service = compose["migrator_service"] if profile == "migration" else compose["web_service"]
         # Compose merges environment mappings. Explicitly unset every inherited key
         # before applying the selected private profile, including env_file entries.
@@ -394,10 +531,10 @@ class ComposeBackend(Backend):
         atomic_json(path, {"services": services})
         return path
 
-    def worker_services(self):
+    def worker_services(self) -> list[str]:
         return list(self.config["compose"].get("worker_services", []))
 
-    def build_image(self, release):
+    def build_image(self, release: StrPath) -> None:
         self.run(
             [
                 self.config.get("docker", "/usr/bin/docker"),
@@ -414,7 +551,7 @@ class ComposeBackend(Backend):
             code="image_build_failed",
         )
 
-    def prepare(self, release):
+    def prepare(self, release: Path) -> None:
         # Preview executes the same environment that will run the final Compose migrator/web.
         self.build_image(release)
         actual = json.loads(
@@ -440,25 +577,19 @@ class ComposeBackend(Backend):
         ):
             raise AgentError("image_target_environment_mismatch", 409)
 
-    def python(self, release, arguments, profile, *, code="release_command_failed"):
+    def python(
+        self, release: StrPath, arguments: Sequence[StrPath], profile: str, *, code: str = "release_command_failed"
+    ) -> None:
         compose = self.config["compose"]
         service = compose["migrator_service"] if profile == "migration" else compose["web_service"]
         # No secrets on argv. The private generated override contains profile-specific environment.
-        self.run(
-            [
-                *self.base(release, profile),
-                "run",
-                "--rm",
-                "--no-deps",
-                "--entrypoint",
-                "/opt/venv/bin/python",
-                service,
-                *arguments,
-            ],
-            code=code,
-        )
+        with self.composed(release, profile) as base:
+            self.run(
+                [*base, "run", "--rm", "--no-deps", "--entrypoint", "/opt/venv/bin/python", service, *arguments],
+                code=code,
+            )
 
-    def probe(self, release):
+    def probe(self, release: StrPath) -> Any:
         temporary = self.store.root / "probe"
         temporary.mkdir(exist_ok=True, mode=0o700)
         script = temporary / "probe.py"
@@ -470,9 +601,7 @@ class ComposeBackend(Backend):
         finally:
             path.unlink(missing_ok=True)
 
-    def target_environment(self):
-        from packaging.markers import default_environment
-
+    def target_environment(self) -> Any:
         supplied = self.config["compose"].get("target_environment")
         if not isinstance(supplied, dict) or not all(
             key in supplied for key in ("python_full_version", "python_version", "platform_machine", "sys_platform")
@@ -480,66 +609,58 @@ class ComposeBackend(Backend):
             raise AgentError("compose_target_environment_required")
         return {**default_environment(), **supplied}
 
-    def export_schema(self, release, app_label, destination):
-        temporary = self.store.root / "probe" / f"schema-{uuid4()}.json"
-        temporary.parent.mkdir(exist_ok=True, mode=0o700)
-        try:
-            self.manage(
-                release,
-                ["export_record_schema", "--app-label", app_label, "--output", temporary],
-                "export",
-                code="schema_export_failed",
-            )
-            atomic_bytes(destination, temporary.read_bytes(), 0o644)
-        finally:
-            temporary.unlink(missing_ok=True)
+    def export_schema(self, release: StrPath, app_label: str, destination: StrPath, profile: str = "export") -> None:
+        return super().export_schema(release, app_label, destination, profile=profile)
 
-    def start(self, release, operation):
-        rendered = json.loads(
-            self.capture([*self.base(release), "config", "--format", "json"], code="compose_configuration_failed")
-        )
-        for service in (self.config["compose"]["web_service"], *self.worker_services()):
-            environment = rendered["services"][service].get("environment", {})
-            if environment.get("MIGRATION_DATABASE_URL"):
-                raise AgentError("migration_secret_in_runtime", 409)
-        self.run(
-            [
-                *self.base(release),
-                "up",
-                "--detach",
-                "--no-deps",
-                "--no-build",
-                "--force-recreate",
-                self.config["compose"]["web_service"],
-            ],
-            code="compose_restart_failed",
-        )
+    def start(self, release: StrPath, operation: str) -> None:
+        with self.composed(release) as base:
+            rendered = json.loads(
+                self.capture([*base, "config", "--format", "json"], code="compose_configuration_failed")
+            )
+            for service in (self.config["compose"]["web_service"], *self.worker_services()):
+                environment = rendered["services"][service].get("environment", {})
+                if environment.get("MIGRATION_DATABASE_URL"):
+                    raise AgentError("migration_secret_in_runtime", 409)
+            self.run(
+                [
+                    *base,
+                    "up",
+                    "--detach",
+                    "--no-deps",
+                    "--no-build",
+                    "--force-recreate",
+                    self.config["compose"]["web_service"],
+                ],
+                code="compose_restart_failed",
+            )
         self.hook("restart", release, operation)
         self.start_workers(release, operation)
 
-    def stop_workers(self, release, operation):
+    def stop_workers(self, release: StrPath, operation: str) -> None:
         if self.worker_services():
-            self.run([*self.base(release), "stop", *self.worker_services()], code="compose_worker_stop_failed")
+            with self.composed(release) as base:
+                self.run([*base, "stop", *self.worker_services()], code="compose_worker_stop_failed")
         super().stop_workers(release, operation)
 
-    def start_workers(self, release, operation):
+    def start_workers(self, release: StrPath, operation: str) -> None:
         if self.worker_services():
-            self.run(
-                [*self.base(release), "up", "--detach", "--no-deps", "--no-build", "--force-recreate"]
-                + self.worker_services(),
-                code="compose_worker_restart_failed",
-            )
+            with self.composed(release) as base:
+                self.run(
+                    [*base, "up", "--detach", "--no-deps", "--no-build", "--force-recreate", *self.worker_services()],
+                    code="compose_worker_restart_failed",
+                )
         super().start_workers(release, operation)
 
-    def drain(self, release, operation):
+    def drain(self, release: StrPath, operation: str) -> None:
         self.hook("drain", release, operation)
         self.stop(release, operation)
 
-    def stop(self, release, operation):
-        self.run([*self.base(release), "stop", self.config["compose"]["web_service"]], code="compose_stop_failed")
+    def stop(self, release: StrPath, operation: str) -> None:
+        with self.composed(release) as base:
+            self.run([*base, "stop", self.config["compose"]["web_service"]], code="compose_stop_failed")
         self.hook("stop", release, operation)
         self.stop_workers(release, operation)
 
 
-def backend_for(config, store):
+def backend_for(config: "Config", store: "Store") -> "Backend":
     return ComposeBackend(config, store) if config["backend"] == "compose" else Backend(config, store)

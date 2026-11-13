@@ -77,9 +77,9 @@ def apply_search(queryset: Any, spec: Any, term: Any) -> Any:
     vector = vector_sql(model, fields)
     query = f"plainto_tsquery('{CONFIG}'::regconfig, {UNACCENT}(%s))"
     return (
-        queryset.alias(_sk_match=RawSQL(f"{vector} @@ {query}", (term,), output_field=BooleanField()))
+        queryset.alias(_sk_match=RawSQL(f"{vector} @@ {query}", (term,), output_field=BooleanField()))  # noqa: S611 - columns from model metadata of declared fields; the term is bound
         .filter(_sk_match=True)
-        .annotate(_sk_rank=RawSQL(f"ts_rank({vector}, {query})", (term,), output_field=FloatField()))
+        .annotate(_sk_rank=RawSQL(f"ts_rank({vector}, {query})", (term,), output_field=FloatField()))  # noqa: S611 - columns from model metadata of declared fields; the term is bound
         .order_by("-_sk_rank", "created_at", "sysid")
     )
 
@@ -109,7 +109,7 @@ def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
     if trigram_available(queryset.db):
         return (
             queryset.alias(
-                _sk_label=RawSQL(
+                _sk_label=RawSQL(  # noqa: S611 - columns from model metadata of declared fields; the term is bound
                     f"({expression} LIKE {UNACCENT}(%s) || '%%' OR {UNACCENT}(%s) <<%% {expression})",
                     (term, term),
                     output_field=BooleanField(),
@@ -117,14 +117,14 @@ def apply_label_search(queryset: Any, label: str | None, term: Any) -> Any:
             )
             .filter(_sk_label=True)
             .annotate(
-                _sk_similarity=RawSQL(
+                _sk_similarity=RawSQL(  # noqa: S611 - columns from model metadata of declared fields; the term is bound
                     f"strict_word_similarity({UNACCENT}(%s), {expression})", (term,), output_field=FloatField()
                 )
             )
             .order_by("-_sk_similarity", "created_at", "sysid")
         )
     return queryset.alias(
-        _sk_label=RawSQL(f"{expression} LIKE {UNACCENT}(%s) || '%%'", (term,), output_field=BooleanField())
+        _sk_label=RawSQL(f"{expression} LIKE {UNACCENT}(%s) || '%%'", (term,), output_field=BooleanField())  # noqa: S611 - columns from model metadata of declared fields; the term is bound
     ).filter(_sk_label=True)
 
 

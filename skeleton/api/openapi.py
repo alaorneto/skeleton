@@ -674,6 +674,11 @@ class TableRoutes:
         )
         yield path, "DELETE", Operation("Exclui o comentário (autor ou administrador)", None, status=204, if_match=True)
 
+    def _comment_mentionable(self, spec: Any, actions: frozenset[str], route: Route, path: str) -> Iterator[Expanded]:
+        if "read" in actions and spec.comments is not None:
+            person = obj({"sysid": UUID, "name": string(), "token": string()})
+            yield path, "GET", Operation("Membros que podem ser mencionados no registro", results(person))
+
     def _comment_restore(self, spec: Any, actions: frozenset[str], route: Route, path: str) -> Iterator[Expanded]:
         if "read" in actions and spec.comments is not None:
             yield path, "POST", Operation("Restaura o comentário", ref("Comment"), etag=True, if_match=True)

@@ -14,5 +14,17 @@ KillSignal=SIGTERM
 TimeoutStopSec=60
 Restart=on-failure
 RestartSec=10
+# Sandbox (#318): the whole file system is read-only except ReadWritePaths.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Example paths: list only what this service writes (private files, instance SQLite and master
+# key). A leading "-" ignores a path that does not exist.
+ReadWritePaths=-/srv/skeleton/files -/srv/skeleton/instance
 [Install]
 WantedBy=multi-user.target

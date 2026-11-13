@@ -74,6 +74,9 @@ source = ["skeleton", "deployment_agent"]
 omit = ["*/migrations/*"]
 
 [tool.coverage.report]
+# Piso medido (#329): TOTAL 82% nos dois Pythons do job "Cobertura da suíte" do run 43368522664
+# (main ec825cb), arredondado para baixo e menos 1. Não baixe para fazer o CI passar.
+fail_under = 81
 show_missing = true
 skip_covered = true
 exclude_also = [
@@ -90,15 +93,23 @@ extend-exclude = [".private", "staticfiles"]
 [tool.ruff.lint]
 # Linha de base aplicada a todo o repositório. E501 (strings SQL/HTML longas que o
 # formatter não quebra) e PLC0415 (imports tardios contra ciclos de apps) ficam fora.
-select = ["F", "E9", "B", "UP", "DJ", "I"]
+# DTZ, BLE e S (#329): uma dispensa pontual leva o motivo, `# noqa: REGRA - motivo`.
+select = ["F", "E9", "B", "UP", "DJ", "I", "DTZ", "BLE", "S"]
 ignore = [
     "DJ012",  # ordem de membros em modelos abstratos é estilística
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "config/settings/*.py" = ["F403", "F405"]  # overlays herdam os defaults por star import
-"tests/**" = ["DJ008"]
-"**/migrations/**" = ["I"]  # migrations históricas não são reescritas
+# Testes montam datas e credenciais de fixture, usam assert e chamam subprocessos fixos.
+"tests/**" = [
+    "DJ008", "DTZ", "BLE001", "S101", "S103", "S104", "S105", "S106", "S108", "S310", "S311", "S603", "S607", "S608",
+]
+# O skill é portátil e mantém o próprio estilo: testes unittest com assert e git/gh com argv fixo.
+".claude/skills/**" = ["S101", "S603", "S607"]
+"tools/**" = ["S603", "S607"]  # subprocessos com argv fixo do operador
+"**/migrations/**" = ["I", "S608"]  # migrations históricas não são reescritas
+"deployment_agent/**" = ["S603", "S607", "S103"]  # argv fixo da configuração; modos de arquivo explícitos
 
 [tool.ruff.lint.isort]
 known-first-party = ["applications", "config", "deployment_agent", "examples", "skeleton", "tests", "tools"]
@@ -132,7 +143,27 @@ files = [
     "skeleton/observability/otel.py",
     "skeleton/observability/sentry.py",
     "skeleton/observability/tracing.py",
+    "tools/workflow",
+    "tools/dev_postgres.py",
+    "deployment_agent",
+    # #348: authorization, identity, API tokens, webhooks and the first-party calendar.
+    "skeleton/accounts/platform.py",
+    "skeleton/access/capabilities.py",
+    "skeleton/integrations/webhooks/delivery.py",
+    "skeleton/integrations/webhooks/services.py",
+    "skeleton/integrations/webhooks/log.py",
+    "skeleton/integrations/tokens/scopes.py",
+    "skeleton/integrations/tokens/services.py",
+    "skeleton/integrations/tokens/activity.py",
+    "skeleton/integrations/tokens/middleware.py",
+    "skeleton/access/services.py",
+    "skeleton/accounts/services.py",
+    "skeleton/accounts/adapters.py",
+    "skeleton/contrib/calendar",
 ]
+# The deployment agent is POSIX only (fcntl, O_DIRECTORY): checking for Linux everywhere makes a
+# local run on Windows see what the typecheck job sees (#347).
+platform = "linux"
 follow_imports = "silent"
 warn_unused_configs = true
 warn_redundant_casts = true
@@ -157,10 +188,37 @@ module = [
     "skeleton.instance.crypto",
     "skeleton.instance.resolve",
     "skeleton.observability.*",
+    "dependabot_locks",
+    "dev_postgres",
+    "deployment_agent.*",
+    "skeleton.accounts.platform",
+    "skeleton.access.capabilities",
+    "skeleton.integrations.webhooks.delivery",
+    "skeleton.integrations.webhooks.services",
+    "skeleton.integrations.webhooks.log",
+    "skeleton.integrations.tokens.scopes",
+    "skeleton.integrations.tokens.services",
+    "skeleton.integrations.tokens.activity",
+    "skeleton.integrations.tokens.middleware",
+    "skeleton.access.services",
+    "skeleton.accounts.services",
+    "skeleton.accounts.adapters",
+    "skeleton.contrib.calendar.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_any_generics = true
+
+# The release probe of the agent loads the app registry: the Django plugin then reports the
+# untyped allauth models against it (#347).
+[[tool.mypy.overrides]]
+module = ["deployment_agent.probe"]
+disable_error_code = ["import-untyped"]
+
+# django-allauth publishes no stubs: its objects are Any (#348).
+[[tool.mypy.overrides]]
+module = ["allauth.*", "dateutil.*"]
+ignore_missing_imports = true
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"

@@ -1,5 +1,9 @@
 """Identity lifecycle operations; callers cannot mass-assign identity flags."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -9,8 +13,14 @@ from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
+if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
 
-def normalized_email(email):
+    from skeleton.accounts.models import User, UserProfile
+    from skeleton.tenancy.models import Organization
+
+
+def normalized_email(email: str) -> str:
     from django.core.validators import validate_email
 
     from skeleton.accounts.emails import normalize_email
@@ -20,7 +30,7 @@ def normalized_email(email):
     return email
 
 
-def password_allowed(user):
+def password_allowed(user: User) -> bool:
     return bool(
         user.is_active
         and user.deleted_at is None
@@ -29,7 +39,15 @@ def password_allowed(user):
     )
 
 
-def create_identity(*, email, password=None, first_name="", last_name="", local_password_allowed=True, using="default"):
+def create_identity(
+    *,
+    email: str,
+    password: str | None = None,
+    first_name: str = "",
+    last_name: str = "",
+    local_password_allowed: bool = True,
+    using: str = "default",
+) -> User:
     """A new identity carries no platform flag nor membership, so creating one grants nothing."""
     from skeleton.accounts.models import User, UserProfile
 
@@ -52,7 +70,7 @@ def create_identity(*, email, password=None, first_name="", last_name="", local_
         return user
 
 
-def ensure_profile(user, *, using="default"):
+def ensure_profile(user: User, *, using: str = "default") -> UserProfile:
     from skeleton.accounts.models import UserProfile
 
     profile = UserProfile.all_objects.using(using).filter(user_id=user.pk).first()
@@ -62,7 +80,13 @@ def ensure_profile(user, *, using="default"):
     return profile
 
 
-def update_profile(user, *, data, user_revision=None, profile_revision=None):
+def update_profile(
+    user: AbstractBaseUser,
+    *,
+    data: Mapping[str, Any],
+    user_revision: int | None = None,
+    profile_revision: int | None = None,
+) -> tuple[User, UserProfile]:
     from skeleton.accounts.models import User, UserProfile
 
     allowed = {"first_name", "last_name", "display_name", "timezone", "language"}
@@ -89,7 +113,8 @@ def update_profile(user, *, data, user_revision=None, profile_revision=None):
             profile_revision is not None and profile.revision != profile_revision
         ):
             raise ConcurrentUpdate("Profile revision is stale.")
-        changed_user, changed_profile = [], []
+        changed_user: list[str] = []
+        changed_profile: list[str] = []
         for name, value in data.items():
             target, changed = (
                 (locked, changed_user) if name in {"first_name", "last_name"} else (profile, changed_profile)
@@ -104,7 +129,7 @@ def update_profile(user, *, data, user_revision=None, profile_revision=None):
         return locked, profile
 
 
-def revoke_sessions(user, *, using="default"):
+def revoke_sessions(user: User, *, using: str = "default") -> User:
     from skeleton.accounts.models import User
 
     with transaction.atomic(using=using):
@@ -115,7 +140,9 @@ def revoke_sessions(user, *, using="default"):
         return locked
 
 
-def deactivate_user(user, *, actor, delete=False, expected_revision=None, using="default"):
+def deactivate_user(
+    user: User, *, actor: Any, delete: bool = False, expected_revision: int | None = None, using: str = "default"
+) -> User:
     """Deactivate (or soft delete) an identity for a platform administrator (#226).
 
     ``expected_revision`` is the revision the confirmation page displayed; a different one
@@ -146,7 +173,9 @@ def deactivate_user(user, *, actor, delete=False, expected_revision=None, using=
 PLATFORM_USER_FIELDS = ("first_name", "last_name", "is_active", "is_staff", "is_superuser")
 
 
-def update_platform_user(user, *, actor, data, expected_revision, using="default"):
+def update_platform_user(
+    user: User, *, actor: Any, data: Mapping[str, Any], expected_revision: int | None, using: str = "default"
+) -> User:
     """Platform-side identity edit with CAS; email changes stay in the verified allauth flow.
 
     Deactivating keeps the last-administrator guard, demoting or deactivating the last
@@ -191,7 +220,7 @@ def update_platform_user(user, *, actor, data, expected_revision, using="default
         return previous
 
 
-def restore_user(user, *, actor, using="default"):
+def restore_user(user: User, *, actor: Any, using: str = "default") -> User:
     """Restore a deleted identity for a platform administrator; ``restore()`` applies the CAS."""
     from skeleton.accounts.platform import require_platform_actor
 
@@ -201,7 +230,7 @@ def restore_user(user, *, actor, using="default"):
         return user
 
 
-def set_local_password(user, password, *, using="default"):
+def set_local_password(user: User, password: str, *, using: str = "default") -> User:
     from django.contrib.auth.password_validation import validate_password
 
     from skeleton.accounts.models import User
@@ -220,7 +249,9 @@ def set_local_password(user, password, *, using="default"):
     return user
 
 
-def bootstrap_identity(*, email, organization, name, password=None, using="default"):
+def bootstrap_identity(
+    *, email: str, organization: str, name: str, password: str | None = None, using: str = "default"
+) -> tuple[User, Organization]:
     from allauth.account.models import EmailAddress
 
     from skeleton.accounts.models import User
@@ -261,7 +292,7 @@ def bootstrap_identity(*, email, organization, name, password=None, using="defau
     return user, org
 
 
-def create_service_account(*, actor, name):
+def create_service_account(*, actor: User, name: str) -> User:
     """An organization creates a non-interactive member for its integrations (#44).
 
     Requires ``integrations.manage`` under ``organization_lock``. The identity is global (it is a
@@ -297,7 +328,7 @@ def create_service_account(*, actor, name):
         return user
 
 
-def deactivate_service_account(*, actor, user):
+def deactivate_service_account(*, actor: User, user: User) -> User:
     """Deactivate a service account of the current organization; sessions and tokens stop at once.
 
     Same capability and lock as creation. Idempotent and deactivation only, so it takes no

@@ -14,6 +14,7 @@ Base reutilizável de Django 6.1 para construir sistemas com login, várias orga
 | Fazer apps conversarem entre si ou usar notificações, identidade e outros serviços do núcleo | [API de serviços](docs/service-api.md) e o skill `service-api` |
 | Integrar uma interface ou cliente HTTP | [API](docs/api.md) e [autenticação](docs/authentication-sso.md) |
 | Instalar, atualizar ou operar produção | [Deployment](docs/deployment.md) e [testes/evidências](docs/testing.md) |
+| Relatar uma falha de segurança | [Política de segurança](SECURITY.md): pelo relato privado do GitHub, nunca em issue pública |
 
 ## Quem usa cada interface
 
@@ -113,6 +114,8 @@ BasedPyright usa `.venv/bin/python` para resolver Django e as demais dependênci
 
 As regras do Ruff (lint, ordem de imports e formatter) ficam em `pyproject.toml`, e a mesma versão (0.17.4) roda no pre-commit e no CI. O Ruff não entra nos locks porque é ferramenta de desenvolvimento, isolada via `uv`/`pre-commit`. mypy, django-stubs, pytest-cov e pytest-xdist ficam no lock de desenvolvimento, porque precisam do Django instalado no mesmo ambiente.
 
+Além da linha de base, o lint aplica `DTZ` (datas sem fuso), `BLE` (`except Exception` amplo) e `S` (regras de segurança) (#329). Testes, `tools/`, o agente e o skill dispensam por `per-file-ignores` o que é ruído ali (assert, senhas de fixture, subprocesso com argv fixo). Fora disso, uma dispensa é pontual e diz o motivo: `# noqa: BLE001 - motivo em uma frase`; um `noqa` não esconde SQL com entrada externa. As versões repetidas à mão mudam juntas, e `tests/unit/test_workflow_pins.py` confere: Ruff 0.17.4 em `.github/workflows/ci.yml`, `.pre-commit-config.yaml` e nos comandos abaixo; uv 0.12.7 em `ci.yml`, `dependabot-locks.yml` e em "Atualizar locks". Actions são fixadas por SHA de commit (`uses: dono/repo@<sha> # v7`) e a imagem base Python por digest (#309): atualize-as pelo PR semanal do Dependabot, que troca o SHA, o digest e o comentário juntos. O job `lint` do CI também roda os hooks do pre-commit (YAML, TOML, JSON, conflito de merge, arquivo grande, chave privada) em todos os arquivos, para quem commitou sem o pre-commit instalado. A cobertura da suíte do núcleo tem piso (`fail_under` em `pyproject.toml`), conferido no relatório combinado do job `coverage`; uma fatia isolada não o aplica.
+
 ```sh
 uvx ruff@0.17.4 check
 uvx ruff@0.17.4 format
@@ -122,7 +125,7 @@ eval "$(.venv/bin/python tools/dev_postgres.py env)"
 SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests -n auto --cov  # cerca de 4 min; ver docs/testing.md
 ```
 
-A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
+A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito, entre eles `tools/workflow`, `tools/dev_postgres.py` e o agente de deployment, cujos documentos do journal (operação, plano, registro de plano, estado ativo) estão descritos em `deployment_agent/types.py` (#347). O mypy analisa como Linux em qualquer máquina, porque o agente só roda em POSIX. Também são estritos os serviços de acesso e de identidade, os adapters do allauth, os tokens de API, os webhooks e a agenda (#348); como a agenda é uma app first-party opcional, rode `SKELETON_BUNDLED_APPS=calendar python -m mypy`, como o CI, para o plugin do Django carregar os modelos dela. O `django-allauth` e o `python-dateutil` não publicam tipos: o que vem deles é `Any`. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
 
 O hook `commit-msg` exige que cada commit referencie uma issue (`Refs #N`), e o workflow `.github/workflows/pr-check.yml` ("Verificação do PR") exige que o PR cite uma issue classificada e preencha as seções do modelo. A versão é decidida e publicada pelo skill `dev-workflow` depois do merge; ver [fluxo de trabalho](docs/workflow.md).
 

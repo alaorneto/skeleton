@@ -84,7 +84,7 @@ def _apply(context: Context) -> None:
             "on" if context.platform_admin else "off",
             "on" if context.platform_auditor else "off",
         )
-        assert len(values) == len(_GUCS)
+        assert len(values) == len(_GUCS)  # noqa: S101 - invariant between the GUC list and its values
         with connection.cursor() as cursor:
             cursor.execute(_SET_GUCS, [str(value) if value is not None else "" for value in values])
 

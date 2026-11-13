@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils.translation import gettext
@@ -29,7 +30,7 @@ def _member(actor: Any, user_id: Any) -> Any:
     return refs[0]
 
 
-def active_user_ids(user_ids: Any) -> set:
+def active_user_ids(user_ids: Any) -> set[UUID]:
     """Users among ``user_ids`` with an active membership in the current organization (jobs, #223)."""
     from skeleton.service_api.organizations import OrganizationService
 
@@ -40,7 +41,7 @@ def active_user_ids(user_ids: Any) -> set:
     return {ref.user_id for ref in refs}
 
 
-def invite(*, actor: Any, event_id: Any, user_ids: tuple, optional: bool = False) -> list[EventAttendee]:
+def invite(*, actor: Any, event_id: Any, user_ids: tuple[UUID, ...], optional: bool = False) -> list[EventAttendee]:
     """Invite members to an event the actor may write; existing invitations are kept."""
     from .policies import require_writable_event
 
@@ -95,7 +96,7 @@ def respond(*, actor: Any, event_id: Any, response: str, expected_revision: int)
     return attendee
 
 
-def attendee_users(event: Any) -> tuple:
+def attendee_users(event: Any) -> tuple[UUID, ...]:
     return tuple(
         EventAttendee.objects.filter(event_id=event.series_id or event.pk, membership__is_active=True).values_list(
             "membership__user_id", flat=True
@@ -103,7 +104,7 @@ def attendee_users(event: Any) -> tuple:
     )
 
 
-def notify_attendees(event: Any, type_code: str, *, users: tuple | None = None, actor: Any) -> None:
+def notify_attendees(event: Any, type_code: str, *, users: tuple[UUID, ...] | None = None, actor: Any) -> None:
     """Tell the attendees, in the caller's transaction; the payload never carries private content."""
     from skeleton.service_api.notifications import NotificationService, Recipients
 
