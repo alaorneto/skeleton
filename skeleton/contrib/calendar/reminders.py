@@ -10,6 +10,7 @@ notification preferences.
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -19,6 +20,7 @@ from django.utils.translation import gettext
 
 from .models import EventReminder
 
+logger = logging.getLogger("skeleton.contrib.calendar")
 JOB = "calendar.reminders"
 NOTIFICATION = "calendar.reminder"
 EVERY = timedelta(minutes=5)
@@ -48,44 +50,106 @@ def remove_reminder(*, actor: Any, reminder_id: Any) -> None:
     reminder.delete()
 
 
-def _recipients(event: Any) -> tuple:
-    from .attendees import attendee_users
+def _recipients(event: Any, invited: dict, organizers: set) -> tuple:
+    """The organizer while still a member, then the active attendees (#223)."""
+    users = list(invited.get(event.pk, ()))
+    if event.organizer_id in organizers:
+        users.insert(0, event.organizer_id)
+    return tuple(dict.fromkeys(users))
 
-    return tuple(dict.fromkeys((event.organizer_id, *attendee_users(event))))
+
+def _candidates(now: Any) -> tuple[list, dict, dict, set]:
+    """Reminders that may still be due, with their overrides, attendees and active organizers, in bulk."""
+    from django.db.models import Q
+
+    from .attendees import active_user_ids
+    from .models import Event, EventAttendee
+
+    cutoff = now - GRACE
+    # A series whose last occurrence already ended has no reminder due. A master with an override
+    # ending after the cutoff stays a candidate: the override may have been moved later.
+    moved = (
+        Event.objects.filter(series__isnull=False)
+        .filter(Q(ends_at__gt=cutoff) | Q(end_date__gte=cutoff.date()))
+        .values("series_id")
+    )
+    reminders = list(
+        EventReminder.objects.select_related("event")
+        .filter(event__status__in=(Event.Status.CONFIRMED, Event.Status.TENTATIVE), event__series__isnull=True)
+        .filter(Q(event__recurrence_end__gt=cutoff) | Q(event__recurrence_end__isnull=True) | Q(event_id__in=moved))
+    )
+    master_ids = {reminder.event_id for reminder in reminders}
+    overrides: dict = {}
+    invited: dict = {}
+    if master_ids:
+        for row in Event.objects.filter(series_id__in=master_ids):
+            overrides.setdefault(row.series_id, []).append(row)
+        attendance = EventAttendee.objects.filter(event_id__in=master_ids, membership__is_active=True)
+        for event_id, user_id in attendance.values_list("event_id", "membership__user_id"):
+            invited.setdefault(event_id, []).append(user_id)
+    organizers = active_user_ids({reminder.event.organizer_id for reminder in reminders})
+    return reminders, overrides, invited, organizers
 
 
 def send_due_reminders(*, now: Any = None) -> int:
-    """Job handler (system context of the organization): notify the reminders that are due."""
+    """Job handler (system context of the organization): notify the reminders that are due.
+
+    Does nothing while the calendar is off in the organization (#223). The organizer is notified
+    only while still a member; an occurrence nobody active can receive is skipped, and a
+    notification refused as invalid input is logged without rolling the others back.
+    """
+    from django.core.exceptions import PermissionDenied
+    from django.db import transaction
+
+    from skeleton.service_api import InvalidInput
     from skeleton.service_api.notifications import NotificationService, Recipients
+    from skeleton.system.applications import require_application_enabled
+    from skeleton.tenancy.context import current_context
 
     from .models import Event
     from .recurrence import expand
 
     now = now or timezone.now()
+    try:
+        require_application_enabled("skeleton_calendar")
+    except PermissionDenied:  # ApplicationUnavailable too: a job of a closed app does nothing.
+        return 0
     sent = 0
-    reminders = EventReminder.objects.select_related("event").filter(
-        event__status__in=(Event.Status.CONFIRMED, Event.Status.TENTATIVE), event__series__isnull=True
-    )
+    reminders, overrides, invited, organizers = _candidates(now)
     for reminder in reminders:
         event, lead = reminder.event, timedelta(minutes=reminder.minutes_before)
-        overrides = list(Event.objects.filter(series=event))
-        window = expand(event, now - GRACE + lead, now + lead + EVERY, overrides=overrides)
+        window = expand(event, now - GRACE + lead, now + lead + EVERY, overrides=overrides.get(event.pk, []))
         for occurrence in window.occurrences:
             due = occurrence.starts_at - lead
             if not (now - GRACE < due <= now) or occurrence.event.status == Event.Status.CANCELLED:
                 continue
+            users = _recipients(event, invited, organizers)
+            if not users:
+                continue
             key = (occurrence.recurrence_id or occurrence.starts_at).strftime("%Y%m%dT%H%M%SZ")
-            NotificationService().notify(
-                actor=None,
-                type_code=NOTIFICATION,
-                recipients=Recipients(users=_recipients(event)),
-                payload=(
-                    ("title", occurrence.event.title if not occurrence.event.is_private else gettext("Ocupado")),
-                    ("starts_at", occurrence.starts_at.isoformat()),
-                    ("event", str(event.pk)),
-                ),
-                dedupe_key=f"reminder:{event.pk}:{key}:{reminder.minutes_before}",
-            )
+            try:
+                with transaction.atomic(using=current_context().using):
+                    NotificationService().notify(
+                        actor=None,
+                        type_code=NOTIFICATION,
+                        recipients=Recipients(users=users),
+                        payload=(
+                            (
+                                "title",
+                                occurrence.event.title if not occurrence.event.is_private else gettext("Ocupado"),
+                            ),
+                            ("starts_at", occurrence.starts_at.isoformat()),
+                            ("event", str(event.pk)),
+                        ),
+                        dedupe_key=f"reminder:{event.pk}:{key}:{reminder.minutes_before}",
+                    )
+            except InvalidInput:
+                # Identifiers only: never the title, description or location.
+                logger.warning(
+                    "calendar.reminder_skipped",
+                    extra={"event": "calendar.reminder_skipped", "target_sysid": str(event.pk)},
+                )
+                continue
             sent += 1
     return sent
 

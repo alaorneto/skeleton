@@ -28,6 +28,17 @@ def _member(actor: Any, user_id: Any) -> Any:
     return refs[0]
 
 
+def active_user_ids(user_ids: Any) -> set:
+    """Users among ``user_ids`` with an active membership in the current organization (jobs, #223)."""
+    from skeleton.service_api.organizations import OrganizationService
+
+    identifiers = tuple(dict.fromkeys(user_ids))
+    if not identifiers:
+        return set()
+    refs = OrganizationService().member_refs(actor=None, user_ids=identifiers, include_service_accounts=True)
+    return {ref.user_id for ref in refs}
+
+
 def invite(*, actor: Any, event_id: Any, user_ids: tuple, optional: bool = False) -> list[EventAttendee]:
     """Invite members to an event the actor may write; existing invitations are kept."""
     from .policies import require_writable_event
