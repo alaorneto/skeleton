@@ -345,7 +345,7 @@ No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `w
 
 O token de uso único aparece nos logs do serviço `web` no Coolify. Abra `https://<SANDBOX_HOST>/setup/` e preencha o [setup](#primeira-instalação-pelo-setup-146) com:
 
-- **Instância:** host `<SANDBOX_HOST>`, origem CSRF `https://<SANDBOX_HOST>` e confiança no proxy ligada (o Traefik substitui o `X-Forwarded-Proto` recebido de fora).
+- **Instância:** host `<SANDBOX_HOST>` e confiança no proxy ligada (o Traefik substitui o `X-Forwarded-Proto` recebido de fora). A origem CSRF `https://<SANDBOX_HOST>` já vem do compose (`DJANGO_CSRF_TRUSTED_ORIGINS`), porque o próprio setup precisa dela: antes desse passo o Django não confia no proxy, vê a requisição como `http://` e recusaria o POST com 403 (#439). Por vir do ambiente, ela vence o valor gravado e aparece somente leitura em `/platform/instance/`. Por isso `SANDBOX_HOST` deve ser um host só.
 - **Banco runtime:** `postgres://skeleton_runtime:<SKELETON_RUNTIME_DB_PASSWORD>@postgres:5432/skeleton`.
 - **Schema:** `postgres://skeleton_owner:<SKELETON_OWNER_DB_PASSWORD>@postgres:5432/skeleton`. O `migrate` já aplicou as migrations; o setup só confere.
 - **Cache:** `redis://:<REDIS_PASSWORD>@redis:6379/0`.

@@ -319,6 +319,8 @@ jobs:
           echo "$config" | jq -e '[.services | to_entries[] | select(.value.environment.SKELETON_OWNER_DB_PASSWORD) | .key] == ["postgres"]'
           # Em modo setup o healthcheck manda Host: localhost; sem ele o web nunca fica saudável (#436).
           echo "$config" | jq -e '.services.web.environment.SKELETON_SETUP_ALLOWED_HOSTS | split(",") | index("localhost") != null'
+          # Atrás do TLS do Coolify o setup só aceita POST com a origem https exata (#439).
+          echo "$config" | jq -e --arg origin "https://$SANDBOX_HOST" '.services.web.environment.DJANGO_CSRF_TRUSTED_ORIGINS == $origin'
           # Sem uma variável obrigatória, o compose recusa em vez de subir com valor vazio.
           if env -u REDIS_PASSWORD docker compose -f compose.sandbox.yaml config --quiet 2>/dev/null; then
             echo "compose.sandbox.yaml aceitou REDIS_PASSWORD ausente" >&2
