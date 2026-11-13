@@ -154,6 +154,7 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 | `o/<org>/flows/tasks/<id>/reassign/` | POST | `{"to_user": "<uuid>", "comment": "..."}` |
 | `o/<org>/flows/tasks/<id>/complete/` | POST | `{"action": "<chave>", "data": {campo: valor}, "comment": "..."}` |
 | `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
+| `o/<org>/flows/operations/` | GET | Painel de operação (#408), só para quem administra fluxos (`flows.manage`); filtros `flow_key` e `version` |
 | `o/<org>/flows/instances/` | GET | Instâncias visíveis; filtros exatos `flow_key`, `subject_id`, `status` |
 | `o/<org>/flows/instances/<id>/` | GET | Instância com etapas ativas e dados não sensíveis; ETag com a revisão da instância |
 | `o/<org>/flows/instances/<id>/history/` | GET | Histórico ordenado |

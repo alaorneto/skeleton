@@ -224,6 +224,38 @@ TASK_ACTION_OPERATIONS = {
 }
 
 
+class OperationsView(TenantAPI):
+    """Operations panel (#408), for who administers flows."""
+
+    openapi = {
+        "GET": Operation(
+            "Painel de operação dos fluxos da organização",
+            lambda: dto_schema(_operations_overview()),
+            capability=FLOWS_MANAGE,
+            query=(("flow_key", string(), "Chave do fluxo."), ("version", INTEGER, "Versão do fluxo.")),
+        )
+    }
+
+    def get(self, request, organization_id):
+        from .operations import overview
+
+        version = request.query_params.get("version")
+        try:
+            flow_version = int(version) if version not in (None, "") else None
+        except ValueError:
+            raise BoundaryError("invalid_request", gettext("Versão inválida.")) from None
+        panel = overview(
+            request.user, flow_key=(request.query_params.get("flow_key") or "")[:100], flow_version=flow_version
+        )
+        return Response(asdict(panel))
+
+
+def _operations_overview():
+    from .operations import OperationsOverview
+
+    return OperationsOverview
+
+
 class InstancesView(TenantAPI):
     openapi = {
         "GET": Operation(

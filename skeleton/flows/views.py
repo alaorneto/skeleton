@@ -173,10 +173,44 @@ def task_detail(request, organization_id, sysid):
     )
 
 
+def _version(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+@tenant_page()
+def operations(request, organization_id):
+    """Operations panel (#408): failed instances and the open tasks that need someone."""
+    from .operations import overview
+
+    flow_key = (request.GET.get("flow_key") or "").strip()[:100]
+    flow_version = _version(request.GET.get("version"))
+    panel = overview(request.user, flow_key=flow_key, flow_version=flow_version)
+    return render(
+        request,
+        TEMPLATES + "operations.html",
+        {
+            "organization_id": organization_id,
+            "panel": panel,
+            "flow_key": flow_key,
+            "flow_version": flow_version or "",
+        },
+    )
+
+
 @tenant_page()
 def instance_list(request, organization_id):
+    from .policies import is_flow_admin
+
     page = _cursor_page(request, lambda cursor: FlowService().instances(actor=request.user, cursor=cursor))
-    return render(request, TEMPLATES + "instances.html", {"organization_id": organization_id, "page": page})
+    return render(
+        request,
+        TEMPLATES + "instances.html",
+        {"organization_id": organization_id, "page": page, "can_operate": is_flow_admin(request.user)},
+    )
 
 
 @tenant_page()
