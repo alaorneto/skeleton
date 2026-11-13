@@ -459,6 +459,8 @@ class Invoice(OrganizationRecord):
     due_at = models.DateTimeField()
     paid_at = models.DateTimeField(null=True, blank=True)
     voided_at = models.DateTimeField(null=True, blank=True)
+    # Why the platform voided the invoice (#405), kept with it.
+    status_note = models.CharField(max_length=500, blank=True, default="")
     # Collection attempts of an auto-charge invoice and when the next one is due (#399).
     attempt_count = models.PositiveSmallIntegerField(default=0)
     next_attempt_at = models.DateTimeField(null=True, blank=True)

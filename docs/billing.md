@@ -1,6 +1,6 @@
 # Cobrança: assinaturas, cotas e pagamentos
 
-`skeleton/billing` (label `sk_billing`) é o subsistema que permite vender a plataforma como SaaS: catálogo de planos, apps e pacotes de armazenamento, assinatura de cada organização, faturas e pagamentos. É o [epic #406](https://github.com/alaorneto/skeleton/issues/406), entregue em etapas; esta página diz o que já existe e o que vem em cada issue.
+`skeleton/billing` (label `sk_billing`) é o subsistema que permite vender a plataforma como SaaS: catálogo de planos, apps e pacotes de armazenamento, assinatura de cada organização, faturas e pagamentos. É o [epic #406](https://github.com/alaorneto/skeleton/issues/406).
 
 A cobrança é **desligada por padrão** (`SKELETON_BILLING_ENABLED=false`). Desligada, as tabelas existem e ficam vazias, e nenhum comportamento do núcleo muda: instalações próprias, que não vendem a plataforma, seguem idênticas.
 
@@ -201,8 +201,12 @@ Para testes, `skeleton.testing.billing.use_fake_provider()` registra um provedor
 - **API** `/api/v1/o/<org>/billing/` e `/api/v1/o/<org>/billing/<ação>/` ([API](api.md#recursos)).
 - **API de serviços:** `BillingService` ([API de serviços](service-api.md#billingservice)).
 
-## Próximas etapas
+## Operação da plataforma
 
-| Issue | Entrega |
-|---|---|
-| [#405](https://github.com/alaorneto/skeleton/issues/405) | Administração da plataforma |
+`/platform/billing/` (`skeleton/web/platform/billing_views.py` sobre `skeleton/billing/platform.py`):
+
+- **Catálogo:** produtos, preços (os termos nunca mudam: para mudar o valor, crie outro preço e desative o antigo; um preço de plano base pode ser o **padrão** da moeda, o que as organizações novas recebem), vouchers (criar, ativar e desativar) e contas de provedor (os segredos nunca aparecem; um campo vazio mantém o atual; salvar exige autenticação recente; a página mostra a URL de webhook de cada conta). O administrador da plataforma e o papel limitado **Operador de cobrança** (`billing`, capacidade `billing.operate`) operam o catálogo.
+- **Conta de uma organização** (`/platform/organizations/<id>/billing/`, só o administrador): assinatura, faturas e pagamentos, com quatro ações, todas com **motivo obrigatório** guardado com o registro que mudam: **baixa manual** (um pagamento `offline` com a nota, que quita a fatura, mesmo incobrável), **anular** (o motivo fica em `Invoice.status_note`), **prorrogação de acesso** até uma data (`access_override_reason`) e **cortesia** (o preço é contratado e um voucher privado de 100% para sempre cobre as renovações; as faturas imediatas recebem baixa manual com a nota). As ações abrem o `system_context` da organização com a razão `platform:billing`, que só o administrador da plataforma pode abrir numa requisição.
+- A página da organização na plataforma tem o atalho **Abrir a cobrança**.
+
+Relatórios financeiros (receita recorrente, cancelamentos) ficam como evolução futura.

@@ -223,6 +223,7 @@ class PlatformRoleAssignment(SystemRecord):
     class Role(models.TextChoices):
         AUDITOR = "auditor", "Auditor de plataforma"
         OPERATOR = "operator", "Operador de releases"
+        BILLING = "billing", "Operador de cobrança"
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="platform_roles")
     role = models.CharField(max_length=16, choices=Role.choices)
@@ -236,7 +237,9 @@ class PlatformRoleAssignment(SystemRecord):
                 name="sk_accounts_platform_role_live",
                 violation_error_code="unique",
             ),
-            models.CheckConstraint(condition=Q(role__in=("auditor", "operator")), name="sk_accounts_platform_role"),
+            models.CheckConstraint(
+                condition=Q(role__in=("auditor", "operator", "billing")), name="sk_accounts_platform_role"
+            ),
         ]
 
     def __str__(self):

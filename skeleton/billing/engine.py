@@ -287,7 +287,7 @@ def issue_invoice(
     for callback in _after_issue:
         callback(invoice)
     if invoice.total == 0:
-        settle_invoice(invoice, now=now)
+        invoice = settle_invoice(invoice, now=now)  # The caller gets the invoice as it is now: paid.
     return invoice
 
 

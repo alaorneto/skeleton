@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import identity_views, instance_views, jobs_views, privacy_views, updates, views
+from . import billing_views, identity_views, instance_views, jobs_views, privacy_views, updates, views
 
 app_name = "platform"
 urlpatterns = [
@@ -37,6 +37,20 @@ urlpatterns = [
     path("catalog/<uuid:sysid>/", views.catalog_table, name="catalog-table"),
     path("catalog/fields/<uuid:sysid>/", views.catalog_field, name="catalog-field"),
     path("audit/", views.audit, name="audit"),
+    path("billing/", billing_views.billing, name="billing"),
+    path("billing/products/", billing_views.billing_product, name="billing-product"),
+    path("billing/prices/", billing_views.billing_price, name="billing-price"),
+    path("billing/prices/<uuid:sysid>/", billing_views.billing_price_flags, name="billing-price-flags"),
+    path("billing/vouchers/", billing_views.billing_voucher, name="billing-voucher"),
+    path("billing/vouchers/<uuid:sysid>/", billing_views.billing_voucher_toggle, name="billing-voucher-toggle"),
+    path("billing/providers/", billing_views.billing_provider, name="billing-provider-create"),
+    path("billing/providers/<uuid:sysid>/", billing_views.billing_provider, name="billing-provider"),
+    path("organizations/<uuid:sysid>/billing/", billing_views.organization_billing, name="organization-billing"),
+    path(
+        "organizations/<uuid:sysid>/billing/<slug:action>/",
+        billing_views.organization_billing_action,
+        name="organization-billing-action",
+    ),
     path("jobs/", jobs_views.jobs, name="jobs"),
     path("jobs/<uuid:sysid>/", jobs_views.job_action, name="job-action"),
     path("privacy/", privacy_views.privacy, name="privacy"),
