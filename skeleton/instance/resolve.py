@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import environ  # type: ignore[import-untyped]
-from cryptography.fernet import Fernet
+from cryptography.fernet import MultiFernet
 
 from . import crypto
 from .schema import BY_ENV, CATALOG
@@ -41,7 +41,7 @@ class LayeredEnviron(Mapping[str, str]):
     def __init__(self, environment: Mapping[str, str], stored: dict[str, tuple[str, bool]], key_path: Path):
         self._environment = environment
         self._key_path = key_path
-        self._fernet: Fernet | None = None
+        self._fernet: MultiFernet | None = None
         # Stored rows by environment variable name; unknown keys (written by a newer release) are ignored.
         self._stored = {CATALOG[key].env: row for key, row in stored.items() if key in CATALOG}
 

@@ -1,4 +1,4 @@
-"""``manage.py instance status|show|set|unset|import-env|export-template`` (#143).
+"""``manage.py instance status|show|set|unset|import-env|export-template|rotate-key`` (#143, #342).
 
 Secrets are written encrypted, read back only by the settings, and never printed: ``show``
 masks them and every subcommand reports keys and origins, not values.
@@ -7,6 +7,7 @@ masks them and every subcommand reports keys and origins, not values.
 import os
 import sys
 
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
@@ -38,6 +39,8 @@ class Command(BaseCommand):
         imported = actions.add_parser("import-env", help="Store the catalog keys present in the current environment.")
         imported.add_argument("--keep-existing", action="store_true", help="Do not replace keys already stored.")
         actions.add_parser("export-template", help="Print a commented .env template with no values.")
+        rotate = actions.add_parser("rotate-key", help="Generate a new master key and re-encrypt every stored secret.")
+        rotate.add_argument("--drop-old", action="store_true", help="Remove the previous keys from the key file.")
 
     def handle(self, *args, **options):
         database, key = instance_paths(settings.BASE_DIR)
@@ -45,7 +48,7 @@ class Command(BaseCommand):
         handler = getattr(self, "_" + options["action"].replace("-", "_"))
         try:
             handler(store, key, options)
-        except (crypto.InstanceKeyError, KeyError, ValueError) as exc:
+        except (crypto.InstanceKeyError, InvalidToken, KeyError, ValueError) as exc:
             raise CommandError(str(exc.args[0] if exc.args else exc)) from None
 
     # ----------------------------------------------------------------- subcommands
@@ -98,6 +101,36 @@ class Command(BaseCommand):
                 raise CommandError(f"{spec.env}: {exc}") from None
             imported.append(spec.key)
         self.stdout.write(self.style.SUCCESS("Importadas: " + (", ".join(imported) if imported else "nenhuma") + "."))
+
+    def _rotate_key(self, store, key, options):
+        """Two steps (#342): add a new first key and re-encrypt; later, ``--drop-old`` forgets the others."""
+        if not key.is_file():
+            raise CommandError("Não há chave mestra para rotacionar.")
+        old = crypto.read_keys(key)
+        if options["drop_old"]:
+            # Every secret must already be under the first key; checked before the file changes.
+            current = MultiFernet([Fernet(old[0])])
+            for value, secret in store.settings().values():
+                if secret:
+                    try:
+                        current.decrypt(value.encode())
+                    except InvalidToken:
+                        raise CommandError(
+                            "Ainda há segredos cifrados com uma chave antiga; rode rotate-key sem --drop-old primeiro."
+                        ) from None
+            crypto.write_keys(key, old[:1])
+            self.stdout.write(self.style.SUCCESS("Chaves antigas removidas do arquivo."))
+            return
+        new = Fernet.generate_key()
+        crypto.write_keys(key, [new, *old])  # 1) The file knows both keys: every reader keeps working.
+        keyring = MultiFernet([Fernet(item) for item in (new, *old)])
+        count = store.reencrypt_secrets(
+            lambda token: keyring.rotate(token.encode()).decode(), source="cli:rotate-key"
+        )  # 2) Every secret under the new key, in one SQLite transaction.
+        self.stdout.write(self.style.SUCCESS(f"Chave mestra rotacionada; {count} segredos recifrados."))
+        self.stdout.write(
+            "Faça backup do novo arquivo de chave, reinicie a instância e depois rode: instance rotate-key --drop-old"
+        )
 
     def _export_template(self, store, key, options):
         self.stdout.write("# Variáveis de bootstrap (somente no ambiente):")

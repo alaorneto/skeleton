@@ -7,3 +7,6 @@ class InstanceConfig(AppConfig):
     name = "skeleton.instance"
     label = "sk_instance"
     verbose_name = "Configuração da instância"
+
+    def ready(self):
+        from . import checks  # noqa: F401 - registers skeleton.W036

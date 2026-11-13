@@ -326,3 +326,135 @@ def test_missing_key_without_stored_secrets_is_created(instance):
     assert key.is_file()
     stored = InstanceStore(database).settings()["secret_key"][0]
     assert crypto.decrypt(crypto.load_key(key), stored) == SECRET
+
+
+# --------------------------------------------------------------------------- key rotation (#342)
+
+EMAIL_URL = "smtp+tls://mailer:rotate-pass-2026@mail.example:587"
+
+
+def _secrets_now(database):
+    return {key: value for key, (value, secret) in InstanceStore(database).settings().items() if secret}
+
+
+def test_rotate_key_reencrypts_every_secret(instance):
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    run("set", "email_url", EMAIL_URL)
+    before = _secrets_now(database)
+    run("rotate-key")
+    keys = crypto.read_keys(key)
+    assert len(keys) == 2
+    after = _secrets_now(database)
+    assert set(after) == {"secret_key", "email_url"}
+    assert all(after[name] != before[name] for name in after)
+    # The new key alone decrypts every secret: it is first in the file.
+    newest = Fernet(keys[0])
+    assert newest.decrypt(after["secret_key"].encode()).decode() == SECRET
+    env = instance_env(ROOT)
+    assert env("DJANGO_SECRET_KEY") == SECRET and env("EMAIL_URL") == EMAIL_URL
+    assert ("*", "rotate-key", "cli:rotate-key") in [entry[:3] for entry in InstanceStore(database).changes()]
+    if os.name == "posix":
+        assert stat.S_IMODE(key.stat().st_mode) == 0o600
+    assert list(key.parent.glob("*.tmp")) == []
+
+
+def test_rotate_key_output_and_log_carry_no_secret(instance):
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    run("set", "email_url", EMAIL_URL)
+    output = run("rotate-key") + run("rotate-key", "--drop-old")
+    log = repr(InstanceStore(database).changes())
+    for text in (SECRET, "rotate-pass-2026", *(item.decode() for item in crypto.read_keys(key))):
+        assert text not in output and text not in log
+    assert "2 segredos recifrados" in output
+
+
+def test_drop_old_keeps_only_the_new_key(instance):
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    run("rotate-key")
+    newest = crypto.read_keys(key)[0]
+    run("rotate-key", "--drop-old")
+    assert crypto.read_keys(key) == [newest]
+    assert instance_env(ROOT)("DJANGO_SECRET_KEY") == SECRET
+
+
+def test_drop_old_is_refused_while_a_secret_depends_on_an_old_key(instance):
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    crypto.write_keys(key, [Fernet.generate_key(), *crypto.read_keys(key)])  # A new first key, nothing re-encrypted.
+    content = key.read_bytes()
+    with pytest.raises(CommandError, match="sem --drop-old"):
+        run("rotate-key", "--drop-old")
+    assert key.read_bytes() == content
+
+
+def test_rotate_key_needs_an_existing_key(instance):
+    with pytest.raises(CommandError, match="Não há chave mestra"):
+        run("rotate-key")
+
+
+def test_single_line_key_file_still_loads(instance):
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    assert len(key.read_bytes().strip().splitlines()) == 1
+    assert instance_env(ROOT)("DJANGO_SECRET_KEY") == SECRET
+
+
+def test_failed_reencryption_keeps_both_keys_and_every_secret_readable(instance, monkeypatch):
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    run("set", "email_url", EMAIL_URL)
+    before = _secrets_now(database)
+
+    def broken(self, convert, *, source):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(InstanceStore, "reencrypt_secrets", broken)
+    with pytest.raises(RuntimeError):
+        run("rotate-key")
+    assert len(crypto.read_keys(key)) == 2 and _secrets_now(database) == before
+    env = instance_env(ROOT)
+    assert env("DJANGO_SECRET_KEY") == SECRET and env("EMAIL_URL") == EMAIL_URL
+
+
+def test_reencryption_is_all_or_nothing(instance):
+    """A failure in the middle of the store rolls every row back (one SQLite transaction)."""
+    database, _ = instance
+    run("set", "secret_key", SECRET)
+    run("set", "email_url", EMAIL_URL)
+    before = _secrets_now(database)
+    calls = []
+
+    def convert(token):
+        calls.append(token)
+        if len(calls) == 2:
+            raise RuntimeError("halfway")
+        return "changed"
+
+    with pytest.raises(RuntimeError):
+        InstanceStore(database).reencrypt_secrets(convert, source="test")
+    assert _secrets_now(database) == before
+    assert "rotate-key" not in [entry[1] for entry in InstanceStore(database).changes()]
+
+
+@pytest.mark.posix
+def test_check_warns_about_group_or_world_readable_files(instance):
+    from skeleton.instance.checks import permission_problems
+
+    database, key = instance
+    run("set", "secret_key", SECRET)
+    assert permission_problems() == []
+    for path in (database, key):
+        path.chmod(0o644)
+    problems = permission_problems()
+    assert [problem.id for problem in problems] == ["skeleton.W036", "skeleton.W036"]
+    assert str(key) in problems[1].msg
+
+
+def test_permission_check_is_silent_outside_posix(instance, monkeypatch):
+    from skeleton.instance import checks
+
+    monkeypatch.setattr(checks.os, "name", "nt")
+    assert checks.permission_problems() == []

@@ -1,4 +1,9 @@
-"""Fernet encryption of instance secrets with a master key kept outside the SQLite file."""
+"""Fernet encryption of instance secrets with a master key kept outside the SQLite file.
+
+The key file holds one key per line, the current one first; older lines still decrypt, which
+lets ``manage.py instance rotate-key`` re-encrypt the store without a moment of unreadable
+secrets (#342). A file with a single line is the original format.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import os
 import secrets
 from pathlib import Path
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 
 class InstanceKeyError(RuntimeError):
@@ -42,7 +47,26 @@ def _create_key(path: Path) -> None:
         os.unlink(temporary)
 
 
-def load_key(path: Path, *, create: bool = False) -> Fernet:
+def read_keys(path: Path) -> list[bytes]:
+    """The keys in the file, first one current; blank lines are ignored."""
+    return [line.strip() for line in path.read_bytes().splitlines() if line.strip()]
+
+
+def write_keys(path: Path, keys: list[bytes]) -> None:
+    """Replace the key file atomically (0600): readers see the old or the new content, never a partial one."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(b"\n".join(keys) + b"\n")
+        os.replace(temporary, path)
+    except BaseException:
+        if temporary.exists():
+            temporary.unlink()
+        raise
+
+
+def load_key(path: Path, *, create: bool = False) -> MultiFernet:
     """Load the master key; ``create`` generates it (0600) only when it does not exist yet."""
     if not path.is_file():
         if not create:
@@ -52,16 +76,19 @@ def load_key(path: Path, *, create: bool = False) -> Fernet:
             )
         _create_key(path)
     try:
-        return Fernet(path.read_bytes().strip())
+        keys = read_keys(path)
+        if not keys:
+            raise ValueError("empty key file")
+        return MultiFernet([Fernet(key) for key in keys])
     except (OSError, ValueError) as exc:
         raise InstanceKeyError(f"Chave mestra da instância inválida em {path}.") from exc
 
 
-def encrypt(fernet: Fernet, value: str) -> str:
+def encrypt(fernet: MultiFernet, value: str) -> str:
     return fernet.encrypt(value.encode()).decode()
 
 
-def decrypt(fernet: Fernet, token: str) -> str:
+def decrypt(fernet: MultiFernet, token: str) -> str:
     try:
         return fernet.decrypt(token.encode()).decode()
     except InvalidToken as exc:

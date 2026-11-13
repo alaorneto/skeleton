@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,6 +75,28 @@ class InstanceStore:
             except sqlite3.OperationalError:
                 return None
         return row[0]
+
+    def reencrypt_secrets(self, convert: Callable[[str], str], *, source: str) -> int:
+        """Rewrite every secret value with ``convert`` in one transaction; logs the action, never a value (#342)."""
+        if not self.exists():
+            return 0
+        with closing(self._connect(create=False)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                rows = connection.execute("SELECT key, value FROM setting WHERE secret = 1").fetchall()
+                for key, value in rows:
+                    connection.execute(
+                        "UPDATE setting SET value = ?, updated_at = ? WHERE key = ?", (convert(value), _now(), key)
+                    )
+                connection.execute(
+                    "INSERT INTO change_log (key, action, source, changed_at) VALUES (?, ?, ?, ?)",
+                    ("*", "rotate-key", source, _now()),
+                )
+                connection.execute("COMMIT")
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+        return len(rows)
 
     def settings(self) -> dict[str, tuple[str, bool]]:
         """Stored ``key -> (value, secret)``; secret values are still encrypted tokens."""
