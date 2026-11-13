@@ -223,3 +223,18 @@ def test_check_jobs_reports_lag_dead_and_workers(platform):
     health = queue_health()
     assert (health.due, health.dead, health.live_workers) == (1, 1, 1) and health.oldest_due_lag_s >= 590
     call_command("check_jobs", "--max-lag", "3600", "--require-worker", stdout=StringIO())
+
+
+@pytest.mark.parametrize(("lease", "live", "stale"), [(timedelta(minutes=5), 1, 0), (timedelta(minutes=-1), 0, 1)])
+def test_worker_running_a_long_job_counts_as_live(lease, live, stale):
+    """An old heartbeat with a valid lease is a worker inside a long job, not a dead one (#243)."""
+    now = timezone.now()
+    with system_context(reason="test:long-job"):
+        WorkerHeartbeat.objects.create(worker_id="w-long", last_seen=now - timedelta(minutes=10), state="running")
+        register_job_type(JobType("test.long", noop, {}, scope="global"))
+        receipt = enqueue("test.long", payload={})
+        Job.all_objects.filter(pk=receipt.id).update(
+            state=Job.State.RUNNING, locked_by="w-long", locked_until=now + lease
+        )
+        health = queue_health(now=now)
+    assert (health.live_workers, health.stale_workers) == (live, stale)

@@ -127,12 +127,15 @@ def queue_health(*, now: datetime | None = None, heartbeat_s: int = 120) -> Queu
         total=Count("sysid"), oldest=Min("run_after")
     )
     lag = (now - due["oldest"]).total_seconds() if due["oldest"] else 0.0
-    running = WorkerHeartbeat.objects.filter(state__in=("running", "paused"))
-    live = running.filter(last_seen__gte=now - timedelta(seconds=heartbeat_s)).count()
+    cutoff = now - timedelta(seconds=heartbeat_s)
+    # A worker inside a long job has an old heartbeat but a valid lease: it is alive (#243).
+    busy = set(Job.objects.filter(state=Job.State.RUNNING, locked_until__gt=now).values_list("locked_by", flat=True))
+    rows = list(WorkerHeartbeat.objects.filter(state__in=("running", "paused")).values_list("worker_id", "last_seen"))
+    live = sum(1 for worker_id, last_seen in rows if last_seen >= cutoff or worker_id in busy)
     return QueueHealth(
         due=due["total"],
         oldest_due_lag_s=max(lag, 0.0),
         dead=Job.objects.filter(state=Job.State.DEAD).count(),
         live_workers=live,
-        stale_workers=running.count() - live,
+        stale_workers=len(rows) - live,
     )

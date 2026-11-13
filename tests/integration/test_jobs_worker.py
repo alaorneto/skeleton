@@ -194,3 +194,65 @@ def test_two_postgres_workers_never_run_the_same_job(tenant):
         thread.join()
     assert not set(claimed[0]) & set(claimed[1])
     assert len(claimed[0]) + len(claimed[1]) == 12
+
+
+def secret_failure(*, code, fail=False):
+    raise KeyError("valor-secreto")
+
+
+def test_busy_worker_keeps_heartbeat_fresh(tenant, monkeypatch):
+    """Jobs back to back still beat once the interval passes (#243)."""
+    from skeleton.jobs import worker as worker_module
+
+    _, organization = tenant
+    for index in range(3):
+        queue(organization, f"busy-{index}")
+    make_due()
+    clock = iter(range(0, 10_000, 20))
+    monkeypatch.setattr(worker_module.time, "monotonic", lambda: float(next(clock)))
+    beats = []
+    original = worker_module.heartbeat
+    monkeypatch.setattr(worker_module, "heartbeat", lambda *a, **k: (beats.append(k.get("state")), original(*a, **k)))
+    outcomes = Worker(worker_id="busy").run(max_jobs=3, idle_sleep=0)
+    assert len(outcomes) == 3
+    assert beats.count("running") >= 3  # The start plus at least one beat between the jobs.
+
+
+def test_idle_worker_writes_heartbeat_at_most_every_interval(tenant, monkeypatch):
+    from skeleton.jobs import worker as worker_module
+
+    worker = Worker(worker_id="idle")
+    turns = []
+
+    def sleep(seconds):
+        turns.append(seconds)
+        if len(turns) == 10:
+            worker.stop()
+
+    monkeypatch.setattr(worker_module.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(worker_module.time, "sleep", sleep)
+    beats = []
+    monkeypatch.setattr(worker_module, "heartbeat", lambda *a, **k: beats.append(k.get("state")))
+    worker.run(idle_sleep=0)
+    assert beats == ["running", "stopped"]
+
+
+def test_failed_job_logs_a_sanitized_stack_without_payload(tenant, caplog):
+    import json
+    import logging
+
+    from skeleton.common.logging import SecurityJSONFormatter
+
+    _, organization = tenant
+    register_job_type(JobType("test.secret", secret_failure, {"code": "str", "fail": "bool"}, max_attempts=2))
+    with system_context(reason="test:worker-secret", organization_id=organization.pk):
+        enqueue("test.secret", organization_id=organization.pk, payload={"code": "payload-value", "fail": False})
+    make_due()
+    with caplog.at_level(logging.INFO, logger="skeleton.security"):
+        Worker(worker_id="secret").run(once=True)
+    [record] = [record for record in caplog.records if getattr(record, "event", None) == "job.failed"]
+    assert record.exc_info
+    text = SecurityJSONFormatter().format(record)
+    payload = json.loads(text)
+    assert payload["error_stack"] and ":" in payload["error_stack"][0]
+    assert "valor-secreto" not in text and "payload-value" not in text

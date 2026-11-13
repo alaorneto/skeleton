@@ -84,7 +84,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 | Etapa | Comportamento |
 |---|---|
 | Reivindicar | `SELECT ... FOR UPDATE SKIP LOCKED` seguido de CAS `state='queued'`, seguro com vários workers. Cada claim incrementa `attempts` e define o lease `locked_until` (`timeout_s` + 30 s) |
-| Heartbeat | `WorkerHeartbeat` (operacional, global) guarda `worker_id`, filas, estado e `last_seen` |
+| Heartbeat | `WorkerHeartbeat` (operacional, global) guarda `worker_id`, filas, estado e `last_seen`; o worker o grava a cada volta do laço, ocupado ou ocioso, no máximo a cada 15 s (mudança de estado grava na hora). Um worker com heartbeat antigo mas com job `running` de lease válido conta como vivo (#243) |
 | Lease vencido | O reaper recoloca na fila uma vez (`last_error_code=lease_expired`); sem tentativas restantes, o job vira `dead`. Um worker que perdeu o lease não consegue mais marcar o job |
 | Contexto | `run_as="system"` executa em `system_context(reason="job:<code>", organization_id=...)`, e a auditoria das escritas grava `source=system:job:<code>`. `run_as="actor"` abre `tenant_context` de topo como o ator, que revalida o vínculo; o handler recebe `actor` |
 | Sucesso | O handler e a marca `succeeded` comitam na mesma transação: efeitos só no banco acontecem exatamente uma vez |
@@ -93,7 +93,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 | Organização inativa | O job é pulado e fica `cancelled` (`organization_inactive`) |
 | SIGTERM/SIGINT | Para de reivindicar, termina o job atual e sai |
 | Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker pausa (heartbeat `paused`) |
-| Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload |
+| Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload; `job.failed` e `job.dead` trazem `error_stack` (arquivo:linha:função), nunca a mensagem da exceção nem o payload (#243) |
 | Correlação | Cada execução recebe um `request_id` próprio, gerado pelo worker: vai em `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` e, com tracing ligado, no span `job <code>` e nos spans de SQL abaixo dele (#176). Veja [deployment](deployment.md#tracing-opentelemetry-176) |
 
 Efeitos externos (SMTP, HTTP, push) são **pelo menos uma vez**: precisam de registro de entrega e chave de idempotência próprios.
