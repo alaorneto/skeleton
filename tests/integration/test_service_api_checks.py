@@ -249,3 +249,8 @@ def test_e012_reports_the_missing_document_name(monkeypatch, tmp_path):
     monkeypatch.setitem(app_registry._manifests, "example_notes", replace(manifest, documentation_root=str(tmp_path)))
     errors = [error for error in checks.record_contract_checks() if error.id == "skeleton.E012"]
     assert len(errors) == 1 and "spec.md" in errors[0].msg
+
+
+def test_repository_apps_have_no_boundary_warnings():
+    """The example (and the calendar when installed) follow the closed public lists (#300)."""
+    assert checks.import_boundary_checks() == []

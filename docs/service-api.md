@@ -185,20 +185,20 @@ Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e 
 
 ## Superfícies públicas do núcleo para apps
 
-Uma app pode importar do núcleo apenas:
+Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lista fechada de nomes que o check verifica (`PUBLIC_CORE_NAMES` em `skeleton/system/import_boundary.py`, #300); onde ela fala em "construtores" (OpenAPI, fluxos), vale qualquer nome público do módulo. Nomes iniciados por `_` nunca são contrato, nem em `skeleton.service_api`.
 
 | Módulo | Uso |
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` |
-| `skeleton.common.migration_operations` | `InstallRecordInfrastructure`, só em migrations |
+| `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
 | `skeleton.system.app_registry` | `AppManifest`, `register_app` em `ready()` |
 | `skeleton.system.registry` | `TableSpec`, `register` em `ready()` |
 | `skeleton.system.record_operations` | `RecordOperations`, `register_record_operations` |
-| `skeleton.access.policies` | `authorized_queryset`, `require_record_action`, sobre modelos da própria app |
-| `skeleton.tenancy.context` | `current_context` (leitura) |
+| `skeleton.access.policies` | `authorized_queryset`, `require_record_action` e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
+| `skeleton.tenancy.context` | `current_context` (leitura). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
-| `skeleton.api.views` | `TenantAPI` |
+| `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
 | `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
 | `skeleton.jobs.registry`, `skeleton.jobs.periodic` | `JobType`, `register_job_type`, `register_periodic` em `ready()`; enfileirar é pelo `JobService` |
 | `skeleton.events.registry` | `EventType`, `register_event_type`, `register_consumer` em `ready()`; publicar é pelo `EventService` |
@@ -207,6 +207,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.flows.registry` | `FlowSpec` e os construtores de etapas, transições, formulários e condições; `register_flow`, `register_flow_handler`, `register_flow_condition`, `register_flow_assignment` em `ready()`; iniciar e operar é pelo `FlowService` ([fluxos](flows.md)) |
 | `skeleton.integrations.tokens.scopes` | `register_token_scope` em `ready()` (escopos nomeados, como o feed da agenda) |
 | `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) e `user_context` (contexto global da pessoa na parte sem organização de uma rota agregada; recusa aninhar, #343) |
+| `skeleton.system.applications` | `application_state` e `require_application_enabled`, transitórios até o `ApplicationService` substituí-los |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
 Para ler a própria configuração ou a ativação de outra app, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` continua permitido nesta versão e sai da lista numa próxima. Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
@@ -218,7 +219,11 @@ O check `skeleton.E019` analisa com `ast`, sem importar código, todos os `.py` 
 - importar de outra app registrada qualquer módulo que não seja o `service_api` declarado dela (ou submódulo dele) é erro, inclusive por import relativo (`from ..tasks.models import Task`) e por `from applications.tasks import models`;
 - importar o `service_api` de outra app sem declará-la em `dependencies` é erro, como E014/E015 fazem para migrations e FKs;
 - `applications.<pacote>` desconhecido (app não registrada) só admite `applications.<pacote>.service_api`;
-- módulos fora das superfícies públicas do núcleo geram `skeleton.W019`.
+- módulos fora das superfícies públicas do núcleo geram `skeleton.W019`;
+- nomes fora da lista fechada de um módulo público (`from skeleton.tenancy.context import system_context`, `from skeleton.common.models import OperationalRecord`) e nomes privados (`_x`) de qualquer módulo `skeleton.*` geram `skeleton.W019` (#300);
+- `apps.get_model("sk_...", ...)` com label literal do núcleo fora de `migrations/` gera `skeleton.W019`: chega a um modelo interno sem `import`. Em migrations, `apps.get_model` (modelo histórico) é obrigatório e não é acusado;
+- todos os diretórios importáveis são analisados, inclusive `build/`, `dist/` e `node_modules/`; só `__pycache__` e diretórios iniciados por `.` ficam de fora;
+- uma app first-party (`skeleton.contrib.<pacote>`) segue as regras de qualquer app: o `service_api` dela exige a dependência declarada (`org.skeleton.calendar`), e os demais módulos são `internal_import` (E019). Um `skeleton.contrib.<pacote>` que a análise não conhece (`package doctor` sem a first-party no inventário) só admite o `service_api`.
 
 `package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
 
@@ -451,6 +456,7 @@ O cenário grava linhas confirmadas: use-o dentro da fixture de banco isolado do
 ### Limites da verificação
 
 - Imports dinâmicos (`importlib.import_module`, `__import__`, strings resolvidas em runtime) escapam da análise estática.
+- `import skeleton.tenancy.context as ctx` seguido de `ctx.system_context(...)` e `from skeleton.tenancy.context import *` não são vistos: rastrear atributos exigiria análise de fluxo. `get_user_model()` e FKs por string (`"sk_tenancy.Membership"`) também não são acusados; a integridade delas tem checks próprios.
 - Os checks verificam forma, não semântica: que o método chama `authorized_queryset` e não vaza dados só se prova com os testes do kit.
 - W019 ainda é aviso; até virar erro, um import de módulo interno do núcleo depende da revisão.
 
