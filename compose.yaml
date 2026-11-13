@@ -54,6 +54,9 @@ services:
       SKELETON_SETUP_RESTART: exit
       SKELETON_SETUP_ALLOWED_HOSTS: ${SKELETON_SETUP_ALLOWED_HOSTS:-localhost,127.0.0.1}
       SKELETON_SETUP_SECURE_COOKIES: ${SKELETON_SETUP_SECURE_COOKIES:-false}
+      # Only behind a TLS proxy that replaces X-Forwarded-Proto and with the backend not reachable
+      # directly (#442); applies to setup mode only, the instance stores its own trust_proxy.
+      SKELETON_SETUP_TRUST_PROXY: ${SKELETON_SETUP_TRUST_PROXY:-false}
       SKELETON_REQUIRE_ADMIN_MFA: "true"
       SKELETON_DEPLOYMENT_INVENTORY: ${SKELETON_DEPLOYMENT_INVENTORY:-}
       SKELETON_MAINTENANCE_MARKER: /run/skeleton/release/maintenance

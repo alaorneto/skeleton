@@ -102,6 +102,9 @@ services:
       # only the container itself reaches it, the proxy routes by SANDBOX_HOST.
       SKELETON_SETUP_ALLOWED_HOSTS: ${SANDBOX_HOST:?Define the public host of the sandbox},localhost
       SKELETON_SETUP_SECURE_COOKIES: "true"
+      # Traefik terminates TLS and replaces X-Forwarded-Proto; without this the setup sees http://
+      # and refuses the browser's https Origin with a CSRF 403 (#442). Setup mode only.
+      SKELETON_SETUP_TRUST_PROXY: "true"
       SKELETON_REQUIRE_ADMIN_MFA: "true"
     volumes:
       - instance:/instance
