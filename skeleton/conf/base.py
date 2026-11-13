@@ -241,6 +241,8 @@ SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Observability (#87): each piece stays off until its setting is present and its extra installed.
 # Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.
 SKELETON_METRICS_TOKEN = env("SKELETON_METRICS_TOKEN", default="")
+# Seconds one process reuses the queue figures between scrapes; 0 reads the database on every scrape (#275).
+SKELETON_METRICS_QUEUE_TTL_S = 15
 # Sentry DSN (extra [sentry], #177); without it Sentry is never initialized. Tracing (#176) has no
 # setting here: the SDK reads the standard OTEL_* variables from the environment.
 SKELETON_SENTRY_DSN = env("SKELETON_SENTRY_DSN", default="")

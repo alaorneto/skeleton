@@ -138,7 +138,7 @@ As operações ficam em `skeleton.jobs.operations` (`resend_dead_job`, `discard_
 
 ## Métricas da fila
 
-Com o extra `[metrics]` e `SKELETON_METRICS_TOKEN` definidos (#175), `/metrics` expõe a fila para o Prometheus. Os números são lidos **na coleta**: `queue_health()` (o mesmo de `check_jobs` e de `/platform/jobs/`) e `job_type_state_counts()`, contagens agregadas por tipo e estado. O worker não incrementa contadores, então os números batem com o banco mesmo depois de reinícios.
+Com o extra `[metrics]` e `SKELETON_METRICS_TOKEN` definidos (#175), `/metrics` expõe a fila para o Prometheus. Os números são lidos **na coleta**, e cada processo reutiliza o resultado por `SKELETON_METRICS_QUEUE_TTL_S` segundos (padrão 15, #275): `queue_health()` (o mesmo de `check_jobs` e de `/platform/jobs/`) e `job_type_state_counts()`, contagens agregadas por tipo e estado. O worker não incrementa contadores, então os números batem com o banco mesmo depois de reinícios.
 
 | Métrica | O que mede |
 |---|---|
