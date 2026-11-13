@@ -102,6 +102,10 @@ services:
       # only the container itself reaches it, the proxy routes by SANDBOX_HOST.
       SKELETON_SETUP_ALLOWED_HOSTS: ${SANDBOX_HOST:?Define the public host of the sandbox},localhost
       SKELETON_SETUP_SECURE_COOKIES: "true"
+      # The setup does not trust the proxy's X-Forwarded-Proto yet, so Django sees http:// while the
+      # browser sends Origin https://SANDBOX_HOST; the exact origin keeps the setup forms working (#439).
+      # From the environment it also wins over the stored value after the setup.
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${SANDBOX_HOST:?Define the public host of the sandbox}
       SKELETON_REQUIRE_ADMIN_MFA: "true"
     volumes:
       - instance:/instance
