@@ -63,7 +63,7 @@ def real_sso(skeleton_db, monkeypatch):
     with override_settings(
         DEBUG=True,
         ALLOWED_HOSTS=["127.0.0.1"],
-        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        MAILERS={"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}},
         SESSION_COOKIE_SECURE=False,
         CSRF_COOKIE_SECURE=False,
         SKELETON_REQUIRE_ADMIN_MFA=False,

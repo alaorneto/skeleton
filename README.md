@@ -154,7 +154,7 @@ O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 
 | `DATABASE_URL` | PostgreSQL, role runtime (sem fallback); normalmente gravado pelo setup no SQLite da instância |
 | `MIGRATION_DATABASE_URL` | Credencial offline do schema; nunca entregue ao processo web |
 | `CACHE_URL` | LocMem local; Redis compartilhado em produção |
-| `EMAIL_URL`, `DEFAULT_FROM_EMAIL` | Console local; SMTP e remetente em produção |
+| `EMAIL_URL`, `DEFAULT_FROM_EMAIL` | Console local; SMTP e remetente em produção. `EMAIL_URL` vira `MAILERS["default"]` ([esquemas aceitos](docs/deployment.md#health-email-e-operação)) |
 | `SKELETON_PUBLIC_SIGNUP` | `false` por padrão; não concede vínculo organizacional |
 | `SKELETON_ENABLE_EXAMPLE_APP` | `false` por padrão |
 | `SKELETON_REQUIRE_ADMIN_MFA` | `false` em dev; `true` por padrão em produção |

@@ -36,8 +36,7 @@ def test_deadline_interrupts_and_restores_the_previous_handler():
     assert signal.getsignal(signal.SIGALRM) == previous
 
 
-def test_smtp_has_a_default_timeout(settings):
-    from skeleton.conf import base
+def test_smtp_has_a_default_timeout():
+    from skeleton.conf.mailers import mailer_from_url
 
-    assert base.EMAIL_TIMEOUT == 30
-    assert settings.EMAIL_TIMEOUT == 30
+    assert mailer_from_url("smtp://mail.example")["OPTIONS"]["timeout"] == 30

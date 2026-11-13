@@ -408,6 +408,21 @@ A implementação foi feita em 2026-11-12 (PR #361), mas aquele PR entrou na bra
   - os testes de comentários do #187 seguem passando.
 - `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos. `manage.py makemigrations --check`: sem mudanças. `npm run check`: assets em dia.
 
+## Email por `MAILERS` do Django 6.1 (#127)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6 -W error::django.utils.deprecation.RemovedInDjango2028Warning`: 2586 passed, 100 skipped (testes POSIX e `pg_trgm` ausente no Windows). Nenhuma setting de email deprecada é lida ou definida.
+- `pytest tests/unit tests/integration/test_setup.py tests/accounts -W error::django.utils.deprecation.RemovedInDjango2028Warning`: 1445 passed, 96 skipped. Antes da correção do setup, `test_full_setup_never_keeps_the_owner_credential` falhava com o aviso do argumento `connection=` de `EmailMessage`.
+- `tests/unit/test_mailers.py`: 12 passed. Cobrem:
+  - `smtp+tls` com host, porta, usuário, senha codificada e `use_tls`; `smtp+ssl`, `smtps` e as opções `timeout`, `ssl_certfile` e `ssl_keyfile` na query; `consolemail`, `memorymail`, `dummymail` e `filemail:///caminho`;
+  - esquema desconhecido, parâmetro desconhecido, `timeout` inválido ou zero, parâmetro num backend local, `filemail://` sem caminho e SMTP sem host recusados;
+  - a senha redigida por `SafeExceptionReporterFilter`;
+  - o perfil de produção carregado num subprocesso: `MAILERS` SMTP sem nenhuma setting `EMAIL_*`, e `consolemail://` recusado com "Produção exige SMTP configurado.".
+- `DJANGO_SETTINGS_MODULE=config.settings.production python -W error::DeprecationWarning manage.py check --deploy` com `EMAIL_URL` SMTP: só `skeleton.W035` (`SKELETON_PUBLIC_URL` vazio no ambiente da rodada), nada de email.
+- `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos.
+- Não executado: `tests/sso` (exige o Keycloak local); o override de `MAILERS` ali só troca o nome da setting.
+
 ## Apps por organização, perfis e ingresso (epic #35)
 
 Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.
