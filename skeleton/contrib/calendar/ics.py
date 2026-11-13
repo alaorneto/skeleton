@@ -7,7 +7,9 @@ calendar without delegation, or the "busy only" option) carries only DTSTART/DTE
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from icalendar import Calendar as ICalendar
 from icalendar import Event as IEvent
@@ -16,6 +18,21 @@ from icalendar import vRecur
 from .policies import BUSY_TITLE, sees_details
 
 PRODID = "-//Skeleton//Agenda//PT-BR"
+
+
+def _export_rule(event: Any) -> str:
+    """The stored rule with UNTIL as RFC 5545 requires next to a zoned DTSTART (UTC), or a date for all-day (#293)."""
+    from .recurrence import _until, parse_rule
+
+    parts = parse_rule(event.rrule)
+    if "UNTIL" in parts:
+        if event.all_day:
+            parts["UNTIL"] = parts["UNTIL"][:8]
+        else:
+            zone = ZoneInfo(event.tzid)
+            local = _until(parts["UNTIL"], zone, all_day=False)  # On the local clock, naive.
+            parts["UNTIL"] = local.replace(tzinfo=zone).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return ";".join(f"{name}={value}" for name, value in parts.items())
 
 
 def vevent(reader: Any, event: Any, *, busy_only: bool = False, view: Any = None) -> IEvent:
@@ -33,20 +50,23 @@ def vevent(reader: Any, event: Any, *, busy_only: bool = False, view: Any = None
         item.add("location", event.location)
     if not details or event.is_private:
         item.add("class", "PRIVATE")
+    # A series runs on the local clock of its tzid: exported with that TZID (and its VTIMEZONE),
+    # a client expands it at the same local hour across daylight saving changes (#293).
+    zone = ZoneInfo(event.tzid)
     if event.all_day:
         item.add("dtstart", event.start_date)
         item.add("dtend", event.end_date)
     else:
-        item.add("dtstart", event.starts_at)
-        item.add("dtend", event.ends_at)
+        item.add("dtstart", event.starts_at.astimezone(zone))
+        item.add("dtend", event.ends_at.astimezone(zone))
     item.add("status", event.status.upper())
     if event.rrule:
-        item.add("rrule", vRecur.from_ical(event.rrule))
+        item.add("rrule", vRecur.from_ical(_export_rule(event)))
         for name, values in (("exdate", event.exdates), ("rdate", event.rdates)):
             for moment in _instants(values, event):
-                item.add(name, moment.date() if event.all_day else moment)
+                item.add(name, moment.date() if event.all_day else moment.astimezone(zone))
     if event.recurrence_id is not None:
-        item.add("recurrence-id", event.recurrence_id.date() if event.all_day else event.recurrence_id)
+        item.add("recurrence-id", event.recurrence_id.date() if event.all_day else event.recurrence_id.astimezone(zone))
     return item
 
 
@@ -57,6 +77,7 @@ def calendar_bytes(name: str, components: list[IEvent]) -> bytes:
     calendar.add("x-wr-calname", name)
     for component in components:
         calendar.add_component(component)
+    calendar.add_missing_timezones()  # The VTIMEZONE of every TZID used (#293).
     return calendar.to_ical()
 
 
