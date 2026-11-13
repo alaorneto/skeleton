@@ -319,6 +319,10 @@ def deactivate_service_account(*, actor, user):
         )
         if locked is None or membership is None:
             raise ValidationError({"user": gettext("Conta de serviço indisponível.")})
+        # Webhooks that act as this account stop now, in the same transaction (#313).
+        from skeleton.integrations.webhooks.services import disable_endpoints_of_principal
+
+        disable_endpoints_of_principal(locked.pk)
         revoke_membership_links(membership)
         if membership.is_active:
             from skeleton.events.core_events import membership_changed

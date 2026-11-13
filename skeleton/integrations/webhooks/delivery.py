@@ -89,7 +89,8 @@ def enqueue_attempt(delivery: Any, principal_id: Any, *, run_after: Any = None) 
         organization_id=delivery.organization_id,
         actor=principal_id,
         payload={"delivery_id": str(delivery.pk)},
-        idempotency_key=f"webhook:{delivery.pk}:{delivery.attempts + 1}",
+        # The principal is part of the key: a change of principal enqueues a new job (#313).
+        idempotency_key=f"webhook:{delivery.pk}:{delivery.attempts + 1}:{principal_id}",
         run_after=run_after,
     )
 
@@ -97,8 +98,10 @@ def enqueue_attempt(delivery: Any, principal_id: Any, *, run_after: Any = None) 
 def fanout(envelope: Any) -> None:
     """Consumer of every event: one delivery and one job per subscribed, enabled endpoint (idempotent)."""
     from skeleton.events.registry import get_event_type
+    from skeleton.tenancy.models import Membership
 
     from .models import WebhookDelivery, WebhookEndpoint
+    from .services import PRINCIPAL_DEACTIVATED, disable_endpoint
 
     try:
         if not get_event_type(envelope.event_type).webhook:
@@ -106,8 +109,20 @@ def fanout(envelope: Any) -> None:
     except KeyError:
         return
     body = body_for(envelope)
+    # One query per event: an endpoint whose principal can no longer act is turned off, not fed
+    # deliveries that its job could never run (#313).
+    active_principals = set(
+        Membership.objects.filter(is_active=True, user__is_active=True, user__account_type="service").values_list(
+            "user_id", flat=True
+        )
+    )
     for endpoint in WebhookEndpoint.objects.filter(is_enabled=True).order_by("sysid"):
         if envelope.event_type not in endpoint.event_types:
+            continue
+        if endpoint.principal_id not in active_principals:
+            locked = WebhookEndpoint.objects.select_for_update().filter(pk=endpoint.pk, is_enabled=True).first()
+            if locked is not None:
+                disable_endpoint(locked, reason=PRINCIPAL_DEACTIVATED)
             continue
         delivery = WebhookDelivery.objects.filter(
             endpoint=endpoint, event_id=envelope.event_id, resend_of__isnull=True
@@ -136,23 +151,6 @@ def _health(endpoint: Any) -> Any:
     return health
 
 
-def _disable(endpoint: Any, now: Any) -> None:
-    from skeleton.access.models import Role
-    from skeleton.notifications.services import Recipients, notify
-
-    endpoint.is_enabled = False
-    endpoint.disabled_at = now
-    endpoint.disabled_reason = "consecutive_failures"
-    endpoint.save(update_fields={"is_enabled", "disabled_at", "disabled_reason"})
-    admins = tuple(Role.objects.filter(code="organization_admin", is_builtin=True).values_list("pk", flat=True))
-    notify(
-        DISABLED_NOTIFICATION,
-        recipients=Recipients(roles=admins),
-        payload={"endpoint": endpoint.name, "failures": str(MAX_CONSECUTIVE_FAILURES)},
-        dedupe_key=f"webhook-disabled:{endpoint.pk}:{now.isoformat()}",
-    )
-
-
 def _record_attempt(endpoint_id: Any, *, ok: bool, now: Any) -> bool:
     """Count the attempt on the endpoint's health; returns whether the endpoint is still enabled.
 
@@ -174,7 +172,9 @@ def _record_attempt(endpoint_id: Any, *, ok: bool, now: Any) -> bool:
     health.last_failure_at = now
     health.save(update_fields={"consecutive_failures", "last_failure_at"})
     if health.consecutive_failures >= MAX_CONSECUTIVE_FAILURES and endpoint.is_enabled:
-        _disable(endpoint, now)
+        from .services import CONSECUTIVE_FAILURES, disable_endpoint
+
+        disable_endpoint(endpoint, reason=CONSECUTIVE_FAILURES, now=now, failures=MAX_CONSECUTIVE_FAILURES)
     return bool(endpoint.is_enabled)
 
 
@@ -204,9 +204,11 @@ def deliver(*, delivery_id: str, actor: Any) -> None:
         return  # Retention removed it, or an earlier run already decided it.
     # Read without a lock: only the delivery row stays locked while the request is in flight (#295).
     endpoint = WebhookEndpoint.objects.filter(pk=delivery.endpoint_id).first()
-    if endpoint is None or not endpoint.is_enabled or endpoint.principal_id != actor.pk:
+    if endpoint is None or not endpoint.is_enabled:
         _finish(delivery, WebhookDelivery.State.SKIPPED, now=now, error_code="endpoint_unavailable")
         return
+    if endpoint.principal_id != actor.pk:
+        return  # The endpoint changed principal: the job enqueued for the new one delivers it (#313).
     if delivery.record_sysid is not None:
         try:
             model = get_spec(delivery.table_key).model
@@ -289,7 +291,7 @@ def register_webhook_delivery() -> None:
         NotificationType(
             DISABLED_NOTIFICATION,
             gettext("Webhook desativado"),
-            payload_fields=("endpoint", "failures"),
+            payload_fields=("endpoint", "failures", "reason"),
             owner_app="sk_integrations",
         )
     )

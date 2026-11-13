@@ -75,7 +75,7 @@ Uma **conta de serviço** é um membro sem pessoa, para integrações (webhooks,
 - A conta recebe email sintético `svc-<uuid>@service.invalid`, senha inutilizável e `local_password_allowed=False`. Um CHECK no banco impede `is_staff`, `is_superuser` ou senha local numa conta de serviço, e `account_type`/`service_organization` são imutáveis (trigger da infraestrutura do `User`).
 - Tem exatamente um vínculo, o da organização que a criou: `Membership.clean` recusa outra organização (400).
 - Nunca recebe papel com capacidade, nem direto (`MemberRole`) nem por grupo (`GroupMember` num grupo com papel com capacidade, ou `GroupRole` com capacidade num grupo que a contém): 400 `service_account_role`. Papéis sem capacidade, como `member`, são permitidos.
-- Desativar revoga papéis, grupos e concessões do vínculo, desativa o vínculo e a identidade e incrementa `auth_version`. Conta de outra organização ou uma pessoa responde como indisponível.
+- Desativar revoga papéis, grupos e concessões do vínculo, desativa o vínculo e a identidade e incrementa `auth_version`. Os webhooks cujo principal é a conta são desativados na mesma transação (`principal_deactivated`, #313). Conta de outra organização ou uma pessoa responde como indisponível.
 - Aparece marcada nas listas: `(conta de serviço)` no HTML e `account_type` na API de vínculos. Fica fora das listas e contagens da plataforma (`/platform/users/`, seletores de administrador), que responde 404 no detalhe.
 
 ## Administração de acesso

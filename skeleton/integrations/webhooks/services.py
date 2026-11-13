@@ -138,6 +138,54 @@ def _lock(actor: Any) -> Any:
     return organization_lock(actor, capability=INTEGRATIONS_MANAGE)
 
 
+CONSECUTIVE_FAILURES = "consecutive_failures"
+PRINCIPAL_DEACTIVATED = "principal_deactivated"
+
+
+def disable_endpoint(endpoint: Any, *, reason: str, now: Any = None, failures: int | None = None) -> None:
+    """Turn an endpoint off for ``reason`` and tell the organization administrators (#313).
+
+    The caller already holds the endpoint row lock (``select_for_update``) in a tenant or
+    system context of the endpoint's organization.
+    """
+    from skeleton.access.models import Role
+    from skeleton.notifications.services import Recipients, notify
+
+    from .delivery import DISABLED_NOTIFICATION
+
+    now = now or timezone.now()
+    endpoint.is_enabled = False
+    endpoint.disabled_at = now
+    endpoint.disabled_reason = reason
+    endpoint.save(update_fields={"is_enabled", "disabled_at", "disabled_reason"})
+    admins = tuple(Role.objects.filter(code="organization_admin", is_builtin=True).values_list("pk", flat=True))
+    payload = {"endpoint": endpoint.name, "reason": reason}
+    if failures is not None:
+        payload["failures"] = str(failures)
+    notify(
+        DISABLED_NOTIFICATION,
+        recipients=Recipients(roles=admins),
+        payload=payload,
+        dedupe_key=f"webhook-disabled:{endpoint.pk}:{now.isoformat()}",
+    )
+
+
+def disable_endpoints_of_principal(principal_id: Any, *, reason: str = PRINCIPAL_DEACTIVATED) -> list[Any]:
+    """Disable every enabled endpoint whose deliveries act as ``principal_id``.
+
+    Call it inside the organization's context, under ``organization_lock`` when an actor is
+    changing the account. Returns the endpoints it disabled.
+    """
+    from .models import WebhookEndpoint
+
+    disabled = []
+    endpoints = WebhookEndpoint.objects.select_for_update().filter(principal_id=principal_id, is_enabled=True)
+    for endpoint in endpoints.order_by("sysid"):
+        disable_endpoint(endpoint, reason=reason)
+        disabled.append(endpoint)
+    return disabled
+
+
 def _require_manage(actor: Any) -> None:
     """The denial ``_lock`` would give, before any outbound name lookup runs for the caller."""
     from skeleton.access.capabilities import INTEGRATIONS_MANAGE, require_capability
@@ -187,6 +235,14 @@ def update_endpoint(endpoint: Any, *, actor: Any, data: dict[str, Any], expected
             changed |= {"disabled_at", "disabled_reason"}
         if changed:
             locked.save(update_fields=changed)
+        if "principal" in changed:
+            # Open deliveries are kept and re-enqueued as the new principal (#313).
+            from .delivery import enqueue_attempt
+            from .models import WebhookDelivery
+
+            open_deliveries = WebhookDelivery.objects.filter(endpoint=locked, state__in=("pending", "retrying"))
+            for delivery in open_deliveries.order_by("created_at", "sysid"):
+                enqueue_attempt(delivery, locked.principal_id, run_after=delivery.next_attempt_at)
         return locked
 
 

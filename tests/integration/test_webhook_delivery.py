@@ -451,3 +451,105 @@ def test_lock_waits_are_bounded_inside_the_delivery(pipeline, monkeypatch):
     publish(fixture, fixture.shared)
     drain()
     assert seen == ["5s"]
+
+
+def _endpoint(fixture, pk):
+    from skeleton.integrations.models import WebhookEndpoint
+
+    with actor_tenant(fixture.admin, fixture.a):
+        return WebhookEndpoint.objects.get(pk=pk)
+
+
+def test_deactivating_the_principal_disables_its_endpoints(pipeline, receiver):
+    """Deactivating the account turns its webhooks off in the same transaction (#313)."""
+    from skeleton.accounts.services import deactivate_service_account
+    from skeleton.audit.models import AuditEvent
+    from skeleton.notifications.models import Notification
+
+    fixture, principal, issued = pipeline
+    with actor_tenant(fixture.admin, fixture.a):
+        deactivate_service_account(actor=fixture.admin, user=principal)
+    endpoint = _endpoint(fixture, issued.endpoint.pk)
+    assert (endpoint.is_enabled, endpoint.disabled_reason) == (False, "principal_deactivated")
+    assert endpoint.disabled_at is not None
+    with system_context(reason="test:principal-off", organization_id=fixture.a.pk):
+        assert AuditEvent.objects.filter(record_sysid=endpoint.pk, actor_sysid=fixture.admin.pk).exists()
+        assert Notification.objects.filter(type_code="webhooks.endpoint_disabled").exists()
+    publish(fixture, fixture.shared)
+    drain()
+    assert deliveries(fixture) == [] and receiver.received == []
+
+
+def test_fanout_disables_an_endpoint_whose_principal_lost_its_membership(pipeline, receiver):
+    from skeleton.tenancy.models import Membership
+
+    fixture, principal, issued = pipeline
+    with system_context(reason="test:membership", organization_id=fixture.a.pk):
+        membership = Membership.objects.get(user=principal)
+        membership.is_active = False
+        membership.save(update_fields={"is_active"})
+    publish(fixture, fixture.shared)
+    drain()
+    endpoint = _endpoint(fixture, issued.endpoint.pk)
+    assert (endpoint.is_enabled, endpoint.disabled_reason) == (False, "principal_deactivated")
+    assert deliveries(fixture) == [] and receiver.received == []
+
+
+def test_abandoned_open_deliveries_are_closed_and_later_purged(pipeline, receiver):
+    from datetime import timedelta
+
+    from skeleton.integrations.models import WebhookDelivery
+    from skeleton.integrations.webhooks.log import purge_expired_deliveries
+
+    fixture, _, _ = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    [delivery] = deliveries(fixture)
+    with system_context(reason="test:abandoned", organization_id=fixture.a.pk):
+        WebhookDelivery.objects.filter(pk=delivery.pk).update(
+            state="pending", updated_at=timezone.now() - timedelta(days=3)
+        )
+        purge_expired_deliveries(now=timezone.now())
+        closed = WebhookDelivery.objects.get(pk=delivery.pk)
+        assert (closed.state, closed.error_code) == ("failed", "abandoned")
+        purge_expired_deliveries(now=timezone.now() + timedelta(days=31))
+        assert not WebhookDelivery.objects.filter(pk=delivery.pk).exists()
+
+
+def test_recent_retrying_deliveries_are_not_closed(pipeline, receiver):
+    from skeleton.integrations.webhooks.log import purge_expired_deliveries
+
+    fixture, _, _ = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    with system_context(reason="test:recent-retrying", organization_id=fixture.a.pk):
+        purge_expired_deliveries()
+    assert [delivery.state for delivery in deliveries(fixture)] == ["retrying"]
+
+
+def test_changing_the_principal_keeps_open_deliveries(pipeline, receiver):
+    """The open delivery is re-enqueued as the new principal and delivered (#313)."""
+    from skeleton.access.models import MemberRole, Role
+    from skeleton.integrations.webhooks.services import update_endpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    assert [delivery.state for delivery in deliveries(fixture)] == ["retrying"]
+    with actor_tenant(fixture.admin, fixture.a):
+        other = create_service_account(actor=fixture.admin, name="Other receiver")
+        membership = other.organization_memberships.get()
+        MemberRole(organization=fixture.a, membership=membership, role=Role.objects.get(code="member")).save()
+        from skeleton.integrations.models import WebhookEndpoint
+
+        endpoint = WebhookEndpoint.objects.get(pk=issued.endpoint.pk)
+        update_endpoint(endpoint, actor=fixture.admin, data={"principal": other}, expected_revision=endpoint.revision)
+    due_now(fixture)
+    drain()
+    [delivery] = deliveries(fixture)
+    assert delivery.state == "succeeded"
+    assert len(receiver.received) == 2
+    assert {request["headers"]["Skeleton-Webhook-Id"] for request in receiver.received} == {str(delivery.pk)}
