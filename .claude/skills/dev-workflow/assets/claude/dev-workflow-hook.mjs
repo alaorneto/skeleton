@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // Hooks do Claude Code para o skill dev-workflow (fluxo issue-first e versão).
+//   prompt:        UserPromptSubmit; no modo de planejamento, ou quando o pedido fala de issue,
+//                  PR, commit, branch, versão ou release, manda carregar o skill.
+//   plan-mode:     PostToolUse de EnterPlanMode; o agente entrou no modo de planejamento.
 //   plan-accepted: PostToolUse de ExitPlanMode; só dispara quando o plano é aceito.
 //   pre-shell:     PreToolUse de Bash/PowerShell; guarda git commit e gh pr create.
 // Falhas internas nunca bloqueiam: o hook commit-msg e o CI são as barreiras finais.
@@ -32,6 +35,29 @@ function deny(reason) {
       permissionDecisionReason: reason,
     },
   });
+}
+
+const PLAN_MODE =
+  "Modo de planejamento: carregue o skill `dev-workflow` antes de escrever o plano. O plano termina " +
+  "com a seção 'Itens do GitHub': para cada item, label de tipo, título, critérios de aceite, plano de " +
+  "testes e documentação a atualizar. Quando o plano for aceito, as issues são criadas antes de " +
+  "qualquer edição.";
+const FLOW =
+  "Este projeto segue o skill `dev-workflow` para issue, branch, commit, PR, versão, release e " +
+  "fechamento de issue: se o pedido envolve um deles ou vai mudar arquivo versionado, carregue o " +
+  "skill antes de agir. Perguntas e investigações sem mudança de arquivo não precisam dele.";
+// Palavras que indicam uma etapa do fluxo; o skill decide o resto.
+const FLOW_WORDS =
+  /(?:^|[^\p{L}\d])(?:pull[\s-]?requests?|PRs?|issues?|epics?|commit\p{L}*|branch\p{L}*|merge\p{L}*|mescl\p{L}*|releases?|vers(?:ão|ao|ões|oes|ion\p{L}*)|semver|changelog|tags?|bump|hotfix|plano)(?![\p{L}\d])/iu;
+
+function context(eventName, text) {
+  emit({ hookSpecificOutput: { hookEventName: eventName, additionalContext: text } });
+}
+
+function promptSubmitted(input) {
+  if (input?.permission_mode === "plan") context("UserPromptSubmit", PLAN_MODE);
+  if (FLOW_WORDS.test(String(input?.prompt ?? ""))) context("UserPromptSubmit", FLOW);
+  process.exit(0);
 }
 
 function planAccepted() {
@@ -109,7 +135,10 @@ function preShell(input) {
 
   if (/\bgh\s+pr\s+create\b/.test(command)) {
     if (/\s--fill\b/.test(command) && !/--body/.test(command)) {
-      deny("Não use `gh pr create --fill`: o corpo segue .github/pull_request_template.md e cita `Closes #N`.");
+      deny(
+        "Não use `gh pr create --fill`: o corpo segue .github/pull_request_template.md e cita `Closes #N` " +
+          "(skill dev-workflow, fase 5).",
+      );
     }
     const body = bodyOf(command, cwd);
     if (body === null) {
@@ -118,7 +147,7 @@ function preShell(input) {
     if (!ISSUE_REF.test(body)) {
       deny(
         "O corpo do PR precisa referenciar a issue: `Closes #N` (entrega completa) ou `Refs #N` " +
-          "(parcial). Use o modelo de PR do skill dev-workflow.",
+          "(parcial). Carregue o skill dev-workflow (fase 5) e use o modelo de PR dele.",
       );
     }
   }
@@ -128,6 +157,8 @@ function preShell(input) {
 const mode = process.argv[2];
 const input = readInput();
 try {
+  if (mode === "prompt") promptSubmitted(input);
+  if (mode === "plan-mode") context("PostToolUse", PLAN_MODE);
   if (mode === "plan-accepted") planAccepted();
   if (mode === "pre-shell") preShell(input);
 } catch {

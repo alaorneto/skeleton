@@ -1,6 +1,6 @@
 # O fluxo completo e as decisões por trás dele
 
-Conteúdo: [ciclo](#ciclo) · [PR sem versão](#o-que-acontece-num-pr-sem-versão) · [PR com versão](#o-que-acontece-num-pr-com-versão) · [mecanismos](#mecanismos) · [decisões](#decisões-e-alternativas-descartadas) · [limites](#limites-conhecidos)
+Conteúdo: [ciclo](#ciclo) · [PR sem versão](#o-que-acontece-num-pr-sem-versão) · [PR com versão](#o-que-acontece-num-pr-com-versão) · [epics](#epics-sub-issues-dependências-e-fechamento) · [mecanismos](#mecanismos) · [decisões](#decisões-e-alternativas-descartadas) · [limites](#limites-conhecidos)
 
 ## Ciclo
 
@@ -45,6 +45,24 @@ Depois do merge, "Versão e release":
 9. Dispara o workflow de publicação de artefatos, se configurado.
 
 No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atualiza o PR `release/next` com o commit de release; a publicação acontece quando esse PR é mesclado.
+
+## Epics: sub-issues, dependências e fechamento
+
+O vínculo oficial entre um epic e as filhas é o relacionamento nativo de **sub-issue** do GitHub, e as dependências são relações **"blocked by"** nativas: o epic mostra o progresso sozinho, a filha mostra o parent no painel lateral e o vínculo pode ser conferido pela API. O texto continua no corpo, como resumo para quem lê: a seção "Itens" do epic tem a lista ordenada `- [ ] #N título — depende de #M | independente`, e cada filha diz `Parte de #E`.
+
+`github_issues.py sync-epic <E>` (ou `--all`, para todas as issues com o label de epic; `--dry-run` mostra o que faria) reconcilia esse texto com o GitHub:
+
+- vincula cada item da seção "Itens" como sub-issue, na ordem da lista, e cria um "blocked by" para cada "depende de";
+- é idempotente e nunca troca um parent existente: uma issue tem no máximo um parent, e o conflito aparece como divergência;
+- termina com erro quando há divergência: issue inexistente ou de outro repositório, item listado em dois epics, sub-issue nativo fora da lista, epic sem o label;
+- ignora as linhas de checklist sem número de issue e mostra quantas são;
+- também acerta as caixas da seção "Itens".
+
+No dia a dia, quem marca as caixas é o workflow `epic-checklist`: quando uma issue fecha (por PR com `Closes` ou à mão, como concluída ou dispensada), ele marca `[x]` no item dela no epic pai nativo; quando é reaberta, volta a `[ ]`. Cada execução reconcilia o epic inteiro e relê o corpo depois de gravar, então filhas fechadas ao mesmo tempo convergem. Para reconciliar à mão, sem criar vínculos: `sync-checklist <E>` (ou `--all`, `--parent-of <N>`).
+
+Quando a última sub-issue nativa aberta fecha, o mesmo workflow fecha o epic (`close-epic --parent-of <N>`), com um comentário que lista cada filha e se foi concluída ou dispensada: como concluído se ao menos uma filha foi concluída, como `not planned` se todas foram dispensadas. A fonte de verdade são as sub-issues nativas, não a lista em "Itens". Nada é fechado quando ainda há filha aberta ou o epic não tem sub-issues, quando o pai não tem o label de epic ou já está fechado, quando alguma sub-issue é de outro repositório (o token do workflow não a verifica) ou quando a lista vem truncada (mais de 100 sub-issues ou bloqueios); nesses casos, feche à mão.
+
+Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`; por isso, ao fechar um epic que também é sub-issue, o mesmo run atualiza o epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic. Os "Critérios de conclusão" do epic não são verificados: o comentário pede para reabrir se algum faltar. Nenhum comando remove vínculos; para desfazer, `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
 
 ## Mecanismos
 

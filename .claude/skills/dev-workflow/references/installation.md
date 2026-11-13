@@ -60,7 +60,11 @@ Acrescente em `.claude/settings.json` do projeto:
 ```json
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/assets/claude/dev-workflow-hook.mjs\" prompt", "timeout": 10}]}
+    ],
     "PostToolUse": [
+      {"matcher": "EnterPlanMode", "hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/assets/claude/dev-workflow-hook.mjs\" plan-mode", "timeout": 10}]},
       {"matcher": "ExitPlanMode", "hooks": [{"type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/assets/claude/dev-workflow-hook.mjs\" plan-accepted", "timeout": 10}]}
     ],
     "PreToolUse": [
@@ -70,11 +74,39 @@ Acrescente em `.claude/settings.json` do projeto:
 }
 ```
 
-Eles lembram o agente de criar as issues quando um plano é aceito e recusam `git commit --no-verify` e `gh pr create` sem referência a issue. São lembretes; as barreiras são o hook `commit-msg` e o check do PR.
+| Gatilho | O que o agente recebe |
+|---|---|
+| Pedido no modo de planejamento, ou o agente entra nele | Carregar o skill antes de planejar; o plano termina com "Itens do GitHub" |
+| Pedido que fala de issue, PR, commit, branch, merge, versão, release, tag, changelog ou plano | Carregar o skill antes de agir (perguntas sem mudança de arquivo não precisam) |
+| Plano aceito | Criar as issues e o epic antes de qualquer edição |
+| `git commit --no-verify`, commit sem o hook `commit-msg` instalado, PR sem `Closes`/`Refs #N` | Comando recusado, com a instrução |
+
+São lembretes e guardas de texto; as barreiras são o hook `commit-msg` e o check do PR.
 
 ## 6. Normas do projeto
 
-Acrescente às instruções do projeto (`AGENTS.md`, `CLAUDE.md`) um parágrafo curto apontando para o skill: todo trabalho versionado nasce de uma issue; branch `<tipo>/<N>-<slug>`; commits com `Refs #N`; PR com `Closes #N` e o label `release` quando o merge deve publicar versão; ninguém edita à mão os arquivos de versão nem o changelog.
+As instruções do projeto (`AGENTS.md`, `CLAUDE.md`) **delegam** ao skill em vez de repetir o procedimento: duas cópias divergem, e quem segue o texto copiado não recebe as ferramentas nem as correções do skill. Cole o trecho abaixo e acrescente depois dele só o que é do projeto (seções extras, arquivos de versão, pisos, checks obrigatórios):
+
+```markdown
+## Fluxo de desenvolvimento
+
+O fluxo deste repositório é o skill `dev-workflow` (`.claude/skills/dev-workflow/`, configurado em
+`.github/dev-workflow.toml`). Carregue o skill e siga-o (no Claude Code, pela ferramenta Skill; em
+outro agente ou à mão, lendo `.claude/skills/dev-workflow/SKILL.md`) sempre que:
+
+- entrar no modo de planejamento ou escrever um plano: ele termina com a seção "Itens do GitHub";
+- um plano for aceito: as issues e o epic são criados antes de qualquer edição;
+- for começar, sem plano, qualquer mudança em arquivo versionado (código, testes, documentação, CI,
+  dependências);
+- for criar ou atualizar uma issue ou um epic, criar branch, commitar ou abrir PR;
+- for decidir se um PR publica versão e com que nível, ou mexer em release, changelog ou tag;
+- for fechar uma issue.
+
+Perguntas e investigações sem mudança de arquivo não precisam do skill. Valem sempre, mesmo sem ele:
+nenhuma mudança versionada sem issue; nunca `--no-verify`; ninguém edita a versão nem o changelog à mão.
+```
+
+Os hooks do Claude Code (seção anterior) disparam o mesmo lembrete no modo de planejamento e nos pedidos que falam do fluxo; o texto acima é o que vale para qualquer agente e para pessoas.
 
 ## Atualizar o skill
 

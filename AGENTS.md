@@ -11,19 +11,28 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md` e `docs/sequences.md` antes de usar ou alterar o subsistema correspondente.
 6. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
 7. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
-8. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
+8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
 
 ## Rastreabilidade: plano, issue, commit, versão e fechamento
 
-Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub, e toda versão é calculada e escrita pela automação. O procedimento é o skill `dev-workflow` (`.claude/skills/dev-workflow/`), configurado em `.github/dev-workflow.toml`; o que é próprio deste repositório está em [docs/workflow.md](docs/workflow.md).
+Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub, e toda versão é calculada e escrita pela automação. O procedimento é o skill `dev-workflow` (`.claude/skills/dev-workflow/`, configurado em `.github/dev-workflow.toml`). Carregue-o e siga-o: no Claude Code, pela ferramenta Skill; em outro agente ou à mão, lendo `.claude/skills/dev-workflow/SKILL.md`. Este contrato não repete o procedimento: diz quando o skill é obrigatório e o que é próprio deste repositório.
 
-- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic`).
-- **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
-- Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
-- Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`, título em Conventional Commits e todas as seções do modelo. Nunca `--no-verify`.
-- **Versão por PR**: o label `release` faz o merge publicar uma versão com tudo que se acumulou desde a última tag; sem ele, as mudanças ficam acumuladas para a próxima. Não há label para "não publica". O nível (patch, minor, major) é o maior entre os sinais de todas as mudanças acumuladas: tipo das issues, commits, `breaking-change`, superfícies públicas e a análise do diff registrada no PR. O responsável sobrepõe com `semver:*` e o motivo na seção "Versão".
-- **Ninguém edita a versão à mão.** A versão do projeto é a do core e vem da última tag `vX.Y.Z`; os arquivos que a repetem (`pyproject.toml`, `deployment_agent/pyproject.toml`, manifestos de `skeleton/contrib`) e o `CHANGELOG.md` são escritos pelo workflow de release. Pisos de funcionalidade (`*_CORE_MINIMUM`, `since=`, `compatibility.skeleton` de apps) recebem a versão em que a capacidade será publicada: `release.py next --level minor`.
-- A issue fecha só depois de aprovada: pelo merge do PR (o comentário de evidências é escrito sozinho) ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue, com o comentário de mudança de escopo, ou abre outra.
+Carregue o skill sempre que:
+
+- entrar no modo de planejamento ou escrever um plano: o plano termina com a seção `Itens do GitHub`;
+- um plano for aceito: as issues, e um `epic` com sub-issues e "blocked by" nativos quando houver duas ou mais, são criadas antes de qualquer edição;
+- for começar, sem plano, qualquer mudança em arquivo versionado;
+- for criar ou atualizar uma issue ou um epic, criar branch, commitar ou abrir PR;
+- for decidir se um PR publica versão (label `release`) e com que nível, ou mexer em release, changelog, tag ou piso de versão;
+- for fechar uma issue ou registrar uma mudança de escopo.
+
+Perguntas e investigações sem mudança de arquivo não precisam do skill. Valem sempre, com ou sem ele: nenhuma mudança versionada sem issue; nunca `--no-verify`; a issue só fecha depois de aprovada (merge do PR ou aprovação explícita do responsável); ninguém edita a versão nem o `CHANGELOG.md` à mão. No Claude Code, os hooks do projeto (`.claude/settings.json`) lembram o skill nesses momentos e recusam commit sem o hook `commit-msg` ou PR sem issue; as barreiras finais são o hook `commit-msg` e o check "Verificação do PR".
+
+Próprio deste repositório (detalhes em [docs/workflow.md](docs/workflow.md)):
+
+- Issues e PRs têm também a seção "Segurança e contrato do AGENTS.md". O label `security` marca impacto em tenant, RLS, autorização, autenticação, auditoria, segredos, CSRF ou CAS.
+- A versão do projeto é a do core; o agente de deployment e as apps de `skeleton/contrib` seguem o mesmo número, e uma app first-party nova acrescenta suas entradas em `[[versioning.files]]` no mesmo PR. Pisos de funcionalidade (`*_CORE_MINIMUM`, `since=`, `compatibility.skeleton` de apps) não acompanham o bump: recebem a versão em que a capacidade será publicada (`release.py next --level minor`).
+- O skill é uma cópia do repositório próprio dele; atualize-o com `bootstrap.py update` a partir da versão nova, numa issue `chore`, nunca editando a cópia à mão.
 
 ## Fronteiras de código
 

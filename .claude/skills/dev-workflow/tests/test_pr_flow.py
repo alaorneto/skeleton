@@ -1,5 +1,7 @@
-"""Verificação do PR, evidências no merge, hook commit-msg, branch da issue e bootstrap."""
+"""Verificação do PR, evidências no merge, hooks, branch da issue e bootstrap."""
 
+import json
+import shutil
 import subprocess
 import unittest
 
@@ -364,6 +366,41 @@ class BootstrapTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             for needle in forbidden:
                 self.assertNotIn(needle, source, f"{path.name}: {needle}")
+
+
+@unittest.skipUnless(shutil.which("node"), "node ausente: o hook do Claude Code é opcional")
+class ClaudeHookTest(unittest.TestCase):
+    HOOK = SCRIPTS.parent / "assets" / "claude" / "dev-workflow-hook.mjs"
+
+    def _context(self, mode, payload):
+        completed = subprocess.run(
+            ["node", str(self.HOOK), mode],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        if not completed.stdout:
+            return None
+        return json.loads(completed.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    def test_plan_mode_asks_for_the_skill_and_the_github_items(self):
+        for mode, payload in (("prompt", {"prompt": "oi", "permission_mode": "plan"}), ("plan-mode", {})):
+            text = self._context(mode, payload)
+            self.assertIn("carregue o skill `dev-workflow`", text)
+            self.assertIn("Itens do GitHub", text)
+
+    def test_a_request_about_the_flow_asks_for_the_skill(self):
+        for prompt in ("abre o PR disso", "cria uma issue para o bug", "qual a próxima versão?", "faz o commit"):
+            self.assertIn("carregue o skill antes de agir", self._context("prompt", {"prompt": prompt}), prompt)
+
+    def test_other_requests_get_no_context(self):
+        for prompt in ("o que faz essa função?", "prepare a reprise", "explique o comprimento"):
+            self.assertIsNone(self._context("prompt", {"prompt": prompt, "permission_mode": "default"}), prompt)
+
+    def test_an_accepted_plan_creates_the_issues_first(self):
+        self.assertIn("invoque o skill `dev-workflow`", self._context("plan-accepted", {}))
 
 
 if __name__ == "__main__":

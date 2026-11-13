@@ -15,8 +15,8 @@ Leia conforme a fase:
 |---|---|
 | Vai redigir issue, PR, comentário de fechamento ou de mudança de escopo | [references/templates.md](references/templates.md) |
 | Vai decidir se um PR gera versão, analisar o diff para decidir o nível, publicar, desfazer ou fazer hotfix | [references/versioning.md](references/versioning.md) |
-| Quer o passo a passo do que acontece num PR com e sem versão, ou o porquê de uma decisão | [references/flow.md](references/flow.md) |
-| Vai instalar o fluxo num projeto ou mexer na configuração | [references/installation.md](references/installation.md), [references/configuration.md](references/configuration.md) |
+| Quer o passo a passo do que acontece num PR com e sem versão, o comportamento dos epics, ou o porquê de uma decisão | [references/flow.md](references/flow.md) |
+| Vai instalar o fluxo num projeto, atualizar a cópia do skill ou mexer na configuração | [references/installation.md](references/installation.md), [references/configuration.md](references/configuration.md) |
 
 Escreva issues, PRs e comentários no idioma do projeto; commits seguem o histórico (Conventional Commits).
 

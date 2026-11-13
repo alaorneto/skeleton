@@ -1,7 +1,28 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/assets/claude/dev-workflow-hook.mjs\" prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
+      {
+        "matcher": "EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/assets/claude/dev-workflow-hook.mjs\" plan-mode",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "matcher": "ExitPlanMode",
         "hooks": [
