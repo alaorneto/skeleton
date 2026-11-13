@@ -37,6 +37,7 @@ class Label:
 class TypeLabel(Label):
     commit_types: tuple[str, ...] = ()
     level: str = "patch"  # The SemVer level a released change of this type implies.
+    heading: str = ""  # Changelog heading of the type (the label name when empty).
 
 
 @dataclass(frozen=True)
@@ -115,7 +116,7 @@ def _closed(table: dict[str, Any], allowed: set[str], key: str) -> None:
 
 def _label(name: str, table: Any, key: str, *, typed: bool) -> Label:
     _expect(table, dict, key)
-    allowed = {"color", "description"} | ({"commit", "level"} if typed else set())
+    allowed = {"color", "description"} | ({"commit", "level", "heading"} if typed else set())
     _closed(table, allowed, key)
     if not _LABEL.fullmatch(name):
         raise ConfigError(f"{key}: nome de label inválido.")
@@ -132,7 +133,8 @@ def _label(name: str, table: Any, key: str, *, typed: bool) -> Label:
     level = table.get("level", "patch")
     if level not in _LEVELS:
         raise ConfigError(f"{key}.level: use patch, minor ou major.")
-    return TypeLabel(name, color.lower(), description, commits, level)
+    heading = _expect(table.get("heading", name), str, f"{key}.heading")
+    return TypeLabel(name, color.lower(), description, commits, level, heading)
 
 
 def _version_file(table: Any, key: str) -> VersionFile:

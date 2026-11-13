@@ -1,0 +1,65 @@
+name: Release
+
+# Depois do merge na branch padrão (ou numa branch de manutenção): se o PR mesclado tem o label
+# `release`, decide o nível sobre tudo que se acumulou desde a última tag, escreve a versão nos
+# arquivos declarados, atualiza o CHANGELOG, cria a tag anotada e a GitHub Release e marca os PRs
+# e issues incluídos. Idempotente: reexecutar depois de concluir não faz nada; depois de uma falha
+# parcial, conclui o que faltou (skill dev-workflow, references/versioning.md).
+
+on:
+  push:
+    branches: [main, "maint/**"]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Número do PR com o label release (reexecução manual)"
+        required: false
+      prerelease:
+        description: "Identificador de pré-release (ex.: rc); vazio para release final"
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Versão e release
+    # No modo PR, o merge do PR de release dispara de novo: o commit de release só completa tag e release.
+    # Pushes feitos com o GITHUB_TOKEN não disparam workflows, então o modo direto conclui num run só.
+    runs-on: ubuntu-24.04
+    steps:
+      # O código vem da branch protegida, nunca de um PR: o token de escrita só roda código revisado.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Identidade do commit de release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: PR mesclado neste push
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr }}
+          SHA: ${{ github.sha }}
+        run: |
+          number="$INPUT_PR"
+          if [ -z "$number" ]; then
+            number=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" -q '.[0].number // empty')
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+      - name: Versionar, se o PR pedir
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          args=""
+          if [ -n "$PRERELEASE" ]; then args="--prerelease $PRERELEASE"; fi
+          python3 {{SKILL_DIR}}/scripts/release.py run $args

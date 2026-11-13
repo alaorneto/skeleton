@@ -86,6 +86,12 @@ O workflow só existe depois do merge na `main`, porque eventos de issue usam a 
 
 Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
 
+## Versão e release
+
+A versão do projeto segue o versionamento semântico e é decidida por ferramenta, nunca editada à mão ([referência](../.claude/skills/dev-workflow/references/versioning.md)). A fonte única é a última tag de versão alcançável; os arquivos declarados em `versioning.files` são projeções reescritas a cada release. Só o label `release` faz um merge publicar versão: PRs sem ele se acumulam e entram, todos, na análise do próximo que tiver o label. O nível é o maior entre os sinais (labels de tipo das issues, Conventional Commits, marcador de breaking, superfícies públicas, pisos de versão no código e a análise por agente registrada no PR), e um label `semver:*` com motivo sobrepõe o cálculo. Em 0.x, uma quebra sobe o minor, e 1.0.0 só sai por decisão explícita (`semver:major`).
+
+O workflow de release roda depois do merge, nunca no PR, para dois PRs simultâneos não disputarem o mesmo número. Ele escreve a versão, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release e marca os PRs e issues incluídos (comentário e milestone). É idempotente: reexecutar depois de concluir não faz nada, e depois de uma falha parcial conclui o que faltou. Há modo direto e modo por PR de release, pré-release (`--prerelease rc`), branch de manutenção `maint/X.Y` e reversão documentada.
+
 ## Mecanismos
 
 | Camada | Arquivo | O que garante |

@@ -8,48 +8,56 @@ language = "pt"
 # Labels de tipo: cada issue tem exatamente um. `commit` lista os tipos de Conventional Commits
 # que correspondem ao label; `level` é o nível SemVer que uma mudança desse tipo implica.
 [types.bug]
+heading = "Correções"
 color = "d73a4a"
 description = "Comportamento incorreto, regressão ou falha de segurança existente"
 commit = ["fix"]
 level = "patch"
 
 [types.feature]
+heading = "Funcionalidades"
 color = "1d76db"
 description = "Nova funcionalidade"
 commit = ["feat"]
 level = "minor"
 
 [types.enhancement]
+heading = "Melhorias"
 color = "a2eeef"
 description = "Melhoria de funcionalidade existente"
 commit = ["perf"]
 level = "minor"
 
 [types.documentation]
+heading = "Documentação"
 color = "0075ca"
 description = "Somente documentação"
 commit = ["docs"]
 level = "patch"
 
 [types.refactor]
+heading = "Refatoração"
 color = "fbca04"
 description = "Reestruturação sem mudança de comportamento"
 commit = ["refactor", "style"]
 level = "patch"
 
 [types.test]
+heading = "Testes"
 color = "bfd4f2"
 description = "Somente testes, fixtures ou evidência de verificação"
 commit = ["test"]
 level = "patch"
 
 [types.ci]
+heading = "CI"
 color = "5319e7"
 description = "Pipeline e checks automáticos"
 commit = ["ci"]
 level = "patch"
 
 [types.chore]
+heading = "Manutenção"
 color = "c5def5"
 description = "Dependências, ferramentas e configuração de desenvolvimento"
 commit = ["chore", "build", "revert"]

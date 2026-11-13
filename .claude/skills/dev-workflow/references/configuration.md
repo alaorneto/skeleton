@@ -9,6 +9,7 @@ Tudo que é específico do projeto fica neste arquivo; `bootstrap.py init` o cri
 | `types.<label>.color`, `.description` | texto | — | Label de tipo; cada issue tem exatamente um. Pelo menos um tipo é obrigatório |
 | `types.<label>.commit` | lista de textos | `[]` | Tipos de Conventional Commits do label; o primeiro dá o prefixo da branch de `start`. Um tipo de commit pertence a um label só |
 | `types.<label>.level` | `patch`, `minor`, `major` | `patch` | Nível SemVer que uma mudança desse tipo implica numa release |
+| `types.<label>.heading` | texto | o nome do label | Título do grupo do tipo no `CHANGELOG.md` e nas notas |
 | `labels.<label>.color`, `.description` | texto | — | Labels adicionais (`security`, `epic`, `release`, `semver:*`); não podem repetir um tipo |
 | `issue.epic_label` | texto | `epic` | Label da issue de acompanhamento de um plano |
 | `issue.items_section` | texto | `Itens` | Título da seção do epic com a lista `- [ ] #N título — depende de #M` |
@@ -18,6 +19,6 @@ Tudo que é específico do projeto fica neste arquivo; `bootstrap.py init` o cri
 | `pull_request.exempt_authors` | lista de textos | `["dependabot[bot]"]` | Autores cujos PRs o check não exige vínculo |
 | `pull_request.conventional_title` | booleano | `true` | Título do PR em Conventional Commits |
 | `pull_request.pending_criteria` | `warning`, `error` | `warning` | Critério de aceite não marcado na issue fechada pelo PR |
-| `versioning.*` | tabela | desligado | Versionamento semântico e release |
+| `versioning.*` | tabela | desligado | Versionamento semântico e release ([versioning.md](versioning.md)): `enabled`, `tag_prefix`, `changelog`, `release_label`, `breaking_label`, `override_prefix`, `mode` (`direct` ou `pr`), `files`, `floors`, `public_surfaces`, `analysis_authors` |
 
 Caminhos em `versioning.files` e `versioning.floors` são relativos à raiz do repositório e não podem sair dela (`..`).

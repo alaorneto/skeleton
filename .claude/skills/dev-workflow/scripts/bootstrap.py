@@ -193,6 +193,16 @@ def doctor(root: Path, *, gh: GhRunner = _run_gh) -> list[Finding]:
         report.append(
             Finding("falta", "labels", "faltam " + ", ".join(missing)) if missing else Finding("ok", "labels")
         )
+    if config.versioning.enabled:
+        from release import check_files
+
+        problems = check_files(config, root)
+        report.append(Finding("falta", "versão", "; ".join(problems)) if problems else Finding("ok", "versão"))
+        tags = subprocess.run(
+            ["git", "tag", "--list", f"{config.versioning.tag_prefix}*"], cwd=root, capture_output=True, text=True
+        ).stdout.split()
+        if not tags:
+            report.append(Finding("pendente", "tag de base", "passo do responsável: release.py baseline VERSÃO"))
     return report
 
 
