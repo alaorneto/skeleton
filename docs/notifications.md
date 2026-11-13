@@ -143,7 +143,7 @@ Quem escolhe `daily` ou `weekly` no canal `email` recebe um resumo em vez de um 
 - Cria uma `NotificationDelivery` (canal `digest`) por pessoa e hora local, com `dedupe_key` `digest:<pessoa>:<AAAAMMDDHH>`, e o mesmo job `notifications.email` envia com as mesmas retentativas. Rodar a mesma janela de novo não cria outro resumo.
 - Resumo vazio não é criado. Itens lidos ou arquivados entre a criação e o envio saem do email; se nenhum sobrar, a entrega fica `skipped` (`empty_digest`).
 
-Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. Se o worker atrasar além da hora local, o resumo daquele dia é pulado e os itens seguem para o próximo.
+Templates: `notifications/digest/subject.txt` e `body.txt|html`, com as variantes por idioma. O resumo junta a caixa in-app: um tipo com `in_app` desligado não tem linha e não entra no resumo. Uma pessoa em N organizações recebe N resumos; um resumo único entre organizações fica para depois. O job recebe a janela para a qual foi agendado (`window`): um job atrasado ainda envia o resumo daquela hora (#276). Continuam puladas só a janela que nunca foi agendada (agendador parado) e a hora local que não existe na mudança de horário; os itens seguem para o próximo resumo. No envio, cada item é reautorizado como no email imediato: um alvo que a pessoa deixou de ler fica fora, e um resumo sem nenhum item legível termina `skipped` (`empty_digest`).
 
 ## Web push
 

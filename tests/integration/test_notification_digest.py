@@ -135,3 +135,73 @@ def test_types_left_immediate_are_not_in_the_digest(scenario):
     run_pending_jobs()
     assert len(mail.outbox) == 2 and mail.outbox[1].body.count("- Outro aviso") == 1
     assert "- Aviso" not in mail.outbox[1].body
+
+
+def test_late_job_still_sends_the_digest_of_its_window(scenario, monkeypatch):
+    """The job of the 12:00 UTC window (09:00 in São Paulo) runs at 13:05 and still sends (#276)."""
+    from django.utils import timezone
+
+    prefer(scenario.member, "daily")
+    notice(scenario, scenario.a, scenario.admin_a)
+    monkeypatch.setattr(timezone, "now", lambda: TUESDAY_NOON.replace(hour=13, minute=5))
+    with system_context(reason="test:late-digest", organization_id=scenario.a.pk):
+        assert run_digest(window="20261110T120000Z") == 1
+        assert run_digest(window="20261110T120000Z") == 0  # Same window: still one digest.
+    assert len(digests(scenario.a)) == 1
+
+
+def _targeted_notice(scenario, title):
+    """A notification about a note the member reads only while it is visible to the organization."""
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code=title, title=title, visibility="organization")
+    with scenario.acting(scenario.admin_a, scenario.a):
+        notify("notes.digest", recipients=Recipients(users=(scenario.member.pk,)), target=note)
+    run_pending_jobs()
+    return note
+
+
+def _hide(scenario, note):
+    from examples.notes.models import Note
+
+    with scenario.acting(scenario.admin_a, scenario.a):
+        hidden = Note.objects.get(pk=note.pk)
+        hidden.visibility = "private"
+        hidden.save(update_fields={"visibility"})
+
+
+@pytest.fixture
+def targeted(scenario):
+    register_notification_type(
+        NotificationType(
+            "notes.digest",
+            "Nota",
+            snapshot_fields=("title",),
+            target_table_key="example_notes.note",
+            default_channels=("in_app", "email"),
+        )
+    )
+    return scenario
+
+
+def test_digest_omits_rows_whose_target_became_unreadable(targeted):
+    """The digest reauthorizes each target at send time, as the immediate email does (#276)."""
+    scenario = targeted
+    prefer(scenario.member, "daily")
+    kept = _targeted_notice(scenario, "Visivel")
+    lost = _targeted_notice(scenario, "Escondida")
+    assert digest(scenario.a, TUESDAY_NOON) == 1
+    _hide(scenario, lost)
+    run_pending_jobs()
+    [message] = mail.outbox
+    assert kept.title in message.body and "Escondida" not in message.body
+
+
+def test_digest_with_only_unreadable_rows_is_skipped(targeted):
+    scenario = targeted
+    prefer(scenario.member, "daily")
+    lost = _targeted_notice(scenario, "Sumiu")
+    assert digest(scenario.a, TUESDAY_NOON) == 1
+    _hide(scenario, lost)
+    run_pending_jobs()
+    assert mail.outbox == []
+    [skipped] = digests(scenario.a)
+    assert (skipped.state, skipped.error_code) == ("skipped", "empty_digest")

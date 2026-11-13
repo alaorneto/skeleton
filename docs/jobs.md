@@ -115,6 +115,7 @@ register_periodic("events.retention", "events.purge", every=timedelta(hours=6), 
 `python manage.py run_scheduler [--once] [--interval 30]` enfileira, a cada verificação, a **janela atual** de cada declaração:
 
 - A chave de idempotência é `periodic:<code>:<organização>:<início da janela>`. Vários agendadores podem rodar ao mesmo tempo, sem eleição de líder: o banco guarda exatamente um job por janela e organização.
+- Um tipo que declara `window` (`"str"`) no `payload_schema` recebe o início da janela em UTC (`AAAAMMDDTHHMMSSZ`), para decidir pela janela agendada e não pela hora em que roda; os demais recebem o payload declarado, sem `window` (#276).
 - Antes de enfileirar, o agendador lê de uma vez as chaves da janela que já estão na fila e só insere as que faltam; entre verificações, cada processo lembra o que já agendou na janela em curso e nem consulta de novo. Uma organização criada no meio da janela recebe o job na verificação seguinte. O `INSERT` em savepoint continua como proteção quando dois agendadores correm ao mesmo tempo (#240).
 - Com `per_organization=True`, os IDs das organizações ativas e não excluídas são materializados antes, e cada organização enfileira na própria transação `system_context`. Nenhuma transação global envolve o laço.
 - Só a janela em curso é agendada: um agendador parado recupera no máximo uma janela, nunca um acúmulo.

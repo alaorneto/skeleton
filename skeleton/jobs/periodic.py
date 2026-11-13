@@ -133,6 +133,7 @@ def schedule_due(
     """
     from skeleton.tenancy.context import system_context
 
+    from .registry import get_job_type
     from .services import enqueue
 
     now = now or timezone.now()
@@ -142,6 +143,10 @@ def schedule_due(
         window = periodic.window_start(now)
         stamp = window.strftime("%Y%m%dT%H%M%SZ")
         done = _window_memory(seen, periodic.code, stamp)
+        payload = dict(periodic.payload)
+        if "window" in get_job_type(periodic.job_type).payload_schema:
+            # The handler decides by the window it was scheduled for, not by when it runs (#276).
+            payload["window"] = stamp
         if periodic.per_organization:
             if organizations is None:
                 organizations = _active_organization_ids(using)
@@ -159,7 +164,7 @@ def schedule_due(
                         receipt = enqueue(
                             periodic.job_type,
                             organization_id=organization_id,
-                            payload=periodic.payload,
+                            payload=payload,
                             idempotency_key=key,
                             run_after=window,
                         )
@@ -171,7 +176,7 @@ def schedule_due(
                 with system_context(reason=f"periodic:{periodic.code}", using=using):
                     receipt = enqueue(
                         periodic.job_type,
-                        payload=periodic.payload,
+                        payload=payload,
                         idempotency_key=key,
                         run_after=window,
                     )

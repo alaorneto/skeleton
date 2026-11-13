@@ -175,3 +175,15 @@ def test_memory_resets_when_the_window_changes(organizations):
     assert schedule_due(now=NOW + timedelta(minutes=5), seen=seen) >= 2
     assert len(ticks()) == 4
     assert schedule_due(now=NOW + timedelta(minutes=5), seen=seen) == 0
+
+
+def test_window_is_passed_only_to_types_that_declare_it(organizations):
+    """A type that declares ``window`` receives the stamp; others keep their payload (#276)."""
+    register_job_type(JobType("test.windowed", noop, {"window": "str"}))
+    register_periodic("windowed", "test.windowed", every=timedelta(hours=1))
+    register_periodic("tick", "test.tick", every=timedelta(minutes=5))
+    schedule_due(now=NOW)
+    windowed = list(Job.all_objects.filter(job_type="test.windowed").values_list("payload", flat=True))
+    plain = list(Job.all_objects.filter(job_type="test.tick").values_list("payload", flat=True))
+    assert windowed and all(payload == {"window": "20261109T100000Z"} for payload in windowed)
+    assert all(not payload for payload in plain)

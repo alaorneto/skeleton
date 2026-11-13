@@ -214,7 +214,9 @@ def register_notification_jobs() -> None:
     from .channels.digest import DIGEST_JOB, run_digest
 
     register_job_type(
-        JobType(DIGEST_JOB, run_digest, {}, run_as="system", max_attempts=3, owner_app="sk_notifications")
+        JobType(
+            DIGEST_JOB, run_digest, {"window": "str"}, run_as="system", max_attempts=3, owner_app="sk_notifications"
+        )
     )
     register_periodic(DIGEST_JOB, DIGEST_JOB, every=timedelta(hours=1))
     from datetime import time
