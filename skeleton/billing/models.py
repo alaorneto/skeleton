@@ -14,6 +14,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 
+from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.exceptions import ImmutableRecord
 from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
 
@@ -185,6 +186,68 @@ class InvoiceCounter(SystemRecord):
         return f"{self.year}: {self.last_value}"
 
 
+BILLING_KEYS = "BILLING_ENCRYPTION_KEYS"
+
+
+class ProviderAccount(SystemRecord):
+    """The platform's credentials at one payment provider (#400); secrets encrypted, never shown."""
+
+    class Mode(models.TextChoices):
+        TEST = "test", gettext_lazy("Teste")
+        LIVE = "live", gettext_lazy("Produção")
+
+    provider = models.CharField(max_length=32)
+    label = models.CharField(max_length=100)
+    mode = models.CharField(max_length=4, choices=Mode.choices, default=Mode.TEST)
+    api_key = EncryptedTextField(keyring=BILLING_KEYS, blank=True, default="")
+    webhook_secret = EncryptedTextField(keyring=BILLING_KEYS, blank=True, default="")
+    # Currencies this account collects (empty: any) and the default account of the platform.
+    currencies = models.JSONField(default=list, blank=True)
+    is_default = models.BooleanField(default=False)
+    enabled = models.BooleanField(default=True)
+    immutable_fields = ("provider",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("is_default",),
+                condition=Q(is_default=True, deleted_at__isnull=True),
+                name="sk_billing_provider_default",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(condition=Q(mode__in=("test", "live")), name="sk_billing_provider_mode"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not _APP_LABEL.match(self.provider or ""):
+            raise ValidationError({"provider": gettext("Provedor desconhecido.")})
+        codes = self.currencies
+        if not isinstance(codes, list) or not all(isinstance(code, str) for code in codes):
+            raise ValidationError({"currencies": gettext("Use uma lista de moedas.")})
+        for code in codes:
+            try:
+                validate_currency(code)
+            except ValidationError as exc:
+                raise ValidationError({"currencies": exc.messages}) from None
+
+    def set_secrets(self, *, api_key=None, webhook_secret=None):
+        """Replace the secrets given; an empty or missing value keeps the current one."""
+        if api_key:
+            self.api_key = api_key
+        if webhook_secret:
+            self.webhook_secret = webhook_secret
+
+    def secret(self, name):
+        value = getattr(self, name)
+        if not value:
+            return ""
+        return value if isinstance(value, str) else value.reveal()
+
+    def __str__(self):
+        return f"{self.provider} {self.label}"
+
+
 class BillingAccount(OrganizationRecord):
     """Who pays for an organization, and how far its access goes (one per organization)."""
 
@@ -203,6 +266,14 @@ class BillingAccount(OrganizationRecord):
     access_state_since = models.DateTimeField(default=timezone.now)
     terms_version_accepted = models.CharField(max_length=32, blank=True, default="")
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    # The provider that collects this account (#400), its customer id there and the saved method:
+    # a provider token plus brand and last digits, never a card number.
+    provider_account = models.ForeignKey(
+        ProviderAccount, on_delete=models.PROTECT, null=True, blank=True, related_name="billing_accounts"
+    )
+    provider_customer_id = models.CharField(max_length=200, blank=True, default="")
+    payment_method_ref = models.CharField(max_length=500, blank=True, default="")
+    payment_method_label = models.CharField(max_length=100, blank=True, default="")
     # A platform extension (#399): the access level stays active until then, whatever is owed.
     access_override_until = models.DateTimeField(null=True, blank=True)
     access_override_reason = models.CharField(max_length=500, blank=True, default="")
@@ -691,3 +762,58 @@ class UsageSnapshot(OperationalRecord):
 
     def __str__(self):
         return f"{self.organization_id} {self.day} {self.bytes_used}"
+
+
+class CheckoutAttempt(OrganizationRecord):
+    """A hosted payment page opened for an invoice (#400); its sysid is the idempotency key."""
+
+    class Status(models.TextChoices):
+        CREATED = "created", gettext_lazy("Criada")
+        OPEN = "open", gettext_lazy("Aberta")
+        FAILED = "failed", gettext_lazy("Falhou")
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="checkout_attempts")
+    provider_account = models.ForeignKey(ProviderAccount, on_delete=models.PROTECT, related_name="checkout_attempts")
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.CREATED)
+    reference = models.CharField(max_length=200, blank=True, default="")
+    url = models.CharField(max_length=2000, blank=True, default="")
+    expires_at = models.DateTimeField(null=True, blank=True)
+    failure_code = models.CharField(max_length=64, blank=True, default="")
+    immutable_fields = ("invoice_id", "provider_account_id")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=Q(status__in=("created", "open", "failed")), name="sk_billing_checkout_status"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.invoice_id} {self.status}"
+
+
+class ProviderEvent(OperationalRecord):
+    """A verified inbound webhook (#400), recorded once per provider account and event id."""
+
+    class Status(models.TextChoices):
+        RECEIVED = "received", gettext_lazy("Recebido")
+        PROCESSED = "processed", gettext_lazy("Processado")
+        IGNORED = "ignored", gettext_lazy("Ignorado")
+        FAILED = "failed", gettext_lazy("Falhou")
+
+    provider_account = models.ForeignKey(ProviderAccount, on_delete=models.PROTECT, related_name="events")
+    event_id = models.CharField(max_length=200)
+    kind = models.CharField(max_length=100, blank=True, default="")
+    payment_reference = models.CharField(max_length=200, blank=True, default="")
+    body_digest = models.CharField(max_length=64)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.RECEIVED)
+    outcome = models.CharField(max_length=64, blank=True, default="")
+    immutable_fields = ("provider_account_id", "event_id", "body_digest")
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=("provider_account", "event_id"), name="sk_billing_provider_event_once"),
+        ]
+
+    def __str__(self):
+        return f"{self.provider_account_id} {self.event_id} {self.status}"

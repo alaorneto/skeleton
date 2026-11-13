@@ -39,6 +39,7 @@ READ_TIMEOUT = 10.0
 DNS_TIMEOUT = 5.0
 TOTAL_TIMEOUT = 20.0
 MAX_RESPONSE_BYTES = 64 * 1024
+MAX_RESPONSE_BYTES_CEILING = 1024 * 1024
 DEFAULT_PORTS = (443,)
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
@@ -243,13 +244,18 @@ def request(
     headers: Mapping[str, str] | None = None,
     body: bytes | None = None,
     resolver: Resolver | None = None,
+    max_response_bytes: int = MAX_RESPONSE_BYTES,
 ) -> OutboundResponse:
     """Send one request to a validated destination; redirects come back as plain 3xx responses.
 
     The exchange after name resolution (connection, TLS handshake, request, response headers and
     body) ends within ``TOTAL_TIMEOUT`` seconds, however slowly the destination answers; past it
     the request fails with ``OutboundRequestFailed``. Name resolution has ``DNS_TIMEOUT`` of its own.
+    ``max_response_bytes`` (at most ``MAX_RESPONSE_BYTES_CEILING``) lets a caller with a fixed,
+    trusted destination, such as a payment provider (#400), keep a larger body.
     """
+    if not 0 < max_response_bytes <= MAX_RESPONSE_BYTES_CEILING:
+        raise ValueError("max_response_bytes out of range.")
     destination = validate_url(url, resolver=resolver)
     connection: _PinnedHTTPSConnection | _PinnedHTTPConnection
     if destination.scheme == "https":
@@ -263,15 +269,15 @@ def request(
     try:
         connection.request(method, destination.target, body=body, headers=dict(headers or {}))
         response = connection.getresponse()
-        data = response.read(MAX_RESPONSE_BYTES + 1)
+        data = response.read(max_response_bytes + 1)
         if connection.aborted:
             # A shut down socket reads as end of stream: never report a cut answer as complete.
             raise OutboundRequestFailed(gettext("Prazo total da requisição excedido."))
         return OutboundResponse(
             status=response.status,
             headers={name.lower(): value for name, value in response.getheaders()},
-            body=data[:MAX_RESPONSE_BYTES],
-            truncated=len(data) > MAX_RESPONSE_BYTES,
+            body=data[:max_response_bytes],
+            truncated=len(data) > max_response_bytes,
         )
     except (OSError, http.client.HTTPException) as exc:
         if connection.aborted:

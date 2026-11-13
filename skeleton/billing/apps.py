@@ -21,6 +21,7 @@ class BillingConfig(AppConfig):
         from .jobs import register_billing_jobs
         from .lifecycle import organization_created
         from .notices import register_notices
+        from .payments import register_payment_jobs
         from .quota import register_quota
         from .vouchers import register_voucher_lines
 
@@ -34,4 +35,5 @@ class BillingConfig(AppConfig):
         register_quota()
         register_dunning()
         register_notices()
+        register_payment_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))
         register_billing_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))

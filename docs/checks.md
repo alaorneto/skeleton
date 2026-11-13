@@ -51,6 +51,7 @@ Quando o Django mostra `HINT:` depois da mensagem, ele é o "como corrigir" da l
 | `skeleton.W035` | aviso (deploy) | `SKELETON_PUBLIC_URL` vazio ou que não é uma origem (`https://app.example.com`): os emails de notificação levariam links relativos e sem `List-Unsubscribe`. | Defina a origem pública do site, só esquema e host ([notificações](notifications.md)). |
 | `skeleton.W036` | aviso (deploy, POSIX) | O SQLite da instância ou a chave mestra são acessíveis pelo grupo ou por outros usuários do sistema. | `chmod 600` nos dois arquivos; silencie só quando o volume impõe a máscara ([deployment](deployment.md)). |
 | `skeleton.E037` | erro | `SKELETON_BILLING_ENABLED` ligado sem `BILLING_ENCRYPTION_KEYS`: os segredos dos provedores de pagamento não teriam keyring. | Gere uma chave Fernet e defina `BILLING_ENCRYPTION_KEYS`. | [cobrança](billing.md#configuração) |
+| `skeleton.W037` | aviso (deploy) | Cobrança ligada sem um `SKELETON_PUBLIC_URL` válido: os provedores não alcançam os webhooks nem devolvem a pessoa depois do checkout. | Defina a origem pública do site, só esquema e host. | [cobrança](billing.md#provedores-de-pagamento) |
 
 ## Próximo identificador livre
 

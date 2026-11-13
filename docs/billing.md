@@ -148,11 +148,26 @@ O estado de acesso da organização é **derivado**, nunca digitado: da fatura e
 
 O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora com `skeleton.billing.tax.register_tax_calculator(...)` em `ready()`: ela recebe a conta e as linhas e devolve o imposto na menor unidade da moeda. Nota fiscal fica fora do núcleo; um consumidor de `billing.invoice_paid` pode entregá-la a um emissor.
 
+## Provedores de pagamento
+
+Não existe padrão aberto que abstraia assinaturas entre provedores, então o núcleo mantém a assinatura e pede ao provedor só o que todos fazem (`skeleton/billing/providers/base.py`, protocolo `PaymentProvider`): criar o cliente, abrir um **checkout hospedado** para uma fatura (nenhum dado de cartão passa pelo servidor), cobrar um meio salvo, **consultar um pagamento**, estornar e **verificar um webhook**. Os adaptadores se registram por código (`register_provider`). As chamadas HTTP saem só por `skeleton.common.outbound_http`, com os hosts de cada provedor como constantes de código e respostas de até 1 MiB (`max_response_bytes`). Não há SDK oficial: ele contornaria o cliente anti-SSRF e traria dependências.
+
+**Contas de provedor.** `ProviderAccount` (global) guarda a chave da API e o segredo de webhook cifrados com `BILLING_ENCRYPTION_KEYS` e redigidos na auditoria, as moedas que a conta cobra (vazio: todas), o modo (`test` ou `live`) e qual é a conta padrão. A conta de cobrança lembra o provedor, o id do cliente lá e o meio salvo: um token do provedor mais marca e quatro últimos dígitos, nunca o número do cartão.
+
+| Fluxo | Como funciona |
+|---|---|
+| Checkout | `payments.create_checkout(fatura, return_url=...)` grava um `CheckoutAttempt`, pede ao provedor a página hospedada com o sysid da tentativa como chave de idempotência e guarda o link (sensível). Nenhuma linha fica travada durante a chamada. A referência enviada ao provedor é `<sysid da organização>:<sysid da fatura>`. |
+| Cobrança automática | Uma fatura de renovação de uma assinatura `auto_charge` enfileira `billing.collect`, que cobra o meio salvo com a chave `collect:<fatura>:<tentativa>`: um worker que morre depois de cobrar nunca cobra duas vezes. As novas tentativas da [inadimplência](#inadimplência) usam a mesma tarefa com o número seguinte. Uma recusa notifica (`billing.payment_failed`) e agenda a próxima tentativa. |
+| Webhook | `POST /billing/webhooks/<provedor>/<sysid da conta>/`, fora de `/o/` e `/api/`, sem sessão nem CSRF: limita o corpo (256 KiB) e a taxa por conta, verifica a assinatura ou o token em tempo constante, grava o `ProviderEvent` uma vez por `(conta, id do evento)` (repetição responde 200 sem efeito), enfileira `billing.process_event` e responde 200. Um webhook recusado responde 400 e não muda nada. |
+| Processar o aviso | O job **consulta o pagamento no provedor** com a chave da plataforma: o corpo do webhook nunca é confiável. Só marca a fatura paga se o pagamento consultado nomeia esta fatura, na moeda dela, pelo valor ainda devido; senão registra `amount_mismatch` e não muda o ledger. |
+| Conciliação | `billing.reconcile` (a cada 30 minutos, por organização) consulta os pagamentos pendentes há mais de 15 minutos, para o webhook que se perdeu. |
+
+Para testes, `skeleton.testing.billing.use_fake_provider()` registra um provedor em memória, determinístico e sem rede, com a conta de provedor padrão. Com a cobrança ligada e sem `SKELETON_PUBLIC_URL` válido, o `check --deploy` avisa com `skeleton.W037`: o provedor não teria para onde mandar os webhooks nem para onde devolver a pessoa depois do checkout.
+
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#400](https://github.com/alaorneto/skeleton/issues/400) | Interface de provedor, webhooks de entrada e conciliação |
 | [#401](https://github.com/alaorneto/skeleton/issues/401), [#402](https://github.com/alaorneto/skeleton/issues/402), [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
 | [#404](https://github.com/alaorneto/skeleton/issues/404) | Páginas de cobrança da organização, API e `BillingService` |
 | [#405](https://github.com/alaorneto/skeleton/issues/405) | Administração da plataforma |

@@ -450,7 +450,7 @@ def register_core_specs():
             gettext_lazy("Contas de cobrança"),
             gettext_lazy("Quem paga pela organização e o estado de acesso dela; dados de contato redigidos."),
             "organization",
-            (),
+            ("payment_method_ref",),
         ),
         "sk_billing.subscription": (
             gettext_lazy("Assinaturas"),
@@ -498,6 +498,24 @@ def register_core_specs():
             gettext_lazy("Uso de armazenamento por dia"),
             gettext_lazy("Bytes dos anexos de uma organização num dia, com a quebra por app; operacional."),
             "organization",
+            (),
+        ),
+        "sk_billing.provideraccount": (
+            gettext_lazy("Contas de provedor de pagamento"),
+            gettext_lazy("Credenciais da plataforma num provedor de pagamento; chave e segredo cifrados."),
+            "global",
+            ("api_key", "webhook_secret"),
+        ),
+        "sk_billing.checkoutattempt": (
+            gettext_lazy("Páginas de pagamento"),
+            gettext_lazy("Página hospedada de pagamento aberta para uma fatura; o link é sensível."),
+            "organization",
+            ("url",),
+        ),
+        "sk_billing.providerevent": (
+            gettext_lazy("Avisos de provedores"),
+            gettext_lazy("Webhook de pagamento verificado, uma vez por evento; operacional, só identificadores."),
+            "global",
             (),
         ),
         "sk_audit.auditevent": (
