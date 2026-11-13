@@ -5,35 +5,86 @@ import os
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from .config import read_environment
-from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
+from .storage import AgentError, atomic_bytes, atomic_json, file_hash, identifier, inventory_files, load_json
+
+# Each command of an operation keeps its last output bytes in a private log (#244).
+MAX_COMMAND_LOG_BYTES = 256 * 1024
 
 
 class Backend:
     def __init__(self, config, store):
         self.config = config
         self.store = store
+        self.log_directory = None
+
+    @contextmanager
+    def logging_to(self, operation_id):
+        """Inside an operation, every command writes its output to ``logs/<operation>/NN-<code>.log``.
+
+        The files may hold anything a command printed with the owner credential in its environment:
+        0700 directory and 0600 files inside the agent's private storage, never the API or stderr.
+        """
+        directory = self.store.root / "logs" / identifier(operation_id)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        previous, self.log_directory = self.log_directory, directory
+        try:
+            yield directory
+        finally:
+            self.log_directory = previous
+
+    def _open_log(self, code):
+        """A new private log file (O_EXCL: never follows a planted link), or None outside an operation."""
+        if self.log_directory is None:
+            return None, None
+        number = sum(1 for _ in self.log_directory.glob("*.log")) + 1
+        path = self.log_directory / f"{number:02d}-{code}.log"
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        return path, descriptor
+
+    @staticmethod
+    def _bound_log(path, descriptor):
+        """Keep the last MAX_COMMAND_LOG_BYTES of the output."""
+        os.close(descriptor)
+        size = path.stat().st_size
+        if size > MAX_COMMAND_LOG_BYTES:
+            with path.open("rb") as handle:
+                handle.seek(size - MAX_COMMAND_LOG_BYTES)
+                tail = handle.read()
+            with path.open("r+b") as handle:
+                handle.write(tail)
+                handle.truncate()
 
     def run(self, arguments, *, env=None, cwd=None, code="command_failed"):
+        path, descriptor = self._open_log(code)
         try:
             subprocess.run(
                 [str(argument) for argument in arguments],
                 env=env or self.operator_env(),
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL if descriptor is None else descriptor,
+                stderr=subprocess.DEVNULL if descriptor is None else subprocess.STDOUT,
                 check=True,
                 timeout=self.config.get("command_timeout", 1800),
             )
         except (OSError, subprocess.SubprocessError):
-            raise AgentError(code, 409) from None
+            error = AgentError(code, 409)
+            error.log = path.name if path else None
+            raise error from None
+        finally:
+            if descriptor is not None:
+                self._bound_log(path, descriptor)
 
     def capture(self, arguments, *, env=None, cwd=None, code="command_failed"):
+        # stdout is data, kept in memory; only stderr goes to the operation log.
+        path, descriptor = self._open_log(code)
         try:
             result = subprocess.run(
                 [str(argument) for argument in arguments],
@@ -41,7 +92,7 @@ class Backend:
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL if descriptor is None else descriptor,
                 check=True,
                 timeout=self.config.get("command_timeout", 1800),
             )
@@ -49,7 +100,12 @@ class Backend:
                 raise AgentError("command_output_too_large", 409)
             return result.stdout
         except (OSError, subprocess.SubprocessError):
-            raise AgentError(code, 409) from None
+            error = AgentError(code, 409)
+            error.log = path.name if path else None
+            raise error from None
+        finally:
+            if descriptor is not None:
+                self._bound_log(path, descriptor)
 
     def target_environment(self):
         script = "import json,os,platform,sys; print(json.dumps(dict(implementation_name=sys.implementation.name,implementation_version=platform.python_version(),os_name=os.name,platform_machine=platform.machine(),platform_release=platform.release(),platform_system=platform.system(),platform_version=platform.version(),python_full_version=platform.python_version(),platform_python_implementation=platform.python_implementation(),python_version='.'.join(map(str,sys.version_info[:2])),sys_platform=sys.platform)))"

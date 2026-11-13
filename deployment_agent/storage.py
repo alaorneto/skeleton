@@ -6,9 +6,11 @@ import json
 import os
 import re
 import stat
+import sys
+import traceback
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from uuid import UUID, uuid4
 
 
@@ -125,6 +127,21 @@ def private_file(path):
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o027 or path.is_symlink():
         raise AgentError("insecure_private_file")
     return path
+
+
+def log_internal_error(error, stream=None):
+    """Emit one JSON line locating the failure; never the message, request, token or subprocess output."""
+    frames = traceback.extract_tb(error.__traceback__)[-25:]
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "level": "ERROR",
+        "event": "agent.internal_error",
+        "error_class": type(error).__name__,
+        "error_stack": [f"{PurePath(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames],
+    }
+    stream = stream or sys.stderr
+    stream.write(json.dumps(record, sort_keys=True) + "\n")
+    stream.flush()
 
 
 class Store:

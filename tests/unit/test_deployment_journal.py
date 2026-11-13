@@ -1,5 +1,6 @@
 """Deterministic delivery and lock contracts, without executing privileged commands."""
 
+from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
 from threading import Event, Thread, current_thread
@@ -76,6 +77,7 @@ def approved_deployment(tmp_path, monkeypatch):
         probe=lambda path: {"migrations": [], "applied": [], "targets": []},
         drain=lambda *args: None,
         backup=lambda *args: str(tmp_path / "backup.json"),
+        logging_to=lambda operation_id: nullcontext(),
     )
     pending = []
 

@@ -6,33 +6,15 @@ import json
 import os
 import secrets
 import socket
-import sys
 import threading
 import time
-import traceback
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path, PurePath
+from pathlib import Path
 from socketserver import ThreadingMixIn, UnixStreamServer
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from .storage import AgentError, atomic_bytes, canonical, identifier, private_file
-
-
-def log_internal_error(error, stream=None):
-    """Emit one JSON line locating the failure; never the message, request, token or subprocess output."""
-    frames = traceback.extract_tb(error.__traceback__)[-25:]
-    record = {
-        "timestamp": datetime.now(UTC).isoformat(),
-        "level": "ERROR",
-        "event": "agent.internal_error",
-        "error_class": type(error).__name__,
-        "error_stack": [f"{PurePath(frame.filename).name}:{frame.lineno}:{frame.name}" for frame in frames],
-    }
-    stream = stream or sys.stderr
-    stream.write(json.dumps(record, sort_keys=True) + "\n")
-    stream.flush()
+from .storage import AgentError, atomic_bytes, canonical, identifier, log_internal_error, private_file
 
 
 class StatusTickets:

@@ -42,6 +42,7 @@ from .storage import (
     identifier,
     inventory_files,
     load_json,
+    log_internal_error,
     now,
 )
 
@@ -505,11 +506,14 @@ class DeploymentService:
     def operation(self, operation_id):
         return self.public_operation(self.store.get("operations", identifier(operation_id)))
 
-    def stage(self, operation, stage, **changes):
+    def stage(self, operation, stage, *, log=None, **changes):
         operation.update(changes)
         operation["stage"] = stage
         operation["updated_at"] = now()
-        operation["events"].append({"stage": stage, "at": operation["updated_at"]})
+        event = {"stage": stage, "at": operation["updated_at"]}
+        if log:
+            event["log"] = log  # Only the file name under logs/<operation>/ (#244), never its content.
+        operation["events"].append(event)
         self.store.put("operations", operation["id"], operation)
 
     def maintain(self, operation):
@@ -522,53 +526,56 @@ class DeploymentService:
             operation = self.store.get("operations", operation_id)
             if operation["state"] != "queued":
                 return
-            try:
-                record = self.store.get("plans", operation["binding"]["plan_id"])
-                plan = record["plan"]
-                state = self.state()
-                if (
-                    state["inventory"]["generation"] != plan["generation"]
-                    or state["release"] != record["previous_release"]
-                    or digest(state["owned_files"]) != record["source_owned_digest"]
-                ):
-                    raise AgentError("stale_execution", 409)
-                if str(self.backend.active()) != state["release"]:
-                    raise AgentError("active_pointer_conflict", 409)
-                if shutil.disk_usage(self.config["releases_root"]).free < self.config.get(
-                    "minimum_free_bytes", 512 * 1024 * 1024
-                ):
-                    raise AgentError("insufficient_disk_space", 409)
-                check_drift(state["release"], state["owned_files"])
-                check_drift(plan["release"], record["owned_files"])
-                for artifact in plan["artifacts"]:
-                    verified(self.store, self.config, artifact)
-                graph = self.backend.probe(plan["release"])
-                if (
-                    graph["migrations"] != plan["migrations"]
-                    or graph["applied"] != plan["applied_migrations"]
-                    or graph["targets"] != plan["migration_targets"]
-                ):
-                    raise AgentError("migration_plan_changed", 409)
-                self.stage(operation, "maintenance_entering", state="running")
-                self.maintain(operation)
-                self.backend.drain(state["release"], operation_id)
-                self.stage(operation, "drained")
-                backup = self.backend.backup(state["release"], operation_id)
-                self.stage(operation, "backup_ready", backup=backup)
-                # Recheck under the write gate; no DB changes may escape approval between preview and drain.
-                graph = self.backend.probe(plan["release"])
-                if (
-                    graph["migrations"] != plan["migrations"]
-                    or graph["applied"] != plan["applied_migrations"]
-                    or graph["targets"] != plan["migration_targets"]
-                ):
-                    raise AgentError("migration_plan_changed", 409)
-                self.stage(operation, "migration_started")
-                self.finish(operation, record)
-            except Exception as error:
-                code = error.code if isinstance(error, AgentError) else type(error).__name__
-                self.stage(operation, "failed", state="failed", error=code)
-                # Once the gate exists, no failure clears it or silently rolls files back across a schema change.
+            with self.backend.logging_to(operation_id):
+                try:
+                    record = self.store.get("plans", operation["binding"]["plan_id"])
+                    plan = record["plan"]
+                    state = self.state()
+                    if (
+                        state["inventory"]["generation"] != plan["generation"]
+                        or state["release"] != record["previous_release"]
+                        or digest(state["owned_files"]) != record["source_owned_digest"]
+                    ):
+                        raise AgentError("stale_execution", 409)
+                    if str(self.backend.active()) != state["release"]:
+                        raise AgentError("active_pointer_conflict", 409)
+                    if shutil.disk_usage(self.config["releases_root"]).free < self.config.get(
+                        "minimum_free_bytes", 512 * 1024 * 1024
+                    ):
+                        raise AgentError("insufficient_disk_space", 409)
+                    check_drift(state["release"], state["owned_files"])
+                    check_drift(plan["release"], record["owned_files"])
+                    for artifact in plan["artifacts"]:
+                        verified(self.store, self.config, artifact)
+                    graph = self.backend.probe(plan["release"])
+                    if (
+                        graph["migrations"] != plan["migrations"]
+                        or graph["applied"] != plan["applied_migrations"]
+                        or graph["targets"] != plan["migration_targets"]
+                    ):
+                        raise AgentError("migration_plan_changed", 409)
+                    self.stage(operation, "maintenance_entering", state="running")
+                    self.maintain(operation)
+                    self.backend.drain(state["release"], operation_id)
+                    self.stage(operation, "drained")
+                    backup = self.backend.backup(state["release"], operation_id)
+                    self.stage(operation, "backup_ready", backup=backup)
+                    # Recheck under the write gate; no DB changes may escape approval between preview and drain.
+                    graph = self.backend.probe(plan["release"])
+                    if (
+                        graph["migrations"] != plan["migrations"]
+                        or graph["applied"] != plan["applied_migrations"]
+                        or graph["targets"] != plan["migration_targets"]
+                    ):
+                        raise AgentError("migration_plan_changed", 409)
+                    self.stage(operation, "migration_started")
+                    self.finish(operation, record)
+                except Exception as error:
+                    if not isinstance(error, AgentError):
+                        log_internal_error(error)  # Class and stack only, never the message (#244).
+                    code = error.code if isinstance(error, AgentError) else type(error).__name__
+                    self.stage(operation, "failed", state="failed", error=code, log=getattr(error, "log", None))
+                    # Once the gate exists, no failure clears it or silently rolls files back across a schema change.
 
     def finish(self, operation, record):
         release = Path(operation["release"])
@@ -699,92 +706,98 @@ class DeploymentService:
                 for row in self.store.operations()
             ):
                 raise AgentError("recovery_or_operation_pending", 409)
-            self.maintain(operation)
-            self.backend.drain(self.backend.active(), operation["id"])
-            try:
-                if action == "complete":
-                    check_drift(operation["release"], record["owned_files"])
-                    actual = self.backend.probe(operation["release"])
-                    approved = {(row["app_label"], row["name"]): row for row in operation["plan"]["migrations"]}
-                    if (
-                        any(approved.get((row["app_label"], row["name"])) != row for row in actual["migrations"])
-                        or actual["targets"] != operation["plan"]["migration_targets"]
-                    ):
-                        raise AgentError("recovery_migration_plan_changed", 409)
-                    if not operation["backup"]:
-                        operation["backup"] = self.backend.backup(operation["previous_release"], operation["id"])
-                    self.stage(operation, "operator_completion", state="running", error=None)
-                    self.finish(operation, record)
-                else:
-                    writes = operation["traffic_released"]
-                    if writes and not acknowledge_new_writes:
-                        raise AgentError("new_writes_require_explicit_reconciliation", 409)
-                    changed_db = any(
-                        event["stage"] in ("migration_started", "migrated", "operator_completion")
-                        for event in operation["events"]
-                    )
-                    if action == "abort" and changed_db:
-                        raise AgentError("database_restore_required", 409)
-                    previous = Path(operation["previous_release"])
-                    if action == "restore":
+            with self.backend.logging_to(operation["id"]):
+                self.maintain(operation)
+                self.backend.drain(self.backend.active(), operation["id"])
+                try:
+                    if action == "complete":
+                        check_drift(operation["release"], record["owned_files"])
+                        actual = self.backend.probe(operation["release"])
+                        approved = {(row["app_label"], row["name"]): row for row in operation["plan"]["migrations"]}
+                        if (
+                            any(approved.get((row["app_label"], row["name"])) != row for row in actual["migrations"])
+                            or actual["targets"] != operation["plan"]["migration_targets"]
+                        ):
+                            raise AgentError("recovery_migration_plan_changed", 409)
                         if not operation["backup"]:
-                            raise AgentError("backup_not_available", 409)
-                        self.stage(operation, "restore_started", state="running")
-                        self.backend.restore(operation["backup"], previous)
-                    previous_inventory = record["previous_inventory"]
-                    previous_owned = record["previous_owned_files"]
-                    if action == "restore":
+                            operation["backup"] = self.backend.backup(operation["previous_release"], operation["id"])
+                        self.stage(operation, "operator_completion", state="running", error=None)
+                        self.finish(operation, record)
+                    else:
+                        writes = operation["traffic_released"]
+                        if writes and not acknowledge_new_writes:
+                            raise AgentError("new_writes_require_explicit_reconciliation", 409)
+                        changed_db = any(
+                            event["stage"] in ("migration_started", "migrated", "operator_completion")
+                            for event in operation["events"]
+                        )
+                        if action == "abort" and changed_db:
+                            raise AgentError("database_restore_required", 409)
+                        previous = Path(operation["previous_release"])
+                        if action == "restore":
+                            if not operation["backup"]:
+                                raise AgentError("backup_not_available", 409)
+                            self.stage(operation, "restore_started", state="running")
+                            self.backend.restore(operation["backup"], previous)
+                        previous_inventory = record["previous_inventory"]
+                        previous_owned = record["previous_owned_files"]
+                        if action == "restore":
+                            self.backend.manage(
+                                previous,
+                                ["reinstall_record_infrastructure", "--database", "default"],
+                                "migration",
+                                code="restored_infrastructure_failed",
+                            )
+                        check_drift(previous, previous_owned)
+                        self.backend.manage(
+                            previous, ["check_skeleton_schema"], "runtime", code="restored_schema_failed"
+                        )
                         self.backend.manage(
                             previous,
-                            ["reinstall_record_infrastructure", "--database", "default"],
-                            "migration",
-                            code="restored_infrastructure_failed",
+                            ["validate_provider_bindings", "--database", "default"],
+                            "runtime",
+                            code="restored_bindings_failed",
                         )
-                    check_drift(previous, previous_owned)
-                    self.backend.manage(previous, ["check_skeleton_schema"], "runtime", code="restored_schema_failed")
-                    self.backend.manage(
-                        previous,
-                        ["validate_provider_bindings", "--database", "default"],
-                        "runtime",
-                        code="restored_bindings_failed",
-                    )
-                    self.backend.manage(previous, ["check", "--deploy"], "runtime", code="restored_checks_failed")
-                    self.backend.cutover(previous)
-                    self.backend.start(previous, operation["id"])
-                    self.health(previous_inventory)
-                    atomic_json(
-                        self.store.root / "active.json",
-                        {"release": str(previous), "inventory": previous_inventory, "owned_files": previous_owned},
-                    )
+                        self.backend.manage(previous, ["check", "--deploy"], "runtime", code="restored_checks_failed")
+                        self.backend.cutover(previous)
+                        self.backend.start(previous, operation["id"])
+                        self.health(previous_inventory)
+                        atomic_json(
+                            self.store.root / "active.json",
+                            {"release": str(previous), "inventory": previous_inventory, "owned_files": previous_owned},
+                        )
+                        self.stage(
+                            operation,
+                            "restored" if action == "restore" else "aborted",
+                            state="restored" if action == "restore" else "cancelled",
+                            error=None,
+                            generation=previous_inventory["generation"],
+                        )
+                        self.backend.manage(
+                            previous,
+                            [
+                                "sync_deployment_state",
+                                "--inventory",
+                                previous / "inventory.json",
+                                "--operation",
+                                self.store.path("operations", operation["id"]),
+                            ],
+                            "migration",
+                            code="state_sync_failed",
+                        )
+                        Path(self.config["maintenance_marker"]).unlink(missing_ok=True)
+                    return self.public_operation(operation)
+                except Exception as error:
+                    if not isinstance(error, AgentError):
+                        log_internal_error(error)
                     self.stage(
                         operation,
-                        "restored" if action == "restore" else "aborted",
-                        state="restored" if action == "restore" else "cancelled",
-                        error=None,
-                        generation=previous_inventory["generation"],
+                        "recovery_failed",
+                        state="failed",
+                        error=error.code if isinstance(error, AgentError) else type(error).__name__,
+                        log=getattr(error, "log", None),
                     )
-                    self.backend.manage(
-                        previous,
-                        [
-                            "sync_deployment_state",
-                            "--inventory",
-                            previous / "inventory.json",
-                            "--operation",
-                            self.store.path("operations", operation["id"]),
-                        ],
-                        "migration",
-                        code="state_sync_failed",
-                    )
-                    Path(self.config["maintenance_marker"]).unlink(missing_ok=True)
-                return self.public_operation(operation)
-            except Exception as error:
-                self.stage(
-                    operation,
-                    "recovery_failed",
-                    state="failed",
-                    error=error.code if isinstance(error, AgentError) else type(error).__name__,
-                )
-                raise
+                    raise
 
     def catalogue_suggestions(self, dependency, required, target, *, limit=3):
         """Compatible releases from already verified catalogue caches; never downloads anything."""
