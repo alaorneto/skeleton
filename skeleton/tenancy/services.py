@@ -50,4 +50,9 @@ def create_organization(*, owner, slug, name, using="default"):
                 roles[code].save(using=using)
             provision_membership(organization=organization, user=owner, role=roles["organization_admin"])
         reconcile_builtin_roles(organization_id=organization.pk, using=using)
+        from skeleton.common.organization_hooks import organization_created
+
+        with system_context(reason="organization:bootstrap", organization_id=organization.pk, using=using):
+            # Subsystems react in the same transaction (billing's default plan, #396).
+            organization_created(organization)
     return organization

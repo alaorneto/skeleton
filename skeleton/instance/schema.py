@@ -156,6 +156,14 @@ def _timezone(value: str) -> str:
     return value
 
 
+def _currency(value: str) -> str:
+    import re
+
+    if not re.fullmatch(r"[A-Z]{3}", value):
+        raise ValueError("Use um código de moeda ISO 4217, como BRL.")
+    return value
+
+
 def _invoice_prefix(value: str) -> str:
     import re
 
@@ -269,6 +277,27 @@ _SPECS = (
         "str",
         "Prefixo dos números de fatura",
         _invoice_prefix,
+    ),
+    SettingSpec(
+        "billing_default_currency",
+        "SKELETON_BILLING_DEFAULT_CURRENCY",
+        "str",
+        "Moeda das novas contas de cobrança",
+        _currency,
+    ),
+    SettingSpec(
+        "billing_payment_terms_days",
+        "SKELETON_BILLING_PAYMENT_TERMS_DAYS",
+        "int",
+        "Dias para pagar uma fatura de renovação",
+        _int(0),
+    ),
+    SettingSpec(
+        "billing_trial_requires_payment_method",
+        "SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD",
+        "bool",
+        "Trial só com meio de pagamento cadastrado",
+        _bool,
     ),
     SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
     SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),

@@ -198,6 +198,12 @@ SKELETON_FILES_SCAN = SKELETON_FILES_SCANNER != "none"
 SKELETON_BILLING_ENABLED = env.bool("SKELETON_BILLING_ENABLED", default=False)
 # Text before the year of invoice numbers ("ACME-" gives ACME-2026-000001).
 SKELETON_BILLING_INVOICE_PREFIX = env("SKELETON_BILLING_INVOICE_PREFIX", default="")
+# Currency of a new billing account, the days to pay an invoice and whether a trial needs a payment method (#396).
+SKELETON_BILLING_DEFAULT_CURRENCY = env("SKELETON_BILLING_DEFAULT_CURRENCY", default="BRL")
+SKELETON_BILLING_PAYMENT_TERMS_DAYS = env.int("SKELETON_BILLING_PAYMENT_TERMS_DAYS", default=7)
+SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD = env.bool(
+    "SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD", default=False
+)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True

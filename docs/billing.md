@@ -50,13 +50,16 @@ Quem emite as faturas é a plataforma, então a numeração é **global e sem la
 |---|---|---|
 | `SKELETON_BILLING_ENABLED` | `false` | Liga a cobrança |
 | `SKELETON_BILLING_INVOICE_PREFIX` | vazio | Texto antes do ano no número da fatura (até 16 letras, dígitos ou hífen) |
+| `SKELETON_BILLING_DEFAULT_CURRENCY` | `BRL` | Moeda das novas contas de cobrança e do preço padrão que elas recebem |
+| `SKELETON_BILLING_PAYMENT_TERMS_DAYS` | `7` | Dias para pagar uma fatura de renovação |
+| `SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD` | `false` | Trial só com meio de pagamento cadastrado |
 | `BILLING_ENCRYPTION_KEYS` | vazio | Keyring Fernet dos segredos dos provedores de pagamento, separado dos outros e nunca derivado de `SECRET_KEY`. O primeiro cifra e todos decifram. |
 
-Os três ficam no catálogo da [instância](deployment.md), editáveis em `/platform/instance/`. Com a cobrança ligada e sem o keyring, `manage.py check` falha com `skeleton.E037`. Um keyring inválido é `skeleton.E026`, como os demais.
+Todos ficam no catálogo da [instância](deployment.md), editáveis em `/platform/instance/`. Com a cobrança ligada e sem o keyring, `manage.py check` falha com `skeleton.E037`. Um keyring inválido é `skeleton.E026`, como os demais.
 
 ## Ganchos de direito
 
-Os pacotes de domínio do núcleo não importam subsistemas (regra R2 de [camadas](architecture.md#direção-das-dependências-entre-pacotes)). Por isso os pontos de decisão consultam um registro em `skeleton/common/entitlements.py`, e a cobrança registra nele a sua política em `ready()` ([#396](https://github.com/alaorneto/skeleton/issues/396)). **Sem política registrada, tudo é permitido**, e o núcleo se comporta como antes.
+Os pacotes de domínio do núcleo não importam subsistemas (regra R2 de [camadas](architecture.md#direção-das-dependências-entre-pacotes)). Por isso os pontos de decisão consultam um registro em `skeleton/common/entitlements.py`, e a cobrança registra nele a sua política em `ready()` (`skeleton/billing/entitlements.py`): uma app é paga quando existe um produto `app` para ela, e a organização tem direito enquanto um item ativo a vende ou um plano base ativo a inclui; a franquia de armazenamento é a soma do que os itens ativos incluem (zero ou sem assinatura: vale o padrão da instância); o estado de acesso é o `access_state` da conta; as rotas isentas são `billing`, para o administrador da organização. **Sem política registrada, tudo é permitido**, e o núcleo se comporta como antes.
 
 | Pergunta da política | Onde o núcleo pergunta | Efeito da resposta |
 |---|---|---|
@@ -67,11 +70,36 @@ Os pacotes de domínio do núcleo não importam subsistemas (regra R2 de [camada
 
 A validação do vínculo vem primeiro: quem não é membro recebe 404 e não descobre o estado da organização. O estado de acesso sai só da política do servidor, nunca do cliente. Uma app de terceiros escrevendo direto nos próprios modelos, fora dos serviços e do gateway, não é coberta pelo modo só leitura: as superfícies HTTP já recusam a requisição antes, e o contrato do projeto manda escrever pelos serviços. Um serviço do núcleo que precisa funcionar com o acesso limitado (o de cobrança) declara `access_exempt = True`.
 
+## Ciclo de vida
+
+O motor (`skeleton/billing/engine.py`) trabalha numa organização, na transação de quem chama, e recebe `now` (o relógio da cobrança é `engine.clock()`, que os testes substituem). Ele nunca chama um provedor: emite faturas, e uma fatura paga transforma os itens pendentes que ela cobrou em direitos.
+
+| Momento | O que acontece |
+|---|---|
+| Organização criada | Com a cobrança ligada, `create_organization` chama os ganchos de `skeleton/common/organization_hooks.py`, e a cobrança cria a conta (moeda `SKELETON_BILLING_DEFAULT_CURRENCY`) e a assinatura do **preço padrão** daquela moeda (`Price.is_default`, um por moeda, só de plano base). Sem preço padrão, a organização fica sem assinatura. Uma instância que liga a cobrança depois recebe o mesmo pelo job `billing.cycle`. |
+| Trial | Com `trial_days`, a assinatura começa `trialing`, e o período é o trial. O trial vale **uma vez por organização e produto** (os itens encerrados são o histórico). Com `SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD`, só há trial com meio de pagamento cadastrado ([#400](https://github.com/alaorneto/skeleton/issues/400)). |
+| Início sem trial | A assinatura começa `incomplete`, com uma fatura do primeiro período vencendo na hora. Ela não renova enquanto não for paga; um pagamento atrasado recomeça o período na data do pagamento (e muda o dia-âncora), para não cobrar meses sem acesso. |
+| Contratar app ou pacote | Na hora, com uma linha `proration` pelo tempo restante do período (em segundos, arredondamento half-up). O item fica `pending`, sem direito, até a fatura ser paga. Durante o trial da assinatura, ou no trial do próprio add-on, o item já nasce ativo e sem cobrança, e a renovação cobra proporcionalmente a partir do fim do trial. Preço e assinatura precisam ter a mesma moeda e o mesmo ciclo (`price_cycle_mismatch`). Uma app já contratada ou incluída no plano é recusada (`already_subscribed`, `included_in_plan`). |
+| Remover app ou pacote | No fim do período, sem estorno. Um item ainda não pago termina na hora, e a fatura aberta que só cobrava ele é anulada. |
+| Subir de plano | Na hora: o novo preço proporcional e, na mesma fatura, um crédito (`adjustment`, negativo) da parte não usada do antigo. O item antigo termina quando a fatura é paga. |
+| Descer de plano | No fim do período (`Subscription.scheduled_price`). |
+| Cancelar | No fim do período (`cancel_at_period_end`, reversível com `resume`); durante o trial, na hora. Nenhum dado é apagado. |
+| Renovar | O job periódico `billing.cycle` (de hora em hora, por organização, só com a cobrança ligada ao subir o processo) fecha cada período vencido: aplica a troca de plano agendada, encerra os itens removidos, cobra os ativos no período novo e acrescenta as linhas de outros módulos (`register_line_source`: excedente de armazenamento, descontos). Uma fatura de renovação vence em `SKELETON_BILLING_PAYMENT_TERMS_DAYS` dias, contados do início do período. Os períodos são em UTC; o dia-âncora vale para todos os meses, e um mês mais curto termina no último dia. Duas renovações simultâneas do mesmo período geram uma única fatura: a linha da assinatura fica travada. |
+| Fatura com total zero | Paga na hora, sem provedor. |
+| Fatura paga | `settle_invoice`: itens pendentes viram direitos e as apps que eles vendem são **ativadas** pela cobrança (`activate_for_entitlement`, dependências primeiro, com a mesma checagem de disponibilidade e o evento `app.enabled`). Uma ativação recusada fica no log, sem desfazer o pagamento. |
+
+### Eventos
+
+`billing.invoice_finalized`, `billing.invoice_paid` e `billing.subscription_changed`, com número, situação, moeda e total da fatura, ou a situação da assinatura ([eventos](events.md#eventos-da-cobrança)). Não vão para webhooks.
+
+### Impostos
+
+O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora com `skeleton.billing.tax.register_tax_calculator(...)` em `ready()`: ela recebe a conta e as linhas e devolve o imposto na menor unidade da moeda. Nota fiscal fica fora do núcleo; um consumidor de `billing.invoice_paid` pode entregá-la a um emissor.
+
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#396](https://github.com/alaorneto/skeleton/issues/396) | Motor de assinatura: plano padrão, trial, renovação, proração e liberação da app pelo pagamento |
 | [#397](https://github.com/alaorneto/skeleton/issues/397) | Vouchers |
 | [#398](https://github.com/alaorneto/skeleton/issues/398) | Cotas: excedente de armazenamento e limites de plano |
 | [#399](https://github.com/alaorneto/skeleton/issues/399) | Régua de inadimplência e bloqueio progressivo |

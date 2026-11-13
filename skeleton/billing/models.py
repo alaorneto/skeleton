@@ -98,8 +98,10 @@ class Price(SystemRecord):
     overage_unit_bytes = models.PositiveBigIntegerField(null=True, blank=True)
     overage_unit_amount = models.PositiveBigIntegerField(null=True, blank=True)
     overage_hard_cap_bytes = models.PositiveBigIntegerField(null=True, blank=True)
-    # The only term the platform changes: an inactive price is not offered to new subscriptions.
+    # The only terms the platform changes: an inactive price is not offered to new subscriptions,
+    # and the default base-plan price of a currency is what a new organization starts on (#396).
     is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False)
     immutable_fields = (
         "product_id",
         "currency",
@@ -121,6 +123,12 @@ class Price(SystemRecord):
             models.CheckConstraint(condition=CURRENCY, name="sk_billing_price_currency"),
             models.CheckConstraint(condition=Q(interval__in=("month", "year")), name="sk_billing_price_interval"),
             models.CheckConstraint(condition=Q(interval_count__gte=1), name="sk_billing_price_interval_count"),
+            models.UniqueConstraint(
+                fields=("currency",),
+                condition=Q(is_default=True, deleted_at__isnull=True),
+                name="sk_billing_price_default_currency",
+                violation_error_code="unique",
+            ),
             models.CheckConstraint(
                 condition=Q(storage_overage="block")
                 | Q(storage_overage="bill", overage_unit_bytes__gte=1, overage_unit_amount__gte=1),
@@ -147,6 +155,10 @@ class Price(SystemRecord):
             raise ValidationError({"limits": gettext("Use métricas com limites inteiros não negativos.")})
         if self.storage_overage == self.Overage.BILL and not (self.overage_unit_bytes and self.overage_unit_amount):
             raise ValidationError({"storage_overage": gettext("Informe o bloco e o valor do excedente.")})
+        if self.is_default and self.product_id:
+            kind = Product.all_objects.filter(pk=self.product_id).values_list("kind", flat=True).first()
+            if kind != Product.Kind.BASE_PLAN:
+                raise ValidationError({"is_default": gettext("Só um preço de plano base pode ser o padrão.")})
 
     def __str__(self):
         return f"{self.product_id} {self.unit_amount} {self.currency}/{self.interval}"
@@ -243,6 +255,13 @@ class Subscription(OrganizationRecord):
     cancel_at_period_end = models.BooleanField(default=False)
     canceled_at = models.DateTimeField(null=True, blank=True)
     collection = models.CharField(max_length=16, choices=Collection.choices, default=Collection.SEND_INVOICE)
+    # Day of month the paid periods start on (#396); a shorter month ends on its last day. It moves
+    # only when a late first payment restarts the period.
+    billing_anchor_day = models.PositiveSmallIntegerField(default=1)
+    # Base-plan price that replaces the current one at the period end (a downgrade).
+    scheduled_price = models.ForeignKey(
+        Price, on_delete=models.PROTECT, null=True, blank=True, related_name="scheduled_subscriptions"
+    )
     immutable_fields = ("account_id", "currency", "interval", "interval_count")
 
     class Meta(OrganizationRecord.Meta):
@@ -268,6 +287,10 @@ class Subscription(OrganizationRecord):
             ),
             models.CheckConstraint(
                 condition=Q(collection__in=("auto_charge", "send_invoice")), name="sk_billing_subscription_collection"
+            ),
+            models.CheckConstraint(
+                condition=Q(billing_anchor_day__gte=1, billing_anchor_day__lte=31),
+                name="sk_billing_subscription_anchor",
             ),
         ]
 
@@ -296,7 +319,9 @@ class SubscriptionItem(OrganizationRecord):
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField(null=True, blank=True)
     trial_end = models.DateTimeField(null=True, blank=True)
-    immutable_fields = ("subscription_id", "price_id", "app_label")
+    # The base-plan item an upgrade replaces: it ends when this item's invoice is paid (#396).
+    replaces = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="replaced_by")
+    immutable_fields = ("subscription_id", "price_id", "app_label", "replaces_id")
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
@@ -405,9 +430,13 @@ class InvoiceLine(OrganizationRecord):
     kind = models.CharField(max_length=16, choices=Kind.choices)
     description = models.CharField(max_length=300)
     price = models.ForeignKey(Price, on_delete=models.PROTECT, null=True, blank=True, related_name="invoice_lines")
+    # The item this line charged: paying the invoice turns a pending item into a right (#396).
+    subscription_item = models.ForeignKey(
+        SubscriptionItem, on_delete=models.PROTECT, null=True, blank=True, related_name="invoice_lines"
+    )
     app_label = models.CharField(max_length=100, blank=True, default="")
     quantity = models.PositiveIntegerField(default=1)
-    # Signed: a discount line is negative.
+    # Signed: a discount or a credit adjustment line is negative.
     unit_amount = models.BigIntegerField()
     amount = models.BigIntegerField()
     period_start = models.DateTimeField(null=True, blank=True)
@@ -417,6 +446,7 @@ class InvoiceLine(OrganizationRecord):
         "kind",
         "description",
         "price_id",
+        "subscription_item_id",
         "app_label",
         "quantity",
         "unit_amount",

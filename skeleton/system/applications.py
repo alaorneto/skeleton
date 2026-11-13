@@ -192,6 +192,43 @@ def require_activation_allowed(app_label, *, enabled):
 
 
 @transaction.atomic
+def activate_for_entitlement(app_label):
+    """Turn ``app_label`` on in the current organization because billing granted the right (#396).
+
+    Infrastructure only (``system_context`` of the organization, no actor): the same lock,
+    availability and dependency checks as ``configure_application``, the stored configuration
+    kept (defaults for a first activation) and the same ``app.enabled`` event. Already enabled
+    is a no-op; a refusal raises ``ValidationError``.
+    """
+    from skeleton.access.services import organization_lock
+    from skeleton.events.core_events import application_changed
+
+    from .models import AppInstallation
+
+    manifest = get_app(app_label)
+    with organization_lock():
+        record = AppInstallation.objects.filter(app_label=app_label).first()
+        if record is not None and record.enabled:
+            return record
+        values = validate_configuration(manifest, record.configuration if record else {})
+        require_activation_allowed(app_label, enabled=True)
+        if record is None:
+            record = AppInstallation(
+                organization_id=current_context().organization_id,
+                app_label=app_label,
+                enabled=True,
+                configuration=values,
+            )
+            record.save()
+        else:
+            record.enabled = True
+            record.save(update_fields={"enabled"})
+        forget_application_states(everywhere=True)
+        application_changed(record, was_enabled=False)
+        return record
+
+
+@transaction.atomic
 def configure_application(app_label, *, user, enabled, configuration, revision):
     from skeleton.access.capabilities import APPS_MANAGE, require_capability
     from skeleton.access.services import organization_lock
