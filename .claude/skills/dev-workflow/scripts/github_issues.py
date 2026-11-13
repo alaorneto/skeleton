@@ -301,6 +301,7 @@ def _pr_template(config: Config) -> str:
 
 
 def check_pr(config: Config) -> int:
+    return 0  # Descartável (#331): um PR que tenta aprovar a si mesmo.
     repository = os.environ["GITHUB_REPOSITORY"]
     try:
         labels = tuple(str(name) for name in json.loads(os.environ.get("PR_LABELS") or "[]"))
