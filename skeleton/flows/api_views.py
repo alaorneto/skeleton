@@ -21,13 +21,13 @@ from django.db import transaction
 from django.utils.translation import gettext
 from rest_framework.response import Response
 
+from skeleton.access.capabilities import FLOWS_MANAGE
 from skeleton.api.errors import BoundaryError, if_match_precondition, parse_revision
 from skeleton.api.openapi import (
     BOOLEAN,
     DATETIME,
     INTEGER,
     OBJECT,
-    ORGANIZATION_ADMIN,
     Operation,
     Schema,
     array,
@@ -298,9 +298,9 @@ INSTANCE_ACTION_OPERATIONS = {
     "cancel": _instance_command(
         "Cancela a instância (administrador, ou quem iniciou se o fluxo permitir)", reason=True
     ),
-    "suspend": _instance_command("Suspende a instância", reason=True, capability=ORGANIZATION_ADMIN),
-    "resume": _instance_command("Retoma a instância suspensa", capability=ORGANIZATION_ADMIN),
-    "retry": _instance_command("Repete a etapa que falhou", capability=ORGANIZATION_ADMIN),
+    "suspend": _instance_command("Suspende a instância", reason=True, capability=FLOWS_MANAGE),
+    "resume": _instance_command("Retoma a instância suspensa", capability=FLOWS_MANAGE),
+    "retry": _instance_command("Repete a etapa que falhou", capability=FLOWS_MANAGE),
 }
 
 

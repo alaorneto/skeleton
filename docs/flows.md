@@ -163,7 +163,7 @@ A definição vale para todas as organizações, então não pode citar o UUID d
 | `Assignment.role(..., expand=True)`, `Assignment.group(..., expand=True)` | Uma vaga para **cada** pessoa do papel ou do grupo, no momento da ativação |
 | `Assignment.rule("app.nome")` | O que a regra registrada pela app devolver (pessoas, grupos, papéis) |
 
-Uma tarefa de **fila** não tem responsável: qualquer candidato pode **assumir** (`claim`) e depois **liberar** (`release`). Se nada resolver (o papel não existe na organização, por exemplo), a tarefa nasce sem responsável e sem candidatos, o histórico registra `assignment_unresolved` e o administrador da organização a reatribui.
+Uma tarefa de **fila** não tem responsável: qualquer candidato pode **assumir** (`claim`) e depois **liberar** (`release`). Se nada resolver (o papel não existe na organização, por exemplo), a tarefa nasce sem responsável e sem candidatos, o histórico registra `assignment_unresolved` e quem administra fluxos a reatribui.
 
 ### Aprovações
 
@@ -178,7 +178,7 @@ Cada vaga de aprovador vira uma `FlowTask`, e a política decide sobre o conjunt
 
 Resolvida a etapa, as tarefas ainda abertas são canceladas. A decisão aceita comentário e os campos do formulário da etapa. A transição `on="rejected"` decide o que a rejeição significa: ir a um fim, ou **voltar** a uma etapa anterior.
 
-**Delegação e reatribuição.** O responsável passa a tarefa a outra pessoa com vínculo ativo (`reassign`) quando a etapa é `delegable`; o administrador da organização reatribui qualquer tarefa. A tarefa guarda quem delegou.
+**Delegação e reatribuição.** O responsável passa a tarefa a outra pessoa com vínculo ativo (`reassign`) quando a etapa é `delegable`; quem administra fluxos reatribui qualquer tarefa. A tarefa guarda quem delegou.
 
 ### Prazos (SLA)
 
@@ -270,11 +270,13 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 | Operação | Quem pode |
 |---|---|
 | Iniciar (`start`), enviar sinal (`signal`) | O código da **app dona** do fluxo, para um ator com a ação `start_action` (padrão `update`) sobre o registro de negócio; em `system_context`, sem ator (jobs e consumidores de eventos da app) |
-| Ler a instância e o histórico | Quem lê o registro de negócio (`authorized_queryset`), quem iniciou, quem tem ou teve tarefa na instância, quem é candidato a uma tarefa aberta, e o administrador da organização |
+| Ler a instância e o histórico | Quem lê o registro de negócio (`authorized_queryset`), quem iniciou, quem tem ou teve tarefa na instância, quem é candidato a uma tarefa aberta, e quem administra fluxos |
 | Ler e agir numa tarefa | O responsável; para tarefa de fila, quem é do grupo ou tem o papel candidato **no momento da chamada**. Depois de encerrada, quem continua na fila segue lendo a tarefa, sem poder agir |
-| Reatribuir | O responsável (etapa `delegable`) ou o administrador da organização |
-| Cancelar | O administrador da organização, ou quem iniciou quando o fluxo permite (`starter_can_cancel`) |
-| Suspender, retomar, repetir | O administrador da organização |
+| Reatribuir | O responsável (etapa `delegable`) ou quem administra fluxos |
+| Cancelar | Quem administra fluxos, ou quem iniciou quando o fluxo permite (`starter_can_cancel`) |
+| Suspender, retomar, repetir | Quem administra fluxos |
+
+**Quem administra fluxos** é o administrador da organização e quem tem a capacidade `flows.manage`, carregada só pelo papel interno "Gestor de processos" (`process_manager`, [#407](https://github.com/alaorneto/skeleton/issues/407)). A capacidade vale só para fluxos: o gestor não administra membros, apps nem acessos, e perde o poder na requisição seguinte à revogação do papel. Organizações existentes recebem o papel pela reconciliação de papéis internos (`manage.py reconcile_builtin_roles`, também rodada na sincronização do deployment).
 
 - **App desativada bloqueia.** Com a app dona desativada ou indisponível na organização, toda operação sobre os fluxos dela responde `Unavailable` e as listas omitem as tarefas e instâncias dela.
 - **Inexistente e não autorizado respondem igual** (`NotFound`), inclusive para outra organização.
@@ -325,7 +327,7 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 | Subfluxos | Exigem fixar a versão do fluxo filho e propagar cancelamento, suspensão e falha entre instâncias |
 | Definições em dados por organização, com editor | A tabela já é por organização; falta decidir quem publica e como validar na publicação. Fluxos em código cobrem o pedido e seguem o padrão dos outros subsistemas |
 | Caixa de tarefas entre organizações e contador no cabeçalho | Exige autodescoberta em `FlowTask` e leitura agregada |
-| Capacidade `flows.manage` e painel de operação | Mudar a lista de capacidades afeta papéis internos de todas as organizações; por ora só o administrador administra fluxos |
+| Painel de operação | Planejado em [#408](https://github.com/alaorneto/skeleton/issues/408); a capacidade `flows.manage` já existe (#407) |
 | Espera por tipo de evento de domínio | O sinal explícito, enviado pelo consumidor de eventos da app, cobre o caso sem acoplar o motor ao outbox |
 | Token de API nas rotas de fluxos | Exige escopos próprios; a primeira entrega só aceita sessão |
 | SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |
@@ -342,7 +344,7 @@ Confirmadas em 2026-11-12, como recomendado no desenho:
 2. **Fluxos só em código** na primeira entrega (sem editor nem definição em dados).
 3. **Registro de negócio obrigatório**: todo fluxo corre sobre um `SecuredRecord` exposto da app dona, e a leitura da instância deriva dele.
 4. **Uma instância ativa por fluxo e registro.**
-5. **Quem administra fluxos é o administrador da organização**; não há capacidade delegável ainda.
+5. **Quem administra fluxos é o administrador da organização**; desde [#407](https://github.com/alaorneto/skeleton/issues/407), também quem tem `flows.manage` (papel "Gestor de processos").
 6. **Um aprovador vê os dados de formulário da instância mesmo sem ler o registro de negócio.**
 7. **Nada é apagado**: sem retenção na primeira entrega.
 8. **A versão do core não muda neste epic**; os métodos novos declaram `since="0.6.0"`, e o piso de core do Notes sobe quando essa versão for cortada.

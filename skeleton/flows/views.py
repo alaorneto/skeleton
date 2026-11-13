@@ -184,7 +184,7 @@ def instance_detail(request, organization_id, sysid):
     service = FlowService()
     instance = service.instance(actor=request.user, instance_id=sysid)
     history = service.history(actor=request.user, instance_id=sysid, page_size=100)
-    from skeleton.access.policies import is_organization_admin
+    from .policies import is_flow_admin
 
     return render(
         request,
@@ -194,7 +194,7 @@ def instance_detail(request, organization_id, sysid):
             "instance": instance,
             "history": history.items,
             "more_history": history.next_cursor is not None,
-            "is_admin": is_organization_admin(request.user),
+            "is_admin": is_flow_admin(request.user),
             "is_starter": instance.starter_id == request.user.pk,
         },
     )
