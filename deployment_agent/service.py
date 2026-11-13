@@ -4,8 +4,10 @@ import json
 import os
 import threading
 import time
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from threading import Lock
+from typing import Any
 from uuid import uuid4
 
 from skeleton.system.packages import PackageError, validate_package
@@ -13,6 +15,7 @@ from skeleton.system.packages import PackageError, validate_package
 from . import adoption, catalogue, execution, planning, recovery
 from .backends import backend_for
 from .catalogue import NoRedirect  # noqa: F401 - public name, importable from here
+from .config import Config
 from .execution import APP_ACTIVATION_UPGRADE_CORE  # noqa: F401 - public name, importable from here
 from .releases import (
     check_drift,
@@ -28,27 +31,28 @@ from .storage import (
     load_json,
     now,
 )
+from .types import JSON, ActiveState, Plan, StrPath
 
 
 class DeploymentService:
-    def __init__(self, config):
+    def __init__(self, config: Config) -> None:
         self.config = config
         self.store = Store(config["storage_root"])
         (self.store.root / "probe").mkdir(exist_ok=True, mode=0o700)
         Path(config["releases_root"]).mkdir(parents=True, exist_ok=True, mode=0o755)
         Path(config["maintenance_marker"]).parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         self.backend = backend_for(config, self.store)
-        self.worker = None
-        self._drift = None
+        self.worker: threading.Thread | None = None
+        self._drift: tuple[str, float, str, str | None] | None = None
         self._drift_lock = Lock()
 
-    def state(self):
+    def state(self) -> ActiveState:
         path = self.store.root / "active.json"
         if not path.exists():
             raise AgentError("deployment_not_initialized", 409)
         return load_json(path)
 
-    def _write_active(self, release, inventory, owned_files):
+    def _write_active(self, release: StrPath, inventory: JSON, owned_files: JSON) -> None:
         """The active release changed: record it and drop the inventory's drift cache (#281)."""
         atomic_json(
             self.store.root / "active.json",
@@ -56,7 +60,7 @@ class DeploymentService:
         )
         self._drift = None
 
-    def drift_status(self, state, *, max_age):
+    def drift_status(self, state: ActiveState, *, max_age: float) -> tuple[str | None, str]:
         """``(error code or None, checked_at)`` for inventory(); informative only (#281).
 
         A recent result for the same release is reused, so opening the updates page does not hash
@@ -79,7 +83,7 @@ class DeploymentService:
             self._drift = (state["release"], time.monotonic(), now(), error)
             return error, self._drift[2]
 
-    def inventory(self):
+    def inventory(self) -> JSON:
         state = self.state()
         result = json.loads(canonical(state["inventory"]))
         rows = self.store.operations(limit=50)
@@ -91,7 +95,7 @@ class DeploymentService:
         result["drift_checked_at"] = checked_at
         return result
 
-    def upload(self, data):
+    def upload(self, data: bytes) -> JSON:
         maximum = self.config.get("max_upload_bytes", 128 * 1024 * 1024)
         if not isinstance(data, bytes) or not data or len(data) > maximum:
             raise AgentError("invalid_upload_size", 413)
@@ -113,10 +117,12 @@ class DeploymentService:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def initialize(self, inventory_path, *, core_package, app_packages=()):
+    def initialize(
+        self, inventory_path: StrPath, *, core_package: StrPath, app_packages: Iterable[StrPath] = ()
+    ) -> JSON:
         return adoption.initialize(self, inventory_path, core_package=core_package, app_packages=app_packages)
 
-    def ensure_available(self, *, ignore_plan=None):
+    def ensure_available(self, *, ignore_plan: str | None = None) -> None:
         if Path(self.config["maintenance_marker"]).exists() or any(
             state in ("queued", "running", "interrupted") for state in self.store.operation_states().values()
         ):
@@ -127,10 +133,10 @@ class DeploymentService:
         ):
             raise AgentError("recovery_or_operation_pending", 409)
 
-    def plan_status(self, plan_id):
+    def plan_status(self, plan_id: str) -> JSON:
         return planning.plan_status(self, plan_id)
 
-    def preview(self, action, artifacts=None, app_ids=None):
+    def preview(self, action: str, artifacts: list[str] | None = None, app_ids: list[str] | None = None) -> JSON:
         """Validate quickly, record the plan as ``preparing`` and build it in a thread (#298).
 
         The web request no longer waits for the release copy, pip, checks and image build:
@@ -142,10 +148,12 @@ class DeploymentService:
         self.worker.start()
         return {"id": plan_id, "state": "preparing"}
 
-    def prepare(self, plan_id):
+    def prepare(self, plan_id: str) -> Plan | None:
         return planning.prepare(self, plan_id)
 
-    def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
+    def submit(
+        self, plan_id: str, plan_digest: str, generation: int, operation_id: str, actor_id: str, request_id: str
+    ) -> JSON:
         operation, created = execution.queue_operation(
             self, plan_id, plan_digest, generation, operation_id, actor_id, request_id
         )
@@ -158,7 +166,7 @@ class DeploymentService:
         self.worker.start()
         return self.public_operation(operation)
 
-    def public_operation(self, operation, include_plan=True):
+    def public_operation(self, operation: Mapping[str, Any], include_plan: bool = True) -> JSON:
         keys = (
             "id",
             "operation",
@@ -180,10 +188,10 @@ class DeploymentService:
             result["plan"] = operation["plan"]
         return result
 
-    def operation(self, operation_id):
+    def operation(self, operation_id: str) -> JSON:
         return self.public_operation(self.store.get("operations", identifier(operation_id)))
 
-    def stage(self, operation, stage, *, log=None, **changes):
+    def stage(self, operation: JSON, stage: str, *, log: str | None = None, **changes: Any) -> None:
         operation.update(changes)
         operation["stage"] = stage
         operation["updated_at"] = now()
@@ -193,44 +201,46 @@ class DeploymentService:
         operation["events"].append(event)
         self.store.put("operations", operation["id"], operation)
 
-    def maintain(self, operation):
+    def maintain(self, operation: JSON) -> None:
         atomic_json(
             self.config["maintenance_marker"], {"operation": operation["id"], "stage": operation["stage"]}, 0o644
         )
 
-    def execute(self, operation_id):
+    def execute(self, operation_id: str) -> None:
         return execution.execute(self, operation_id)
 
-    def finish(self, operation, record):
+    def finish(self, operation: JSON, record: JSON) -> None:
         return execution.finish(self, operation, record)
 
-    def health(self, inventory):
+    def health(self, inventory: JSON) -> None:
         return execution.health(self, inventory)
 
-    def reconcile_interrupted(self):
+    def reconcile_interrupted(self) -> None:
         return recovery.reconcile_interrupted(self)
 
     @staticmethod
-    def _recoverable(operation, record, state):
+    def _recoverable(operation: JSON, record: JSON, state: ActiveState) -> bool:
         return recovery.recoverable(operation, record, state)
 
-    def prune(self, *, plan_days=7, backup_days=None, apply=False):
+    def prune(self, *, plan_days: float = 7, backup_days: float | None = None, apply: bool = False) -> JSON:
         return recovery.prune(self, plan_days=plan_days, backup_days=backup_days, apply=apply)
 
-    def recover(self, operation_id, action, *, acknowledge_new_writes=False):
+    def recover(self, operation_id: str, action: str, *, acknowledge_new_writes: bool = False) -> JSON:
         return recovery.recover(self, operation_id, action, acknowledge_new_writes=acknowledge_new_writes)
 
-    def catalogue_suggestions(self, dependency, required, target, *, limit=3):
+    def catalogue_suggestions(self, dependency: str, required: str, target: JSON, *, limit: int = 3) -> list[JSON]:
         return catalogue.catalogue_suggestions(self, dependency, required, target, limit=limit)
 
-    def catalogue_sources(self):
+    def catalogue_sources(self) -> list[JSON]:
         return catalogue.catalogue_sources(self)
 
-    def fetch_bytes(self, location, maximum, *, origin=None):
+    def fetch_bytes(
+        self, location: str, maximum: int, *, origin: tuple[str, str | None, int | None] | None = None
+    ) -> bytes:
         return catalogue.fetch_bytes(self, location, maximum, origin=origin)
 
-    def check_updates(self):
+    def check_updates(self) -> JSON:
         return catalogue.check_updates(self)
 
-    def fetch_release(self, component_id, version, source_id):
+    def fetch_release(self, component_id: str, version: str, source_id: str) -> JSON:
         return catalogue.fetch_release(self, component_id, version, source_id)

@@ -4,8 +4,10 @@ import hashlib
 import os
 import re
 import shutil
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from email.parser import BytesParser
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 from zipfile import ZipFile
 
 from packaging.markers import Marker, default_environment
@@ -24,16 +26,25 @@ from skeleton.system.packages import (
 
 from .config import installed_bundled_app_ids
 from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
+from .types import JSON, StrPath
+
+if TYPE_CHECKING:
+    from skeleton.system.dependencies import Resolution
+    from skeleton.system.packages import VerifiedPackage
+
+    from .backends import Backend
+    from .config import Config
+    from .storage import Store
 
 
-def verified(store, config, artifact):
+def verified(store: "Store", config: "Config", artifact: str) -> "VerifiedPackage":
     try:
         return validate_package(store.path("uploads", artifact), config["approved_publishers"])
     except PackageError:
         raise AgentError("package_verification_failed", 409) from None
 
 
-def member_files(archive):
+def member_files(archive: ZipFile) -> JSON:
     """Hash and size of every core file of an open wheel, each member read once (#317)."""
     result = {}
     for name in archive.namelist():
@@ -43,12 +54,12 @@ def member_files(archive):
     return result
 
 
-def wheel_files(path):
+def wheel_files(path: StrPath) -> JSON:
     with ZipFile(path) as archive:
         return member_files(archive)
 
 
-def migrations(manifest):
+def migrations(manifest: JSON) -> dict[str, str]:
     return {
         entry["path"]: entry["sha256"]
         for entry in manifest["files"]
@@ -56,16 +67,16 @@ def migrations(manifest):
     }
 
 
-def compare_history(old, new):
+def compare_history(old: JSON, new: JSON) -> None:
     previous = migrations(old)
     current = migrations(new)
     if any(current.get(path) != value for path, value in previous.items()):
         raise AgentError("migration_history_modified", 409)
 
 
-def parse_lock(path, target_environment=None):
+def parse_lock(path: StrPath, target_environment: Mapping[str, Any] | None = None) -> JSON:
     text = Path(path).read_text().replace("\\\n", " ")
-    rows = {}
+    rows: JSON = {}
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -81,7 +92,9 @@ def parse_lock(path, target_environment=None):
         if len(pins) != 1 or pins[0].operator != "==" or "*" in pins[0].version or requirement.url or not hashes:
             raise AgentError("unlocked_dependency")
         name = canonicalize_name(requirement.name)
-        if requirement.marker and not requirement.marker.evaluate(target_environment or default_environment()):
+        if requirement.marker and not requirement.marker.evaluate(
+            cast(Mapping[str, Any], target_environment or default_environment())
+        ):
             continue
         if name in rows:
             raise AgentError("duplicate_locked_dependency")
@@ -89,7 +102,7 @@ def parse_lock(path, target_environment=None):
     return rows
 
 
-def wheel_metadata(path):
+def wheel_metadata(path: StrPath) -> tuple[str, str]:
     with ZipFile(path) as archive:
         entries = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
         if len(entries) != 1:
@@ -98,9 +111,9 @@ def wheel_metadata(path):
         return canonicalize_name(metadata["Name"]), metadata["Version"]
 
 
-def _package_selections(manifests, rows, target_environment):
+def _package_selections(manifests: Sequence[JSON], rows: JSON, target_environment: Mapping[str, Any]) -> JSON:
     """Exact pins the packages declare for the target; one version per distribution."""
-    selections = {}
+    selections: JSON = {}
     for manifest in manifests:
         for dependency in manifest["python_dependencies"]:
             marker = dependency.get("marker")
@@ -118,7 +131,9 @@ def _package_selections(manifests, rows, target_environment):
     return selections
 
 
-def build_lock(config, release, manifests, target_environment=None):
+def build_lock(
+    config: "Config", release: Path, manifests: Sequence[JSON], target_environment: Mapping[str, Any] | None = None
+) -> JSON:
     target_environment = target_environment or default_environment()
     rows = parse_lock(config["requirements_lock"], target_environment)
     wheels = release / "wheels"
@@ -126,7 +141,7 @@ def build_lock(config, release, manifests, target_environment=None):
     if "django-skeleton" not in rows or "django" not in rows:
         raise AgentError("missing_core_dependencies", 409)
     wheelhouse = Path(config["wheelhouse"])
-    available = {}
+    available: dict[str, set[str]] = {}
     for path in [*wheelhouse.glob("*.whl"), *wheels.glob("*.whl")]:
         name, version = wheel_metadata(path)
         value = file_hash(path)
@@ -160,11 +175,11 @@ def build_lock(config, release, manifests, target_environment=None):
     return rows
 
 
-def copy_project(config, source, release, *, managed_packages):
+def copy_project(config: "Config", source: StrPath, release: Path, *, managed_packages: set[str]) -> None:
     source = Path(source)
     ignored = shutil.ignore_patterns("__pycache__", "*.pyc", ".env", ".private", ".venv", "*.sqlite3", "node_modules")
 
-    def ignore(directory, names):
+    def ignore(directory: str, names: list[str]) -> set[str]:
         excluded = set(ignored(directory, names))
         if Path(directory) == source / "applications":
             excluded.update(managed_packages)
@@ -193,7 +208,7 @@ def copy_project(config, source, release, *, managed_packages):
         (release / name).mkdir(exist_ok=True)
 
 
-def owned_snapshot(release):
+def owned_snapshot(release: StrPath) -> JSON:
     result = inventory_files(release)
     result.pop("owned-files.json", None)
     for path, row in result.items():
@@ -211,13 +226,13 @@ def owned_snapshot(release):
     return result
 
 
-def check_drift(release, expected=None):
+def check_drift(release: StrPath, expected: JSON | None = None) -> None:
     expected = expected or load_json(Path(release) / "owned-files.json")
     if owned_snapshot(release) != expected:
         raise AgentError("local_file_drift", 409)
 
 
-def file_diff(before, after):
+def file_diff(before: JSON, after: JSON) -> list[JSON]:
     result = []
     for path in sorted(before.keys() | after.keys()):
         old, new = before.get(path), after.get(path)
@@ -226,7 +241,7 @@ def file_diff(before, after):
         result.append(
             {
                 "path": path,
-                "owner": (new or old).get("owner", "deployment"),
+                "owner": cast(JSON, new or old).get("owner", "deployment"),
                 "action": "add" if old is None else "remove" if new is None else "change",
                 "before": old.get("sha256") if old else None,
                 "after": new.get("sha256") if new else None,
@@ -235,7 +250,7 @@ def file_diff(before, after):
     return result
 
 
-def freeze(release):
+def freeze(release: StrPath) -> None:
     for path in Path(release).rglob("*"):
         if not path.is_symlink():
             mode = path.stat().st_mode
@@ -251,7 +266,7 @@ SUGGESTIBLE_CODES = frozenset({"missing_dependency", "incompatible_dependency_ve
 MAX_PROBLEM_DETAILS = 64
 
 
-def target_django_version(config, manifests, environment):
+def target_django_version(config: "Config", manifests: Sequence[JSON], environment: Mapping[str, Any]) -> str:
     """The Django version build_lock will select: the locked pin, overridden by active manifest pins."""
     version = parse_lock(config["requirements_lock"], environment).get("django", {}).get("version")
     for manifest in manifests:
@@ -266,7 +281,7 @@ def target_django_version(config, manifests, environment):
     return version
 
 
-def dependency_error(resolution, suggest=None):
+def dependency_error(resolution: "Resolution", suggest: Callable[..., Any] | None = None) -> AgentError:
     details = [problem.as_dict() for problem in resolution.problems[:MAX_PROBLEM_DETAILS]]
     if suggest is not None:
         for detail in details:
@@ -277,7 +292,9 @@ def dependency_error(resolution, suggest=None):
     return AgentError("target_runtime_incompatible", 409, details=details)
 
 
-def resolve_target(manifests, *, core, environment, django, provided=()):
+def resolve_target(
+    manifests: Sequence[JSON], *, core: str, environment: Mapping[str, Any], django: str, provided: Iterable[str] = ()
+) -> "Resolution":
     try:
         return resolve_dependencies(
             manifests,
@@ -291,7 +308,14 @@ def resolve_target(manifests, *, core, environment, django, provided=()):
         raise AgentError("target_runtime_incompatible", 409) from None
 
 
-def check_plan_dependencies(config, backend, inventory, artifact_manifests, removals, suggest=None):
+def check_plan_dependencies(
+    config: "Config",
+    backend: "Backend",
+    inventory: JSON,
+    artifact_manifests: Sequence[JSON],
+    removals: Sequence[str],
+    suggest: Callable[..., Any] | None = None,
+) -> "Resolution | None":
     """Resolve the resulting component set before any copy, extraction or lock work.
 
     suggest(dependency, required, target) returns catalogue releases for a missing or
@@ -335,7 +359,7 @@ def check_plan_dependencies(config, backend, inventory, artifact_manifests, remo
     return resolution
 
 
-def ordered_entries(entries, order):
+def ordered_entries(entries: JSON, order: Sequence[str]) -> list[JSON]:
     """Inventory apps dependency-first, so INSTALLED_APPS and ready() follow the graph."""
     rank = {app_id: index for index, app_id in enumerate(order)}
     return [
@@ -344,7 +368,15 @@ def ordered_entries(entries, order):
     ]
 
 
-def create_release(config, store, backend, inventory, artifacts, removals, release):
+def create_release(
+    config: "Config",
+    store: "Store",
+    backend: "Backend",
+    inventory: JSON,
+    artifacts: Sequence[str],
+    removals: Sequence[str],
+    release: Path,
+) -> JSON:
     source = backend.active()
     release.mkdir(parents=True, exist_ok=False)
     old_entries = {entry["manifest"]["app_id"]: entry for entry in inventory.get("apps", [])}
@@ -366,7 +398,9 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
     return _finalize(config, backend, release, inventory, core, entries, manifests, environment, retained, archives)
 
 
-def _apply_artifacts(config, store, artifacts, entries, core):
+def _apply_artifacts(
+    config: "Config", store: "Store", artifacts: Sequence[str], entries: JSON, core: JSON
+) -> tuple[JSON, set[str]]:
     """The core and the apps of the plan's packages; ``(core, changed component ids)``."""
     changed = set()
     for artifact in artifacts:
@@ -382,7 +416,7 @@ def _apply_artifacts(config, store, artifacts, entries, core):
     return core, changed
 
 
-def _core_from_package(manifest, core, artifact):
+def _core_from_package(manifest: JSON, core: JSON, artifact: str) -> JSON:
     if core.get("version") and not _supports_source(manifest, core["version"]):
         raise AgentError("unsupported_core_upgrade", 409)
     if core.get("version") and Version(manifest["version"]) < Version(core["version"]):
@@ -396,7 +430,7 @@ def _core_from_package(manifest, core, artifact):
     }
 
 
-def _app_from_package(manifest, previous, artifact):
+def _app_from_package(manifest: JSON, previous: JSON | None, artifact: str) -> JSON:
     if previous:
         old = previous["manifest"]
         if any(old[key] != manifest[key] for key in ("app_label", "package_name", "app_config")):
@@ -415,7 +449,7 @@ def _app_from_package(manifest, previous, artifact):
     return entry
 
 
-def _apply_removals(entries, removals, changed):
+def _apply_removals(entries: JSON, removals: Sequence[str], changed: set[str]) -> None:
     for app_id in removals:
         if app_id in changed or app_id not in entries or entries[app_id]["state"] != "installed":
             raise AgentError("invalid_uninstall_target", 409)
@@ -425,7 +459,9 @@ def _apply_removals(entries, removals, changed):
         entries[app_id]["activation_policy"] = "explicit"
 
 
-def _install_core_wheels(config, store, release, inventory, core, changed):
+def _install_core_wheels(
+    config: "Config", store: "Store", release: Path, inventory: JSON, core: JSON, changed: set[str]
+) -> None:
     """Extract the core package's wheels and record the core files; migrations never change."""
     core_package = verified(store, config, core["digest"])
     extract_package(core_package, None, wheels_destination=release / "core-wheels")
@@ -451,7 +487,16 @@ def _install_core_wheels(config, store, release, inventory, core, changed):
             raise AgentError("core_migration_history_modified", 409)
 
 
-def _materialize_apps(config, store, backend, release, source, entries, old_entries, removals):
+def _materialize_apps(
+    config: "Config",
+    store: "Store",
+    backend: "Backend",
+    release: Path,
+    source: Path,
+    entries: JSON,
+    old_entries: JSON,
+    removals: Sequence[str],
+) -> tuple[list[JSON], list[JSON]]:
     """Place each app in the release; ``(retained schema references, migration archives)``."""
     retained = []
     archives = []
@@ -479,7 +524,7 @@ def _materialize_apps(config, store, backend, release, source, entries, old_entr
     return retained, archives
 
 
-def _preserved_local_app(release, source, entry):
+def _preserved_local_app(release: Path, source: Path, entry: JSON) -> Path:
     previous_path = Path(entry["path"])
     if source not in previous_path.resolve().parents:
         raise AgentError("local_app_outside_project", 409)
@@ -489,7 +534,16 @@ def _preserved_local_app(release, source, entry):
     return local_path
 
 
-def _retain_app(backend, release, source, app_id, entry, package, old_entries, removals):
+def _retain_app(
+    backend: "Backend",
+    release: Path,
+    source: Path,
+    app_id: str,
+    entry: JSON,
+    package: "VerifiedPackage",
+    old_entries: JSON,
+    removals: Sequence[str],
+) -> tuple[JSON, JSON]:
     """Archive the historical migrations and the schema snapshot of a retired app."""
     manifest = entry["manifest"]
     archive_name = f"archive_{manifest['app_label']}"
@@ -523,7 +577,7 @@ def _retain_app(backend, release, source, app_id, entry, package, old_entries, r
     }
 
 
-def _extract_app(release, target, package, package_name):
+def _extract_app(release: Path, target: Path, package: "VerifiedPackage", package_name: str) -> None:
     extraction = release / f"wheels-{package_name}"
     extract_package(package, target, wheels_destination=extraction)
     if extraction.exists():
@@ -536,7 +590,18 @@ def _extract_app(release, target, package, package_name):
         shutil.rmtree(extraction)
 
 
-def _finalize(config, backend, release, inventory, core, entries, manifests, environment, retained, archives):
+def _finalize(
+    config: "Config",
+    backend: "Backend",
+    release: Path,
+    inventory: JSON,
+    core: JSON,
+    entries: JSON,
+    manifests: Sequence[JSON],
+    environment: Mapping[str, Any],
+    retained: list[JSON],
+    archives: list[JSON],
+) -> JSON:
     """Lock, resolve, write the inventory and run the build checks of the prepared release."""
     lock = build_lock(config, release, [core["manifest"], *manifests], environment)
     resolution = resolve_target(
@@ -564,14 +629,14 @@ def _finalize(config, backend, release, inventory, core, entries, manifests, env
     return result
 
 
-def _supports_source(manifest, source):
+def _supports_source(manifest: JSON, source: str) -> bool:
     return Version(source) in SpecifierSet(manifest["migrations"]["from_versions"])
 
 
-def presentation_diff(before, after):
+def presentation_diff(before: JSON, after: JSON) -> list[JSON]:
     """Describe code-owned UI/configuration changes without altering signed manifests."""
 
-    def active(inventory):
+    def active(inventory: JSON) -> JSON:
         return {
             entry["manifest"]["app_id"]: entry["manifest"]
             for entry in inventory.get("apps", [])
@@ -582,7 +647,7 @@ def presentation_diff(before, after):
     changes = []
     for app_id in sorted(previous.keys() | current.keys()):
         old, new = previous.get(app_id), current.get(app_id)
-        manifest = new or old
+        manifest = cast(JSON, new or old)  # One of them exists: the key came from their union.
         base = {"app_id": app_id, "app_label": manifest["app_label"]}
         if old is None or new is None:
             changes.append(
@@ -634,7 +699,7 @@ def presentation_diff(before, after):
     return changes
 
 
-def remove_release(release):
+def remove_release(release: StrPath) -> None:
     """Delete a release directory, frozen or not, without following links (#245)."""
     release = Path(release)
     if release.is_symlink():

@@ -8,31 +8,37 @@ import re
 import stat
 import sys
 import traceback
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
+from typing import Any, TextIO
 from uuid import UUID, uuid4
+
+from .types import JSON, StrPath
 
 
 class AgentError(ValueError):
     """A stable public code; details carry only identities, ranges and versions."""
 
-    def __init__(self, code, status=400, details=None):
+    log: str | None = None  # The command log file of a failed subprocess (#244).
+
+    def __init__(self, code: str, status: int = 400, details: Any = None) -> None:
         self.code = code
         self.status = status
         self.details = details
         super().__init__(code)
 
 
-def canonical(value):
+def canonical(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def digest(value):
+def digest(value: object) -> str:
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def file_hash(path):
+def file_hash(path: StrPath) -> str:
     value = hashlib.sha256()
     with Path(path).open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -40,28 +46,28 @@ def file_hash(path):
     return value.hexdigest()
 
 
-def now():
+def now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def identifier(value):
+def identifier(value: object) -> str:
     try:
         return str(UUID(str(value)))
     except (ValueError, AttributeError, TypeError):
         raise AgentError("invalid_uuid") from None
 
 
-def artifact_id(value):
+def artifact_id(value: object) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value):
         raise AgentError("invalid_digest")
     return value
 
 
-def atomic_json(path, value, mode=0o600):
+def atomic_json(path: StrPath, value: object, mode: int = 0o600) -> None:
     atomic_bytes(path, canonical(value) + b"\n", mode)
 
 
-def atomic_bytes(path, data, mode=0o600):
+def atomic_bytes(path: StrPath, data: bytes, mode: int = 0o600) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = path.with_name(f".{path.name}.{uuid4()}.tmp")
@@ -81,17 +87,17 @@ def atomic_bytes(path, data, mode=0o600):
         temporary.unlink(missing_ok=True)
 
 
-def load_json(path):
+def load_json(path: StrPath) -> Any:
     try:
         return json.loads(Path(path).read_bytes())
     except (OSError, ValueError):
         raise AgentError("invalid_state", 409) from None
 
 
-def inventory_files(root):
+def inventory_files(root: StrPath) -> JSON:
     """Include links as resources without following them; code links are refused elsewhere."""
     root = Path(root)
-    result = {}
+    result: JSON = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root).as_posix()
         if "__pycache__" in path.parts or path.suffix == ".pyc":
@@ -106,7 +112,7 @@ def inventory_files(root):
 
 
 @contextmanager
-def deployment_lock(root, *, blocking=False):
+def deployment_lock(root: StrPath, *, blocking: bool = False) -> Iterator[None]:
     path = Path(root) / "deployment.lock"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with path.open("a+b") as stream:
@@ -121,7 +127,7 @@ def deployment_lock(root, *, blocking=False):
             fcntl.flock(stream, fcntl.LOCK_UN)
 
 
-def private_file(path):
+def private_file(path: StrPath) -> Path:
     path = Path(path)
     metadata = path.stat()
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o027 or path.is_symlink():
@@ -129,7 +135,7 @@ def private_file(path):
     return path
 
 
-def log_internal_error(error, stream=None):
+def log_internal_error(error: BaseException, stream: TextIO | None = None) -> None:
     """Emit one JSON line locating the failure; never the message, request, token or subprocess output."""
     frames = traceback.extract_tb(error.__traceback__)[-25:]
     record = {
@@ -145,7 +151,7 @@ def log_internal_error(error, stream=None):
 
 
 class Store:
-    def __init__(self, root):
+    def __init__(self, root: StrPath) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if self.root.stat().st_mode & 0o007:
@@ -153,35 +159,35 @@ class Store:
         for name in ("uploads", "plans", "operations", "backups", "catalogues"):
             (self.root / name).mkdir(exist_ok=True, mode=0o700)
 
-    def path(self, collection, key):
+    def path(self, collection: str, key: str) -> Path:
         if collection == "uploads":
             return self.root / collection / f"{artifact_id(key)}.skapp"
         return self.root / collection / f"{identifier(key)}.json"
 
-    def put(self, collection, key, value):
+    def put(self, collection: str, key: str, value: object) -> None:
         atomic_json(self.path(collection, key), value)
 
-    def get(self, collection, key):
+    def get(self, collection: str, key: str) -> Any:
         path = self.path(collection, key)
         if not path.exists():
             raise AgentError("not_found", 404)
         return load_json(path)
 
-    def plans(self):
+    def plans(self) -> list[tuple[str, Any, float]]:
         """``(plan_id, record, mtime)`` of every stored preview plan."""
         result = []
         for path in sorted((self.root / "plans").glob("*.json")):
             result.append((path.stem, load_json(path), path.stat().st_mtime))
         return result
 
-    def operations(self, limit=None):
+    def operations(self, limit: int | None = None) -> list[Any]:
         """Operations newest first; with limit, only the most recently written files are parsed (#281)."""
         paths = list((self.root / "operations").glob("*.json"))
         if limit is not None:
             paths = sorted(paths, key=lambda path: path.stat().st_mtime_ns, reverse=True)[:limit]
         return sorted((load_json(path) for path in paths), key=lambda row: row["created_at"], reverse=True)
 
-    def operation_states(self):
+    def operation_states(self) -> dict[str, str]:
         """``{operation_id: state}`` of every operation, from an index kept beside the journal.
 
         The index is derived: each entry records the file's mtime_ns, and any file whose mtime

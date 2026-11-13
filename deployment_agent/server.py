@@ -10,16 +10,24 @@ import socket
 import threading
 import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn, UnixStreamServer
+from types import FrameType
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from .storage import AgentError, atomic_bytes, canonical, identifier, log_internal_error, private_file
+from .types import JSON
+
+if TYPE_CHECKING:
+    from .backends import ComposeBackend
+    from .service import DeploymentService
 
 
 class StatusTickets:
-    def __init__(self, service):
+    def __init__(self, service: "DeploymentService") -> None:
         self.service = service
         self.key_path = service.store.root / "status-signing.key"
         if not self.key_path.exists():
@@ -29,7 +37,7 @@ class StatusTickets:
         if not self.epoch_path.exists():
             atomic_bytes(self.epoch_path, b"0")
 
-    def issue(self, operation_id):
+    def issue(self, operation_id: str) -> str | None:
         status = self.service.config.get("status_http")
         if not status:
             return None
@@ -44,7 +52,7 @@ class StatusTickets:
         ticket = (payload + b"." + signature).decode("ascii")
         return status["public_url"].rstrip("/") + "/" + operation_id + "/?" + urlencode({"ticket": ticket})
 
-    def verify(self, operation_id, ticket):
+    def verify(self, operation_id: str, ticket: str) -> None:
         try:
             if len(ticket) > 1024:
                 raise ValueError
@@ -63,22 +71,25 @@ class StatusTickets:
         except (ValueError, TypeError, KeyError, UnicodeError, AgentError):
             raise AgentError("invalid_status_ticket", 403) from None
 
-    def revoke(self):
+    def revoke(self) -> None:
         atomic_bytes(self.epoch_path, str(int(self.epoch_path.read_text()) + 1).encode())
 
 
 class QuietHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # The control UnixHTTPServer or the status ThreadingHTTPServer; serve() gives both
+    # ``service`` and ``tickets``.
+    server: Any
 
-    def setup(self):
+    def setup(self) -> None:
         super().setup()
         self.connection.settimeout(30)
 
-    def log_message(self, format, *arguments):
+    def log_message(self, format: str, *arguments: Any) -> None:
         # Never log request URL, bearer control token, scoped ticket, body or subprocess output.
         pass
 
-    def send_json(self, value, status=200):
+    def send_json(self, value: object, status: int = 200) -> None:
         body = canonical(value)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -90,7 +101,7 @@ class QuietHandler(BaseHTTPRequestHandler):
 
 
 class ControlHandler(QuietHandler):
-    def authenticate(self):
+    def authenticate(self) -> None:
         expected = private_file(self.server.service.config["token_file"]).read_text().strip()
         supplied = self.headers.get("Authorization", "")
         # Bytes, not str: compare_digest refuses non-ASCII text with TypeError, which became a 500 (#280).
@@ -101,7 +112,7 @@ class ControlHandler(QuietHandler):
         ):
             raise AgentError("unauthorized", 401)
 
-    def body(self, *, upload=False):
+    def body(self, *, upload: bool = False) -> Any:
         if self.headers.get("Transfer-Encoding"):
             raise AgentError("unsupported_transfer_encoding")
         try:
@@ -128,14 +139,14 @@ class ControlHandler(QuietHandler):
             raise AgentError("invalid_json")
         return body
 
-    def operation(self, operation_id):
+    def operation(self, operation_id: str) -> JSON:
         result = self.server.service.operation(operation_id)
         url = self.server.tickets.issue(result["id"])
         if url:
             result["status_url"] = url
         return result
 
-    def dispatch(self):
+    def dispatch(self) -> Any:
         self.authenticate()
         path = urlsplit(self.path)
         if path.query or path.fragment:
@@ -151,7 +162,7 @@ class ControlHandler(QuietHandler):
                 return route(self, body)
         raise AgentError("not_found", 404)
 
-    def _get(self, path):
+    def _get(self, path: str) -> Any:
         if path == "/inventory":
             return self.server.service.inventory()
         if path.startswith("/operations/"):
@@ -160,17 +171,17 @@ class ControlHandler(QuietHandler):
             return self.server.service.plan_status(identifier(path.removeprefix("/plans/")))
         raise AgentError("not_found", 404)
 
-    def _status_ticket(self, body):
+    def _status_ticket(self, body: JSON) -> JSON:
         if set(body) != {"operation_id"}:
             raise AgentError("invalid_status_ticket_fields")
         return {"status_url": self.server.tickets.issue(identifier(body["operation_id"]))}
 
-    def _preview(self, body):
+    def _preview(self, body: JSON) -> JSON:
         if set(body) - {"action", "artifacts", "app_ids"}:
             raise AgentError("unknown_fields")
         return self.server.service.preview(body.get("action"), body.get("artifacts", []), body.get("app_ids", []))
 
-    def _submit(self, body):
+    def _submit(self, body: JSON) -> JSON:
         if set(body) != {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}:
             raise AgentError("invalid_submit_fields")
         result = self.server.service.submit(**body)
@@ -179,17 +190,17 @@ class ControlHandler(QuietHandler):
             result["status_url"] = url
         return result
 
-    def _catalog_check(self, body):
+    def _catalog_check(self, body: JSON) -> JSON:
         if body:
             raise AgentError("unknown_fields")
         return self.server.service.check_updates()
 
-    def _catalog_fetch(self, body):
+    def _catalog_fetch(self, body: JSON) -> JSON:
         if set(body) != {"component_id", "version", "source_id"}:
             raise AgentError("invalid_catalogue_selection")
         return self.server.service.fetch_release(**body)
 
-    POST_ROUTES = {
+    POST_ROUTES: dict[str, Callable[["ControlHandler", JSON], JSON]] = {
         "/status-ticket": _status_ticket,
         "/preview": _preview,
         "/submit": _submit,
@@ -197,7 +208,7 @@ class ControlHandler(QuietHandler):
         "/catalog/fetch": _catalog_fetch,
     }
 
-    def handle_request(self):
+    def handle_request(self) -> None:
         try:
             self.send_json(self.dispatch())
         except AgentError as error:
@@ -218,7 +229,7 @@ class ControlHandler(QuietHandler):
 
 
 class StatusHandler(QuietHandler):
-    def do_GET(self):
+    def do_GET(self) -> None:
         try:
             path = urlsplit(self.path)
             base = urlsplit(self.server.service.config["status_http"]["public_url"]).path.rstrip("/")
@@ -276,10 +287,10 @@ class StatusHandler(QuietHandler):
             self.close_connection = True
 
 
-def install_signal_handlers(server):
+def install_signal_handlers(server: Any) -> Callable[[int, FrameType | None], None]:
     """SIGTERM/SIGINT stop accepting requests; serve() then waits for the running operation (#280)."""
 
-    def request_shutdown(signum, frame):
+    def request_shutdown(signum: int, frame: FrameType | None) -> None:
         # shutdown() blocks until serve_forever() returns: it must run outside the main thread.
         threading.Thread(target=server.shutdown, daemon=True, name="deployment-shutdown").start()
 
@@ -291,9 +302,11 @@ def install_signal_handlers(server):
 class UnixHTTPServer(ThreadingMixIn, UnixStreamServer):
     daemon_threads = True
     block_on_close = False
+    service: "DeploymentService"  # Set by serve().
+    tickets: StatusTickets
 
 
-def serve(service):
+def serve(service: "DeploymentService") -> None:
     path = Path(service.config["socket_path"])
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     if path.exists():
@@ -308,7 +321,7 @@ def serve(service):
                 raise AgentError("agent_already_running", 409)
     service.reconcile_interrupted()
     if service.config.get("backend") == "compose":
-        service.backend.remove_stale_overrides()  # Overrides of an abrupt stop hold secrets (#245).
+        cast("ComposeBackend", service.backend).remove_stale_overrides()  # Abrupt stop overrides hold secrets (#245).
     tickets = StatusTickets(service)
     previous_umask = os.umask(0o117)  # The socket is born at most 0660 (#280).
     try:
@@ -320,7 +333,7 @@ def serve(service):
     os.chmod(path, 0o660)
     if service.config.get("socket_gid") is not None:
         os.chown(path, -1, service.config["socket_gid"])
-    status_server = None
+    status_server: Any = None  # ThreadingHTTPServer with service and tickets, when configured.
     if service.config.get("status_http"):
         options = service.config["status_http"]
         if options.get("host", "127.0.0.1") not in ("127.0.0.1", "::1") or urlsplit(

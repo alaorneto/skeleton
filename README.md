@@ -125,7 +125,7 @@ eval "$(.venv/bin/python tools/dev_postgres.py env)"
 SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests -n auto --cov  # cerca de 4 min; ver docs/testing.md
 ```
 
-A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
+A tipagem é gradual: os módulos em `[tool.mypy] files` são checados em modo estrito, entre eles `tools/workflow`, `tools/dev_postgres.py` e o agente de deployment, cujos documentos do journal (operação, plano, registro de plano, estado ativo) estão descritos em `deployment_agent/types.py` (#347). O mypy analisa como Linux em qualquer máquina, porque o agente só roda em POSIX. Ao anotar outro módulo, acrescente-o à lista e ao override estrito. A reformatação em massa está listada em `.git-blame-ignore-revs`; rode `git config blame.ignoreRevsFile .git-blame-ignore-revs` uma vez por checkout.
 
 O hook `commit-msg` exige que cada commit referencie uma issue (`Refs #N`), e o workflow `.github/workflows/pr-check.yml` ("Verificação do PR") exige que o PR cite uma issue classificada e preencha as seções do modelo. A versão é decidida e publicada pelo skill `dev-workflow` depois do merge; ver [fluxo de trabalho](docs/workflow.md).
 

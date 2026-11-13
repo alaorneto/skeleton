@@ -3,7 +3,9 @@
 import hashlib
 import json
 import platform
+from email.message import Message
 from pathlib import Path
+from typing import IO, TYPE_CHECKING
 from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zipfile import ZipFile
@@ -21,19 +23,27 @@ from .storage import (
     load_json,
     now,
 )
+from .types import JSON
+
+if TYPE_CHECKING:
+    from .service import DeploymentService
 
 
 class NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, request, response, code, message, headers, newurl):
+    def redirect_request(
+        self, request: Request, response: IO[bytes], code: int, message: str, headers: Message, newurl: str
+    ) -> Request | None:
         raise AgentError("catalogue_redirect_rejected", 409)
 
 
-def catalogue_cache(service, source_id):
+def catalogue_cache(service: "DeploymentService", source_id: str) -> Path:
     """The verified copy of one catalogue source, named by the hash of its id."""
     return service.store.root / "catalogues" / f"{hashlib.sha256(source_id.encode()).hexdigest()}.json"
 
 
-def catalogue_suggestions(service, dependency, required, target, *, limit=3):
+def catalogue_suggestions(
+    service: "DeploymentService", dependency: str, required: str, target: JSON, *, limit: int = 3
+) -> list[JSON]:
     """Compatible releases from already verified catalogue caches; never downloads anything."""
     suggestions = []
     for source in service.catalogue_sources():
@@ -65,7 +75,7 @@ def catalogue_suggestions(service, dependency, required, target, *, limit=3):
     return suggestions[:limit]
 
 
-def catalogue_sources(service):
+def catalogue_sources(service: "DeploymentService") -> list[JSON]:
     sources = service.config.get("catalogue_sources", [])
     if not isinstance(sources, list) or any(
         not isinstance(source, dict) or not isinstance(source.get("id"), str) for source in sources
@@ -74,7 +84,13 @@ def catalogue_sources(service):
     return sources
 
 
-def fetch_bytes(service, location, maximum, *, origin=None):
+def fetch_bytes(
+    service: "DeploymentService",
+    location: str,
+    maximum: int,
+    *,
+    origin: tuple[str, str | None, int | None] | None = None,
+) -> bytes:
     parts = urlsplit(location)
     if parts.scheme != "https" or not parts.hostname or parts.username or parts.password or parts.fragment:
         raise AgentError("unapproved_catalogue_url")
@@ -95,8 +111,8 @@ def fetch_bytes(service, location, maximum, *, origin=None):
         raise AgentError("catalogue_unavailable", 409) from None
 
 
-def check_updates(service):
-    result = {"checked_at": now(), "sources": [], "releases": []}
+def check_updates(service: "DeploymentService") -> JSON:
+    result: JSON = {"checked_at": now(), "sources": [], "releases": []}
     inventory = service.state()["inventory"]
     installed = {
         entry["manifest"]["app_id"]: entry["manifest"]["version"]
@@ -182,7 +198,7 @@ def check_updates(service):
     return result
 
 
-def fetch_release(service, component_id, version, source_id):
+def fetch_release(service: "DeploymentService", component_id: str, version: str, source_id: str) -> JSON:
     sources = [source for source in service.catalogue_sources() if source["id"] == source_id]
     if len(sources) != 1 or not isinstance(component_id, str) or not isinstance(version, str):
         raise AgentError("invalid_catalogue_selection")

@@ -143,7 +143,13 @@ files = [
     "skeleton/observability/otel.py",
     "skeleton/observability/sentry.py",
     "skeleton/observability/tracing.py",
+    "tools/workflow",
+    "tools/dev_postgres.py",
+    "deployment_agent",
 ]
+# The deployment agent is POSIX only (fcntl, O_DIRECTORY): checking for Linux everywhere makes a
+# local run on Windows see what the typecheck job sees (#347).
+platform = "linux"
 follow_imports = "silent"
 warn_unused_configs = true
 warn_redundant_casts = true
@@ -168,10 +174,19 @@ module = [
     "skeleton.instance.crypto",
     "skeleton.instance.resolve",
     "skeleton.observability.*",
+    "dependabot_locks",
+    "dev_postgres",
+    "deployment_agent.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_any_generics = true
+
+# The release probe of the agent loads the app registry: the Django plugin then reports the
+# untyped allauth models against it (#347).
+[[tool.mypy.overrides]]
+module = ["deployment_agent.probe"]
+disable_error_code = ["import-untyped"]
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"

@@ -3,6 +3,7 @@
 import shutil
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from .execution import sync_state
 from .releases import (
@@ -17,9 +18,13 @@ from .storage import (
     load_json,
     log_internal_error,
 )
+from .types import JSON
+
+if TYPE_CHECKING:
+    from .service import DeploymentService
 
 
-def reconcile_interrupted(service):
+def reconcile_interrupted(service: "DeploymentService") -> None:
     with deployment_lock(service.store.root):
         for operation in service.store.operations():
             if operation["state"] in ("queued", "running") or operation["stage"] in (
@@ -48,7 +53,7 @@ def reconcile_interrupted(service):
                 atomic_json(service.config["maintenance_marker"], {"stage": "active_state_conflict"}, 0o644)
 
 
-def recoverable(operation, record, state):
+def recoverable(operation: JSON, record: JSON, state: Any) -> bool:
     """The active (release, generation) is still the one before or after this operation."""
     allowed_states = {
         record["previous_release"]: record["plan"]["generation"],
@@ -57,7 +62,9 @@ def recoverable(operation, record, state):
     return state["inventory"]["generation"] == allowed_states.get(state["release"])
 
 
-def prune(service, *, plan_days=7, backup_days=None, apply=False):
+def prune(
+    service: "DeploymentService", *, plan_days: float = 7, backup_days: float | None = None, apply: bool = False
+) -> JSON:
     """List (and with apply, remove) what no operation can still need (#245). Offline CLI only.
 
     Never removed: the active release, ``release``/``previous_release`` and backup of a failed
@@ -91,7 +98,7 @@ def prune(service, *, plan_days=7, backup_days=None, apply=False):
         return result
 
 
-def _protected(service, state, operations):
+def _protected(service: "DeploymentService", state: Any, operations: list[JSON]) -> tuple[set[Path], set[str]]:
     """Releases no prune may remove, and the ids of the failed operations recover still accepts."""
     protected = {Path(state["release"]).resolve()} if state.get("release") else set()
     if service.config.get("project_root"):
@@ -113,12 +120,20 @@ def _protected(service, state, operations):
     return protected, recoverable_ids
 
 
-def _release_candidates(service, operations, protected, result, *, plan_days, now_time):
+def _release_candidates(
+    service: "DeploymentService",
+    operations: list[JSON],
+    protected: set[Path],
+    result: JSON,
+    *,
+    plan_days: float,
+    now_time: float,
+) -> list[Path]:
     """Old unsubmitted previews and finished operations; fills ``result`` and returns the paths."""
     root = Path(service.config["releases_root"]).resolve()
     releases = []
 
-    def candidate_release(value, reason):
+    def candidate_release(value: str, reason: str) -> None:
         path = Path(value).resolve()
         if path.parent != root or Path(value).is_symlink():
             result["skipped"].append({"path": str(value), "reason": "outside_releases_root"})
@@ -142,7 +157,14 @@ def _release_candidates(service, operations, protected, result, *, plan_days, no
     return releases
 
 
-def _backup_candidates(service, operations, recoverable_ids, *, backup_days, now_time):
+def _backup_candidates(
+    service: "DeploymentService",
+    operations: list[JSON],
+    recoverable_ids: set[str],
+    *,
+    backup_days: float,
+    now_time: float,
+) -> list[str]:
     finished_ids = {row["id"] for row in operations if row["state"] in ("succeeded", "restored", "cancelled")}
     backups = []
     for folder in ("backups", "logs"):
@@ -159,7 +181,7 @@ def _backup_candidates(service, operations, recoverable_ids, *, backup_days, now
     return backups
 
 
-def _apply_prune(service, releases, result):
+def _apply_prune(service: "DeploymentService", releases: list[Path], result: JSON) -> None:
     for path in releases:
         remove_release(path)
     for plan_id in result["plans"]:
@@ -175,7 +197,9 @@ def _apply_prune(service, releases, result):
             result["errors"].append({"image": tag, "code": error.code})
 
 
-def recover(service, operation_id, action, *, acknowledge_new_writes=False):
+def recover(
+    service: "DeploymentService", operation_id: str, action: str, *, acknowledge_new_writes: bool = False
+) -> JSON:
     with deployment_lock(service.store.root):
         operation = service.store.get("operations", identifier(operation_id))
         if action not in ("restore", "complete", "abort"):

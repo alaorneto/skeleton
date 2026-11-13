@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,13 +112,13 @@ def _uv(code: str, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([*command, "python", "-c", code, *arguments], check=True, capture_output=True, text=True)
 
 
-def _dsn(user: str, state: dict) -> str:
+def _dsn(user: str, state: dict[str, Any]) -> str:
     host = state["host"]
     location = quote(host, safe="") if "/" in host or "\\" in host else host
     return f"postgres://{user}:{PASSWORDS[user]}@{location}:{state['port']}/{DATABASE}"
 
 
-def environment(state: dict) -> dict[str, str]:
+def environment(state: dict[str, Any]) -> dict[str, str]:
     binary = Path(state["bin"]) / ("pg_dump.exe" if os.name == "nt" else "pg_dump")
     return {
         "DJANGO_SETTINGS_MODULE": "config.settings.test",
@@ -138,7 +139,7 @@ def default_workers() -> int:
     return os.cpu_count() or 1
 
 
-def start(workers: int | None = None) -> dict:
+def start(workers: int | None = None) -> dict[str, Any]:
     """Start the server and provision the base database plus one per parallel worker.
 
     Existing databases are kept as they are: the command only adds the missing ones.
@@ -156,7 +157,7 @@ def start(workers: int | None = None) -> dict:
         DATABASE,
         *worker_databases(workers),
     )
-    state = json.loads(result.stdout.strip().splitlines()[-1])
+    state: dict[str, Any] = json.loads(result.stdout.strip().splitlines()[-1])
     del state["created"]
     state["workers"] = max(workers, load_workers())
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -170,7 +171,7 @@ def load_workers() -> int:
     return int(json.loads(STATE.read_text(encoding="utf-8")).get("workers", 0))
 
 
-def load_state() -> dict:
+def load_state() -> dict[str, Any]:
     if not STATE.exists():
         raise SystemExit("No local PostgreSQL yet: run `python tools/dev_postgres.py start`.")
     return json.loads(STATE.read_text(encoding="utf-8"))

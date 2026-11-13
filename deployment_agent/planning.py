@@ -2,6 +2,7 @@
 
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from .releases import (
@@ -27,9 +28,14 @@ from .storage import (
     log_internal_error,
     now,
 )
+from .types import JSON, Plan
+
+if TYPE_CHECKING:
+    from .backends import ComposeBackend
+    from .service import DeploymentService
 
 
-def plan_status(service, plan_id):
+def plan_status(service: "DeploymentService", plan_id: str) -> JSON:
     """Public view of a plan record: never the inventory, owned files or previous_* (#298)."""
     record = service.store.get("plans", identifier(plan_id))
     state = record.get("state", "ready")  # Records written before #298 are ready plans.
@@ -45,7 +51,7 @@ def plan_status(service, plan_id):
     return result
 
 
-def preview_request(action, artifacts, app_ids):
+def preview_request(action: object, artifacts: Any, app_ids: Any) -> tuple[list[str], list[str]]:
     """Shape of a preview request: action, artifact digests and app ids (no state read)."""
     artifacts = artifacts or []
     app_ids = app_ids or []
@@ -69,7 +75,14 @@ def preview_request(action, artifacts, app_ids):
     return artifacts, app_ids
 
 
-def check_preview(service, action, artifacts, app_ids, *, ignore_plan=None):
+def check_preview(
+    service: "DeploymentService",
+    action: str,
+    artifacts: list[str],
+    app_ids: list[str],
+    *,
+    ignore_plan: str | None = None,
+) -> tuple[Any, Path, JSON]:
     """Checks that need the journal and the active release; the caller holds deployment_lock.
 
     Dependency problems leave here with their details, synchronously in preview (#298).
@@ -110,7 +123,7 @@ def check_preview(service, action, artifacts, app_ids, *, ignore_plan=None):
     return state, source, inventory
 
 
-def prepare(service, plan_id):
+def prepare(service: "DeploymentService", plan_id: str) -> Plan | None:
     """Build the release and the plan of a ``preparing`` record; ``ready`` or ``failed`` at the end."""
     with deployment_lock(service.store.root, blocking=True):
         try:
@@ -132,7 +145,8 @@ def prepare(service, plan_id):
             if shutil.disk_usage(service.config["releases_root"]).free < required:
                 raise AgentError("insufficient_disk_space", 409)
         except Exception as error:  # noqa: BLE001 - any failure marks the plan failed with its code or class
-            return preparation_failed(service, plan_id, request_record, error)
+            preparation_failed(service, plan_id, request_record, error)
+            return None
         release = Path(service.config["releases_root"]) / f"{inventory['generation'] + 1}-{plan_id}"
         try:
             target = create_release(
@@ -146,7 +160,7 @@ def prepare(service, plan_id):
             if service.config["backend"] == "compose":
                 # Seal the selected image with final static and schema metadata,
                 # not merely the provisional payload needed to run preflight.
-                service.backend.build_image(release)
+                cast("ComposeBackend", service.backend).build_image(release)
             owned = owned_snapshot(release)
             atomic_json(release / "owned-files.json", owned, 0o644)
             components = [
@@ -168,7 +182,7 @@ def prepare(service, plan_id):
             retained_impact = [
                 load_json(reference["path"]).get("impact", {}) for reference in target["retained_schema_paths"]
             ]
-            plan = {
+            plan: Plan = {
                 "id": plan_id,
                 "generation": inventory["generation"],
                 "action": action,
@@ -212,8 +226,8 @@ def prepare(service, plan_id):
                         "resource": "compose_image",
                         "owner": "deployment",
                         "action": "replace",
-                        "before": service.backend.image(source),
-                        "after": service.backend.image(release),
+                        "before": cast("ComposeBackend", service.backend).image(source),
+                        "after": cast("ComposeBackend", service.backend).image(release),
                     }
                 )
             plan["digest"] = digest(plan)
@@ -238,10 +252,11 @@ def prepare(service, plan_id):
             if release.exists():
                 # Preparation has not touched live state; retain no unsigned/partial executable release.
                 remove_release(release)
-            return preparation_failed(service, plan_id, request_record, error)
+            preparation_failed(service, plan_id, request_record, error)
+            return None
 
 
-def preparation_failed(service, plan_id, request_record, error):
+def preparation_failed(service: "DeploymentService", plan_id: str, request_record: JSON, error: BaseException) -> None:
     """Record the error code (AgentError) or the class name; the message never leaves the agent."""
     if not isinstance(error, AgentError):
         log_internal_error(error)
@@ -258,7 +273,7 @@ def preparation_failed(service, plan_id, request_record, error):
     )
 
 
-def request_preview(service, action, artifacts, app_ids):
+def request_preview(service: "DeploymentService", action: str, artifacts: Any, app_ids: Any) -> str:
     """The quick checks of a preview and its ``preparing`` record, under the lock; the plan id."""
     artifacts, app_ids = preview_request(action, artifacts, app_ids)
     with deployment_lock(service.store.root):

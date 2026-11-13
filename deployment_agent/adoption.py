@@ -1,7 +1,9 @@
 """Offline adoption of an existing project as generation 0 (#317)."""
 
 import io
+from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zipfile import ZipFile
 
 from skeleton.system.packages import validate_manifest
@@ -18,9 +20,19 @@ from .storage import (
     inventory_files,
     load_json,
 )
+from .types import JSON, StrPath
+
+if TYPE_CHECKING:
+    from .service import DeploymentService
 
 
-def initialize(service, inventory_path, *, core_package, app_packages=()):
+def initialize(
+    service: "DeploymentService",
+    inventory_path: StrPath,
+    *,
+    core_package: StrPath,
+    app_packages: Iterable[StrPath] = (),
+) -> JSON:
     """Offline adoption: signed base and an explicit project inventory, never guess a fork."""
     with deployment_lock(service.store.root):
         if (service.store.root / "active.json").exists():
@@ -58,7 +70,7 @@ def initialize(service, inventory_path, *, core_package, app_packages=()):
         return inventory
 
 
-def _adopt_active_link(service, source):
+def _adopt_active_link(service: "DeploymentService", source: Path) -> None:
     link = Path(service.config["active_link"])
     link.parent.mkdir(parents=True, exist_ok=True)
     if link.exists() or link.is_symlink():
@@ -68,7 +80,7 @@ def _adopt_active_link(service, source):
         link.symlink_to(source, target_is_directory=True)
 
 
-def _core_files(service, core):
+def _core_files(service: "DeploymentService", core: JSON) -> JSON:
     """Files of the signed core wheel: a checkout is matched against this base."""
     core_verified = verified(service.store, service.config, core["digest"])
     with ZipFile(core_verified.path) as payload:
@@ -81,7 +93,7 @@ def _core_files(service, core):
             return member_files(wheel)
 
 
-def _core_origin(service, source, core, files):
+def _core_origin(service: "DeploymentService", source: Path, core: JSON, files: JSON) -> str:
     """``source`` or ``installed``; a changed or unknown core is not adoptable."""
     if (source / "skeleton").is_dir():
         actual = {f"skeleton/{path}": row for path, row in inventory_files(source / "skeleton").items()}
@@ -107,9 +119,9 @@ def _core_origin(service, source, core, files):
     return "installed"
 
 
-def _adopted_apps(service, source, inventory):
+def _adopted_apps(service: "DeploymentService", source: Path, inventory: JSON) -> list[JSON]:
     entries = []
-    identities = {"app_id": set(), "app_label": set(), "package_name": set()}
+    identities: dict[str, set[str]] = {"app_id": set(), "app_label": set(), "package_name": set()}
     for entry in inventory.get("apps", []):
         manifest = validate_manifest(entry["manifest"])
         if manifest["kind"] != "app":
@@ -139,7 +151,7 @@ def _adopted_apps(service, source, inventory):
     return entries
 
 
-def _installed_app_path(service, source, entry, manifest):
+def _installed_app_path(service: "DeploymentService", source: Path, entry: JSON, manifest: JSON) -> Path:
     """An installed app's code must be exactly its signed package."""
     package = verified(service.store, service.config, entry["digest"])
     if package.manifest != manifest:
@@ -159,7 +171,7 @@ def _installed_app_path(service, source, entry, manifest):
     return path
 
 
-def _local_app_path(source, entry, manifest):
+def _local_app_path(source: Path, entry: JSON, manifest: JSON) -> Path:
     path = Path(entry.get("path", source / "applications" / manifest["package_name"]))
     if not path.is_absolute():
         path = source / path

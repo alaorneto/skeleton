@@ -4,6 +4,7 @@ import json
 import shutil
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 from urllib.request import Request, build_opener
 
@@ -25,12 +26,16 @@ from .storage import (
     now,
     private_file,
 )
+from .types import JSON, StrPath
+
+if TYPE_CHECKING:
+    from .service import DeploymentService
 
 # First core release whose apps are closed by default and that ships ``upgrade_app_activation`` (#22).
 APP_ACTIVATION_UPGRADE_CORE = Version("0.5.0")
 
 
-def graph_matches(graph, plan):
+def graph_matches(graph: JSON, plan: JSON) -> bool:
     """The probed migration graph is still the approved one."""
     return (
         graph["migrations"] == plan["migrations"]
@@ -39,7 +44,7 @@ def graph_matches(graph, plan):
     )
 
 
-def sync_state(service, release, operation):
+def sync_state(service: "DeploymentService", release: StrPath, operation: JSON) -> None:
     """Mirror the journal and the inventory of ``release`` into the database (owner profile)."""
     service.backend.manage(
         release,
@@ -55,7 +60,7 @@ def sync_state(service, release, operation):
     )
 
 
-def execute(service, operation_id):
+def execute(service: "DeploymentService", operation_id: str) -> None:
     with deployment_lock(service.store.root, blocking=True):
         operation = service.store.get("operations", operation_id)
         if operation["state"] != "queued":
@@ -105,7 +110,7 @@ def execute(service, operation_id):
                 service.stage(operation, "failed", state="failed", error=code, log=getattr(error, "log", None))
 
 
-def finish(service, operation, record):
+def finish(service: "DeploymentService", operation: JSON, record: JSON) -> None:
     release = Path(operation["release"])
     service.backend.manage(release, ["migrate", "--noinput"], "migration", code="migration_failed")
     service.stage(operation, "migrated")
@@ -141,7 +146,7 @@ def finish(service, operation, record):
     service.stage(operation, "ready", state="succeeded")
 
 
-def health(service, inventory):
+def health(service: "DeploymentService", inventory: JSON) -> None:
     opener = build_opener(NoRedirect())
     deadline = time.monotonic() + service.config.get("health_timeout", 60)
     urls = service.config["health_urls"]
@@ -173,7 +178,15 @@ def health(service, inventory):
     raise AgentError(last, 409)
 
 
-def queue_operation(service, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
+def queue_operation(
+    service: "DeploymentService",
+    plan_id: str,
+    plan_digest: str,
+    generation: int,
+    operation_id: str,
+    actor_id: str,
+    request_id: str,
+) -> tuple[JSON, bool]:
     """Journal the approved binding; ``(operation, created)``, ``created`` False for a repeated delivery."""
     operation_id = identifier(operation_id)
     plan_id = identifier(plan_id)

@@ -4,16 +4,19 @@ import json
 import os
 import re
 import shlex
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Self
 from urllib.parse import urlsplit
 
 from .storage import AgentError, private_file
+from .types import JSON, StrPath
 
 ENV_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def effective_runtime_setting(runtime, name):
+def effective_runtime_setting(runtime: Mapping[str, str], name: str) -> str | None:
     """A runtime setting as the web will read it: the env file, else the instance SQLite (#148)."""
     if runtime.get(name):
         return runtime[name]
@@ -30,7 +33,7 @@ def effective_runtime_setting(runtime, name):
         raise AgentError("instance_configuration_unreadable") from exc
 
 
-def effective_runtime_database(runtime):
+def effective_runtime_database(runtime: Mapping[str, str]) -> str | None:
     """The runtime DATABASE_URL the web will use: the env file, else the instance SQLite (#148).
 
     A setup-configured instance keeps its configuration in the instance SQLite (secrets
@@ -40,7 +43,7 @@ def effective_runtime_database(runtime):
     return effective_runtime_setting(runtime, "DATABASE_URL")
 
 
-def installed_bundled_app_ids(config):
+def installed_bundled_app_ids(config: "Config | Mapping[str, Any]") -> tuple[str, ...]:
     """App IDs of the first-party apps the runtime installs (SKELETON_BUNDLED_APPS, #254)."""
     path = config.get("runtime_env_file")
     if not path:
@@ -60,11 +63,11 @@ NUMERIC_SETTINGS = ("command_timeout", "health_timeout", "catalogue_timeout", "m
 TOOL_SETTINGS = ("python", "pg_dump", "pg_restore", "psql", "docker")
 
 
-def _absolute(value):
+def _absolute(value: object) -> bool:
     return isinstance(value, str) and bool(value) and "\x00" not in value and Path(value).is_absolute()
 
 
-def _validate_optional(values):
+def _validate_optional(values: JSON) -> None:
     """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
     paths = values.get("recovery_paths")
     if paths is not None and (not isinstance(paths, list) or not all(_absolute(path) for path in paths)):
@@ -105,7 +108,7 @@ def _validate_optional(values):
                 raise AgentError("invalid_numeric_setting")
 
 
-def read_environment(path):
+def read_environment(path: StrPath) -> dict[str, str]:
     result = {}
     for line in private_file(path).read_text().splitlines():
         line = line.strip()
@@ -153,7 +156,7 @@ RESERVED_PROJECT_PATHS = (
 COMPOSE_NAME = r"[a-zA-Z0-9_-]+"
 
 
-def _validate_paths(values):
+def _validate_paths(values: JSON) -> None:
     for key in PATH_KEYS:
         if not isinstance(values[key], str) or not Path(values[key]).is_absolute():
             raise AgentError("invalid_config_path")
@@ -163,7 +166,7 @@ def _validate_paths(values):
         raise AgentError("missing_publishers")
 
 
-def _validate_project_paths(values):
+def _validate_project_paths(values: JSON) -> None:
     if not isinstance(values["project_paths"], list) or not values["project_paths"]:
         raise AgentError("missing_project_paths")
     for value in values["project_paths"]:
@@ -177,7 +180,7 @@ def _validate_project_paths(values):
             raise AgentError("invalid_project_path")
 
 
-def _validate_commands(values):
+def _validate_commands(values: JSON) -> None:
     commands = values["commands"]
     if not isinstance(commands, dict) or any(name not in commands for name in ("drain", "restart", "stop")):
         raise AgentError("missing_lifecycle_commands")
@@ -193,7 +196,7 @@ def _validate_commands(values):
             raise AgentError("invalid_fixed_command")
 
 
-def _validate_health(values):
+def _validate_health(values: JSON) -> None:
     if not isinstance(values["health_urls"], list) or not values["health_urls"]:
         raise AgentError("missing_health_checks")
     for url in values["health_urls"]:
@@ -201,7 +204,7 @@ def _validate_health(values):
             raise AgentError("invalid_health_url")
 
 
-def _validate_compose(values):
+def _validate_compose(values: JSON) -> None:
     if values["backend"] != "compose":
         return
     compose = values.get("compose", {})
@@ -229,7 +232,7 @@ def _validate_compose(values):
         raise AgentError("compose_target_environment_required")
 
 
-def _validate_credentials(values):
+def _validate_credentials(values: JSON) -> None:
     """The owner DSN never reaches the runtime or build profiles; both are PostgreSQL."""
     runtime = read_environment(values["runtime_env_file"])
     migration = read_environment(values["migration_env_file"])
@@ -262,10 +265,10 @@ def _validate_credentials(values):
 
 @dataclass(frozen=True)
 class Config:
-    values: dict
+    values: JSON
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path: StrPath) -> Self:
         try:
             values = json.loads(private_file(path).read_bytes())
         except (OSError, ValueError):
@@ -286,14 +289,14 @@ class Config:
             raise AgentError("invalid_agent_token")
         return cls(values)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
         return self.values[key]
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
 
-    def environment(self, profile, release):
-        result = {
+    def environment(self, profile: str, release: StrPath) -> dict[str, str]:
+        result: dict[str, str] = {
             "PATH": self.get("operator_path", "/usr/local/bin:/usr/bin:/bin"),
             "LANG": "C.UTF-8",
             "PYTHONDONTWRITEBYTECODE": "1",

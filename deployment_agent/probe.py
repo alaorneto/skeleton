@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-def main():
+def main() -> None:
     import django
 
     django.setup()

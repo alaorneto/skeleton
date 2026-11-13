@@ -4,13 +4,15 @@ import argparse
 import json
 import sys
 import time
+from typing import Any
 
 from .config import Config
 from .server import StatusTickets, serve
 from .service import DeploymentService
+from .types import JSON
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="skeleton-deployment-agent")
     parser.add_argument("--config", required=True, help="Private operator-owned JSON configuration")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -61,7 +63,7 @@ def build_parser():
     return parser
 
 
-def revoke_status_tickets(service):
+def revoke_status_tickets(service: DeploymentService) -> JSON:
     StatusTickets(service).revoke()
     return {"state": "revoked"}
 
@@ -102,7 +104,7 @@ ONLINE = {
 }
 
 
-def follow_preview(client, options):
+def follow_preview(client: Any, options: argparse.Namespace) -> Any:
     """The plan is prepared in the agent (#298): follow it until it is ready (plan) or failed (None)."""
     result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
     while result.get("state") == "preparing":
@@ -115,7 +117,7 @@ def follow_preview(client, options):
     return result.get("plan", result)
 
 
-def main():
+def main() -> int:
     options = build_parser().parse_args()
     try:
         config = Config.load(options.config)
