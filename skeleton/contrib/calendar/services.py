@@ -170,14 +170,30 @@ def cancel_event(*, actor: Any, event_id: Any, expected_revision: int) -> Any:
 
 
 def delete_event(*, actor: Any, event_id: Any, expected_revision: int) -> None:
+    """Soft delete the event with its reminders, attendees and overrides, one row at a time (#292).
+
+    The attendees are told first; each ``delete()`` is a soft delete audited by the trigger.
+    """
     from skeleton.service_api import Conflict
 
+    from .attendees import CANCELLED, notify_attendees
+    from .models import Event, EventAttendee, EventReminder
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O evento mudou."))
-    event.delete()
+    with transaction.atomic(using=current_context().using):
+        notify_attendees(event, CANCELLED, actor=actor)  # Before the invitations go.
+        rows = [event, *Event.objects.filter(series=event)] if event.series_id is None else [event]
+        for row in rows:
+            for reminder in EventReminder.objects.filter(event=row):
+                reminder.delete()
+            for attendee in EventAttendee.objects.filter(event=row):
+                attendee.delete()
+        for override in rows[1:]:
+            override.delete()
+        event.delete()
 
 
 # --------------------------------------------------------------------------- recurrence edits (#70)

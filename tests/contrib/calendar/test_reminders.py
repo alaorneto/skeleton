@@ -217,3 +217,10 @@ def test_finished_events_do_not_add_queries(agenda, daily):
     for index in range(1, 20):
         _event(agenda, f"Past {index}", NOW - timedelta(days=2, minutes=index))
     assert count() == few
+
+
+def test_deleted_event_sends_no_reminder(agenda, daily):
+    with actor_tenant(agenda.alice, agenda.a):
+        daily.refresh_from_db()
+        services.delete_event(actor=agenda.alice, event_id=daily.pk, expected_revision=daily.revision)
+    assert run(agenda, NOW) == 0

@@ -127,3 +127,76 @@ def test_cas_has_one_winner_and_sequence_grows(agenda):
         cancelled = services.cancel_event(actor=agenda.alice, event_id=event.pk, expected_revision=changed.revision)
         assert cancelled.status == "cancelled"
         assert Event.objects.get(pk=event.pk).title == "Nova"
+
+
+# --------------------------------------------------------------------------- deletion (#292)
+
+
+def _series_with_dependents(agenda):
+    from skeleton.contrib.calendar import attendees, reminders
+
+    calendar = shared_calendar(agenda)
+    with actor_tenant(agenda.alice, agenda.a):
+        event = services.create_event(
+            actor=agenda.alice, calendar_id=calendar.pk, data=timed(rrule="FREQ=DAILY;COUNT=3")
+        )
+        attendees.invite(actor=agenda.alice, event_id=event.pk, user_ids=(agenda.bob.pk,))
+        reminders.add_reminder(actor=agenda.alice, event_id=event.pk, minutes_before=30)
+        event.refresh_from_db()
+        services.edit_occurrence(
+            actor=agenda.alice,
+            event_id=event.pk,
+            recurrence_id=START + timedelta(days=1),
+            mode="this",
+            data={"title": "Movida"},
+            expected_revision=event.revision,
+        )
+        event.refresh_from_db()
+    return event
+
+
+def _rows(agenda, event):
+    from skeleton.contrib.calendar.models import EventAttendee, EventReminder
+
+    with actor_tenant(agenda.admin, agenda.a):
+        return {
+            "events": list(Event.objects.with_deleted().filter(pk=event.pk).values_list("sysid", "deleted_at")),
+            "overrides": list(Event.objects.with_deleted().filter(series=event).values_list("sysid", "deleted_at")),
+            "attendees": list(
+                EventAttendee.objects.with_deleted().filter(event=event).values_list("sysid", "deleted_at")
+            ),
+            "reminders": list(
+                EventReminder.objects.with_deleted().filter(event=event).values_list("sysid", "deleted_at")
+            ),
+        }
+
+
+def test_delete_event_with_attendees_reminders_and_overrides(agenda):
+    from skeleton.audit.models import AuditEvent
+
+    event = _series_with_dependents(agenda)
+    before = _rows(agenda, event)
+    assert all(len(rows) == 1 for rows in before.values())
+    with actor_tenant(agenda.alice, agenda.a):
+        services.delete_event(actor=agenda.alice, event_id=event.pk, expected_revision=event.revision)
+    after = _rows(agenda, event)
+    for kind, rows in after.items():
+        assert [sysid for sysid, _ in rows] == [sysid for sysid, _ in before[kind]], kind
+        assert all(deleted is not None for _, deleted in rows), kind
+    with actor_tenant(agenda.admin, agenda.a):
+        assert not Event.objects.filter(pk=event.pk).exists()
+        assert AuditEvent.objects.filter(record_sysid=event.pk, operation="soft_delete").exists()
+
+
+def test_delete_event_stale_revision_changes_nothing(agenda):
+    event = _series_with_dependents(agenda)
+    with actor_tenant(agenda.alice, agenda.a), pytest.raises(Conflict):
+        services.delete_event(actor=agenda.alice, event_id=event.pk, expected_revision=event.revision + 1)
+    assert all(deleted is None for rows in _rows(agenda, event).values() for _, deleted in rows)
+
+
+def test_delete_event_requires_calendar_write(agenda):
+    event = _series_with_dependents(agenda)
+    with actor_tenant(agenda.bob, agenda.a), pytest.raises(PermissionDenied):
+        services.delete_event(actor=agenda.bob, event_id=event.pk, expected_revision=event.revision)
+    assert all(deleted is None for rows in _rows(agenda, event).values() for _, deleted in rows)

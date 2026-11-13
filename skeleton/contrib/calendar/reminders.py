@@ -75,7 +75,11 @@ def _candidates(now: Any) -> tuple[list, dict, dict, set]:
     )
     reminders = list(
         EventReminder.objects.select_related("event")
-        .filter(event__status__in=(Event.Status.CONFIRMED, Event.Status.TENTATIVE), event__series__isnull=True)
+        .filter(
+            event__status__in=(Event.Status.CONFIRMED, Event.Status.TENTATIVE),
+            event__series__isnull=True,
+            event__deleted_at__isnull=True,  # The relation does not hide a deleted event (#292).
+        )
         .filter(Q(event__recurrence_end__gt=cutoff) | Q(event__recurrence_end__isnull=True) | Q(event_id__in=moved))
     )
     master_ids = {reminder.event_id for reminder in reminders}

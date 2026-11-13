@@ -122,3 +122,11 @@ def test_same_invitation_twice_does_not_duplicate_the_notification(agenda, meeti
         attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
         assert attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,)) == []
     assert len(_invited(agenda.a)) == 1
+
+
+def test_deleting_the_event_notifies_cancellation(agenda, meeting):
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        meeting.refresh_from_db()
+        services.delete_event(actor=agenda.alice, event_id=meeting.pk, expected_revision=meeting.revision)
+    assert "calendar.cancelled" in notifications_of(agenda, agenda.bob, agenda.a)
