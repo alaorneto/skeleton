@@ -3,7 +3,8 @@
 The web process only asks the independent deployment agent for previews and
 approvals; it never runs pip, migrations or DDL. Mutations require a platform
 administrator, CSRF and a recent authentication. The upload handler is bounded
-and installed before CSRF parses the multipart body.
+and installed before CSRF parses the multipart body, in place of the global
+attachment bound (``SKELETON_PACKAGE_MAX_BYTES`` instead of ``SKELETON_UPLOAD_MAX_BYTES``).
 """
 
 import re
@@ -268,8 +269,14 @@ def available(request):
 @csrf_exempt
 @platform_page(capability="updates.operate", writes=True)
 def upload(request):
-    # Install the bounded streaming handler before CSRF parses multipart data.
-    request.upload_handlers.insert(0, BoundedPackageUpload(request))
+    # Install the bounded streaming handler before CSRF parses multipart data. It replaces the
+    # global BoundedUploadHandler here only: a package may be larger than an attachment (#242).
+    from skeleton.common.uploads import BoundedUploadHandler
+
+    request.upload_handlers = [
+        BoundedPackageUpload(request),
+        *(handler for handler in request.upload_handlers if not isinstance(handler, BoundedUploadHandler)),
+    ]
     return _upload(request)
 
 

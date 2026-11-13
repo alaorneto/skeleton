@@ -168,6 +168,13 @@ STORAGES = {
     "skeleton_files": private_files_storage(env, BASE_DIR),
 }
 SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
+# The bounded handler comes first: no multipart body passes SKELETON_UPLOAD_MAX_BYTES into memory
+# or the temporary directory (#242); the package upload swaps it for its own larger bound.
+FILE_UPLOAD_HANDLERS = [
+    "skeleton.common.uploads.BoundedUploadHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
 # Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
 # Deleted attachments keep their bytes this long, then files.purge removes them (#192).

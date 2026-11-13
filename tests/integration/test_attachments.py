@@ -192,3 +192,38 @@ def test_upload_above_policy_limit_answers_413_on_a_read_based_storage(scenario,
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-S3-BIG", title="T")
     assert upload(login(scenario.member), url(scenario, note), PNG + b"x" * 300).status_code == 413
     assert backend.objects == {}
+
+
+@pytest.mark.needs_example_app
+def test_html_upload_above_the_limit_is_refused_before_it_is_stored(scenario, settings, monkeypatch):
+    """The bounded handler stops the body: the later handlers never receive bytes past the limit (#242)."""
+    from django.core.files import uploadhandler
+
+    from skeleton.common.uploads import OVERHEAD
+    from skeleton.files.models import Attachment
+
+    settings.SKELETON_UPLOAD_MAX_BYTES = 1000
+    received = []
+    original = uploadhandler.MemoryFileUploadHandler.receive_data_chunk
+
+    def spy(self, raw_data, start):
+        received.append(len(raw_data))
+        return original(self, raw_data, start)
+
+    monkeypatch.setattr(uploadhandler.MemoryFileUploadHandler, "receive_data_chunk", spy)
+    note = scenario.create(scenario.a, owner=scenario.member, code="AT-BIG-HTML", title="T")
+    client = login(scenario.member)
+    target = reverse(
+        "files:upload",
+        kwargs={"organization_id": scenario.a.pk, "table_key": "example_notes.note", "sysid": note.pk},
+    )
+    body = PNG + b"x" * (200 * 1024)
+    response = client.post(
+        target,
+        {"file": SimpleUploadedFile("big.png", body)},
+        HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,  # The token does not depend on the cut body.
+    )
+    assert response.status_code == 413
+    assert sum(received) <= 1000 + OVERHEAD
+    with system_context(reason="test:big-html-upload", organization_id=scenario.a.pk):
+        assert not Attachment.objects.filter(target_sysid=note.pk).exists()

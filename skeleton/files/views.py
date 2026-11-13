@@ -37,6 +37,10 @@ def upload(request, organization_id, table_key, sysid):
             request, "skeleton/web/error.html", {"detail": gettext("O arquivo excede o limite permitido.")}, status=413
         )
     uploaded = request.FILES.get("file")
+    if getattr(request, "skeleton_upload_exceeded", False):  # Stopped by BoundedUploadHandler (#242).
+        return render(
+            request, "skeleton/web/error.html", {"detail": gettext("O arquivo excede o limite permitido.")}, status=413
+        )
     if uploaded is None or set(request.FILES) != {"file"} or set(request.POST) - {"csrfmiddlewaretoken"}:
         return render(request, "skeleton/web/error.html", {"detail": gettext("Selecione um arquivo.")}, status=400)
     try:
