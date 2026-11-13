@@ -444,9 +444,9 @@ def test_core_uses_same_trust_and_only_isolated_wheel(signed_app, tmp_path):
 
 @pytest.mark.parametrize("limit", ["MAX_ARCHIVE_BYTES", "MAX_FILE_BYTES", "MAX_TOTAL_BYTES", "MAX_MEMBERS"])
 def test_archive_limits_fail_closed(signed_app, monkeypatch, limit):
-    from skeleton.system import packages
+    from skeleton.system.packaging import limits
 
-    monkeypatch.setattr(packages, limit, 1)
+    monkeypatch.setattr(limits, limit, 1)
     with pytest.raises(PackageError):
         validate_package(signed_app["package"], signed_app["trust"])
 
@@ -669,18 +669,18 @@ def test_complete_wheelhouse_enforces_requested_extras(tmp_path):
 
 
 def test_verified_digest_and_zip_share_one_immutable_snapshot(signed_app, tmp_path, monkeypatch):
-    from skeleton.system import packages
+    from skeleton.system.packaging import zipio
 
     original = signed_app["package"].read_bytes()
     replacement = alternate_package(signed_app, tmp_path).read_bytes()
-    protected_read = packages._protected_snapshot
+    protected_read = zipio._protected_snapshot
 
     def replace_after_read(path, maximum=None):
         snapshot = protected_read(path, maximum)
         Path(path).write_bytes(replacement)
         return snapshot
 
-    monkeypatch.setattr(packages, "_protected_snapshot", replace_after_read)
+    monkeypatch.setattr(zipio, "_protected_snapshot", replace_after_read)
     verified = validate_package(signed_app["package"], signed_app["trust"])
     assert verified.digest == hashlib.sha256(original).hexdigest()
     assert verified.manifest["version"] == "0.1.0"
@@ -695,7 +695,7 @@ def test_verified_digest_and_zip_share_one_immutable_snapshot(signed_app, tmp_pa
 def test_post_reverification_source_swap_cannot_change_extraction_or_catalog(
     signed_app, tmp_path, monkeypatch, consumer
 ):
-    from skeleton.system import packages
+    from skeleton.system.packaging import archive as packages
 
     verified = validate_package(signed_app["package"], signed_app["trust"])
     replacement = alternate_package(signed_app, tmp_path).read_bytes()
@@ -721,7 +721,7 @@ def test_post_reverification_source_swap_cannot_change_extraction_or_catalog(
 
 
 def test_resigning_reads_only_the_validated_snapshot(signed_app, tmp_path, monkeypatch):
-    from skeleton.system import packages
+    from skeleton.system.packaging import archive as packages
 
     verified = validate_package(signed_app["package"], signed_app["trust"])
     replacement = alternate_package(signed_app, tmp_path).read_bytes()
@@ -739,7 +739,7 @@ def test_resigning_reads_only_the_validated_snapshot(signed_app, tmp_path, monke
 
 
 def test_runtime_wheelhouse_can_exceed_one_artifact_member_limit(tmp_path, monkeypatch):
-    from skeleton.system import packages
+    from skeleton.system.packaging import limits as packages
 
     first = wheel_file(tmp_path, "first", files={f"first/module_{index}.py": "VALUE = 1\n" for index in range(3000)})
     second = wheel_file(tmp_path, "second", files={f"second/module_{index}.py": "VALUE = 2\n" for index in range(3000)})

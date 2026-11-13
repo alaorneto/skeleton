@@ -12,6 +12,7 @@ import pytest
 
 from skeleton.system import packages
 from skeleton.system.packages import PackageError
+from skeleton.system.packaging import limits
 
 
 def _zip(members, *, compression=zipfile.ZIP_DEFLATED):
@@ -35,7 +36,7 @@ def test_corrupt_member_is_a_package_error():
 
 def test_member_limit_is_read_at_call_time(monkeypatch):
     with zipfile.ZipFile(io.BytesIO(_zip({"a": b"1", "b": b"2"}))) as archive:
-        monkeypatch.setattr(packages, "MAX_FILE_BYTES", 0)
+        monkeypatch.setattr(limits, "MAX_FILE_BYTES", 0)
         with pytest.raises(PackageError, match="size limit"):
             packages._read_member(archive, archive.getinfo("a"))
 
@@ -43,14 +44,14 @@ def test_member_limit_is_read_at_call_time(monkeypatch):
 def test_one_wheel_may_exceed_the_artifact_member_limit(monkeypatch):
     members = {f"pkg/module_{index}.py": b"" for index in range(6)}
     with zipfile.ZipFile(io.BytesIO(_zip(members))) as archive:
-        monkeypatch.setattr(packages, "MAX_MEMBERS", 4)
+        monkeypatch.setattr(limits, "MAX_MEMBERS", 4)
         with pytest.raises(PackageError, match="too many members"):
             packages._zip_members(archive)
-        monkeypatch.setattr(packages, "MAX_WHEEL_MEMBERS", 10)
-        assert len(packages._zip_members(archive, packages.MAX_WHEEL_MEMBERS)) == 6
-        monkeypatch.setattr(packages, "MAX_WHEEL_MEMBERS", 4)
+        monkeypatch.setattr(limits, "MAX_WHEEL_MEMBERS", 10)
+        assert len(packages._zip_members(archive, limits.MAX_WHEEL_MEMBERS)) == 6
+        monkeypatch.setattr(limits, "MAX_WHEEL_MEMBERS", 4)
         with pytest.raises(PackageError, match="too many members"):
-            packages._zip_members(archive, packages.MAX_WHEEL_MEMBERS)
+            packages._zip_members(archive, limits.MAX_WHEEL_MEMBERS)
 
 
 def test_snapshot_without_nofollow_fails_closed(monkeypatch, tmp_path):
@@ -85,7 +86,7 @@ def test_trust_store_must_be_a_mapping_and_small(tmp_path, monkeypatch):
     with pytest.raises(PackageError):
         packages.load_trust_store(store)
     store.write_text("{}")
-    monkeypatch.setattr(packages, "MAX_METADATA_BYTES", 1)
+    monkeypatch.setattr(limits, "MAX_METADATA_BYTES", 1)
     with pytest.raises(PackageError, match="too large"):
         packages.load_trust_store(store)
 
