@@ -578,3 +578,165 @@ def test_resend_and_ping_do_not_require_recent_authentication(pipeline, receiver
     assert html.status_code == 302 and "reauthenticate" not in html["Location"]
     drain()
     assert len(deliveries(fixture)) == 4  # The original, two resends and the ping.
+
+
+# --------------------------------------------------------------------------- failure paths (#328)
+
+
+def _health(fixture, endpoint):
+    from skeleton.integrations.models import WebhookEndpointHealth
+
+    with actor_tenant(fixture.admin, fixture.a):
+        return WebhookEndpointHealth.objects.get(endpoint_id=endpoint.pk)
+
+
+def test_network_failure_is_retried_like_a_server_error(pipeline, receiver, monkeypatch):
+    from skeleton.common import outbound_http
+
+    fixture, _, _ = pipeline
+
+    def unreachable(*args, **kwargs):
+        raise outbound_http.OutboundRequestFailed("rede")
+
+    monkeypatch.setattr(outbound_http, "request", unreachable)
+    publish(fixture, fixture.shared)
+    drain()
+    [retrying] = deliveries(fixture)
+    assert (retrying.state, retrying.attempts, retrying.error_code) == ("retrying", 1, "network_error")
+    assert retrying.status_code is None
+    assert 55 <= (retrying.next_attempt_at - retrying.last_attempt_at).total_seconds() <= 65
+    monkeypatch.undo()
+    due_now(fixture)
+    drain()
+    [delivered] = deliveries(fixture)
+    assert (delivered.state, delivered.attempts) == ("succeeded", 2)
+
+
+def test_refused_destination_fails_at_once(pipeline, receiver, monkeypatch):
+    from skeleton.common import outbound_http
+
+    fixture, _, issued = pipeline
+
+    def refused(*args, **kwargs):
+        raise outbound_http.OutboundRequestRefused("blocked_address", "x")
+
+    monkeypatch.setattr(outbound_http, "request", refused)
+    publish(fixture, fixture.shared)
+    drain()
+    [failed] = deliveries(fixture)
+    assert (failed.state, failed.attempts, failed.error_code) == ("failed", 1, "blocked_address")
+    due_now(fixture)
+    drain()
+    [after] = deliveries(fixture)
+    assert (after.state, after.attempts) == ("failed", 1)
+    assert receiver.received == []
+    assert _health(fixture, issued.endpoint).consecutive_failures == 1
+
+
+def test_scheduled_retry_of_a_disabled_endpoint_is_skipped(pipeline, receiver):
+    from skeleton.integrations.models import WebhookEndpoint
+    from skeleton.integrations.webhooks.services import update_endpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    [retrying] = deliveries(fixture)
+    assert retrying.state == "retrying"
+    with actor_tenant(fixture.admin, fixture.a):
+        endpoint = WebhookEndpoint.objects.get(pk=issued.endpoint.pk)
+        update_endpoint(endpoint, actor=fixture.admin, data={"is_enabled": False}, expected_revision=endpoint.revision)
+    due_now(fixture)
+    drain()
+    [skipped] = deliveries(fixture)
+    assert (skipped.state, skipped.error_code) == ("skipped", "endpoint_unavailable")
+    assert len(receiver.received) == 1
+
+
+def test_exhausted_schedule_ends_as_failed(pipeline, receiver):
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.extend([503] * 8)
+    publish(fixture, fixture.shared)
+    for _ in range(8):
+        drain()
+        due_now(fixture)
+    [failed] = deliveries(fixture)
+    assert (failed.state, failed.attempts, failed.error_code) == ("failed", 8, "http_503")
+    assert failed.next_attempt_at is None
+    assert len(receiver.received) == 8
+    with actor_tenant(fixture.admin, fixture.a):
+        assert WebhookEndpoint.objects.get(pk=issued.endpoint.pk).is_enabled  # 8 < 15 failures in a row.
+
+
+def test_a_success_resets_the_failure_counter(pipeline, receiver):
+    from examples.notes.models import Note
+
+    fixture, _, issued = pipeline
+    with actor_tenant(fixture.admin, fixture.a):
+        second = Note(
+            organization=fixture.a, owner=fixture.alice, code="second", title="Second", visibility="organization"
+        )
+        second.save()
+    receiver.statuses.extend([400, 200])
+    publish(fixture, fixture.shared)
+    drain()
+    assert _health(fixture, issued.endpoint).consecutive_failures == 1
+    publish(fixture, second)
+    drain()
+    health = _health(fixture, issued.endpoint)
+    assert health.consecutive_failures == 0 and health.last_success_at is not None
+
+
+def test_original_delivery_is_unique_per_endpoint_and_event(pipeline, receiver):
+    from django.db import IntegrityError, transaction
+
+    from skeleton.integrations.models import WebhookDelivery
+
+    fixture, _, _ = pipeline
+    publish(fixture, fixture.shared)
+    drain()
+    [original] = deliveries(fixture)
+    values = {
+        "organization_id": original.organization_id,
+        "endpoint_id": original.endpoint_id,
+        "event_id": original.event_id,
+        "event_type": original.event_type,
+        "table_key": original.table_key,
+        "record_sysid": original.record_sysid,
+        "payload": original.payload,
+    }
+    with actor_tenant(fixture.admin, fixture.a):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            WebhookDelivery(**values).save()
+        WebhookDelivery(**values, resend_of=original).save()
+    assert len(deliveries(fixture)) == 2
+
+
+def test_a_job_failure_after_the_request_sends_again_with_the_same_id(pipeline, receiver, monkeypatch):
+    """At least once: a failure after the HTTP request rolls the job back, and the retry sends again."""
+    from skeleton.integrations.webhooks import delivery as module
+
+    fixture, _, _ = pipeline
+    original = module._record_attempt
+    calls = []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_record_attempt", flaky)
+    publish(fixture, fixture.shared)
+    drain()
+    [pending] = deliveries(fixture)
+    assert (pending.state, pending.attempts) == ("pending", 0)  # The job's transaction was undone.
+    assert len(receiver.received) == 1
+    due_now(fixture)
+    drain()
+    [delivered] = deliveries(fixture)
+    assert (delivered.state, delivered.attempts) == ("succeeded", 1)
+    ids = [request["headers"]["Skeleton-Webhook-Id"] for request in receiver.received]
+    assert ids == [str(delivered.pk)] * 2
