@@ -1144,7 +1144,7 @@ def _scan_application_root(root, manifest_source):
     return payloads, violations
 
 
-def _doctor_dependencies(manifest, inventory, entries, report):
+def _doctor_dependencies(manifest, inventory, entries, report, provided=()):
     from skeleton.system.dependencies import catalog_candidates, resolve_dependencies
 
     core = inventory.get("core") or {}
@@ -1157,7 +1157,11 @@ def _doctor_dependencies(manifest, inventory, entries, report):
     candidates = [*([core["manifest"]] if core.get("manifest") else []), *installed, manifest]
     try:
         resolution = resolve_dependencies(
-            candidates, core=core.get("version"), python=runtime.get("python"), django=runtime.get("django")
+            candidates,
+            core=core.get("version"),
+            python=runtime.get("python"),
+            django=runtime.get("django"),
+            provided=provided,
         )
     except PackageError as exc:
         report("inventory_invalid", str(exc))
@@ -1208,11 +1212,12 @@ def _doctor_import_boundary(root, manifest, inventory, report):
         report(violation.code, violation.message, **values)
 
 
-def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_store=None):
+def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_store=None, bundled_apps=()):
     """Report every packaging, documentation, migration and dependency problem of an app source.
 
     inventory is a target deployment inventory dict; catalog a signed catalogue envelope
-    verified with trust_store. Nothing is imported, built or written.
+    verified with trust_store; bundled_apps the SKELETON_BUNDLED_APPS names of the target (#254).
+    Nothing is imported, built or written.
     """
     from skeleton.system.dependencies import catalog_candidates
 
@@ -1276,10 +1281,22 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
             entries = validate_catalog(catalog, trust_store or {})["entries"]
         except PackageError as exc:
             report("catalog_invalid", str(exc))
+    provided: tuple[str, ...] = ()
+    if bundled_apps:
+        from django.core.exceptions import ImproperlyConfigured
+
+        from skeleton.conf.bundled import bundled_app_ids
+
+        try:
+            provided = bundled_app_ids(bundled_apps)
+        except ImproperlyConfigured as exc:
+            report("bundled_app_unknown", str(exc))
     if inventory is not None:
-        _doctor_dependencies(manifest, inventory, entries, report)
+        _doctor_dependencies(manifest, inventory, entries, report, provided)
     elif entries:
         for dependency, required in sorted(manifest["dependencies"].items()):
+            if dependency in provided:
+                continue  # Shipped in the core wheel: never a catalogue release (#254).
             if not catalog_candidates(entries, dependency, required, {}):
                 report(
                     "dependency_not_in_catalog",
@@ -1376,7 +1393,7 @@ def extract_package(verified, destination, *, wheels_destination=None):
     return roots
 
 
-def validate_dependency_graph(manifests, *, core=None, python=None, django=None, target_environment=None):
+def validate_dependency_graph(manifests, *, core=None, python=None, django=None, target_environment=None, provided=()):
     """Validate core and all apps; return dependency-first application IDs.
 
     Wheel pins are compared only when their markers apply to target_environment,
@@ -1387,7 +1404,7 @@ def validate_dependency_graph(manifests, *, core=None, python=None, django=None,
     from skeleton.system.dependencies import resolve_dependencies
 
     resolution = resolve_dependencies(
-        manifests, core=core, python=python, django=django, target_environment=target_environment
+        manifests, core=core, python=python, django=django, target_environment=target_environment, provided=provided
     )
     resolution.raise_for_problems()
     return list(resolution.order)
@@ -1731,6 +1748,12 @@ def configure_parser(parser):
     diagnose.add_argument("--inventory", help="Target deployment inventory.json to resolve dependencies against.")
     diagnose.add_argument("--catalog", help="Signed release catalogue to look up dependency releases.")
     diagnose.add_argument("--trust-store", help="Trust store verifying --catalog.")
+    diagnose.add_argument(
+        "--bundled-app",
+        action="append",
+        default=[],
+        help="First-party app installed in the target (name of SKELETON_BUNDLED_APPS); repeatable.",
+    )
     versions = commands.add_parser("versions", help="Report core provenance and declared local app versions.")
     versions.add_argument("--manifest", action="append", default=[])
     return parser
@@ -1846,6 +1869,7 @@ def run_command(options):
             inventory=document("inventory"),
             catalog=document("catalog"),
             trust_store=trust() if options.get("trust_store") else None,
+            bundled_apps=options.get("bundled_app") or (),
         )
     if operation == "versions":
         return {

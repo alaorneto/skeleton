@@ -97,12 +97,15 @@ def resolve_dependencies(
     python: str | None = None,
     django: str | None = None,
     target_environment: Mapping[str, str] | None = None,
+    provided: Iterable[str] = (),
 ) -> Resolution:
     """Validate the core and all apps together, reporting every dependency problem.
 
     Malformed manifests and an inconsistent target description still raise
     PackageError immediately: they are input errors, not dependency problems.
     The order lists applications dependency-first, deterministically.
+    provided lists the IDs of the first-party apps the target core installs (#254): they
+    satisfy a dependency at the core's own version and never enter the order.
     """
     from skeleton.system.packages import PackageError, _marker_active, _target_environment, validate_manifest
 
@@ -111,6 +114,7 @@ def resolve_dependencies(
     if len(selected_core) > 1:
         raise PackageError("Core component identity collision.")
     core = core or (selected_core[0]["version"] if selected_core else core_version()["version"])
+    provided_ids = frozenset(provided)
     environment = _target_environment(dict(target_environment) if target_environment is not None else None)
     python = python or environment["python_full_version"]
     if (
@@ -132,6 +136,10 @@ def resolve_dependencies(
     pins: dict[str, tuple[str, str, str]] = {}
     for m in inventory:
         identity = component_id(m)
+        if identity in provided_ids:
+            # A third-party app never takes the identity of a first-party app (#254).
+            problems.append(DependencyProblem("identity_collision", identity))
+            continue
         for dependency in m["python_dependencies"]:
             if not _marker_active(dependency.get("marker"), environment):
                 continue
@@ -185,6 +193,13 @@ def resolve_dependencies(
         for dependency, spec in sorted(manifest["dependencies"].items()):
             target = components.get(dependency)
             if target is None:
+                if dependency in provided_ids:
+                    # First-party apps ship in the core wheel at the core's own version (#66, #254).
+                    if core is None or not version_satisfies(core, spec):
+                        problems.append(
+                            DependencyProblem("incompatible_dependency_version", identity, dependency, spec, core)
+                        )
+                    continue
                 problems.append(DependencyProblem("missing_dependency", identity, dependency, spec))
                 continue
             if not version_satisfies(target["version"], spec):
@@ -196,6 +211,8 @@ def resolve_dependencies(
             other = components.get(conflict)
             if other is not None and version_satisfies(other["version"], spec):
                 problems.append(DependencyProblem("conflicting_release", identity, conflict, spec, other["version"]))
+            elif other is None and conflict in provided_ids and core is not None and version_satisfies(core, spec):
+                problems.append(DependencyProblem("conflicting_release", identity, conflict, spec, core))
         stack.pop()
         visited.add(identity)
         if manifest["kind"] == "app":

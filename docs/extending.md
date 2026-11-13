@@ -172,6 +172,8 @@ Algumas apps genéricas (a agenda é a primeira, #84) vêm **dentro do wheel do 
 
 O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` prova no CI), e a suíte do núcleo roda sem nenhuma app first-party instalada.
 
+**Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.

@@ -96,3 +96,15 @@ def test_core_commands_share_the_trust_store_loader():
 
     assert distribution.load_trust_store is packages.load_trust_store
     assert adopt_core_distribution.load_trust_store is packages.load_trust_store
+
+
+def test_packaging_modules_import_without_django():
+    """The CLI and the agent import these without settings, on every OS (#254, #310 regression)."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import skeleton.system.dependencies, skeleton.system.packages; "
+        "assert 'django' not in sys.modules, sorted(m for m in sys.modules if m.startswith('django'))[:3]"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)

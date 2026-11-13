@@ -171,3 +171,24 @@ def test_inventory_lists_apps_dependency_first_and_rejects_broken_graphs(tmp_pat
     consumer["dependencies"] = {"base_notes": ">=2.0.0"}
     with pytest.raises(ImproperlyConfigured):
         load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer), _entry(base)]))
+
+
+def _calendar_consumer():
+    consumer = manifest("billing_notes", "billing_notes")
+    consumer["dependencies"] = {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}
+    return consumer
+
+
+def test_inventory_app_may_depend_on_installed_first_party_app(tmp_path):
+    """Regression (#254): the startup accepts a dependency on an installed first-party app."""
+    consumer = _calendar_consumer()
+    state = load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer)]), bundled_apps=("calendar",))
+    assert state.installed_apps == (consumer["app_config"],)
+
+
+def test_inventory_app_depending_on_absent_first_party_app_is_refused(tmp_path):
+    path = _inventory_with(tmp_path, [_entry(_calendar_consumer())])
+    with pytest.raises(ImproperlyConfigured, match="Invalid private deployment inventory"):
+        load_deployment_inventory(path)
+    with pytest.raises(ImproperlyConfigured, match="'inexistente'"):
+        load_deployment_inventory(path, bundled_apps=("inexistente",))

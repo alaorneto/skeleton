@@ -13,15 +13,10 @@ from .storage import AgentError, private_file
 ENV_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def effective_runtime_database(runtime):
-    """The runtime DATABASE_URL the web will use: the env file, else the instance SQLite (#148).
-
-    A setup-configured instance keeps its configuration in the instance SQLite (secrets
-    encrypted with its master key); the runtime env file then carries only the bootstrap paths
-    ``SKELETON_INSTANCE_DB`` and ``SKELETON_INSTANCE_KEY_FILE``.
-    """
-    if runtime.get("DATABASE_URL"):
-        return runtime["DATABASE_URL"]
+def effective_runtime_setting(runtime, name):
+    """A runtime setting as the web will read it: the env file, else the instance SQLite (#148)."""
+    if runtime.get(name):
+        return runtime[name]
     database, key = runtime.get("SKELETON_INSTANCE_DB"), runtime.get("SKELETON_INSTANCE_KEY_FILE")
     if not database or not key:
         return None
@@ -30,9 +25,35 @@ def effective_runtime_database(runtime):
 
     try:
         stored = InstanceStore(Path(database)).settings()
-        return LayeredEnviron({}, stored, Path(key)).get("DATABASE_URL")
+        return LayeredEnviron({}, stored, Path(key)).get(name)
     except Exception as exc:  # noqa: BLE001 - unreadable store or key: refuse, never guess
         raise AgentError("instance_configuration_unreadable") from exc
+
+
+def effective_runtime_database(runtime):
+    """The runtime DATABASE_URL the web will use: the env file, else the instance SQLite (#148).
+
+    A setup-configured instance keeps its configuration in the instance SQLite (secrets
+    encrypted with its master key); the runtime env file then carries only the bootstrap paths
+    ``SKELETON_INSTANCE_DB`` and ``SKELETON_INSTANCE_KEY_FILE``.
+    """
+    return effective_runtime_setting(runtime, "DATABASE_URL")
+
+
+def installed_bundled_app_ids(config):
+    """App IDs of the first-party apps the runtime installs (SKELETON_BUNDLED_APPS, #254)."""
+    path = config.get("runtime_env_file")
+    if not path:
+        return ()
+    value = effective_runtime_setting(read_environment(path), "SKELETON_BUNDLED_APPS") or ""
+    from django.core.exceptions import ImproperlyConfigured
+
+    from skeleton.conf.bundled import bundled_app_ids
+
+    try:
+        return bundled_app_ids(value.split(","))
+    except ImproperlyConfigured:
+        raise AgentError("unknown_bundled_app", 409) from None
 
 
 def read_environment(path):

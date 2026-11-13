@@ -204,3 +204,37 @@ def test_catalogue_suggestions_filter_range_and_target_newest_first(tmp_path):
     suggestions = DeploymentService.catalogue_suggestions(service, "org.test.base", ">=1.0", target)
     assert [item["version"] for item in suggestions] == ["1.4.0", "1.1.0"]
     assert suggestions[0]["source_id"] == "main" and suggestions[0]["dependencies"] == {}
+
+
+def _calendar_consumer():
+    consumer = app("consumer")
+    consumer["dependencies"] = {"org.skeleton.calendar": ">=0.3.0,<0.4.0"}
+    return consumer
+
+
+def _runtime_env(tmp_path, content):
+    path = tmp_path / "runtime.env"
+    path.write_text(content)
+    path.chmod(0o600)
+    return str(path)
+
+
+def test_plan_accepts_dependency_on_installed_first_party_app(agent, tmp_path):
+    """Regression (#254): the plan check reads SKELETON_BUNDLED_APPS from the runtime env file."""
+    config, backend = agent
+    config = {**config, "runtime_env_file": _runtime_env(tmp_path, "SKELETON_BUNDLED_APPS=calendar\n")}
+    resolution = check_plan_dependencies(config, backend, inventory(), [_calendar_consumer()], [])
+    assert resolution.order == ("org.test.consumer",)
+
+
+def test_plan_refuses_dependency_on_first_party_app_not_installed(agent, tmp_path):
+    config, backend = agent
+    config = {**config, "runtime_env_file": _runtime_env(tmp_path, "DEBUG=false\n")}
+    with pytest.raises(AgentError) as raised:
+        check_plan_dependencies(config, backend, inventory(), [_calendar_consumer()], [])
+    assert raised.value.code == "dependency_unsatisfied"
+    assert [detail["code"] for detail in raised.value.details] == ["missing_dependency"]
+    config["runtime_env_file"] = _runtime_env(tmp_path, "SKELETON_BUNDLED_APPS=inexistente\n")
+    with pytest.raises(AgentError) as raised:
+        check_plan_dependencies(config, backend, inventory(), [_calendar_consumer()], [])
+    assert raised.value.code == "unknown_bundled_app"

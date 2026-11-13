@@ -15,6 +15,8 @@ BUNDLED_APPS: dict[str, str] = {"calendar": "skeleton.contrib.calendar.apps.Cale
 # used when the app is opted out after migrating (SKELETON_BUNDLED_RETAINED, #67).
 BUNDLED_LABELS: dict[str, str] = {"calendar": "skeleton_calendar"}
 BUNDLED_SNAPSHOTS: dict[str, str] = {"calendar": "contrib/calendar/retained_schema.json"}
+# name -> stable app_id of the manifest shipped in skeleton/contrib/<package>/manifest.json (#254).
+BUNDLED_APP_IDS: dict[str, str] = {"calendar": "org.skeleton.calendar"}
 
 
 def bundled_app_configs(names, *, available: dict[str, str] | None = None) -> list[str]:
@@ -29,6 +31,23 @@ def bundled_app_configs(names, *, available: dict[str, str] | None = None) -> li
         if available[name] not in configs:
             configs.append(available[name])
     return configs
+
+
+def bundled_app_ids(names, *, identities: dict[str, str] | None = None) -> tuple[str, ...]:
+    """Stable app IDs of the first-party apps opted in by name; an unknown name stops the startup.
+
+    A managed app may depend on these IDs (#254); they are satisfied at the core's own version.
+    """
+    identities = BUNDLED_APP_IDS if identities is None else identities
+    result: list[str] = []
+    for name in (name.strip() for name in names):
+        if not name:
+            continue
+        if name not in identities:
+            raise ImproperlyConfigured(f"Unknown first-party app in SKELETON_BUNDLED_APPS: {name!r}.")
+        if identities[name] not in result:
+            result.append(identities[name])
+    return tuple(result)
 
 
 def retained_snapshot_paths(names, *, installed=(), snapshots: dict[str, str] | None = None) -> list[str]:

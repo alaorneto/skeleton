@@ -201,3 +201,64 @@ def test_app_prerelease_satisfies_dependent_range():
     base, consumer = app("base", "1.2.0-rc.1"), app("consumer", base=">=1.0.0,<2.0.0")
     resolution = resolve_dependencies([consumer, base], **TARGET)
     assert resolution.ok, codes(resolution)
+
+
+CALENDAR = "org.skeleton.calendar"
+BILLING_TARGET = {"core": "0.5.0", "python": "3.14.0", "django": "6.1.3"}
+
+
+def billing(spec=">=0.5.0,<0.6.0"):
+    manifest = app("billing")
+    manifest["compatibility"]["skeleton"] = ">=0.5.0,<0.7.0"
+    manifest["dependencies"] = {CALENDAR: spec}
+    return manifest
+
+
+def test_provided_first_party_satisfies_dependency():
+    """Regression (#254): an installed first-party app satisfies a managed app's dependency."""
+    resolution = resolve_dependencies([billing()], **BILLING_TARGET, provided=(CALENDAR,))
+    assert resolution.ok
+    assert resolution.order == ("org.test.billing",)
+    assert validate_dependency_graph([billing()], **BILLING_TARGET, provided=(CALENDAR,)) == ["org.test.billing"]
+
+
+def test_first_party_not_provided_is_missing_dependency():
+    resolution = resolve_dependencies([billing()], **BILLING_TARGET)
+    assert codes(resolution) == ["missing_dependency"]
+    assert resolution.problems[0].dependency == CALENDAR
+
+
+def test_provided_first_party_outside_range_is_incompatible():
+    resolution = resolve_dependencies([billing()], **{**BILLING_TARGET, "core": "0.6.0"}, provided=(CALENDAR,))
+    assert codes(resolution) == ["incompatible_dependency_version"]
+    problem = resolution.problems[0]
+    assert (problem.dependency, problem.required, problem.found) == (CALENDAR, ">=0.5.0,<0.6.0", "0.6.0")
+
+
+def test_provided_first_party_is_not_in_order():
+    base = app("base")
+    consumer = billing()
+    consumer["dependencies"]["org.test.base"] = ">=0.1"
+    resolution = resolve_dependencies([consumer, base], **BILLING_TARGET, provided=(CALENDAR,))
+    assert resolution.ok
+    assert resolution.order == ("org.test.base", "org.test.billing")
+
+
+def test_third_party_cannot_reuse_provided_identity():
+    impostor = app("impostor")
+    impostor["app_id"] = CALENDAR
+    impostor["compatibility"]["skeleton"] = ">=0.5.0,<0.6.0"
+    resolution = resolve_dependencies([impostor], **BILLING_TARGET, provided=(CALENDAR,))
+    assert codes(resolution) == ["identity_collision"]
+    assert resolution.problems[0].component == CALENDAR
+    assert resolution.order == ()
+
+
+def test_conflict_with_provided_first_party_is_reported():
+    consumer = app("consumer")
+    consumer["compatibility"]["skeleton"] = ">=0.5.0,<0.6.0"
+    consumer["conflicts"] = {CALENDAR: "<1.0"}
+    resolution = resolve_dependencies([consumer], **BILLING_TARGET, provided=(CALENDAR,))
+    assert codes(resolution) == ["conflicting_release"]
+    assert resolution.problems[0].found == "0.5.0"
+    assert resolve_dependencies([consumer], **BILLING_TARGET).ok  # Not installed: no conflict.

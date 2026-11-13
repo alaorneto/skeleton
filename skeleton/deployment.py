@@ -38,7 +38,7 @@ _STRUCTURAL_PROBLEMS = frozenset(
 )
 
 
-def _dependency_ordered(entries, core_version):
+def _dependency_ordered(entries, core_version, provided=()):
     """Fail closed on a broken graph and list apps dependency-first for INSTALLED_APPS.
 
     Platform compatibility stays with system check E011, which reports it with context.
@@ -46,7 +46,7 @@ def _dependency_ordered(entries, core_version):
     from skeleton.system.dependencies import resolve_dependencies
 
     active = [entry["manifest"] for entry in entries if entry["state"] != "schema_retained"]
-    resolution = resolve_dependencies(active, core=core_version)
+    resolution = resolve_dependencies(active, core=core_version, provided=provided)
     if any(problem.code in _STRUCTURAL_PROBLEMS for problem in resolution.problems):
         raise ValueError("dependencies")
     rank = {app_id: index for index, app_id in enumerate(resolution.order)}
@@ -55,9 +55,13 @@ def _dependency_ordered(entries, core_version):
     )
 
 
-def load_deployment_inventory(path):
+def load_deployment_inventory(path, *, bundled_apps=()):
+    """Read the private inventory; bundled_apps are the SKELETON_BUNDLED_APPS names (#254)."""
     if not path:
         return DeploymentInventory(0, {}, (), (), ())
+    from skeleton.conf.bundled import bundled_app_ids
+
+    provided = bundled_app_ids(bundled_apps)  # An unknown name keeps its own message.
     source = Path(path).resolve()
     try:
         if source.stat().st_size > 4 * 1024 * 1024:
@@ -106,7 +110,7 @@ def load_deployment_inventory(path):
                 if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
                     raise ValueError("digest")
             normalized.append({**item, "manifest": manifest, "path": _private_path(item["path"], source.parent)})
-        normalized = _dependency_ordered(normalized, core.get("version"))
+        normalized = _dependency_ordered(normalized, core.get("version"), provided)
         retained = data.get("retained_schema_paths", [])
         archives = data.get("migration_archives", [])
         if not isinstance(retained, list) or not isinstance(archives, list):
