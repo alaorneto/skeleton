@@ -376,6 +376,21 @@ class ReleaseTest(unittest.TestCase):
         self.assertTrue(patched and "issues/comments/77" in " ".join(patched[0]))
         self.assertEqual(len(comments[2]), 1)
 
+    def test_preview_without_base_tag_is_a_notice_not_an_error(self):
+        repo = Repository()
+        self.addCleanup(repo.close)
+        import os
+
+        previous = os.getcwd()
+        os.chdir(repo.root)
+        self.addCleanup(os.chdir, previous)
+        os.environ["GITHUB_REPOSITORY"] = REPO
+        self.addCleanup(os.environ.pop, "GITHUB_REPOSITORY", None)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(release.main(["preview", "--pr", "2"]), 0)
+        self.assertIn("sem tag de versão alcançável", output.getvalue())
+
     def test_without_the_release_label_nothing_is_versioned(self):
         self.repo.merge(2, "feat: a")
         self.assertEqual(self.run_release(2), [])
