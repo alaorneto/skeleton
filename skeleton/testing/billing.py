@@ -105,7 +105,13 @@ class FakeProvider:
         return RefundResult(reference=reference, status=PaymentState.REFUNDED)
 
     def verify_webhook(
-        self, account: Any, headers: Mapping[str, str], body: bytes, *, now: datetime
+        self,
+        account: Any,
+        headers: Mapping[str, str],
+        body: bytes,
+        *,
+        now: datetime,
+        query: Mapping[str, str] | None = None,
     ) -> VerifiedNotification:
         secret = account.secret("webhook_secret")
         expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()

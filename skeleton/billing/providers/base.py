@@ -163,8 +163,15 @@ class PaymentProvider(Protocol):
     def refund(self, account: Any, reference: str, *, amount: int, idempotency_key: str) -> RefundResult: ...
 
     def verify_webhook(
-        self, account: Any, headers: Mapping[str, str], body: bytes, *, now: datetime
-    ) -> VerifiedNotification: ...
+        self,
+        account: Any,
+        headers: Mapping[str, str],
+        body: bytes,
+        *,
+        now: datetime,
+        query: Mapping[str, str] | None = None,
+    ) -> VerifiedNotification:
+        """Verify an inbound webhook; ``query`` is its query string (Mercado Pago signs ``data.id`` there)."""
 
 
 _providers: dict[str, PaymentProvider] = {}

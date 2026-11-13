@@ -172,12 +172,22 @@ Não existe padrão aberto que abstraia assinaturas entre provedores, então o n
 - Webhook: `Stripe-Signature` com `t` e `v1`, HMAC-SHA256 de `"<t>.<corpo>"`, cinco minutos de tolerância; qualquer `v1` vale, o que cobre a rotação do segredo.
 - Todo POST leva `Idempotency-Key`, e `Stripe-Version` é fixo (`2024-06-20`), para uma atualização no painel não mudar as respostas.
 
+### Mercado Pago
+
+`skeleton/billing/providers/mercadopago.py` (código `mercadopago`). A chave é o access token (`TEST-…` ou `APP_USR-…`); o segredo é a assinatura secreta das notificações, do painel de integrações. Cadastre a URL de notificação `https://<origem pública>/billing/webhooks/mercadopago/<sysid da conta>/` com o evento de pagamentos. Moedas: as do Mercado Pago (ARS, BRL, CLP, COP, MXN, PEN, UYU).
+
+- Checkout: Checkout Pro (`POST /checkout/preferences`) com um item, a referência em `external_reference` e `back_urls`; a pessoa paga por cartão, Pix ou boleto na página do Mercado Pago (`sandbox_init_point` em modo teste). Os valores vão em decimal.
+- Cobrança automática: **não oferecida**. Um cartão salvo no Mercado Pago exige o código de segurança a cada pagamento fora das assinaturas do próprio provedor, que o núcleo não usa; cada fatura vai por checkout, Pix ou boleto, e a capacidade fica ausente.
+- Consulta: `GET /v1/payments/<id>`: `approved` paga, `rejected`/`cancelled` falham, `refunded`/`charged_back` estornam, o resto fica pendente (um Pix ou boleto aguardando). A notificação só traz o id. Estorno: `POST /v1/payments/<id>/refunds`.
+- Webhook: `x-signature` com `ts` e `v1`, HMAC-SHA256 do manifesto `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` (o `data.id` da query string, em minúsculas, ou do corpo), cinco minutos de tolerância.
+- Todo POST leva `X-Idempotency-Key`.
+
 Para testes, `skeleton.testing.billing.use_fake_provider()` registra um provedor em memória, determinístico e sem rede, com a conta de provedor padrão. Com a cobrança ligada e sem `SKELETON_PUBLIC_URL` válido, o `check --deploy` avisa com `skeleton.W037`: o provedor não teria para onde mandar os webhooks nem para onde devolver a pessoa depois do checkout.
 
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#402](https://github.com/alaorneto/skeleton/issues/402), [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
+| [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
 | [#404](https://github.com/alaorneto/skeleton/issues/404) | Páginas de cobrança da organização, API e `BillingService` |
 | [#405](https://github.com/alaorneto/skeleton/issues/405) | Administração da plataforma |

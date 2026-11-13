@@ -64,7 +64,9 @@ def receive(request, provider: str, account_id: UUID):
     if len(body) > MAX_BODY:
         return JsonResponse({"code": "payload_too_large"}, status=413)
     try:
-        notification = adapter.verify_webhook(account, _headers(request), body, now=timezone.now())
+        notification = adapter.verify_webhook(
+            account, _headers(request), body, now=timezone.now(), query=request.GET.dict()
+        )
     except WebhookRejected as exc:
         logger.warning("billing.webhook_rejected", extra={"provider": provider, "code": exc.code})
         return JsonResponse({"code": "invalid_signature"}, status=400)
