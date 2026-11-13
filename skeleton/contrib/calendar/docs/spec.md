@@ -25,6 +25,7 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - Subconjunto aceito: `FREQ` DAILY, WEEKLY, MONTHLY ou YEARLY, com `INTERVAL`, `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `BYSETPOS` e `WKST`, sempre limitado por `COUNT` (até 1000) ou `UNTIL`. Qualquer outra parte (`FREQ=SECONDLY`, `BYHOUR`) responde 400.
 - A regra roda no relógio local do `tzid` (`python-dateutil` + `zoneinfo`): um evento semanal às 09:00 continua às 09:00 locais na troca de horário, e o instante UTC muda.
 - `expand()` lê uma janela de até 400 dias e devolve até 1000 ocorrências, com `truncated` quando para antes.
+- Custo limitado (#236): `UNTIL` e as datas do evento ficam entre 1900 e 2200 (data inexistente ou fora da faixa responde 400); nenhuma série é expandida além de 100 anos depois do início; uma regra cujos filtros nunca coincidem (`BYMONTH=2;BYMONTHDAY=30`) é recusada na gravação com erro em `rrule`. `rdates` e `exdates` são validados e gravados em ISO 8601 UTC (`+00:00`); um item inválido já gravado é ignorado na leitura e registrado no log sem o valor.
 - Edição de uma ocorrência: "só esta" cria ou altera a substituição; "esta e as seguintes" divide a série (a primeira parte termina antes da ocorrência, um novo mestre com `uid` novo começa nela e as substituições posteriores passam para ele mantendo os IDs); "todas" altera o mestre. Cancelar uma ocorrência acrescenta um EXDATE.
 - `recurrence_end` guarda o fim da série para consultas por janela.
 

@@ -26,12 +26,12 @@ Ocorrências legíveis em `[start, end)`, no máximo 400 dias, com a recorrênci
 #### `create_event(*, actor, calendar_id, data, idempotency_key=None) -> EventInfo`
 Cria um evento; o ator é o organizador. `data` aceita `title`, `description`, `location`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `is_private`, `status`, `rrule`, `rdates` e `exdates`.
 - **Autorização:** update no calendário; no calendário pessoal de outra pessoa, só delegação.
-- **Erros:** `NotFound` (calendário ilegível ou de outra organização); `Forbidden` (só leitura); `InvalidInput`.
+- **Erros:** `NotFound` (calendário ilegível ou de outra organização); `Forbidden` (só leitura); `InvalidInput`, inclusive para `tzid` desconhecido, datas ou `UNTIL` fora de 1900–2200, regra sem nenhuma ocorrência e `rdates`/`exdates` que não são datas ISO 8601 (#236).
 - **Efeitos:** grava o evento. A mesma `idempotency_key` do mesmo ator devolve o evento já criado.
 
 #### `update_event(*, actor, event_id, data, expected_revision) -> EventInfo`
 - **Autorização:** update no calendário do evento.
-- **Erros:** `NotFound`; `Forbidden`; `Conflict` (revisão desatualizada); `InvalidInput`.
+- **Erros:** `NotFound`; `Forbidden`; `Conflict` (revisão desatualizada); `InvalidInput` (os mesmos motivos de `create_event`).
 - **Efeitos:** grava, incrementa `sequence` e notifica os participantes.
 
 #### `cancel_event(*, actor, event_id, expected_revision) -> EventInfo`

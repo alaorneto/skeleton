@@ -147,3 +147,188 @@ def test_this_and_following_splits_the_series_keeping_ids(agenda):
     assert event.pk != following.pk and following.uid != event.uid and following.title == "Nova fase"
     assert late.series_id == following.pk and late.title == "Exceção"  # Same row, moved to the new series.
     assert "COUNT=2" in event.rrule and "COUNT=4" in following.rrule
+
+
+# --------------------------------------------------------------------------- bounded cost and input (#236)
+
+START = datetime(2026, 12, 1, 12, 0, tzinfo=UTC)
+
+
+def fake_event(rule="", **changes):
+    from types import SimpleNamespace
+
+    values = dict(
+        all_day=False,
+        starts_at=START,
+        ends_at=START + timedelta(hours=1),
+        start_date=None,
+        end_date=None,
+        tzid="America/Sao_Paulo",
+        rrule=rule,
+        rdates=[],
+        exdates=[],
+        pk="fake",
+        deleted_at=None,
+    )
+    return SimpleNamespace(**{**values, **changes})
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "FREQ=DAILY;UNTIL=99991231",
+        "FREQ=DAILY;UNTIL=18991231T000000Z",
+        "FREQ=DAILY;UNTIL=20260231",
+        "FREQ=DAILY;UNTIL=20261301T000000Z",
+    ],
+)
+def test_far_or_impossible_until_is_refused(rule):
+    with pytest.raises(ValidationError) as error:
+        validate_rule(rule)
+    assert "rrule" in error.value.message_dict
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "FREQ=MONTHLY;BYMONTH=2;BYMONTHDAY=30;COUNT=3",
+        "FREQ=YEARLY;BYMONTH=4;BYMONTHDAY=31;UNTIL=21001231",
+    ],
+)
+def test_rule_without_occurrences_is_refused_quickly(rule):
+    import time as clock
+
+    from skeleton.contrib.calendar.recurrence import series_end
+
+    began = clock.perf_counter()
+    with pytest.raises(ValidationError) as error:
+        series_end(fake_event(rule))
+    assert clock.perf_counter() - began < 0.5
+    assert "rrule" in error.value.message_dict
+
+
+def test_expand_of_a_sparse_rule_is_bounded():
+    import time as clock
+
+    event = fake_event("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;COUNT=3")  # Leap days only.
+    began = clock.perf_counter()
+    expand(event, START, START + timedelta(days=400))
+    assert clock.perf_counter() - began < 0.5
+
+
+@pytest.mark.parametrize(
+    "rule,kwargs",
+    [
+        ("FREQ=DAILY;UNTIL=21001231", {}),
+        ("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;UNTIL=21001231", {"interval": 2, "byweekday": ["MO", "WE"]}),
+        ("FREQ=MONTHLY;BYDAY=-1FR;UNTIL=21001231", {"byweekday": [("FR", -1)]}),
+        ("FREQ=MONTHLY;BYMONTHDAY=31;UNTIL=21001231", {"bymonthday": [31]}),
+        ("FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;UNTIL=21001231", {"bymonth": [2], "bymonthday": [29]}),
+        (
+            "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1;UNTIL=21001231",
+            {"byweekday": ["MO", "TU", "WE", "TH", "FR"], "bysetpos": [-1]},
+        ),
+        (
+            "FREQ=WEEKLY;BYDAY=SU,MO;WKST=SU;INTERVAL=2;UNTIL=21001231",
+            {"byweekday": ["SU", "MO"], "wkst": "SU", "interval": 2},
+        ),
+    ],
+)
+def test_bounded_iteration_matches_dateutil(rule, kwargs):
+    from itertools import islice
+
+    from dateutil import rrule as dateutil_rrule
+
+    from skeleton.contrib.calendar.recurrence import FREQUENCIES, local_start, occurrence_starts, parse_rule
+
+    event = fake_event(rule)
+    parts = parse_rule(rule)
+    start = local_start(event)
+    days = []
+    for item in kwargs.pop("byweekday", ()):
+        name, position = item if isinstance(item, tuple) else (item, None)
+        weekday = getattr(dateutil_rrule, name)
+        days.append(weekday(position) if position else weekday)
+    if days:
+        kwargs["byweekday"] = days
+    if "wkst" in kwargs:
+        kwargs["wkst"] = getattr(dateutil_rrule, kwargs["wkst"])
+    reference = dateutil_rrule.rrule(
+        FREQUENCIES[parts["FREQ"]],
+        dtstart=start,
+        until=min(datetime(2100, 12, 31, 23, 59, 59), start + timedelta(days=36525)),
+        **kwargs,
+    )
+    assert list(islice(occurrence_starts(event, parts), 300)) == list(islice(reference, 300))
+
+
+def test_count_is_applied_after_the_shift():
+    from skeleton.contrib.calendar.recurrence import local_start, occurrence_starts
+
+    event = fake_event("FREQ=WEEKLY;COUNT=5")
+    starts = list(occurrence_starts(event))
+    assert starts == [local_start(event) + timedelta(weeks=week) for week in range(5)]
+
+
+def test_stored_invalid_exdate_is_skipped():
+    event = fake_event("FREQ=DAILY;COUNT=5", exdates=["not-a-date"])
+    window = expand(event, START - timedelta(days=1), START + timedelta(days=10))
+    assert len(window.occurrences) == 5
+
+
+def _create(agenda, calendar, **data):
+    values = {"title": "Série", "starts_at": START, "ends_at": START + timedelta(hours=1), **data}
+    with actor_tenant(agenda.alice, agenda.a):
+        return services.create_event(actor=agenda.alice, calendar_id=calendar.pk, data=values)
+
+
+@pytest.mark.parametrize(
+    "data,field",
+    [
+        ({"rrule": "FREQ=DAILY;COUNT=3", "exdates": ["not-a-date"]}, "exdates"),
+        ({"rrule": "FREQ=DAILY;COUNT=3", "rdates": ["2026-02-30T10:00:00"]}, "rdates"),
+        ({"rrule": "FREQ=DAILY;COUNT=3", "rdates": ["9999-12-31T23:59:59+00:00"]}, "rdates"),
+        ({"rrule": "FREQ=DAILY;COUNT=3", "exdates": [42]}, "exdates"),
+        ({"tzid": "Mars/Olympus_Mons"}, "tzid"),
+        ({"rrule": "FREQ=MONTHLY;BYMONTH=2;BYMONTHDAY=30;COUNT=3"}, "rrule"),
+    ],
+)
+def test_invalid_exdates_rdates_and_tzid_answer_validation_error(agenda, data, field):
+    calendar = calendar_of(agenda)
+    with pytest.raises(ValidationError) as error:
+        _create(agenda, calendar, **data)
+    assert field in error.value.message_dict
+    with actor_tenant(agenda.alice, agenda.a):
+        assert not Event.objects.filter(calendar=calendar).exists()
+
+
+def test_invalid_input_reaches_the_service_as_invalid_input(agenda):
+    from skeleton.contrib.calendar.service_api import CalendarService
+    from skeleton.service_api import InvalidInput
+
+    calendar = calendar_of(agenda)
+    data = {
+        "title": "x",
+        "starts_at": START,
+        "ends_at": START + timedelta(hours=1),
+        "rrule": "FREQ=DAILY;UNTIL=99991231",
+    }
+    with actor_tenant(agenda.alice, agenda.a), pytest.raises(InvalidInput) as error:
+        CalendarService().create_event(actor=agenda.alice, calendar_id=calendar.pk, data=data)
+    assert "rrule" in error.value.errors
+
+
+def test_recurrence_dates_are_stored_normalized(agenda):
+    calendar = calendar_of(agenda)
+    event = _create(agenda, calendar, rrule="FREQ=DAILY;COUNT=3", rdates=["2026-12-05T09:00:00-03:00"])
+    with actor_tenant(agenda.alice, agenda.a):
+        event.refresh_from_db()
+    assert event.rdates == ["2026-12-05T12:00:00+00:00"]
+
+
+def test_event_dates_outside_the_accepted_years_are_refused(agenda):
+    calendar = calendar_of(agenda)
+    far = datetime(2300, 1, 1, 12, 0, tzinfo=UTC)
+    with pytest.raises(ValidationError) as error:
+        _create(agenda, calendar, starts_at=far, ends_at=far + timedelta(hours=1))
+    assert "starts_at" in error.value.message_dict

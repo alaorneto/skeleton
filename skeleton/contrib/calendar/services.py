@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -276,7 +277,7 @@ def cancel_occurrence(*, actor: Any, event_id: Any, recurrence_id: Any, expected
     """Remove one occurrence (EXDATE); the rest of the series is untouched."""
     master = _master(actor, event_id, expected_revision)
     _occurrence(master, recurrence_id)
-    key = recurrence_id.isoformat()
+    key = recurrence_id.astimezone(UTC).isoformat()  # The normalized form Event.clean stores (#236).
     if key not in master.exdates:
         master.exdates = [*master.exdates, key]
         master.sequence += 1

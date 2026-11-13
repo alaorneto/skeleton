@@ -168,6 +168,10 @@ class Event(OrganizationRecord):
 
     def clean(self):
         super().clean()
+        try:
+            validate_timezone(self.tzid)
+        except ValidationError:
+            return  # The field validator reports it; the recurrence cannot be computed without a zone.
         if self.all_day:
             if self.start_date is None or self.end_date is None:
                 raise ValidationError({"start_date": gettext("Informe as datas do evento de dia inteiro.")})
@@ -178,14 +182,33 @@ class Event(OrganizationRecord):
                 raise ValidationError({"starts_at": gettext("Informe início e fim do evento.")})
             if self.ends_at <= self.starts_at:
                 raise ValidationError({"ends_at": gettext("O fim precisa ser depois do início.")})
+        from .recurrence import YEARS, _instant
+
+        if self.all_day:
+            years, field_name = (self.start_date.year, self.end_date.year), "start_date"
+        else:
+            years, field_name = (self.starts_at.year, self.ends_at.year), "starts_at"
+        if not all(YEARS[0] <= year <= YEARS[1] for year in years):
+            raise ValidationError({field_name: gettext("Data fora do intervalo aceito.")})
         if self.rrule:
             from .recurrence import validate_rule
 
             self.rrule = validate_rule(self.rrule)
         for name in ("rdates", "exdates"):
             values = getattr(self, name)
-            if not isinstance(values, list) or len(values) > 1000 or not all(isinstance(v, str) for v in values):
-                raise ValidationError({name: gettext("Use uma lista de até 1000 datas ISO 8601.")})
+            message = gettext("Use uma lista de até 1000 datas ISO 8601.")
+            if not isinstance(values, list) or len(values) > 1000:
+                raise ValidationError({name: message})
+            normalized = []
+            for value in values:
+                try:
+                    moment = _instant(value, self) if isinstance(value, str) else None
+                except (ValueError, OverflowError):
+                    moment = None
+                if moment is None or not YEARS[0] <= moment.year <= YEARS[1]:
+                    raise ValidationError({name: message})
+                normalized.append(moment.isoformat())  # Stored as ISO 8601 in UTC (#236).
+            setattr(self, name, normalized)
         if self.series_id and self.series_id == self.pk:
             raise ValidationError({"series": gettext("Um evento não substitui a si mesmo.")})
         if self.calendar_id and self.organization_id and self.calendar.organization_id != self.organization_id:
