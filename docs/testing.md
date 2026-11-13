@@ -57,6 +57,17 @@ O job `tests` concede `CREATE ON DATABASE` ao owner da fixture, em cada banco, p
 
 Fora de Linux/macOS, os testes marcados `posix` (artefatos assinados, que dependem de `os.O_NOFOLLOW`) e os módulos do agente (`fcntl`) são pulados com motivo explícito em vez de falharem na coleta. Só a verificação de artefato assinado é POSIX: a validação de manifesto, versões e grafo de dependências roda em qualquer sistema (`tests/unit/test_manifest_validation.py`, `tests/unit/test_versioning.py`, `tests/unit/test_dependencies.py`, `tests/unit/test_package_robustness.py`, #286). A fixture de renderização do Compose é pulada quando o CLI `docker` não existe.
 
+**Controles do agente de deployment (#247).** Seis módulos fixam o comportamento atual dos controles de segurança e de recuperação do agente, sem banco, rede, Docker nem comando privilegiado, e só rodam em Linux/macOS (no Windows aparecem como pulados e não contam como executados). As fábricas comuns (configuração completa com arquivos privados, serviço sem `__init__` com journal real, operação vinculada a um plano, requisição HTTP crua) ficam em `tests/unit/agent_helpers.py`.
+
+| Módulo | O que prova |
+|---|---|
+| `test_agent_control_api.py` | O `ControlHandler` real, servido por um par de sockets: token Bearer (ausente, errado, arquivo curto ou legível por outros), autenticação antes de ler o corpo, 411/413/415, `Transfer-Encoding`, JSON que não é objeto, campos desconhecidos por rota, query string, rota desconhecida e o corpo de erro só com código e `details`. |
+| `test_agent_status_tickets.py` | Tickets HMAC (operação, validade de 5 minutos, assinatura, tamanho, revogação por época, chave privada) e a página de status (só o resumo, HTML escapado, cabeçalhos, prefixo, sem URL sem `status_http`). |
+| `test_agent_config.py` | `private_file`, chaves e caminhos obrigatórios, `project_paths`, comandos com executável absoluto, separação runtime/owner (`MIGRATION_DATABASE_URL` fora do runtime e do build, DSN compartilhado, só PostgreSQL, `backup_env_file` do mesmo banco e role), token e `read_environment` sem shell nem expansão. |
+| `test_agent_releases.py` | `parse_lock` (só `==` com hash, marcadores, duplicatas), `copy_project` sem links e sem `.env`/`.venv`/SQLite nem apps gerenciadas, drift, classificação de donos, `freeze` e arquivos especiais. |
+| `test_agent_recovery.py` | `reconcile_interrupted`, as regras de `recover` (`abort`/`restore`/`complete`, reconhecimento de escritas, plano de migrations alterado, manutenção mantida e erro no journal) e o backup verificado antes de restaurar. |
+| `test_agent_catalogue.py` | Download do catálogo: HTTPS sem credenciais nem fragmento, mesma origem, sem redirect, limite de tamanho, falha de rede, fonte local sem escapar do diretório e uma fonte inválida que não derruba as outras. |
+
 ## PostgreSQL local de desenvolvimento (#145)
 
 Toda a suíte roda em PostgreSQL, como no CI. `tools/dev_postgres.py` sobe um servidor descartável sem Docker:
