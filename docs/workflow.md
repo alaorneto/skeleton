@@ -1,97 +1,35 @@
-# Fluxo de trabalho: plano, issue, commit e fechamento
+# Fluxo de trabalho: plano, issue, commit, versão e fechamento
 
-Todo trabalho versionado neste repositório nasce de uma issue do GitHub e termina com ela fechada depois de aprovado, com os commits e as evidências ligados a ela. A regra normativa está no [AGENTS.md](../AGENTS.md#rastreabilidade-plano-issue-commit-e-fechamento). Este guia explica o ciclo e os mecanismos que o garantem, para pessoas e agentes.
+Todo trabalho versionado neste repositório nasce de uma issue do GitHub e termina com ela fechada depois de aprovado, com os commits e as evidências ligados a ela. Toda versão é calculada e escrita pela automação, a partir do que se acumulou desde a última tag.
 
-## Ciclo
+O procedimento é o skill `dev-workflow`, em [.claude/skills/dev-workflow/](../.claude/skills/dev-workflow/SKILL.md). Quando ele é obrigatório está no [AGENTS.md](../AGENTS.md#rastreabilidade-plano-issue-commit-versão-e-fechamento): modo de planejamento, plano aceito, começo de qualquer mudança, issue, branch, commit, PR, versão, release e fechamento. No Claude Code, carregue-o pela ferramenta Skill; os hooks do projeto o lembram nesses momentos. Outro agente, ou uma pessoa, lê o `SKILL.md` e as referências.
 
-1. **Planejar.** No modo de planejamento do Claude Code, o plano termina com a seção `Itens do GitHub`: para cada item, o label de tipo, o título, os critérios de aceite, o plano de testes e a documentação a atualizar. Revisar o plano é também revisar essa decomposição.
-2. **Aceitar → issues.** Quando o plano é aceito, o agente cria as issues antes de qualquer edição: uma por entrega independente e revisável, cada uma detalhada pelo modelo do tipo. Com duas ou mais, cria também uma issue `epic` com a lista ordenada das filhas e as vincula a ele como sub-issues nativos, com as dependências como "blocked by" (veja [Epics](#epics-sub-issues-e-dependências)). Sem modo de planejamento, a issue é identificada ou criada antes da primeira edição.
-3. **Desenvolver.** Branch `<tipo>/<N>-<slug>` a partir de `main` (por exemplo `feat/42-platform-users`). Commits em Conventional Commits, com trailer `Refs #N`. Mudança de escopo atualiza a issue ou abre outra.
-4. **Revisar.** PR para `main` pelo [modelo](../.github/pull_request_template.md), com `Closes #N` (entrega completa) ou `Refs #N` (parcial) e somente os testes executados de fato.
-5. **Aprovar e fechar.** O merge do PR fecha as issues citadas com `Closes`. Sem PR, a issue só fecha com aprovação explícita do responsável, depois de um comentário com commits, testes executados, documentação atualizada e follow-ups. Quem implementa não fecha a própria issue por conta própria.
+Este guia registra só o que é próprio deste repositório. O resto está no skill, e não é repetido aqui:
 
-## Classificação
+| Tema | Onde |
+|---|---|
+| Ciclo completo, o que acontece num PR com e sem versão, decisões de desenho | [flow.md](../.claude/skills/dev-workflow/references/flow.md) |
+| Tipos de issue e o que cada um decide (prefixo, versão, changelog) | [SKILL.md, fase 1](../.claude/skills/dev-workflow/SKILL.md#1-classificação-da-issue) e `[types]` de [.github/dev-workflow.toml](../.github/dev-workflow.toml) |
+| Modelos de issue, PR, fechamento e mudança de escopo | [templates.md](../.claude/skills/dev-workflow/references/templates.md) |
+| Verificação do PR, prévia de versão e evidências no merge | [flow.md](../.claude/skills/dev-workflow/references/flow.md#o-que-acontece-num-pr-sem-versão) |
+| Epics, sub-issues, "blocked by" e fechamento automático | [flow.md](../.claude/skills/dev-workflow/references/flow.md#epics-sub-issues-dependências-e-fechamento) |
+| Versão: sinais, 0.x, análise do diff, sobreposição, pré-release, hotfix, reversão | [versioning.md](../.claude/skills/dev-workflow/references/versioning.md) |
+| Configuração | [configuration.md](../.claude/skills/dev-workflow/references/configuration.md) |
+| Instalação, atualização do skill, hooks do Claude Code, passos do dono | [installation.md](../.claude/skills/dev-workflow/references/installation.md) |
 
-Cada issue tem exatamente um label de tipo. O CI recusa PR que cite issue sem tipo ou com dois tipos.
+Nos comandos abaixo, `S` é `.claude/skills/dev-workflow/scripts` e `python3` é `py -3` no Windows.
 
-| Label | Quando usar | Prefixo de commit e branch |
-|---|---|---|
-| `bug` | Comportamento diverge do esperado ou documentado; regressão | `fix` |
-| `feature` | Capacidade nova | `feat` |
-| `enhancement` | Melhoria de algo existente | `feat` ou `perf` |
-| `documentation` | Só documentação | `docs` |
-| `refactor` | Reestruturação sem mudança observável | `refactor` |
-| `test` | Só testes, fixtures ou evidência | `test` |
-| `ci` | Pipeline e checks | `ci` |
-| `chore` | Dependências, ferramentas, configuração | `chore` ou `build` |
+## O que este repositório acrescenta
 
-Labels adicionais: `security` para qualquer impacto em tenant, RLS, autorização, autenticação, auditoria, segredos, CSRF ou CAS; `epic` para a issue que acompanha um plano. Documentação e testes que acompanham uma feature ou um bug ficam na mesma issue, como parte da definição de pronto.
+### Issues e PRs
 
-## Conteúdo obrigatório de uma issue
+- Seção extra **"Segurança e contrato do AGENTS.md"** nas issues e nos PRs (`issues.sections` e `pr.required_sections` da configuração; os formulários em [.github/ISSUE_TEMPLATE](../.github/ISSUE_TEMPLATE) e o [modelo de PR](../.github/pull_request_template.md) já a têm).
+- Label adicional `security` para qualquer impacto em tenant, RLS, autorização, autenticação, auditoria, segredos, CSRF ou CAS.
+- O plano de testes cita integração em PostgreSQL com a role runtime e os negativos de segurança quando pertinentes, e a documentação a atualizar inclui a evidência em [testing](testing.md). Bugs incluem um teste de regressão.
 
-Os formulários em [.github/ISSUE_TEMPLATE](../.github/ISSUE_TEMPLATE) e os modelos do skill usam as mesmas seções:
+### Checks obrigatórios da `main` (#249)
 
-- **Contexto** e **Objetivo** (em bugs: comportamento observado e esperado, reprodução, ambiente e causa provável).
-- **Escopo**, com o que fica fora dele.
-- **Abordagem técnica**: módulos e arquivos, decisões, fronteiras do AGENTS.md envolvidas.
-- **Critérios de aceite** verificáveis, incluindo os negativos.
-- **Plano de testes**: unitários, integração em PostgreSQL com a role runtime, negativos de segurança, smoke manual e os comandos. Bugs incluem um teste de regressão.
-- **Documentação a atualizar**, incluindo a evidência em [testing](testing.md).
-- **Segurança e contrato do AGENTS.md**.
-- **Riscos e dependências**: epic, issues bloqueantes, migrations, rollback. O epic e as bloqueantes também ficam registrados como parent e "blocked by" nativos.
-- **Definição de pronto**.
-
-Uma seção sem conteúdo leva "Não se aplica — motivo". Ela não é removida.
-
-## Epics, sub-issues e dependências
-
-O vínculo oficial entre um epic e suas filhas é o relacionamento nativo de **sub-issue** do GitHub, e as dependências entre issues são relações **"blocked by"** nativas. Assim, o epic mostra o progresso sozinho, a filha mostra o parent no painel lateral e o vínculo pode ser conferido pela API. O texto também continua no corpo das issues, como resumo para quem lê: a seção "Itens" do epic tem a lista ordenada `- [ ] #N título — depende de #M | independente`, e cada filha diz `Parte de #E`.
-
-`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` reconcilia esse texto com o GitHub:
-
-```sh
-python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic 112 --dry-run   # mostra o que faria
-python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic 112             # cria os vínculos que faltam
-python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic --all           # todos os issues com o label epic
-```
-
-O comando:
-
-- vincula cada item da seção "Itens" como sub-issue, na ordem da lista, e cria um "blocked by" para cada "depende de";
-- é idempotente: não duplica vínculos que já existem;
-- nunca troca um parent existente: uma issue tem no máximo um parent, e o conflito aparece como divergência;
-- termina com erro quando há divergência: issue inexistente ou de outro repositório, item listado em dois epics, sub-issue nativo fora da lista ou epic sem o label;
-- ignora as linhas de checklist sem número de issue, como os candidatos dos epics de ciclo 2, e mostra quantas são.
-
-O `sync-epic` também acerta as caixas da seção "Itens". No dia a dia, quem faz isso é o workflow [epic-checklist](../.github/workflows/epic-checklist.yml): quando uma issue fecha (por merge de PR com `Closes` ou à mão, como concluída ou dispensada), ele marca `[x]` no item dela no epic pai nativo, e quando ela é reaberta, volta a `[ ]`. Não marque as caixas à mão. Cada execução reconcilia o epic inteiro com o estado atual das filhas e relê o corpo depois de gravar, então filhas do mesmo epic fechadas ao mesmo tempo convergem. Quando o epic também é sub-issue (como o #112 do #95), o fechamento dele atualiza o epic de cima. Para reconciliar à mão, sem criar vínculos:
-
-```sh
-python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-checklist 112 --dry-run
-python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-checklist --all
-```
-
-Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fecha o epic (`close-epic`), com um comentário que lista cada filha e se foi concluída ou dispensada. O epic fecha como concluído se ao menos uma filha foi concluída, e como `not planned` se todas foram dispensadas. A fonte de verdade são as sub-issues nativas, que o GitHub usa no progresso, não a lista em "Itens". Nada é fechado quando:
-
-- ainda há filha aberta, ou o epic não tem sub-issues;
-- o pai não tem o label `epic` ou já está fechado;
-- alguma sub-issue é de outro repositório, que o token do workflow não consegue verificar; feche à mão.
-- o epic tem mais de 100 sub-issues ou bloqueios: a leitura viria incompleta, então `close-epic`, `sync-epic` e `sync-checklist` falham com erro (#331); feche à mão.
-
-Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`. Por isso, ao fechar um epic que também é sub-issue (como o #112 do #95), o mesmo run atualiza as caixas do epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic: ele pode ter sido fechado à mão por outro motivo, então reabra-o à mão se for o caso. A seção "Critérios de conclusão" do epic não é verificada; o comentário pede para reabrir o epic se algum critério faltar. Para conferir sem fechar:
-
-```sh
-python3 .claude/skills/dev-workflow/scripts/github_issues.py close-epic --parent-of 101 --dry-run
-```
-
-O workflow só existe depois do merge na `main`, porque eventos de issue usam a versão do workflow da branch padrão.
-
-Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
-
-## Verificação do PR e fechamento
-
-O check "Verificação do PR" recusa o PR sem issue vinculada com exatamente um label de tipo, com uma seção obrigatória (`Issues`, `Resumo`, `Versão`, `Testes executados`, `Documentação`) vazia ou só com o texto do modelo, com título fora de Conventional Commits ou com um `semver:*` sem o label `release`, sem `Motivo: ...` ou repetido. Ele avisa, sem recusar, sobre critério de aceite não marcado na issue fechada, seção do modelo faltando na issue e tipo do título diferente do tipo da issue. PRs do Dependabot e o PR de release ficam isentos. O check roda o script e a configuração da branch base, não os do PR: um PR que altera o validador é conferido pela versão anterior, e a nova vale depois do merge (#331). Um segundo job comenta no PR, num comentário único e atualizado, a versão que o merge publicaria.
-
-**Checks obrigatórios da `main` (#249).** A proteção da `main` é um ruleset do repositório (Settings → Rules → Rulesets), não um arquivo: exigir pull request, exigir os checks `CI` e `Verificação do PR` e bloquear force-push e exclusão. `CI` é o job agregador de `.github/workflows/ci.yml`: ele só passa quando lint, assets, locks, testes, cobertura, typecheck, `check --deploy` e build passaram, então o nome continua estável se a matriz de testes mudar. Os alertas e as atualizações de segurança do Dependabot e o relato privado de vulnerabilidades também são configuração do repositório; o canal de relato está em [SECURITY.md](../SECURITY.md). Para conferir o que está aplicado, com acesso de leitura:
+A proteção da `main` é um ruleset do repositório (Settings → Rules → Rulesets), não um arquivo: exigir pull request, exigir os checks `CI` e `Verificação do PR` e bloquear force-push e exclusão. `CI` é o job agregador de `.github/workflows/ci.yml`: ele só passa quando lint, assets, locks, testes, cobertura, typecheck, `check --deploy` e build passaram, então o nome continua estável se a matriz de testes mudar. Os alertas e as atualizações de segurança do Dependabot e o relato privado de vulnerabilidades também são configuração do repositório; o canal de relato está em [SECURITY.md](../SECURITY.md). Para conferir o que está aplicado, com acesso de leitura:
 
 ```sh
 gh api repos/alaorneto/skeleton/rules/branches/main --jq '.[].type'   # pull_request, required_status_checks, non_fast_forward, deletion
@@ -100,62 +38,82 @@ gh api repos/alaorneto/skeleton --jq '.security_and_analysis.dependabot_security
 gh api repos/alaorneto/skeleton/private-vulnerability-reporting --jq .enabled
 ```
 
-Ao mesclar, o workflow "Evidências no merge" comenta em cada issue fechada pelo PR os commits, o PR, os testes executados, a documentação, os critérios pendentes e a situação da versão, uma única vez mesmo com reexecução. Mudança de escopo durante o trabalho atualiza o corpo da issue e é registrada com o modelo de comentário de mudança de escopo do skill.
+"Verificação do PR" roda o validador e a configuração da branch base, não os do PR (#331): um PR que altera o skill é conferido pela versão anterior, e a nova vale depois do merge. Os testes [test_workflow_files.py](../tests/unit/test_workflow_files.py) e [test_workflow_pins.py](../tests/unit/test_workflow_pins.py) conferem isso, que os workflows instalados são iguais aos modelos do skill e que toda action está fixada por SHA.
 
-## Versão e release
+## Versão
 
-A versão do projeto segue o versionamento semântico e é decidida por ferramenta, nunca editada à mão ([referência](../.claude/skills/dev-workflow/references/versioning.md)). A fonte única é a última tag de versão alcançável; os arquivos declarados em `versioning.files` são projeções reescritas a cada release. Só o label `release` faz um merge publicar versão: PRs sem ele se acumulam e entram, todos, na análise do próximo que tiver o label. O nível é o maior entre os sinais (labels de tipo das issues, Conventional Commits, marcador de breaking, superfícies públicas, pisos de versão no código e a análise por agente registrada no PR), e um label `semver:*` com motivo sobrepõe o cálculo. Em 0.x, uma quebra sobe o minor, e 1.0.0 só sai por decisão explícita (`semver:major`).
+### De onde vem o número
 
-Neste repositório, a versão do projeto é a do core (`django-skeleton`): o agente de deployment (`deployment_agent/pyproject.toml`, inclusive o pino `django-skeleton==`) e as apps first-party (manifesto e faixa recomendada da agenda) seguem o mesmo número, todos declarados em `.github/dev-workflow.toml`. Os pisos de core (`SERVICE_API_CORE_MINIMUM`, `MANIFEST_V2_CORE_MINIMUM`, `FIELD_DIMENSIONS_CORE_MINIMUM`, a faixa do manifesto do exemplo e os `since=` dos serviços) são pisos de funcionalidade: não acompanham o bump, e `release.py check` só confere que nenhum é maior que a versão publicada. Um piso novo acima da versão corrente é sinal de que a próxima versão precisa alcançá-lo.
+A versão do projeto é a versão do core (`django-skeleton`). A fonte é a **última tag `vX.Y.Z` alcançável**; enquanto não há tag, vale `versioning.initial_version` (0.5.0). Os arquivos abaixo repetem o número e são escritos pelo workflow de release, nunca à mão:
 
-O workflow de release roda depois do merge, nunca no PR, para dois PRs simultâneos não disputarem o mesmo número. Ele escreve a versão, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release e marca os PRs e issues incluídos (comentário e milestone). É idempotente: reexecutar depois de concluir não faz nada, e depois de uma falha parcial conclui o que faltou. Há modo direto e modo por PR de release, pré-release (`--prerelease rc`), branch de manutenção `maint/X.Y` e reversão documentada.
+| Arquivo | O que muda |
+|---|---|
+| `pyproject.toml` | `version` do core |
+| `deployment_agent/pyproject.toml` | `version` do agente e o pin `django-skeleton==X.Y.Z`: o agente anda no mesmo número do core |
+| `skeleton/contrib/calendar/manifest.json` | `version` (uma app first-party tem de ter a versão do core; o startup recusa outro número) e a faixa `compatibility.skeleton`, presa ao minor corrente |
+| `skeleton/contrib/calendar/docs/service-api.md` | A faixa recomendada para quem consome a agenda |
+| `CHANGELOG.md` | Uma seção por versão, agrupada por tipo, com links para issues e PRs |
 
-## Mecanismos
+Uma app first-party nova em `skeleton/contrib` acrescenta as entradas dela em `[[versioning.files]]` de [.github/dev-workflow.toml](../.github/dev-workflow.toml), no mesmo PR.
 
-| Camada | Arquivo | O que garante |
-|---|---|---|
-| Norma | `AGENTS.md` | Regras lidas por qualquer agente e pessoa |
-| Procedimento | `.claude/skills/dev-workflow/` | Skill portátil: passo a passo do agente, modelos de issue, PR e fechamento, scripts e modelos de workflow ([mecanismos](../.claude/skills/dev-workflow/references/mechanisms.md)) |
-| Configuração | `.github/dev-workflow.toml` | Labels de tipo, seções, branch padrão e regras de PR deste repositório; os scripts recusam chave inválida ([configuração](../.claude/skills/dev-workflow/references/configuration.md)) |
-| Hook do Claude Code | `.claude/settings.json`, `.claude/skills/dev-workflow/scripts/claude_hook.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
-| Git | `.pre-commit-config.yaml`, `.claude/skills/dev-workflow/scripts/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
-| Branch | `.claude/skills/dev-workflow/scripts/github_issues.py start N` | Cria `<tipo>/<N>-<slug>` a partir da issue e de `origin/main` |
-| Epics | `.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
-| Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
-| Fechamento do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py close-epic` | Ao fechar a última sub-issue aberta, fecha o epic com comentário-resumo e sobe para o epic de cima |
-| PR | `.github/workflows/pr-check.yml` | "Verificação do PR": issue classificada, seções do PR, título e classificação de versão; avisos de critérios pendentes. Um segundo job comenta a prévia da versão. PRs do Dependabot e o PR de release ficam isentos |
-| Merge | `.github/workflows/pr-merged.yml` | Comentário de evidências em cada issue fechada pelo PR, uma vez |
-| Release | `.github/workflows/release.yml`, `release.py run` | No push da `main` (ou de `maint/**`), versiona se o PR mesclado tem o label `release`: arquivos, `CHANGELOG.md`, tag, GitHub Release e marcação |
-| Análise de versão | `.github/workflows/semver-analysis.yml` | Opcional: com o segredo `ANTHROPIC_API_KEY`, um agente registra no PR rotulado `release` o nível que o diff exige |
-| Autoteste | `.github/workflows/dev-workflow-selftest.yml` | A suíte do skill em Linux, Windows e macOS e `release.py check` |
-| Locks do Dependabot | `.github/workflows/dependabot-locks.yml`, `tools/workflow/dependabot_locks.py` | Regenera com uv os locks dos PRs de pip do Dependabot e commita no branch do PR, com `Refs #140`. Ver [testes](testing.md#locks-dos-prs-do-dependabot) |
-| GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
+### Versão do projeto e pisos de core
 
-O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona `.github/dev-workflow.toml` ou o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "Verificação do PR" como check obrigatório na proteção da branch `main`.
+São duas coisas diferentes:
 
-## Passos únicos do responsável
+- **Versão do core**: o número acima. Sobe a cada release.
+- **Piso de funcionalidade**: "disponível desde a versão X". São as constantes `*_CORE_MINIMUM` e `*_UPGRADE_CORE`, o `since="X"` dos métodos da API de serviços e o `compatibility.skeleton` dos manifestos de apps de terceiros (`>=0.4.0,<1.0.0`). **Não acompanham o bump**: `>=0.4.0` continua verdadeiro em 0.7.0.
 
-A ferramenta não cria tag, release nem proteção de branch por conta própria. Uma vez:
+Ao criar uma capacidade com piso, escreva nele a versão em que ela será publicada. Uma capacidade nova é uma `feature`, então é o próximo minor: `python3 S/release.py next --level minor`. A automação confere o inverso: se o código declara um piso maior que a versão que sairia, o nível sobe até alcançá-lo, e isso fica nas notas; se nem assim alcança, a release para.
 
-1. Tag de base: `py -3 .claude/skills/dev-workflow/scripts/release.py baseline 0.5.0` e `git push origin v0.5.0`. Sem ela, nada é versionado (`bootstrap.py doctor` mostra a pendência).
-2. Permissões do Actions: "Read and write permissions" para o `GITHUB_TOKEN` (o release grava commit, tag e release).
-3. Proteção da `main`: o ruleset com os checks obrigatórios `CI` e `Verificação do PR` descrito em [Verificação do PR e fechamento](#verificação-do-pr-e-fechamento), mais os alertas e as atualizações de segurança do Dependabot e o relato privado de vulnerabilidades (Settings → Advanced Security). Se a `main` exigir PR para todo push, o commit de release é recusado: use `versioning.mode = "pr"` ou um token com bypass num segredo.
-4. Opcional: o segredo `ANTHROPIC_API_KEY`, para a análise de versão por agente.
+Apps de terceiros (`applications/`, `examples/notes`) têm versão própria, no manifesto delas, cuidada por `package build`. Não entram no versionamento do projeto.
+
+### Superfícies públicas e 0.x
+
+As superfícies públicas declaradas em `[[versioning.public_surfaces]]` são a API de serviços e o kit de testes, as bases de modelo, contexto e autorização, o manifesto e os pacotes de apps, a API HTTP e as migrations do núcleo. Enquanto o core está em `0.y.z`, quebra de compatibilidade sobe o minor (0.5.x → 0.6.0), que é o que a faixa `>=0.5.0,<0.6.0` das apps first-party espera; `1.0.0` só sai com `semver:major` no PR de release, com o motivo.
+
+Ressalva para pré-releases: a faixa `>=0.6.0,<0.7.0` da agenda não aceita o core `0.6.0rc1`. Antes da primeira pré-release, ajuste a entrada da faixa em `[[versioning.files]]`.
+
+## O skill neste repositório
+
+A cópia em `.claude/skills/dev-workflow/` vem do repositório próprio do skill; `python3 S/bootstrap.py version` diz qual versão está instalada. Para atualizar, numa issue `chore`, rode o `update` **a partir da versão nova** e revise o diff ([installation.md](../.claude/skills/dev-workflow/references/installation.md#atualizar-o-skill)):
+
+```sh
+python3 <clone-do-skill>/scripts/bootstrap.py update --dry-run
+python3 <clone-do-skill>/scripts/bootstrap.py update
+python3 S/bootstrap.py doctor
+```
+
+Correção no skill feita aqui (urgente) volta para o repositório do skill num PR de lá; a cópia não diverge por muito tempo, porque o próximo `update` a sobrescreve.
+
+| Peça própria deste repositório | Arquivo |
+|---|---|
+| Configuração | [.github/dev-workflow.toml](../.github/dev-workflow.toml) |
+| Hooks do Claude Code | [.claude/settings.json](../.claude/settings.json): modo de planejamento, pedidos que falam do fluxo, plano aceito, `git commit` e `gh pr create` |
+| Hook `commit-msg` | [.pre-commit-config.yaml](../.pre-commit-config.yaml), que chama `github_issues.py commit-msg` do skill |
+| Locks do Dependabot | `.github/workflows/dependabot-locks.yml` e `tools/workflow/dependabot_locks.py`: regeneram com uv os locks dos PRs de pip do Dependabot e commitam no branch do PR, com `Refs #140`. Ver [testes](testing.md#locks-dos-prs-do-dependabot) |
 
 ## Preparação de um checkout
 
 ```sh
 uv tool install pre-commit
 pre-commit install            # instala os hooks pre-commit e commit-msg
-python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-labels   # Windows: py -3 .claude/skills/dev-workflow/scripts/github_issues.py sync-labels
-python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor  # confere configuração, modelos, workflows, hook e labels
+python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor
 ```
 
-`sync-labels` é idempotente e só precisa rodar de novo quando a lista de labels de `.github/dev-workflow.toml` mudar. O skill tem testes próprios, em `unittest`, que viajam com ele: `py -3 -m unittest discover -s .claude/skills/dev-workflow/tests -t .claude/skills/dev-workflow`. Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/hooks` aponta para o Python que o instalou, e o ambiente efêmero do `uvx` pode ser removido do cache. Os hooks do Claude Code exigem `node` no `PATH`.
+Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/hooks` aponta para o Python que o instalou, e o ambiente efêmero do `uvx` pode ser removido do cache. Os hooks do Claude Code exigem `node` no `PATH`. A suíte do skill não depende do Django nem do banco: `python3 -m unittest discover -s .claude/skills/dev-workflow/tests`.
+
+## Passos únicos do responsável
+
+1. **Tag de base**, depois que este fluxo estiver na `main`: `python3 S/release.py baseline --push` cria `v0.5.0` na ponta da `main`. Ela declara que tudo até ali é a 0.5.0; a primeira release automática cobre o que vier depois.
+2. **Ruleset da `main`** (#249, acima). As versões saem por PR (`release.mode = "pull-request"`), compatível com o ruleset: depois do merge de um PR `release`, o workflow "Versão e release" escreve a versão, o `CHANGELOG.md` e os arquivos de versão na branch `release/next` e abre o PR `chore(release): vX.Y.Z`; a tag, a GitHub Release e os comentários saem quando esse PR é mesclado. Para isso, uma vez:
+   - marque "Allow GitHub Actions to create and approve pull requests" em Settings → Actions → General (`bootstrap.py doctor` mostra a pendência enquanto estiver desligado);
+   - um PR aberto pelo `GITHUB_TOKEN` não dispara os checks obrigatórios (`CI`, `Verificação do PR`). Crie o segredo `RELEASE_TOKEN` (fine-grained PAT ou GitHub App com `contents` e `pull-requests` de escrita) para que eles rodem; sem ele, feche e reabra o PR de release antes de mesclar.
+
+   O PR de release só muda arquivos de versão e o changelog e fica isento da verificação de issue. Pode ser mesclado com merge ou squash (o commit `chore(release): vX.Y.Z (#N)` é reconhecido); não edite o PR à mão: a cada push na `main`, o workflow recalcula a versão e refaz o mesmo PR.
+3. **Segredos opcionais**: `ANTHROPIC_API_KEY` ou `CLAUDE_CODE_OAUTH_TOKEN` ligam a análise de versão no CI; sem eles o agente a faz localmente ao abrir o PR `release`, e a release sai mesmo sem análise.
 
 ## Exceções
 
-- Merges, reverts e fixups gerados pelo git não precisam de referência própria.
-- PRs do Dependabot dispensam issue. Uma atualização de dependência feita à mão segue o fluxo com `chore`.
-- Perguntas, leituras e investigações sem mudança de arquivo não precisam de issue. Se a investigação levar a uma correção, a issue é criada antes da correção, com o diagnóstico no contexto.
-- Commits anteriores à adoção deste fluxo não são reescritos.
+- Merges, reverts e fixups gerados pelo git, e o commit de release, não precisam de referência própria.
+- PRs do Dependabot dispensam issue; sem `release`, entram como mudança acumulada. Uma atualização de dependência feita à mão segue o fluxo com `chore`.
+- Commits anteriores à adoção deste fluxo não são reescritos, e o que veio antes da tag de base não entra em changelog.

@@ -1,0 +1,43 @@
+commit 1111111aaaaaaa
+    refactor: split the parser module
+
+diff --git a/internal/parser.py b/internal/parser.py
+--- a/internal/parser.py
++++ b/internal/parser.py
+@@ -1,8 +1,4 @@
+-def _tokenize(text):
+-    return text.split()
+-
+-
+ def _parse(text):
+-    return [t.lower() for t in _tokenize(text)]
++    from internal.tokens import tokenize
++    return [t.lower() for t in tokenize(text)]
+diff --git a/internal/tokens.py b/internal/tokens.py
+new file mode 100644
+--- /dev/null
++++ b/internal/tokens.py
+@@ -0,0 +1,2 @@
++def tokenize(text):
++    return text.split()
+
+commit 2222222bbbbbbb
+    fix: paginate the client
+
+    Closes #40
+
+diff --git a/api/client.py b/api/client.py
+--- a/api/client.py
++++ b/api/client.py
+@@ -1,6 +1,9 @@
+ class Client:
+-    def fetch(self):
+-        """Return every record."""
+-        return self._get("/records")
++    def fetch(self, page_size):
++        """Return one page of records. page_size is required."""
++        return self._get("/records", params={"limit": page_size})
++
++    def fetch_all(self):
++        """Iterate over every record, page by page."""
++        yield from self._paged("/records")

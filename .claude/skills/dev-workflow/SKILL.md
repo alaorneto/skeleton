@@ -1,84 +1,110 @@
 ---
 name: dev-workflow
-description: Fluxo de desenvolvimento issue-first e portátil no GitHub — plano, issue, branch, commit, PR, versão e release. Use SEMPRE (1) logo depois que um plano for aceito (ExitPlanMode), para transformar o plano em issues classificadas e detalhadas; (2) antes da primeira edição de qualquer desenvolvimento (código, testes, docs, CI, dependências), para vincular o trabalho a uma issue existente ou criar uma; (3) ao criar branch, commitar ou abrir PR; (4) quando o usuário aprovar a entrega, para fechar a issue com commits e evidências; (5) ao instalar o fluxo num repositório novo. Triggers: plano aceito, implementar, corrigir, refatorar, documentar, commit, pull request, fechar issue, issue, epic, versão, release, changelog, plan accepted.
+description: Fluxo de desenvolvimento rastreável no GitHub, do plano à release, para projetos de qualquer tecnologia - issue antes de qualquer edição, branch e commits vinculados, PR verificado, versão semântica calculada e publicada sozinha. Use SEMPRE que (1) um plano for aceito (ExitPlanMode), para criar as issues; (2) for começar a implementar, corrigir, refatorar, documentar ou mexer em CI ou dependências, para vincular o trabalho a uma issue; (3) criar branch, commitar ou abrir PR; (4) decidir se um PR gera versão (label release), decidir patch, minor ou major, ou analisar o diff acumulado; (5) versionar, gerar changelog, publicar ou desfazer uma release, pré-release ou hotfix; (6) fechar uma issue com evidências; (7) instalar ou conferir este fluxo num projeto. Vale também quando o pedido só diz "sobe a versão", "qual é a próxima versão", "isso quebra compatibilidade?", "abre o PR", "fecha a issue", "o que está pendente de release", semver, changelog, tag, release notes, bump.
 ---
 
-# Fluxo de desenvolvimento (dev-workflow)
+# Fluxo de desenvolvimento: da issue à release
 
-Nenhuma mudança versionada existe sem issue. O que é específico do projeto (labels de tipo, seções obrigatórias, branch padrão, regras de PR e de versão) está em `.github/dev-workflow.toml`; este skill é o procedimento e as ferramentas. Escreva issues, comentários e PRs no idioma da configuração (`project.language`); commits seguem Conventional Commits.
+Nenhuma mudança versionada existe sem issue, e nenhuma versão é escrita à mão. O que é específico do projeto (tipos, seções, arquivos de versão, superfícies públicas) está em `.github/dev-workflow.toml`; este skill é o procedimento e as ferramentas.
 
-`SKILL` abaixo é o diretório deste skill (neste repositório, `.claude/skills/dev-workflow`). Os scripts usam só a biblioteca padrão do Python 3.11+, `git` e `gh`; no Windows chame `py -3`, fora dele `python3`.
+Os scripts ficam em `scripts/` deste skill. Nos comandos abaixo, `S` é esse diretório (em geral `.claude/skills/dev-workflow/scripts`) e `python3` é `py -3` no Windows. Eles usam só a biblioteca padrão do Python 3.11+, `git` e `gh`.
 
-Referências: [modelos de issue, PR e fechamento](references/issue-templates.md), [configuração](references/configuration.md), [mecanismos](references/mechanisms.md), [versionamento e release](references/versioning.md). Leia os modelos antes de redigir qualquer issue, comentário de fechamento ou PR.
+Leia conforme a fase:
+
+| Quando | Leia |
+|---|---|
+| Vai redigir issue, PR, comentário de fechamento ou de mudança de escopo | [references/templates.md](references/templates.md) |
+| Vai decidir se um PR gera versão, analisar o diff para decidir o nível, publicar, desfazer ou fazer hotfix | [references/versioning.md](references/versioning.md) |
+| Quer o passo a passo do que acontece num PR com e sem versão, o comportamento dos epics, ou o porquê de uma decisão | [references/flow.md](references/flow.md) |
+| Vai instalar o fluxo num projeto, atualizar a cópia do skill ou mexer na configuração | [references/installation.md](references/installation.md), [references/configuration.md](references/configuration.md) |
+
+Escreva issues, PRs e comentários no idioma do projeto; commits seguem o histórico (Conventional Commits).
 
 ## 0. Pré-requisitos (uma vez por sessão)
 
-1. `gh auth status` e `gh repo view --json nameWithOwner -q .nameWithOwner`.
-2. `py -3 SKILL/scripts/bootstrap.py doctor`. Item `falta` se resolve com `bootstrap.py init` (cria configuração, modelos, workflows, hook e labels sem sobrescrever o que existe); item `pendente` é passo do responsável ou exige `gh`.
-3. Sem o hook `commit-msg` instalado, o hook do Claude bloqueia `git commit`. Nunca use `--no-verify`.
+1. `gh auth status`.
+2. `python3 S/bootstrap.py doctor`. Ele diz o que falta: configuração, labels, hook `commit-msg`, workflows, arquivos de versão coerentes, tag de base. Resolva os erros antes de seguir. Projeto sem `.github/dev-workflow.toml` ainda não adotou o fluxo: siga [references/installation.md](references/installation.md).
 
-## 1. Classificação
+## 1. Classificação da issue
 
-Cada issue recebe **exatamente um** label de tipo da configuração (`[types.*]`); cada tipo lista os tipos de commit correspondentes (`commit`). Labels adicionais (`[labels.*]`, como `security`) são extras; o label de epic (`issue.epic_label`) é só para a issue de acompanhamento.
+Cada issue recebe exatamente um label de tipo, definido em `[types]` da configuração. O tipo decide três coisas ao mesmo tempo: o prefixo de commit e de branch, o incremento de versão que a entrega pede e a seção do changelog. Por isso vale escolher com cuidado: uma `feature` rotulada como `chore` sai como patch e some do changelog.
 
-Documentação, testes e ajustes que acompanham uma entrega ficam **dentro** dela (são parte da definição de pronto), não em issues separadas.
+Padrão de fábrica (o projeto pode ter outro; confira a configuração):
+
+| Label | Quando | Commit / branch | Versão |
+|---|---|---|---|
+| `bug` | Comportamento diverge do esperado ou documentado; regressão | `fix` | patch |
+| `feature` | Capacidade nova | `feat` | minor |
+| `enhancement` | Melhoria de algo que já existe | `feat` ou `perf` | minor |
+| `documentation` | Só documentação | `docs` | — |
+| `refactor` | Reestruturação sem mudança observável | `refactor` | — |
+| `test` | Só testes | `test` | — |
+| `ci` | Pipeline e checks | `ci` | — |
+| `chore` | Dependências, ferramentas, configuração | `chore` ou `build` | — |
+
+Documentação e testes que acompanham uma feature ou um bug ficam dentro da issue dela, como parte da definição de pronto. `epic` é só para a issue que acompanha um plano.
 
 ## 2. Plano aceito → issues
 
-Executa sem pedir nova confirmação: a aceitação do plano é a autorização. Faça antes de qualquer edição.
+A aceitação do plano é a autorização: execute sem pedir nova confirmação, antes de qualquer edição.
 
-1. Releia o plano aprovado. Ele deve ter a seção "Itens do GitHub"; se não tiver, derive os itens do plano e diga isso ao usuário.
-2. Decomponha em entregas **independentes, testáveis e revisáveis** (tipicamente um PR cada). Não crie issue por arquivo nem por passo mecânico; não misture tipos numa issue.
-3. Deduplicar: `gh issue list --state open --search "<palavras-chave>"`. Se já existe issue equivalente, atualize-a (`gh issue edit N --body-file`) ou comente.
-4. Redija cada corpo pelo modelo do tipo, com **todas** as seções (`issue.sections` lista as que o check de PR confere). Seção sem conteúdo leva "Não se aplica — <motivo>"; nunca a remova.
-5. Grave o corpo em arquivo UTF-8 e crie com `--body-file` (nunca corpo longo inline):
+1. O plano termina com a seção "Itens do GitHub" (tipo, título, critérios de aceite, plano de testes, documentação). Se não tiver, derive os itens e diga isso ao usuário.
+2. Decomponha em entregas independentes, testáveis e revisáveis, tipicamente um PR cada. Não crie issue por arquivo nem misture tipos numa issue.
+3. Procure duplicatas: `gh issue list --state open --search "<palavras-chave>"`. Se existe equivalente, atualize-a em vez de duplicar.
+4. Redija cada corpo pelo modelo do tipo, com todas as seções. Seção sem conteúdo leva "Não se aplica — motivo"; ela não é removida, porque a ausência não distingue "não se aplica" de "esqueci".
+5. Grave o corpo num arquivo UTF-8 temporário e crie com `--body-file` (corpo longo inline quebra no quoting do shell):
    ```bash
-   gh issue create --title "<resumo no imperativo>" --label <tipo>[,<extra>] --assignee @me --body-file <arquivo>
+   gh issue create --title "<resumo no imperativo>" --label feature --assignee @me --body-file <arquivo>
    ```
-6. Com 2 ou mais issues, crie a issue de epic "Plano: <nome>" pelo modelo, com a lista ordenada `- [ ] #N título — depende de #M | independente` na seção de itens (`issue.items_section`). Crie os vínculos nativos com `py -3 SKILL/scripts/github_issues.py sync-epic <E>`: as filhas viram sub-issues na ordem da lista e cada "depende de" vira um "blocked by". O comando é idempotente, nunca troca um parent existente e termina com erro em qualquer divergência; resolva cada uma. Confira com `sync-epic <E> --dry-run` ("0 vínculos a criar", sem divergências).
-7. Informe ao usuário uma tabela `# | título | labels | link`. Só então comece pela primeira issue.
+6. Com duas ou mais issues, crie também a issue `epic` "Plano: <nome>" com a lista `- [ ] #N título — depende de #M | independente` na seção "Itens", e gere os vínculos nativos:
+   ```bash
+   python3 S/github_issues.py sync-epic <E>            # cria sub-issues e "blocked by"; idempotente
+   python3 S/github_issues.py sync-epic <E> --dry-run  # deve dizer "0 vínculos a criar"
+   ```
+   Em cada filha, a seção de riscos diz `Parte de #E`. Resolva cada divergência que o comando apontar.
+7. Mostre ao usuário a tabela `# | título | labels | link` e só então implemente.
 
-## 3. Desenvolvimento sem plano
+## 3. Pedido direto, sem plano
 
-Antes da primeira edição de arquivo versionado:
+Antes da primeira edição de arquivo versionado, identifique a issue (número citado, número na branch, busca) e confira se o escopo dela cobre o pedido. Se não houver, crie uma, mesmo para mudança pequena; informe o link, não pergunte. Perguntas e investigações sem mudança de arquivo não precisam de issue; se a investigação virar correção, crie a issue antes, com o diagnóstico no contexto.
 
-1. Identifique a issue: número citado, número na branch (`<tipo>/<N>-<slug>`) ou busca. Confira se o escopo cobre o pedido.
-2. Se não houver, crie uma (passos 2.4–2.5), mesmo para mudança pequena. Não pergunte; informe o link.
-3. Perguntas e investigações sem mudança de arquivo não exigem issue. Se a investigação virar correção, crie a issue antes, com o diagnóstico em "Contexto".
-4. Mudança de escopo no meio do trabalho: atualize o corpo da issue ou crie outra para o excedente, e registre com o modelo de mudança de escopo. Não amplie a issue em silêncio.
+**Mudança de escopo.** Quando o trabalho passa a incluir algo que a issue não descreve, pare e escolha: se continua sendo a mesma entrega, atualize o corpo da issue e registre o comentário de mudança de escopo (modelo nas referências); se é outra entrega, abra outra issue e cite-a. Ampliar em silêncio quebra a revisão: quem aprovou a issue aprovou outro escopo. Se a mudança altera o tipo (uma correção que virou funcionalidade), troque o label, porque ele decide a versão.
 
 ## 4. Branch, commits e progresso
 
-- Branch: `py -3 SKILL/scripts/github_issues.py start N` cria `<tipo>/<N>-<slug>` a partir de `origin/<branch padrão>` (o tipo é o primeiro tipo de commit do label da issue). Ele recusa árvore suja; se o usuário estiver em outra branch de trabalho, pergunte antes.
-- Commit só quando o usuário pedir. Mensagem: `<tipo>(<escopo>): <assunto>`, corpo explicando o porquê e trailer `Refs #N` (uma linha por issue). Não use `Closes` em commits.
-- O hook `commit-msg` acrescenta `Refs: #N` a partir do nome da branch e recusa commits sem referência.
-- Marque um critério de aceite (`gh issue edit N --body-file`) apenas depois de verificá-lo. Registre decisões e bloqueios com `gh issue comment N --body-file`.
+- Branch a partir da branch padrão atualizada: `python3 S/github_issues.py start <N>` cria `<prefixo>/<N>-<slug>` pelo tipo e título da issue (`--dry-run` só mostra o nome). Com a árvore suja ou outra branch de trabalho em uso, pergunte antes de trocar.
+- Commit só quando o usuário pedir. Mensagem `<tipo>(<escopo>): <assunto>`, corpo com o porquê, trailer `Refs #N`. Quebra de compatibilidade leva `!` depois do tipo ou rodapé `BREAKING CHANGE: <o que muda e como migrar>`: é o marcador que a automação de versão lê.
+- O hook `commit-msg` acrescenta `Refs: #N` a partir do nome da branch e recusa commit sem referência. Não use `--no-verify`: o hook é a barreira que mantém o vínculo.
+- Marque um critério de aceite só depois de verificá-lo de fato. Registre decisões e bloqueios em comentário na issue.
 
 ## 5. Pull request
 
-- `gh pr create --base <branch padrão> --title "<tipo>(<escopo>): <assunto>" --body-file <arquivo>` com o modelo de PR (espelha `.github/pull_request_template.md`).
-- `Closes #N` para cada issue entregue por inteiro, `Refs #N` para entrega parcial. O hook do Claude recusa `gh pr create` sem referência, e o workflow de verificação do PR recusa PR sem issue válida e classificada, com seção obrigatória vazia (`pull_request.sections`), com título fora de Conventional Commits ou com `semver:*` incoerente. Critérios de aceite não marcados aparecem como aviso: marque os verificados antes do merge.
-- No merge, o workflow `pr-merged` comenta as evidências em cada issue fechada; não repita esse comentário à mão.
-- Testes listados no PR: somente os executados de fato, com comando e resultado. Serviço indisponível é bloqueio, não aprovação.
-- Versão (com `versioning.enabled`): só o label `release` faz o merge publicar uma versão; PR sem ele fica acumulado para a próxima. Antes de pedir o label, confira com `py -3 SKILL/scripts/release.py plan --pr N` o nível e a próxima versão. `semver:patch|minor|major` sobrepõe o cálculo e exige `Motivo: ...` no corpo. Nunca edite a versão nos arquivos à mão: o workflow de release escreve, cria tag e GitHub Release ([versioning.md](references/versioning.md)).
+1. Corpo pelo modelo (`.github/pull_request_template.md`): `Closes #N` para entrega completa, `Refs #N` para parcial; só os testes que rodaram, com comando e resultado; a seção "Versão" diz o impacto para quem usa o projeto.
+2. Título em Conventional Commits: ele vira o commit de um squash e entra no changelog.
+3. **Decida se o PR gera versão.** Com o label `release`, o merge publica uma versão com tudo que está acumulado desde a última tag. Sem ele, nada é publicado: as mudanças ficam acumuladas e entram na próxima versão. Não existe label para "não gera versão"; a ausência de `release` já diz isso. Diga ao usuário o que escolheu e por quê.
 
-## 6. Aprovação e fechamento
+   Se o usuário não disse, pergunte uma vez; se ele não quiser decidir agora, deixe sem `release`: nada se perde, porque a próxima release olha retroativamente tudo que ficou pendente.
+4. Veja o que o merge publicaria: `python3 S/release.py plan --pr <N>` (ou `status` para o que já está acumulado).
+5. Se o PR está marcado `release`, faça a **análise do diff acumulado** e registre-a no PR, seguindo [references/versioning.md](references/versioning.md#análise-por-agente). A análise cobre todas as mudanças pendentes, não só este PR, e só eleva o nível; ela é o que pega a quebra de compatibilidade que ninguém marcou.
+6. Marque `breaking-change` quando houver quebra. Para sobrepor o nível calculado, o dono usa `semver:major|minor|patch` e escreve `Motivo da sobreposição: ...` na seção "Versão".
+7. `gh pr create --base <padrão> --title "..." --body-file <arquivo>`, com `--label release` só se o PR gera versão.
 
-Aprovação é (a) merge do PR na branch padrão, que fecha as issues com `Closes`, ou (b) aprovação explícita do usuário no chat quando não há PR. Nunca feche por iniciativa própria nem só porque os testes passaram.
+O check "Verificação do PR" confere tudo isso e comenta a prévia da versão. Antes de abrir, você pode rodar o mesmo check: `python3 S/github_issues.py check-pr --pr <N>`.
 
-No caso (b), ou quando a issue não foi fechada automaticamente:
+## 6. Merge, versão e fechamento
 
-1. Todos os critérios de aceite marcados, ou dispensados explicitamente pelo usuário (registre a dispensa).
-2. Commits publicados no remoto: `git log --oneline --grep "#N" origin/<branch>`.
-3. Comentário de fechamento pelo modelo (commits, PR, testes executados, documentação, follow-ups): `gh issue comment N --body-file <arquivo>`.
-4. `gh issue close N --reason completed`.
-5. Sub-issue de epic: o workflow `epic-checklist` marca `[x]` no item (e desmarca se reaberta) e, quando a última sub-issue fecha, fecha o epic com comentário-resumo e sobe para o epic de cima. Não marque nem feche à mão; se a caixa não mudar, rode `github_issues.py sync-checklist <E>`. Confira depois os "Critérios de conclusão" do epic.
+Quem implementa não faz merge nem fecha a própria issue por conta própria; o merge é a aprovação.
 
-Itens abandonados: `gh issue close N --reason "not planned"` somente por decisão do usuário, com o motivo em comentário.
+Depois do merge, sem intervenção:
 
-## 7. Instalar num repositório novo
+- Cada issue citada recebe o comentário de evidências (commits, testes e documentação declarados no PR, critérios de aceite pendentes). As citadas com `Closes` são fechadas pelo GitHub.
+- Se o PR era `release`, o workflow "Versão e release" calcula o número, escreve a versão nos arquivos declarados, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release, e comenta a versão em cada PR e issue incluídos.
+- A caixa da issue no epic é marcada; fechada a última filha, o epic fecha.
 
-1. Copie este diretório para `.claude/skills/dev-workflow/` do repositório.
-2. `py -3 SKILL/scripts/bootstrap.py init` (`--no-labels` sem `gh`; `--hook pre-commit` para receber o trecho do pre-commit em vez do hook git). Ajuste `.github/dev-workflow.toml` (references/configuration.md) e rode `bootstrap.py doctor`.
-3. Para o hook do Claude Code, acrescente ao `.claude/settings.json` os comandos de `references/mechanisms.md`.
-4. Testes do próprio skill: `py -3 -m unittest discover -s SKILL/tests -t SKILL`.
+Confira o resultado em vez de presumir: `gh run list --workflow release.yml --limit 1` e `python3 S/release.py status`. Se algo falhou no meio, rodar o workflow de novo conclui o que faltou.
+
+Sem PR (aprovação explícita do usuário no chat): todos os critérios marcados ou dispensados por ele, commits publicados, comentário de fechamento pelo modelo, e só então `gh issue close N --reason completed`. Item abandonado: `--reason "not planned"`, por decisão do usuário, com o motivo em comentário.
+
+## 7. Operações de versão fora do caminho comum
+
+Publicar o que está acumulado sem esperar um PR `release`, pré-release, hotfix numa versão antiga e desfazer uma release errada estão em [references/versioning.md](references/versioning.md). Em todas elas, comece por `python3 S/release.py run --dry-run`, que mostra o plano sem escrever nada, e nunca edite à mão os arquivos de versão nem o changelog: o check de coerência reprova a divergência e a próxima release falha.

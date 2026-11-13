@@ -1,6 +1,6 @@
-# Modelos de issue, PR e fechamento
+# Modelos de issue, PR e comentários
 
-Os títulos de seção (`##`) são fixos: os formulários em `.github/ISSUE_TEMPLATE/` usam os mesmos nomes, e revisores procuram por eles. Troque o texto entre `<>`; mantenha toda seção, usando "Não se aplica — <motivo>" quando for o caso.
+Os títulos de seção (`##`) são os que a configuração do projeto exige (`issues.sections` e `pr.required_sections` em `.github/dev-workflow.toml`); os formulários em `.github/ISSUE_TEMPLATE/` usam os mesmos nomes, e o check do PR procura por eles. Se o projeto tiver seções próprias (segurança, conformidade), acrescente-as aqui do mesmo jeito. Troque o texto entre `<>`; mantenha toda seção, usando "Não se aplica — <motivo>" quando for o caso.
 
 ## feature / enhancement / refactor / test / ci / chore
 
@@ -21,16 +21,16 @@ Os títulos de seção (`##`) são fixos: os formulários em `.github/ISSUE_TEMP
 ## Abordagem técnica
 - Módulos e arquivos: `<src/...>`, `<tests/...>`
 - Decisões e alternativas descartadas: <...>
-- Regras do projeto envolvidas: <contratos, fronteiras de módulo, convenções do arquivo de instruções do projeto...>
+- Limites de arquitetura envolvidos: <módulos que não podem depender um do outro, contratos públicos tocados>
 
 ## Critérios de aceite
 - [ ] <comportamento observável e verificável, com entrada e resultado>
 - [ ] <negativo: o que deve ser recusado/omitido>
 
 ## Plano de testes
-- [ ] Unitários (`tests/unit/...`): <o que provar>
-- [ ] Integração (`tests/integration/...`): <o que provar | Não se aplica — motivo>
-- [ ] Negativos de segurança: <autorização negada, isolamento, entrada inválida, segredos redigidos...>
+- [ ] Unitários: <o que provar>
+- [ ] Integração: <o que provar | Não se aplica — motivo>
+- [ ] Negativos: <o que deve ser recusado ou omitido>
 - [ ] Smoke manual ou no navegador: <roteiro curto | Não se aplica>
 
 Comandos:
@@ -40,12 +40,7 @@ Comandos:
 
 ## Documentação a atualizar
 - [ ] `<docs/....md>` — <o que muda>
-- [ ] <onde fica a evidência dos testes executados>
-- [ ] `README.md` / instruções do projeto — <se mudar contrato, setup ou navegação | Não se aplica>
-
-## Segurança e regras do projeto
-- [ ] <itens pertinentes do "Checklist mínimo de nova tabela" ou de "Contexto, autorização e concorrência">
-<ou: Sem impacto — motivo>
+- [ ] `README.md` — <se mudar instalação, uso ou contrato | Não se aplica>
 
 ## Riscos e dependências
 - Parte de / depende de: <#E, #N | nenhuma> (também como parent e "blocked by" nativos)
@@ -75,13 +70,13 @@ Use o modelo acima com estas seções no lugar de "Contexto" e "Objetivo":
 1. <...>
 
 ## Ambiente
-<branch/commit, versões, configuração, sistema>
+<branch/commit, versão do projeto, sistema, navegador, configuração>
 
 ## Causa provável
 <diagnóstico, se conhecido; senão "A investigar">
 ~~~
 
-O "Plano de testes" de um bug sempre inclui um teste de regressão que falha antes da correção e passa depois. Bug de segurança recebe também o label `security`; não publique dados sensíveis, segredos ou passos de exploração além do necessário.
+O "Plano de testes" de um bug sempre inclui um teste de regressão que falha antes da correção e passa depois. Em bug de segurança, não publique dados sensíveis, segredos ou passos de exploração além do necessário.
 
 ## documentation
 
@@ -101,7 +96,6 @@ O "Plano de testes" de um bug sempre inclui um teste de regressão que falha ant
 ## Critérios de aceite
 - [ ] Conteúdo confere com o código em `<arquivos>`
 - [ ] Links e âncoras válidos; comandos testados quando houver
-- [ ] Nenhuma regra do projeto contradita
 
 ## Verificação
 <como conferir: comandos executados, arquivos lidos, renderização>
@@ -122,7 +116,7 @@ O "Plano de testes" de um bug sempre inclui um teste de regressão que falha ant
 <resultado do conjunto>
 
 ## Itens
-<!-- Resumo legível. O vínculo oficial são os sub-issues e os "blocked by" nativos; confira com `github_issues.py sync-epic <E> --dry-run`. As caixas são marcadas pelo workflow epic-checklist quando a filha fecha; não marque à mão. -->
+<!-- Resumo legível. O vínculo oficial são os sub-issues e os "blocked by" nativos; confira com `github_issues.py sync-epic <E> --dry-run`. As caixas são marcadas pelo workflow de epics quando a filha fecha; não marque à mão. -->
 - [ ] #<N> <título> — <depende de #M | independente>
 
 ## Critérios de conclusão
@@ -132,15 +126,14 @@ O "Plano de testes" de um bug sempre inclui um teste de regressão que falha ant
 
 ## Corpo de PR
 
+O título do PR segue Conventional Commits (`<tipo>(<escopo>): <assunto>`). Acrescente o label `release` só se o merge deve publicar versão; sem ele, o PR fica acumulado para a próxima.
+
 ~~~markdown
 ## Issues
 Closes #<N>
 
 ## Resumo
 - <mudança 1>
-
-## Versão
-- <acumulado | release; com `semver:*`, uma linha `Motivo: ...`>
 
 ## Testes executados
 - `<comando>` — <resultado observado>
@@ -149,16 +142,31 @@ Closes #<N>
 ## Documentação
 - <arquivos atualizados | Não se aplica — motivo>
 
-## Segurança e contrato
-- <regras do projeto verificadas | Sem impacto — motivo>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## Versão
+- <impacto para quem usa o projeto: nenhum | correção | funcionalidade nova | quebra de compatibilidade + caminho de migração>
+<só com label semver:*:>
+- Motivo da sobreposição: <por que o nível calculado não vale aqui>
 ~~~
 
-## Comentário de fechamento
+## Comentário de mudança de escopo
+
+Na issue, no momento em que o escopo muda, depois de atualizar o corpo dela:
 
 ~~~markdown
-Concluído e aprovado por <quem / "merge do PR #P">.
+**Mudança de escopo**
+
+- Antes: <o que a issue previa>
+- Agora: <o que passa a incluir ou deixa de incluir>
+- Motivo: <o que se descobriu>
+- Efeito: <critérios de aceite acrescentados ou removidos; tipo e nível de versão mudam? | excedente movido para #M>
+~~~
+
+## Comentário de fechamento (sem PR)
+
+Quando há PR, o comentário de evidências é escrito sozinho no merge. Este modelo é para a entrega aprovada no chat, sem PR:
+
+~~~markdown
+Concluído e aprovado por <quem>.
 
 **Commits**
 - <sha curto> <assunto>
@@ -174,16 +182,12 @@ Concluído e aprovado por <quem / "merge do PR #P">.
 **Follow-ups:** <#N | nenhum>
 ~~~
 
-## Comentário de mudança de escopo
-
-Use quando o trabalho de uma issue precisar mudar o que ela promete: atualize o corpo (escopo, critérios de aceite) e registre a mudança aqui, ou crie outra issue para o excedente.
+## Decisão ou bloqueio durante o trabalho
 
 ~~~markdown
-**Mudança de escopo**
-
-- O que muda: <o que entra ou sai do escopo>
-- Motivo: <o que se descobriu ou decidiu, com link>
-- Critérios de aceite atualizados no corpo: <sim | não se aplica>
-- Excedente: <#N criada para o que ficou de fora | nenhum>
+**Decisão:** <o que foi decidido> — <motivo e alternativa descartada>
 ~~~
 
+~~~markdown
+**Bloqueio:** <o que impede> — <o que já foi tentado; do que depende>
+~~~

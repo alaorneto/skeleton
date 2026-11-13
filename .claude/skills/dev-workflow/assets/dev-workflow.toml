@@ -1,120 +1,127 @@
-# Configuração do skill dev-workflow (references/configuration.md). Tudo que é específico do
-# projeto fica aqui; os scripts do skill recusam chave desconhecida ou valor inválido.
+# Configuração do fluxo de desenvolvimento (skill dev-workflow).
+# Referência de todas as chaves: __SKILL_DIR__/references/configuration.md
+# Confira com: python3 __SKILL_DIR__/scripts/bootstrap.py doctor
+schema = 1
 
-[project]
-default_branch = "main"
-language = "pt"
+[repository]
+default_branch = "__DEFAULT_BRANCH__"
+# Branches em que um push pode publicar versão. `release/*` são linhas de manutenção.
+release_branches = ["__DEFAULT_BRANCH__", "release/*"]
 
-# Labels de tipo: cada issue tem exatamente um. `commit` lista os tipos de Conventional Commits
-# que correspondem ao label; `level` é o nível SemVer que uma mudança desse tipo implica.
+# --- Tipos de issue ----------------------------------------------------------------------------
+# Cada issue tem exatamente um destes labels. `prefixes` são os prefixos de commit e de branch;
+# `level` é o incremento de versão que o tipo pede; `section` é a seção do changelog.
+
 [types.bug]
-heading = "Correções"
 color = "d73a4a"
-description = "Comportamento incorreto, regressão ou falha de segurança existente"
-commit = ["fix"]
+description = "Comportamento incorreto ou regressão"
+prefixes = ["fix"]
 level = "patch"
+section = "fixes"
 
 [types.feature]
-heading = "Funcionalidades"
 color = "1d76db"
 description = "Nova funcionalidade"
-commit = ["feat"]
+prefixes = ["feat"]
 level = "minor"
+section = "features"
 
 [types.enhancement]
-heading = "Melhorias"
 color = "a2eeef"
 description = "Melhoria de funcionalidade existente"
-commit = ["perf"]
+prefixes = ["feat", "perf"]
 level = "minor"
+section = "improvements"
 
 [types.documentation]
-heading = "Documentação"
 color = "0075ca"
 description = "Somente documentação"
-commit = ["docs"]
-level = "patch"
+prefixes = ["docs"]
+level = "none"
+section = "docs"
 
 [types.refactor]
-heading = "Refatoração"
 color = "fbca04"
 description = "Reestruturação sem mudança de comportamento"
-commit = ["refactor", "style"]
-level = "patch"
+prefixes = ["refactor"]
+level = "none"
+section = "maintenance"
 
 [types.test]
-heading = "Testes"
 color = "bfd4f2"
 description = "Somente testes, fixtures ou evidência de verificação"
-commit = ["test"]
-level = "patch"
+prefixes = ["test"]
+level = "none"
+section = "maintenance"
 
 [types.ci]
-heading = "CI"
 color = "5319e7"
 description = "Pipeline e checks automáticos"
-commit = ["ci"]
-level = "patch"
+prefixes = ["ci"]
+level = "none"
+section = "maintenance"
 
 [types.chore]
-heading = "Manutenção"
 color = "c5def5"
 description = "Dependências, ferramentas e configuração de desenvolvimento"
-commit = ["chore", "build", "revert"]
-level = "patch"
+prefixes = ["chore", "build"]
+level = "none"
+section = "maintenance"
 
-# Labels adicionais. `epic` marca a issue de acompanhamento de um plano.
-[labels.security]
-color = "b60205"
-description = "Impacto em isolamento, autorização, autenticação, auditoria ou segredos"
+# Labels adicionais que `sync-labels` também cria, por exemplo:
+# [labels.extra.security]
+# color = "b60205"
+# description = "Impacto em autenticação, autorização ou segredos"
 
-[labels.epic]
-color = "3e4b9e"
-description = "Acompanhamento de um plano com várias issues"
-
-[labels.release]
-color = "0e8a16"
-description = "O merge deste PR gera uma versão nova"
-
-[labels.breaking-change]
-color = "b60205"
-description = "Quebra de compatibilidade da superfície pública"
-
-[labels."semver:major"]
-color = "5d1f1f"
-description = "Força versão major (informe o motivo no PR)"
-
-[labels."semver:minor"]
-color = "8a4b08"
-description = "Força versão minor (informe o motivo no PR)"
-
-[labels."semver:patch"]
-color = "c2e0c6"
-description = "Força versão patch (informe o motivo no PR)"
-
-[issue]
-epic_label = "epic"
-items_section = "Itens"
-depends_marker = "depende de"
-# Seções que toda issue tem, qualquer que seja o tipo; o check de PR avisa quando faltam.
-sections = ["Critérios de aceite", "Definição de pronto"]
-
-[pull_request]
-sections = ["Issues", "Resumo", "Versão", "Testes executados", "Documentação"]
+[pr]
+required_sections = ["Issues", "Resumo", "Testes executados", "Documentação", "Versão"]
+# Quem abre PR sem passar pelo fluxo de issues.
 exempt_authors = ["dependabot[bot]"]
-conventional_title = true
-pending_criteria = "warning"
+
+[pr.severity]
+# error bloqueia o check, warning só avisa, off desliga.
+unchecked_criteria = "warning" # critérios de aceite sem marcar na issue fechada pelo PR
+issue_sections = "warning"     # seção do modelo faltando na issue
+type_mismatch = "warning"      # tipo do título diferente do tipo da issue
+
+# --- Versão ------------------------------------------------------------------------------------
 
 [versioning]
-enabled = false
+enabled = true
 tag_prefix = "v"
-changelog = "CHANGELOG.md"
-release_label = "release"
-breaking_label = "breaking-change"
-override_prefix = "semver:"
+# Vale só enquanto não existe tag de versão; depois a fonte é a última tag.
+initial_version = "__INITIAL_VERSION__"
+# Em 0.x a quebra de compatibilidade sobe o minor; "strict" a leva direto a 1.0.0.
+zero_major = "breaking-is-minor"
+# true: mudança em superfície pública só é publicada com análise registrada ou sobreposição.
+require_analysis = false
+
+# Onde a versão é escrita. `search` é texto literal com {current}; a troca padrão põe {new} no
+# lugar. Use `regex` + `replace` quando o texto não contém a versão corrente inteira.
+# Marcadores: {current} {new} e, para cada um, _pep440 _core _major _minor _patch _next_minor _next_major.
+# __VERSION_FILES__
+# Arquivos cujo diff interessa a quem usa o projeto. Remover um deles pede major; acrescentar ou
+# alterar pede análise (on_add / on_modify / on_remove: none, patch, minor, major ou review).
+# [[versioning.public_surfaces]]
+# name = "API pública"
+# globs = ["src/api/**"]
+
+# Versões que o código declara como piso ("disponível desde"). A release nunca sai menor que elas.
+# [[versioning.floors]]
+# globs = ["src/**/*.py"]
+# regex = 'since="(\d+\.\d+\.\d+)"'
+
+[changelog]
+path = "CHANGELOG.md"
+# Seções que ficam fora do arquivo (as notas da release sempre mostram todas).
+hide = []
+
+[release]
+# "direct": o workflow commita na branch e publica. "pull-request": abre um PR de release, e a
+# publicação acontece quando ele é mesclado (para branch protegida).
 mode = "direct"
-analysis_authors = ["github-actions[bot]"]
-# files = [{ path = "pyproject.toml", regex = '^version = "(?P<version>[^"]+)"', replace = 'version = "{version}"' }]
-files = []
-public_surfaces = []
-floors = []
+commit_message = "chore(release): {tag}"
+# Como marcar PRs e issues incluídos numa versão.
+mark = ["comment", "milestone"]
+# Workflow a disparar depois da release (por exemplo "publish.yml"), com os inputs version e tag.
+dispatch_workflow = ""

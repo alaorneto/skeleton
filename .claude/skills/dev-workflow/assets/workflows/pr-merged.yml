@@ -1,8 +1,10 @@
-name: Evidências no merge
+name: Evidências do PR mesclado
 
-# Ao mesclar um PR, comenta em cada issue que ele fecha (Closes/Fixes/Resolves #N) os commits, o PR,
-# os testes executados, a documentação, os critérios ainda pendentes e a situação da versão. Um só
-# comentário por PR e issue, mesmo com reexecução (skill dev-workflow).
+# Skill dev-workflow: ao mesclar um PR, registra em cada issue citada os commits, os testes e a
+# documentação declarados, os critérios pendentes e se a entrega sai já ou fica acumulada.
+#
+# Segurança: pull_request_target dá token de escrita. O checkout é o da branch de destino
+# (padrão deste gatilho); nenhum código do PR é baixado nem executado.
 
 on:
   pull_request_target:
@@ -11,20 +13,21 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
+
+concurrency:
+  group: pr-merged-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   evidence:
-    name: Registrar evidências nas issues fechadas
+    name: Registrar evidências nas issues
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-24.04
     steps:
-      # pull_request_target: só o código da branch base; nenhum código do PR roda com este token.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-      - name: Comentar as evidências
+      - name: Comentar evidências nas issues do PR
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: python3 {{SKILL_DIR}}/scripts/github_issues.py pr-merged
+        run: python3 __SKILL_DIR__/scripts/github_issues.py pr-merged
