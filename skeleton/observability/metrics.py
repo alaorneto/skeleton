@@ -98,13 +98,13 @@ def bearer_matches(header: str, token: str) -> bool:
 
 
 def _job_labels() -> tuple[tuple[str, ...], tuple[str, ...], dict[str, str]]:
-    from skeleton.integrations.webhooks.delivery import DELIVER_JOB
     from skeleton.jobs.models import Job
     from skeleton.jobs.registry import all_job_types
-    from skeleton.notifications.channels.delivery import EMAIL_JOB, PUSH_JOB
 
-    types = tuple(job_type.code for job_type in all_job_types())
-    channels = {DELIVER_JOB: "webhook", EMAIL_JOB: "email", PUSH_JOB: "push"}
+    # Each delivery job type declares its channel (#346): a new channel needs no edit here.
+    job_types = all_job_types()
+    types = tuple(job_type.code for job_type in job_types)
+    channels = {job_type.code: job_type.channel for job_type in job_types if job_type.channel}
     return types, tuple(Job.State.values), channels
 
 

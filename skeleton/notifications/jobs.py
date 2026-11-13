@@ -37,6 +37,7 @@ def register_notification_jobs() -> None:
             backoff=60.0,
             timeout_s=120,
             owner_app="sk_notifications",
+            channel="email",
         )
     )
     from .channels.delivery import PUSH_JOB
@@ -53,6 +54,7 @@ def register_notification_jobs() -> None:
             backoff=60.0,
             timeout_s=120,
             owner_app="sk_notifications",
+            channel="push",
         )
     )
     from datetime import timedelta

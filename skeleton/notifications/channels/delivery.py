@@ -10,11 +10,13 @@ from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 
+from skeleton.jobs.delivery import RetrySchedule
+
 EMAIL_JOB = "notifications.email"
 PUSH_JOB = "notifications.push"
 # Delay before attempt n+1; after the last one the delivery is dead.
 RETRY_SCHEDULE = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=30), timedelta(hours=2))
-MAX_ATTEMPTS = len(RETRY_SCHEDULE) + 1
+MAX_ATTEMPTS = RetrySchedule(RETRY_SCHEDULE).max_attempts
 OPEN_STATES = ("pending", "retrying")
 
 
@@ -23,12 +25,11 @@ def job_for(channel: str) -> str:
 
 
 def enqueue_attempt(delivery: Any, *, run_after: Any = None) -> None:
-    from skeleton.jobs.services import enqueue
+    from skeleton.jobs.delivery import enqueue_delivery_attempt
 
-    enqueue(
+    enqueue_delivery_attempt(
         job_for(delivery.channel),
-        organization_id=delivery.organization_id,
-        payload={"delivery_id": str(delivery.pk)},
+        delivery,
         idempotency_key=f"notification-delivery:{delivery.pk}:{delivery.attempts}",
         run_after=run_after,
     )
@@ -73,7 +74,9 @@ def failed_attempt(delivery: Any, error_code: str, *, retry: bool = True) -> Non
     if retry and delivery.attempts < MAX_ATTEMPTS:
         delivery.state = "retrying"
         delivery.error_code = error_code[:64]
-        delivery.next_attempt_at = timezone.now() + RETRY_SCHEDULE[delivery.attempts - 1]
+        delay = RetrySchedule(RETRY_SCHEDULE).delay_after(delivery.attempts)  # Read at call time.
+        assert delay is not None  # attempts < MAX_ATTEMPTS
+        delivery.next_attempt_at = timezone.now() + delay
         delivery.save(update_fields={"state", "attempts", "error_code", "next_attempt_at"})
         enqueue_attempt(delivery, run_after=delivery.next_attempt_at)
         return

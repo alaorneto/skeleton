@@ -29,6 +29,8 @@ from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 from django.utils.translation import gettext
 
+from skeleton.jobs.delivery import RetrySchedule
+
 FANOUT_CONSUMER = "webhooks.fanout"
 DELIVER_JOB = "webhooks.deliver"
 DISABLED_NOTIFICATION = "webhooks.endpoint_disabled"
@@ -56,7 +58,7 @@ def sign(body: bytes, secrets: list[str], timestamp: int) -> str:
 
 def retry_delay(attempt: int) -> timedelta | None:
     """Delay before attempt ``attempt + 1``; ``None`` once the schedule is exhausted."""
-    return RETRY_SCHEDULE[attempt - 1] if 1 <= attempt <= len(RETRY_SCHEDULE) else None
+    return RetrySchedule(RETRY_SCHEDULE).delay_after(attempt)  # Read at call time.
 
 
 def retryable(status: int | None) -> bool:
@@ -82,15 +84,14 @@ def body_for(event: Any) -> dict[str, Any]:
 
 
 def enqueue_attempt(delivery: Any, principal_id: Any, *, run_after: Any = None) -> None:
-    from skeleton.jobs.services import enqueue
+    from skeleton.jobs.delivery import enqueue_delivery_attempt
 
-    enqueue(
+    enqueue_delivery_attempt(
         DELIVER_JOB,
-        organization_id=delivery.organization_id,
-        actor=principal_id,
-        payload={"delivery_id": str(delivery.pk)},
+        delivery,
         # The principal is part of the key: a change of principal enqueues a new job (#313).
         idempotency_key=f"webhook:{delivery.pk}:{delivery.attempts + 1}:{principal_id}",
+        actor=principal_id,
         run_after=run_after,
     )
 
@@ -271,6 +272,7 @@ def register_webhook_delivery() -> None:
             backoff=60.0,
             timeout_s=60,
             owner_app="sk_integrations",
+            channel="webhook",
         )
     )
     # Only webhook types: membership and app events, for instance, never reach the fan-out (#43).

@@ -151,6 +151,8 @@ Com o extra `[metrics]` e `SKELETON_METRICS_TOKEN` definidos (#175), `/metrics` 
 | `skeleton_jobs_dead` | Jobs esgotados |
 | `skeleton_job_workers{state}` | Workers `live` e `stale`, pelo heartbeat |
 
+Os canais de `skeleton_delivery_jobs` vêm do registro de tipos: um tipo de job de entrega declara `JobType(..., channel="webhook" | "email" | "push")`. Os pipelines de entrega (webhooks, email, push) usam o mesmo auxiliar `skeleton.jobs.delivery` (`RetrySchedule` e `enqueue_delivery_attempt`); cada um mantém os próprios estados, agenda e formato de chave de idempotência (#346).
+
 Nenhum rótulo traz organização, ator ou payload. Alertas sugeridos: atraso acima do `--max-lag` usado em `check_jobs`, `skeleton_job_workers{state="live"} == 0` e crescimento de `skeleton_jobs_dead`. Configuração do endpoint e do Prometheus em [deployment](deployment.md#métricas-prometheus-175).
 
 ## Jobs dos fluxos de processo
