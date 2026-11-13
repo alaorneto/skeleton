@@ -21,6 +21,9 @@ class FlowsConfig(AppConfig):
         register_token_scope(FLOWS_READ, gettext_lazy("Ler tarefas, instâncias e histórico de fluxos"))
         register_token_scope(FLOWS_WRITE, gettext_lazy("Agir em tarefas e instâncias de fluxos"))
         register_flow_event_types()
+        from .event_waits import register_event_waits
+
+        register_event_waits()
         register_automatic_steps()
         register_human_steps()
         register_flow_notification_types()

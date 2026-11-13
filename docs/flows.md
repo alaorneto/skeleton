@@ -108,13 +108,15 @@ def ready(self):
 | Aprovação | `approval(key, assignees=..., policy=..., quorum=..., form=..., sla=...)` | Cria uma tarefa por vaga de aprovador | A política resolve para `approved` ou `rejected` |
 | Serviço | `service(key, handler=..., outputs=..., max_attempts=3)` | Roda um handler registrado pela app, num job | O handler devolve um resultado opcional |
 | Temporizador | `timer(key, delay_seconds=...)` | Espera um tempo | O job do temporizador dispara |
-| Espera | `wait(key, signal=..., timeout_seconds=..., form=...)` | Espera um sinal enviado pela app | `received` ou `timeout` |
+| Espera | `wait(key, signal=..., timeout_seconds=..., form=...)` ou `wait(key, event=..., correlate=...)` | Espera um sinal enviado pela app, ou um evento de domínio da app ([#411](https://github.com/alaorneto/skeleton/issues/411)) | `received` ou `timeout` |
 | Gateway exclusivo | `exclusive(key)` | Escolhe **uma** saída: a primeira condição verdadeira, na ordem declarada, ou a padrão | Imediato |
 | Bifurcação paralela | `parallel(key, join=...)` | Ativa **todas** as saídas | Imediato |
 | Bifurcação inclusiva | `inclusive(key, join=...)` | Ativa **todas as saídas cuja condição é verdadeira**; se nenhuma, a padrão | Imediato |
 | Junção | `join(key)` | Espera todos os ramos que a bifurcação correspondente ativou | Quando o último ramo chega |
 
 Subfluxos (uma etapa que inicia outro fluxo) ficam para o [ciclo 2](#o-que-fica-para-depois).
+
+**Espera por evento** ([#411](https://github.com/alaorneto/skeleton/issues/411)). `wait(key, event="app.tipo")` avança quando um evento de domínio daquele tipo é publicado sobre o registro de negócio da instância. Com `correlate="campo"`, avança quando esse campo declarado do evento traz o `sysid` do registro, para eventos de outra tabela. O tipo precisa ser da própria app e, sem `correlate`, sobre a tabela do registro; a espera por evento não tem formulário e aceita `timeout_seconds` como a de sinal. Quem entrega é o consumidor do núcleo `flows.event_waits`, que recebe só os eventos das apps, no contexto da organização do evento: um evento de outra organização nunca avança a instância, e uma entrega repetida encontra a espera já concluída e não faz nada. Os campos novos ficam fora da forma canônica enquanto vazios, então o digest dos fluxos já publicados não muda.
 
 ### Transições
 
@@ -339,7 +341,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 | Item | Por que não agora |
 |---|---|
 | Subfluxos | Exigem fixar a versão do fluxo filho e propagar cancelamento, suspensão e falha entre instâncias |
-| Espera por tipo de evento de domínio | O sinal explícito, enviado pelo consumidor de eventos da app, cobre o caso sem acoplar o motor ao outbox |
 | SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |
 | Migrar instâncias para outra versão | Precisa de um mapa de etapas entre versões e de regras para tarefas abertas |
 | Diagrama do fluxo e métricas | Apresentação e operação, sem efeito no contrato |

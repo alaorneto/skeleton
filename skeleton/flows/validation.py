@@ -31,6 +31,7 @@ from .spec import (
 
 FLOW_KEY = re.compile(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*")
 NAME = re.compile(r"[a-z][a-z0-9_]*")
+EVENT_CODE = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")
 CODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*")
 MAX_STEPS = 200
 MAX_FIELDS = 100
@@ -235,8 +236,17 @@ def _step_problems(step: Step, spec: FlowSpec) -> list[str]:
         if len(out) != 1 or not plain:
             problems.append(f"{where}: a timer has exactly one plain outgoing transition")
     elif kind == "wait":
-        if not NAME.fullmatch(step.signal or "") or len(step.signal) > 64:
+        if step.event:
+            if step.signal or not EVENT_CODE.fullmatch(step.event) or len(step.event) > 100:
+                problems.append(f"{where}: a wait takes either a signal or a valid event type")
+            if step.correlate and not NAME.fullmatch(step.correlate):
+                problems.append(f"{where}: invalid correlation field")
+            if step.form is not None:
+                problems.append(f"{where}: an event wait has no form")
+        elif not NAME.fullmatch(step.signal or "") or len(step.signal) > 64:
             problems.append(f"{where}: a wait needs a signal name")
+        elif step.correlate:
+            problems.append(f"{where}: only an event wait correlates")
         if step.form is not None:
             problems.extend(_form_problems(f"{where} form", step.form))
         results = [item.on or "received" for item in out]
@@ -459,6 +469,20 @@ def _subject_problems(spec: FlowSpec) -> list[str]:
                 problems.append(f"number sequence {spec.number_sequence!r} belongs to another app")
     from skeleton.events.registry import get_event_type
 
+    for step in spec.steps:
+        if step.kind != "wait" or not step.event:
+            continue
+        try:
+            awaited = get_event_type(step.event)
+        except KeyError:
+            problems.append(f"step {step.key}: event type {step.event!r} is not registered")
+            continue
+        if awaited.owner_app != spec.owner_app:
+            problems.append(f"step {step.key}: event type {step.event!r} must be the app's own")
+        elif step.correlate and step.correlate not in awaited.payload_fields:
+            problems.append(f"step {step.key}: {step.correlate!r} is not a payload field of {step.event!r}")
+        elif not step.correlate and awaited.table_key != spec.subject_table:
+            problems.append(f"step {step.key}: event type {step.event!r} is not about the subject; correlate a field")
     for moment, code in spec.subject_events:
         try:
             event_type = get_event_type(code)

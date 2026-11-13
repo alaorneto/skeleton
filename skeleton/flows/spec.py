@@ -231,6 +231,9 @@ class Step:
     retry_seconds: int = 60
     delay_seconds: int = 0
     signal: str = ""
+    # A wait advanced by a domain event instead of a signal (#411); see ``wait``.
+    event: str = ""
+    correlate: str = ""
     timeout_seconds: int = 0
     outcome: str = ""
     join: str = ""
@@ -311,8 +314,32 @@ def timer(key: str, *, delay_seconds: Any, label: str = "") -> Step:
     return Step(key, "timer", label, delay_seconds=_seconds(delay_seconds))
 
 
-def wait(key: str, *, signal: str, label: str = "", timeout_seconds: Any = 0, form: Form | None = None) -> Step:
-    return Step(key, "wait", label, signal=signal, timeout_seconds=_seconds(timeout_seconds), form=form)
+def wait(
+    key: str,
+    *,
+    signal: str = "",
+    event: str = "",
+    correlate: str = "",
+    label: str = "",
+    timeout_seconds: Any = 0,
+    form: Form | None = None,
+) -> Step:
+    """Wait for a ``signal`` sent by the app, or for a domain ``event`` of the app (#411).
+
+    An event wait advances when an event of that type is published about the instance's
+    subject record, or, with ``correlate=<payload field>``, when that field of the event holds
+    the subject's sysid. Exactly one of ``signal`` and ``event``; an event wait has no form.
+    """
+    return Step(
+        key,
+        "wait",
+        label,
+        signal=signal,
+        event=event,
+        correlate=correlate,
+        timeout_seconds=_seconds(timeout_seconds),
+        form=form,
+    )
 
 
 def exclusive(key: str, *, label: str = "") -> Step:
@@ -346,6 +373,9 @@ class Transition:
     def ident(self) -> str:
         """Stable identity inside the flow: the declared key, or ``source>target`` (plus ``:on``)."""
         return self.key or f"{self.source}>{self.target}" + (f":{self.on}" if self.on else "")
+
+
+OPTIONAL_STEP_FIELDS = ("event", "correlate")
 
 
 @dataclass(frozen=True)
@@ -420,6 +450,12 @@ class FlowSpec:
     def to_json(self) -> dict[str, Any]:
         raw = dataclasses.asdict(self)
         raw.pop("_index", None)
+        for step in raw["steps"]:
+            # Fields added after the first release stay out of the canonical form while empty,
+            # so the digest of every flow frozen before them does not change (#411).
+            for name in OPTIONAL_STEP_FIELDS:
+                if step.get(name) == "":
+                    step.pop(name)
         return json.loads(json.dumps(raw))
 
     def canonical(self) -> str:
