@@ -205,7 +205,11 @@ class BootstrapTest(unittest.TestCase):
             self.assertTrue((self.root / relative).is_file(), relative)
         workflow = (self.root / ".github/workflows/pr-check.yml").read_text(encoding="utf-8")
         self.assertNotIn("{{SKILL_DIR}}", workflow)
-        self.assertIn("/scripts/github_issues.py check-pr", workflow)
+        self.assertIn('/scripts/github_issues.py"', workflow)
+        self.assertIn('python3 "$script" check-pr', workflow)
+        # Both jobs run the code of the base branch, never the PR's own validator (#331).
+        self.assertEqual(workflow.count("ref: ${{ github.event.pull_request.base.sha }}"), 2)
+        self.assertNotIn("pull_request_target", workflow)
         hook = bootstrap.hook_path(self.root).read_text(encoding="utf-8")
         self.assertIn(bootstrap.HOOK_MARKER, hook)
         self.assertEqual(bootstrap.doctor(self.root, gh=self.labels_gh())[0].state, "ok")

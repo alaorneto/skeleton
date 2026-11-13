@@ -55,7 +55,7 @@ def remove_reminder(*, actor: Any, reminder_id: Any, expected_revision: int) -> 
     reminder.delete()
 
 
-def _recipients(event: Any, invited: dict, organizers: set) -> tuple:
+def _recipients(event: Any, invited: dict[Any, list[Any]], organizers: set[Any]) -> tuple[Any, ...]:
     """The organizer while still a member, then the active attendees (#223)."""
     users = list(invited.get(event.pk, ()))
     if event.organizer_id in organizers:
@@ -63,7 +63,7 @@ def _recipients(event: Any, invited: dict, organizers: set) -> tuple:
     return tuple(dict.fromkeys(users))
 
 
-def _candidates(now: Any) -> tuple[list, dict, dict, set]:
+def _candidates(now: Any) -> tuple[list[Any], dict[Any, Any], dict[Any, list[Any]], set[Any]]:
     """Reminders that may still be due, with their overrides, attendees and active organizers, in bulk."""
     from django.db.models import Q
 
@@ -88,8 +88,8 @@ def _candidates(now: Any) -> tuple[list, dict, dict, set]:
         .filter(Q(event__recurrence_end__gt=cutoff) | Q(event__recurrence_end__isnull=True) | Q(event_id__in=moved))
     )
     master_ids = {reminder.event_id for reminder in reminders}
-    overrides: dict = {}
-    invited: dict = {}
+    overrides: dict[Any, Any] = {}
+    invited: dict[Any, list[Any]] = {}
     if master_ids:
         for row in Event.objects.filter(series_id__in=master_ids):
             overrides.setdefault(row.series_id, []).append(row)

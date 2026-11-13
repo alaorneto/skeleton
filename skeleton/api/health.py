@@ -29,7 +29,7 @@ def probe_response(request):
                     raise RuntimeError("Cache probe failed.")
             finally:
                 cache.delete(key)
-        except Exception:
+        except Exception:  # noqa: BLE001 - any failing dependency answers 503 without detail
             status = "unavailable"
             # The probe answers 503 without detail; operators get the failing dependency and code position.
             security_event(

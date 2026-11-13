@@ -11,9 +11,10 @@ busy blocks.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.translation import gettext
@@ -21,6 +22,9 @@ from django.views.decorators.http import require_http_methods, require_safe
 
 from skeleton.service_api.tokens import FeedTokenService, authenticate_feed
 from skeleton.tenancy.aggregate import aggregate_route, for_each_organization
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 FEED_SCOPE = "calendar.feed"
 APP_LABEL = "skeleton_calendar"
@@ -30,7 +34,7 @@ FEED_FUTURE = timedelta(days=400)  # Single events that start later are not expo
 
 @aggregate_route
 @require_safe
-def feed(request, token):
+def feed(request: HttpRequest, token: str) -> HttpResponse:
     from django.db.models import Q
 
     from .ics import calendar_bytes, calendar_components, capped
@@ -44,7 +48,7 @@ def feed(request, token):
     recent = Q(recurrence_end__gte=now - FEED_PAST) | Q(recurrence_end__isnull=True)
     soon = ~Q(rrule="") | Q(starts_at__lt=now + FEED_FUTURE) | Q(start_date__lte=(now + FEED_FUTURE).date())
 
-    def read(organization_id):
+    def read(organization_id: UUID) -> Any:
         return calendar_components(user, readable_events(user).filter(recent).filter(soon), busy_only=busy_only)
 
     results = for_each_organization(user, read, source="http:calendar-feed", app_label=APP_LABEL)
@@ -59,7 +63,8 @@ feed.skeleton_token_route = True  # type: ignore[attr-defined]
 
 @aggregate_route
 @require_http_methods(["GET", "POST"])
-def feed_token(request):
+# Any: aggregate_route admits only an authenticated person, and the middleware sets request_id.
+def feed_token(request: Any) -> HttpResponse:
     """Issue a feed token (session, POST + CSRF); its URL is shown once."""
     from skeleton.service_api import Forbidden, InvalidInput
     from skeleton.tenancy.aggregate import user_context

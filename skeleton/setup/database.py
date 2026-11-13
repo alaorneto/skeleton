@@ -43,7 +43,7 @@ def parse(dsn: str) -> dict:
         import environ  # type: ignore[import-untyped]
 
         config = environ.Env.db_url_config(dsn)
-    except Exception:
+    except Exception:  # noqa: BLE001 - any parser failure is the same invalid-URL refusal
         raise DatabaseCheckError(gettext("URL de banco inválida.")) from None
     if not config.get("NAME") or not config.get("USER"):
         raise DatabaseCheckError(gettext("Informe usuário e banco na URL."))

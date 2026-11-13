@@ -71,7 +71,7 @@ class Command(BaseCommand):
                 for table_name, columns in sorted(targets.items()):
                     for column in columns:
                         statement = sql.SQL(
-                            "UPDATE {table} SET changes = "
+                            "UPDATE {table} SET changes = "  # noqa: S608 - fixed SQL text; column and table name are bound parameters
                             + _redaction(column).replace("%(c)s", "%(c)s")
                             + " WHERE table_name = %(t)s AND changes ? %(c)s"
                             + " AND COALESCE((changes->%(c)s->>'redacted')::boolean, false) = false"

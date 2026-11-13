@@ -48,7 +48,7 @@ def build_security_fixture():
     with system_context(reason="fixture:identities"):
         users = []
         for name in ("admin", "alice", "bob", "outsider"):
-            user = create_identity(email=f"{name}@security.example.test", password="Fixture-only-password-2026!")
+            user = create_identity(email=f"{name}@security.example.test", password="Fixture-only-password-2026!")  # noqa: S106 - disposable password of a local test fixture
             EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
             users.append(user)
         admin, alice, bob, outsider = users

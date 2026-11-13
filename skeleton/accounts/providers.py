@@ -226,7 +226,7 @@ def _oidc_identity(options, debug):
     _url(options.get("server_url"), debug=debug)
     options["uid_field"] = "sub"
     options["oauth_pkce_enabled"] = True
-    options["token_auth_method"] = "client_secret_basic"
+    options["token_auth_method"] = "client_secret_basic"  # noqa: S105 - OAuth client authentication method name, not a secret
     return options["server_url"].rstrip("/")
 
 

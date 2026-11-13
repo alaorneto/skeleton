@@ -93,7 +93,7 @@ class CalendarService(ServiceAPI):
 
     @service_method(read_only=False, since="0.5.0")
     def create_event(
-        self, *, actor: Any, calendar_id: UUID, data: dict, idempotency_key: str | None = None
+        self, *, actor: Any, calendar_id: UUID, data: dict[str, Any], idempotency_key: str | None = None
     ) -> EventInfo:
         """Create an event in a calendar the actor updates; the actor is the organizer.
 
@@ -129,7 +129,7 @@ class CalendarService(ServiceAPI):
         return event_info(actor, event)
 
     @service_method(read_only=False, since="0.5.0")
-    def update_event(self, *, actor: Any, event_id: UUID, data: dict, expected_revision: int) -> EventInfo:
+    def update_event(self, *, actor: Any, event_id: UUID, data: dict[str, Any], expected_revision: int) -> EventInfo:
         """Change an event the actor writes, with CAS.
 
         Autorização: update no calendário do evento.
@@ -202,7 +202,7 @@ class CalendarService(ServiceAPI):
         event_id: UUID,
         recurrence_id: datetime,
         mode: str,
-        data: dict,
+        data: dict[str, Any],
         expected_revision: int,
     ) -> EventInfo:
         """Change one occurrence (``this``), this and the following ones or the whole series (``all``).
@@ -602,7 +602,7 @@ def _window(start: Any, end: Any) -> tuple[datetime, datetime]:
     return start, end
 
 
-def _expanded(events: Any, start: datetime, end: datetime) -> list:
+def _expanded(events: Any, start: datetime, end: datetime) -> list[Any]:
     """(master, occurrence) pairs overlapping the window, with a bounded number of queries (#291).
 
     A single event that starts after the window is never loaded; the overrides of every master
@@ -622,12 +622,12 @@ def _expanded(events: Any, start: datetime, end: datetime) -> list:
         .filter(single | ~Q(rrule=""))
         .select_related("calendar")
     )
-    overrides: dict = {}
+    overrides: dict[Any, list[Any]] = {}
     recurring = [master.pk for master in masters if master.rrule]
     if recurring:
         for row in Event.objects.filter(series_id__in=recurring).select_related("calendar"):
             overrides.setdefault(row.series_id, []).append(row)
-    pairs: list = []
+    pairs: list[Any] = []
     for master in masters:
         expansion = expand(master, start, end, overrides=overrides.get(master.pk, ()))
         if expansion.truncated or len(pairs) + len(expansion.occurrences) > MAX_OCCURRENCES_PER_CALL:

@@ -8,7 +8,7 @@ class CalendarConfig(AppConfig):
     verbose_name = gettext_lazy("Agenda")
     default_auto_field = "django.db.models.BigAutoField"
 
-    def ready(self):
+    def ready(self) -> None:
         from pathlib import Path
 
         from skeleton.system.app_registry import AppManifest, register_app

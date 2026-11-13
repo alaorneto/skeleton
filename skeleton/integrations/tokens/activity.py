@@ -8,6 +8,7 @@ The row is operational: no revision, no audit event, never exposed by the gatewa
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -28,7 +29,7 @@ def touch(token: Any, *, using: str = "default") -> bool:
     try:
         if not cache.add(marker, 1, timeout=ACTIVITY_WINDOW_S):
             return False
-    except Exception:  # noqa: BLE001 - without the cache, the database check below still bounds writes
+    except Exception:  # noqa: BLE001, S110 - without the cache, the database check below still bounds writes
         pass
     now = timezone.now()
     with system_context(reason="api-token:activity", using=using):
@@ -49,7 +50,7 @@ def touch(token: Any, *, using: str = "default") -> bool:
         return True
 
 
-def last_used(token_ids) -> dict:
+def last_used(token_ids: Iterable[Any]) -> dict[Any, Any]:
     from .models import ApiTokenActivity
 
     return dict(ApiTokenActivity.objects.filter(token_id__in=list(token_ids)).values_list("token_id", "last_used_at"))

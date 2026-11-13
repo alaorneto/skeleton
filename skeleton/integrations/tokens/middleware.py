@@ -22,12 +22,26 @@ and the token scopes in the context.
 
 from __future__ import annotations
 
-from django.http import JsonResponse
-from django.urls import Resolver404, resolve
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+from django.http import HttpRequest, JsonResponse
+from django.http.response import HttpResponseBase
+from django.urls import Resolver404, ResolverMatch, resolve
 from django.utils.translation import gettext
 
 from skeleton.common.logging import security_event
 from skeleton.common.ratelimit import hit, peek
+
+if TYPE_CHECKING:
+
+    class ApiRequest(HttpRequest):
+        """Type only: what the middlewares before and here attach to the request."""
+
+        request_id: str
+        api_token: Any
+        _dont_enforce_csrf_checks: bool
+
 
 API_PREFIX = "/api/v1/"
 SAFE_EXTRA = ("HEAD", "OPTIONS")
@@ -40,7 +54,7 @@ def _limit(name: str, default: int) -> int:
     return int(getattr(settings, name, default))
 
 
-def client_ip(request) -> str:
+def client_ip(request: ApiRequest) -> str:
     """The client address under the configured proxy topology (allauth's trusted proxy count)."""
     try:
         from allauth.account.adapter import get_adapter
@@ -50,7 +64,7 @@ def client_ip(request) -> str:
         return request.META.get("REMOTE_ADDR", "unknown")
 
 
-def _too_many(request, reason: str, retry_after: int):
+def _too_many(request: ApiRequest, reason: str, retry_after: int) -> JsonResponse:
     security_event("api_token.rate_limited", reason_code=reason, source="http", request_id=request.request_id)
     return _error(
         429,
@@ -67,7 +81,7 @@ def _error(status: int, code: str, detail: str, **headers: str) -> JsonResponse:
     return response
 
 
-def bearer(request) -> str | None:
+def bearer(request: ApiRequest) -> str | None:
     header = request.META.get("HTTP_AUTHORIZATION", "")
     scheme, _, value = header.partition(" ")
     if scheme.lower() != "bearer":
@@ -75,21 +89,21 @@ def bearer(request) -> str | None:
     return value.strip()
 
 
-def _view_class(match):
+def _view_class(match: ResolverMatch) -> Any:
     func = match.func
     return getattr(func, "view_class", None) or getattr(func, "cls", None)
 
 
-def token_methods(match) -> tuple[str, ...]:
+def token_methods(match: ResolverMatch) -> tuple[str, ...]:
     methods = tuple(getattr(_view_class(match), "token_methods", ()) or ())
     return methods + (SAFE_EXTRA if "GET" in methods else ())
 
 
 class ApiTokenMiddleware:
-    def __init__(self, get_response):
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponseBase]) -> None:
         self.get_response = get_response
 
-    def __call__(self, request):
+    def __call__(self, request: ApiRequest) -> HttpResponseBase:
         request.api_token = None
         if not request.path_info.startswith(API_PREFIX):
             return self.get_response(request)
@@ -98,7 +112,7 @@ class ApiTokenMiddleware:
             return self.get_response(request)
         return self._authenticate(request, text) or self.get_response(request)
 
-    def _reject(self, request, reason: str):
+    def _reject(self, request: ApiRequest, reason: str) -> JsonResponse:
         hit(f"token-failure:{client_ip(request)}", limit=0, window_s=WINDOW_S)
         security_event("api_token.rejected", reason_code=reason, source="http", request_id=request.request_id)
         return _error(
@@ -108,7 +122,7 @@ class ApiTokenMiddleware:
             **{"WWW-Authenticate": 'Bearer realm="api", error="invalid_token"'},
         )
 
-    def _authenticate(self, request, text: str):
+    def _authenticate(self, request: ApiRequest, text: str) -> JsonResponse | None:
         from .services import verify_token
 
         if request.user.is_authenticated:

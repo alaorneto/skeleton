@@ -156,6 +156,14 @@ class AgentClient:
             raise AgentError("invalid_uuid") from None
         return self._request("GET", f"/operations/{operation_id}", timeout=STATUS_TIMEOUT)
 
+    def plan(self, plan_id):
+        """State of a preview in preparation (#298): preparing, ready (with the plan) or failed."""
+        try:
+            plan_id = str(UUID(str(plan_id)))
+        except (ValueError, TypeError):
+            raise AgentError("invalid_uuid") from None
+        return self._request("GET", f"/plans/{plan_id}", timeout=STATUS_TIMEOUT)
+
     def status_ticket(self, operation_id):
         return self._request(
             "POST", "/status-ticket", {"operation_id": str(UUID(str(operation_id)))}, timeout=STATUS_TIMEOUT
