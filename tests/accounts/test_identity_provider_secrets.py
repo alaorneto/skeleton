@@ -103,8 +103,10 @@ def test_stored_secrets_without_keys_fail_the_checks(provider_table, monkeypatch
     from skeleton.system.checks import stored_secret_key_checks, stored_secrets_without_keys
 
     # The stand-in is a TEMP table (pg_temp), outside the skeleton schema that physical_tables lists.
-    listed = checks.physical_tables
-    monkeypatch.setattr(checks, "physical_tables", lambda connection: [*listed(connection), "sk_test_providersecret"])
+    listed = checks.encryption.physical_tables
+    monkeypatch.setattr(
+        checks.encryption, "physical_tables", lambda connection: [*listed(connection), "sk_test_providersecret"]
+    )
 
     with override_settings(IDENTITY_PROVIDER_ENCRYPTION_KEYS=[OLD]):
         provider_table.objects.create(name="a", client_secret="secret-a")

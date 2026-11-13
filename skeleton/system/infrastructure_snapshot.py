@@ -16,9 +16,9 @@ _LABEL = re.compile(r"[a-zA-Z_][a-zA-Z_0-9]*\Z")
 
 
 def export_inventory():
-    from .checks import _frozen_operations
+    from .checks import frozen_operations
 
-    records, technical, lifecycle = _frozen_operations(from_migrations=True)
+    records, technical, lifecycle = frozen_operations(from_migrations=True)
     return {
         "format": 1,
         "records": [

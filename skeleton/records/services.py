@@ -4,21 +4,12 @@ from django.http import Http404
 from django.utils.translation import gettext
 
 from skeleton.access.policies import authorized_queryset, is_organization_admin, require_record_action
-from skeleton.common.models import SecuredRecord
+from skeleton.common.models import ACCESS_FIELD_NAMES, SYSTEM_FIELD_NAMES, SecuredRecord
 from skeleton.system.registry import all_specs, get_spec
 from skeleton.tenancy.context import current_context
 
-SYSTEM_FIELDS = (
-    "sysid",
-    "created_at",
-    "updated_at",
-    "created_by",
-    "updated_by",
-    "deleted_at",
-    "deleted_by",
-    "revision",
-)
-ACCESS_FIELDS = ("owner", "visibility", "owning_group")
+SYSTEM_FIELDS = SYSTEM_FIELD_NAMES  # Single source in skeleton.common.models (#310).
+ACCESS_FIELDS = ACCESS_FIELD_NAMES
 
 
 def exposed_spec(key):

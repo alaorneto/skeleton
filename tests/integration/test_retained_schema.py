@@ -42,7 +42,7 @@ def test_retained_schema_checks_and_repairs_exact_guards_without_public_model(tm
     frozen_raw = json.dumps(export_inventory(), sort_keys=True).encode()
     frozen.write_bytes(frozen_raw)
     installed = tuple(spec for spec in all_specs() if spec.model._meta.app_label != "example_notes")
-    monkeypatch.setattr(checks, "all_specs", lambda: installed)
+    monkeypatch.setattr(checks.schema, "all_specs", lambda: installed)
     monkeypatch.setattr(synchronization, "all_specs", lambda: installed)
     with override_settings(
         SKELETON_RETAINED_SCHEMA_PATHS=[{"path": str(source), "sha256": hashlib.sha256(raw).hexdigest()}],
@@ -83,3 +83,34 @@ def test_retained_schema_checks_and_repairs_exact_guards_without_public_model(tm
         source.write_bytes(b"{}")
         with pytest.raises(CommandError):
             call_command("check_skeleton_schema", verbosity=0)
+
+
+def test_export_schema_opens_one_context_per_organization(monkeypatch):
+    """Every tenant model of the app is counted inside one context per organization (#284)."""
+    from examples.notes.models import Note
+    from skeleton.tenancy import context
+    from skeleton.tenancy.models import Organization
+
+    user, first = bootstrap_identity(
+        email="retained-contexts@example.test",
+        organization="retained-ctx-a",
+        name="A",
+        password="Str0ng-schema-fixture!79",
+    )
+    _, second = bootstrap_identity(email=user.email, organization="retained-ctx-b", name="B")
+    for organization, code in ((first, "a"), (second, "b")):
+        with tenant_context(organization_id=organization.pk, actor=user, source="test:retained"):
+            Note(organization=organization, owner=user, code=code, title=code).save()
+    real, reasons = context.system_context, []
+
+    def spy(*args, **kwargs):
+        reasons.append(kwargs.get("reason"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(context, "system_context", spy)
+    snapshot = export_schema("example_notes")
+    monkeypatch.undo()
+    with real(reason="test:organizations"):
+        organizations = Organization.all_objects.count()
+    assert reasons.count("deployment:schema-export") == organizations
+    assert snapshot["impact"]["organizations"] == 2 and snapshot["impact"]["records"] == 2

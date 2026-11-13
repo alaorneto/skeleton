@@ -12,7 +12,7 @@ O evento e a mudança pertencem à mesma transação: se a inserção na auditor
 
 ## Payload e redação
 
-O **payload** é o conteúdo do evento. Em `changes`, cada campo tem `{old, new, redacted}`: valor anterior, novo valor e indicação de segredo ocultado. Create tem `old=null`; exclusão física tem `new=null`; update contém só campos realmente alterados. Identidade, datas e revisão têm metadados próprios e não precisam repetir alterações mecânicas no conteúdo. UUIDs na API usam hífens.
+O **payload** é o conteúdo do evento. Em `changes`, cada campo tem `{old, new, redacted}`: valor anterior, novo valor e indicação de segredo ocultado. Create tem `old=null`; exclusão física tem `new=null`; update contém só campos realmente alterados. Além dos `sensitive_fields` do spec, a auditoria redige os campos com nomes de segredo (`password`, `token`, `token_digest`, `secret`, `private_key`, `recovery_codes`), e o check E008 exige que esses campos, quando não relacionais, estejam declarados como sensíveis (#310). Identidade, datas e revisão têm metadados próprios e não precisam repetir alterações mecânicas no conteúdo. UUIDs na API usam hífens.
 
 **Redação**, aqui, significa ocultar valores sensíveis, não escrever uma descrição. Password, token/token_digest, secret/private_key, códigos MFA e campos marcados `sensitive` viram `[REDACTED]` **antes de persistir**. O banco compara os valores reais antes de ocultá-los: mesmo que old/new apareçam igualmente redigidos, uma mudança de senha continua registrada. JSON/claims sensíveis são ocultados integralmente. Um novo campo sensível exige atualização da spec e da migration; não confie apenas em heurística de nome.
 

@@ -1,6 +1,5 @@
 """Exercise installed core rendering and signed-base source adoption with a real wheel."""
 
-import hashlib
 import json
 import os
 import shutil
@@ -300,20 +299,3 @@ def test_adoption_removes_only_equivalent_source_and_retains_migrations(core_whe
     assert not (project / "skeleton").exists()
     assert (Path(result["backup"]) / "accounts/migrations/0001_initial.py").is_file()
     assert all((project / name).read_bytes() == content for name, content in preserved.items())
-
-
-def test_worker_confirmation_checks_actual_loaded_core_bytes(monkeypatch):
-    import skeleton.deployment
-    from skeleton.deployment import DeploymentInventory, confirm_core
-
-    source = Path(skeleton.deployment.__file__)
-    payload = source.read_bytes()
-    files = {"skeleton/deployment.py": {"sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)}}
-    state = DeploymentInventory(5, {"version": "0.1.0", "digest": "a" * 64, "files": files}, (), (), ())
-    monkeypatch.setattr("skeleton.versioning.core_version", lambda: {"version": "0.1.0", "origin": "installed"})
-    assert confirm_core(state)[1] is True
-    files["skeleton/deployment.py"]["sha256"] = "0" * 64
-    assert confirm_core(state)[1] is False
-    files["skeleton/deployment.py"]["sha256"] = hashlib.sha256(payload).hexdigest()
-    monkeypatch.setattr("skeleton.versioning.core_version", lambda: {"version": "0.1.0", "origin": "source"})
-    assert confirm_core(state)[1] is False

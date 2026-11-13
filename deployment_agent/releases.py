@@ -21,6 +21,7 @@ from skeleton.system.packages import (
     validate_wheel_set,
 )
 
+from .config import installed_bundled_app_ids
 from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
 
 
@@ -266,7 +267,7 @@ def dependency_error(resolution, suggest=None):
     return AgentError("target_runtime_incompatible", 409, details=details)
 
 
-def resolve_target(manifests, *, core, environment, django):
+def resolve_target(manifests, *, core, environment, django, provided=()):
     try:
         return resolve_dependencies(
             manifests,
@@ -274,6 +275,7 @@ def resolve_target(manifests, *, core, environment, django):
             python=environment["python_full_version"],
             django=django,
             target_environment=environment,
+            provided=provided,
         )
     except PackageError:
         raise AgentError("target_runtime_incompatible", 409) from None
@@ -310,7 +312,11 @@ def check_plan_dependencies(config, backend, inventory, artifact_manifests, remo
     remaining = [manifest for app_id, manifest in apps.items() if app_id not in removed]
     environment = backend.target_environment()
     django = target_django_version(config, [core, *remaining], environment)
-    resolution = resolve_target([core, *remaining], core=core["version"], environment=environment, django=django)
+    # First-party apps the runtime installs satisfy dependencies at the core's version (#254).
+    provided = installed_bundled_app_ids(config)
+    resolution = resolve_target(
+        [core, *remaining], core=core["version"], environment=environment, django=django, provided=provided
+    )
     if not resolution.ok:
         target = {"skeleton": core["version"], "python": environment["python_full_version"], "django": django}
         raise dependency_error(
@@ -480,7 +486,11 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             entry["path"] = str(target)
     lock = build_lock(config, release, [core["manifest"], *manifests], environment)
     resolution = resolve_target(
-        [core["manifest"], *manifests], core=core["version"], environment=environment, django=lock["django"]["version"]
+        [core["manifest"], *manifests],
+        core=core["version"],
+        environment=environment,
+        django=lock["django"]["version"],
+        provided=installed_bundled_app_ids(config),  # Same verdict as the plan check (#254).
     )
     if not resolution.ok:
         raise dependency_error(resolution)

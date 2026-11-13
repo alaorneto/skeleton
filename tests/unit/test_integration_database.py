@@ -455,3 +455,78 @@ def test_cache_keeps_only_the_newest_entries(tmp_path):
     kept = sorted(path.stem for path in tmp_path.glob("*.json"))
     assert len(kept) == idb.CACHE_ENTRIES_KEPT and "f" * 64 in kept
     assert f"{0:064x}" not in kept
+
+
+# The barriers moved to the wheel for derived projects (#334): same refusals, one implementation.
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"SKELETON_TEST_ALLOW_SCHEMA_RESET": None}, "SKELETON_TEST_ALLOW_SCHEMA_RESET=1"),
+        (
+            {
+                "TEST_DATABASE_URL": RUNTIME.replace("ci_skeleton_test", "ci_production"),
+                "TEST_MIGRATION_DATABASE_URL": OWNER.replace("ci_skeleton_test", "ci_production"),
+            },
+            "must end with _skeleton_test",
+        ),
+        ({"TEST_DATABASE_URL": RUNTIME.replace("skeleton_runtime", "skeleton_owner")}, "skeleton_runtime role"),
+        ({"TEST_MIGRATION_DATABASE_URL": OWNER.replace("skeleton_owner", "postgres")}, "skeleton_owner role"),
+        ({"DATABASE_URL": RUNTIME}, "must differ from DATABASE_URL"),
+    ],
+)
+def test_disposable_pair_requires_reset_marker_suffix_and_roles(monkeypatch, change, message):
+    from skeleton.testing import database
+
+    environment = {
+        "SKELETON_TEST_ALLOW_SCHEMA_RESET": "1",
+        "TEST_DATABASE_URL": RUNTIME,
+        "TEST_MIGRATION_DATABASE_URL": OWNER,
+        "DATABASE_URL": None,
+        "MIGRATION_DATABASE_URL": None,
+        idb.WORKER_ENV: None,
+        **change,
+    }
+    for name, value in environment.items():
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    with pytest.raises(RuntimeError, match=message):
+        database.disposable_database_pair()
+
+
+def test_tools_module_reexports_the_distributed_functions():
+    from skeleton.testing import database
+
+    for name in ("DatabasePair", "disposable_database_pair", "reset_schema", "_verify_owner", "_owner_connection"):
+        assert getattr(idb, name) is getattr(database, name)
+
+
+def test_service_kit_does_not_import_pytest():
+    import subprocess
+    import sys
+
+    code = "import sys, skeleton.testing, skeleton.testing.service_api; assert 'pytest' not in sys.modules"
+    subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
+
+
+def test_distributed_fixture_stops_with_a_usage_error_before_touching_the_database(monkeypatch):
+    """Without the reset marker the fixture refuses before any connection (#334)."""
+    import psycopg
+
+    from skeleton.testing import database
+
+    monkeypatch.delenv("SKELETON_TEST_ALLOW_SCHEMA_RESET", raising=False)
+    monkeypatch.setattr(psycopg, "connect", lambda *args, **kwargs: pytest.fail("the database was touched"))
+
+    class Blocker:
+        def unblock(self):
+            from contextlib import nullcontext
+
+            return nullcontext()
+
+    generator = database.skeleton_db.__wrapped__(None, None, Blocker())
+    with pytest.raises(pytest.UsageError, match="SKELETON_TEST_ALLOW_SCHEMA_RESET=1"):
+        next(generator)

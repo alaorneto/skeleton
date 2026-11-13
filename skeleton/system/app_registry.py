@@ -369,47 +369,6 @@ def validate_documentation(manifest):
             raise ValidationError(f"Application {filename} is missing required sections.")
 
 
-def application_urlpatterns():
-    from django.urls import include, path
-
-    from .administration import guard_application_api_urls, guard_application_urls
-
-    result = []
-    for manifest in all_apps():
-        if manifest.urls:
-            module, app_name, namespace = include(manifest.urls)
-            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
-            guarded = guard_application_urls(patterns, manifest)
-            result.append(
-                path(
-                    f"o/<uuid:organization_id>/apps/{manifest.app_label}/",
-                    include((guarded, app_name), namespace=namespace),
-                )
-            )
-        if manifest.bundled and manifest.user_urls:
-            from .administration import guard_user_urls
-
-            module, app_name, namespace = include(manifest.user_urls)
-            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
-            result.append(
-                path(
-                    f"me/apps/{manifest.app_label}/",
-                    include((guard_user_urls(patterns), app_name), namespace=namespace or app_name),
-                )
-            )
-        if manifest.api_urls:
-            module, app_name, namespace = include(manifest.api_urls)
-            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
-            guarded = guard_application_api_urls(patterns, manifest)
-            result.append(
-                path(
-                    f"api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/",
-                    include((guarded, app_name), namespace=namespace),
-                )
-            )
-    return result
-
-
 def registered_app_of_module(module):
     """The label of the registered app (with a manifest) that contains ``module``, or None."""
     from django.apps import apps

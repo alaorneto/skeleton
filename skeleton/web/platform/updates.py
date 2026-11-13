@@ -32,6 +32,7 @@ from skeleton.system.releases import (
     reconcile_operation,
     require_release_operator,
     retry_submission,
+    submission_can_retry,
 )
 
 from .guards import platform_page
@@ -403,7 +404,8 @@ def operations(request):
 @require_http_methods(["GET", "POST"])
 @recent_authentication_required(allow_get=True)
 def operation(request, operation_id):
-    row = get_object_or_404(DeploymentOperation.objects.select_for_update(), pk=operation_id)
+    # No row lock while the agent answers (#250): confirm and retry lock on their own.
+    row = get_object_or_404(DeploymentOperation.objects, pk=operation_id)
     if request.method == "POST":
         form = ConfirmationForm(request.POST)
         if not form.is_valid() or form.cleaned_data["plan_digest"] != row.plan_digest:
@@ -423,7 +425,8 @@ def operation(request, operation_id):
         if row.state == "preview":
             status_url = agent_client().status_ticket(str(row.pk)).get("status_url")
         else:
-            status = agent_client().operation(str(row.pk))
+            status = agent_client().operation(str(row.pk))  # No row lock while waiting for the agent.
+            row = DeploymentOperation.objects.select_for_update().get(pk=row.pk)
             reconcile_operation(row, status)
             status_url = status.get("status_url")
     except (ConcurrentUpdate, ValueError, RuntimeError, OSError) as exc:
@@ -436,5 +439,6 @@ def operation(request, operation_id):
             operation=row,
             confirmation_form=ConfirmationForm(initial={"revision": row.revision, "plan_digest": row.plan_digest}),
             status_url=status_url,
+            can_retry=submission_can_retry(row),
         ),
     )

@@ -133,3 +133,43 @@ def test_doctor_warns_that_default_enabled_is_obsolete(tmp_path):
     assert [(problem["code"], problem["severity"]) for problem in result["problems"]] == [
         ("default_enabled_ignored", "warning")
     ]
+
+
+def test_doctor_accepts_dependency_on_installed_first_party_app(tmp_path):
+    """Regression (#254): --bundled-app satisfies a dependency on a first-party app."""
+    root = notes_copy(tmp_path)
+    manifest = load_manifest(root / "manifest.json")
+    manifest["dependencies"] = {"org.skeleton.calendar": ">=0.4.0"}
+    (root / "manifest.json").write_bytes(canonical_json(manifest))
+    without = doctor(root, inventory=inventory_for([]))
+    assert codes(without) == ["missing_dependency"]
+    assert doctor(root, inventory=inventory_for([]), bundled_apps=["calendar"])["problems"] == []
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "skeleton.system.packages",
+            "doctor",
+            str(root),
+            "--inventory",
+            str(_write(tmp_path / "inventory.json", inventory_for([]))),
+            "--bundled-app",
+            "calendar",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert json.loads(completed.stdout)["ok"] is True
+
+
+def _write(path, data):
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_doctor_reports_unknown_bundled_app(tmp_path):
+    result = doctor(notes_copy(tmp_path), bundled_apps=["inexistente"])
+    assert codes(result) == ["bundled_app_unknown"]
+    assert "'inexistente'" in result["problems"][0]["message"]
