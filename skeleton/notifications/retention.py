@@ -4,13 +4,15 @@ The periodic job ``notifications.retention`` runs daily per organization, in tha
 organization's system context. It removes, in this order (rows referenced with PROTECT go
 last):
 
-1. finished deliveries (``sent``, ``skipped``, ``dead``) older than the delivery window;
+1. deliveries older than the delivery window: finished ones (``sent``, ``skipped``,
+   ``dead``) and abandoned open ones (``pending``, ``retrying``) whose job died, since the
+   retry schedule lasts hours, not weeks (#277);
 2. inbox rows read or archived longer than the read window, and unread rows whose last
    update is older than the unread window;
-3. notifications already fanned out, older than the unread window, that no inbox row or
-   delivery references anymore.
+3. notifications older than the unread window that no inbox row or delivery references
+   anymore, fanned out or not (a fan-out job that died leaves ``fanned_out_at`` empty).
 
-Open deliveries (``pending``, ``retrying``) and live rows are never touched, so the unread
+Open deliveries **within** the window and live rows are never touched, so the unread
 counter keeps counting exactly the remaining unread rows.
 """
 
@@ -27,6 +29,7 @@ DEFAULT_READ_DAYS = 90
 DEFAULT_UNREAD_DAYS = 180
 DEFAULT_DELIVERY_DAYS = 30
 FINAL_DELIVERY_STATES = ("sent", "skipped", "dead")
+OPEN_DELIVERY_STATES = ("pending", "retrying")
 BATCH = 1000
 
 
@@ -52,14 +55,14 @@ def expired(now: Any = None) -> dict[str, Any]:
     limits = windows()
     read_before, unread_before = now - limits["read"], now - limits["unread"]
     deliveries = NotificationDelivery.objects.filter(
-        state__in=FINAL_DELIVERY_STATES, created_at__lt=now - limits["deliveries"]
+        state__in=(*FINAL_DELIVERY_STATES, *OPEN_DELIVERY_STATES), created_at__lt=now - limits["deliveries"]
     )
     rows = NotificationRecipient.objects.filter(
         Q(read_at__lt=read_before)
         | Q(archived_at__lt=read_before)
         | Q(read_at__isnull=True, archived_at__isnull=True, updated_at__lt=unread_before)
     )
-    notifications = Notification.objects.filter(fanned_out_at__isnull=False, created_at__lt=unread_before).exclude(
+    notifications = Notification.objects.filter(created_at__lt=unread_before).exclude(
         Exists(NotificationRecipient.objects.filter(notification_id=OuterRef("pk")))
         | Exists(NotificationDelivery.objects.filter(notification_id=OuterRef("pk")))
     )

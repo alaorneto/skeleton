@@ -87,7 +87,7 @@ Com scanner, o upload nasce `pending` e enfileira o job `files.scan` na mesma tr
 | `stream: <assinatura> FOUND` (o EICAR, por exemplo) | `quarantined`, `scan_result_code=infected:<assinatura>` |
 | `clamd` fora do ar, timeout ou resposta sem veredito | o job falha e é retentado com backoff, até 10 vezes; o anexo continua `pending` |
 
-O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` até uma nova verificação.
+O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` (fechado) até uma nova verificação: o job periódico `files.rescan_pending`, de hora em hora e por organização, reenfileira até 500 anexos `pending` há mais de uma hora que não têm verificação em andamento, e quando o antivírus volta eles são decididos sem intervenção (#277). Com `SKELETON_FILES_SCANNER=none`, os pendentes continuam fechados e o job de verificação termina `skipped`, sem falhar, até o scanner voltar.
 
 ## Objetos órfãos
 

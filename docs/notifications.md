@@ -170,8 +170,8 @@ As tabelas de notificação são operacionais, e a exclusão física só acontec
 
 | Setting | Padrão | O que remove |
 |---|---|---|
-| `SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS` | 30 | Entregas finalizadas (`sent`, `skipped`, `dead`) criadas antes do prazo. Entregas `pending` e `retrying` ficam |
+| `SKELETON_NOTIFICATION_DELIVERY_RETENTION_DAYS` | 30 | Entregas finalizadas (`sent`, `skipped`, `dead`) criadas antes do prazo, e as abertas (`pending`, `retrying`) também: o calendário de retentativas dura horas, então uma entrega aberta há mais tempo que o prazo foi abandonada por um job que morreu (#277). Dentro do prazo, as abertas ficam |
 | `SKELETON_NOTIFICATION_READ_RETENTION_DAYS` | 90 | Linhas da caixa lidas ou arquivadas há mais tempo que o prazo |
-| `SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS` | 180 | Linhas não lidas cuja última atualização (incluindo o agrupamento) é mais antiga que o prazo; e, depois delas, as `Notification` já distribuídas, mais antigas que o prazo, que nenhuma linha nem entrega referencia |
+| `SKELETON_NOTIFICATION_UNREAD_RETENTION_DAYS` | 180 | Linhas não lidas cuja última atualização (incluindo o agrupamento) é mais antiga que o prazo; e, depois delas, as `Notification` mais antigas que o prazo, distribuídas ou não (um job de fan-out que morreu deixa `fanned_out_at` vazio, #277), que nenhuma linha nem entrega referencia |
 
 A ordem respeita as referências `PROTECT`: primeiro as entregas, depois as linhas e por último as notificações órfãs. O contador de não lidas continua igual ao número de linhas não lidas que restam. Uma `dedupe_key` volta a aceitar uma notificação nova só depois que a antiga sai pela retenção. A retenção por LGPD (expurgo a pedido) fica para o epic do ciclo 2.
