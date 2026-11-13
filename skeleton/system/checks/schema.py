@@ -94,6 +94,11 @@ def _catalog_state(cursor):
         "SELECT c.relname,a.action,has_table_privilege('skeleton_runtime',c.oid,a.action) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS a(action) WHERE n.nspname='skeleton' AND c.relkind IN ('r','p')"
     )
     effective = {(table, action): granted for table, action, granted in cursor.fetchall()}
+    # Column privileges (#299): true with the privilege on the table or on any of its columns.
+    cursor.execute(
+        "SELECT c.relname,a.action,has_any_column_privilege('skeleton_runtime',c.oid,a.action) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']) AS a(action) WHERE n.nspname='skeleton' AND c.relkind IN ('r','p')"
+    )
+    columns = {(table, action): granted for table, action, granted in cursor.fetchall()}
     cursor.execute(
         "SELECT c.relname,a.attname,t.typname FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_type t ON t.oid=a.atttypid WHERE n.nspname='skeleton' AND a.attname='sysid'"
     )
@@ -129,11 +134,59 @@ def _catalog_state(cursor):
     return {
         "grants": grants,
         "effective": effective,
+        "columns": columns,
         "sysid": sysid,
         "functions": functions,
         "function_names": function_names,
         "foreign_keys": foreign_keys,
     }
+
+
+RELATION_KINDS = {"v": "view", "m": "materialized view", "f": "foreign table"}
+# Functions of the schema outside the per-table infrastructure: the user lifecycle guard and the
+# search wrapper of #180 (verified by search_problems).
+KNOWN_FUNCTIONS = frozenset({"assert_user_deactivation", "immutable_unaccent"})
+
+
+def _unclassified_relations(cursor):
+    """Views, materialized views and foreign tables have no place in the inventory (#299)."""
+    cursor.execute(
+        "SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+        "WHERE n.nspname='skeleton' AND c.relkind IN ('v','m','f') ORDER BY c.relname"
+    )
+    return [f"Unclassified {RELATION_KINDS[kind]}: {name}" for name, kind in cursor.fetchall()]
+
+
+def _unclassified_functions(cursor, specs, operations):
+    """A function outside the inventory that is SECURITY DEFINER or executable by the runtime (#299).
+
+    Extension functions are left out; a harmless helper the runtime cannot reach is tolerated.
+    """
+    allowed = set(KNOWN_FUNCTIONS)
+    for name, spec in specs.items():
+        allowed.add(name + "_sk_guard_fn")
+        operation = operations.get(spec.model._meta.label_lower)
+        append = spec.model._meta.label_lower == "sk_audit.auditevent"
+        if operation is not None and not (append or operation.operational()):
+            allowed.add(name + "_sk_audit_fn")
+    cursor.execute(
+        "SELECT p.proname, p.prosecdef, has_function_privilege('skeleton_runtime', p.oid, 'EXECUTE') "
+        "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+        "WHERE n.nspname='skeleton' AND NOT EXISTS ("
+        "  SELECT 1 FROM pg_depend d WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e')"
+    )
+    reachable = {
+        name for name, definer, executable in cursor.fetchall() if name not in allowed and (definer or executable)
+    }
+    return [f"Unclassified function reachable by runtime: {name}" for name in sorted(reachable)]
+
+
+def _technical_table_triggers(triggers, tables, technical):
+    """A technical table carries no trigger: its integrity is the migration's, not a row guard's (#299)."""
+    return [
+        f"{name}: technical tables must not carry triggers ({trigger})."
+        for name, trigger in sorted(key for key in triggers if key[0] in tables & set(technical))
+    ]
 
 
 def check_deployed_schema(*, using="default"):
@@ -211,6 +264,10 @@ def check_deployed_schema(*, using="default"):
         for row in cursor.fetchall():
             policies.setdefault(row[0], {})[row[1]] = row[2:]
         catalog_state = _catalog_state(cursor)
+        # Objects the inventory does not classify (#299).
+        errors.extend(_unclassified_relations(cursor))
+        errors.extend(_unclassified_functions(cursor, specs, operations))
+        errors.extend(_technical_table_triggers(triggers, tables, technical))
         if lifecycle is None:
             errors.append("assert_user_deactivation: migration-owned lifecycle inventory missing.")
         else:
@@ -226,6 +283,12 @@ def check_deployed_schema(*, using="default"):
             for action in ("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"):
                 if catalog_state["effective"].get((name, action), False) != (action in expected):
                     errors.append(f"{name}: unexpected effective technical privilege {action}.")
+                if (
+                    action in ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+                    and action not in expected
+                    and catalog_state["columns"].get((name, action))
+                ):
+                    errors.append(f"{name}: runtime has a column-level {action} privilege outside the inventory.")
         for name, spec in specs.items():
             if name not in tables:
                 errors.append(f"Missing own table: {name}")
@@ -314,6 +377,10 @@ def check_deployed_schema(*, using="default"):
             } - allowed:
                 if catalog_state["effective"].get((name, forbidden), False):
                     errors.append(f"{name}: runtime unexpectedly has {forbidden}.")
+                if forbidden in ("SELECT", "INSERT", "UPDATE", "REFERENCES") and catalog_state["columns"].get(
+                    (name, forbidden)
+                ):
+                    errors.append(f"{name}: runtime has a column-level {forbidden} privilege outside the inventory.")
             for kind in ("guard", "audit") if not (append or operational) else ("guard",):
                 function_name = name + "_sk_" + kind + "_fn"
                 function = catalog_state["functions"].get(function_name)

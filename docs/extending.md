@@ -46,7 +46,7 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 4. `python manage.py migrate`;
 5. `python manage.py sync_table_catalog`;
 6. `python manage.py check_skeleton_schema`;
-7. atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
+7. conferir que as migrations da app não criam view, função alcançável pelo runtime, privilégio por coluna nem trigger em tabela técnica no schema `skeleton` (o `check_skeleton_schema` reprova, #299); atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
 8. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
 9. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
