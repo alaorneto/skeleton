@@ -120,3 +120,16 @@ def test_pending_or_quarantined_has_no_download_url(scenario):
         Attachment.objects.filter(pk=info.sysid).update(state="quarantined")
     with acting_as(scenario.member, scenario.a) as actor, pytest.raises(NotFound):
         service.download_url(actor=actor, attachment_id=info.sysid)
+
+
+@pytest.mark.needs_example_app
+def test_list_walks_oldest_first_with_keyset(scenario):
+    """Keyset pages over (created_at, sysid) (#305)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-KEY", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        created = [attach(service, actor, note, name=f"doc-{index}.pdf").sysid for index in range(3)]
+        first = service.list(actor=actor, table_key=TABLE, record_id=note.pk, page_size=2)
+        rest = service.list(actor=actor, table_key=TABLE, record_id=note.pk, page_size=2, cursor=first.next_cursor)
+    assert [item.sysid for item in (*first.items, *rest.items)] == created
+    assert rest.next_cursor is None

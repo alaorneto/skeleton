@@ -152,7 +152,7 @@ class OrganizationService(ServiceAPI):
                 kind=_kind(person),
             )
 
-        return paginate(rows.order_by("user__sysid"), convert=convert, page_size=page_size, cursor=cursor)
+        return paginate(rows, convert=convert, page_size=page_size, cursor=cursor, key=("user__sysid",))
 
     @service_method(read_only=True, since="0.5.0")
     def groups(
@@ -169,10 +169,11 @@ class OrganizationService(ServiceAPI):
 
         active_membership(_user(actor))
         return paginate(
-            AccessGroup.objects.order_by("code", "sysid"),
+            AccessGroup.objects.all(),
             convert=lambda group: GroupSummary(group.pk, group.code, group.name),
             page_size=page_size,
             cursor=cursor,
+            key=("code", "sysid"),
         )
 
     @service_method(read_only=True, since="0.5.0")

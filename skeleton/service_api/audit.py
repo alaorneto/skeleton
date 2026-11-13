@@ -125,12 +125,16 @@ class AuditService(ServiceAPI):
                 allowed = False
             if not allowed or not _record_visible(spec.model, _user(actor), identifier):
                 raise NotFound()
-        events = (
-            authorized_audit_queryset(_user(actor))
-            .filter(model_label=spec.model._meta.label_lower, record_sysid=identifier)
-            .order_by("-created_at", "-record_revision", "sysid")
+        events = authorized_audit_queryset(_user(actor)).filter(
+            model_label=spec.model._meta.label_lower, record_sysid=identifier
         )
-        return paginate(events, convert=_entry, page_size=page_size, cursor=cursor)
+        return paginate(
+            events,
+            convert=_entry,
+            page_size=page_size,
+            cursor=cursor,
+            key=("-created_at", "-record_revision", "sysid"),
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -369,3 +369,51 @@ def test_reference_page_beyond_max_offset_is_refused_before_any_query():
 
     with pytest.raises(ValidationError):
         reference_options(None, "owner", user=None, page=10**30)
+
+
+def test_keyset_cursor_roundtrip():
+    """Keyset cursors carry the last row's key values as text (#305)."""
+    from skeleton.service_api.dto import decode_key_cursor, encode_key_cursor
+
+    values = ("2026-11-12T10:00:00.123456+00:00", "3", str(uuid4()))
+    assert decode_key_cursor(encode_key_cursor(values), 3) == values
+
+
+def _raw_cursor(text):
+    import base64
+
+    return base64.urlsafe_b64encode(text.encode("ascii")).decode("ascii").rstrip("=")
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "!!!",
+        _raw_cursor("o:3"),
+        _raw_cursor('k:{"a": 1}'),
+        _raw_cursor('k:["a", 1]'),
+        _raw_cursor('k:["a"]'),
+        _raw_cursor("k:not json"),
+        "x" * 513,
+        3,
+    ],
+    ids=["base64", "prefix", "object", "non-text", "length", "json", "too-long", "type"],
+)
+def test_keyset_cursor_tampered_is_invalid_input(cursor):
+    from skeleton.service_api.dto import decode_key_cursor
+
+    with pytest.raises(InvalidInput) as error:
+        decode_key_cursor(cursor, 2)
+    assert "cursor" in error.value.errors
+
+
+def test_keyset_requires_a_queryset():
+    with pytest.raises(TypeError):
+        paginate([1, 2], convert=str, key=("x",))
+
+
+def test_keyset_cursor_without_key_is_invalid_input():
+    from skeleton.service_api.dto import encode_key_cursor
+
+    with pytest.raises(InvalidInput):
+        paginate([1, 2], convert=str, cursor=encode_key_cursor(["a"]))
