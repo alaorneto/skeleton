@@ -55,6 +55,100 @@ def _dependency_ordered(entries, core_version, provided=()):
     )
 
 
+def _validate_core(core):
+    if not isinstance(core, dict):
+        raise ValueError("core")
+    core_files = core.get("files", {})
+    if not isinstance(core_files, dict):
+        raise ValueError("core file inventory")
+    for name, info in core_files.items():
+        if not name.startswith("skeleton/") or "\\" in name or ".." in Path(name).parts:
+            raise ValueError("core file path")
+        if not isinstance(info, dict) or not re.fullmatch(r"[a-f0-9]{64}", info.get("sha256", "")):
+            raise ValueError("core file digest")
+        if type(info.get("size")) is not int or info["size"] < 0:
+            raise ValueError("core file size")
+    if core.get("version") is not None and (
+        not isinstance(core.get("digest"), str) or not re.fullmatch(r"[a-f0-9]{64}", core["digest"])
+    ):
+        raise ValueError("core digest")
+
+
+def _validate_apps(apps, base):
+    if not isinstance(apps, list):
+        raise ValueError("apps")
+    labels, packages, ids = set(), set(), set()
+    normalized = []
+    from skeleton.system.packages import validate_manifest
+
+    for item in apps:
+        if not isinstance(item, dict) or item.get("state") not in {"installed", "project-local", "schema_retained"}:
+            raise ValueError("state")
+        manifest = validate_manifest(item["manifest"])
+        if manifest["kind"] != "app":
+            raise ValueError("kind")
+        label, package, app_id = manifest["app_label"], manifest["package_name"], manifest["app_id"]
+        if label in labels or package in packages or app_id in ids:
+            raise ValueError("duplicate identity")
+        labels.add(label)
+        packages.add(package)
+        ids.add(app_id)
+        digest = item.get("digest")
+        if item["state"] != "project-local" or digest is not None:
+            if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+                raise ValueError("digest")
+        normalized.append({**item, "manifest": manifest, "path": _private_path(item["path"], base)})
+    return normalized
+
+
+def _validate_archives(archives, normalized, base):
+    archive_labels = set()
+    clean_archives = []
+    for archive in archives:
+        label, package = archive["app_label"], archive["package_name"]
+        module = archive["migrations_module"]
+        if not _IDENTIFIER.fullmatch(label) or not _IDENTIFIER.fullmatch(package):
+            raise ValueError("archive identity")
+        if (
+            not isinstance(module, str)
+            or label in archive_labels
+            or not module.endswith(".migrations")
+            or not all(_IDENTIFIER.fullmatch(p) for p in module.split("."))
+        ):
+            raise ValueError("archive module")
+        if not any(a["state"] == "schema_retained" and a["manifest"]["app_label"] == label for a in normalized):
+            raise ValueError("archive without retained app")
+        archive_labels.add(label)
+        clean_archives.append({**archive, "path": _private_path(archive["path"], base)})
+    if archive_labels != {a["manifest"]["app_label"] for a in normalized if a["state"] == "schema_retained"}:
+        raise ValueError("missing archive")
+    return clean_archives
+
+
+def _validate_retained(retained, base):
+    clean_retained = []
+    for entry in retained:
+        if isinstance(entry, dict):
+            if set(entry) != {"path", "sha256"} or not re.fullmatch(r"[a-f0-9]{64}", entry["sha256"]):
+                raise ValueError("retained digest")
+            clean_retained.append({**entry, "path": _private_path(entry["path"], base)})
+        else:
+            clean_retained.append(_private_path(entry, base))
+    return clean_retained
+
+
+def _validate_frozen(frozen, base):
+    if frozen is None:
+        return None
+    if (
+        not isinstance(frozen, dict)
+        or set(frozen) != {"path", "sha256"}
+        or not re.fullmatch(r"[a-f0-9]{64}", frozen["sha256"])
+    ):
+        raise ValueError("frozen infrastructure reference")
+    return {**frozen, "path": _private_path(frozen["path"], base)}
+
+
 def load_deployment_inventory(path, *, bundled_apps=()):
     """Read the private inventory; bundled_apps are the SKELETON_BUNDLED_APPS names (#254)."""
     if not path:
@@ -70,88 +164,15 @@ def load_deployment_inventory(path, *, bundled_apps=()):
         if not isinstance(data, dict) or type(data.get("generation")) is not int or data["generation"] < 0:
             raise ValueError("generation")
         core = data["core"]
-        if not isinstance(core, dict):
-            raise ValueError("core")
-        core_files = core.get("files", {})
-        if not isinstance(core_files, dict):
-            raise ValueError("core file inventory")
-        for name, info in core_files.items():
-            if not name.startswith("skeleton/") or "\\" in name or ".." in Path(name).parts:
-                raise ValueError("core file path")
-            if not isinstance(info, dict) or not re.fullmatch(r"[a-f0-9]{64}", info.get("sha256", "")):
-                raise ValueError("core file digest")
-            if type(info.get("size")) is not int or info["size"] < 0:
-                raise ValueError("core file size")
-        if core.get("version") is not None and (
-            not isinstance(core.get("digest"), str) or not re.fullmatch(r"[a-f0-9]{64}", core["digest"])
-        ):
-            raise ValueError("core digest")
-        apps = data["apps"]
-        if not isinstance(apps, list):
-            raise ValueError("apps")
-        labels, packages, ids = set(), set(), set()
-        normalized = []
-        from skeleton.system.packages import validate_manifest
-
-        for item in apps:
-            if not isinstance(item, dict) or item.get("state") not in {"installed", "project-local", "schema_retained"}:
-                raise ValueError("state")
-            manifest = validate_manifest(item["manifest"])
-            if manifest["kind"] != "app":
-                raise ValueError("kind")
-            label, package, app_id = manifest["app_label"], manifest["package_name"], manifest["app_id"]
-            if label in labels or package in packages or app_id in ids:
-                raise ValueError("duplicate identity")
-            labels.add(label)
-            packages.add(package)
-            ids.add(app_id)
-            digest = item.get("digest")
-            if item["state"] != "project-local" or digest is not None:
-                if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
-                    raise ValueError("digest")
-            normalized.append({**item, "manifest": manifest, "path": _private_path(item["path"], source.parent)})
-        normalized = _dependency_ordered(normalized, core.get("version"), provided)
+        _validate_core(core)
+        normalized = _dependency_ordered(_validate_apps(data["apps"], source.parent), core.get("version"), provided)
         retained = data.get("retained_schema_paths", [])
         archives = data.get("migration_archives", [])
         if not isinstance(retained, list) or not isinstance(archives, list):
             raise ValueError("retained metadata")
-        archive_labels = set()
-        clean_archives = []
-        for archive in archives:
-            label, package = archive["app_label"], archive["package_name"]
-            module = archive["migrations_module"]
-            if not _IDENTIFIER.fullmatch(label) or not _IDENTIFIER.fullmatch(package):
-                raise ValueError("archive identity")
-            if (
-                not isinstance(module, str)
-                or label in archive_labels
-                or not module.endswith(".migrations")
-                or not all(_IDENTIFIER.fullmatch(p) for p in module.split("."))
-            ):
-                raise ValueError("archive module")
-            if not any(a["state"] == "schema_retained" and a["manifest"]["app_label"] == label for a in normalized):
-                raise ValueError("archive without retained app")
-            archive_labels.add(label)
-            clean_archives.append({**archive, "path": _private_path(archive["path"], source.parent)})
-        if archive_labels != {a["manifest"]["app_label"] for a in normalized if a["state"] == "schema_retained"}:
-            raise ValueError("missing archive")
-        clean_retained = []
-        for entry in retained:
-            if isinstance(entry, dict):
-                if set(entry) != {"path", "sha256"} or not re.fullmatch(r"[a-f0-9]{64}", entry["sha256"]):
-                    raise ValueError("retained digest")
-                clean_retained.append({**entry, "path": _private_path(entry["path"], source.parent)})
-            else:
-                clean_retained.append(_private_path(entry, source.parent))
-        frozen = data.get("frozen_infrastructure")
-        if frozen is not None:
-            if (
-                not isinstance(frozen, dict)
-                or set(frozen) != {"path", "sha256"}
-                or not re.fullmatch(r"[a-f0-9]{64}", frozen["sha256"])
-            ):
-                raise ValueError("frozen infrastructure reference")
-            frozen = {**frozen, "path": _private_path(frozen["path"], source.parent)}
+        clean_archives = _validate_archives(archives, normalized, source.parent)
+        clean_retained = _validate_retained(retained, source.parent)
+        frozen = _validate_frozen(data.get("frozen_infrastructure"), source.parent)
         return DeploymentInventory(
             data["generation"], core, tuple(normalized), tuple(clean_retained), tuple(clean_archives), frozen
         )
