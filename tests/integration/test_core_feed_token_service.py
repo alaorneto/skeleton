@@ -50,7 +50,7 @@ def test_issue_returns_the_text_once_for_a_feed_scope(person):
 
 def test_issue_rejects_scope_that_is_not_a_feed(person):
     with pytest.raises(InvalidInput):
-        issue(person, scope="example_notes.note:read")
+        issue(person, scope="files:read")
 
 
 def test_issue_rejects_invalid_expiry(person):
