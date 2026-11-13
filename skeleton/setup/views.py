@@ -222,21 +222,10 @@ def schema(request):
 
 
 def _email_connection(url: str):
-    import environ  # type: ignore[import-untyped]
-    from django.core.mail import get_connection
+    """A connection to the URL being configured, outside MAILERS (it is not saved yet)."""
+    from skeleton.conf.mailers import connection_for
 
-    config = environ.Env.email_url_config(url)
-    return get_connection(
-        backend=config["EMAIL_BACKEND"],
-        host=config.get("EMAIL_HOST"),
-        port=config.get("EMAIL_PORT"),
-        username=config.get("EMAIL_HOST_USER"),
-        password=config.get("EMAIL_HOST_PASSWORD"),
-        use_tls=config.get("EMAIL_USE_TLS", False),
-        use_ssl=config.get("EMAIL_USE_SSL", False),
-        timeout=10,
-        fail_silently=False,
-    )
+    return connection_for(url, timeout=10)
 
 
 @setup_page
@@ -244,6 +233,7 @@ def _email_connection(url: str):
 def email(request):
     form = forms.EmailForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
+        from django.core.exceptions import ImproperlyConfigured
         from django.core.mail import EmailMessage
 
         data = form.cleaned_data
@@ -256,12 +246,12 @@ def email(request):
                 body=gettext("O servidor de email da instância está configurado."),
                 from_email=data["default_from_email"],
                 to=[data["test_recipient"]],
-                connection=_email_connection(data["email_url"]),
             )
-            if message.send() != 1:
+            # The URL is not in MAILERS yet: send through its own backend instance (#127).
+            if _email_connection(data["email_url"]).send_messages([message]) != 1:
                 raise RuntimeError("not accepted")
-        except ValueError as error:
-            form.add_error("email_url", str(error))
+        except (ValueError, ImproperlyConfigured) as error:
+            form.add_error("email_url", str(error))  # Scheme or parameter names only, never the password.
         except Exception as error:  # noqa: BLE001 - class only: the URL carries a password
             logger.error("setup.step_failed step=%s error_class=%s", "email", type(error).__name__, exc_info=True)
             form.add_error(

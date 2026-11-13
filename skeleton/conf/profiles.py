@@ -31,8 +31,10 @@ def production_settings(base):
     CACHES = {"default": env.cache("CACHE_URL")}
     if CACHES["default"]["BACKEND"] != "django.core.cache.backends.redis.RedisCache":
         raise ImproperlyConfigured("Produção exige Redis compartilhado.")
-    EMAIL_CONFIG = env.email("EMAIL_URL")
-    if EMAIL_CONFIG["EMAIL_BACKEND"] != "django.core.mail.backends.smtp.EmailBackend":
+    from skeleton.conf.mailers import SMTP, mailer_from_url
+
+    MAILERS = {"default": mailer_from_url(env("EMAIL_URL"), timeout=env.int("EMAIL_TIMEOUT", default=30))}
+    if MAILERS["default"]["BACKEND"] != SMTP:
         raise ImproperlyConfigured("Produção exige SMTP configurado.")
     DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL")
     MFA_ENCRYPTION_KEYS = env.list("MFA_ENCRYPTION_KEYS")
@@ -69,9 +71,7 @@ def production_settings(base):
 
     SKELETON_PROVIDER_CONFIGURATION = load_provider_config(env("SSO_PROVIDER_CONFIG_PATH", default=None), debug=DEBUG)
     SOCIALACCOUNT_PROVIDERS = SKELETON_PROVIDER_CONFIGURATION.settings
-    result = {key: value for key, value in locals().items() if key.isupper()}
-    result.update(EMAIL_CONFIG)
-    return result
+    return {key: value for key, value in locals().items() if key.isupper()}
 
 
 def migrate_settings(base):
@@ -105,7 +105,7 @@ def test_settings(base):
     # The suite runs on PostgreSQL with the runtime role (#145); tools/dev_postgres.py provides one.
     database = database_config(env, "TEST_DATABASE_URL", conn_max_age=0)
     DATABASES = {"default": database} if database else {}
-    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    MAILERS = {"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}}
     SKELETON_METRICS_QUEUE_TTL_S = 0  # The suite always reads the queue.
     import atexit
     import shutil

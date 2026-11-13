@@ -2,6 +2,7 @@ from pathlib import Path
 
 import environ
 
+from skeleton.conf.mailers import mailer_from_url
 from skeleton.conf.paths import project_root
 from skeleton.instance.resolve import instance_env
 
@@ -119,10 +120,13 @@ def database_config(env, variable, *, conn_max_age=60):
 _database = database_config(env, "DATABASE_URL")
 DATABASES = {"default": _database} if _database else {}
 CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
-EMAIL_CONFIG = env.email("EMAIL_URL", default="consolemail://")
-vars().update(EMAIL_CONFIG)
-# Seconds an SMTP connection may block; the notification jobs never hang on a mute server (#297).
-EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=30)
+# EMAIL_URL stays the operation interface; it becomes MAILERS["default"] (#127), never the
+# per-connection EMAIL_* settings Django 6.1 deprecated. EMAIL_TIMEOUT (seconds an SMTP
+# connection may block, so the notification jobs never hang on a mute server, #297) is read
+# from the environment into the SMTP OPTIONS.
+MAILERS = {
+    "default": mailer_from_url(env("EMAIL_URL", default="consolemail://"), timeout=env.int("EMAIL_TIMEOUT", default=30))
+}
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="skeleton@localhost")
 AUTH_USER_MODEL = "sk_accounts.User"
 AUTHENTICATION_BACKENDS = ["skeleton.accounts.backends.SkeletonAuthenticationBackend"]

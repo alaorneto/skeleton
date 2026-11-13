@@ -240,7 +240,7 @@ def test_settings_start_from_the_store_without_env_file(instance):
         "import json, django; django.setup(); from django.conf import settings as s; "
         f"print(json.dumps([s.SECRET_KEY == {SECRET!r}, s.ALLOWED_HOSTS, s.DATABASES['default']['HOST'], "
         f"s.DATABASES['default']['PASSWORD'] == {DATABASE_PASSWORD!r}, s.CACHES['default']['BACKEND'], "
-        "s.EMAIL_HOST, s.MFA_ENCRYPTION_KEYS, s.DEFAULT_FROM_EMAIL]))"
+        "s.MAILERS['default']['OPTIONS']['host'], s.MFA_ENCRYPTION_KEYS, s.DEFAULT_FROM_EMAIL]))"
     )
     result = subprocess.run(
         [sys.executable, "-c", script], cwd=ROOT, env=environment, capture_output=True, text=True, timeout=120
