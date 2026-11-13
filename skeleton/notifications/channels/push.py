@@ -15,6 +15,7 @@ import os
 import struct
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urlsplit
@@ -35,6 +36,10 @@ DEFAULT_ALLOWED_HOSTS = (
 )
 RECORD_SIZE = 4096
 TTL_SECONDS = 24 * 3600
+# Live browsers per person; a new one replaces the oldest (#314).
+MAX_SUBSCRIPTIONS_PER_USER = 10
+# last_success_at is rewritten (and audited) at most once a day, not on every push (#314).
+SUCCESS_MARK_INTERVAL = timedelta(days=1)
 JWT_LIFETIME = 12 * 3600
 GONE = (404, 410)
 
@@ -205,6 +210,11 @@ def subscribe(user: Any, *, endpoint: Any, p256dh: Any, auth: Any, user_agent: s
         current.user_agent = user_agent[:200]
         current.save(update_fields={"p256dh", "auth_secret", "user_agent"})
         return current
+    live = list(
+        WebPushSubscription.objects.select_for_update().filter(user_id=user.pk).order_by("-created_at", "sysid")
+    )
+    for old in live[MAX_SUBSCRIPTIONS_PER_USER - 1 :]:
+        old.delete()  # Logical delete: the oldest browsers stop receiving (#314).
     subscription = WebPushSubscription(
         user_id=user.pk,
         endpoint=endpoint,
@@ -286,7 +296,11 @@ def send_push(*, delivery_id: str) -> None:
         finish(delivery, "skipped", error_code="push_unconfigured")
         return
     # No lock while the pushes are in flight: subscribe/unsubscribe of the person never wait on them (#295).
-    subscriptions = list(WebPushSubscription.objects.filter(user_id=user.pk).order_by("sysid"))
+    subscriptions = list(
+        WebPushSubscription.objects.filter(user_id=user.pk).order_by("-created_at", "sysid")[
+            :MAX_SUBSCRIPTIONS_PER_USER
+        ]
+    )
     if not subscriptions:
         finish(delivery, "skipped", error_code="no_subscription")
         return
@@ -330,8 +344,11 @@ def send_push(*, delivery_id: str) -> None:
         if outcome == "gone":
             current.delete()
         else:
-            current.last_success_at = timezone.now()
-            current.save(update_fields={"last_success_at"})
+            now = timezone.now()
+            last = current.last_success_at
+            if last is None or now - last >= SUCCESS_MARK_INTERVAL:
+                current.last_success_at = now
+                current.save(update_fields={"last_success_at"})
     if sent:
         finish(delivery, "sent", attempts=delivery.attempts + 1, sent_at=timezone.now(), error_code="")
     elif retry:

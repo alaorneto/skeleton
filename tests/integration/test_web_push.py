@@ -287,3 +287,48 @@ def test_unsubscribing_during_the_push_does_not_fail_the_job(scenario, monkeypat
     assert subscriptions(scenario.member) == []
     with system_context(reason="test:push-deliveries", organization_id=scenario.a.pk):
         assert {row.state for row in NotificationDelivery.objects.filter(channel="push")} == {"sent"}
+
+
+def test_repeated_pushes_do_not_write_an_audit_event_each(scenario, monkeypatch):
+    """last_success_at is rewritten at most once a day, not on every push (#314)."""
+    FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-AUD", title="Audit")
+    mention(scenario, note)
+    run_pending_jobs()
+    [first] = subscriptions(scenario.member)
+    assert first.last_success_at is not None
+    for _ in range(3):
+        mention(scenario, note)
+        run_pending_jobs()
+    [after] = subscriptions(scenario.member)
+    # Every audited write bumps the revision: none happened for the three later pushes.
+    assert after.revision == first.revision and after.last_success_at == first.last_success_at
+
+
+def test_eleventh_subscription_evicts_the_oldest(scenario):
+    """At most ten live browsers per person; the oldest goes, logically, with its secrets redacted (#314)."""
+    client = login(scenario.member)
+    endpoints = [f"https://fcm.googleapis.com/fcm/send/browser-{index}" for index in range(11)]
+    for endpoint in endpoints:
+        assert subscribe(client, endpoint=endpoint).status_code == 201
+    live = subscriptions(scenario.member)
+    gone = subscriptions(scenario.member, deleted=True)
+    assert len(live) == 10 and len(gone) == 1
+    assert gone[0].endpoint.reveal() == endpoints[0]
+    assert subscribe(client, endpoint=endpoints[5]).status_code == 201  # A refresh evicts nobody.
+    assert len(subscriptions(scenario.member)) == 10
+
+
+def test_send_push_never_contacts_more_than_the_cap(scenario, monkeypatch):
+    from skeleton.notifications.channels import push
+
+    service = FakePushService(monkeypatch)
+    client = login(scenario.member)
+    for index in range(3):
+        subscribe(client, endpoint=f"https://fcm.googleapis.com/fcm/send/cap-{index}")
+    monkeypatch.setattr(push, "MAX_SUBSCRIPTIONS_PER_USER", 2)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-CAP", title="Cap")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert len(service.calls) == 2
