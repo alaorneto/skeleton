@@ -141,6 +141,8 @@ def _human_problems(step: Step, out: list[Transition], spec: FlowSpec) -> list[s
         sla = step.sla
         if type(sla.due_seconds) is not int or not 60 <= sla.due_seconds <= 366 * 86400:
             problems.append(f"{where}: the SLA is due between one minute and one year")
+        if type(sla.business_hours) is not bool:
+            problems.append(f"{where}: business_hours is true or false")
         if sla.on_overdue not in OVERDUE_ACTIONS:
             problems.append(f"{where}: unknown overdue action {sla.on_overdue!r}")
         if len(sla.remind_before_seconds) > 5 or any(

@@ -139,6 +139,8 @@ class Sla:
     remind_before_seconds: tuple[int, ...] = ()
     on_overdue: str = "notify"
     escalate_to: tuple[Assignment, ...] = ()
+    # Count the SLA in the organization's business hours (#417); without a calendar, elapsed time.
+    business_hours: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "due_seconds", _seconds(self.due_seconds))
@@ -471,6 +473,8 @@ class FlowSpec:
             for name, default in OPTIONAL_STEP_FIELDS.items():
                 if step.get(name) == default:
                     step.pop(name)
+            if step.get("sla") and step["sla"].get("business_hours") is False:
+                step["sla"].pop("business_hours")  # Same rule for the SLA flag of #417.
         return json.loads(json.dumps(raw))
 
     def canonical(self) -> str:
@@ -515,6 +519,7 @@ def _sla(data: Any) -> Sla | None:
         remind_before_seconds=tuple(data.get("remind_before_seconds", ())),
         on_overdue=data.get("on_overdue", "notify"),
         escalate_to=tuple(_assignment(item) for item in data.get("escalate_to", ())),
+        business_hours=data.get("business_hours", False),
     )
 
 

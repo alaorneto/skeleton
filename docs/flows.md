@@ -187,13 +187,13 @@ Resolvida a etapa, as tarefas ainda abertas são canceladas. A decisão aceita c
 
 ### Prazos (SLA)
 
-`Sla(due_seconds, remind_before_seconds=(), on_overdue="notify", escalate_to=())`:
+`Sla(due_seconds, remind_before_seconds=(), on_overdue="notify", escalate_to=(), business_hours=False)`:
 
 - a tarefa nasce com `due_at`;
 - cada valor de `remind_before_seconds` agenda um lembrete (`flows.task_reminder`) ao responsável ou à fila;
 - vencido o prazo, `on_overdue` decide: `notify` avisa o responsável e o escalonamento (`escalate_to`); `reassign` passa a tarefa ao escalonamento; `expire` encerra a etapa com o resultado `expired` e segue a transição `on="expired"`.
 
-Os prazos correm em tempo corrido. Depois de uma suspensão, o job do vencimento é reagendado; lembretes que venceram durante a pausa não são reenviados. Horas úteis e substituição por ausência ficam para o ciclo 2.
+Os prazos correm em tempo corrido, ou em **horas úteis** com `business_hours=True` ([#417](https://github.com/alaorneto/skeleton/issues/417)): o vencimento soma `due_seconds` de expediente no [calendário da organização](data-model.md) (#416), e cada lembrete vem quando resta aquele tanto de expediente, contado desde a criação da tarefa. Sem calendário configurado, a tarefa cai para tempo corrido e o histórico registra `sla_elapsed_fallback` (um check estático não enxerga o calendário de cada organização). Mudar o calendário vale para as tarefas criadas depois. O campo fica fora da forma canônica enquanto falso, então o digest dos fluxos já publicados não muda. Depois de uma suspensão, o job do vencimento é reagendado; lembretes que venceram durante a pausa não são reenviados.
 
 ### Validação estrutural
 
@@ -362,7 +362,7 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 
 | Item | Por que não agora |
 |---|---|
-| SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |
+| Substituição por ausência | Planejada em [#418](https://github.com/alaorneto/skeleton/issues/418) |
 | Diagrama do fluxo e métricas | Apresentação e operação, sem efeito no contrato |
 | Comentários livres na instância | Serão os comentários de registros (#187) |
 | Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |

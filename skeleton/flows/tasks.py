@@ -33,6 +33,34 @@ DECISIONS = ("approved", "rejected")
 
 
 # Opening and closing tasks.
+def _business_calendar(step: Step) -> Any:
+    """The organization's calendar when the step counts its SLA in business hours and one exists."""
+    if step.sla is None or not step.sla.business_hours:
+        return None
+    from skeleton.tenancy.business_hours import organization_calendar
+
+    return organization_calendar()
+
+
+def _calendar(execution: Execution, run: FlowStepRun, step: Step) -> Any:
+    """As ``_business_calendar``, writing to the history when the SLA falls back to elapsed time."""
+    calendar = _business_calendar(step)
+    if calendar is None and step.sla is not None and step.sla.business_hours:
+        execution.log("sla_elapsed_fallback", run=run, detail={"reason": "no_business_calendar"})
+    return calendar
+
+
+def _due_at(execution: Execution, run: FlowStepRun, step: Step, start: Any, *, seconds: int | None = None) -> Any:
+    assert step.sla is not None  # noqa: S101 - type narrowing; only called for steps with an SLA
+    seconds = step.sla.due_seconds if seconds is None else seconds
+    calendar = _calendar(execution, run, step)
+    if calendar is None:
+        return start + timedelta(seconds=seconds)
+    from skeleton.tenancy.business_hours import add_business_hours
+
+    return add_business_hours(start, seconds / 3600, calendar)
+
+
 def _open_task(execution: Execution, run: FlowStepRun, step: Step, slot: Slot | None, index: int) -> FlowTask:
     from .notifications import notify_task
 
@@ -46,7 +74,7 @@ def _open_task(execution: Execution, run: FlowStepRun, step: Step, slot: Slot | 
         assignee_id=slot.user if slot else None,
         candidate_group_id=slot.group if slot else None,
         candidate_role_id=slot.role if slot else None,
-        due_at=execution.now + timedelta(seconds=step.sla.due_seconds) if step.sla else None,
+        due_at=_due_at(execution, run, step, execution.now) if step.sla else None,
     )
     task.save()
     detail = slot.as_json() if slot else {}
@@ -66,12 +94,20 @@ def _schedule_sla(
     ticket = int(run.state.get("sla_ticket", 0))
     if reminders:
         for index, before in enumerate(sorted(step.sla.remind_before_seconds, reverse=True)):
+            calendar = _business_calendar(step)
+            if calendar is not None and before < step.sla.due_seconds:
+                from skeleton.tenancy.business_hours import add_business_hours
+
+                # The same calendar: the reminder comes when ``before`` of business time is left.
+                remind_at = add_business_hours(task.created_at, (step.sla.due_seconds - before) / 3600, calendar)
+            else:
+                remind_at = task.due_at - timedelta(seconds=before)
             enqueue(
                 REMINDER_JOB,
                 organization_id=task.organization_id,
                 payload={"task_id": str(task.pk), "index": index},
                 idempotency_key=f"flow:reminder:{task.pk}:{index}",
-                run_after=task.due_at - timedelta(seconds=before),
+                run_after=remind_at,
             )
     enqueue(
         DUE_JOB,
