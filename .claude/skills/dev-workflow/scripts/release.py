@@ -824,6 +824,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if options.command == "record-analysis":
             record_analysis(context, options.pr, options.level, options.reason)
             return 0
+        if last_tag(context) is None:
+            # Before the owner's base tag there is no version to preview; not an error of the PR.
+            print("sem tag de versão alcançável: a prévia começa depois de `release.py baseline`.")
+            return 0
         text = preview_text(context, options.pr)
         print(text)
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
