@@ -404,13 +404,32 @@ class ComposeBackend(Backend):
             compose["file"],
         ]
 
-    def base(self, release, profile="runtime"):
-        return [*self.base_arguments(), "--file", self.override(release, profile)]
+    @contextmanager
+    def composed(self, release, profile="runtime"):
+        """Compose arguments with a private override that exists only while the command runs (#245).
+
+        The override holds the whole environment of the profile, the owner credential included for
+        ``migration``: it is written 0600 under a unique name and removed afterwards, even on failure.
+        """
+        path = self.override(release, profile)
+        try:
+            yield [*self.base_arguments(), "--file", path]
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def remove_stale_overrides(self):
+        """Overrides left by a run that ended abruptly; the daemon removes them when it starts."""
+        removed = 0
+        for path in self.store.root.glob("compose-*.json"):
+            if path.is_file() and not path.is_symlink():
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
 
     def override(self, release, profile):
         compose = self.config["compose"]
         release = Path(release)
-        path = self.store.root / f"compose-{release.name}-{profile}.json"
+        path = self.store.root / f"compose-{release.name}-{profile}-{uuid4()}.json"
         env = self.config.environment("runtime" if profile == "export" else profile, release)
         service = compose["migrator_service"] if profile == "migration" else compose["web_service"]
         # Compose merges environment mappings. Explicitly unset every inherited key
@@ -500,19 +519,11 @@ class ComposeBackend(Backend):
         compose = self.config["compose"]
         service = compose["migrator_service"] if profile == "migration" else compose["web_service"]
         # No secrets on argv. The private generated override contains profile-specific environment.
-        self.run(
-            [
-                *self.base(release, profile),
-                "run",
-                "--rm",
-                "--no-deps",
-                "--entrypoint",
-                "/opt/venv/bin/python",
-                service,
-                *arguments,
-            ],
-            code=code,
-        )
+        with self.composed(release, profile) as base:
+            self.run(
+                [*base, "run", "--rm", "--no-deps", "--entrypoint", "/opt/venv/bin/python", service, *arguments],
+                code=code,
+            )
 
     def probe(self, release):
         temporary = self.store.root / "probe"
@@ -551,40 +562,42 @@ class ComposeBackend(Backend):
             temporary.unlink(missing_ok=True)
 
     def start(self, release, operation):
-        rendered = json.loads(
-            self.capture([*self.base(release), "config", "--format", "json"], code="compose_configuration_failed")
-        )
-        for service in (self.config["compose"]["web_service"], *self.worker_services()):
-            environment = rendered["services"][service].get("environment", {})
-            if environment.get("MIGRATION_DATABASE_URL"):
-                raise AgentError("migration_secret_in_runtime", 409)
-        self.run(
-            [
-                *self.base(release),
-                "up",
-                "--detach",
-                "--no-deps",
-                "--no-build",
-                "--force-recreate",
-                self.config["compose"]["web_service"],
-            ],
-            code="compose_restart_failed",
-        )
+        with self.composed(release) as base:
+            rendered = json.loads(
+                self.capture([*base, "config", "--format", "json"], code="compose_configuration_failed")
+            )
+            for service in (self.config["compose"]["web_service"], *self.worker_services()):
+                environment = rendered["services"][service].get("environment", {})
+                if environment.get("MIGRATION_DATABASE_URL"):
+                    raise AgentError("migration_secret_in_runtime", 409)
+            self.run(
+                [
+                    *base,
+                    "up",
+                    "--detach",
+                    "--no-deps",
+                    "--no-build",
+                    "--force-recreate",
+                    self.config["compose"]["web_service"],
+                ],
+                code="compose_restart_failed",
+            )
         self.hook("restart", release, operation)
         self.start_workers(release, operation)
 
     def stop_workers(self, release, operation):
         if self.worker_services():
-            self.run([*self.base(release), "stop", *self.worker_services()], code="compose_worker_stop_failed")
+            with self.composed(release) as base:
+                self.run([*base, "stop", *self.worker_services()], code="compose_worker_stop_failed")
         super().stop_workers(release, operation)
 
     def start_workers(self, release, operation):
         if self.worker_services():
-            self.run(
-                [*self.base(release), "up", "--detach", "--no-deps", "--no-build", "--force-recreate"]
-                + self.worker_services(),
-                code="compose_worker_restart_failed",
-            )
+            with self.composed(release) as base:
+                self.run(
+                    [*base, "up", "--detach", "--no-deps", "--no-build", "--force-recreate", *self.worker_services()],
+                    code="compose_worker_restart_failed",
+                )
         super().start_workers(release, operation)
 
     def drain(self, release, operation):
@@ -592,7 +605,8 @@ class ComposeBackend(Backend):
         self.stop(release, operation)
 
     def stop(self, release, operation):
-        self.run([*self.base(release), "stop", self.config["compose"]["web_service"]], code="compose_stop_failed")
+        with self.composed(release) as base:
+            self.run([*base, "stop", self.config["compose"]["web_service"]], code="compose_stop_failed")
         self.hook("stop", release, operation)
         self.stop_workers(release, operation)
 

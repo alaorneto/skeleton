@@ -262,6 +262,8 @@ def serve(service):
             else:
                 raise AgentError("agent_already_running", 409)
     service.reconcile_interrupted()
+    if service.config.get("backend") == "compose":
+        service.backend.remove_stale_overrides()  # Overrides of an abrupt stop hold secrets (#245).
     tickets = StatusTickets(service)
     server = UnixHTTPServer(str(path), ControlHandler)
     server.service = service

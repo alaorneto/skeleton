@@ -580,3 +580,15 @@ def presentation_diff(before, after):
                     }
                 )
     return changes
+
+
+def remove_release(release):
+    """Delete a release directory, frozen or not, without following links (#245)."""
+    release = Path(release)
+    if release.is_symlink():
+        raise AgentError("release_path_is_symlink", 409)
+    for path in release.rglob("*"):
+        if not path.is_symlink():
+            os.chmod(path, 0o755 if path.is_dir() else 0o644)
+    os.chmod(release, 0o755)
+    shutil.rmtree(release)

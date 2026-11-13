@@ -51,6 +51,12 @@ def main():
         help="Operator reviewed loss/reconciliation of writes after cutover",
     )
     commands.add_parser("revoke-status-tickets")
+    prune = commands.add_parser(
+        "prune", help="Offline: list, and with --apply remove, releases, plans, images and backups no operation needs"
+    )
+    prune.add_argument("--plan-days", type=int, default=7, help="Unsubmitted previews older than N days")
+    prune.add_argument("--backup-days", type=int, default=None, help="Also backups and logs older than N days")
+    prune.add_argument("--apply", action="store_true", help="Remove; without it, only list")
     options = parser.parse_args()
     try:
         config = Config.load(options.config)
@@ -68,6 +74,8 @@ def main():
             )
         elif options.command == "journal":
             result = {"operations": [service.public_operation(row) for row in service.store.operations()]}
+        elif options.command == "prune":
+            result = service.prune(plan_days=options.plan_days, backup_days=options.backup_days, apply=options.apply)
         elif options.command == "revoke-status-tickets":
             StatusTickets(service).revoke()
             result = {"state": "revoked"}

@@ -692,6 +692,8 @@ curl --unix-socket /srv/skeleton/control/agent.sock \
 
 O backend **diretório** prepara um virtualenv por release, troca o ponteiro `current` e usa o supervisor configurado. O backend **Compose** prepara uma imagem por release, roda um container migrator separado e recria o serviço web. São duas formas de executar o mesmo contrato, não duas evidências equivalentes: um ensaio bem-sucedido em diretório não valida Docker, permissões de volumes ou recuperação Compose.
 
+**Overrides temporários** (#245): cada comando do Compose recebe um override privado (0600, nome único em `storage_root`) com a imagem, o volume e o ambiente do perfil, inclusive a credencial owner no perfil `migration`, e o arquivo é removido assim que o comando termina, com sucesso ou falha. Overrides deixados por uma parada abrupta são apagados quando o daemon (`serve`) parte.
+
 **Pré-requisitos adicionais:** Docker acessível pela conta do agente, Compose e imagem base provisionados, serviços/volumes privados e endpoints de backup acessíveis no host. A configuração abaixo é um exemplo a adaptar; não é prova de que a stack foi executada.
 
 Troque `backend` para `compose` e adicione ao mesmo JSON:
@@ -752,6 +754,18 @@ Antes de escolher recuperação, identifique no journal a primeira migration e a
 Adicione `recovery_paths`, por exemplo `["/srv/skeleton/uploads","/srv/skeleton/private/mfa-keys.json"]`, para recursos mutáveis/chaves que precisam acompanhar o DB. Eles devem existir, ser externos a releases e não conter symlinks. Pare todos os escritores antes do snapshot. Não inclua diretório de estado/journal do agente, o marker ou o próprio backup em `recovery_paths`.
 
 Antes da primeira migration, o journal registra `backup` apontando para `agent-state/backups/.../backup.json`: PostgreSQL custom dump do schema `skeleton` inteiro (negócio, tabelas técnicas, migrations e auditoria; o agente recusa outro backend), hashes e snapshots exatos dos recursos. Extensões/roles PostgreSQL são provisionadas separadamente; dados fora de `skeleton` exigem procedimento offline específico. Um backup parcial de crash é preservado; uma nova tentativa usa outro diretório. Backup/journal/uploads/plans permanecem privados e fora do DB da aplicação. Nunca apague o release anterior, os artefatos aprovados ou esses snapshots enquanto houver recuperação/retention pendente.
+
+#### Retenção e limpeza
+
+O agente nunca apaga nada sozinho: a limpeza é uma decisão do operador, offline, com o daemon parado ou ocioso (#245):
+
+```sh
+skeleton-deployment-agent --config /etc/skeleton/agent.json prune                       # só lista
+skeleton-deployment-agent --config /etc/skeleton/agent.json prune --plan-days 7 --apply # remove
+skeleton-deployment-agent --config /etc/skeleton/agent.json prune --backup-days 30 --apply
+```
+
+Sem `--apply`, nada muda. O comando é recusado com marcador de manutenção ou com operação `queued`, `running` ou `interrupted`, e nunca está na API de controle. Candidatos: prévias não submetidas mais velhas que `--plan-days` (plano e release), releases de operações `succeeded`, `restored` ou `cancelled` que não são a mais recente, e as imagens `<image_repository>:<release>` do Compose (uma falha ao remover a imagem só entra em `errors`). Backups e logs de operação (`backups/<operação>`, `logs/<operação>`) só saem com `--backup-days`, e só de operações concluídas. Ficam sempre: o release ativo, o `release` e o `previous_release` da última operação `succeeded`, o `release`, o `previous_release` e o backup de toda operação `failed` que `recover` ainda aceitaria (uma operação superada por um deployment posterior deixa de proteger), o `project_root`, o journal (`operations/`) e os artefatos `uploads/`. Um release cujo caminho está fora de `releases_root` não é apagado e aparece em `skipped`.
 
 Falha/crash sob manutenção mantém o marker; ao reiniciar `serve`, queued/running/commit interrompidos tornam-se `interrupted`. **Não remova o marker à mão para esconder divergência.** Pare o daemon, consulte `journal`, escolha a operação e execute como conta do agente:
 

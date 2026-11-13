@@ -27,6 +27,7 @@ from .releases import (
     freeze,
     owned_snapshot,
     presentation_diff,
+    remove_release,
     verified,
 )
 from .storage import (
@@ -406,11 +407,7 @@ class DeploymentService:
             except Exception:
                 if release.exists():
                     # Preparation has not touched live state; retain no unsigned/partial executable release.
-                    for path in release.rglob("*"):
-                        if not path.is_symlink():
-                            os.chmod(path, 0o755 if path.is_dir() else 0o644)
-                    os.chmod(release, 0o755)
-                    shutil.rmtree(release)
+                    remove_release(release)
                 raise
 
     def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
@@ -686,6 +683,111 @@ class DeploymentService:
                 except AgentError:
                     atomic_json(self.config["maintenance_marker"], {"stage": "active_state_conflict"}, 0o644)
 
+    @staticmethod
+    def _recoverable(operation, record, state):
+        """The active (release, generation) is still the one before or after this operation."""
+        allowed_states = {
+            record["previous_release"]: record["plan"]["generation"],
+            operation["release"]: record["inventory"]["generation"],
+        }
+        return state["inventory"]["generation"] == allowed_states.get(state["release"])
+
+    def prune(self, *, plan_days=7, backup_days=None, apply=False):
+        """List (and with apply, remove) what no operation can still need (#245). Offline CLI only.
+
+        Never removed: the active release, ``release``/``previous_release`` and backup of a failed
+        operation that ``recover`` would still accept, the previous release of the last success,
+        the project root, the journal and the uploaded artifacts. Backups only with backup_days.
+        """
+        with deployment_lock(self.store.root):
+            self.ensure_available()
+            state = self.state()
+            operations = self.store.operations()  # Newest first.
+            root = Path(self.config["releases_root"]).resolve()
+            now_time = time.time()
+            protected = {Path(state["release"]).resolve()} if state.get("release") else set()
+            if self.config.get("project_root"):
+                protected.add(Path(self.config["project_root"]).resolve())
+            recoverable = set()
+            for operation in operations:
+                if operation["state"] != "failed":
+                    continue
+                try:
+                    record = self.store.get("plans", operation["binding"]["plan_id"])
+                except AgentError:
+                    continue
+                if self._recoverable(operation, record, state):
+                    recoverable.add(operation["id"])
+                    protected |= {Path(operation["release"]).resolve(), Path(operation["previous_release"]).resolve()}
+            last_success = next((row for row in operations if row["state"] == "succeeded"), None)
+            if last_success:
+                protected |= {Path(last_success["release"]).resolve(), Path(last_success["previous_release"]).resolve()}
+            result = {
+                "apply": apply,
+                "releases": [],
+                "plans": [],
+                "images": [],
+                "backups": [],
+                "skipped": [],
+                "errors": [],
+            }
+            releases = []
+
+            def candidate_release(value, reason):
+                path = Path(value).resolve()
+                if path.parent != root or Path(value).is_symlink():
+                    result["skipped"].append({"path": str(value), "reason": "outside_releases_root"})
+                elif path in protected or path in releases or not path.is_dir():
+                    return
+                else:
+                    releases.append(path)
+                    result["releases"].append({"path": str(path), "reason": reason})
+
+            submitted = {row["binding"]["plan_id"] for row in operations}
+            for plan_id, record, mtime in self.store.plans():
+                if plan_id in submitted or now_time - mtime < plan_days * 86400:
+                    continue
+                result["plans"].append(plan_id)
+                release = (record.get("plan") or {}).get("release")
+                if release:
+                    candidate_release(release, "unsubmitted_preview")
+            finished = [row for row in operations[1:] if row["state"] in ("succeeded", "restored", "cancelled")]
+            for operation in finished:
+                candidate_release(operation["release"], f"operation_{operation['state']}")
+            if backup_days is not None:
+                finished_ids = {
+                    row["id"] for row in operations if row["state"] in ("succeeded", "restored", "cancelled")
+                }
+                for folder in ("backups", "logs"):
+                    for path in sorted((self.store.root / folder).glob("*")):
+                        owner = path.name[:36]
+                        if (
+                            path.is_dir()
+                            and not path.is_symlink()
+                            and owner in finished_ids
+                            and owner not in recoverable
+                            and now_time - path.stat().st_mtime >= backup_days * 86400
+                        ):
+                            result["backups"].append(str(path))
+            image = getattr(self.backend, "image", None)
+            result["images"] = [image(path) for path in releases] if image else []
+            if not apply:
+                return result
+            for path in releases:
+                remove_release(path)
+            for plan_id in result["plans"]:
+                self.store.path("plans", plan_id).unlink(missing_ok=True)
+            for path in result["backups"]:
+                shutil.rmtree(path)
+            for tag in result["images"]:
+                try:
+                    self.backend.run(
+                        [self.config.get("docker", "/usr/bin/docker"), "image", "rm", tag], code="image_remove_failed"
+                    )
+                except AgentError as error:
+                    result["errors"].append({"image": tag, "code": error.code})
+            return result
+
     def recover(self, operation_id, action, *, acknowledge_new_writes=False):
         with deployment_lock(self.store.root):
             operation = self.store.get("operations", identifier(operation_id))
@@ -695,11 +797,7 @@ class DeploymentService:
                 raise AgentError("operation_not_recoverable", 409)
             record = self.store.get("plans", operation["binding"]["plan_id"])
             state = self.state()
-            allowed_states = {
-                record["previous_release"]: record["plan"]["generation"],
-                operation["release"]: record["inventory"]["generation"],
-            }
-            if state["inventory"]["generation"] != allowed_states.get(state["release"]):
+            if not self._recoverable(operation, record, state):
                 raise AgentError("operation_superseded", 409)
             if any(
                 row["id"] != operation["id"] and row["state"] in ("queued", "running", "interrupted")

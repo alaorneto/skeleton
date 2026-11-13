@@ -167,6 +167,13 @@ class Store:
             raise AgentError("not_found", 404)
         return load_json(path)
 
+    def plans(self):
+        """``(plan_id, record, mtime)`` of every stored preview plan."""
+        result = []
+        for path in sorted((self.root / "plans").glob("*.json")):
+            result.append((path.stem, load_json(path), path.stat().st_mtime))
+        return result
+
     def operations(self):
         return sorted(
             (load_json(path) for path in (self.root / "operations").glob("*.json")),
