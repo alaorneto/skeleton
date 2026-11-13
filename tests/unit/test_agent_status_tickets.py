@@ -99,7 +99,8 @@ def test_tampered_payload_or_signature_is_403(agent):
     payload, signature = ticket.split(".")
     forged = {"operation": OTHER, "expires": int(time.time()) + 60, "epoch": 0, "nonce": "n"}
     forged_payload = urlsafe_b64encode(canonical(forged)).rstrip(b"=").decode()
-    flipped = signature[:-1] + ("A" if signature[-1] != "A" else "B")
+    # The first character: the last one of unpadded base64 also carries discarded padding bits.
+    flipped = ("A" if signature[0] != "A" else "B") + signature[1:]
     for value in (f"{forged_payload}.{signature}", f"{payload}.{flipped}", payload, f"{payload}..{signature}", ""):
         assert refused(agent.tickets, OPERATION, value)
     other_key = StatusTickets.__new__(StatusTickets)
