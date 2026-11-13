@@ -22,7 +22,7 @@ services:
       timeout: 5s
       retries: 20
   redis:
-    image: redis:8.8.3
+    image: redis:8.10.3
     # The password comes from the container environment ($$ escapes Compose interpolation), so it is
     # not in the rendered command (#318); Redis replaces its process title, hiding the argument.
     # Through docker-entrypoint.sh, the server still drops from root to the redis user.
