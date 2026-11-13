@@ -1,0 +1,16 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% translate "Pedidos de eliminação" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Pedidos de eliminação" %}</h1><p class="page-description">{% translate "Pessoas que pediram a anonimização da própria identidade. Aprovar substitui email e nomes, encerra logins, sessões e tokens e apaga notificações e preferências; os registros das organizações ficam ligados à identidade anônima. Não há como desfazer. Quem é o último administrador ativo de uma organização não pode ser anonimizado." %}</p></div></div>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Pessoa" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Pedido em" %}</th><th scope="col">{% translate "Decidido em" %}</th><th scope="col">{% translate "Concluído em" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for row in rows %}<tr>
+  <td class="break-all"><a href="{% url 'platform:user' row.user_id %}">{{ row.user.email }}</a></td>
+  <td>{% if row.status in open_states %}<span class="badge badge-warning badge-dot">{{ row.get_status_display }}</span>{% elif row.status == "completed" %}<span class="badge badge-success badge-dot">{{ row.get_status_display }}</span>{% else %}<span class="badge badge-dot">{{ row.get_status_display }}</span>{% endif %}</td>
+  <td class="whitespace-nowrap!">{{ row.created_at }}</td>
+  <td class="whitespace-nowrap!">{{ row.decided_at|default:"—" }}</td>
+  <td class="whitespace-nowrap!">{{ row.completed_at|default:"—" }}</td>
+  <td>{% if row.status == "pending" and row.user_id != request.user.pk %}<form method="post" action="{% url 'platform:privacy-decide' row.pk %}" class="flex gap-2">{% csrf_token %}<input type="hidden" name="revision" value="{{ row.revision }}"><button type="submit" name="decision" value="approve" class="btn btn-danger btn-sm">{% translate "Aprovar" %}</button><button type="submit" name="decision" value="reject" class="btn btn-ghost btn-sm">{% translate "Recusar" %}</button></form>{% endif %}</td>
+</tr>
+{% empty %}<tr><td colspan="6" class="empty-state">{% translate "Nenhum pedido de eliminação." %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

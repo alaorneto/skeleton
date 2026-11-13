@@ -33,6 +33,7 @@
 {% if platform_admin %}    <p class="sidebar-heading" id="platform-operations">{% translate "Operação" %}</p>
     <ul class="sidebar-list" aria-labelledby="platform-operations">
       <li><a class="sidebar-link" href="{% url 'platform:jobs' %}"{% if platform_section == "jobs" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" %}{% translate "Jobs" %}</a></li>
+      <li><a class="sidebar-link" href="{% url 'platform:privacy' %}"{% if platform_section == "privacy" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}{% translate "Pedidos de eliminação" %}</a></li>
     </ul>
 {% endif %}  </nav>
 </div>

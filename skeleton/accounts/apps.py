@@ -10,3 +10,6 @@ class AccountsConfig(AppConfig):
 
     def ready(self):
         from . import signals  # noqa: F401
+        from .erasure import register_erasure_jobs
+
+        register_erasure_jobs()

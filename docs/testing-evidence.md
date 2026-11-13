@@ -379,6 +379,21 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
   - quem não tem vínculo recebendo só a identidade.
 - Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
 
+**#191, eliminação da identidade aprovada pela plataforma:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6`: 2567 passed, 100 skipped (os pulos são os testes POSIX e o pg_trgm ausente no Windows).
+- `tests/integration/test_identity_erasure.py`: 5 passed. Cobrem:
+  - o pedido sozinho não muda a identidade, um segundo pedido é recusado e o pendente pode ser retirado, sem job;
+  - a aprovação anonimiza (email `anon-<sysid>@erased.invalid`, nomes vazios, inativo, sem senha utilizável), apaga email, conta social e token, encerra a sessão aberta e recusa o login pelos dois emails;
+  - as linhas de notificação da pessoa saem em A e em B, as de outra pessoa ficam; a nota e o vínculo continuam, apontando para a identidade anônima;
+  - o pedido e a decisão auditados, com a pessoa e o administrador como atores;
+  - a limpeza repetida não encontra nada e uma segunda decisão é recusada;
+  - o último administrador de B não é anonimizado, o pedido fica pendente e depois pode ser recusado;
+  - conta de serviço recusada e ninguém decide o próprio pedido;
+  - administrador de organização recebe 403 na lista e na decisão; decisão com revisão antiga não muda nada; GET na decisão responde 405.
+- `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos. `manage.py makemigrations --check`: sem mudanças. O snapshot SQL ganhou só `sk_accounts.erasurerequest`.
+- A role runtime só lê `socialaccount_socialtoken`; por isso a conta social sai sem o coletor de cascata, e o primeiro teste mostrou o `DELETE` recusado antes da correção.
+
 ## Apps por organização, perfis e ingresso (epic #35)
 
 Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.
