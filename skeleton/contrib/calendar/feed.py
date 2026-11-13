@@ -55,11 +55,11 @@ feed.skeleton_token_route = True  # type: ignore[attr-defined]
 def feed_token(request):
     """Issue a feed token (session, POST + CSRF); its URL is shown once."""
     from skeleton.service_api import Forbidden, InvalidInput
-    from skeleton.tenancy.context import request_context
+    from skeleton.tenancy.aggregate import user_context
 
     url = None
     if request.method == "POST":
-        with request_context(actor=request.user, request_id=request.request_id, source="http:calendar-feed-token"):
+        with user_context(request, source="http:calendar-feed-token"):
             try:
                 issued = FeedTokenService().issue(
                     actor=request.user,

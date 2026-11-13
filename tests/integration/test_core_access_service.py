@@ -184,3 +184,98 @@ def test_disabled_table_app_denies_can_and_require(scenario):
             assert service.can(actor=actor, action="read", table_key=TABLE, record_id=note.pk) is False
             with pytest.raises((NotFound, Forbidden)):
                 service.require(actor=actor, action="read", table_key=TABLE, record_id=note.pk)
+
+
+# --------------------------------------------------------------------------- granted_record_ids (#343)
+
+
+def _grant(scenario, organization, record, **subject):
+    from skeleton.access.models import RecordGrant
+    from skeleton.system.models import TableDefinition
+
+    with system_context(reason="test:granted-record-ids", organization_id=organization.pk):
+        table = TableDefinition.objects.get(model_label=TABLE)
+        RecordGrant(organization=organization, table=table, record_sysid=record.pk, action="read", **subject).save()
+
+
+@pytest.mark.needs_example_app
+def test_granted_record_ids_authorized_path(scenario):
+    """Grants to the membership, to a group and to an effective role all count."""
+    from skeleton.access.models import AccessGroup, GroupMember, Role
+    from skeleton.tenancy.models import Membership
+
+    direct, by_group, by_role, none = (
+        scenario.create(scenario.a, owner=scenario.admin_a, code=f"GR-{n}", title=n, visibility="private")
+        for n in ("direct", "group", "role", "none")
+    )
+    with system_context(reason="test:granted-subjects", organization_id=scenario.a.pk):
+        membership = Membership.objects.get(user=scenario.member)
+        group = AccessGroup(organization=scenario.a, code="grants", name="Grants")
+        group.save()
+        GroupMember(organization=scenario.a, group=group, membership=membership).save()
+        role = Role.objects.get(code="service-contract")
+    _grant(scenario, scenario.a, direct, membership=membership)
+    _grant(scenario, scenario.a, by_group, group=group)
+    _grant(scenario, scenario.a, by_role, role=role)
+    ids = (direct.pk, by_group.pk, by_role.pk, none.pk)
+    with acting_as(scenario.member, scenario.a) as actor:
+        granted = AccessService().granted_record_ids(actor=actor, table_key=TABLE, record_ids=ids)
+        assert set(granted) == {direct.pk, by_group.pk, by_role.pk}
+        assert list(granted) == sorted(granted, key=str)
+        assert AccessService().granted_record_ids(actor=actor, table_key=TABLE, record_ids=ids, action="update") == ()
+        assert AccessService().granted_record_ids(actor=actor, table_key=TABLE, record_ids=()) == ()
+
+
+@pytest.mark.needs_example_app
+def test_granted_record_ids_default_deny_and_tenant_isolation(scenario):
+    from skeleton.tenancy.models import Membership
+    from skeleton.testing.service_api import assert_tenant_isolated
+
+    here = scenario.create(scenario.a, owner=scenario.admin_a, code="GR-A", title="A", visibility="private")
+    foreign = scenario.create(scenario.b, owner=scenario.admin_b, code="GR-B", title="B", visibility="private")
+    with system_context(reason="test:granted-b", organization_id=scenario.b.pk):
+        membership_b = Membership.objects.get(user=scenario.member)
+    _grant(scenario, scenario.b, foreign, membership=membership_b)
+    service = AccessService()
+    assert_tenant_isolated(
+        scenario.caller(
+            lambda actor: service.granted_record_ids(actor=actor, table_key=TABLE, record_ids=(here.pk, foreign.pk))
+        ),
+        foreign=[foreign],
+    )
+    # Without any grant, nothing; an unknown identifier is simply absent.
+    from uuid import uuid4
+
+    with acting_as(scenario.denied, scenario.a) as actor:
+        assert service.granted_record_ids(actor=actor, table_key=TABLE, record_ids=(here.pk, uuid4())) == ()
+
+
+@pytest.mark.needs_example_app
+def test_granted_record_ids_invalid_input(scenario):
+    from uuid import uuid4
+
+    service = AccessService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        for kwargs in (
+            {"table_key": TABLE, "record_ids": (uuid4(),), "action": "create"},
+            {"table_key": "sk_tenancy.membership", "record_ids": (uuid4(),)},
+            {"table_key": "unknown.table", "record_ids": (uuid4(),)},
+            {"table_key": TABLE, "record_ids": tuple(uuid4() for _ in range(501))},
+            {"table_key": TABLE, "record_ids": ("not-a-uuid",)},
+            {"table_key": TABLE, "record_ids": [uuid4()]},
+        ):
+            with pytest.raises(InvalidInput):
+                service.granted_record_ids(actor=actor, **kwargs)
+
+
+@pytest.mark.needs_example_app
+def test_granted_record_ids_rejects_other_actor(scenario):
+    from uuid import uuid4
+
+    assert_rejects_other_actor(
+        scenario.caller(
+            lambda actor: AccessService().granted_record_ids(
+                actor=scenario.admin_a, table_key=TABLE, record_ids=(uuid4(),)
+            )
+        )
+    )

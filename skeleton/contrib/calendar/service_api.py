@@ -164,9 +164,8 @@ class CalendarService(ServiceAPI):
         Erros: Forbidden sem a permissão de tabela; InvalidInput para janela ou mais de 50 pessoas.
         Efeitos: nenhum.
         """
-        from django.apps import apps
-
         from skeleton.service_api import Forbidden, InvalidInput, as_uuid
+        from skeleton.service_api.organizations import OrganizationService
 
         from .models import Event
         from .policies import readable_calendars
@@ -178,12 +177,9 @@ class CalendarService(ServiceAPI):
             readable_calendars(actor).exists()  # The actor needs the calendar table at all.
         except PermissionDenied:
             raise Forbidden() from None
-        identifiers = [as_uuid(value, field="user_ids") for value in user_ids]
-        members = set(
-            apps.get_model("sk_tenancy", "Membership")
-            .objects.filter(user_id__in=identifiers, is_active=True)
-            .values_list("user_id", flat=True)
-        )
+        identifiers = tuple(as_uuid(value, field="user_ids") for value in user_ids)
+        refs = OrganizationService().member_refs(actor=actor, user_ids=identifiers, include_service_accounts=True)
+        members = {ref.user_id for ref in refs}
         busy = []
         for user_id in sorted(members, key=str):
             # Personal calendars of the person, outside the actor's visibility: only times leave.

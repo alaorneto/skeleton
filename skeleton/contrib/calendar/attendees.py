@@ -14,24 +14,18 @@ UPDATED = "calendar.updated"
 CANCELLED = "calendar.cancelled"
 
 
-def _membership(user_id: Any) -> Any:
-    """An active human member of the current organization (RLS keeps other organizations out)."""
-    from django.apps import apps
+def _member(actor: Any, user_id: Any) -> Any:
+    """An active human member of the current organization, through the core service API (#343)."""
+    from skeleton.service_api import InvalidInput
+    from skeleton.service_api.organizations import OrganizationService
 
-    membership = (
-        apps.get_model("sk_tenancy", "Membership")
-        .objects.filter(
-            user_id=user_id,
-            is_active=True,
-            deleted_at__isnull=True,
-            user__is_active=True,
-            user__account_type="human",
-        )
-        .first()
-    )
-    if membership is None:
+    try:
+        refs = OrganizationService().member_refs(actor=actor, user_ids=(user_id,))
+    except InvalidInput:
+        refs = ()
+    if not refs:
         raise ValidationError({"user": gettext("Convide só pessoas ativas desta organização (não contas de serviço).")})
-    return membership
+    return refs[0]
 
 
 def invite(*, actor: Any, event_id: Any, user_ids: tuple, optional: bool = False) -> list[EventAttendee]:
@@ -40,16 +34,18 @@ def invite(*, actor: Any, event_id: Any, user_ids: tuple, optional: bool = False
 
     event = require_writable_event(actor, event_id)
     created = []
+    invited = []
     for user_id in dict.fromkeys(user_ids):
-        membership = _membership(user_id)
-        if EventAttendee.objects.filter(event=event, membership=membership).exists():
+        ref = _member(actor, user_id)
+        if EventAttendee.objects.filter(event=event, membership_id=ref.membership_id).exists():
             continue
         attendee = EventAttendee(
-            organization_id=event.organization_id, event=event, membership=membership, optional=optional
+            organization_id=event.organization_id, event=event, membership_id=ref.membership_id, optional=optional
         )
         attendee.save()
         created.append(attendee)
-    notify_attendees(event, INVITED, users=tuple(row.membership.user_id for row in created), actor=actor)
+        invited.append(ref.user_id)
+    notify_attendees(event, INVITED, users=tuple(invited), actor=actor)
     return created
 
 

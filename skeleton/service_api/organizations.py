@@ -57,13 +57,23 @@ class GroupSummary:
     name: str
 
 
-def _active_members() -> Any:
+@dataclass(frozen=True, slots=True)
+class MemberRef:
+    """An active membership of the current organization, by identifiers only (#343)."""
+
+    user_id: UUID
+    membership_id: UUID
+
+
+MAX_MEMBER_REFS = 500
+
+
+def _active_members(*, include_service_accounts: bool = False) -> Any:
     from skeleton.tenancy.models import Membership
 
     # The directory lists people: service accounts (#44) are left out by default.
-    return Membership.objects.filter(
-        is_active=True, user__is_active=True, user__deleted_at__isnull=True, user__account_type="human"
-    )
+    members = Membership.objects.filter(is_active=True, user__is_active=True, user__deleted_at__isnull=True)
+    return members if include_service_accounts else members.filter(user__account_type="human")
 
 
 class OrganizationService(ServiceAPI):
@@ -188,6 +198,35 @@ class OrganizationService(ServiceAPI):
 
         active_membership(_user(actor))
         return _active_members().filter(user_id=as_uuid(user_id, field="user_id")).exists()
+
+    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    def member_refs(
+        self, *, actor: AbstractBaseUser | None, user_ids: tuple[UUID, ...], include_service_accounts: bool = False
+    ) -> tuple[MemberRef, ...]:
+        """Active memberships of the current organization among ``user_ids`` (people only by default).
+
+        Autorização: vínculo ativo do ator; em ``system_context`` (jobs), ``actor=None``. Não
+        devolve nome nem email; pessoa de outra organização ou com vínculo inativo não aparece (#343).
+        Erros: InvalidInput para identificador inválido ou mais de 500 identificadores.
+        Efeitos: nenhum.
+        """
+        from skeleton.access.policies import active_membership
+
+        if actor is not None:
+            active_membership(_user(actor))
+        if not isinstance(user_ids, tuple) or len(user_ids) > MAX_MEMBER_REFS:
+            raise InvalidInput({"user_ids": [gettext("Informe até %(value1)s pessoas.") % {"value1": MAX_MEMBER_REFS}]})
+        identifiers = [as_uuid(value, field="user_ids") for value in user_ids]
+        if not identifiers:
+            return ()
+        rows = (
+            _active_members(include_service_accounts=include_service_accounts)
+            .filter(user_id__in=identifiers)
+            .values_list("user_id", "sysid")
+        )
+        return tuple(
+            MemberRef(user_id, membership_id) for user_id, membership_id in sorted(rows, key=lambda row: str(row[0]))
+        )
 
     @service_method(read_only=True, since="0.5.0")
     def settings(self, *, actor: AbstractBaseUser) -> OrganizationSettingsInfo:

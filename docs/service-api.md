@@ -204,7 +204,7 @@ Uma app pode importar do núcleo apenas:
 | `skeleton.sequences.registry` | `SequenceSpec`, `register_sequence` em `ready()`; numerar é pelo `SequenceService` |
 | `skeleton.flows.registry` | `FlowSpec` e os construtores de etapas, transições, formulários e condições; `register_flow`, `register_flow_handler`, `register_flow_condition`, `register_flow_assignment` em `ready()`; iniciar e operar é pelo `FlowService` ([fluxos](flows.md)) |
 | `skeleton.integrations.tokens.scopes` | `register_token_scope` em `ready()` (escopos nomeados, como o feed da agenda) |
-| `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) |
+| `skeleton.tenancy.aggregate` | `aggregate_route`, `for_each_organization` (leitura de várias organizações, #74) e `user_context` (contexto global da pessoa na parte sem organização de uma rota agregada; recusa aninhar, #343) |
 | `skeleton.testing` | Kit de contrato e cenários, só em testes |
 
 Para ler a própria configuração ou a ativação de outra app, use o `ApplicationService` ([#105](https://github.com/alaorneto/skeleton/issues/105)); `skeleton.system.applications.application_state` continua permitido nesta versão e sai da lista numa próxima. Importar outros módulos do núcleo é o aviso `skeleton.W019` nesta versão e vira erro numa próxima. A lista vale também para `from skeleton.common import models` e para imports sob `TYPE_CHECKING`; para anotar o ator sem importar o modelo do núcleo, use `django.contrib.auth.base_user.AbstractBaseUser`.
@@ -267,6 +267,7 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
 | `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
 | `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |
+| `member_refs(*, actor, user_ids, include_service_accounts=False) -> tuple[MemberRef, ...]` | Vínculos ativos da organização entre `user_ids` (`user_id`, `membership_id`, ordenados por `user_id`), só pessoas por padrão; sem nome nem email. Vínculo ativo do ator, ou `actor=None` em `system_context` (jobs) (#343) | `InvalidInput` (identificador inválido, mais de 500) |
 | `settings(*, actor) -> OrganizationSettingsInfo` | vínculo ativo | `ContextRequired` sem organização |
 | `update_settings(*, actor, display_name, default_language, default_timezone, brand_color, expected_revision) -> OrganizationSettingsInfo` | administrador da organização | `Forbidden`; `InvalidInput` (idioma fora de `LANGUAGES`, fuso inválido, cor fora de `#RRGGBB`, nome acima de 200 caracteres); `Conflict("stale_revision")` |
 
@@ -281,6 +282,7 @@ O diretório traz só vínculos ativos de identidades ativas da organização at
 | `can(*, actor, action, table_key, record_id=None) -> bool` | Exatamente `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro, quando informado); tabela desconhecida ou não exposta, registro inexistente ou de outra organização: `False` | `InvalidInput` (ação ou UUID inválidos) |
 | `require(*, actor, action, table_key, record_id=None) -> None` | Igual a `can`, mas levanta | `NotFound` se não for legível (inclusive de outra organização); `Forbidden` se for legível e a ação for negada |
 | `capabilities(*, actor) -> tuple[str, ...]` | Capacidades dos papéis internos do ator, ordenadas (tupla: o contrato não admite `frozenset`) | — |
+| `granted_record_ids(*, actor, table_key, record_ids, action="read") -> tuple[UUID, ...]` | Quais de `record_ids` têm concessão de registro viva ao vínculo do ator, a um grupo dele ou a um papel efetivo, na organização do contexto; não dispensa a `TablePermission` nem diz se o registro existe (inexistente e de outra organização simplesmente não aparecem) (#343) | `InvalidInput` (tabela não exposta, ação fora de `read`/`update`/`delete`, identificador inválido, mais de 500) |
 | `my_groups(*, actor) -> tuple[GroupSummary, ...]` | Grupos vivos do ator na organização | `Forbidden` sem vínculo |
 | `grant_member_table_access(*, actor, table_key, actions) -> tuple[str, ...]` | Dá ao papel interno `member` as ações numa tabela exposta, pelo serviço de concessão da gestão de acesso (lock e auditoria); devolve só as ações acrescentadas, então repetir não muda nada. Usado pela ação "acesso básico" da agenda (#68) | `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta, ação inválida, catálogo ou papel indisponível) |
 

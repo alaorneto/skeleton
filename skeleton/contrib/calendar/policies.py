@@ -20,6 +20,8 @@ from skeleton.access.policies import authorized_queryset
 
 from .models import Calendar, Event
 
+TABLE_KEY = "skeleton_calendar.calendar"
+
 BUSY_TITLE = gettext_lazy("Ocupado")
 
 
@@ -94,12 +96,17 @@ def sees_details(user: Any, event: Event) -> bool:
 
 
 def is_delegate(user: Any, calendar: Calendar, *, action: str = "read") -> bool:
-    from skeleton.access.policies import _grant_ids
+    """An explicit record grant on the calendar, through the core service API (#343)."""
+    from skeleton.service_api import Forbidden
+    from skeleton.service_api.access import AccessService
 
     try:
-        return _grant_ids(Calendar, user, action).filter(record_sysid=calendar.pk).exists()
-    except PermissionDenied:
+        granted = AccessService().granted_record_ids(
+            actor=user, table_key=TABLE_KEY, record_ids=(calendar.pk,), action=action
+        )
+    except Forbidden:
         return False
+    return calendar.pk in granted
 
 
 def is_attendee(user: Any, event: Event) -> bool:
