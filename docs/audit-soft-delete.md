@@ -46,7 +46,7 @@ SQL direto também precisa fornecer `revision=OLD.revision+1`, datas e valores c
 
 **Soft delete**, ou exclusão lógica, preenche `deleted_at` em vez de apagar a linha. A marca é chamada **tombstone**: `deleted_at IS NOT NULL` é sua única definição, sem `is_deleted` redundante. O manager padrão exclui essas linhas das consultas e aplica a organização. Sem contexto organizacional, lança `MissingTenantContext`. `with_deleted()` remove **apenas** o filtro da marca de exclusão posto pelo manager, em qualquer profundidade e também em querysets combinados com `|` e `&` (o filtro é um lookup próprio, `LiveRows`, reconhecido pelo tipo; um `deleted_at__isnull=True` escrito por quem chama fica): não abre Beta para quem está em Alfa nem dispensa autorização (#274). O base manager interno não filtrado serve só à infraestrutura, nunca a serializer, seletor de referências ou template.
 
-Delete de instância/queryset é lógico e não usa coleta/cascata de exclusão física do Django. O lote usa um único `atomic`, com triggers por linha. Restore revalida referências ativas e unicidade, preservando `sysid`; um conflito não restaura parcialmente nem sobrescreve outra linha.
+Delete de instância/queryset é lógico e não usa coleta/cascata de exclusão física do Django. O lote usa um único `atomic`, com triggers por linha. Restore revalida referências ativas e unicidade, preservando `sysid`; um conflito não restaura parcialmente nem sobrescreve outra linha. As superfícies (página e REST) só oferecem restauração para tombstones: um registro vivo responde 404, como um inexistente, sem chamar o serviço de negócio de restauração (#288).
 
 Por exemplo, Alice exclui em Alfa a nota de código `ATA-01`. Se outra nota viva ocupar esse código em Alfa, restaurar a antiga falha; a antiga conserva sua marca e UUID. Uma nota `ATA-01` de Beta não conflita quando a unicidade é por organização. Restaurar tampouco reativa automaticamente todos os vínculos de acesso revogados.
 
@@ -86,6 +86,10 @@ Na API, HTML e admin, a apresentação da auditoria de negócio segue `TableSpec
 ### Filtros de investigação
 
 As três superfícies aceitam os mesmos filtros ([#184](https://github.com/alaorneto/skeleton/issues/184)): a auditoria da organização (`/o/<org>/audit/`), a da plataforma (`/platform/audit/`) e a REST (`/api/v1/o/<org>/audit/`).
+
+As duas páginas mostram as alterações de cada evento como tabela **Campo / Antes / Depois**, uma linha por coluna visível, em ordem alfabética: valor ausente é "—", valor redigido é "[redigido]" e números, booleanos e estruturas aparecem como JSON (#287). A REST continua devolvendo `changes` como objeto `{old, new, redacted}` por campo.
+
+O nome físico da tabela (`table_name`) e a role do banco que escreveu (`db_principal`) só interessam a quem administra: no log, chegam vazios para o membro que lê eventos por `TablePermission audit` sem ser administrador da organização (#324). A captura persistida continua completa.
 
 - `from` e `to`: uma data, que vale o dia inteiro no fuso da pessoa, ou data e hora ISO 8601.
 - `actor` (UUID), `operation` (`create`, `update`, `soft_delete`, `restore`, `hard_delete`) e `request_id`.

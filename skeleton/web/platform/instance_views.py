@@ -20,7 +20,7 @@ from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.logging import security_event
 from skeleton.instance.resolve import ORIGIN_ENV, resolve_instance_settings
 from skeleton.instance.schema import CATALOG
-from skeleton.instance.writer import clear_setting, write_setting
+from skeleton.instance.writer import can_clear, clear_setting, write_setting
 
 from .guards import platform_page
 
@@ -53,6 +53,7 @@ def _rows():
                 "origin": item.origin,
                 "value": shown,
                 "editable": item.origin != ORIGIN_ENV,
+                "clearable": item.origin == "instance" and can_clear(spec),
             }
         )
     return rows
@@ -96,6 +97,9 @@ def instance_setting(request):
     origin = next(item.origin for item in resolve_instance_settings(settings.BASE_DIR) if item.key == key)
     if origin == ORIGIN_ENV:
         form.add_error("key", gettext("Esta chave vem do ambiente e não pode ser alterada aqui."))
+        return _page(request, form=form, status=409)
+    if action == "clear" and not can_clear(CATALOG[key]):
+        form.add_error("key", gettext("Esta chave é obrigatória: grave um novo valor em vez de voltar ao padrão."))
         return _page(request, form=form, status=409)
     source = f"platform:{request.user.pk}"
     try:

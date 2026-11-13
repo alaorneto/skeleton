@@ -163,6 +163,28 @@ def test_import_env_unset_and_template(instance, monkeypatch):
     assert SECRET not in template and "imported.example" not in template
 
 
+def test_required_key_is_not_unset_without_force(instance):
+    """Without the environment, removing a required key would leave the instance unable to start (#267)."""
+    run("set", "allowed_hosts", "kept.example")
+    with pytest.raises(CommandError, match="--force"):
+        run("unset", "allowed_hosts")
+    assert "allowed_hosts" in InstanceStore(instance[0]).settings()
+    assert "removida" in run("unset", "allowed_hosts", "--force")
+    assert "allowed_hosts" not in InstanceStore(instance[0]).settings()
+
+
+def test_can_clear_follows_environment(instance):
+    from skeleton.instance.writer import can_clear, clear_setting, write_setting
+
+    assert not can_clear(spec_for("secret_key"), {})
+    assert can_clear(spec_for("secret_key"), {"DJANGO_SECRET_KEY": "x"})
+    assert can_clear(spec_for("default_from_email"), {})
+    write_setting(ROOT, "allowed_hosts", "kept.example", source="test")
+    with pytest.raises(ValueError, match="obrigatória"):
+        clear_setting(ROOT, "allowed_hosts", source="test")
+    assert clear_setting(ROOT, "allowed_hosts", source="test", allow_required=True)
+
+
 def test_status_lists_what_the_setup_still_needs(instance):
     assert missing_for_setup(ROOT) == ["secret_key", "allowed_hosts", "database_url"]
     run("set", "secret_key", SECRET)

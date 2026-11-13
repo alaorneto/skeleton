@@ -2,6 +2,7 @@
 
 import io
 import os
+import signal
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -67,3 +68,42 @@ def test_setup_mode_follows_the_required_keys(tmp_path, monkeypatch):
 def test_only_complete_postgresql_urls_are_accepted(dsn):
     with pytest.raises(database.DatabaseCheckError):
         database.parse(dsn)
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [
+        ({"SKELETON_SETUP_RESTART": "exit"}, "exit"),
+        pytest.param(
+            {"SERVER_SOFTWARE": "gunicorn/23.0.0"},
+            "gunicorn",
+            marks=pytest.mark.skipif(not hasattr(signal, "SIGHUP"), reason="SIGHUP is POSIX only"),
+        ),
+        ({"RUN_MAIN": "true"}, "autoreload"),
+        ({}, "manual"),
+    ],
+)
+def test_restart_modes(monkeypatch, environment, expected):
+    """Each supervisor gets its restart; exit uses the code that halts the Gunicorn master (#290)."""
+    from skeleton.setup import restart
+
+    for name in ("SKELETON_SETUP_RESTART", "SERVER_SOFTWARE", "RUN_MAIN"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    scheduled, calls = [], []
+    monkeypatch.setattr(restart, "_delayed", lambda action, seconds=1.0: scheduled.append(action))
+    monkeypatch.setattr(restart.os, "_exit", lambda code: calls.append(("exit", code)))
+    monkeypatch.setattr(restart.os, "kill", lambda pid, sig: calls.append(("kill", sig)))
+    monkeypatch.setattr(restart.Path, "touch", lambda self: calls.append(("touch", self.name)))
+    assert restart.request_restart() == expected
+    assert restart.GUNICORN_HALT_EXIT_CODE == 3
+    for action in scheduled:
+        action()
+    expected_calls = {
+        "exit": [("exit", 3)],
+        "gunicorn": [("kill", getattr(signal, "SIGHUP", None))],
+        "autoreload": [("touch", "restart.py")],
+        "manual": [],
+    }[expected]
+    assert calls == expected_calls

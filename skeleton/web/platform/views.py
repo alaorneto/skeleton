@@ -32,6 +32,7 @@ from skeleton.accounts.services import (
     update_platform_user,
 )
 from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.system.catalog_labels import update_catalog_labels
 from skeleton.tenancy.services import create_organization, update_organization
 from skeleton.web.views import form_error, pagination, service_pagination
 
@@ -494,19 +495,6 @@ def organization_administrators(request, sysid):
 # --------------------------------------------------------------------------- catalog
 
 
-def _update_labels(model, pk, data, *, expected_revision):
-    with transaction.atomic():
-        record = model.objects.select_for_update().get(pk=pk)
-        if expected_revision != record.revision:
-            raise ConcurrentUpdate("The catalog form is stale.")
-        changed = {name for name in ("label", "description") if getattr(record, name) != data[name]}
-        if changed:
-            for name in changed:
-                setattr(record, name, data[name])
-            record.save(update_fields=changed)
-        return record
-
-
 def _label_form(request, record):
     return CatalogLabelForm(
         request.POST or None,
@@ -543,7 +531,7 @@ def catalog_table(request, sysid):
             data = dict(form.cleaned_data)
             revision = data.pop("expected_revision")
             try:
-                table = _update_labels(TableDefinition, table.pk, data, expected_revision=revision)
+                table = update_catalog_labels(TableDefinition, table.pk, data, expected_revision=revision)
             except ConcurrentUpdate as exc:
                 status = form_error(form, exc)
             else:
@@ -574,7 +562,7 @@ def catalog_field(request, sysid):
             data = dict(form.cleaned_data)
             revision = data.pop("expected_revision")
             try:
-                _update_labels(FieldDefinition, field.pk, data, expected_revision=revision)
+                update_catalog_labels(FieldDefinition, field.pk, data, expected_revision=revision)
             except ConcurrentUpdate as exc:
                 status = form_error(form, exc)
             else:
@@ -607,10 +595,10 @@ def catalog_field(request, sysid):
 @require_safe
 def audit(request):
     from skeleton.accounts.platform import is_platform_admin
-    from skeleton.api.serializers import audit_data
     from skeleton.audit.filters import operation_choices, parse_audit_filters
     from skeleton.service_api.audit import AuditLogService
     from skeleton.tenancy.context import platform_audit_scope
+    from skeleton.web.presentation import audit_rows
 
     try:
         filters = parse_audit_filters(request.GET)
@@ -630,7 +618,7 @@ def audit(request):
         page,
         validated_filters={name: value for name, value in request.GET.dict().items() if value != ""},
     )
-    rows.object_list = [audit_data(event) for event in rows]
+    rows.object_list = audit_rows(rows)
     return render(
         request,
         "skeleton/web/platform/audit.html",
@@ -838,14 +826,8 @@ def app_screen(request, app_label, screen_id):
     except KeyError:
         raise Http404 from None
     if screen.sensitive:
-        from .updates import recent_authentication
-
-        @recent_authentication_required(allow_get=True)
-        def sensitive_handler(request):
-            recent_authentication(request)
-            return handler(request)
-
-        return sensitive_handler(request)
+        # A sensitive screen needs a recent authentication on every method, GET included (#311).
+        return recent_authentication_required(handler)(request)
     return handler(request)
 
 

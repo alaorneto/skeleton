@@ -459,7 +459,7 @@ def _input_name(spec: Any) -> str:
 
 def record_schema(spec: Any) -> Schema:
     """What the gateway renders for one record of ``spec``, without its sensitive fields."""
-    from skeleton.web.services import SYSTEM_FIELDS
+    from skeleton.records.services import SYSTEM_FIELDS
 
     sensitive = set(spec.sensitive_fields)
     names = [name for name in dict.fromkeys((*SYSTEM_FIELDS, *spec.read_fields)) if name not in sensitive]
@@ -484,13 +484,13 @@ def record_input_schema(spec: Any, *, creating: bool) -> Schema:
 
 
 def access_schema(model: Any) -> Schema:
-    from skeleton.web.services import ACCESS_FIELDS, SYSTEM_FIELDS
+    from skeleton.records.services import ACCESS_FIELDS, SYSTEM_FIELDS
 
     return model_fields(model, (*SYSTEM_FIELDS, *ACCESS_FIELDS))
 
 
 def access_input_schema(model: Any) -> Schema:
-    from skeleton.web.services import ACCESS_FIELDS
+    from skeleton.records.services import ACCESS_FIELDS
 
     return obj({name: field_schema(model._meta.get_field(name)) for name in ACCESS_FIELDS}, required=())
 
@@ -588,7 +588,7 @@ class TableRoutes:
         )
 
     def _references(self, spec: Any, actions: frozenset[str], route: Route, path: str) -> Iterator[Expanded]:
-        from skeleton.web.references import ACCESS_REFERENCE_FIELDS
+        from skeleton.records.references import ACCESS_REFERENCE_FIELDS
 
         sensitive = set(spec.sensitive_fields)
         names = []
@@ -687,7 +687,7 @@ def dedicated_schema(resource: str) -> Schema:
     from django.apps import apps
 
     from skeleton.api.serializers import DEDICATED, DEDICATED_EXTRA
-    from skeleton.web.services import SYSTEM_FIELDS
+    from skeleton.records.services import SYSTEM_FIELDS
 
     label, fields = DEDICATED[resource]
     model = apps.get_model(label)

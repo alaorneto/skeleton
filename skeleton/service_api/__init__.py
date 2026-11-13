@@ -1,10 +1,11 @@
 """In-process service API shared by applications (docs/service-api.md)."""
 
 from .base import Deprecation, ServiceAPI, ServiceMethodSpec, deprecated, service_method
-from .dto import MAX_PAGE_SIZE, Page, as_utc, as_uuid, paginate
+from .dto import MAX_OFFSET, MAX_PAGE_SIZE, Page, as_utc, as_uuid, paginate
 from .errors import Conflict, ContextRequired, Forbidden, InvalidInput, NotFound, ServiceError, Unavailable
 
 __all__ = [
+    "MAX_OFFSET",
     "MAX_PAGE_SIZE",
     "Conflict",
     "ContextRequired",

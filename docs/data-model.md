@@ -129,6 +129,17 @@ Este é o registro histórico de uma alteração, não o próprio objeto alterad
 
 `sk_audit.AuditEvent` é estruturalmente global, mas possui `organization_id` UUID que pode ser NULL para controlar acesso por RLS. Campos: `table_name`, `model_label`, `record_sysid`, `record_revision`, `operation`, `actor_sysid`, `request_id`, `source`, `db_principal`, `changes` JSON. Não tem FK a usuário, organização, registro ou catálogo: eventos sobrevivem aos objetos históricos.
 
+A tabela recebe uma linha a cada escrita do sistema, então cada índice tem uma consulta que o lê (#270):
+
+| Índice | Colunas | Consulta |
+|---|---|---|
+| `sk_audit_org_created` | `(organization_id, created_at)` | log da organização e log da plataforma (`organization_id IS NULL`), do mais novo ao mais antigo |
+| `sk_audit_record_created` | `(record_sysid, created_at)` | histórico de um registro e filtro por registro do log |
+| `sk_audit_org_actor` | `(organization_id, actor_sysid, created_at)` | filtro por ator do log (#184) |
+| `sk_audit_request` | `(request_id)` | tudo o que uma requisição fez (#184) |
+
+Um índice novo entra só junto da consulta que o usa.
+
 `operation`: create/update/soft_delete/restore/hard_delete. Cada item de `changes` contém old/new/redacted, isto é, valor anterior, valor novo e indicação de ocultação de segredo. A `revision` do evento é sempre 1; `deleted_at`/`deleted_by` são sempre NULL. UPDATE/DELETE são proibidos: eventos só podem ser acrescentados. Exclusão física não é oferecida à aplicação; um evento `hard_delete` só pode existir após manutenção offline revisada que remova o guard (proteção no banco).
 
 ## Exemplo opt-in

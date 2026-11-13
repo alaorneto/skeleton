@@ -20,7 +20,7 @@ from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 from django.views.decorators.http import require_http_methods, require_safe
 
-from skeleton.accounts.reauthentication import recent_authentication_required, require_recent_authentication
+from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.models import ComponentInstallation, DeploymentOperation
 from skeleton.system.releases import (
@@ -43,7 +43,6 @@ __all__ = [
     "operation",
     "operations",
     "plan",
-    "recent_authentication",
     "upload",
 ]
 
@@ -132,10 +131,6 @@ class BoundedPackageUpload(FileUploadHandler):
 
     def file_complete(self, file_size):
         return None
-
-
-def recent_authentication(request):
-    require_recent_authentication(request)
 
 
 def _context(step, **values):
@@ -286,7 +281,6 @@ def _upload(request):
         return render(
             request, "skeleton/web/platform/updates/upload.html", _context("upload", upload_form=UploadForm())
         )
-    recent_authentication(request)
     handler = request.upload_handlers[0]
     form = UploadForm(request.POST, request.FILES)
     if handler.exceeded:
@@ -320,7 +314,6 @@ def _upload(request):
 def plan(request):
     if request.method != "POST":
         return _plan_page(request, PlanForm())
-    recent_authentication(request)
     form = PlanForm(request.POST)
     if form.is_valid():
         try:
@@ -346,10 +339,9 @@ def _preview_failure(request, form, exc):
 
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["POST"])
-@recent_authentication_required(allow_get=True)
+@recent_authentication_required
 def add_dependency(request):
     """Fetch an operator-chosen catalogue suggestion and preview the plan again with it."""
-    recent_authentication(request)
     identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
     if any(not value or len(value) > 128 for value in identifiers.values()):
         return HttpResponse(gettext("Identificação de release inválida."), status=400)
@@ -370,9 +362,8 @@ def add_dependency(request):
 
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["POST"])
-@recent_authentication_required(allow_get=True)
+@recent_authentication_required
 def fetch_release(request):
-    recent_authentication(request)
     try:
         identifiers = {name: request.POST.get(name, "") for name in ("component_id", "version", "source_id")}
         if any(not value or len(value) > 128 for value in identifiers.values()):
@@ -407,7 +398,6 @@ def operations(request):
 def operation(request, operation_id):
     row = get_object_or_404(DeploymentOperation.objects.select_for_update(), pk=operation_id)
     if request.method == "POST":
-        recent_authentication(request)
         form = ConfirmationForm(request.POST)
         if not form.is_valid() or form.cleaned_data["plan_digest"] != row.plan_digest:
             return HttpResponse(gettext("Confirmação do plano inválida."), status=400)

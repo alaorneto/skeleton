@@ -173,3 +173,84 @@ def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_pat
     from skeleton.accounts.models import User
 
     assert User.objects.filter(email="root@example.test", is_superuser=True).exists()
+
+
+def test_correct_token_enters_after_wrong_attempts(setup_mode):
+    """Wrong guesses from the same address never lock out the operator who has the token (#290)."""
+    client = Client(enforce_csrf_checks=True)
+    client.get("/setup/")
+    csrf = client.cookies["csrftoken"].value
+    for _ in range(6):
+        client.post("/setup/", {"token": "z" * 32, "csrfmiddlewaretoken": csrf})
+    response = client.post("/setup/", {"token": token(setup_mode), "csrfmiddlewaretoken": csrf})
+    assert response.status_code == 302
+    assert client.get("/setup/").status_code == 200
+
+
+def test_rejected_tokens_are_logged_without_the_token(setup_mode, caplog):
+    client = Client(enforce_csrf_checks=True)
+    client.get("/setup/")
+    csrf = client.cookies["csrftoken"].value
+    guess = "w" * 31 + "q"
+    with caplog.at_level(logging.WARNING, logger="skeleton.security"):
+        for _ in range(6):
+            client.post("/setup/", {"token": guess, "csrfmiddlewaretoken": csrf})
+    rejected = [record for record in caplog.records if getattr(record, "event", None) == "setup.token_rejected"]
+    assert [record.reason_code for record in rejected] == ["invalid_token"] * 5 + ["rate_limited"]
+    assert guess not in caplog.text
+
+
+def _ready_for(store, *steps):
+    from django.conf import settings
+
+    from skeleton.instance.writer import write_setting
+
+    write_setting(settings.BASE_DIR, "database_url", os.environ["TEST_DATABASE_URL"], source="test")
+    for step in steps:
+        store.put_setup_state(f"step:{step}", "done")
+
+
+def test_failed_migration_is_logged_without_credentials(setup_mode, caplog, monkeypatch):
+    from skeleton.setup import database
+
+    def broken(dsn):
+        raise RuntimeError("boom")
+
+    owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
+    owner_password = owner.split(":")[2].split("@")[0]
+    _ready_for(setup_mode)
+    monkeypatch.setattr(database, "migrate_schema", broken)
+    client = enter(setup_mode)
+    with caplog.at_level(logging.ERROR, logger="skeleton.setup"):
+        response = post(client, "/setup/schema/", {"owner_url": owner})
+    assert response.status_code == 400 and "RuntimeError" in response.content.decode()
+    [record] = [record for record in caplog.records if record.name == "skeleton.setup"]
+    assert record.levelno == logging.ERROR and record.exc_info and "step=schema" in record.getMessage()
+    assert owner_password not in caplog.text and owner not in caplog.text
+
+
+def test_failed_admin_bootstrap_is_logged(setup_mode, caplog, monkeypatch):
+    from skeleton.accounts import services
+
+    def broken(**kwargs):
+        raise RuntimeError("boom")
+
+    _ready_for(setup_mode, "schema")
+    monkeypatch.setattr(services, "bootstrap_identity", broken)
+    client = enter(setup_mode)
+    with caplog.at_level(logging.ERROR, logger="skeleton.setup"):
+        response = post(
+            client,
+            "/setup/admin/",
+            {
+                "email": "root@example.test",
+                "password1": PASSWORD,
+                "password2": PASSWORD,
+                "organization_name": "Primeira",
+                "organization_slug": "primeira",
+            },
+        )
+    assert response.status_code == 400
+    [record] = [record for record in caplog.records if record.name == "skeleton.setup"]
+    assert record.exc_info and "step=admin" in record.getMessage()
+    assert PASSWORD not in caplog.text

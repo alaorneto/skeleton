@@ -26,6 +26,8 @@ with tenant_context(organization_id=org_uuid, actor=user, source="job:export"):
 
 `authorized_queryset(model, *, user, action='read', include_deleted=False)` filtra antes de paginação/contagem. `require_record_action(record, *, user, action)` revalida um registro. Nunca exponha resultados de `_base_manager`/`all_objects` ou relações reversas como alternativa.
 
+A lista de tabelas legíveis do painel, do catálogo e do seletor (`skeleton.records.services.readable_specs`) decide por tabela com uma consulta de `table_permissions` e a checagem de app ativa uma vez por app, em vez de uma autorização inteira por tabela; um teste de equivalência a compara com `authorized_queryset` (#302). Nada é guardado entre chamadas.
+
 ## Algoritmo
 
 As verificações seguem esta ordem; falhar em uma camada não pode ser compensado por outra:
@@ -78,7 +80,7 @@ Uma **conta de serviço** é um membro sem pessoa, para integrações (webhooks,
 
 ## Administração de acesso
 
-Os serviços em `skeleton.access.services` administram vínculos, papéis, grupos, associações, permissões de tabela e concessões de registro, cada um com a capacidade correspondente (seção anterior). `TablePermission` só aponta a tabela de negócio exposta e ação suportada, nunca identidade global ou tabela técnica. `RecordGrant` resolve um alvo `SecuredRecord` vivo, da mesma organização, com destinatário ativo; o UUID enviado pelo cliente não basta.
+Os serviços em `skeleton.access.services` administram vínculos, papéis, grupos, associações, permissões de tabela e concessões de registro, cada um com a capacidade correspondente (seção anterior). As páginas e a REST escolhem o serviço de cada recurso pelo mesmo despacho, `skeleton.access.resources` (`create_resource`, `update_resource`, `delete_resource`); revogar convite é o serviço `skeleton.tenancy.invitations.revoke_invitation`, que confere a capacidade e a organização do convite (#265). `TablePermission` só aponta a tabela de negócio exposta e ação suportada, nunca identidade global ou tabela técnica. `RecordGrant` resolve um alvo `SecuredRecord` vivo, da mesma organização, com destinatário ativo; o UUID enviado pelo cliente não basta.
 
 Mudanças que podem remover o último administrador bloqueiam `Organization` dentro de `atomic`: desativação/remoção de `Membership`, `MemberRole`, `GroupRole` e relações de grupo. Assim, operações concorrentes não aprovam duas remoções com base no mesmo estado antigo. Conflito deixa tudo inalterado. Remover `Membership` revoga `MemberRole`, `GroupMember` e `RecordGrant` do vínculo antes da marca de exclusão. Papéis/grupos com referências vivas exigem revogação explícita prévia; papéis internos são protegidos.
 
@@ -91,6 +93,8 @@ Desativar ou excluir logicamente o `User` global verifica **todas** as organiza�
 O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano de plataforma autenticado; operações offline usam owner. `system_context(reason=...)` numa conexão runtime comum não transforma a credencial em owner. Violação de integridade vira `LastAdministrator`; a tela `/platform/users/<id>/` responde 409 com rollback, não erro SQL/500.
 
 ### Designação de administrador pela plataforma
+
+Ao criar uma organização em `/platform/organizations/new/`, o administrador inicial é informado pelo email de uma identidade humana ativa; o formulário não lista as identidades da instalação (#311). Email desconhecido, de identidade inativa ou de conta de serviço é recusado no campo.
 
 Quando o administrador de uma organização sai ou fica indisponível, o administrador de plataforma designa outro em `/platform/organizations/<id>/` (card "Administradores"). O serviço é `skeleton.access.administration.designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None)`:
 

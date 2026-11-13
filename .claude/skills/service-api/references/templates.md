@@ -64,10 +64,11 @@ class TaskService(ServiceAPI):
         Erros: InvalidInput para status desconhecido ou page_size > 100.
         Efeitos: nenhum.
         """
-        rows = authorized_queryset(Task, user=actor, action="read").order_by("created_at", "sysid")
+        rows = authorized_queryset(Task, user=actor, action="read")
         if status is not None:
             rows = rows.filter(status=services.validated_status(status))
-        return paginate(rows, cursor=cursor, page_size=page_size, convert=_info)
+        # key: keyset pages over immutable columns, the last one unique (docs/service-api.md, #305).
+        return paginate(rows, cursor=cursor, page_size=page_size, convert=_info, key=("created_at", "sysid"))
 
     @service_method(since="1.0")
     def create_task(

@@ -14,7 +14,7 @@
     <label class="sr-only" for="value-{{ row.key }}">{% translate "Novo valor de" %} {{ row.key }}</label>
     <input id="value-{{ row.key }}" name="value" {% if row.secret %}type="password" autocomplete="new-password" placeholder="{% translate "novo valor" %}"{% else %}type="text" value="{{ row.value }}"{% endif %}>
     <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>
-    {% if row.origin == "instance" %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}
+    {% if row.clearable %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}
   </form>{% else %}<span class="text-body-subtle">{% translate "Somente leitura (ambiente)" %}</span>{% endif %}</td>
 </tr>{% endfor %}
 </tbody></table></div>

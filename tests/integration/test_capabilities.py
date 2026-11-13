@@ -323,3 +323,29 @@ def test_generic_services_refuse_records_of_another_kind(skeleton_db):
         link = MemberRole.objects.filter(membership=membership).first()
         revoke_link(link, user=fixture.admin)
         assert not MemberRole.objects.filter(pk=link.pk).exists()
+
+
+def test_invitation_resend_with_stale_revision_is_412(org):
+    """The service locks and compares the revision; the view only reads If-Match (#340)."""
+    from skeleton.access.models import Role
+    from skeleton.tenancy.models import Invitation
+
+    owner, organization = org
+    client = login(owner)
+    with tenant_context(organization_id=organization.pk, actor=owner, source="test:resend"):
+        member = Role.objects.get(code="member", is_builtin=True)
+    invitations = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "invitations"})
+    with override_settings(SKELETON_PUBLIC_URL="https://app.example.test"):
+        created = send(client, "post", invitations, {"email": "resend@example.test", "role": str(member.pk)})
+        assert created.status_code == 201, created.content
+        resend = reverse(
+            "api:invitation-resend", kwargs={"organization_id": organization.pk, "sysid": created.json()["sysid"]}
+        )
+        stale = send(client, "post", resend, None, '"99"')
+        assert stale.status_code == 412 and stale.json()["code"] == "revision_conflict"
+        assert send(client, "post", resend, None).status_code == 428
+        assert send(client, "post", resend, None, "nope").status_code == 400
+        fresh = send(client, "post", resend, None, created["ETag"])
+        assert fresh.status_code == 201 and fresh.json()["sysid"] != created.json()["sysid"]
+    with tenant_context(organization_id=organization.pk, actor=owner, source="test:resend-check"):
+        assert Invitation.objects.filter(email="resend@example.test").count() == 1  # The old one was replaced.

@@ -7,6 +7,7 @@ exists while that request runs. ``/setup/`` answers 404 once the setup is comple
 
 from __future__ import annotations
 
+import logging
 import secrets
 from functools import wraps
 
@@ -18,6 +19,7 @@ from django.shortcuts import redirect, render
 from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 
+from skeleton.common.logging import security_event
 from skeleton.instance import crypto
 from skeleton.instance.writer import open_store, write_setting
 
@@ -33,6 +35,7 @@ STEPS = (
     ("admin", gettext_lazy("Administrador e organização")),
 )
 SESSION_KEY = "skeleton_setup"
+logger = logging.getLogger("skeleton.setup")
 MAX_FAILURES = 5
 FAILURE_WINDOW = 15 * 60
 KEYRINGS = ("mfa_encryption_keys", "identity_provider_encryption_keys", "integration_encryption_keys")
@@ -100,31 +103,35 @@ def start(request):
     status = 200
     if request.method == "POST":
         key = f"setup-token-failures:{_client(request)}"
-        failures = cache.get(key, 0)
-        if failures >= MAX_FAILURES:
-            return _render(
-                request,
-                "token.html",
-                {
-                    "form": form,
-                    "error": gettext("Muitas tentativas. Aguarde 15 minutos."),
-                    "title": gettext("Primeiro acesso"),
-                },
-                status=429,
-            )
+        # The token is checked before the limit (#290): behind a proxy every client shares one
+        # address, and wrong guesses from anyone would otherwise lock out the operator who has
+        # the right token. The token has 192 random bits; the limit is a signal, not the defence.
         if form.is_valid() and tokens.consume_token(_store()[0], form.cleaned_data["token"]):
+            cache.delete(key)
             request.session.cycle_key()
             request.session[SESSION_KEY] = True
             return redirect("setup:start")
-        cache.set(key, failures + 1, FAILURE_WINDOW)
-        form = forms.TokenForm()
-        status = 403
+        failures = cache.get(key, 0)
+        limited = failures >= MAX_FAILURES
+        if not limited:
+            cache.set(key, failures + 1, FAILURE_WINDOW)
+        status = 429 if limited else 403
+        security_event(
+            "setup.token_rejected",
+            level=logging.WARNING,
+            status=status,
+            outcome="denied",
+            reason_code="rate_limited" if limited else "invalid_token",
+            source="setup",
+        )
         return _render(
             request,
             "token.html",
             {
-                "form": form,
-                "error": gettext("Token inválido, já usado ou expirado."),
+                "form": forms.TokenForm(),
+                "error": gettext("Muitas tentativas. Aguarde 15 minutos.")
+                if limited
+                else gettext("Token inválido, já usado ou expirado."),
                 "title": gettext("Primeiro acesso"),
             },
             status=status,
@@ -198,6 +205,8 @@ def schema(request):
         except database.DatabaseCheckError as error:
             form.add_error("owner_url", str(error))
         except Exception as error:  # noqa: BLE001 - shown without detail; the DSN never reaches a message
+            # The log keeps the traceback for the operator; no form value is passed to it (#290).
+            logger.error("setup.step_failed step=%s error_class=%s", "schema", type(error).__name__, exc_info=True)
             form.add_error(
                 None,
                 gettext("A migração falhou (%(__name__)s). Corrija e tente de novo.")
@@ -254,6 +263,7 @@ def email(request):
         except ValueError as error:
             form.add_error("email_url", str(error))
         except Exception as error:  # noqa: BLE001 - class only: the URL carries a password
+            logger.error("setup.step_failed step=%s error_class=%s", "email", type(error).__name__, exc_info=True)
             form.add_error(
                 None, gettext("O envio de teste falhou (%(__name__)s).") % {"__name__": type(error).__name__}
             )
@@ -344,7 +354,8 @@ def admin(request):
         except ValidationError as error:
             for message in error.messages:
                 form.add_error(None, message)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001 - class only on the page; the traceback goes to the log
+            logger.error("setup.step_failed step=%s error_class=%s", "admin", type(error).__name__, exc_info=True)
             form.add_error(
                 None,
                 gettext("Não foi possível criar o administrador (%(__name__)s).") % {"__name__": type(error).__name__},

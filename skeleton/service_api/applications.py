@@ -68,6 +68,18 @@ def calling_app_label() -> str | None:
     return None
 
 
+def require_owning_app(owner_app: str, message: str) -> None:
+    """Only the registered app that owns a type may use it; a type without an owner belongs to nobody (#272).
+
+    Comparing ``calling_app_label()`` with ``owner_app or None`` let a caller that is not an
+    app use a type without an owner, and left that type unusable by any app. This frame lives
+    in ``skeleton.service_api``, so ``calling_app_label`` still finds the service's caller.
+    """
+    caller = calling_app_label()
+    if not owner_app or caller is None or caller != owner_app:
+        raise Forbidden(message)
+
+
 def _enabled(app_label: str) -> bool:
     from skeleton.system.applications import require_application_enabled
 

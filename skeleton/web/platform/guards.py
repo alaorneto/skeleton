@@ -14,11 +14,7 @@ from skeleton.accounts.platform import LastPlatformAdministrator, is_platform_ad
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
 
-__all__ = ["has_platform_role", "platform_page"]
-
-
-def has_platform_role(user):
-    return is_platform_admin(user)
+__all__ = ["platform_page"]
 
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -44,7 +40,7 @@ def platform_page(view=None, *, capability=None, writes=False):
             delegated = bool(
                 capability and (writes or request.method in SAFE_METHODS) and has_platform_capability(user, capability)
             )
-            if not (has_platform_role(user) or delegated):
+            if not (is_platform_admin(user) or delegated):
                 raise PermissionDenied("Platform administration required.")
             if mfa_required(user):
                 return redirect("mfa_index")

@@ -177,6 +177,7 @@ def setup_settings(base):
     CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "setup"}}
     MIDDLEWARE = [
         "django.middleware.security.SecurityMiddleware",
+        "django.middleware.csp.ContentSecurityPolicyMiddleware",
         "whitenoise.middleware.WhiteNoiseMiddleware",
         "skeleton.api.health.HealthProbeMiddleware",
         "skeleton.setup.middleware.SetupOnlyMiddleware",

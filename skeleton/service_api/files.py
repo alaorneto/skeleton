@@ -130,7 +130,13 @@ class FileService(ServiceAPI):
         from skeleton.files import services
 
         rows = services.attachments_for(_spec(table_key), as_uuid(record_id, field="record_id"), user=actor)
-        return paginate(rows.select_related("target_table"), convert=_info, page_size=page_size, cursor=cursor)
+        return paginate(
+            rows.select_related("target_table"),
+            convert=_info,
+            page_size=page_size,
+            cursor=cursor,
+            key=("created_at", "sysid"),
+        )
 
     @service_method(read_only=True, since="0.5.0")
     def download_url(self, *, actor: AbstractBaseUser, attachment_id: UUID) -> str:

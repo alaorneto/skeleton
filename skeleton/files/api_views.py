@@ -9,7 +9,7 @@ from skeleton.api.errors import BoundaryError, parse_revision
 from skeleton.api.openapi import TableRoutes
 from skeleton.api.parsers import BoundedJSONParser, BoundedMultiPartParser
 from skeleton.api.views import TenantAPI, etag, request_fields
-from skeleton.web.services import exposed_spec
+from skeleton.records.services import exposed_spec
 
 from . import services
 

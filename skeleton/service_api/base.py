@@ -15,12 +15,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar, ParamSpec, TypeVar
 
-from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
-from django.db import IntegrityError
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import Http404
 from django.utils.translation import gettext
 
-from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist, MissingTenantContext
 from skeleton.tenancy.context import current_context
 
 from .errors import Conflict, ContextRequired, Forbidden, InvalidInput, NotFound, ServiceError, Unavailable
@@ -114,57 +112,75 @@ def _require_provider(app_label: str) -> None:
         raise Unavailable() from None
 
 
-def _validation_error(exc: ValidationError) -> ServiceError:
-    errors = (
-        [item for values in exc.error_dict.values() for item in values]
-        if hasattr(exc, "error_dict")
-        else exc.error_list
-    )
-    if any(item.code in {"unique", "unique_together"} for item in errors):
-        return Conflict("integrity_conflict")
-    if hasattr(exc, "error_dict"):
-        return InvalidInput(exc.message_dict)
-    return InvalidInput({"non_field_errors": exc.messages})
-
-
 def _translate(exc: Exception) -> ServiceError | None:
-    from skeleton.access.services import LastAdministrator
+    """The public error for an internal exception; ``None`` lets it propagate unchanged.
 
-    if isinstance(exc, ConcurrentUpdate):
-        return Conflict("stale_revision")
-    if isinstance(exc, LiveReferencesExist):
-        return Conflict("live_references")
-    if isinstance(exc, LastAdministrator):
-        return Conflict("last_administrator")
-    if isinstance(exc, ValidationError):
-        return _validation_error(exc)
-    if isinstance(exc, IntegrityError):
-        return Conflict("integrity_conflict")
+    The classification is shared with the REST and the forms (``internal_errors``, #325); only
+    "not found" and "forbidden" are decided here, because each surface answers them its own way.
+    """
+    from .internal_errors import classify
+
+    internal = classify(exc)
+    if internal is not None:
+        if internal.kind == "conflict":
+            return Conflict(internal.code)
+        if internal.kind == "invalid":
+            return InvalidInput(internal.fields or {})
+        return ContextRequired()
     if isinstance(exc, ObjectDoesNotExist | Http404):
         return NotFound()
-    if isinstance(exc, PermissionDenied):
+    if isinstance(exc, PermissionDenied):  # ApplicationUnavailable included, as before.
         return Forbidden()
-    if isinstance(exc, MissingTenantContext):
-        return ContextRequired()
     return None
 
 
 def require_boundary_value(value: object, *, where: str, depth: int = 0) -> None:
-    """Reject models, querysets, managers and mutable containers crossing the boundary."""
-    from django.db.models import Manager, Model, QuerySet
+    """Accept only what the contract allows: primitives, text enums, tuples and frozen DTOs (#272).
+
+    An allow-list, the same types ``assert_service_contract`` requires of the annotations: a
+    generator over a queryset, a float, bytes or a plain object would otherwise cross the
+    boundary, and a lazy value could read the database after the service context ended.
+    """
+    import enum
+    from datetime import date
+    from decimal import Decimal
+    from uuid import UUID
 
     if depth > _MAX_RESULT_DEPTH:
         raise TypeError(f"{where}: service result is nested too deeply.")
-    if isinstance(value, Model | QuerySet | Manager):
-        raise TypeError(f"{where}: service methods return DTOs, never models or querysets.")
-    if isinstance(value, dict | list | set | bytearray):
-        raise TypeError(f"{where}: service methods return immutable DTOs, not mutable containers.")
-    if isinstance(value, tuple | frozenset):
+    if isinstance(value, enum.Enum):
+        if not isinstance(value, str):
+            raise TypeError(f"{where}: enums crossing the boundary must be text enums.")
+        return
+    if value is None or isinstance(value, bool | int | str | Decimal | date | UUID):
+        return
+    if isinstance(value, tuple):
         for item in value:
             require_boundary_value(item, where=where, depth=depth + 1)
-    elif dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        if not type(value).__dataclass_params__.frozen:  # type: ignore[attr-defined]
+            raise TypeError(f"{where}: DTOs must be frozen dataclasses.")
         for field in dataclasses.fields(value):
             require_boundary_value(getattr(value, field.name), where=where, depth=depth + 1)
+        return
+    raise TypeError(f"{where}: service methods return DTOs, pages, tuples or primitives, not {type(value).__name__}.")
+
+
+def _run_command[T](function: Callable[..., T], args: tuple[Any, ...], kwargs: dict[str, Any]) -> T:
+    """Run a command inside a savepoint of the caller's transaction (#232).
+
+    A command that raises leaves nothing it wrote, and the caller's transaction stays usable.
+    Without an open transaction (unit tests with a fake context) the call runs as is: opening
+    ``atomic`` there would start and commit a transaction, which a service never does.
+    """
+    from django.db import connections, transaction
+
+    using = current_context().using
+    if not connections[using].in_atomic_block:
+        return function(*args, **kwargs)
+    with transaction.atomic(using=using):
+        return function(*args, **kwargs)
 
 
 def service_method(
@@ -199,7 +215,7 @@ def service_method(
             try:
                 if provider is not None:
                     _require_provider(provider)
-                result = function(*args, **kwargs)
+                result = function(*args, **kwargs) if spec.read_only else _run_command(function, args, kwargs)
             except ServiceError:
                 raise
             except Exception as exc:

@@ -48,7 +48,7 @@ O check `skeleton.E021` reprova código duplicado, handler que não é chamável
 
 ## Enfileirar
 
-Apps enfileiram pelo `JobService` ([API de serviços](service-api.md#jobservice-e-eventservice)): o tipo precisa pertencer à app chamadora e a organização é a do contexto.
+Apps enfileiram pelo `JobService` ([API de serviços](service-api.md#jobservice-e-eventservice)): o tipo precisa pertencer à app chamadora e a organização é a do contexto. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272).
 
 ```python
 from skeleton.service_api.jobs import JobService
