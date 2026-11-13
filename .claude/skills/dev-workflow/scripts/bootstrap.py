@@ -1,6 +1,6 @@
 """Install and check the dev-workflow skill in a repository (only the standard library, git and gh).
 
-- ``init [--no-labels] [--hook auto|git|pre-commit|none]``: writes ``.github/dev-workflow.toml``, the
+- ``init [--no-labels] [--with-analysis] [--hook auto|git|pre-commit|none]``: writes ``.github/dev-workflow.toml``, the
   pull request and issue templates and the workflows, installs the ``commit-msg`` hook and creates
   the labels. Never overwrites a file that already exists: it reports it and keeps it.
 - ``doctor``: checks the installation; ``falta`` items fail, ``pendente`` items (labels without
@@ -24,6 +24,8 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 ASSETS = SKILL_ROOT / "assets"
 SKILL_PLACEHOLDER = "{{SKILL_DIR}}"
 HOOK_MARKER = "dev-workflow commit-msg"
+# Installed only on request (init --with-analysis): it needs a secret and an agent action.
+OPTIONAL_WORKFLOWS = frozenset({"semver-analysis.yml"})
 PRE_COMMIT_SNIPPET = """  - repo: local
     hooks:
       - id: issue-reference
@@ -66,14 +68,14 @@ def _copy(source: Path, target: Path, root: Path, report: list[Finding]) -> None
     report.append(Finding("ok", relative, "criado"))
 
 
-def _assets(root: Path) -> list[tuple[Path, Path]]:
+def _assets(root: Path, *, optional: bool = False) -> list[tuple[Path, Path]]:
     pairs = [
         (ASSETS / "dev-workflow.toml", root / CONFIG_PATH),
         (ASSETS / "pull_request_template.md", root / ".github" / "pull_request_template.md"),
     ]
     for folder, target in (("ISSUE_TEMPLATE", ".github/ISSUE_TEMPLATE"), ("workflows", ".github/workflows")):
         for source in sorted((ASSETS / folder).glob("*")):
-            if source.is_file():
+            if source.is_file() and (optional or source.name not in OPTIONAL_WORKFLOWS):
                 pairs.append((source, root / target / source.name))
     return pairs
 
@@ -129,9 +131,11 @@ def _run_gh(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(list(args), 127, "", str(exc))
 
 
-def init(root: Path, *, labels: bool = True, hook: str = "auto", gh: GhRunner = _run_gh) -> list[Finding]:
+def init(
+    root: Path, *, labels: bool = True, hook: str = "auto", gh: GhRunner = _run_gh, analysis: bool = False
+) -> list[Finding]:
     report: list[Finding] = []
-    for source, target in _assets(root):
+    for source, target in _assets(root, optional=analysis):
         _copy(source, target, root, report)
     try:
         config = load(root)
@@ -222,10 +226,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 2
             hook = options[index + 1]
             del options[index : index + 2]
-        if set(options) - {"--no-labels"}:
-            print("uso: bootstrap.py init [--no-labels] [--hook auto|git|pre-commit|none]", file=sys.stderr)
+        if set(options) - {"--no-labels", "--with-analysis"}:
+            print(
+                "uso: bootstrap.py init [--no-labels] [--with-analysis] [--hook auto|git|pre-commit|none]",
+                file=sys.stderr,
+            )
             return 2
-        report = init(root, labels="--no-labels" not in options, hook=hook)
+        report = init(root, labels="--no-labels" not in options, hook=hook, analysis="--with-analysis" in options)
     elif args == ["doctor"]:
         report = doctor(root)
     else:
