@@ -31,11 +31,20 @@ O check `skeleton.E022` reprova tipo duplicado, tabela sem `TableSpec`, campo de
 
 ## Publicar
 
-```python
-from skeleton.events.services import publish_event
+Apps publicam pelo `EventService` ([API de serviços](service-api.md#jobservice-e-eventservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o registro. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272).
 
-publish_event("tasks.task_closed", record=task, data={"code": task.code, "status": task.status})
+```python
+from skeleton.service_api.events import EventService
+
+EventService().publish(
+    actor=request.user,
+    event_type="tasks.task_closed",
+    record_id=task.pk,
+    data=(("code", task.code), ("status", task.status)),
+)
 ```
+
+Regras da função interna (o serviço as devolve como `ContextRequired`, `InvalidInput` ou `NotFound`):
 
 | Regra | Resultado |
 |---|---|
@@ -44,6 +53,8 @@ publish_event("tasks.task_closed", record=task, data={"code": task.code, "status
 | Chave de `data` não declarada no tipo | `ValidationError` |
 | Valor não escalar | `ValidationError` (UUID, data e `Decimal` viram texto) |
 | Rollback do chamador | Nenhum evento |
+
+A função interna do núcleo é `skeleton.events.services.publish_event(code, *, record, data=None)`; apps não a importam.
 
 ## Consumidores
 
@@ -70,8 +81,8 @@ Os serviços de lifecycle do núcleo publicam quatro tipos (`skeleton/events/cor
 |---|---|---|---|
 | `membership.created` | `sk_tenancy.membership` | `user` | O vínculo passou a ativo: criado, restaurado ou reativado por `provision_membership` (convite, designação, bootstrap), `create_membership`, `update_membership` ou pela criação de uma conta de serviço |
 | `membership.deactivated` | `sk_tenancy.membership` | `user` | Um vínculo ativo foi desativado (`update_membership`, `deactivate_service_account`), removido (`delete_membership`) ou deixado (`leave_organization`) |
-| `app.enabled` | `sk_system.appinstallation` | `app_label` | A organização ativou a app (`configure_application`, pela tela ou pelo `ApplicationAdministrationService`) |
-| `app.disabled` | `sk_system.appinstallation` | `app_label` | A organização desativou a app |
+| `app.enabled` | `sk_system.appinstallation` | `app_label` | A organização ativou a app (`configure_application`, pela tela ou pelo `ApplicationAdministrationService`, ou `manage.py set_app_availability --enable`, #282) |
+| `app.disabled` | `sk_system.appinstallation` | `app_label` | A organização desativou a app, ou a app foi retirada com os dados preservados (first-party em `SKELETON_BUNDLED_RETAINED` ou `schema_retained` no inventário do agente): um evento por organização em que ela estava ativa (#282) |
 
 - O payload só tem identificadores: `user` é o UUID da identidade, e `record_sysid` é o vínculo ou a ativação. O consumidor relê e reautoriza o resto. Os `TableSpec` dessas duas tabelas declaram só esses campos em `read_fields`.
 - Restaurar um vínculo já inativo não publica `membership.created`; remover um vínculo inativo não publica `membership.deactivated`.
@@ -79,15 +90,20 @@ Os serviços de lifecycle do núcleo publicam quatro tipos (`skeleton/events/cor
 - Estes tipos **não** são oferecidos a webhooks (`webhook=False`): a entrega reautoriza a leitura do registro pelo principal do endpoint, e essas tabelas não têm autorização por registro.
 
 ```python
-from skeleton.events.core_events import MEMBERSHIP_CREATED
 from skeleton.events.registry import register_consumer
 
-register_consumer(MEMBERSHIP_CREATED, "tasks.welcome_member", welcome)  # welcome(envelope) relê o vínculo
+register_consumer("membership.created", "tasks.welcome_member", welcome)  # welcome(envelope) relê o vínculo
 ```
+
+Use o código do evento como texto (primeira coluna da tabela acima); o módulo `skeleton.events.core_events` é interno.
+
+## Eventos de fluxos de processo
+
+O motor de [fluxos](flows.md#integrações) publica `flows.instance_started`, `flows.instance_completed`, `flows.instance_cancelled` e `flows.instance_failed` sobre `sk_flows.flowinstance`, na transação do comando, com `flow_key`, `flow_version`, `status`, `outcome`, `subject_table` e `subject_sysid`. Dados de formulário nunca entram no payload. Esses tipos não vão para webhooks; um fluxo pode mapear os mesmos momentos para tipos de evento da própria app sobre o registro de negócio (`subject_events`), que são eventos comuns e alcançam webhooks. O motor também consome `app.enabled`, para reagendar o que os fluxos da app esperavam.
 
 ## Retenção
 
-O job periódico `events.retention` (a cada 6 horas, por organização) apaga fisicamente os eventos com `occurred_at` além de `SKELETON_EVENT_RETENTION_DAYS` (30 por padrão). É o único caminho de exclusão de `DomainEvent`. O volume de jobs é proporcional a eventos × consumidores.
+O job periódico `events.retention` (a cada 6 horas, por organização) apaga fisicamente os eventos com `occurred_at` além de `SKELETON_EVENT_RETENTION_DAYS` (30 por padrão). A exclusão é feita em lotes de 1 000 eventos da organização da rodada (#308). É o único caminho de exclusão de `DomainEvent`. O volume de jobs é proporcional a eventos × consumidores.
 
 ## Testes
 

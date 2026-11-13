@@ -17,5 +17,11 @@ def purge_expired_events() -> int:
     from .models import DomainEvent
 
     cutoff = timezone.now() - timedelta(days=retention_days())
-    deleted, _ = DomainEvent.objects.filter(occurred_at__lt=cutoff).delete()
-    return deleted
+    expired = DomainEvent.objects.filter(occurred_at__lt=cutoff)
+    total = 0
+    while True:  # In blocks of 1 000 (#308); the manager keeps the organization filter.
+        ids = list(expired.order_by("pk").values_list("pk", flat=True)[:1000])
+        if not ids:
+            return total
+        deleted, _ = DomainEvent.objects.filter(pk__in=ids).delete()
+        total += deleted

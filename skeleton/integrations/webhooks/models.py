@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils.translation import gettext_lazy
 
 from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.models import OperationalRecord, OrganizationRecord
@@ -41,12 +42,12 @@ class WebhookDelivery(OperationalRecord):
     """
 
     class State(models.TextChoices):
-        PENDING = "pending", "Na fila"
-        RETRYING = "retrying", "Nova tentativa agendada"
-        SUCCEEDED = "succeeded", "Entregue"
-        FAILED = "failed", "Falhou"
-        UNAUTHORIZED = "unauthorized", "Sem acesso ao registro"
-        SKIPPED = "skipped", "Ignorada"
+        PENDING = "pending", gettext_lazy("Na fila")
+        RETRYING = "retrying", gettext_lazy("Nova tentativa agendada")
+        SUCCEEDED = "succeeded", gettext_lazy("Entregue")
+        FAILED = "failed", gettext_lazy("Falhou")
+        UNAUTHORIZED = "unauthorized", gettext_lazy("Sem acesso ao registro")
+        SKIPPED = "skipped", gettext_lazy("Ignorada")
 
     organization = models.ForeignKey(
         "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_integrations_delivery_records"

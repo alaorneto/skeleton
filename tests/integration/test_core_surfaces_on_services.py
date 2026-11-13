@@ -4,11 +4,11 @@ import inspect
 
 import pytest
 
+from skeleton.api import applications as application_views
 from skeleton.api import views as api_views
 from skeleton.api.errors import service_error_response
 from skeleton.service_api.errors import Conflict, Forbidden, InvalidInput, NotFound, Unavailable
 from skeleton.service_api.identity import IdentityService
-from skeleton.system import application_views
 from skeleton.testing.service_api import acting_as, assert_service_contract, build_service_scenario
 from skeleton.web import views as web_views
 from skeleton.web.platform import views as platform_views
@@ -69,11 +69,9 @@ def test_core_if_match_resources_keep_412_for_a_stale_revision():
 
 
 @pytest.mark.usefixtures("skeleton_db")
+@pytest.mark.needs_example_app
 def test_update_my_profile_keeps_both_revisions():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     assert_service_contract(IdentityService)

@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import PurePath
 from uuid import UUID
 
+from .context import current_context
+
 STACK_FRAME_LIMIT = 25
 
 
@@ -74,8 +76,6 @@ class SecurityJSONFormatter(logging.Formatter):
     )
 
     def format(self, record):
-        from skeleton.tenancy.context import current_context
-
         context = getattr(record, "security_context", None) or current_context()
         event = safe_event_name(getattr(record, "event", "application_event"))
         payload = {

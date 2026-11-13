@@ -10,10 +10,12 @@ O núcleo guarda arquivos num **armazenamento privado** (`skeleton/files`, label
 |---|---|
 | `SKELETON_FILES_BACKEND=local` (padrão) | `FileSystemStorage` em `SKELETON_FILES_ROOT` (padrão `var/files` do projeto), sem `base_url` |
 | `SKELETON_FILES_BACKEND=s3` | `storages.backends.s3.S3Storage` com `default_acl=private`, URLs assinadas de no máximo 60 s e sem sobrescrita. Exige o extra opcional `django-skeleton[s3]` (`django-storages`, `boto3`) e `SKELETON_FILES_S3_BUCKET` (com `SKELETON_FILES_S3_REGION`/`SKELETON_FILES_S3_ENDPOINT` opcionais) |
-| `SKELETON_UPLOAD_MAX_BYTES` | Limite de upload do parser (padrão 10 MB) |
+| `SKELETON_UPLOAD_MAX_BYTES` | Limite de todo corpo multipart, da API e das páginas (padrão 10 MB), aplicado pelo upload handler `skeleton.common.uploads.BoundedUploadHandler` antes de gravar em memória ou disco (#242); o upload de pacotes da plataforma usa `SKELETON_PACKAGE_MAX_BYTES` |
 | `SKELETON_FILES_ORG_QUOTA_BYTES` | Cota padrão: soma máxima dos anexos vivos de uma organização; vazio é ilimitado. Acima dela, 409 `quota_exceeded`. A plataforma pode sobrescrevê-la por organização (veja [Cota por organização](#cota-por-organização)) |
 
 `skeleton/files/storage.py` oferece `put_stream`, `open_object`, `delete`, `presigned_url` e `list_prefix`. As chaves são sempre `org/<organização>/<anexo>`, dois UUIDs: o nome de arquivo do usuário nunca entra na chave, então não atravessa diretórios, não colide e não vaza numa URL. `put_stream` grava a chave exata, recusa objeto existente e interrompe acima do limite.
+
+`put_stream` mede e limita o tamanho na leitura (`read()`), que todo backend usa: o local lê por `File.chunks()` e o S3 do django-storages lê direto por `read()`, sem nunca chamar `chunks()`. O tamanho gravado, o digest e a reserva de cota vêm dos bytes lidos, nunca do `Content-Length` do cliente, e o arquivo acima do limite é recusado (`ObjectTooLarge`, 413) sem deixar objeto. Um storage de teste que salva como o S3 (`tests/support.py`, `ReadBasedStorage`) cobre esse caminho (#225).
 
 O check de deploy `skeleton.E024` (`manage.py check --deploy`) reprova armazenamento ausente, local sem `location`, dentro de `STATIC_ROOT` ou com `base_url`, e S3 com ACL pública, URL sem assinatura ou domínio público.
 
@@ -85,8 +87,19 @@ Com scanner, o upload nasce `pending` e enfileira o job `files.scan` na mesma tr
 | `stream: <assinatura> FOUND` (o EICAR, por exemplo) | `quarantined`, `scan_result_code=infected:<assinatura>` |
 | `clamd` fora do ar, timeout ou resposta sem veredito | o job falha e é retentado com backoff, até 10 vezes; o anexo continua `pending` |
 
-O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` até uma nova verificação.
+O download exige `available`, então um arquivo `pending` ou `quarantined` nunca sai (404). Um anexo que esgota as tentativas continua `pending` (fechado) até uma nova verificação: o job periódico `files.rescan_pending`, de hora em hora e por organização, reenfileira até 500 anexos `pending` há mais de uma hora que não têm verificação em andamento, e quando o antivírus volta eles são decididos sem intervenção (#277). Com `SKELETON_FILES_SCANNER=none`, os pendentes continuam fechados e o job de verificação termina `skipped`, sem falhar, até o scanner voltar.
 
 ## Objetos órfãos
 
-O upload grava os bytes antes de a linha comitar. Um rollback ou uma queda entre as duas etapas deixa um objeto sem metadado. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e apaga só os objetos **sem nenhuma linha `Attachment`** e mais antigos que o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não pegar um upload em andamento). Objetos de linhas vivas ou excluídas logicamente nunca são apagados: restaurar continua funcionando, e o expurgo de anexos excluídos é do epic de LGPD.
+O upload grava os bytes antes de a linha comitar. Um rollback ou uma queda entre as duas etapas deixa um objeto sem metadado. O job periódico `files.orphans` (a cada 6 horas, por organização) lista `org/<organização>/` no armazenamento e apaga só os objetos **sem nenhuma linha `Attachment`** e mais antigos que o prazo de carência (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`, padrão 1 hora, para não pegar um upload em andamento). O job também lista `org/<organização>/branding/`, onde fica o logo da organização ([#168](https://github.com/alaorneto/skeleton/issues/168)): o logo atual (`OrganizationSettings.logo_key`) é mantido, e um objeto de logo substituído ou abandonado por rollback sai depois da carência. A troca e a remoção pela tela já apagam o objeto anterior depois do commit. O logo não conta na cota de anexos. Objetos de linhas vivas ou excluídas logicamente nunca são apagados: restaurar continua funcionando, e o expurgo de anexos excluídos é do epic de LGPD.
+
+## Expurgo de anexos excluídos
+
+Um anexo excluído mantém os bytes durante `SKELETON_FILES_DELETED_RETENTION_DAYS` (padrão 90 dias), para que a restauração funcione ([#192](https://github.com/alaorneto/skeleton/issues/192)). Depois disso, o job diário `files.purge`, que roda por organização, apaga o objeto do storage e marca o anexo como `purged`.
+
+- A linha fica como tombstone, com os metadados e a auditoria. Restaurar um anexo `purged` é recusado com 400.
+- Anexos vivos, ou excluídos dentro do prazo, nunca são tocados.
+- Cada linha é travada antes, então uma restauração concorrente ou vence, e o anexo volta e é pulado, ou espera e encontra o anexo já expurgado.
+- Os bytes saem depois do commit. Se a exclusão falhar, a rodada seguinte tenta de novo.
+
+É a única remoção física de conteúdo de anexo, uma exceção nominal do `AGENTS.md`.

@@ -2,7 +2,6 @@ import json
 from uuid import uuid4
 
 import pytest
-from django.apps import apps
 from django.test import Client, override_settings
 from django.urls import reverse
 
@@ -47,11 +46,6 @@ def notes_url(organization, sysid=None):
     return reverse("api:record" if sysid else "api:records", kwargs=kwargs)
 
 
-def require_notes():
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-
-
 def test_me_two_revision_cas_and_mass_assignment(http_identity):
     client, user, organization = http_identity
     url = reverse("api:me")
@@ -84,8 +78,8 @@ def test_session_csrf_and_anonymous_default_deny(http_identity):
     assert client.get(url).json()["first_name"] != "Blocked"
 
 
+@pytest.mark.needs_example_app
 def test_note_crud_etag_soft_delete_restore(http_identity):
-    require_notes()
     client, user, organization = http_identity
     url = notes_url(organization)
     created = send(client, "post", url, {"code": "http-note", "title": "Original", "body": "private audit body"})
@@ -116,8 +110,8 @@ def test_note_crud_etag_soft_delete_restore(http_identity):
     assert {item["operation"] for item in events["results"]} >= {"create", "update", "soft_delete", "restore"}
 
 
+@pytest.mark.needs_example_app
 def test_gateway_rejects_technical_keys_filters_and_hidden_access(http_identity):
-    require_notes()
     client, user, organization = http_identity
     url = notes_url(organization)
     assert (
@@ -132,8 +126,8 @@ def test_gateway_rejects_technical_keys_filters_and_hidden_access(http_identity)
     assert send(client, "patch", url, {"title": "no target"}, '"1"').status_code == 405
 
 
+@pytest.mark.needs_example_app
 def test_cross_tenant_detail_and_access_do_not_resolve(http_identity):
-    require_notes()
     client, user, organization = http_identity
     _, other = bootstrap_identity(email=user.email, organization="http-b", name="HTTP B")
     made = send(client, "post", notes_url(organization), {"code": "a-only", "title": "Tenant A", "body": ""})
@@ -178,8 +172,8 @@ def test_dedicated_role_group_crud_and_revision(http_identity):
     assert send(client, "delete", role_url, revision=edit["ETag"]).status_code == 204
 
 
+@pytest.mark.needs_example_app
 def test_html_create_edit_revision_and_escaping(http_identity):
-    require_notes()
     client, user, organization = http_identity
     kwargs = {"organization_id": organization.pk, "table_key": "example_notes.note"}
     records = reverse("web:records", kwargs=kwargs)
@@ -299,8 +293,8 @@ def test_html_create_edit_revision_and_escaping(http_identity):
     assert "Updated" not in json.dumps(events)
 
 
+@pytest.mark.needs_example_app
 def test_html_delete_and_edit_without_read_cancel_to_records(http_identity):
-    require_notes()
     admin_client, admin, organization = http_identity
     from allauth.account.models import EmailAddress
 
@@ -384,8 +378,8 @@ def test_mfa_enforcement_preserves_profile_escape_route(http_identity):
         assert client.get(reverse("web:profile")).status_code == 200
 
 
+@pytest.mark.needs_example_app
 def test_access_management_is_separate_and_revision_protected(http_identity):
-    require_notes()
     client, user, organization = http_identity
     created = send(client, "post", notes_url(organization), {"code": "access-note", "title": "ACL", "body": ""})
     assert created.status_code == 201
@@ -405,8 +399,8 @@ def test_access_management_is_separate_and_revision_protected(http_identity):
     assert client.get(detail).json()["visibility"] == "organization"
 
 
+@pytest.mark.needs_example_app
 def test_duplicate_live_code_and_last_admin_return_conflict(http_identity):
-    require_notes()
     client, user, organization = http_identity
     values = {"code": "unique-http", "title": "Existing", "body": ""}
     assert send(client, "post", notes_url(organization), values).status_code == 201
@@ -423,3 +417,161 @@ def test_duplicate_live_code_and_last_admin_return_conflict(http_identity):
     assert denied.status_code == 409
     assert denied.json()["code"] == "last_administrator"
     assert client.get(detail).status_code == 200
+
+
+BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+
+
+def test_api_answers_json_to_browser_accept_header(http_identity):
+    client, user, _ = http_identity
+    response = client.get(reverse("api:me"), HTTP_ACCEPT=BROWSER_ACCEPT)
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("application/json")
+    assert response.json()["email"] == user.email
+
+
+@pytest.mark.no_api_contract
+def test_api_refuses_html_only_accept_with_json_error(http_identity):
+    client, _, _ = http_identity
+    response = client.get(reverse("api:me"), HTTP_ACCEPT="text/html")
+    assert response.status_code == 406
+    assert response["Content-Type"].startswith("application/json")
+    assert "code" in response.json()
+    assert b"<html" not in response.content
+
+
+def test_api_anonymous_error_is_json_for_browser_accept():
+    response = Client().get(reverse("api:me"), HTTP_ACCEPT=BROWSER_ACCEPT)
+    assert response.status_code == 403
+    assert response.json()["code"] == "permission_denied"
+
+
+def test_rest_framework_renders_only_json():
+    from rest_framework.renderers import JSONRenderer
+    from rest_framework.settings import api_settings
+
+    assert api_settings.DEFAULT_RENDERER_CLASSES == [JSONRenderer]
+
+
+def test_membership_list_query_count_is_constant(http_identity):
+    """The membership list joins the user instead of one query per row (#231)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.access.models import Role
+    from skeleton.access.services import provision_membership
+    from skeleton.accounts.services import create_identity
+    from skeleton.tenancy.context import system_context
+
+    client, _, organization = http_identity
+    url = reverse("api:access-list", kwargs={"organization_id": organization.pk, "resource": "memberships"})
+
+    def add(count, start):
+        with system_context(reason="test:membership-list", organization_id=organization.pk):
+            role = Role.objects.get(code="member")
+            for index in range(start, start + count):
+                user = create_identity(email=f"list-{index}@example.test", password=None)
+                provision_membership(organization=organization, user=user, role=role)
+
+    def queries():
+        with CaptureQueriesContext(connection) as captured:
+            assert client.get(url).status_code == 200
+        return len(captured)
+
+    add(1, 0)
+    few = queries()
+    add(6, 1)
+    assert queries() == few
+
+
+def test_page_beyond_max_offset_is_400_not_500(http_identity):
+    """A page whose OFFSET does not fit the database is invalid pagination (#271)."""
+    client, _, organization = http_identity
+    beyond = "?page=" + str(10**30)
+    for url in (notes_url(organization), reverse("api:audit", kwargs={"organization_id": organization.pk})):
+        response = client.get(url + beyond)
+        assert response.status_code == 400, url
+        assert response.json()["code"] == "invalid_pagination"
+
+
+def test_html_audit_page_beyond_max_offset_is_400(http_identity):
+    client, _, organization = http_identity
+    response = client.get(reverse("web:audit", kwargs={"organization_id": organization.pk}) + "?page=" + str(10**30))
+    assert response.status_code == 400
+
+
+def test_me_patch_rejects_non_text_values(http_identity):
+    client, _, _ = http_identity
+    url = reverse("api:me")
+    initial = client.get(url)
+    response = send(client, "patch", url, {"display_name": {"a": 1}}, initial["ETag"])
+    assert response.status_code == 400
+    assert response.json()["code"] == "validation_error"
+    assert "display_name" in response.json()["fields"]
+    assert client.get(url)["ETag"] == initial["ETag"]
+
+
+def test_authenticated_pages_are_not_cacheable(http_identity, subtests):
+    """Organization pages, home and profile leave no copy in the browser history (#289)."""
+    client, _, organization = http_identity
+    org = {"organization_id": organization.pk}
+    table = {**org, "table_key": "example_notes.note"}
+    created = send(client, "post", notes_url(organization), {"code": "cache-note", "title": "Cache"})
+    urls = [
+        reverse("web:home"),
+        reverse("web:profile"),
+        reverse("web:dashboard", kwargs=org),
+        reverse("web:catalog", kwargs=org),
+        reverse("web:records", kwargs=table),
+        reverse("web:record", kwargs={**table, "sysid": created.json()["sysid"]}),
+        reverse("web:audit", kwargs=org),
+        reverse("web:access-list", kwargs={**org, "resource": "memberships"}),
+        reverse("web:leave-organization", kwargs=org),
+    ]
+    for url in urls:
+        with subtests.test(url):
+            response = client.get(url)
+            assert response.status_code == 200
+            assert "no-store" in response["Cache-Control"] and "private" in response["Cache-Control"]
+    with subtests.test("anonymous redirect"):
+        anonymous = Client().get(reverse("web:dashboard", kwargs=org))
+        assert anonymous.status_code == 302 and "no-store" in anonymous["Cache-Control"]
+
+
+def test_static_files_keep_their_cache():
+    """Negative: static assets are not marked no-store (#289)."""
+    with override_settings(WHITENOISE_USE_FINDERS=True, WHITENOISE_AUTOREFRESH=True):
+        response = Client().get("/static/skeleton/web/site.css")  # WhiteNoise reads its settings per handler.
+    assert response.status_code == 200
+    assert "no-store" not in response.get("Cache-Control", "")
+
+
+def test_audit_api_hides_infrastructure_fields_from_non_admin():
+    """The REST keeps the keys, empty for a member who is not an administrator (#324)."""
+    from examples.notes.models import Note
+    from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+    from tests.support import login
+
+    scenario = build_service_scenario(Note, slug="audit-infra-api")
+    scenario.create(scenario.a, owner=scenario.member, code="INF-API", title="Visible")
+    client = login(scenario.member, password=FIXTURE_PASSWORD, csrf=False)
+    response = client.get(reverse("api:audit", kwargs={"organization_id": scenario.a.pk}))
+    assert response.status_code == 200
+    results = response.json()["results"]
+    assert results and all(item["db_principal"] == "" and item["table_name"] == "" for item in results)
+
+
+def test_large_multipart_to_a_plain_form_is_stopped_at_the_limit(http_identity, settings):
+    """A form that expects no file is not a way around the upload bound, nor a 500 (#242)."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    client, _, _ = http_identity
+    settings.SKELETON_UPLOAD_MAX_BYTES = 1000
+    response = client.post(
+        reverse("web:profile"),
+        {
+            "file": SimpleUploadedFile("big.bin", b"x" * (200 * 1024)),
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
+    assert response.status_code < 500

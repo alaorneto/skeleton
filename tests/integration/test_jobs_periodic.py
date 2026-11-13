@@ -7,11 +7,12 @@ import pytest
 from django.db import connections
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.jobs import periodic, registry
+from skeleton.jobs import periodic
 from skeleton.jobs.models import Job
 from skeleton.jobs.periodic import periodic_problems, register_periodic, schedule_due
 from skeleton.jobs.registry import JobType, register_job_type
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Jobs-periodic-Password!36"
@@ -24,11 +25,10 @@ def noop(**kwargs):
 
 @pytest.fixture(autouse=True)
 def declarations(monkeypatch):
-    monkeypatch.setattr(registry, "_registry", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    monkeypatch.setattr(periodic, "_periodic", {})
-    register_job_type(JobType("test.tick", noop, {}))
-    register_job_type(JobType("test.global_tick", noop, {}, scope="global"))
+    with isolated_job_types():
+        register_job_type(JobType("test.tick", noop, {}))
+        register_job_type(JobType("test.global_tick", noop, {}, scope="global"))
+        yield
 
 
 @pytest.fixture
@@ -126,3 +126,64 @@ def test_two_concurrent_schedulers_produce_one_job_per_window(organizations):
         thread.join()
     assert errors == []
     assert len(ticks()) == 2
+
+
+def _job_queries(captured, verb):
+    return [query["sql"] for query in captured if verb in query["sql"] and "sk_jobs_job" in query["sql"]]
+
+
+def test_second_tick_of_a_window_issues_no_insert(organizations):
+    """A quiet scheduler reads the existing keys instead of failing a unique insert per tick (#240)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    register_periodic("tick", "test.tick", every=timedelta(minutes=5))
+    schedule_due(now=NOW)
+    with CaptureQueriesContext(connection) as captured:
+        assert schedule_due(now=NOW) == 0
+    assert _job_queries(captured, "INSERT") == []
+
+
+def test_scheduler_memory_skips_the_lookup_for_completed_windows(organizations):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    register_periodic("tick", "test.tick", every=timedelta(minutes=5))
+    seen = {}
+    schedule_due(now=NOW, seen=seen)
+    with CaptureQueriesContext(connection) as captured:
+        assert schedule_due(now=NOW, seen=seen) == 0
+    assert not [sql for sql in _job_queries(captured, "SELECT") if "test.tick" in sql]
+    assert _job_queries(captured, "INSERT") == []
+
+
+@pytest.mark.parametrize("with_memory", [False, True])
+def test_new_organization_is_scheduled_in_the_current_window(organizations, with_memory):
+    register_periodic("tick", "test.tick", every=timedelta(minutes=5))
+    seen = {} if with_memory else None
+    schedule_due(now=NOW, seen=seen)
+    _, gamma = bootstrap_identity(email="tick-c@example.test", organization="tick-c", name="C", password=PASSWORD)
+    assert schedule_due(now=NOW, seen=seen) == 1
+    assert gamma.pk in {organization for organization, _ in ticks()}
+    assert len(ticks()) == 3
+
+
+def test_memory_resets_when_the_window_changes(organizations):
+    register_periodic("tick", "test.tick", every=timedelta(minutes=5))
+    seen = {}
+    schedule_due(now=NOW, seen=seen)
+    assert schedule_due(now=NOW + timedelta(minutes=5), seen=seen) >= 2
+    assert len(ticks()) == 4
+    assert schedule_due(now=NOW + timedelta(minutes=5), seen=seen) == 0
+
+
+def test_window_is_passed_only_to_types_that_declare_it(organizations):
+    """A type that declares ``window`` receives the stamp; others keep their payload (#276)."""
+    register_job_type(JobType("test.windowed", noop, {"window": "str"}))
+    register_periodic("windowed", "test.windowed", every=timedelta(hours=1))
+    register_periodic("tick", "test.tick", every=timedelta(minutes=5))
+    schedule_due(now=NOW)
+    windowed = list(Job.all_objects.filter(job_type="test.windowed").values_list("payload", flat=True))
+    plain = list(Job.all_objects.filter(job_type="test.tick").values_list("payload", flat=True))
+    assert windowed and all(payload == {"window": "20261109T100000Z"} for payload in windowed)
+    assert all(not payload for payload in plain)

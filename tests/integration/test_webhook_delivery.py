@@ -12,11 +12,14 @@ from django.test import override_settings
 from django.utils import timezone
 
 from skeleton.accounts.services import create_service_account
-from skeleton.events import registry
 from skeleton.events.registry import EventType, register_event_type
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_event_types
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
+
+pytestmark = pytest.mark.needs_example_app
 
 KEY = Fernet.generate_key().decode()
 EVENT = "notes.webhook_ready"
@@ -55,28 +58,28 @@ def pipeline(skeleton_db, monkeypatch, receiver):
     from skeleton.access.models import MemberRole, Role
     from skeleton.integrations.webhooks.services import create_endpoint
 
-    monkeypatch.setattr(registry, "_types", dict(registry._types))
-    register_event_type(EventType(EVENT, "example_notes.note", ("code",), webhook=True))
-    register_event_type(EventType("notes.quiet", "example_notes.note", ("code",), webhook=True))
-    register_event_type(EventType("notes.internal_only", "example_notes.note", ("code",)))
-    with override_settings(
-        DEBUG=True, SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE=True, INTEGRATION_ENCRYPTION_KEYS=[KEY]
-    ):
-        fixture = build_security_fixture()
-        with actor_tenant(fixture.admin, fixture.a):
-            principal = create_service_account(actor=fixture.admin, name="Receiver")
-            membership = principal.organization_memberships.get()
-            MemberRole(organization=fixture.a, membership=membership, role=Role.objects.get(code="member")).save()
-            issued = create_endpoint(
-                actor=fixture.admin,
-                data={
-                    "name": "Local",
-                    "url": f"http://127.0.0.1:{receiver.server_port}/hook",
-                    "principal": principal,
-                    "event_types": [EVENT],
-                },
-            )
-        yield fixture, principal, issued
+    with isolated_event_types(keep_consumers=True):
+        register_event_type(EventType(EVENT, "example_notes.note", ("code",), webhook=True))
+        register_event_type(EventType("notes.quiet", "example_notes.note", ("code",), webhook=True))
+        register_event_type(EventType("notes.internal_only", "example_notes.note", ("code",)))
+        with override_settings(
+            DEBUG=True, SKELETON_OUTBOUND_HTTP_DEVELOPMENT_OVERRIDE=True, INTEGRATION_ENCRYPTION_KEYS=[KEY]
+        ):
+            fixture = build_security_fixture()
+            with actor_tenant(fixture.admin, fixture.a):
+                principal = create_service_account(actor=fixture.admin, name="Receiver")
+                membership = principal.organization_memberships.get()
+                MemberRole(organization=fixture.a, membership=membership, role=Role.objects.get(code="member")).save()
+                issued = create_endpoint(
+                    actor=fixture.admin,
+                    data={
+                        "name": "Local",
+                        "url": f"http://127.0.0.1:{receiver.server_port}/hook",
+                        "principal": principal,
+                        "event_types": [EVENT],
+                    },
+                )
+            yield fixture, principal, issued
 
 
 def publish(fixture, note, event=EVENT):
@@ -235,21 +238,7 @@ def test_fifteen_consecutive_failures_disable_the_endpoint_and_notify(pipeline, 
 
 
 def login(user):
-    from django.test import Client
-    from django.urls import reverse
-
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {
-            "login": user.email,
-            "password": "Fixture-only-password-2026!",
-            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
-        },
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password="Fixture-only-password-2026!")
 
 
 def api_post(client, url, revision=None):
@@ -390,3 +379,364 @@ def test_retention_deletes_only_expired_final_deliveries(pipeline, receiver):
         remaining = set(WebhookDelivery.objects.values_list("pk", flat=True))
     # Not final yet, or the original of a live resend: both wait.
     assert remaining == {referenced.pk, retrying.pk, resend.pk}
+
+
+def _in_thread(function):
+    """Run ``function`` in another thread with its own database connection (a second session)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    def run():
+        connections.close_all()
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
+
+
+def _ok():
+    from skeleton.common import outbound_http
+
+    return outbound_http.OutboundResponse(status=200, headers={}, body=b"ok", truncated=False)
+
+
+def test_endpoint_is_not_locked_while_the_request_is_in_flight(pipeline, monkeypatch):
+    """Only the delivery row stays locked during the HTTP request (#295)."""
+    from django.db import OperationalError
+
+    from skeleton.common import outbound_http
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    seen = []
+
+    def probe():
+        try:
+            with actor_tenant(fixture.admin, fixture.a):
+                WebhookEndpoint.objects.select_for_update(nowait=True).get(pk=issued.endpoint.pk)
+            return "free"
+        except OperationalError:  # Lock not available.
+            return "locked"
+
+    def fake_request(*args, **kwargs):
+        seen.append(_in_thread(probe))
+        return _ok()
+
+    monkeypatch.setattr(outbound_http, "request", fake_request)
+    publish(fixture, fixture.shared)
+    drain()
+    assert seen == ["free"]
+    assert [delivery.state for delivery in deliveries(fixture)] == ["succeeded"]
+
+
+def test_lock_waits_are_bounded_inside_the_delivery(pipeline, monkeypatch):
+    from django.db import connection
+
+    from skeleton.common import outbound_http
+
+    fixture, _, _ = pipeline
+    seen = []
+
+    def fake_request(*args, **kwargs):
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW lock_timeout")
+            seen.append(cursor.fetchone()[0])
+        return _ok()
+
+    monkeypatch.setattr(outbound_http, "request", fake_request)
+    publish(fixture, fixture.shared)
+    drain()
+    assert seen == ["5s"]
+
+
+def _endpoint(fixture, pk):
+    from skeleton.integrations.models import WebhookEndpoint
+
+    with actor_tenant(fixture.admin, fixture.a):
+        return WebhookEndpoint.objects.get(pk=pk)
+
+
+def test_deactivating_the_principal_disables_its_endpoints(pipeline, receiver):
+    """Deactivating the account turns its webhooks off in the same transaction (#313)."""
+    from skeleton.accounts.services import deactivate_service_account
+    from skeleton.audit.models import AuditEvent
+    from skeleton.notifications.models import Notification
+
+    fixture, principal, issued = pipeline
+    with actor_tenant(fixture.admin, fixture.a):
+        deactivate_service_account(actor=fixture.admin, user=principal)
+    endpoint = _endpoint(fixture, issued.endpoint.pk)
+    assert (endpoint.is_enabled, endpoint.disabled_reason) == (False, "principal_deactivated")
+    assert endpoint.disabled_at is not None
+    with system_context(reason="test:principal-off", organization_id=fixture.a.pk):
+        assert AuditEvent.objects.filter(record_sysid=endpoint.pk, actor_sysid=fixture.admin.pk).exists()
+        assert Notification.objects.filter(type_code="webhooks.endpoint_disabled").exists()
+    publish(fixture, fixture.shared)
+    drain()
+    assert deliveries(fixture) == [] and receiver.received == []
+
+
+def test_fanout_disables_an_endpoint_whose_principal_lost_its_membership(pipeline, receiver):
+    from skeleton.tenancy.models import Membership
+
+    fixture, principal, issued = pipeline
+    with system_context(reason="test:membership", organization_id=fixture.a.pk):
+        membership = Membership.objects.get(user=principal)
+        membership.is_active = False
+        membership.save(update_fields={"is_active"})
+    publish(fixture, fixture.shared)
+    drain()
+    endpoint = _endpoint(fixture, issued.endpoint.pk)
+    assert (endpoint.is_enabled, endpoint.disabled_reason) == (False, "principal_deactivated")
+    assert deliveries(fixture) == [] and receiver.received == []
+
+
+def test_abandoned_open_deliveries_are_closed_and_later_purged(pipeline, receiver):
+    from datetime import timedelta
+
+    from skeleton.integrations.models import WebhookDelivery
+    from skeleton.integrations.webhooks.log import purge_expired_deliveries
+
+    fixture, _, _ = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    [delivery] = deliveries(fixture)
+    with system_context(reason="test:abandoned", organization_id=fixture.a.pk):
+        WebhookDelivery.objects.filter(pk=delivery.pk).update(
+            state="pending", updated_at=timezone.now() - timedelta(days=3)
+        )
+        purge_expired_deliveries(now=timezone.now())
+        closed = WebhookDelivery.objects.get(pk=delivery.pk)
+        assert (closed.state, closed.error_code) == ("failed", "abandoned")
+        purge_expired_deliveries(now=timezone.now() + timedelta(days=31))
+        assert not WebhookDelivery.objects.filter(pk=delivery.pk).exists()
+
+
+def test_recent_retrying_deliveries_are_not_closed(pipeline, receiver):
+    from skeleton.integrations.webhooks.log import purge_expired_deliveries
+
+    fixture, _, _ = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    with system_context(reason="test:recent-retrying", organization_id=fixture.a.pk):
+        purge_expired_deliveries()
+    assert [delivery.state for delivery in deliveries(fixture)] == ["retrying"]
+
+
+def test_changing_the_principal_keeps_open_deliveries(pipeline, receiver):
+    """The open delivery is re-enqueued as the new principal and delivered (#313)."""
+    from skeleton.access.models import MemberRole, Role
+    from skeleton.integrations.webhooks.services import update_endpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    assert [delivery.state for delivery in deliveries(fixture)] == ["retrying"]
+    with actor_tenant(fixture.admin, fixture.a):
+        other = create_service_account(actor=fixture.admin, name="Other receiver")
+        membership = other.organization_memberships.get()
+        MemberRole(organization=fixture.a, membership=membership, role=Role.objects.get(code="member")).save()
+        from skeleton.integrations.models import WebhookEndpoint
+
+        endpoint = WebhookEndpoint.objects.get(pk=issued.endpoint.pk)
+        update_endpoint(endpoint, actor=fixture.admin, data={"principal": other}, expected_revision=endpoint.revision)
+    due_now(fixture)
+    drain()
+    [delivery] = deliveries(fixture)
+    assert delivery.state == "succeeded"
+    assert len(receiver.received) == 2
+    assert {request["headers"]["Skeleton-Webhook-Id"] for request in receiver.received} == {str(delivery.pk)}
+
+
+def test_resend_and_ping_do_not_require_recent_authentication(pipeline, receiver):
+    """Resend and ping only repeat what the endpoint already does: capability, CSRF and revision (#327)."""
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(400)
+    publish(fixture, fixture.shared)
+    drain()
+    [original] = deliveries(fixture)
+    client = login(fixture.admin)
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    paths = urls(fixture, issued.endpoint, original)
+    with actor_tenant(fixture.admin, fixture.a):
+        revision = WebhookEndpoint.objects.get(pk=issued.endpoint.pk).revision
+    assert api_post(client, paths["resend"], revision).status_code == 202
+    assert api_post(client, paths["ping"], revision).status_code == 202
+    token = client.cookies["csrftoken"].value
+    html = client.post(paths["html_resend"], {"revision": revision, "csrfmiddlewaretoken": token})
+    assert html.status_code == 302 and "reauthenticate" not in html["Location"]
+    drain()
+    assert len(deliveries(fixture)) == 4  # The original, two resends and the ping.
+
+
+# --------------------------------------------------------------------------- failure paths (#328)
+
+
+def _health(fixture, endpoint):
+    from skeleton.integrations.models import WebhookEndpointHealth
+
+    with actor_tenant(fixture.admin, fixture.a):
+        return WebhookEndpointHealth.objects.get(endpoint_id=endpoint.pk)
+
+
+def test_network_failure_is_retried_like_a_server_error(pipeline, receiver, monkeypatch):
+    from skeleton.common import outbound_http
+
+    fixture, _, _ = pipeline
+
+    def unreachable(*args, **kwargs):
+        raise outbound_http.OutboundRequestFailed("rede")
+
+    monkeypatch.setattr(outbound_http, "request", unreachable)
+    publish(fixture, fixture.shared)
+    drain()
+    [retrying] = deliveries(fixture)
+    assert (retrying.state, retrying.attempts, retrying.error_code) == ("retrying", 1, "network_error")
+    assert retrying.status_code is None
+    assert 55 <= (retrying.next_attempt_at - retrying.last_attempt_at).total_seconds() <= 65
+    monkeypatch.undo()
+    due_now(fixture)
+    drain()
+    [delivered] = deliveries(fixture)
+    assert (delivered.state, delivered.attempts) == ("succeeded", 2)
+
+
+def test_refused_destination_fails_at_once(pipeline, receiver, monkeypatch):
+    from skeleton.common import outbound_http
+
+    fixture, _, issued = pipeline
+
+    def refused(*args, **kwargs):
+        raise outbound_http.OutboundRequestRefused("blocked_address", "x")
+
+    monkeypatch.setattr(outbound_http, "request", refused)
+    publish(fixture, fixture.shared)
+    drain()
+    [failed] = deliveries(fixture)
+    assert (failed.state, failed.attempts, failed.error_code) == ("failed", 1, "blocked_address")
+    due_now(fixture)
+    drain()
+    [after] = deliveries(fixture)
+    assert (after.state, after.attempts) == ("failed", 1)
+    assert receiver.received == []
+    assert _health(fixture, issued.endpoint).consecutive_failures == 1
+
+
+def test_scheduled_retry_of_a_disabled_endpoint_is_skipped(pipeline, receiver):
+    from skeleton.integrations.models import WebhookEndpoint
+    from skeleton.integrations.webhooks.services import update_endpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(503)
+    publish(fixture, fixture.shared)
+    drain()
+    [retrying] = deliveries(fixture)
+    assert retrying.state == "retrying"
+    with actor_tenant(fixture.admin, fixture.a):
+        endpoint = WebhookEndpoint.objects.get(pk=issued.endpoint.pk)
+        update_endpoint(endpoint, actor=fixture.admin, data={"is_enabled": False}, expected_revision=endpoint.revision)
+    due_now(fixture)
+    drain()
+    [skipped] = deliveries(fixture)
+    assert (skipped.state, skipped.error_code) == ("skipped", "endpoint_unavailable")
+    assert len(receiver.received) == 1
+
+
+def test_exhausted_schedule_ends_as_failed(pipeline, receiver):
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.extend([503] * 8)
+    publish(fixture, fixture.shared)
+    for _ in range(8):
+        drain()
+        due_now(fixture)
+    [failed] = deliveries(fixture)
+    assert (failed.state, failed.attempts, failed.error_code) == ("failed", 8, "http_503")
+    assert failed.next_attempt_at is None
+    assert len(receiver.received) == 8
+    with actor_tenant(fixture.admin, fixture.a):
+        assert WebhookEndpoint.objects.get(pk=issued.endpoint.pk).is_enabled  # 8 < 15 failures in a row.
+
+
+def test_a_success_resets_the_failure_counter(pipeline, receiver):
+    from examples.notes.models import Note
+
+    fixture, _, issued = pipeline
+    with actor_tenant(fixture.admin, fixture.a):
+        second = Note(
+            organization=fixture.a, owner=fixture.alice, code="second", title="Second", visibility="organization"
+        )
+        second.save()
+    receiver.statuses.extend([400, 200])
+    publish(fixture, fixture.shared)
+    drain()
+    assert _health(fixture, issued.endpoint).consecutive_failures == 1
+    publish(fixture, second)
+    drain()
+    health = _health(fixture, issued.endpoint)
+    assert health.consecutive_failures == 0 and health.last_success_at is not None
+
+
+def test_original_delivery_is_unique_per_endpoint_and_event(pipeline, receiver):
+    from django.db import IntegrityError, transaction
+
+    from skeleton.integrations.models import WebhookDelivery
+
+    fixture, _, _ = pipeline
+    publish(fixture, fixture.shared)
+    drain()
+    [original] = deliveries(fixture)
+    values = {
+        "organization_id": original.organization_id,
+        "endpoint_id": original.endpoint_id,
+        "event_id": original.event_id,
+        "event_type": original.event_type,
+        "table_key": original.table_key,
+        "record_sysid": original.record_sysid,
+        "payload": original.payload,
+    }
+    with actor_tenant(fixture.admin, fixture.a):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            WebhookDelivery(**values).save()
+        WebhookDelivery(**values, resend_of=original).save()
+    assert len(deliveries(fixture)) == 2
+
+
+def test_a_job_failure_after_the_request_sends_again_with_the_same_id(pipeline, receiver, monkeypatch):
+    """At least once: a failure after the HTTP request rolls the job back, and the retry sends again."""
+    from skeleton.integrations.webhooks import delivery as module
+
+    fixture, _, _ = pipeline
+    original = module._record_attempt
+    calls = []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_record_attempt", flaky)
+    publish(fixture, fixture.shared)
+    drain()
+    [pending] = deliveries(fixture)
+    assert (pending.state, pending.attempts) == ("pending", 0)  # The job's transaction was undone.
+    assert len(receiver.received) == 1
+    due_now(fixture)
+    drain()
+    [delivered] = deliveries(fixture)
+    assert (delivered.state, delivered.attempts) == ("succeeded", 1)
+    ids = [request["headers"]["Skeleton-Webhook-Id"] for request in receiver.received]
+    assert ids == [str(delivered.pk)] * 2

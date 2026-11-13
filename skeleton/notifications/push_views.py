@@ -2,11 +2,13 @@
 
 from django.db import transaction
 from django.http import Http404, HttpResponse
+from django.utils.translation import gettext
 from django.views.decorators.cache import cache_control
 from django.views.decorators.http import require_safe
 from rest_framework.response import Response
 
 from skeleton.api.errors import BoundaryError
+from skeleton.api.openapi import UUID, Operation, obj, string
 from skeleton.api.views import SessionAPI, request_fields
 
 from .channels import push
@@ -32,6 +34,23 @@ self.addEventListener('notificationclick', function (event) {
 class PushSubscriptionsAPI(SessionAPI):
     """``POST {"endpoint", "keys": {"p256dh", "auth"}}`` registers this browser for the signed-in person."""
 
+    openapi = {
+        "POST": Operation(
+            "Registra este navegador para web push",
+            obj({"sysid": UUID}),
+            status=201,
+            request=obj(
+                {
+                    "endpoint": string(),
+                    "keys": obj({"p256dh": string(), "auth": string()}),
+                    "expirationTime": {},
+                },
+                required=("endpoint", "keys"),
+            ),
+            description="404 quando o push não está configurado na instância.",
+        )
+    }
+
     @transaction.atomic
     def post(self, request):
         if not push.push_configured():
@@ -40,7 +59,7 @@ class PushSubscriptionsAPI(SessionAPI):
         keys = data.get("keys")
         extra = set(data) - {"endpoint", "keys", "expirationTime"}
         if extra or not isinstance(keys, dict) or set(keys) - {"p256dh", "auth"}:
-            raise BoundaryError("invalid_request", "Envie endpoint e keys (p256dh, auth).")
+            raise BoundaryError("invalid_request", gettext("Envie endpoint e keys (p256dh, auth)."))
         subscription = push.subscribe(
             request.user,
             endpoint=data.get("endpoint"),
@@ -52,11 +71,15 @@ class PushSubscriptionsAPI(SessionAPI):
 
 
 class PushUnsubscribeAPI(SessionAPI):
+    openapi = {
+        "POST": Operation("Cancela o web push deste navegador", None, status=204, request=obj({"endpoint": string()}))
+    }
+
     @transaction.atomic
     def post(self, request):
         data = request_fields(request)
         if set(data) - {"endpoint"}:
-            raise BoundaryError("invalid_request", "Envie só o endpoint.")
+            raise BoundaryError("invalid_request", gettext("Envie só o endpoint."))
         push.unsubscribe(request.user, endpoint=data.get("endpoint"))
         return Response(status=204)
 

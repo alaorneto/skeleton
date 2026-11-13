@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import as_uuid
@@ -44,6 +45,9 @@ class UserProfileInfo:
     user_revision: int = 0
     profile_sysid: UUID | None = None
     profile_display_name: str = ""
+    # What applies in the current context: profile, then organization, then instance (#170).
+    effective_language: str = ""
+    effective_timezone: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,9 +76,11 @@ def _profile(user: Any) -> Any:
 
 def _me(user: Any) -> UserProfileInfo:
     from skeleton.accounts.models import User
+    from skeleton.common.locale import preferences_for
 
     user = User.objects.get(pk=user.pk)
     profile = _profile(user)
+    effective = preferences_for(user)
     return UserProfileInfo(
         sysid=user.pk,
         email=user.email,
@@ -88,6 +94,8 @@ def _me(user: Any) -> UserProfileInfo:
         user_revision=user.revision,
         profile_sysid=profile.pk,
         profile_display_name=profile.display_name,
+        effective_language=effective.language,
+        effective_timezone=effective.timezone,
     )
 
 
@@ -123,7 +131,7 @@ class IdentityService(ServiceAPI):
             Membership.objects.filter(
                 user_id=identifier, is_active=True, user__is_active=True, user__deleted_at__isnull=True
             )
-            .select_related("user")
+            .select_related("user", "user__profile")
             .first()
         )
         if membership is None:
@@ -131,7 +139,7 @@ class IdentityService(ServiceAPI):
         person = membership.user
         return PersonSummary(
             sysid=person.pk,
-            display_name=_display_name(person, _profile(person)),
+            display_name=_display_name(person, getattr(person, "profile", None)),
             email=person.email if has_capability(_user(actor), MEMBERS_VIEW) else None,
             kind=_kind(person),
         )
@@ -156,9 +164,9 @@ class IdentityService(ServiceAPI):
 
         data = {name: value for name, value in (("language", language), ("timezone", timezone)) if value is not None}
         if not data:
-            raise InvalidInput({"non_field_errors": ["Informe language ou timezone."]})
+            raise InvalidInput({"non_field_errors": [gettext("Informe language ou timezone.")]})
         if type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use a revisão inteira do perfil."]})
+            raise InvalidInput({"expected_revision": [gettext("Use a revisão inteira do perfil.")]})
         update_profile(actor, data=data, profile_revision=expected_revision)
         return _me(actor)
 
@@ -183,8 +191,8 @@ class IdentityService(ServiceAPI):
 
         data = dict(changes)
         if len(data) != len(changes):
-            raise InvalidInput({"non_field_errors": ["Campo repetido."]})
+            raise InvalidInput({"non_field_errors": [gettext("Campo repetido.")]})
         if type(expected_user_revision) is not int or type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use revisões inteiras."]})
+            raise InvalidInput({"expected_revision": [gettext("Use revisões inteiras.")]})
         update_profile(actor, data=data, user_revision=expected_user_revision, profile_revision=expected_revision)
         return _me(actor)

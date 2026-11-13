@@ -2,9 +2,10 @@ import logging
 
 from django.contrib import messages
 from django.db import transaction
+from django.utils.translation import gettext
 
+from skeleton.common.context import current_context
 from skeleton.common.logging import security_event
-from skeleton.tenancy.context import current_context
 
 
 def schedule_mail(message, *, request=None, target_sysid=None):
@@ -17,7 +18,7 @@ def schedule_mail(message, *, request=None, target_sysid=None):
         try:
             if message.send(fail_silently=False) != 1:
                 raise RuntimeError("Email backend did not accept the message.")
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - any backend failure is logged as a security event
             security_event(
                 "mail.delivery_failed",
                 level=logging.ERROR,
@@ -28,6 +29,8 @@ def schedule_mail(message, *, request=None, target_sysid=None):
             if request is not None:
                 request._skeleton_mail_failures = getattr(request, "_skeleton_mail_failures", 0) + 1
                 if hasattr(request, "_messages"):
-                    messages.warning(request, "Dados salvos, mas o email não foi entregue. Use o reenvio explícito.")
+                    messages.warning(
+                        request, gettext("Dados salvos, mas o email não foi entregue. Use o reenvio explícito.")
+                    )
 
     transaction.on_commit(deliver)

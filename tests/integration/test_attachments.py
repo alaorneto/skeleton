@@ -1,18 +1,18 @@
 """Attachments authorized by their target record (#59)."""
 
 import io
-from dataclasses import replace
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client
 from django.urls import reverse
 
 from skeleton.files.sniffing import detect
 from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -31,32 +31,16 @@ def test_sniffing_requires_content_and_extension_to_agree():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = "example_notes.note"
-    monkeypatch.setitem(
-        registry._registry,
-        key,
-        replace(
-            registry._registry[key], attachments=AttachmentPolicy(max_bytes=200, types=("image/png", "application/pdf"))
-        ),
-    )
-    return build_service_scenario(Note, slug="attach")
+    with table_spec_override(key, attachments=AttachmentPolicy(max_bytes=200, types=("image/png", "application/pdf"))):
+        yield build_service_scenario(Note, slug="attach")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def url(scenario, note, organization=None):
@@ -78,6 +62,7 @@ def upload(client, target, content, name="file.png"):
     )
 
 
+@pytest.mark.needs_example_app
 def test_owner_uploads_lists_and_reader_without_update_gets_403(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-1", title="T", visibility="organization")
     owner = login(scenario.member)
@@ -94,6 +79,7 @@ def test_owner_uploads_lists_and_reader_without_update_gets_403(scenario):
     assert [row["filename"] for row in reader.get(url(scenario, note)).json()["results"]] == ["file.png"]
 
 
+@pytest.mark.needs_example_app
 def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-3", title="T")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="AT-4", title="T")
@@ -103,10 +89,11 @@ def test_foreign_target_fake_type_size_and_no_opt_in(scenario, monkeypatch):
     assert upload(client, url(scenario, note), PDF, "doc.png").status_code == 400
     assert upload(client, url(scenario, note), PNG + b"x" * 300).status_code == 413
     key = "example_notes.note"
-    monkeypatch.setitem(registry._registry, key, replace(registry._registry[key], attachments=None))
-    assert client.get(url(scenario, note)).status_code == 404
+    with table_spec_override(key, attachments=None):
+        assert client.get(url(scenario, note)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_deleted_target_hides_attachments_and_delete_restore_need_if_match(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="AT-5", title="T")
     client = login(scenario.member)
@@ -126,6 +113,7 @@ def test_deleted_target_hides_attachments_and_delete_restore_need_if_match(scena
     assert client.get(url(scenario, note)).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
     from skeleton.audit.models import AuditEvent
 
@@ -150,6 +138,7 @@ def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
     assert change == {"old": None, "new": "[REDACTED]", "redacted": True}
 
 
+@pytest.mark.needs_example_app
 def test_storage_object_is_removed_when_the_row_cannot_persist(scenario, monkeypatch):
     from skeleton.files import services, storage
     from skeleton.files.models import Attachment
@@ -169,3 +158,72 @@ def test_storage_object_is_removed_when_the_row_cannot_persist(scenario, monkeyp
         with pytest.raises(RuntimeError):
             services.upload(spec, note.pk, user=scenario.member, stream=io.BytesIO(PNG), filename="x.png")
     assert keys and not storage.private_storage().exists(keys[0])
+
+
+@pytest.mark.needs_example_app
+def test_upload_records_real_size_and_digest_on_a_read_based_storage(scenario, monkeypatch):
+    """The size, digest and quota come from the bytes read, on a backend that never calls chunks() (#225)."""
+    import hashlib
+
+    from skeleton.files import storage
+    from skeleton.files.models import Attachment, StorageUsage
+    from tests.support import ReadBasedStorage
+
+    backend = ReadBasedStorage()
+    monkeypatch.setattr(storage, "private_storage", lambda: backend)
+    note = scenario.create(scenario.a, owner=scenario.member, code="AT-S3", title="T")
+    created = upload(login(scenario.member), url(scenario, note), PNG)
+    assert created.status_code == 201, created.content
+    with system_context(reason="test:read-based-size", organization_id=scenario.a.pk):
+        attachment = Attachment.objects.get(pk=created.json()["sysid"])
+        usage = StorageUsage.objects.get(organization=scenario.a)
+    assert attachment.size == len(PNG) and attachment.sha256 == hashlib.sha256(PNG).hexdigest()
+    assert usage.bytes_used == len(PNG)
+    assert list(backend.objects.values()) == [PNG]
+
+
+@pytest.mark.needs_example_app
+def test_upload_above_policy_limit_answers_413_on_a_read_based_storage(scenario, monkeypatch):
+    from skeleton.files import storage
+    from tests.support import ReadBasedStorage
+
+    backend = ReadBasedStorage()
+    monkeypatch.setattr(storage, "private_storage", lambda: backend)
+    note = scenario.create(scenario.a, owner=scenario.member, code="AT-S3-BIG", title="T")
+    assert upload(login(scenario.member), url(scenario, note), PNG + b"x" * 300).status_code == 413
+    assert backend.objects == {}
+
+
+@pytest.mark.needs_example_app
+def test_html_upload_above_the_limit_is_refused_before_it_is_stored(scenario, settings, monkeypatch):
+    """The bounded handler stops the body: the later handlers never receive bytes past the limit (#242)."""
+    from django.core.files import uploadhandler
+
+    from skeleton.common.uploads import OVERHEAD
+    from skeleton.files.models import Attachment
+
+    settings.SKELETON_UPLOAD_MAX_BYTES = 1000
+    received = []
+    original = uploadhandler.MemoryFileUploadHandler.receive_data_chunk
+
+    def spy(self, raw_data, start):
+        received.append(len(raw_data))
+        return original(self, raw_data, start)
+
+    monkeypatch.setattr(uploadhandler.MemoryFileUploadHandler, "receive_data_chunk", spy)
+    note = scenario.create(scenario.a, owner=scenario.member, code="AT-BIG-HTML", title="T")
+    client = login(scenario.member)
+    target = reverse(
+        "files:upload",
+        kwargs={"organization_id": scenario.a.pk, "table_key": "example_notes.note", "sysid": note.pk},
+    )
+    body = PNG + b"x" * (200 * 1024)
+    response = client.post(
+        target,
+        {"file": SimpleUploadedFile("big.png", body)},
+        HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,  # The token does not depend on the cut body.
+    )
+    assert response.status_code == 413
+    assert sum(received) <= 1000 + OVERHEAD
+    with system_context(reason="test:big-html-upload", organization_id=scenario.a.pk):
+        assert not Attachment.objects.filter(target_sysid=note.pk).exists()

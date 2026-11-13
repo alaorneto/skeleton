@@ -1,0 +1,1 @@
+{% load i18n %}{% blocktranslate trimmed with name=organization_name %}Convite: {{ name }}{% endblocktranslate %}

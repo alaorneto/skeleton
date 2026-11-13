@@ -1,0 +1,8 @@
+"""Banco isolado dos testes de ${verbose_name}: schema recriado e migrado a cada teste (docs/testing.md).
+
+Exige TEST_DATABASE_URL (role skeleton_runtime), TEST_MIGRATION_DATABASE_URL (role skeleton_owner),
+um banco cujo nome termina em _skeleton_test e SKELETON_TEST_ALLOW_SCHEMA_RESET=1. Sem eles, a
+fixture para com erro de uso e não toca no banco.
+"""
+
+from skeleton.testing.database import skeleton_db  # noqa: F401

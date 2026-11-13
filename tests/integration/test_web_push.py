@@ -15,16 +15,17 @@ from django.test import Client, override_settings
 from django.urls import reverse
 
 from skeleton.common import outbound_http
-from skeleton.notifications import registry
 from skeleton.notifications.channels.push import b64url
 from skeleton.notifications.models import NotificationDelivery, WebPushSubscription
 from skeleton.notifications.registry import NotificationType, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import system_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 from skeleton.testing.service_api import FIXTURE_PASSWORD, build_service_scenario
+from tests import support
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/browser-one"
 BROWSER = ec.generate_private_key(ec.SECP256R1())
 BROWSER_PUBLIC = BROWSER.public_key().public_bytes(
@@ -57,10 +58,7 @@ class FakePushService:
 
 @pytest.fixture
 def scenario(monkeypatch, tmp_path):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     key = ec.generate_private_key(ec.SECP256R1())
@@ -68,45 +66,37 @@ def scenario(monkeypatch, tmp_path):
     path.write_bytes(
         key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
     )
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.mention",
-            "Você foi mencionado",
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            default_channels=("in_app", "push"),
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.mention",
+                "Você foi mencionado",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                default_channels=("in_app", "push"),
+            )
         )
-    )
-    register_notification_type(
-        NotificationType(
-            "notes.shared",
-            "Nota compartilhada",
-            snapshot_fields=("title",),
-            target_table_key="example_notes.note",
-            default_channels=("in_app", "push"),
-            push_snapshot=True,
+        register_notification_type(
+            NotificationType(
+                "notes.shared",
+                "Nota compartilhada",
+                snapshot_fields=("title",),
+                target_table_key="example_notes.note",
+                default_channels=("in_app", "push"),
+                push_snapshot=True,
+            )
         )
-    )
-    with override_settings(
-        WEBPUSH_VAPID_PRIVATE_KEY_FILE=str(path),
-        WEBPUSH_VAPID_SUBJECT="mailto:ops@example.test",
-        SKELETON_PUBLIC_URL="https://app.example.test",
-        INTEGRATION_ENCRYPTION_KEYS=[Fernet.generate_key().decode()],
-    ):
-        yield build_service_scenario(Note, slug="push")
+        with override_settings(
+            WEBPUSH_VAPID_PRIVATE_KEY_FILE=str(path),
+            WEBPUSH_VAPID_SUBJECT="mailto:ops@example.test",
+            SKELETON_PUBLIC_URL="https://app.example.test",
+            INTEGRATION_ENCRYPTION_KEYS=[Fernet.generate_key().decode()],
+        ):
+            yield build_service_scenario(Note, slug="push")
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": FIXTURE_PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=FIXTURE_PASSWORD)
 
 
 def subscribe(client, endpoint=ENDPOINT, keys=KEYS, csrf=True):
@@ -217,3 +207,128 @@ def test_page_keeps_push_hidden_without_javascript(scenario):
     with override_settings(WEBPUSH_VAPID_PRIVATE_KEY_FILE=""):
         assert "data-push-optin" not in client.get(reverse("notifications:preferences")).content.decode()
         assert client.get(reverse("notifications:service-worker")).status_code == 404
+
+
+def _in_thread(function):
+    """Run ``function`` in another thread with its own database connection (a second session)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connections
+
+    def run():
+        connections.close_all()
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
+
+
+def test_subscriptions_are_not_locked_while_the_push_is_sent(scenario, monkeypatch):
+    """No subscription row is locked during the HTTP push (#295)."""
+    from uuid import uuid4
+
+    from django.db import OperationalError
+
+    from skeleton.tenancy.context import request_context
+
+    service = FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    [subscription] = subscriptions(scenario.member)
+    seen = []
+
+    def probe():
+        try:
+            with request_context(actor=scenario.member, request_id=uuid4(), source="test:probe"):
+                WebPushSubscription.objects.select_for_update(nowait=True).get(pk=subscription.pk)
+            return "free"
+        except OperationalError:
+            return "locked"
+
+    original = service.request
+
+    def request(*args, **kwargs):
+        seen.append(_in_thread(probe))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "request", request)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-L1", title="Lock")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert seen == ["free"]
+    [after] = subscriptions(scenario.member)
+    assert after.last_success_at is not None
+
+
+def test_unsubscribing_during_the_push_does_not_fail_the_job(scenario, monkeypatch):
+    from uuid import uuid4
+
+    from skeleton.notifications.channels.push import unsubscribe
+    from skeleton.tenancy.context import request_context
+
+    service = FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    original = service.request
+
+    def gone_meanwhile():
+        with request_context(actor=scenario.member, request_id=uuid4(), source="test:unsubscribe"):
+            return unsubscribe(scenario.member, endpoint=ENDPOINT)
+
+    def request(*args, **kwargs):
+        assert _in_thread(gone_meanwhile) is True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(outbound_http, "request", request)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-L2", title="Gone")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert subscriptions(scenario.member) == []
+    with system_context(reason="test:push-deliveries", organization_id=scenario.a.pk):
+        assert {row.state for row in NotificationDelivery.objects.filter(channel="push")} == {"sent"}
+
+
+def test_repeated_pushes_do_not_write_an_audit_event_each(scenario, monkeypatch):
+    """last_success_at is rewritten at most once a day, not on every push (#314)."""
+    FakePushService(monkeypatch)
+    subscribe(login(scenario.member))
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-AUD", title="Audit")
+    mention(scenario, note)
+    run_pending_jobs()
+    [first] = subscriptions(scenario.member)
+    assert first.last_success_at is not None
+    for _ in range(3):
+        mention(scenario, note)
+        run_pending_jobs()
+    [after] = subscriptions(scenario.member)
+    # Every audited write bumps the revision: none happened for the three later pushes.
+    assert after.revision == first.revision and after.last_success_at == first.last_success_at
+
+
+def test_eleventh_subscription_evicts_the_oldest(scenario):
+    """At most ten live browsers per person; the oldest goes, logically, with its secrets redacted (#314)."""
+    client = login(scenario.member)
+    endpoints = [f"https://fcm.googleapis.com/fcm/send/browser-{index}" for index in range(11)]
+    for endpoint in endpoints:
+        assert subscribe(client, endpoint=endpoint).status_code == 201
+    live = subscriptions(scenario.member)
+    gone = subscriptions(scenario.member, deleted=True)
+    assert len(live) == 10 and len(gone) == 1
+    assert gone[0].endpoint.reveal() == endpoints[0]
+    assert subscribe(client, endpoint=endpoints[5]).status_code == 201  # A refresh evicts nobody.
+    assert len(subscriptions(scenario.member)) == 10
+
+
+def test_send_push_never_contacts_more_than_the_cap(scenario, monkeypatch):
+    from skeleton.notifications.channels import push
+
+    service = FakePushService(monkeypatch)
+    client = login(scenario.member)
+    for index in range(3):
+        subscribe(client, endpoint=f"https://fcm.googleapis.com/fcm/send/cap-{index}")
+    monkeypatch.setattr(push, "MAX_SUBSCRIPTIONS_PER_USER", 2)
+    note = scenario.create(scenario.a, owner=scenario.admin_a, code="P-CAP", title="Cap")
+    mention(scenario, note)
+    run_pending_jobs()
+    assert len(service.calls) == 2

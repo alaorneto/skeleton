@@ -13,6 +13,8 @@ from skeleton.common.exceptions import ConcurrentUpdate, ImmutableRecord, Unsafe
 from skeleton.common.models import SystemRecord
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 @pytest.fixture
 def records(skeleton_db):
@@ -288,3 +290,124 @@ def test_direct_sql_cannot_insert_non_guid_identity(records, invalid_sysid):
                     ],
                 )
         assert not Note.objects.filter(code="invalid-guid").exists()
+
+
+def test_cas_and_soft_delete_hold_for_an_organization_record(records):
+    """The model-level contract also holds for an OrganizationRecord without owner (#263)."""
+    from skeleton.access.models import Role
+
+    with actor_tenant(records.admin, records.a):
+        role = Role(organization=records.a, code="contract-probe", name="Probe")
+        role.save()
+        first, second = Role.objects.get(pk=role.pk), Role.objects.get(pk=role.pk)
+        first.name = "Winner"
+        first.save(update_fields=["name"])
+        second.name = "Loser"
+        with pytest.raises(ConcurrentUpdate):
+            second.save(update_fields=["name"])
+        assert Role.objects.get(pk=role.pk).name == "Winner"
+        stored = Role.objects.get(pk=role.pk)
+        stored.delete()
+        assert not Role.objects.filter(pk=role.pk).exists()
+        tombstone = Role.objects.with_deleted().get(pk=role.pk)
+        tombstone.restore()
+        assert Role.objects.get(pk=role.pk).pk == role.pk
+        audit = events(role)
+    assert [event.operation for event in audit] == ["create", "update", "soft_delete", "restore"]
+    assert {event.organization_id for event in audit} == {records.a.pk}
+
+
+def test_cas_holds_for_a_global_system_record(records):
+    """CAS of a global SystemRecord, read and audited only in the platform context (#263)."""
+    from skeleton.accounts.services import bootstrap_identity
+    from skeleton.system import availability
+    from skeleton.system.models import AppAvailability
+    from skeleton.tenancy.context import request_context
+
+    platform, _ = bootstrap_identity(
+        email="contract-platform@example.test",
+        organization="contract-platform",
+        name="Contract",
+        password="Kq9-unrelated-Phrase-2026!",
+    )
+    with request_context(actor=platform, request_id=uuid4(), source="test:contract-global"):
+        current = AppAvailability.objects.filter(app_label="example_notes").first()
+        revision = current.revision if current else 0
+        availability.set_app_availability("example_notes", user=platform, mode="selected", revision=revision)
+        first = AppAvailability.objects.get(app_label="example_notes")
+        second = AppAvailability.objects.get(pk=first.pk)
+        first.mode = "all"
+        first.save(update_fields=["mode"])
+        second.mode = "selected"
+        with pytest.raises(ConcurrentUpdate):
+            second.save(update_fields=["mode"])
+        assert AppAvailability.objects.get(pk=first.pk).mode == "all"
+        audit = events(first)
+    assert [event.operation for event in audit][-1] == "update"
+    assert {event.organization_id for event in audit} == {None}
+
+
+def test_failed_validation_does_not_poison_the_next_save(records):
+    """A ValidationError leaves the metadata as it was; fixing the field saves (#273)."""
+    from examples.notes.models import Note
+
+    with actor_tenant(records.alice, records.a):
+        note = Note.objects.get(pk=records.private.pk)
+        revision, updated_at = note.revision, note.updated_at
+        note.title = "x" * 201
+        with pytest.raises(ValidationError):
+            note.save()
+        assert (note.revision, note.updated_at) == (revision, updated_at)
+        note.title = "Fixed"
+        note.save()
+        assert Note.objects.get(pk=note.pk).revision == revision + 1
+
+
+def test_failed_delete_keeps_the_instance_alive(records):
+    from examples.notes.models import Note
+
+    with actor_tenant(records.alice, records.a):
+        first, second = Note.objects.get(pk=records.private.pk), Note.objects.get(pk=records.private.pk)
+        first.title = "winner"
+        first.save(update_fields=["title"])
+        with pytest.raises(ConcurrentUpdate):
+            second.delete()
+        assert second.deleted_at is None and second.deleted_by is None
+        assert Note.objects.filter(pk=second.pk).exists()
+
+
+def test_failed_restore_keeps_the_tombstone_in_memory(records):
+    from examples.notes.models import Note
+
+    with actor_tenant(records.alice, records.a):
+        original = Note.objects.get(pk=records.private.pk)
+        original.delete()
+        replacement = Note(organization=records.a, owner=records.alice, code=original.code, title="New", body="")
+        replacement.save()
+        tombstone = Note.objects.with_deleted().get(pk=original.pk)
+        deleted_at = tombstone.deleted_at
+        with pytest.raises((ValidationError, IntegrityError)):
+            with transaction.atomic():
+                tombstone.restore()
+        assert tombstone.deleted_at == deleted_at and tombstone.deleted_by is not None
+
+
+def test_reference_validation_reads_only_two_columns_of_the_target(records):
+    """clean() checks a referenced record with deleted_at and organization_id only (#341)."""
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.access.models import GroupMember
+
+    with actor_tenant(records.admin, records.a):
+        link = GroupMember(organization=records.a, group=records.group, membership=records.alice_membership)
+        with CaptureQueriesContext(connection) as captured:
+            link.full_clean()
+    reads = [
+        query["sql"]
+        for query in captured
+        if query["sql"].startswith("SELECT")
+        and ('"sk_access_accessgroup"' in query["sql"] or '"sk_tenancy_membership"' in query["sql"])
+    ]
+    selects = [sql.split(" FROM ")[0] for sql in reads if '"deleted_at"' in sql.split(" FROM ")[0]]
+    assert selects, reads
+    assert all(sql.count(",") <= 1 for sql in selects), selects  # deleted_at and organization_id only.

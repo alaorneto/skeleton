@@ -1,15 +1,20 @@
 {% extends 'skeleton/web/base.html' %}
-{% block title %}{{ heading }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{{ heading }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">App de exemplo</p><h1>{{ heading }}</h1><p class="page-description">Anotações protegidas por organização, dono, visibilidade e grupo.</p></div>
-  {% if can_manage_applications %}<div class="toolbar"><a class="btn btn-secondary" href="{% url 'application-configuration' organization_id 'example_notes' %}">{% include "skeleton/web/components/icon.html" with name="settings" %}Administrar esta app</a></div>{% endif %}
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "App de exemplo" %}</p><h1>{{ heading }}</h1><p class="page-description">{% translate "Anotações protegidas por organização, dono, visibilidade e grupo." %}</p></div>
+  {% if can_manage_applications %}<div class="toolbar"><a class="btn btn-secondary" href="{% url 'application-configuration' organization_id 'example_notes' %}">{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Administrar esta app" %}</a></div>{% endif %}
 </div>
 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
   <section class="card flex flex-col">
-    <p class="text-sm font-medium text-body-subtle">Registros legíveis</p>
+    <p class="text-sm font-medium text-body-subtle">{% translate "Registros legíveis" %}</p>
     <p class="mt-1 text-3xl font-semibold tracking-tight text-heading tabular-nums">{{ count }}</p>
-    <a class="button mt-5 self-start" href="{% url 'web:records' organization_id 'example_notes.note' %}">Abrir anotações{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
+    <a class="button mt-5 self-start" href="{% url 'web:records' organization_id 'example_notes.note' %}">{% translate "Abrir anotações" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
   </section>
 </div>
+<h2 class="mt-5 mb-4">{% translate "Publicação" %}</h2>
+<p class="page-description">{% translate "Pedir a publicação inicia um fluxo de processo: preparação, revisão e registro. O pedido aparece na sua caixa de tarefas." %}</p>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Título" %}</th><th scope="col">{% translate "Ações" %}</th></tr></thead><tbody>
+{% for note in notes %}<tr><td><code>{{ note.code }}</code></td><td>{{ note.title }}</td><td><form method="post" action="{% url 'example_notes:request-publication' organization_id note.sysid %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Pedir publicação" %}</button></form></td></tr>{% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma anotação." %}</td></tr>{% endfor %}
+</tbody></table></div>
 {% endblock %}

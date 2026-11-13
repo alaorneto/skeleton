@@ -13,17 +13,23 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
 
 from .scopes import validate_scopes
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
+    from .models import ApiToken
 
 TOKEN_PATTERN = re.compile(r"^skt_([0-9a-f]{8})_([A-Za-z0-9_-]{43})$")
 DEFAULT_MAX_DAYS = 365
@@ -47,18 +53,20 @@ def digest(secret: str) -> str:
 
 def _validate_expiry(expires_at: Any) -> datetime:
     if not isinstance(expires_at, datetime) or timezone.is_naive(expires_at):
-        raise ValidationError({"expires_at": "Informe a validade com data, hora e fuso."})
+        raise ValidationError({"expires_at": gettext("Informe a validade com data, hora e fuso.")})
     now = timezone.now()
     if expires_at <= now:
-        raise ValidationError({"expires_at": "A validade precisa estar no futuro."})
+        raise ValidationError({"expires_at": gettext("A validade precisa estar no futuro.")})
     if expires_at > now + timedelta(days=max_days()):
-        raise ValidationError({"expires_at": f"A validade máxima é de {max_days()} dias."})
+        raise ValidationError(
+            {"expires_at": gettext("A validade máxima é de %(value1)s dias.") % {"value1": max_days()}}
+        )
     return expires_at
 
 
 def _validate_name(name: Any) -> str:
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
-        raise ValidationError({"name": "Informe um nome de até 150 caracteres."})
+        raise ValidationError({"name": gettext("Informe um nome de até 150 caracteres.")})
     return name.strip()
 
 
@@ -66,7 +74,7 @@ def _require_mfa_policy(actor: Any) -> None:
     from skeleton.accounts.mfa import mfa_required
 
     if mfa_required(actor):
-        raise PermissionDenied("MFA enrolment is required to issue tokens.")
+        raise PermissionDenied(gettext("Ative a verificação em duas etapas para emitir tokens."))
 
 
 def _require_session_actor(actor: Any) -> None:
@@ -74,7 +82,7 @@ def _require_session_actor(actor: Any) -> None:
     if not getattr(actor, "is_authenticated", False) or context.actor != actor.pk:
         raise PermissionDenied("The actor must be the authenticated user.")
     if getattr(context, "credential_scopes", None) is not None:
-        raise PermissionDenied("A token cannot manage tokens.")
+        raise PermissionDenied(gettext("Um token não pode gerenciar tokens."))
 
 
 def _create(**values: Any) -> IssuedToken:
@@ -86,10 +94,36 @@ def _create(**values: Any) -> IssuedToken:
         try:
             with transaction.atomic(using=current_context().using):
                 token.save()
-        except IntegrityError:
+        except IntegrityError as exc:
+            if "sk_integrations_apitoken_prefix" not in str(exc):
+                raise  # Another constraint is a real error, not a collision (#327).
             continue  # Prefix collision (1 in 4 billion): draw again.
         return IssuedToken(token, f"skt_{prefix}_{secret}")
     raise RuntimeError("Could not allocate a token prefix.")
+
+
+DEFAULT_MAX_PER_OWNER = 50
+
+
+def _require_room(user: Any) -> None:
+    """At most ``SKELETON_API_TOKEN_MAX_PER_OWNER`` live tokens per person or account (#327).
+
+    Expired tokens count until revoked: they still show in the list. Personal issues of the
+    same person at the same instant may pass the cap by one (no lock on the user); service
+    tokens are serialized by the organization lock.
+    """
+    from .models import ApiToken
+
+    limit = int(getattr(settings, "SKELETON_API_TOKEN_MAX_PER_OWNER", DEFAULT_MAX_PER_OWNER))
+    if ApiToken.objects.filter(user=user).count() >= limit:
+        raise ValidationError(
+            {
+                "name": gettext(
+                    "Limite de %(limit)s tokens atingido: revogue um token (inclusive os expirados) antes de criar outro."
+                )
+                % {"limit": limit}
+            }
+        )
 
 
 def issue_personal_token(*, actor: Any, name: Any, scopes: Any, expires_at: Any, feed: bool = False) -> IssuedToken:
@@ -99,7 +133,8 @@ def issue_personal_token(*, actor: Any, name: Any, scopes: Any, expires_at: Any,
     _require_session_actor(actor)
     _require_mfa_policy(actor)
     if getattr(actor, "account_type", "human") != "human":
-        raise PermissionDenied("Service accounts receive tokens from their organization.")
+        raise PermissionDenied(gettext("Contas de serviço recebem tokens pela organização."))
+    _require_room(actor)
     return _create(
         user=actor,
         kind=ApiToken.Kind.FEED if feed else ApiToken.Kind.PERSONAL,
@@ -129,7 +164,8 @@ def issue_service_token(*, actor: Any, account: Any, name: Any, scopes: Any, exp
             .first()
         )
         if user is None:
-            raise ValidationError({"account": "Conta de serviço indisponível."})
+            raise ValidationError({"account": gettext("Conta de serviço indisponível.")})
+        _require_room(user)
         return _create(
             user=user,
             kind=ApiToken.Kind.SERVICE,
@@ -171,21 +207,35 @@ def revoke_token(*, actor: Any, token_id: Any, expected_revision: int) -> Any:
         return token
 
 
-def personal_tokens(user: Any):
+def personal_tokens(user: Any) -> QuerySet[ApiToken]:
     from .models import ApiToken
 
-    return ApiToken.objects.filter(user=user, kind__in=(ApiToken.Kind.PERSONAL, ApiToken.Kind.FEED)).order_by(
-        "-created_at"
+    return (
+        ApiToken.objects.filter(user=user, kind__in=(ApiToken.Kind.PERSONAL, ApiToken.Kind.FEED))
+        .select_related("user")
+        .order_by("-created_at", "sysid")
     )
 
 
-def service_tokens(organization_id: Any, *, account: Any = None):
+def service_tokens(organization_id: Any, *, account: Any = None) -> QuerySet[ApiToken]:
     from .models import ApiToken
 
     queryset = ApiToken.objects.filter(kind=ApiToken.Kind.SERVICE, bound_organization_id=organization_id)
     if account is not None:
         queryset = queryset.filter(user_id=getattr(account, "pk", account))
-    return queryset.order_by("-created_at")
+    return queryset.select_related("user").order_by("-created_at", "sysid")
+
+
+def is_usable(token: Any, *, now: Any = None) -> bool:
+    """Whether ``verify_token`` would still accept this token (the secret aside) (#327)."""
+    user = token.user
+    return not (
+        token.revoked_at is not None
+        or token.expires_at <= (now or timezone.now())
+        or not user.is_active
+        or user.deleted_at is not None
+        or user.auth_version != token.auth_version_at_issue
+    )
 
 
 def verify_token(text: str) -> Any | None:
@@ -200,13 +250,4 @@ def verify_token(text: str) -> Any | None:
     token = ApiToken.objects.select_related("user").filter(prefix=prefix).first()
     if token is None or not hmac.compare_digest(token.digest, digest(secret)):
         return None
-    user = token.user
-    if (
-        token.revoked_at is not None
-        or token.expires_at <= timezone.now()
-        or not user.is_active
-        or user.deleted_at is not None
-        or user.auth_version != token.auth_version_at_issue
-    ):
-        return None
-    return token
+    return token if is_usable(token) else None

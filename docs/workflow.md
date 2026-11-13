@@ -68,7 +68,15 @@ Ele avisa, sem reprovar: critérios de aceite sem marcar na issue que o PR fecha
 
 O mesmo workflow comenta no PR a **prévia de versão**: o número que o merge publicaria, as mudanças acumuladas que entrariam e os sinais de cada uma. É um comentário único, atualizado a cada execução.
 
-Para que o check impeça o merge, marque "Verificação do PR" como check obrigatório na proteção da branch `main`.
+**Checks obrigatórios da `main` (#249).** A proteção da `main` é um ruleset do repositório (Settings → Rules → Rulesets), não um arquivo: exigir pull request, exigir os checks `CI` e `Verificação do PR` e bloquear force-push e exclusão. `CI` é o job agregador de `.github/workflows/ci.yml`: ele só passa quando lint, assets, locks, testes, cobertura, typecheck, `check --deploy` e build passaram, então o nome continua estável se a matriz de testes mudar. Os alertas e as atualizações de segurança do Dependabot e o relato privado de vulnerabilidades também são configuração do repositório; o canal de relato está em [SECURITY.md](../SECURITY.md). Para conferir o que está aplicado, com acesso de leitura:
+
+```sh
+gh api repos/alaorneto/skeleton/rules/branches/main --jq '.[].type'   # pull_request, required_status_checks, non_fast_forward, deletion
+gh api repos/alaorneto/skeleton/vulnerability-alerts -i | head -1      # HTTP/2.0 204
+gh api repos/alaorneto/skeleton --jq '.security_and_analysis.dependabot_security_updates.status'
+gh api repos/alaorneto/skeleton/private-vulnerability-reporting --jq .enabled
+```
+
 
 ## Fechamento com evidências
 
@@ -162,6 +170,7 @@ Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fech
 - ainda há filha aberta, ou o epic não tem sub-issues;
 - o pai não tem o label `epic` ou já está fechado;
 - alguma sub-issue é de outro repositório, que o token do workflow não consegue verificar; feche à mão.
+- o epic tem mais de 100 sub-issues ou bloqueios: a leitura viria incompleta, então `close-epic`, `sync-epic` e `sync-checklist` falham com erro (#331); feche à mão.
 
 Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`. Por isso, ao fechar um epic que também é sub-issue (como o #112 do #95), o mesmo run atualiza as caixas do epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic: ele pode ter sido fechado à mão por outro motivo, então reabra-o à mão se for o caso. A seção "Critérios de conclusão" do epic não é verificada; o comentário pede para reabrir o epic se algum critério faltar. Para conferir sem fechar:
 
@@ -170,6 +179,29 @@ python3 S/github_issues.py close-epic --parent-of 101 --dry-run
 ```
 
 Nenhum dos comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
+
+## Verificação do PR e fechamento
+
+O check "Verificação do PR" recusa o PR sem issue vinculada com exatamente um label de tipo, com uma seção obrigatória (`Issues`, `Resumo`, `Versão`, `Testes executados`, `Documentação`) vazia ou só com o texto do modelo, com título fora de Conventional Commits ou com um `semver:*` sem o label `release`, sem `Motivo: ...` ou repetido. Ele avisa, sem recusar, sobre critério de aceite não marcado na issue fechada, seção do modelo faltando na issue e tipo do título diferente do tipo da issue. PRs do Dependabot e o PR de release ficam isentos. O check roda o script e a configuração da branch base, não os do PR: um PR que altera o validador é conferido pela versão anterior, e a nova vale depois do merge (#331). Um segundo job comenta no PR, num comentário único e atualizado, a versão que o merge publicaria.
+
+**Checks obrigatórios da `main` (#249).** A proteção da `main` é um ruleset do repositório (Settings → Rules → Rulesets), não um arquivo: exigir pull request, exigir os checks `CI` e `Verificação do PR` e bloquear force-push e exclusão. `CI` é o job agregador de `.github/workflows/ci.yml`: ele só passa quando lint, assets, locks, testes, cobertura, typecheck, `check --deploy` e build passaram, então o nome continua estável se a matriz de testes mudar. Os alertas e as atualizações de segurança do Dependabot e o relato privado de vulnerabilidades também são configuração do repositório; o canal de relato está em [SECURITY.md](../SECURITY.md). Para conferir o que está aplicado, com acesso de leitura:
+
+```sh
+gh api repos/alaorneto/skeleton/rules/branches/main --jq '.[].type'   # pull_request, required_status_checks, non_fast_forward, deletion
+gh api repos/alaorneto/skeleton/vulnerability-alerts -i | head -1      # HTTP/2.0 204
+gh api repos/alaorneto/skeleton --jq '.security_and_analysis.dependabot_security_updates.status'
+gh api repos/alaorneto/skeleton/private-vulnerability-reporting --jq .enabled
+```
+
+Ao mesclar, o workflow "Evidências no merge" comenta em cada issue fechada pelo PR os commits, o PR, os testes executados, a documentação, os critérios pendentes e a situação da versão, uma única vez mesmo com reexecução. Mudança de escopo durante o trabalho atualiza o corpo da issue e é registrada com o modelo de comentário de mudança de escopo do skill.
+
+## Versão e release
+
+A versão do projeto segue o versionamento semântico e é decidida por ferramenta, nunca editada à mão ([referência](../.claude/skills/dev-workflow/references/versioning.md)). A fonte única é a última tag de versão alcançável; os arquivos declarados em `versioning.files` são projeções reescritas a cada release. Só o label `release` faz um merge publicar versão: PRs sem ele se acumulam e entram, todos, na análise do próximo que tiver o label. O nível é o maior entre os sinais (labels de tipo das issues, Conventional Commits, marcador de breaking, superfícies públicas, pisos de versão no código e a análise por agente registrada no PR), e um label `semver:*` com motivo sobrepõe o cálculo. Em 0.x, uma quebra sobe o minor, e 1.0.0 só sai por decisão explícita (`semver:major`).
+
+Neste repositório, a versão do projeto é a do core (`django-skeleton`): o agente de deployment (`deployment_agent/pyproject.toml`, inclusive o pino `django-skeleton==`) e as apps first-party (manifesto e faixa recomendada da agenda) seguem o mesmo número, todos declarados em `.github/dev-workflow.toml`. Os pisos de core (`SERVICE_API_CORE_MINIMUM`, `MANIFEST_V2_CORE_MINIMUM`, `FIELD_DIMENSIONS_CORE_MINIMUM`, a faixa do manifesto do exemplo e os `since=` dos serviços) são pisos de funcionalidade: não acompanham o bump, e `release.py check` só confere que nenhum é maior que a versão publicada. Um piso novo acima da versão corrente é sinal de que a próxima versão precisa alcançá-lo.
+
+O workflow de release roda depois do merge, nunca no PR, para dois PRs simultâneos não disputarem o mesmo número. Ele escreve a versão, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release e marca os PRs e issues incluídos (comentário e milestone). É idempotente: reexecutar depois de concluir não faz nada, e depois de uma falha parcial conclui o que faltou. Há modo direto e modo por PR de release, pré-release (`--prerelease rc`), branch de manutenção `maint/X.Y` e reversão documentada.
 
 ## Mecanismos
 

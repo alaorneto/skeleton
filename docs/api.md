@@ -4,30 +4,47 @@ Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML, por se
 
 Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
 
-Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do cookie de sessão **e** da proteção CSRF. Em clientes como curl, envie o cookie `csrftoken` e o header `X-CSRFToken` correspondente; um cookie de sessão sozinho não basta. Uma requisição anônima à API recebe 403 do DRF, enquanto a página HTML redireciona ao login. Em produção, use HTTPS e cookies seguros; tokens do IdP não substituem essa sessão.
+Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do cookie de sessão **e** da proteção CSRF. Requisições autenticadas por [token de API](#autenticação-por-token) não usam cookie nem CSRF. Em clientes como curl, envie o cookie `csrftoken` e o header `X-CSRFToken` correspondente; um cookie de sessão sozinho não basta. Uma requisição anônima à API recebe 403 do DRF, enquanto a página HTML redireciona ao login. Em produção, use HTTPS e cookies seguros; tokens do IdP não substituem essa sessão.
 
 ## Recursos
 
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
+| `openapi.json` | GET | [Schema OpenAPI 3.1](#schema-openapi) do que o ator alcança; sessão ou token |
 | `me/` | GET, PATCH | Própria identidade/perfil; ETag composto |
 | `organizations/` | GET | Apenas organizações dos próprios vínculos ativos |
+| `me/join-requests/`, `me/join-requests/<id>/withdraw/` | GET, POST; POST com If-Match | Os próprios pedidos de ingresso em todas as organizações; POST `{organization_id, message?}` cria (201) ou devolve o pedido aberto; organização que não aceita pedidos responde 404 neutro, limite excedido 429 `rate_limited` com `Retry-After`, email não verificado 403 `email_unverified`, vínculo ativo 409 `already_member`. Retirar exige If-Match; pedido já fechado 409 `not_open` |
+| `o/<org>/identity-providers/`, `identity-providers/<id>/admission/` | GET; GET/PUT com If-Match | Capacidade `identity.configure`. Lista só os provedores ligados à organização, sem segredo nem opções de protocolo. PUT exige exatamente `jit_provisioning`, `jit_requires_approval`, `default_role` (UUID ou null) e `allowed_email_domains`; revisão virtual `"0"` antes da primeira gravação, stale 412, papel de outra organização 400, papel com capacidade escolhido sem `access.manage` 403 `privileged_role`, provedor de outra organização 404 |
+| `o/<org>/join-links/`, `join-links/<id>/revoke/` | GET, POST; POST com If-Match | Capacidade `invitations.manage`. A lista nunca traz token nem resumo. POST `{label, role, mode, days, max_uses}` (exatamente esses campos) cria e devolve a `url` com o token uma única vez (201, `Cache-Control: no-store`); papel com capacidade pedido pelo gestor de pessoas responde 403 `privileged_role`. Revogar exige If-Match (412 se stale) |
+| `o/<org>/join-requests/`, `join-requests/<id>/` | GET; POST decisão com If-Match | Capacidade `admission.decide`; só pedidos abertos da organização. POST `{"decision": "approve"\|"reject"}` (sem outros campos); revisão stale 412, pedido já decidido ou expirado 409 `not_pending`; o gestor de pessoas recebe 403 num pedido com papel que carrega capacidade |
 | `o/<org>/catalog/` | GET | Apenas tabelas legíveis; não inventário técnico global |
-| `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros record_sysid/model_label na lista |
+| `o/<org>/audit/`, `audit/<event>/` | GET | Eventos autorizados; filtros `record_sysid`, `model_label`, `from`, `to` (data ou ISO 8601), `actor`, `operation` e `request_id` na lista (#184); filtro desconhecido ou inválido é 400 `invalid_filter`; `table_name` e `db_principal` vêm vazios para quem não administra a organização (#324) |
 | `o/<org>/membership/` | GET | O próprio vínculo do ator nesta organização (sysid, revisão) com ETag; 404 sem vínculo ativo |
 | `o/<org>/membership/leave/` | POST | O ator sai da organização; exige `If-Match` com a revisão do próprio vínculo (428 sem ele, 412 se mudou), corpo vazio; 204; 409 `last_administrator` para o último administrador |
 | `o/<org>/memberships/`, `<id>/` | GET, POST; GET/PATCH/DELETE no detalhe | `members.view` para ler, `members.manage` para alterar; criar com user explícito; PATCH só is_active; sem `access.manage`, não desativa quem tem capacidade |
 | `o/<org>/roles/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description; is_builtin read-only |
 | `o/<org>/groups/`, `<id>/` | GET, POST; GET/PATCH/DELETE | `access.manage`; code,name,description |
-| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade; digest/token/estado não graváveis; sem PATCH |
+| `o/<org>/invitations/`, `<id>/` | GET, POST; GET/DELETE | `invitations.manage`; email,role; sem `access.manage`, só papel sem capacidade (papel interno com capacidade responde 403 `privileged_role`, sem escrita, como nos links de ingresso); digest/token/estado não graváveis; sem PATCH |
 | `o/<org>/member-roles/`, `group-members/`, `group-roles/`, `table-permissions/`, `record-grants/` | GET/POST coleção; GET/DELETE detalhe | `access.manage`; links explícitos; sem nested write/PATCH |
 | `o/<org>/tables/<table_key>/records/` | GET, POST | Gateway allowlist de SecuredRecord exposto |
 | `.../records/<sysid>/` | GET, PATCH, DELETE | Um registro autorizado; ETag/revisão |
-| `.../records/<sysid>/restore/` | POST | Restore autorizado com If-Match |
+| `.../records/<sysid>/restore/` | POST | Restore autorizado com If-Match; registro que não está excluído responde 404 (#288) |
 | `.../records/<sysid>/access/` | GET, PATCH | Manage_access + ownership/org admin; If-Match no PATCH |
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
-| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Org admin; app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial |
+| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa; com a configuração gravada incompatível com a versão instalada, o PUT responde 400 (`configuration_incompatible`) e nada é gravado (#251) |
+
+### Recursos dos subsistemas
+
+| URL relativa ao prefixo | Métodos | Contrato |
+|---|---|---|
+| `me/tokens/`, `me/tokens/<id>/` | GET, POST; DELETE no detalhe | Tokens pessoais do próprio ator; [gestão de tokens](#gestão-de-tokens) (`skeleton/integrations/urls.py`) |
+| `o/<org>/service-accounts/`, `<id>/`, `<id>/tokens/`, `<id>/tokens/<token_id>/` | GET, POST na coleção; DELETE no detalhe (idempotente; não usa `If-Match`); GET, POST nos tokens; DELETE num token | Contas de serviço e seus tokens; [gestão de tokens](#gestão-de-tokens) |
+| `o/<org>/webhooks/`, `<id>/`, `<id>/rotate/`, `<id>/ping/`, `<id>/deliveries/`, `<id>/deliveries/<delivery_id>/`, `.../resend/` | GET, POST na coleção; GET, PATCH, DELETE no detalhe; POST em `rotate`, `ping` e `resend`; GET nas entregas | Endpoints, segredo, teste e log de entregas; [webhooks](webhooks.md) |
+| `notifications/`, `o/<org>/notifications/actions/` | GET; POST | Caixa de notificações do ator e ações sobre ela; [notificações](notifications.md) (`skeleton/notifications/urls.py`) |
+| `me/notification-preferences/`, `me/notification-preferences/<type_code>/<channel>/` | GET; GET, PUT, DELETE | Preferências por tipo e canal; [notificações](notifications.md#preferências) |
+| `me/push-subscriptions/`, `me/push-subscriptions/unsubscribe/` | POST; POST | Assinaturas de web push do navegador; [notificações](notifications.md#web-push) |
+| `o/<org>/tables/<table_key>/records/<sysid>/attachments/`, `<attachment_id>/`, `<attachment_id>/restore/` | GET, POST; DELETE; POST | Anexos do registro, com autorização derivada dele; [arquivos](files.md#anexos) (`skeleton/api/urls.py`, views em `skeleton/files/api_views.py`) |
 
 `org`, `sysid` e IDs de relações são UUIDs. Primeiro escolha uma organização devolvida por `organizations/` e use seu UUID em `o/<org>/`; não envie a organização ou o ator no corpo para tentar mudar o contexto. `table_key` é o identificador registrado do modelo (`label_lower`), por exemplo `example_notes.note`, e nunca um nome SQL. O registry, a lista explícita de modelos permitidos no código, é a única fonte dessa resolução. Modelos não expostos ou técnicos não entram no gateway.
 
@@ -37,7 +54,7 @@ Campos de links: member-roles={membership,role}; group-members={group,membership
 
 ## `me` composto
 
-GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos first_name,last_name,display_name,timezone,language; atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
+GET retorna sysid,email,first_name,last_name,revision e profile={sysid,revision,display_name,timezone,language}. PATCH só aceita campos planos de texto first_name,last_name,display_name,timezone,language (outro tipo JSON é 400 `validation_error`, #272); atualiza User/Profile atomicamente. Email/senha/is_staff/is_superuser/auth_version/local_password_allowed nunca são campos desse recurso.
 
 O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a resposta reúne duas linhas: User e Profile. O PATCH exige as duas revisões em `If-Match` e as compara dentro da mesma transação. A revisão do perfil sozinha não protegeria o nome da identidade de uma alteração concorrente.
 
@@ -45,13 +62,21 @@ O ETag é `"<user_revision>-<profile_revision>"`, por exemplo `"1-1"`, porque a 
 
 O gateway oferece CRUD genérico (criação, leitura, alteração e exclusão lógica) somente para campos explicitamente declarados em `TableSpec.read_fields` e `write_fields`; os metadados sistêmicos são automaticamente somente leitura. Campos desconhecidos retornam erro em vez de serem ignorados. `organization`, `sysid`, autoria, revisão e campos de acesso são proibidos no POST/PATCH comum: aceitar esses valores do cliente permitiria atribuição indiscriminada de campos protegidos (mass assignment). A criação atribui `owner` ao ator autenticado e visibilidade `private`. Use o recurso separado `access/` para mudar acesso: seu PATCH aceita somente owner UUID, visibility e owning_group UUID/null, coerentes com vínculo e grupo ativos. Ele exige `manage_access` e ser proprietário ou administrador da organização; um leitor comum não pode nem obter GET access.
 
-FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100. Conte/count/lista/audit são autorizados antes de paginação.
+FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Uma tabela com `search_fields` aceita também `q`, uma busca textual de 2 a 200 caracteres:
+
+- usa o dicionário `portuguese`, sem acentos e com variações ("contratos" acha "contrato");
+- filtra depois da autorização e antes da paginação, então `count` só conta o que o ator lê;
+- ordena por relevância.
+
+O picker de referências aceita `q` para prefixo do rótulo e, com `pg_trgm`, similaridade por palavra inteira (`strict_word_similarity`, limiar padrão 0,5), que tolera erro de digitação numa palavra do rótulo, mas não casa pedaços de outra palavra (#180, #181).
+
+ Ordena created_at/sysid; paginação `{count,page,page_size,results}`, tamanho 25, máximo 100; o deslocamento máximo é de 1 000 000 de linhas, e uma página além disso é 400 `invalid_pagination` (#271). Conte/count/lista/audit são autorizados antes de paginação.
 
 Referências invisíveis são representadas como null, sem UUID/label e sem `__str__` de negócio. A projeção da lista autoriza alvos em lote por política/modelo. O recurso `references/<field>/` aceita somente `record`, `access=0/1`, `page` e `page_size`, sem duplicatas. Sem `record`, exige create na origem; com registro, update; com access, manage_access. Retorna `{count,page,page_size,results}` de UUID/label autorizados; máximo 100. Referências de identidade/acesso usam vínculos ativos/resolvedores dedicados, nunca enumeração global. HTML tem seletor equivalente fora do admin e fallback para copiar UUID; toda escrita revalida FK.
 
 Apps podem registrar `RecordOperations` em código para impor serviços próprios nas mesmas operações HTML/API. Core valida autorização/allowlists/coerção antes do serviço; se um adaptador não declara uma operação, ela é negada sem fallback. Metadados de apresentação não mudam o contrato JSON ou grants. Nullable boolean mantém null quando o modelo o permite; write-only nunca é acrescentado à leitura pela presença de um widget.
 
-Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamente lidos antes da decodificação (default 1048576), inclusive stream sem Content-Length confiável; excesso é 413 `request_too_large`, sem escrita parcial. Alinhe um limite de corpo igual ou menor no proxy. Paginação HTML preserva filtros já validados ao trocar page, com URL encoding.
+Somente JSON é aceito na API. `SKELETON_JSON_MAX_BYTES` limita bytes efetivamente lidos antes da decodificação (default 1048576), inclusive stream sem Content-Length confiável; excesso é 413 `request_too_large`, sem escrita parcial. Alinhe um limite de corpo igual ou menor no proxy. Paginação HTML preserva filtros já validados ao trocar page, com URL encoding. As respostas também são sempre JSON: a interface HTML do DRF (Browsable API) fica desligada, e um `Accept` que não admite JSON recebe 406 com corpo JSON (#230).
 
 
 ## Concorrência e erros
@@ -117,6 +142,59 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 
 `ETAG` inclui aspas do header atual. Releia após cada mutação antes de DELETE/restore. Em HTTPS use URL/origin/referer HTTPS exatos. Cookies/recovery codes não pertencem ao histórico de shell nem arquivos compartilhados. API não oferece export global de Users, hard delete ou bypass de tenant.
 
+## Fluxos de processo
+
+Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Só sessão: um token de API recebe 403 `token_not_allowed`.
+
+| URL relativa ao prefixo | Métodos | Contrato |
+|---|---|---|
+| `o/<org>/flows/tasks/` | GET | Caixa de tarefas do ator; `scope=mine` (padrão), `available` (filas) ou `all`; `status` só com `all` |
+| `o/<org>/flows/tasks/<id>/` | GET | Tarefa com campos do formulário, ações e dados do processo; ETag com a revisão da tarefa |
+| `o/<org>/flows/tasks/<id>/claim/`, `release/` | POST | Assumir ou devolver uma tarefa de fila; corpo vazio |
+| `o/<org>/flows/tasks/<id>/reassign/` | POST | `{"to_user": "<uuid>", "comment": "..."}` |
+| `o/<org>/flows/tasks/<id>/complete/` | POST | `{"action": "<chave>", "data": {campo: valor}, "comment": "..."}` |
+| `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
+| `o/<org>/flows/instances/` | GET | Instâncias visíveis; filtros exatos `flow_key`, `subject_id`, `status` |
+| `o/<org>/flows/instances/<id>/` | GET | Instância com etapas ativas e dados não sensíveis; ETag com a revisão da instância |
+| `o/<org>/flows/instances/<id>/history/` | GET | Histórico ordenado |
+| `o/<org>/flows/instances/<id>/cancel/`, `suspend/`, `resume/`, `retry/` | POST | Administração da instância; `cancel` e `suspend` aceitam `{"reason": "..."}` |
+
+- As listas usam cursor: `{"results": [...], "next_cursor": "..." | null, "page_size": 25}`; envie `cursor` e `page_size` (até 100).
+- Todo POST exige `If-Match` com a revisão lida no GET: da **tarefa** nas ações de tarefa, da **instância** nas demais. Sem o header, 428; revisão antiga, 412; nada é escrito.
+- Tarefa ou instância inexistente, de outra organização, não visível ou de app desativada responde 404. Visível, mas sem direito à ação, 403. Formulário inválido, 400 com `fields`. Estado incompatível (instância suspensa, tarefa encerrada), 409 com o código do conflito.
+- Campo não declarado no formulário da etapa ou da transição é recusado, como no gateway. Ator, organização, responsável e revisão nunca vêm do corpo.
+- Iniciar uma instância não tem rota aqui: é operação da app dona do fluxo.
+- Todas as rotas estão no [schema OpenAPI](#schema-openapi), cada ação com o próprio caminho literal. Os corpos de resposta são gerados dos DTOs do `FlowService` (`skeleton/flows/api_views.py`), e os comandos documentam `If-Match` (412/428) e `ETag`.
+
+## Schema OpenAPI
+
+`GET /api/v1/openapi.json` devolve o contrato da API em [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0), só em JSON e sem página interativa ([#178](https://github.com/alaorneto/skeleton/issues/178)). Ele aceita sessão ou [token](#autenticação-por-token); sem nenhum dos dois, a resposta é 401 ou 403. O documento é gerado do código a cada requisição (`skeleton/api/openapi.py`), nunca mantido à mão:
+
+- **Gateway:** cada `TableSpec` exposto vira caminhos concretos, como `/api/v1/o/{organization_id}/tables/example_notes.note/records/`. As propriedades são os campos sistêmicos e `read_fields`; o corpo de POST/PATCH, os `write_fields`. Os tipos vêm do `_meta` do modelo, pelo mesmo mapeamento da especificação congelada (`field_internal_type`): relações são UUID, e numa leitura do gateway aceitam `null` (referência invisível). Os filtros de igualdade da lista e os pickers de `references/` também aparecem.
+- **Views dedicadas:** cada view de `/api/v1/` declara um atributo `openapi`, um mapa de método HTTP para `Operation` (resumo, schemas de corpo e resposta, paginação, ETag, `If-Match`, capacidade exigida). Isso vale para as rotas de fora de `skeleton/api/urls.py`, como notificações, apps, webhooks e tokens. As rotas vêm da árvore de URLs real, então uma view de app sob `api/v1/o/<org>/apps/<label>/` aparece onde está montada. Uma view sem `openapi` ainda aparece, com corpo livre e `x-skeleton-undocumented: true`.
+- **Componentes:** `Error` (`{code, detail, fields}`, também a resposta `default` de toda operação), `Page` e os parâmetros `page`/`page_size`, o header `ETag`, o parâmetro `If-Match` e as respostas `PreconditionFailed` (412) e `PreconditionRequired` (428). Os esquemas de segurança são `bearerAuth` e `sessionAuth`; cada operação lista `bearerAuth` só quando a view aceita token naquele método (`token_methods`).
+
+O schema descreve só o que o ator alcança. O servidor lê cada organização ativa do ator numa transação própria e somente leitura, como as [rotas agregadas](concepts.md#autorização-e-contexto) (`for_each_organization`), e junta o resultado:
+
+- uma tabela aparece só com TablePermission do ator, e cada operação só com a ação correspondente (`read` para GET, `create` para POST, e assim por diante); app desativada esconde as tabelas e as rotas dela;
+- uma permissão da organização B nunca aparece para quem não é membro de B: nada de outra organização é lido;
+- operações administrativas aparecem só com a capacidade exigida (`access.manage`, `integrations.manage`, administrador da organização);
+- com token, só os métodos de `token_methods` e as ações dos escopos: um token `example_notes.note:read` vê apenas os GET daquela tabela, nenhuma administração e nenhum endpoint de tokens; um token vinculado a uma organização lê só essa organização;
+- `sensitive_fields` nunca aparecem, nem pelo nome: não são propriedades, filtros nem pickers. Quando um campo sensível está em `read_fields`, a resposta real o traz e o objeto do schema fica aberto (sem `additionalProperties: false`), de modo que o campo não é nomeado; nos demais objetos, propriedades fora do schema são proibidas.
+
+O documento muda com permissões, apps e versões: não o grave como contrato fixo. A resposta leva `Cache-Control: private, no-store`. Apps documentam as próprias views da mesma forma (importe `Operation` e os construtores de `skeleton.api.openapi`, uma superfície pública do núcleo):
+
+```python
+from skeleton.api.openapi import INTEGER, Operation, nullable, obj, string
+from skeleton.api.views import TenantAPI
+
+
+class SummaryView(TenantAPI):
+    openapi = {"GET": Operation("Resumo das anotações", obj({"count": INTEGER, "heading": nullable(string())}))}
+```
+
+A suíte do núcleo valida toda resposta real de `/api/v1/` contra esse schema com `skeleton.testing.openapi` ([evidência dos testes](testing-evidence.md#openapi-da-api-epic-86)).
+
 ## Tokens de API
 
 Além da sessão, a API aceita tokens de API (epic #79). Esta seção descreve o token em si (#45); a autenticação nas requisições está em [Autenticação por token](#autenticação-por-token).
@@ -159,6 +237,7 @@ Views que aceitam token, com os métodos:
 | `o/<org>/tables/<tabela>/references/<campo>/` | GET | `read` da tabela referenciada |
 | `.../records/<id>/attachments/` | GET, POST | `files:read` ou `files:write`, além do `read`/`update` do registro que o serviço já exige |
 | `.../attachments/<id>/`, `.../restore/` | DELETE, POST | `files:write` |
+| `.../records/<id>/comments/`, `.../comments/<id>/`, `.../comments/<id>/restore/` | GET, POST, PATCH, DELETE | Só o `read` do registro que o serviço já exige; edição, exclusão e restauração com `If-Match` ([comentários](comments.md)) |
 
 Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de apps, webhooks, auditoria, saída da organização e a gestão de tokens) só aceita sessão. Uma view de app que estende `SessionAPI` também só aceita token se declarar `token_methods`.
 
@@ -180,7 +259,9 @@ A gestão de tokens (#47) só aceita sessão: um token não emite, lista nem rev
 | `GET`, `POST /api/v1/o/<org>/service-accounts/`; `DELETE .../<conta>/` | `integrations.manage` | Lista e cria contas (`{"name": ...}`); `DELETE` desativa a conta |
 | `GET`, `POST .../service-accounts/<conta>/tokens/`; `DELETE .../tokens/<id>/` | `integrations.manage` | Tokens da conta |
 
-- Criar exige autenticação recente (`reauthentication_required`, 403, na API; a página pede a reautenticação) e, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA cadastrada (`mfa_required`).
+- Emitir e revogar tokens, criar e desativar contas de serviço exigem autenticação recente (`reauthentication_required`, 403, na API, depois do 404 de quem não tem `integrations.manage`; a página pede a reautenticação) (#327). Emitir também exige, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA cadastrada (`mfa_required`).
+- As três listas da API (`me/tokens/`, `service-accounts/` e `<conta>/tokens/`) são paginadas: aceitam só `page` e `page_size` (outro parâmetro responde 400 `invalid_filter`) e respondem `count`, `page`, `page_size` e `results`. Cada token traz `usable`: `false` quando ele não autenticaria mais (conta desativada ou excluída, `auth_version` mudado, expirado ou revogado); a página mostra esse token como "Inválido" (#327).
+- Cada pessoa ou conta de serviço tem no máximo `SKELETON_API_TOKEN_MAX_PER_OWNER` tokens vivos (padrão 50, no catálogo da instância). Os expirados contam até serem revogados; acima do teto, a emissão responde 400 (erro no campo `name` da página) (#327).
 - A resposta da criação (página ou `201`) é a única que traz o texto do token, com `Cache-Control: no-store`. As listas e o resto da API nunca trazem o segredo nem o digest.
 - Revogar exige `If-Match` com a revisão (`428` sem ele, `412` desatualizado). Um token de outra pessoa ou de outra organização responde 404, como um inexistente.
 - Desativar a conta de serviço invalida todos os tokens dela na hora (`auth_version`).

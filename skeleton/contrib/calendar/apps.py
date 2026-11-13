@@ -1,13 +1,14 @@
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy
 
 
 class CalendarConfig(AppConfig):
     name = "skeleton.contrib.calendar"
     label = "skeleton_calendar"
-    verbose_name = "Agenda"
+    verbose_name = gettext_lazy("Agenda")
     default_auto_field = "django.db.models.BigAutoField"
 
-    def ready(self):
+    def ready(self) -> None:
         from pathlib import Path
 
         from skeleton.system.app_registry import AppManifest, register_app
@@ -21,8 +22,10 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=Calendar,
-                description="Calendários pessoais e compartilhados da organização; eventos herdam a autorização deles.",
-                label="Calendários",
+                description=gettext_lazy(
+                    "Calendários pessoais e compartilhados da organização; eventos herdam a autorização deles."
+                ),
+                label=gettext_lazy("Calendários"),
                 scope="organization",
                 read_fields=("name", "kind", "is_default", "color", "timezone", "description", "owner", "visibility"),
                 write_fields=("name", "color", "timezone", "description"),
@@ -33,8 +36,8 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=Event,
-                description="Eventos dos calendários; leitura e escrita derivadas do calendário.",
-                label="Eventos",
+                description=gettext_lazy("Eventos dos calendários; leitura e escrita derivadas do calendário."),
+                label=gettext_lazy("Eventos"),
                 scope="organization",
                 read_fields=(
                     "calendar",
@@ -59,8 +62,8 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=EventAttendee,
-                description="Membros convidados para um evento e a resposta deles.",
-                label="Participantes",
+                description=gettext_lazy("Membros convidados para um evento e a resposta deles."),
+                label=gettext_lazy("Participantes"),
                 scope="organization",
                 read_fields=("event", "membership", "response", "optional"),
                 write_fields=(),
@@ -71,8 +74,8 @@ class CalendarConfig(AppConfig):
         register(
             TableSpec(
                 model=EventReminder,
-                description="Lembretes de evento em minutos antes de cada ocorrência.",
-                label="Lembretes",
+                description=gettext_lazy("Lembretes de evento em minutos antes de cada ocorrência."),
+                label=gettext_lazy("Lembretes"),
                 scope="organization",
                 read_fields=("event", "minutes_before", "channel_hint"),
                 write_fields=(),

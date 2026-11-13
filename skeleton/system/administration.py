@@ -4,11 +4,19 @@ from django.core.exceptions import PermissionDenied
 from django.http import Http404
 from django.urls import resolve, reverse
 
-from skeleton.access.services import require_organization_admin
+from skeleton.access.capabilities import APPS_MANAGE, require_capability
 from skeleton.tenancy.context import current_context
 
 from .app_registry import get_app
 from .applications import require_application_enabled
+
+
+def require_apps_manager(user):
+    """The apps panel exists only for ``apps.manage`` (app manager or administrator): 404 otherwise (#24)."""
+    from skeleton.access.capabilities import capabilities_for
+
+    if APPS_MANAGE not in capabilities_for(user):
+        raise Http404
 
 
 def application_manifest(app_label):
@@ -39,11 +47,21 @@ def resolve_application_screen(app_label, screen_id, *, user, scope):
     if screen is None or screen.scope != scope:
         raise Http404
     if scope == "platform":
-        from .releases import require_platform
+        from skeleton.accounts.platform import require_platform_context
 
-        require_platform(user)
+        require_platform_context(user)
     else:
-        require_organization_admin(user)
+        # Tenant parameter screens (organization_admin_only in the manifest) need apps.manage (#24).
+        require_capability(user, APPS_MANAGE)
+        if screen.kind == "custom":
+            from skeleton.common.exceptions import ApplicationUnavailable
+
+            from .availability import app_available
+
+            # App-owned code never runs for an organization the platform did not admit (#253); the
+            # core configuration screen stays reachable so the organization can disable the app.
+            if not app_available(app_label):
+                raise ApplicationUnavailable("Application is unavailable to this organization.")
     return manifest, screen
 
 
@@ -93,98 +111,6 @@ def guard_application_screen(request, view_name, *, app_label=None):
     require_application_enabled(manifest.app_label)
 
 
-def guard_application_urls(patterns, manifest):
-    """Clone the URL tree so module-owned URLPattern objects stay untouched."""
-    from functools import wraps
-
-    from django.urls.resolvers import URLPattern, URLResolver
-
-    result = []
-    for pattern in patterns:
-        if isinstance(pattern, URLResolver):
-            result.append(
-                URLResolver(
-                    pattern.pattern,
-                    guard_application_urls(pattern.url_patterns, manifest),
-                    default_kwargs=pattern.default_kwargs,
-                    app_name=pattern.app_name,
-                    namespace=pattern.namespace,
-                )
-            )
-        elif isinstance(pattern, URLPattern):
-
-            def protect(callback):
-                @wraps(callback)
-                def guarded(request, *args, **kwargs):
-                    guard_application_screen(request, request.resolver_match.view_name, app_label=manifest.app_label)
-                    return callback(request, *args, **kwargs)
-
-                return guarded
-
-            result.append(
-                URLPattern(
-                    pattern.pattern, protect(pattern.callback), default_args=pattern.default_args, name=pattern.name
-                )
-            )
-        else:
-            raise TypeError(f"Unsupported application URL declaration: {manifest.app_label}.")
-    return result
-
-
-def guard_application_api_urls(patterns, manifest):
-    """Clone the API URL tree and close every endpoint of a disabled application.
-
-    The gate runs before the view, so an endpoint that never calls ``authorized_queryset``
-    is still closed. ``functools.wraps`` keeps ``csrf_exempt`` and the DRF ``cls``/``initkwargs``
-    attributes; names and namespaces are copied, so ``reverse`` keeps resolving.
-    """
-    from functools import wraps
-
-    from django.http import JsonResponse
-    from django.urls.resolvers import URLPattern, URLResolver
-
-    result = []
-    for pattern in patterns:
-        if isinstance(pattern, URLResolver):
-            result.append(
-                URLResolver(
-                    pattern.pattern,
-                    guard_application_api_urls(pattern.url_patterns, manifest),
-                    default_kwargs=pattern.default_kwargs,
-                    app_name=pattern.app_name,
-                    namespace=pattern.namespace,
-                )
-            )
-        elif isinstance(pattern, URLPattern):
-
-            def protect(callback):
-                @wraps(callback)
-                def guarded(request, *args, **kwargs):
-                    if current_context().organization_id is None:
-                        # The tenant middleware opens no tenant context for anonymous sessions.
-                        return JsonResponse(
-                            {"code": "permission_denied", "detail": "Authentication credentials were not provided."},
-                            status=403,
-                        )
-                    try:
-                        get_app(manifest.app_label)
-                        require_application_enabled(manifest.app_label)
-                    except (KeyError, PermissionDenied):
-                        return JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
-                    return callback(request, *args, **kwargs)
-
-                return guarded
-
-            result.append(
-                URLPattern(
-                    pattern.pattern, protect(pattern.callback), default_args=pattern.default_args, name=pattern.name
-                )
-            )
-        else:
-            raise TypeError(f"Unsupported application API URL declaration: {manifest.app_label}.")
-    return result
-
-
 def tenant_screen_url(manifest, screen, organization_id):
     if screen.kind == "configuration":
         return reverse(
@@ -197,51 +123,3 @@ def tenant_screen_url(manifest, screen, organization_id):
     if not url.startswith(prefix) or url.startswith("//") or resolve(url).view_name != screen.url_name:
         raise Http404
     return url
-
-
-def guard_user_urls(patterns):
-    """Global user routes of a first-party app (``/me/apps/<label>/``, #66): login and no cache.
-
-    They have no organization in the URL, so they cannot check activation here: each view reads
-    the person's organizations one transaction at a time (``for_each_organization``) and skips
-    those where the app is not active.
-    """
-    from functools import wraps
-
-    from django.contrib.auth.views import redirect_to_login
-    from django.urls.resolvers import URLPattern, URLResolver
-    from django.views.decorators.cache import never_cache
-
-    result = []
-    for pattern in patterns:
-        if isinstance(pattern, URLResolver):
-            result.append(
-                URLResolver(
-                    pattern.pattern,
-                    guard_user_urls(pattern.url_patterns),
-                    default_kwargs=pattern.default_kwargs,
-                    app_name=pattern.app_name,
-                    namespace=pattern.namespace,
-                )
-            )
-        elif isinstance(pattern, URLPattern):
-
-            def protect(callback):
-                @never_cache
-                @wraps(callback)
-                def guarded(request, *args, **kwargs):
-                    # A token route (a calendar feed) authenticates by its own token in the path.
-                    if not request.user.is_authenticated and not getattr(callback, "skeleton_token_route", False):
-                        return redirect_to_login(request.get_full_path())
-                    return callback(request, *args, **kwargs)
-
-                return guarded
-
-            result.append(
-                URLPattern(
-                    pattern.pattern, protect(pattern.callback), default_args=pattern.default_args, name=pattern.name
-                )
-            )
-        else:
-            raise TypeError("Unsupported user URL declaration.")
-    return result

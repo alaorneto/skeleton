@@ -16,23 +16,15 @@ from skeleton.system.applications import application_state
 from skeleton.tenancy.context import system_context, tenant_context
 
 # These tests prove the closed default: the skeleton_db fixture must not open any app.
-pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults, pytest.mark.needs_example_app]
 PASSWORD = "Closed-default-Password!22"
 NOTES = "example_notes"
 QUIET = "quiet_fixture"
 
 
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-
-
 @pytest.fixture
 def legacy(monkeypatch):
     """A deployment before #22: Notes active by default, a second app off by default, no rows."""
-    require_notes()
     monkeypatch.setitem(app_registry._manifests, NOTES, replace(app_registry.get_app(NOTES), default_enabled=True))
     register_app(AppManifest(app_label=QUIET, label="Quiet", description="Fixture", default_enabled=False))
     admin, org_a = bootstrap_identity(
@@ -76,7 +68,7 @@ def test_without_the_upgrade_no_app_is_reachable(legacy):
     assert client.post(reverse("account_login"), {"login": admin.email, "password": PASSWORD}).status_code == 302
     assert client.get(reverse("example_notes:home", kwargs={"organization_id": org_a.pk})).status_code == 404
     records = {"organization_id": org_a.pk, "table_key": "example_notes.note"}
-    assert client.get(reverse("api:records", kwargs=records)).status_code in (403, 404)
+    assert client.get(reverse("api:records", kwargs=records)).status_code == 404
 
 
 def test_upgrade_keeps_exactly_the_apps_that_were_active(legacy):
@@ -229,3 +221,19 @@ def test_cli_opens_an_app_for_development_and_check_warns_while_closed(legacy):
 def test_apps_without_availability_lists_loaded_apps_only(legacy):
     with system_context(reason="test:closed-list"):
         assert {NOTES, QUIET} <= set(activation_upgrade.apps_without_availability())
+
+
+def _app_events(organization, code):
+    from skeleton.events.models import DomainEvent
+
+    with system_context(reason="test:app-events", organization_id=organization.pk):
+        return list(DomainEvent.objects.filter(event_type=code).values_list("data", flat=True))
+
+
+def test_cli_enable_publishes_app_enabled_once(legacy):
+    """Enabling from the command publishes app.enabled like the page does; repeating publishes nothing (#282)."""
+    _, org_a, org_b = legacy
+    for _ in range(2):
+        call_command("set_app_availability", NOTES, "--mode", "selected", "--enable", "upgrade-a", stdout=StringIO())
+    assert _app_events(org_a, "app.enabled") == [{"app_label": NOTES}]
+    assert _app_events(org_b, "app.enabled") == []

@@ -47,22 +47,33 @@ def render_message(*, type_code: str, language: str, context: dict[str, Any]) ->
 
 
 def build_message(user: Any, *, type_code: str, context: dict[str, Any]) -> EmailMultiAlternatives:
+    from skeleton.common.locale import preferences_for
+    from skeleton.tenancy.email_brand import attach_logo, email_brand, template_context
+
     profile = getattr(user, "profile", None)
-    language = getattr(profile, "language", None) or settings.LANGUAGE_CODE
-    zone = getattr(profile, "timezone", None) or settings.TIME_ZONE
+    preferences = preferences_for(user)
+    language, zone = preferences.language, preferences.timezone
     unsubscribe = preferences_url()
-    context = {**context, "preferences_url": unsubscribe, "user_display": getattr(profile, "display_name", "")}
+    # Name, colour and logo of the organization whose job renders the email (#173).
+    brand = email_brand()
+    context = {
+        **context,
+        **template_context(brand),
+        "preferences_url": unsubscribe,
+        "user_display": getattr(profile, "display_name", ""),
+    }
     with translation.override(language), timezone.override(zone):
         subject, text, html = render_message(type_code=type_code, language=language, context=context)
+    headers = {"Auto-Submitted": "auto-generated"}
+    if unsubscribe.startswith(("https://", "http://")):
+        # A relative URL is useless to a mail client: the header goes only with a public origin (#279).
+        headers["List-Unsubscribe"] = f"<{unsubscribe}>"
     message = EmailMultiAlternatives(
-        subject=subject,
-        body=text,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        to=[user.email],
-        headers={"List-Unsubscribe": f"<{unsubscribe}>", "Auto-Submitted": "auto-generated"},
+        subject=subject, body=text, from_email=settings.DEFAULT_FROM_EMAIL, to=[user.email], headers=headers
     )
     if html:
         message.attach_alternative(html, "text/html")
+        attach_logo(message, brand)
     return message
 
 

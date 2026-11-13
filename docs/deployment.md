@@ -9,7 +9,7 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 | Termo | Significado e uso seguro |
 |---|---|
 | Credencial | Identidade de conexão e seu segredo. Não é a identidade do usuário Django. Nunca a publique em logs, Git ou argumentos de comandos. |
-| DSN | Endereço de conexão, normalmente uma URL com banco, host e role; pode conter senha. `DATABASE_URL` é o DSN runtime; `MIGRATION_DATABASE_URL` é o DSN owner. |
+| DSN | Endereço de conexão, normalmente uma URL com banco, host e role; pode conter senha. `DATABASE_URL` é o DSN runtime; `MIGRATION_DATABASE_URL` é o DSN owner. As conexões runtime são persistentes por 60 s e verificadas antes do reuso (`CONN_HEALTH_CHECKS`), então um PostgreSQL reiniciado não derruba a requisição seguinte (#333). |
 | Schema | Espaço de nomes dentro do banco, aqui `skeleton`; não é outro banco. Contém tabelas, funções e infraestrutura de proteção. |
 | Runtime | Processo que atende usuários, com `skeleton_runtime`; lê/grava somente o permitido, não modifica schema. |
 | Owner | Role privilegiada `skeleton_owner`, usada offline para criar/alterar infraestrutura e recuperar dados. Não serve requests. |
@@ -17,6 +17,10 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 | Operador/agente | Conta de sistema que prepara releases e coordena manutenção. Seus privilégios de supervisor/Docker não pertencem ao web. |
 
 **Ordem segura:** provisione serviços e segredos → crie roles/schema → aplique migrations com owner → verifique com runtime → inicie web → confirme saúde e comportamento. Um check feito como owner não demonstra que o web está isolado.
+
+### Índices da auditoria (`sk_audit.0005`)
+
+A migration `sk_audit.0005_audit_indexes` (#270) cria `sk_audit_record_created` com `CREATE INDEX CONCURRENTLY` e só depois remove os índices sem leitor; ela não roda em transação (`atomic = False`). Em instalações grandes a criação demora e consome I/O, mas não bloqueia as escritas. Se a execução for interrompida, o índice pode ficar inválido e a migration fica sem registro em `django_migrations`: com o owner, rode `DROP INDEX CONCURRENTLY IF EXISTS skeleton.sk_audit_record_created;` e `migrate` de novo. O reverso (`migrate sk_audit 0004`) recria os índices antigos.
 
 ### Core/agente 0.5.0 e apps fechadas por padrão
 
@@ -53,41 +57,65 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py che
 As chaves do catálogo (`skeleton/instance/schema.py`: `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DATABASE_URL`, `CACHE_URL`, `EMAIL_URL`, chaves MFA e de provedores, limites e armazenamento de arquivos) são resolvidas com a precedência **ambiente > SQLite da instância > default**. O `.env` lido na partida conta como ambiente. Chave fora do catálogo é recusada.
 
 - `SKELETON_INSTANCE_DB` (padrão `var/instance/instance.sqlite3`) e `SKELETON_INSTANCE_KEY_FILE` (padrão `var/instance/master.key`) são variáveis de bootstrap e ficam só no ambiente, como `DJANGO_SETTINGS_MODULE`, o inventário e os caminhos do agente e o marcador de manutenção. A credencial owner (`MIGRATION_DATABASE_URL`) nunca é gravada.
-- `manage.py instance set <chave> <valor>` valida e grava; use `--stdin` para segredos, que ficam fora do histórico do shell. `instance unset` remove. `instance show` lista cada chave com a origem efetiva (`env`, `instance` ou `default`) e mascara segredos; `instance status` mostra caminhos, versão do schema e o que falta para o setup; `instance export-template` imprime um `.env` comentado, sem valores.
+- `manage.py instance set <chave> <valor>` valida e grava; use `--stdin` para segredos, que ficam fora do histórico do shell. `instance unset` remove; uma chave obrigatória (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DATABASE_URL`) só sai do SQLite quando o ambiente a fornece, ou com `--force`, ferramenta de recuperação de quem está no host (#267). `instance show` lista cada chave com a origem efetiva (`env`, `instance` ou `default`) e mascara segredos; `instance status` mostra caminhos, versão do schema e o que falta para o setup; `instance export-template` imprime um `.env` comentado, sem valores.
 - **Migração de uma instalação existente:** ela continua funcionando só com o ambiente, porque o ambiente vence. `manage.py instance import-env` grava no SQLite as chaves do catálogo presentes no ambiente atual (`--keep-existing` preserva as já gravadas); depois, remova-as do ambiente.
-- **Chave mestra:** gerada na primeira gravação de um segredo, com permissão 0600 (o SQLite também é criado 0600), num arquivo separado do SQLite. Sem ela, ou com outra, a leitura de um segredo falha com erro explícito na partida, sem cair para o default. **Faça backup da chave mestra separado do SQLite:** perdê-la torna os segredos ilegíveis, e eles terão de ser gravados de novo.
+- **Chave mestra:** gerada na primeira gravação de um segredo, com permissão 0600 (o SQLite também é criado 0600), num arquivo separado do SQLite. Sem ela, ou com outra, a leitura de um segredo falha com erro explícito na partida, sem cair para o default. **Faça backup da chave mestra separado do SQLite:** perdê-la torna os segredos ilegíveis, e eles terão de ser gravados de novo. Com segredos já gravados e o arquivo da chave ausente, gravar outro segredo é recusado (`MasterKeyMissing`): restaure o backup da chave em vez de deixar o sistema criar outra, que não decifraria os antigos. A chave nova é publicada de forma atômica (arquivo temporário e `link`), e partidas simultâneas leem a mesma chave completa (#323).
+- **Rotação da chave mestra (#342):** o arquivo guarda uma chave por linha, a atual primeiro (um arquivo de uma linha é o formato original e continua válido). `manage.py instance rotate-key` grava uma chave nova à frente das antigas (troca atômica do arquivo, 0600) e só então recifra todos os segredos do SQLite numa transação, registrando `("*", "rotate-key", "cli:rotate-key")` no `change_log`, sem valores. Se a recifra falhar, o arquivo fica com as duas chaves e tudo continua legível; rode de novo. Depois, faça backup do novo arquivo de chave, reinicie a instância (os processos leram os segredos na partida) e rode `manage.py instance rotate-key --drop-old`, que remove as chaves antigas e recusa enquanto algum segredo ainda depender delas. Backups antigos do SQLite exigem o arquivo de chave da mesma época. O `check --deploy` avisa com `skeleton.W036`, em POSIX, quando o SQLite ou a chave mestra são legíveis pelo grupo ou por outros usuários (`chmod 600`).
+- **Validação na gravação:** os keyrings (`MFA_ENCRYPTION_KEYS`, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`, `INTEGRATION_ENCRYPTION_KEYS`) só aceitam chaves Fernet, e `secret_key` exige 50 ou mais caracteres com 5 ou mais diferentes (o critério do `security.W009`). A recusa vale para `manage.py instance set`, `import-env`, o setup e `/platform/instance/`, e a mensagem nunca repete o valor. Valores antigos já gravados continuam lidos; só uma nova gravação é validada (#323).
 
 ### Primeira instalação pelo setup (#146)
 
-Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio).
+Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio). O entrypoint ASGI (`config/asgi.py`) não entra em modo setup: usa `config.settings.production` direto. O runtime suportado é WSGI/Gunicorn ([arquitetura](architecture.md)).
 
-1. **Token:** no primeiro start, o processo gera um token de uso único (24 h), grava só o SHA-256 no SQLite, imprime o token uma vez no log e o escreve em `setup-token` (0600, ao lado do SQLite). Token errado, reutilizado ou expirado é recusado (403), com limite de 5 tentativas por IP em 15 minutos (429). Um reinício sem token aberto gera outro.
+1. **Token:** no primeiro start, o processo gera um token de uso único (24 h), grava só o SHA-256 no SQLite, imprime o token uma vez no log e o escreve em `setup-token` (0600, ao lado do SQLite). Token errado, reutilizado ou expirado é recusado (403), com limite de 5 tentativas por IP em 15 minutos (429), contadas por processo. O token certo é conferido antes do limite e entra mesmo depois de tentativas erradas do mesmo endereço (atrás de um proxy, todos os clientes compartilham um IP); cada recusa gera o evento de segurança `setup.token_rejected`, sem o token (#290). Um reinício sem token aberto gera outro.
 2. **Instância:** hosts, origens CSRF, proxy e origem pública. O setup gera `SECRET_KEY` e os keyrings MFA, de provedores e de integração, cifrados no SQLite e nunca exibidos.
 3. **Banco runtime:** a URL da role runtime é recusada se for superuser, tiver `BYPASSRLS`, for dona do schema `skeleton` ou tiver `CREATE` nele, ou se o schema não existir (provisione com `deploy/postgres/bootstrap.sql`).
 4. **Schema:** a credencial owner (dona do schema, mesmo banco, outra role) roda `migrate`, `sync_table_catalog` e o check do schema **só na memória dessa requisição**: ela não vai para o SQLite, o log nem a sessão.
 5. **Email** (com envio de teste), **cache e arquivos** (validações do E024 e pasta gravável) e **administrador e organização** (`bootstrap_identity`, senha pelos validadores do Django).
-6. **Conclusão:** marca o setup como concluído (`/setup/` passa a responder 404) e pede o reinício: `SKELETON_SETUP_RESTART=exit` encerra o processo para a política de reinício do container, o Gunicorn recebe `SIGHUP` e o `runserver` recarrega. Sem supervisor conhecido, a página pede para reiniciar o serviço.
+6. **Conclusão:** marca o setup como concluído (`/setup/` passa a responder 404) e pede o reinício: `SKELETON_SETUP_RESTART=exit` encerra o processo para a política de reinício do container (o código de saída 3 é o `WORKER_BOOT_ERROR` do Gunicorn, que faz o mestre encerrar o servidor inteiro, não só aquele worker), o Gunicorn recebe `SIGHUP` e o `runserver` recarrega. Com `gunicorn --preload`, o `SIGHUP` não recarrega os settings: os workers novos herdam os do setup, e o serviço precisa ser reiniciado por inteiro. Sem supervisor conhecido, a página pede para reiniciar o serviço. Uma falha nas etapas de schema, email ou administrador mostra na tela só a classe do erro; o log `skeleton.setup` registra a etapa e o traceback, sem nenhum valor do formulário (#290).
 
 Todas as telas são formulários comuns com CSRF, sem JavaScript. Em modo setup, `SKELETON_SETUP_ALLOWED_HOSTS` (padrão `localhost,127.0.0.1`) define os hosts aceitos e `SKELETON_SETUP_SECURE_COOKIES` controla os cookies secure (padrão: ligado fora de `DJANGO_DEBUG`).
 
 ### Alterar a configuração depois do setup (#147)
 
-`/platform/instance/` lista cada chave do catálogo com a origem efetiva (ambiente, SQLite da instância, padrão) e o valor; segredos aparecem só como definidos ou não. Só o administrador da plataforma acessa (403 para os demais, MFA quando configurada), e cada alteração exige autenticação recente. Chaves vindas do ambiente ficam somente leitura (409 ao tentar gravar). A URL do banco passa pela mesma validação de privilégios do setup. Cada mudança entra no `change_log` do SQLite (chave, ação e `platform:<usuário>`) e gera o evento de segurança `instance.setting_changed`, sempre sem o valor. As mudanças valem depois do reinício; o botão "Pedir reinício" usa o mesmo mecanismo da conclusão do setup.
+`/platform/instance/` lista cada chave do catálogo com a origem efetiva (ambiente, SQLite da instância, padrão) e o valor; segredos aparecem só como definidos ou não. Só o administrador da plataforma acessa (403 para os demais, MFA quando configurada), e cada alteração exige autenticação recente. Chaves vindas do ambiente ficam somente leitura (409 ao tentar gravar). As chaves obrigatórias só podem ser substituídas: sem o valor no ambiente, "Voltar ao padrão" não aparece e o POST responde 409, porque o próximo reinício cairia no modo setup, que já foi concluído e responde 404 (#267). A URL do banco passa pela mesma validação de privilégios do setup. Cada mudança entra no `change_log` do SQLite (chave, ação e `platform:<usuário>`) e gera o evento de segurança `instance.setting_changed`, sempre sem o valor. As mudanças valem depois do reinício; o botão "Pedir reinício" usa o mesmo mecanismo da conclusão do setup.
 
-Docker usa Python 3.14-slim, bibliotecas XML/xmlsec, usuário não-root e Gunicorn WSGI. Collectstatic é parte do build; WhiteNoise segue SecurityMiddleware. Produção usa CompressedManifestStaticFilesStorage e STATIC_ROOT=staticfiles; dev usa runserver/staticfiles. Não inicie migrations em cada worker.
+Docker usa Python 3.14-slim, fixado por versão de patch e digest do índice multi-arquitetura nos dois Dockerfiles (o Dependabot propõe a troca, #309), bibliotecas XML/xmlsec, usuário não-root e Gunicorn WSGI. O contexto de build exclui `var/` (SQLite e chave mestra da instância, PostgreSQL local), `.private/`, `.sso-fixtures/` e `*.sqlite3`, `*.pem` e `*.key` em qualquer profundidade, e nenhum estágio grava o contexto numa camada: o estágio `project-assets` lê `templates/` por bind mount, o que exige BuildKit (padrão desde o Docker 23; o builder legado falha no `RUN --mount`, #248). Collectstatic é parte do build; WhiteNoise segue SecurityMiddleware. Produção usa CompressedManifestStaticFilesStorage e STATIC_ROOT=staticfiles; dev usa runserver/staticfiles. Não inicie migrations em cada worker.
 
-Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente. O `web` (#148) recebe só variáveis de bootstrap: o SQLite da instância e a chave mestra ficam no volume nomeado privado `instance` (`/instance/instance.sqlite3`, `/instance/keys/master.key`), preservado ao recriar o container. Numa instalação nova, `docker compose up` sobe em modo setup (o token aparece em `docker compose logs web`). Depois do setup, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal. O healthcheck (`python -m skeleton.api.healthcheck`) descobre sozinho um Host aceito, nos dois modos. Sobrescritas pontuais da configuração vão no arquivo opcional `.env.instance` (`SKELETON_INSTANCE_ENV_FILE`), que vence o SQLite. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
+Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente. O `web` (#148) recebe só variáveis de bootstrap: o SQLite da instância e a chave mestra ficam no volume nomeado privado `instance` (`/instance/instance.sqlite3`, `/instance/keys/master.key`), preservado ao recriar o container. O fluxo é um só:
+
+1. **Instalação nova:** com `POSTGRES_PASSWORD` e `REDIS_PASSWORD` no `.env` do Compose (privado, nunca versionado) e as roles e o schema provisionados (`deploy/postgres/bootstrap.sql`, ver [Provisionamento PostgreSQL](#provisionamento-postgresql); é pré-requisito do passo "Banco runtime" do setup), `docker compose up -d` sobe o `web` em modo setup, e o token aparece em `docker compose logs web`.
+2. **Setup:** grava hosts, origens CSRF, proxy, origem pública e banco no SQLite da instância e migra com a credencial owner informada na tela. Ao concluir, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal.
+3. **Depois:** mudanças pontuais pela [administração da instância](#alterar-a-configuração-depois-do-setup-147) (`/platform/instance/`) ou no arquivo opcional `.env.instance` (outro caminho com `SKELETON_INSTANCE_ENV_FILE`), que o `compose.yaml` carrega com `env_file` opcional no `web` e no `worker` e que vence o SQLite.
 
 ```sh
-# .env privado contém todos os valores exigidos, nunca é versionado.
-docker compose up -d postgres redis
-# Após provisionar roles/schema e aplicar migrations/checks:
-docker compose up -d --build web
+docker compose up -d            # instalação nova: sobe em modo setup
+docker compose logs web         # o token de setup aparece aqui
 ```
 
-Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUST_PROXY=true somente se remover/substituir X-Forwarded-Proto recebido do cliente; não confie em cabeçalho público. Defina DJANGO_ALLOWED_HOSTS e DJANGO_CSRF_TRUSTED_ORIGINS com hosts/origens exatos. Compose encaminha essas opções explicitamente, com proxy trust false por padrão. Defina DJANGO_HEALTH_HOST como um host incluído na allowlist; o probe conecta a loopback e envia esse Host, sem wildcard. Não abra CORS/domínios de cookies wildcard. Para SSO no container, monte JSON privado read-only e injete SSO_PROVIDER_CONFIG_PATH + referências env; Compose base não provisiona IdP de produção.
+O healthcheck do `web` (`python -m skeleton.api.healthcheck`) consulta `/health/live/` na porta local sem iniciar o Django e escolhe o Host assim: `localhost` em modo setup; depois, `DJANGO_HEALTH_HOST` se estiver definido (ambiente, inclusive `.env.instance`, ou SQLite da instância), senão o primeiro host de `DJANGO_ALLOWED_HOSTS`. Definir `DJANGO_HEALTH_HOST` só é preciso quando o primeiro host da lista não serve para a sonda (por exemplo, um curinga `.example.org`); ele tem de estar na allowlist. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
+
+**Endurecimento (#318).** `web`, `worker`, `scheduler` e `migrator` herdam o bloco `x-hardened`: `read_only: true`, `cap_drop: ["ALL"]`, `security_opt: ["no-new-privileges:true"]` e um `tmpfs` em `/tmp` (512 MiB, para uploads de pacotes e anexos e o heartbeat do Gunicorn). Só o volume `instance` e o `/tmp` são graváveis: quem usa `SKELETON_FILES_ROOT` (anexos privados) ou `PROMETHEUS_MULTIPROC_DIR` monta esses diretórios como volumes; um projeto derivado que grava em outro caminho precisa montar um volume para ele. A senha do Redis chega pelo ambiente do container e não aparece no `command` renderizado (`docker compose config`); o servidor continua passando pelo `docker-entrypoint.sh` da imagem, que troca root pelo usuário `redis`. A app de exemplo entra na imagem por padrão; `docker build --build-arg INCLUDE_EXAMPLES=false .` deixa `examples/` só com o `__init__.py`.
+
+Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUST_PROXY=true somente se remover/substituir X-Forwarded-Proto recebido do cliente; não confie em cabeçalho público. Defina DJANGO_ALLOWED_HOSTS e DJANGO_CSRF_TRUSTED_ORIGINS com hosts/origens exatos. Essas chaves (e DJANGO_TRUST_PROXY, falso por padrão) são da configuração da instância: no setup, em `/platform/instance/` ou, como sobrescrita, no `.env.instance`; o `compose.yaml` não as define. Não abra CORS/domínios de cookies wildcard. Para SSO no container, monte JSON privado read-only e injete SSO_PROVIDER_CONFIG_PATH + referências env; Compose base não provisiona IdP de produção.
 
 Rate limiting de IP usa a topologia explícita `DJANGO_TRUSTED_PROXY_COUNT` (número de proxies confiáveis no X-Forwarded-For) **ou** `DJANGO_TRUSTED_CLIENT_IP_HEADER` (por exemplo X-Real-IP sobrescrito pelo proxy). Não configure ambos. Exigem DJANGO_TRUST_PROXY=true; defaults 0/sem header ignoram cabeçalhos forjados e usam REMOTE_ADDR. Bloqueie acesso direto ao backend quando confiar no proxy e remova/substitua cabeçalhos recebidos do cliente; confiar em TLS/proto não habilita automaticamente confiança em IP. Dois clientes atrás do proxy não devem compartilhar buckets de login/reset.
+
+### Content-Security-Policy
+
+Toda resposta do web e do setup leva `Content-Security-Policy` com a política `SKELETON_CSP` de `skeleton/conf/base.py` (#266): `default-src`, `script-src`, `font-src`, `connect-src` e `base-uri` só `'self'`; `style-src 'self'` mais um nonce por resposta, usado só pela paleta da marca da organização; `img-src 'self' data:` (o QR code do TOTP é uma imagem `data:`); `object-src 'none'` e `frame-ancestors 'none'`. Não há `'unsafe-inline'` nem `'unsafe-eval'`. Não há `form-action`: o login por SSO começa com um POST para o próprio site que redireciona ao provedor de identidade, e o Chromium aplica `form-action` também ao destino do redirect. O download de anexo mantém a própria política (`sandbox`), que o middleware não sobrescreve.
+
+Templates do núcleo e das apps não usam `<script>` inline, atributo `style=` nem handlers `on*=`: script e estilo vêm de arquivos estáticos, dados passam por `json_script` e cores vindas de dado entram por `data-swatch`, aplicadas pelo `site.js`. Templates de email não passam pelo navegador e continuam com estilo inline.
+
+Para liberar uma origem a mais, estenda a política no overlay de settings em vez de reescrevê-la:
+
+```python
+from skeleton.conf.base import SKELETON_CSP
+
+SECURE_CSP = {**SKELETON_CSP, "img-src": [*SKELETON_CSP["img-src"], "https://cdn.example.com"]}
+```
+
+Para uma view só, use `django.views.decorators.csp.csp_override` (ou `csp_report_only_override` para observar antes). Ao introduzir uma origem nova, publique primeiro em `SECURE_CSP_REPORT_ONLY` e confira o console do navegador nas telas afetadas.
 
 
 ## Provisionamento PostgreSQL
@@ -99,6 +127,10 @@ Rate limiting de IP usa a topologia explícita `DJANGO_TRUSTED_PROXY_COUNT` (nú
 psql "$ADMIN_DSN" -v ON_ERROR_STOP=1 -f deploy/postgres/bootstrap.sql
 psql "$ADMIN_DSN"
 ```
+
+O bootstrap cria a extensão `pg_trgm` quando ela está disponível ([#181](https://github.com/alaorneto/skeleton/issues/181)). Ela é opcional e confiável a partir do PostgreSQL 13. Com ela, o picker tolera erro de digitação; sem ela, procura só por prefixo. A busca textual das listas não precisa de extensão: a função `skeleton.immutable_unaccent` vem da migration `sk_system.0008`. Numa instância que já existe, rode de novo o bloco do `pg_trgm` do bootstrap como operador e depois `manage.py migrate`. O índice do picker é criado no tipo que a extensão permite no momento da migration.
+
+**Limites de espera da role runtime (#318).** O bootstrap define, só para `skeleton_runtime`, `lock_timeout = '10s'` (um comando que espera um bloqueio por mais que isso falha com SQLSTATE `55P03`) e `idle_in_transaction_session_timeout = '60s'` (a sessão ociosa dentro de uma transação aberta é encerrada). Uma transação parada segurando, por exemplo, o bloqueio da organização deixa de bloquear sem prazo as demais mudanças daquela organização. `statement_timeout` não é definido, e `skeleton_owner` fica sem limites (migrations e restauração podem esperar). O erro chega ao Django como `OperationalError` e, numa request, vira 500 com rollback: nada fica gravado pela metade. Como o bootstrap só roda em banco novo, numa instalação existente o operador aplica, com a credencial administrativa, `ALTER ROLE skeleton_runtime SET lock_timeout = '10s';` e `ALTER ROLE skeleton_runtime SET idle_in_transaction_session_timeout = '60s';`, e reinicia web, worker e agendador (valem para conexões novas). Para desfazer: `ALTER ROLE skeleton_runtime RESET lock_timeout;` e o mesmo com o outro parâmetro.
 
 No psql interativo, use `\password skeleton_owner` e `\password skeleton_runtime`; nunca senha na CLI/log/SQL versionado. Roles existentes também precisam ter atributos revisados pelo operador.
 
@@ -127,6 +159,8 @@ DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py val
 DJANGO_SETTINGS_MODULE=config.settings.production .venv/bin/python manage.py check --deploy
 ```
 
+`validate_provider_bindings` confere também os provedores do banco (#29): fingerprint recalculado, organização ativa, segredos decifráveis com as chaves atuais e papel padrão. Para migrar o JSON, rode `manage.py import_identity_providers --from-config <arquivo> --dry-run`, depois sem `--dry-run`, confira os avisos de transição do preflight e só então retire as entradas `oidc`/`saml` do arquivo ([provedores no banco](authentication-sso.md#provedores-no-banco-29)).
+
 Env dos dois primeiros inclui MIGRATION_DATABASE_URL owner; ambiente web não inclui essa variável/credencial. Execute bootstrap offline com settings.migrate e segredo interativo. Migration owner é privilegiado por definição; check com owner não prova RLS runtime.
 
 **Resultado esperado:** migrations e catálogo concluídos pelo owner; os três checks seguintes passam usando a conexão runtime. **Se falhar:** não inicie web nem troque o check para owner para obter sucesso. Corrija o provisionamento ou a infraestrutura indicada e repita a etapa pertinente; não conceda privilégios adicionais ao runtime.
@@ -139,9 +173,28 @@ RLS ENABLE/FORCE e policies exatas isolam tenants; ausência de GUC não vê lin
 
 Leia as respostas como sinais diferentes: `live=200` significa que o processo responde; `ready=200` significa que banco/cache responderam ao probe. Nenhuma delas prova isolamento entre organizações, SMTP, login ou versão correta do código. Para releases gerenciados, confira também `/health/release/` e os checks descritos abaixo.
 
-Redis compartilhado é necessário a rate limits entre workers; configure autenticação e rede privada. O probe usa REDISCLI_AUTH com expansão de ambiente, não senha literal/argv. SMTP entrega após commit de mensagens já materializadas e pré-validadas. Falha real é registrada por classe/UUID sem segredo e não vira 500 enganoso após dados confirmados: API recebe `X-Email-Delivery: failed`, HTML recebe aviso, e permanece um caminho explícito de reenvio. Convite reenviado revoga o antigo por tombstone e emite UUID/token novos na mesma transação, com revisão obrigatória; convite consumido não pode ser reenviado. Não há retry/outbox nem promessa de entrega distribuída/transacional. Isso vale para emails com token (allauth e convites). Os emails de **notificação** são outra coisa: saem por job (`notifications.email`), com retentativa e estado em `NotificationDelivery`, e por isso exigem um worker (`manage.py run_worker`) e o agendador de jobs periódicos rodando; sem worker, ficam na fila. Defina `SKELETON_PUBLIC_URL` (a origem pública, como `https://app.example.com`) para que os links desses emails sejam absolutos. Veja [notificações](notifications.md#email-imediato). O **web push** é opcional: gere a chave VAPID com `manage.py generate_vapid_keys /caminho/privado/vapid.pem` (arquivo novo, 0600, fora do repositório e do diretório estático; o comando imprime a chave pública) e defina `WEBPUSH_VAPID_PRIVATE_KEY_FILE`, `WEBPUSH_VAPID_SUBJECT` (`mailto:` ou `https:`) e, se preciso, `WEBPUSH_ALLOWED_HOSTS`. As assinaturas exigem `INTEGRATION_ENCRYPTION_KEYS`. Trocar a chave VAPID invalida as assinaturas existentes, e cada pessoa precisa ativar o push de novo. Sem a chave, a seção de push não aparece e `/sw.js` responde 404.
+O email é configurado por `EMAIL_URL` e vira `MAILERS["default"]` do Django 6.1 ([#127](https://github.com/alaorneto/skeleton/issues/127)); o núcleo não define mais as settings `EMAIL_*` por conexão, que o 6.1 deprecou. O conversor (`skeleton/conf/mailers.py`) usa o parser do django-environ e aceita:
 
-Os logs da aplicação e do Django usam `SecurityJSONFormatter`, com um evento de conclusão `http.request` após resultado transacional/callbacks e UUID gerado pelo servidor, sem URL/body/cookies. Outcomes distinguem success, validation_error, conflict, access_denied, not_found e server_error; falha de entrega preserva o status de persistência e registra reason_code. status_code do Django é mapeado para status; error_class e target_sysid são seguros, sem mensagem/traceback bruto. Registros com exceção trazem `error_stack`: até 25 posições `arquivo:linha:função`, da mais externa para a mais interna, sem mensagem, código-fonte ou variáveis locais. Um readiness com falha registra `health.probe_failed` com `reason_code` `database_unavailable` ou `cache_unavailable`; a resposta HTTP continua sendo só 503. O agente de deployment escreve no stderr uma linha JSON `agent.internal_error`, no mesmo formato, antes de responder `agent_internal_error`. O comando Gunicorn da imagem não habilita access log bruto. Proxy, ingress, APM e capturas de HTTP também precisam redigir caminhos/query de convite, reset e callbacks (as integrações do núcleo com Prometheus, OpenTelemetry e Sentry já não enviam caminhos, ver [Observabilidade](#observabilidade-87)); não acrescente `--access-logfile -` sem formatter seguro. O backend de email console é somente desenvolvimento e imprime links privados por definição.
+| `EMAIL_URL` | Backend e opções |
+|---|---|
+| `smtp://usuário:senha@host:porta` | SMTP, sem TLS |
+| `smtp+tls://...` ou `smtps://...` | SMTP com STARTTLS (`use_tls`) |
+| `smtp+ssl://...` | SMTP sobre SSL (`use_ssl`) |
+| `consolemail://` | Console (só desenvolvimento: imprime links privados) |
+| `filemail:///caminho` | Arquivos no diretório indicado |
+| `memorymail://` e `dummymail://` | Memória e descarte (testes) |
+
+No SMTP, a query aceita `timeout` (segundos, inteiro positivo), `ssl_keyfile` e `ssl_certfile`. Esquema desconhecido, parâmetro desconhecido, SMTP sem host e `filemail://` sem caminho são recusados com `ImproperlyConfigured` na partida, em vez de ignorados. Usuário e senha com caracteres especiais vão codificados na URL (`%40` para `@`). A senha fica só no ambiente (ou no SQLite cifrado da instância) e sai redigida no relatório de erro do Django, porque a chave `password` de `MAILERS` é filtrada. Produção continua recusando qualquer backend que não seja SMTP.
+
+O SMTP tem prazo padrão de 30 s por operação (`EMAIL_TIMEOUT`, em segundos, no ambiente, ou `?timeout=` na URL): um servidor mudo nunca prende o job de email do worker (#297). `EMAIL_TIMEOUT` continua sendo uma variável de ambiente, não uma setting: o valor entra nas `OPTIONS` do SMTP.
+
+Projetos derivados não podem misturar as settings antigas (`EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `EMAIL_USE_SSL`, `EMAIL_TIMEOUT`, `EMAIL_SSL_KEYFILE`, `EMAIL_SSL_CERTFILE`, `EMAIL_FILE_PATH`) com `MAILERS`: o Django recusa a mistura. Para migrar um overlay, apague essas settings e use `EMAIL_URL`, ou redefina `MAILERS` inteiro. `DEFAULT_FROM_EMAIL`, `SERVER_EMAIL` e `EMAIL_SUBJECT_PREFIX` não mudam.
+
+Redis compartilhado é necessário a rate limits entre workers; configure autenticação e rede privada. O probe usa REDISCLI_AUTH com expansão de ambiente, não senha literal/argv. SMTP entrega após commit de mensagens já materializadas e pré-validadas. Falha real é registrada por classe/UUID sem segredo e não vira 500 enganoso após dados confirmados: API recebe `X-Email-Delivery: failed`, HTML recebe aviso, e permanece um caminho explícito de reenvio. Convite reenviado revoga o antigo por tombstone e emite UUID/token novos na mesma transação, com revisão obrigatória; convite consumido não pode ser reenviado. Não há retry/outbox nem promessa de entrega distribuída/transacional. Isso vale para emails com token (allauth e convites). Os emails de **notificação** são outra coisa: saem por job (`notifications.email`), com retentativa e estado em `NotificationDelivery`, e por isso exigem um worker (`manage.py run_worker`) e o agendador de jobs periódicos rodando; sem worker, ficam na fila. `SKELETON_DEFAULT_LANGUAGE` (padrão `pt-br`) e `SKELETON_DEFAULT_TIMEZONE` (padrão `UTC`) ficam no catálogo da instância e valem para quem não escolheu um idioma ou fuso no perfil, nem tem um padrão na organização ([#170](https://github.com/alaorneto/skeleton/issues/170)). A exportação CSV ([exportação e importação](data-transfer.md)) roda no worker e respeita `SKELETON_EXPORT_MAX_ROWS` (padrão 100.000), `SKELETON_IMPORT_MAX_ROWS` (padrão 10.000) e `SKELETON_TRANSFER_RETENTION_DAYS` (padrão 7), todos no catálogo da instância. Defina `SKELETON_PUBLIC_URL` (a origem pública, como `https://app.example.com`) para que os links desses emails sejam absolutos. Sem uma origem válida (esquema e host, sem caminho), o `check --deploy` avisa com `skeleton.W035` (#279). A mesma origem vale para os convites emitidos sem requisição (por um job ou comando): sem ela, o convite é recusado com um erro que cita `SKELETON_PUBLIC_URL` ([#169](https://github.com/alaorneto/skeleton/issues/169)). Veja [notificações](notifications.md#email-imediato). O **web push** é opcional: gere a chave VAPID com `manage.py generate_vapid_keys /caminho/privado/vapid.pem` (arquivo novo, 0600, fora do repositório e do diretório estático; o comando imprime a chave pública) e defina `WEBPUSH_VAPID_PRIVATE_KEY_FILE`, `WEBPUSH_VAPID_SUBJECT` (`mailto:` ou `https:`) e, se preciso, `WEBPUSH_ALLOWED_HOSTS`. As assinaturas exigem `INTEGRATION_ENCRYPTION_KEYS`. Trocar a chave VAPID invalida as assinaturas existentes, e cada pessoa precisa ativar o push de novo. Sem a chave, a seção de push não aparece e `/sw.js` responde 404.
+
+Os logs da aplicação e do Django usam `SecurityJSONFormatter`, com um evento de conclusão `http.request` após resultado transacional/callbacks e UUID gerado pelo servidor, sem URL/body/cookies. Outcomes distinguem success, validation_error, conflict, access_denied, not_found e server_error; falha de entrega preserva o status de persistência e registra reason_code. status_code do Django é mapeado para status; error_class e target_sysid são seguros, sem mensagem/traceback bruto. Registros com exceção trazem `error_stack`: até 25 posições `arquivo:linha:função`, da mais externa para a mais interna, sem mensagem, código-fonte ou variáveis locais. Um readiness com falha registra `health.probe_failed` com `reason_code` `database_unavailable` ou `cache_unavailable`; a resposta HTTP continua sendo só 503. O agente de deployment escreve no stderr uma linha JSON `agent.internal_error`, no mesmo formato, antes de responder `agent_internal_error`; a thread que executa ou recupera uma operação faz o mesmo para qualquer exceção que não seja um código conhecido (#244). O comando Gunicorn da imagem não habilita access log bruto. Proxy, ingress, APM e capturas de HTTP também precisam redigir caminhos/query de convite, reset e callbacks (as integrações do núcleo com Prometheus, OpenTelemetry e Sentry já não enviam caminhos, ver [Observabilidade](#observabilidade-87)); não acrescente `--access-logfile -` sem formatter seguro. O backend de email console é somente desenvolvimento e imprime links privados por definição.
+
+**Limite de corpo no proxy:** configure no proxy um limite de corpo (`client_max_body_size` no Nginx, ou equivalente) próximo de `SKELETON_UPLOAD_MAX_BYTES` em todas as rotas e igual ou maior que `SKELETON_PACKAGE_MAX_BYTES` só em `/platform/updates/upload/`. O Django já interrompe o corpo multipart no limite (#242); o proxy evita que o corpo chegue ao processo.
 
 **Antivírus de anexos (opcional):** rode um `clamd` numa rede privada (por exemplo, a imagem `clamav/clamav` com a porta 3310 sem publicação externa), defina `SKELETON_FILES_SCANNER=clamav` e `SKELETON_FILES_CLAMAV_ADDRESS=tcp://clamav:3310` e mantenha o worker de jobs rodando: sem ele, os anexos ficam `pending` e não podem ser baixados. Ajuste `StreamMaxLength` do `clamd` para pelo menos `SKELETON_UPLOAD_MAX_BYTES`, senão o `clamd` responde erro e o anexo fica pendente. A cota de armazenamento e a limpeza de órfãos também dependem do worker. Veja [arquivos e anexos](files.md#antivírus).
 
@@ -182,17 +235,17 @@ scrape_configs:
 | `skeleton_job_workers` | `state` (`live`, `stale`) | Heartbeats dos workers |
 | `skeleton_queue_metrics_up` | — | 1 quando a coleta leu a fila; 0 quando o banco falhou (o resto da coleta continua) |
 
-As métricas da fila são calculadas **na coleta**, por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Cada coleta faz algumas consultas agregadas sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
+As métricas da fila são calculadas **na coleta** e cada processo reutiliza o resultado por `SKELETON_METRICS_QUEUE_TTL_S` segundos (padrão 15; uma falha de leitura nunca é guardada, #275), por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Cada coleta faz algumas consultas agregadas sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
 
 **Gunicorn com vários workers (modo multiprocess).** Cada processo tem o próprio histograma de requests. Para somá-los, defina `PROMETHEUS_MULTIPROC_DIR` com um diretório privado e vazio, gravável pelo usuário do web, **antes** de o gunicorn iniciar, e esvazie-o a cada início do serviço:
 
 ```sh
 export PROMETHEUS_MULTIPROC_DIR=/run/skeleton-metrics
 rm -rf "$PROMETHEUS_MULTIPROC_DIR" && install -d -m 0700 -o skeleton "$PROMETHEUS_MULTIPROC_DIR"
-gunicorn config.wsgi:application --workers 3
+gunicorn config.wsgi:application --workers 3 --timeout 120
 ```
 
-Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
+O check de deploy `skeleton.W034` avisa quando as métricas estão ligadas fora de `DEBUG` sem a variável, e `skeleton.E034` reprova uma variável que não aponta para um diretório gravável; com um processo só atendendo o site, silencie o aviso com `SILENCED_SYSTEM_CHECKS = ["skeleton.W034"]` (#275). Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
 
 Fora do escopo: dashboards, alertas e métricas por organização.
 
@@ -227,7 +280,7 @@ Fora do escopo: o coletor e o backend de traces.
 
 Instale o extra `[sentry]` e defina `SKELETON_SENTRY_DSN` (setting sensível da instância, cifrado no SQLite) com o DSN do projeto, `https://<chave>@<host>/<projeto>`. Sem o DSN, `sentry_sdk` não é importado nem inicializado; a variável `SENTRY_DSN` do próprio SDK é ignorada, porque o núcleo só chama `sentry_sdk.init` com `SKELETON_SENTRY_DSN`. `SENTRY_ENVIRONMENT` e `SENTRY_RELEASE` continuam lidos pelo SDK do ambiente.
 
-O SDK é iniciado com `send_default_pii=False`, `max_request_body_size="never"` (o corpo nunca é lido), sem variáveis locais nem linhas de código-fonte, sem sessões e sem performance monitoring (traces são do OpenTelemetry). A integração do Django agrupa os erros pelo padrão de rota (`transaction_style="url"`).
+O SDK é iniciado com `send_default_pii=False`, `max_request_body_size="never"` (o corpo nunca é lido), sem variáveis locais nem linhas de código-fonte, sem sessões e sem performance monitoring (traces são do OpenTelemetry). A integração do Django agrupa os erros pelo padrão de rota (`transaction_style="url"`). O nome da transação só sai quando o SDK o construiu do código (`transaction_info.source` `route`, `component` ou `task`) e não traz UUID, `@` nem `?`; uma requisição a rota inexistente, cujo nome seria o caminho bruto (`source` `url`), sai sem transação (#326).
 
 Um `before_send` reconstrói cada evento por lista fixa, a mesma regra dos logs JSON (`skeleton.common.logging`):
 
@@ -248,6 +301,63 @@ Fora do escopo: performance monitoring do Sentry.
 
 Produção sempre exigiu PostgreSQL. Bancos SQLite de desenvolvimento deixam de ser suportados (#144) e não são migrados: recrie o ambiente local com `tools/dev_postgres.py start` e os comandos do README. O transporte de dados SQLite para PostgreSQL foi retirado deste guia.
 
+## Sandbox no Coolify (#369)
+
+Um ambiente de sandbox e testes numa VPS com [Coolify](https://coolify.io), atualizado a cada merge em `main`. Ele **não** é o caminho de produção: não há agente, então não há manutenção coordenada, backup antes da migration nem rollback. Use só dados de teste.
+
+O `compose.sandbox.yaml` da raiz difere do `compose.yaml` em quatro pontos:
+
+| Ponto | `compose.sandbox.yaml` |
+|---|---|
+| Portas | Nenhum serviço publica porta no host; o proxy do Coolify chega ao `web` na 8000 pela rede interna. |
+| PostgreSQL | Imagem `deploy/coolify/postgres.Dockerfile`: aplica `deploy/postgres/bootstrap.sql` e define as senhas de `skeleton_owner` e `skeleton_runtime` **só na criação do volume**. |
+| Migrations | O serviço `migrate` roda a cada deploy, com a credencial owner, `migrate` e `sync_table_catalog`, e sai. O `web` só sobe depois dele (`service_completed_successfully`). A URL owner existe só nesse serviço. |
+| Start do `web` | Com a instância configurada, roda `upgrade_app_activation` e `check_skeleton_schema` com a role runtime antes do Gunicorn, como o agente faz no `finish()`. Uma falha impede o `web` de subir. Sem configuração, sobe em modo setup. |
+
+No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `web`, `worker` e `scheduler`) usam a mesma âncora `x-hardened` (sem capabilities, sem ganho de privilégio e raiz somente leitura, [#318](https://github.com/alaorneto/skeleton/issues/318)), o Redis recebe a senha pelo ambiente do container e não pelo comando renderizado, e o Gunicorn usa o mesmo `--timeout 120` da imagem (#298).
+
+### Criar o recurso
+
+1. **DNS:** um registro A do host do sandbox (por exemplo `sandbox.example.com`) para o IP da VPS.
+2. **Projeto:** no Coolify, crie um projeto e um environment `sandbox`.
+3. **Recurso:** no environment, *+ New* → *Public Repository* (repositório privado: *Private Repository (with GitHub App)*), a URL do repositório e o branch. *Build Pack* `Docker Compose`, *Base Directory* `/` e *Docker Compose Location* `/compose.sandbox.yaml`.
+4. **Variáveis** (aba *Environment Variables*). Gere cada senha com `openssl rand -hex 32`, só letras e dígitos, porque elas entram em URLs sem codificação:
+
+   | Variável | Uso |
+   |---|---|
+   | `SANDBOX_HOST` | Host público, sem esquema: `sandbox.example.com` |
+   | `POSTGRES_PASSWORD` | Administrador do PostgreSQL; só o container do banco a recebe |
+   | `SKELETON_OWNER_DB_PASSWORD` | Role owner; só o `migrate` e o init do banco a recebem |
+   | `SKELETON_RUNTIME_DB_PASSWORD` | Role runtime; digitada no setup |
+   | `REDIS_PASSWORD` | `requirepass` do Redis |
+
+5. **Domínio:** na configuração do serviço `web`, informe `https://<SANDBOX_HOST>:8000`. O sufixo `:8000` é a porta do container, não uma porta pública; o Coolify emite o certificado e o Traefik termina o TLS.
+6. **Auto Deploy:** desligado. Quem dispara o deploy é o CI (abaixo).
+7. *Deploy*. Na primeira vez, o `migrate` cria o schema e o `web` sobe em modo setup.
+
+### Primeiro acesso
+
+O token de uso único aparece nos logs do serviço `web` no Coolify. Abra `https://<SANDBOX_HOST>/setup/` e preencha o [setup](#primeira-instalação-pelo-setup-146) com:
+
+- **Instância:** host `<SANDBOX_HOST>`, origem CSRF `https://<SANDBOX_HOST>` e confiança no proxy ligada (o Traefik substitui o `X-Forwarded-Proto` recebido de fora).
+- **Banco runtime:** `postgres://skeleton_runtime:<SKELETON_RUNTIME_DB_PASSWORD>@postgres:5432/skeleton`.
+- **Schema:** `postgres://skeleton_owner:<SKELETON_OWNER_DB_PASSWORD>@postgres:5432/skeleton`. O `migrate` já aplicou as migrations; o setup só confere.
+- **Cache:** `redis://:<REDIS_PASSWORD>@redis:6379/0`.
+- **Arquivos:** backend local em `/instance/files`, dentro do volume persistente `instance`.
+
+Na conclusão, o processo sai, a política de reinício o traz de volta em modo normal, e o `worker` e o `scheduler` passam a ficar saudáveis.
+
+### Deploy a cada merge em `main`
+
+O job `deploy-sandbox` do `.github/workflows/ci.yml` roda só num push para `main` e só depois do job `CI` verde, e chama a API de deploy do Coolify. Ele nunca roda em pull request. Sem os secrets, o job termina com um aviso, sem disparar nada; projetos derivados sem sandbox não precisam remover o job.
+
+1. **Coolify:** em *Settings*, habilite o acesso à API. Em *Keys & Tokens* → *API tokens*, crie um token com permissão de deploy. Na aba *Webhooks* do recurso, copie a URL de deploy, `https://<coolify>/api/v1/deploy?uuid=<uuid>&force=false`.
+2. **GitHub:** em *Settings* → *Environments*, crie `sandbox` (opcionalmente restrito ao branch `main`) com os secrets `COOLIFY_DEPLOY_URL` e `COOLIFY_TOKEN`.
+
+O deploy no Coolify é assíncrono: o job só confirma que o pedido foi aceito. O resultado aparece em *Deployments* no recurso.
+
+**Limites:** o init do PostgreSQL só roda com o volume vazio. Trocar uma senha depois exige `ALTER ROLE` no banco e a atualização da variável e da configuração da instância. Se uma migration falha, o `migrate` termina com erro e o `web` com o código novo não sobe. Confira os logs do `migrate` no Coolify. Migrations já aplicadas antes da falha continuam no banco, porque o sandbox não tem o backup do agente.
+
 ## Distribuição do core e adoção de projetos derivados
 
 O `pyproject.toml` é a fonte única da versão do `django-skeleton`. O wheel contém somente `skeleton`, incluindo migrations históricas, templates/static, defaults reutilizáveis e inventário técnico. `config`, `applications`, `examples`, `deployment_agent`, `manage.py`, bancos e secrets não pertencem à distribuição. Os imports históricos e os labels `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system` e `sk_audit` permanecem estáveis.
@@ -256,21 +366,21 @@ Os entrypoints de `config/settings` importam `skeleton.conf.base` e aplicam os p
 
 ### Construir e publicar
 
-**Pré-requisitos:** versão definida em `pyproject.toml`, dependências fixadas, manifesto revisado e chave privada de um publicador aprovado. **Publisher** é quem assina o artefato; aprovação da chave é decisão do operador, não algo que o próprio pacote possa conceder. A assinatura demonstra procedência e integridade, não ausência de código malicioso.
+**Pré-requisitos:** versão definida em `pyproject.toml` (é ela o `<versão>` dos nomes de arquivo abaixo), dependências fixadas, manifesto revisado e chave privada de um publicador aprovado. **Publisher** é quem assina o artefato; aprovação da chave é decisão do operador, não algo que o próprio pacote possa conceder. A assinatura demonstra procedência e integridade, não ausência de código malicioso.
 
 ```sh
 # Ambiente de build com requirements-dev.txt atualizado e hashes:
 .venv/bin/python -m build --wheel --no-isolation
 .venv/bin/python manage.py build_core_package \
-  --wheel dist/django_skeleton-0.2.0-py3-none-any.whl \
+  --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   --manifest /caminho/privado/core-manifest.json \
   --private-key /caminho/privado/publisher.pem \
-  --output /caminho/privado/core-0.2.0.skapp
+  --output /caminho/privado/core-<versão>.skapp
 # Equivalente independente de settings/Django startup:
-skeleton-core build --wheel dist/django_skeleton-0.2.0-py3-none-any.whl \
+skeleton-core build --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   --manifest /caminho/privado/core-manifest.json \
   --private-key /caminho/privado/publisher.pem \
-  --output /caminho/privado/core-0.2.0.skapp
+  --output /caminho/privado/core-<versão>.skapp
 ```
 
 O manifesto core identifica o artefato e limita como instalá-lo:
@@ -287,7 +397,7 @@ O projeto derivado instala o wheel fixado em ambiente isolado e mantém um lock 
 
 ### Cutover de uma cópia do core
 
-Faça backup e ensaie em clone offline antes de qualquer cutover. Identifique um release base **assinado e conhecido**; não use o HEAD corrente como evidência de equivalência de um projeto histórico. O **trust store** (lista de chaves confiáveis) é um JSON privado `publisher-key-id -> caminho PEM público` aprovado pelo operador. Ele contém referências a chaves públicas, não a chave privada de assinatura; uma chave fornecida pelo pacote não estabelece confiança.
+Faça backup e ensaie em clone offline antes de qualquer cutover. Identifique um release base **assinado e conhecido**; não use o HEAD corrente como evidência de equivalência de um projeto histórico. O **trust store** (lista de chaves confiáveis) é um JSON privado `publisher-key-id -> caminho PEM público` aprovado pelo operador. Ele contém referências a chaves públicas, não a chave privada de assinatura; uma chave fornecida pelo pacote não estabelece confiança. Em todos os comandos (`package …`, `skeleton-core adopt|adoption-plan`, `adopt_core_distribution`) um caminho PEM relativo é resolvido a partir da pasta do próprio trust store, nunca do artefato nem do diretório corrente (#255). Os limites de artefato são: 4096 membros no artefato externo, 32768 membros em cada wheel e 65536 na soma das wheels de um artefato ou wheelhouse; um membro corrompido falha com `PackageError`. A verificação lê o arquivo com `O_NOFOLLOW` e por isso exige Linux ou macOS; em outro sistema ela recusa com uma mensagem clara, em vez de abrir sem a proteção.
 
 ```sh
 skeleton-core adoption-plan --project-root /srv/projeto \
@@ -307,6 +417,8 @@ skeleton-core adopt --project-root /srv/projeto \
 O comando Django `adopt_core_distribution` só produz o plano por padrão; o corte exige `--apply --backup-root ...`. Execute offline, com workers/jobs parados, e reinicie o processo no ambiente novo. Checks, migrations e smokes em clone com os mesmos IDs/dados continuam sendo critérios de aceite; não são efeitos implícitos de `adopt`.
 
 ### Inventário, manutenção e confirmação
+
+**Custo do `/inventory`** (#281). A conferência de drift que a página de atualizações mostra é informativa: o agente guarda o resultado em memória por `drift_check_interval` segundos (padrão 300; `0` refaz o hash a cada chamada) e devolve `drift_checked_at`, o instante da conferência usada. O cache cai quando o release ativo muda (adoção, fim de operação, recuperação), e um ponteiro ativo divergente nunca é guardado. Prévia, execução, `finish`, recuperação e a partida do daemon continuam conferindo o release inteiro, sem cache. A lista traz as 50 operações escritas mais recentemente, em ordem de criação, e só esses arquivos do journal são lidos; uma operação antiga recuperada hoje aparece nela. A recusa por operação pendente lê um índice derivado (`operations-index.json`), que se reconstrói sozinho quando um arquivo do journal muda.
 
 Estes três registros respondem a perguntas distintas:
 
@@ -332,7 +444,7 @@ Compose inclui `migrator` no profile `migration`, com a mesma imagem do web e ap
 
 ## Agente independente de deployment
 
-O executável é `skeleton-deployment-agent --config /caminho/agent.json <comando>`; no checkout, o equivalente é `.venv/bin/python -m deployment_agent --config /caminho/agent.json <comando>`. Ele **não** roda dentro do Gunicorn. Instale-o em virtualenv próprio, fora de `project_root`/`releases_root`, fixando a distribuição do agente e suas dependências. A partir dos artefatos previamente produzidos e aprovados:
+A versão do agente é a de `deployment_agent/pyproject.toml`, igual à do núcleo. O CI constrói o wheel do agente, instala-o num virtualenv limpo com o lock e executa `skeleton-deployment-agent --help` (#309); os pins de execução dele coincidem com o lock auditado. O executável é `skeleton-deployment-agent --config /caminho/agent.json <comando>`; no checkout, o equivalente é `.venv/bin/python -m deployment_agent --config /caminho/agent.json <comando>`. Ele **não** roda dentro do Gunicorn. Instale-o em virtualenv próprio, fora de `project_root`/`releases_root`, fixando a distribuição do agente e suas dependências. A partir dos artefatos previamente produzidos e aprovados:
 
 ```sh
 python3.14 -m venv /opt/skeleton-agent/venv
@@ -394,6 +506,8 @@ Gere tokens ASCII independentes com pelo menos 32 caracteres (por exemplo `opens
 
 Todos os paths são absolutos; publisher IDs precisam corresponder aos manifests/índices assinados. `project_paths` é uma allowlist de overlays preservados: inclua `templates`, `examples` ou assets locais usados pelo derivado. Não inclua `.`, core, virtualenv, dados, secrets ou metadata gerada. `requirements_lock` tem pins `==` e SHA-256; disponibilize todos os wheels compatíveis, incluindo dependências transitivas e extras, em `wheelhouse`. O core selecionado vem de `.skapp` assinado; não use `pip` online no release. Um wheel faltante bloqueia o preview.
 
+**Chaves opcionais** (#246). A forma é conferida na partida do agente, com um código por chave: `recovery_paths` (lista de caminhos absolutos, `invalid_recovery_path`), `smoke_token_file` (caminho absoluto, `invalid_smoke_token_path`), `python`, `pg_dump`, `pg_restore`, `psql` e `docker` (caminhos absolutos, `invalid_tool_path`), `socket_gid` (inteiro não negativo, `invalid_socket_gid`), `status_http` (`port` de 1 a 65535, `public_url` `http`/`https`, `host` `127.0.0.1` ou `::1`; `insecure_status_listener`), `catalogue_sources` (lista de objetos com `id`, `invalid_catalogue_sources`) e `command_timeout`, `health_timeout`, `catalogue_timeout`, `max_upload_bytes`, `minimum_free_bytes` (número positivo, `invalid_numeric_setting`). Uma instalação com chave opcional malformada, que antes subia, passa a ser recusada na partida com o código específico.
+
 Cada env é texto `KEY=value`, uma variável por linha, com aspas opcionais; não use `export`, interpolação `$VAR`, substituições ou `source`. Exemplo de **estrutura** dos três arquivos; substitua os valores de credenciais pelo provisionamento PostgreSQL anterior:
 
 ```dotenv
@@ -445,9 +559,39 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 `check_skeleton_schema` aponta `bundled_divergence` quando a app sai de `SKELETON_BUNDLED_APPS` sem entrar em `SKELETON_BUNDLED_RETAINED` (as tabelas ficariam sem classificação), quando volta sem `sync_bundled_apps` ou quando está instalada sem registro (falta `migrate`). Um nome fora do mapa fixo, ou o mesmo nome nas duas listas, para o startup.
 
+**Apps gerenciadas que dependem de uma first-party** (#254). A dependência (`"org.skeleton.calendar": ">=0.5.0,<0.6.0"`) só é satisfeita quando a first-party está em `SKELETON_BUNDLED_APPS`, na versão do core. O agente lê `SKELETON_BUNDLED_APPS` do arquivo de ambiente runtime (ou do SQLite da instância) e recusa o plano com `dependency_unsatisfied` quando ela falta; um nome fora do mapa é `unknown_bundled_app`. A ordem segue a dependência:
+
+- **Instalar:** primeiro a first-party (nome em `SKELETON_BUNDLED_APPS`, reinício, `migrate`), depois o plano com a app que depende dela.
+- **Retirar:** primeiro a app dependente (plano de remoção), depois a first-party. Tirar a first-party com um dependente instalado faz o startup parar com `Invalid private deployment inventory` (falha fechada).
+- **Core novo com first-party nova:** o agente usa o mapa de first-party do `skeleton` instalado no ambiente dele. Num `core_update` que traz uma first-party nova, uma app do mesmo plano que dependa dela é recusada (`missing_dependency`); atualize o core e o agente primeiro e instale a app num segundo plano.
+- **Antes de empacotar:** `package doctor <app> --inventory inventory.json --bundled-app calendar` (repetível) resolve contra as first-party do alvo; um nome desconhecido é `bundled_app_unknown`.
+
 ### Supervisor e primeira adoção
 
 O JSON acima usa comandos fixos do supervisor. Autorize em sudoers **somente** as ações e a unit exatas, não shell genérico. O marker HTTP sozinho não bloqueia produtores externos: um worker ativo durante as migrations escreveria com o código antigo.
+
+### Sincronização de diretório LDAP
+
+Para organizações com login LDAP (#33), agende `manage.py sync_directory --all --max-deactivations <N>` com cron ou um systemd timer, com o mesmo ambiente do `web` e a mesma chave `IDENTITY_PROVIDER_ENCRYPTION_KEYS`. Rode antes `--dry-run --format json` para conferir o efeito. Um código de saída diferente de zero indica que alguma organização abortou (diretório vazio, erro de busca ou limite de desativações) sem gravar; o relatório traz só contagens e UUIDs ([autenticação](authentication-sso.md#sincronização-do-diretório-33)). Exemplo de timer diário:
+
+```ini
+# /etc/systemd/system/skeleton-directory-sync.service
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/skeleton/web.env
+ExecStart=/opt/skeleton/.venv/bin/python /opt/skeleton/manage.py sync_directory --all --max-deactivations 50
+
+# /etc/systemd/system/skeleton-directory-sync.timer
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+### Reverificação de domínios
+
+Organizações que admitem por domínio de email verificado (#28) dependem do registro TXT continuar publicado. Agende `manage.py verify_domains --recheck` uma vez por dia com cron ou um systemd timer, com o mesmo ambiente do `web`. O comando consulta o DNS fora das transações (3 s por domínio) e imprime só contagens; três falhas seguidas suspendem a admissão por aquele domínio ([autenticação](authentication-sso.md#domínio-de-email-verificado)).
 
 ### Worker de jobs e agendador
 
@@ -479,38 +623,7 @@ O comando imprime só contagens (`due`, atraso do job vencido mais antigo, `dead
 
 A tela `/platform/jobs/` mostra a fila e os jobs esgotados; veja [jobs](jobs.md#operar-a-fila-platformjobs). A retenção dos jobs (`SKELETON_JOB_SUCCEEDED_RETENTION_DAYS`, padrão 7, e `SKELETON_JOB_DEAD_RETENTION_DAYS`, padrão 30) roda como job periódico global. Hooks aceitam substituições `{release}`, `{active}`, `{operation}` em argumentos, nunca comandos vindos do pacote.
 
-Exemplo de units provisionadas pelo operador (não pelos pacotes):
-
-```ini
-# skeleton-agent.service
-[Unit]
-After=network.target
-[Service]
-User=skeleton-agent
-Group=skeleton-web
-UMask=0077
-ExecStart=/opt/skeleton-agent/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
-Restart=on-failure
-[Install]
-WantedBy=multi-user.target
-```
-
-```ini
-# skeleton-web.service
-[Unit]
-After=network.target
-[Service]
-User=skeleton-web
-Group=skeleton-web
-WorkingDirectory=/srv/skeleton/current
-EnvironmentFile=/srv/skeleton/private/runtime.env
-Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3
-KillSignal=SIGTERM
-TimeoutStopSec=1800
-[Install]
-WantedBy=multi-user.target
-```
+As units de exemplo, provisionadas pelo operador (não pelos pacotes), ficam em `deploy/systemd/`: `skeleton-web.service`, `skeleton-agent.service`, `skeleton-worker.service` e `skeleton-scheduler.service` (#318). Web, worker e agendador rodam com `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernelTunables`, `ProtectControlGroups` e `RestrictAddressFamilies`; com `ProtectSystem=strict` o sistema de arquivos inteiro é somente leitura, menos `ReadWritePaths`, que precisa listar exatamente o que o serviço grava (arquivos privados, SQLite e chave mestra da instância, `PROMETHEUS_MULTIPROC_DIR`; o `-` à frente ignora um caminho inexistente). A unit do agente tem só `ProtectHome`, `PrivateTmp` e `ProtectControlGroups`: os hooks chamam `sudo`, que não funciona com `NoNewPrivileges=yes` (e `PrivateDevices=`/`ProtectKernelTunables=` o implicam numa unit com `User=`), e o agente grava em `releases_root`, `storage_root` e no diretório do ponteiro ativo.
 
 Mantenha a unit do agente fora dos serviços reiniciados/drenados. A primeira adoção e a recuperação são **offline**: pare o daemon do agente antes de executá-las. Prepare/provisione DB e aplique `migrate`, `sync_table_catalog` e `check_skeleton_schema` do release base como nas seções anteriores; `initialize` não cria banco nem aplica migrations. Para um projeto sem apps locais/gerenciadas, salve `{"apps":[]}` como `/srv/skeleton/private/initial-inventory.json`:
 
@@ -524,6 +637,8 @@ sudo systemctl start skeleton-web.service skeleton-agent.service
 ```
 
 Com apps existentes, cada entrada de `apps` declara o manifesto canônico completo e `state`. Para `installed`, informe `digest` SHA-256 do `.skapp` e repita `--app-package /caminho/app.skapp`: o código deve existir em `applications/<package_name>` com inventário **exato**, sem arquivos extras/divergentes. Para `project-local`, informe `path` relativo ao projeto (default `applications/<package_name>`), mantenha seu AppConfig em `PROJECT_APPS` e inclua sua raiz em `project_paths`; não é necessário um digest de artefato. Apps locais participam de compatibilidade/dependências, mas não podem ser substituídas/removidas por coincidência de ID. Adoção de `schema_retained` sem journal existente é recusada.
+
+Ao receber `SIGTERM` (ou `SIGINT`), o agente para de aceitar requisições, espera a operação em curso chegar ao estado final e sai (#280): `TimeoutStopSec` precisa ser pelo menos o `command_timeout` configurado (padrão 1800 s). Se o supervisor matar o processo antes, a operação aparece como `interrupted` na próxima partida, com a manutenção ativa, e segue o procedimento de recuperação. O socket nasce no máximo `0660` (a `umask` é restringida só durante a criação), e um cabeçalho `Authorization` com qualquer byte responde 401, nunca 500.
 
 O socket é `0660`, no grupo do processo do agente; use `socket_gid` numérico se o grupo web for diferente. Só o grupo de controle pode ler o token e atravessar o diretório do socket. O status independente é opcional:
 
@@ -563,9 +678,15 @@ CONFIG=/srv/skeleton/private/agent.json
 
 `submit` apenas entrega uma solicitação assíncrona. **Sucesso final** exige `state=succeeded`, `stage=ready` e geração/core reais em `/health/release/`; exit code de envio ou estado `queued` não bastam.
 
-O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação.
+O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação. O reenvio aparece para uma entrega que falhou (`submission_failed`) e também para uma aprovação que ficou `approved`/`awaiting_agent` por mais de 2 minutos sem retorno do agente; uma aprovação recente não pode ser reenviada. A falha de entrega fica no log como `deployment.submission_failed`, só com o UUID da operação e a classe do erro. O web espera o agente no máximo 10 s nas leituras de estado (`inventory`, status da operação, ticket de acompanhamento) e 30 s na entrega do plano aprovado; upload, preview e catálogo usam o prazo do cliente, e a consulta do plano em preparação usa os mesmos 10 s das leituras. A página da operação consulta o agente sem travar a linha e só a trava para gravar o estado reconciliado (#250).
 
 Um plano/geração antigo é rejeitado para uma nova submissão. O preview prepara ambiente isolado e carrega o grafo Django real, mas não aplica migrations. Hashes e estado das migrations são novamente conferidos na execução e após drenar os escritores.
+
+**A prévia é assíncrona (#298).** `POST /preview` faz só as conferências rápidas (formato, alvos, journal, ponteiro ativo, deriva dos arquivos, preflight, regras por ação e dependências) e responde em poucos segundos com `{"id": "<uuid>", "state": "preparing"}`. A cópia do projeto, a extração dos pacotes, o virtualenv, o `pip install`, os checks, o `collectstatic` e, no Compose, a imagem rodam numa thread do agente, que toma o lock de novo e repete as conferências antes de começar. `GET /plans/<uuid>` responde `preparing`, `ready` (com o plano) ou `failed` (com `error` e, nos problemas de dependência, `details`); nunca devolve inventário, hashes dos arquivos nem o release anterior. Os erros de dependência continuam síncronos: `POST /preview` responde 409 `dependency_unsatisfied` com `details`, e a tela de sugestões é a mesma. Enquanto um plano está `preparing`, outra prévia, `submit` e `prune` recebem 409 `recovery_or_operation_pending`; `submit` de um plano `preparing` ou `failed` recebe 409 `plan_not_ready`. Uma preparação que falha remove o release parcial. Se o agente reiniciar no meio dela, o plano vira `failed` com `agent_interrupted` e o release parcial é apagado, sem marcador de manutenção: a preparação não toca o release ativo. Planos gravados antes desta versão, sem `state`, valem como prontos.
+
+No admin, "Visualizar impacto" leva a uma página de acompanhamento que se atualiza sozinha (`<meta http-equiv="refresh">`, sem JavaScript) e só lê o estado; quando o plano fica pronto, "Continuar" (POST, com autenticação recente) cria o `DeploymentOperation` e abre a tela da operação. Reenviar "Continuar" para o mesmo plano reabre a mesma operação. A CLI `preview` consulta o plano a cada 2 s e imprime o plano final; uma falha sai no stderr com código 1.
+
+**Compatibilidade:** atualize o agente junto com o núcleo. Um núcleo novo com agente antigo recusa a prévia com "Deployment agent is older than this core."; um núcleo antigo com agente novo trata `{id, state}` como resposta inválida e mostra o erro, sem efeito colateral.
 
 ```sh
 "$AGENT" --config "$CONFIG" preview update --artifact "$NEW_APP_DIGEST"
@@ -608,7 +729,8 @@ API equivalente pelo socket (todas as chamadas exigem `Authorization: Bearer <to
 | GET `/inventory` | nenhum |
 | GET `/operations/<uuid>` | nenhum; inclui status_url quando habilitado |
 | POST `/uploads` | bytes `.skapp`, `application/octet-stream` |
-| POST `/preview` | `{"action":"install","artifacts":["<sha256>"],"app_ids":[]}` |
+| POST `/preview` | `{"action":"install","artifacts":["<sha256>"],"app_ids":[]}`; responde `{"id":"<uuid>","state":"preparing"}` |
+| GET `/plans/<uuid>` | nenhum; `state` `preparing`, `ready` (com `plan`) ou `failed` (com `error`/`details`) |
 | POST `/submit` | `{"plan_id":"<uuid>","plan_digest":"<sha256>","generation":0,"operation_id":"<uuid>","actor_id":"<uuid>","request_id":"<uuid>"}` |
 | POST `/status-ticket` | `{"operation_id":"<uuid>"}`; permite emitir link antes de submit |
 | POST `/catalog/check` | `{}` |
@@ -631,6 +753,8 @@ curl --unix-socket /srv/skeleton/control/agent.sock \
 ### Backend Compose
 
 O backend **diretório** prepara um virtualenv por release, troca o ponteiro `current` e usa o supervisor configurado. O backend **Compose** prepara uma imagem por release, roda um container migrator separado e recria o serviço web. São duas formas de executar o mesmo contrato, não duas evidências equivalentes: um ensaio bem-sucedido em diretório não valida Docker, permissões de volumes ou recuperação Compose.
+
+**Overrides temporários** (#245): cada comando do Compose recebe um override privado (0600, nome único em `storage_root`) com a imagem, o volume e o ambiente do perfil, inclusive a credencial owner no perfil `migration`, e o arquivo é removido assim que o comando termina, com sucesso ou falha. Overrides deixados por uma parada abrupta são apagados quando o daemon (`serve`) parte.
 
 **Pré-requisitos adicionais:** Docker acessível pela conta do agente, Compose e imagem base provisionados, serviços/volumes privados e endpoints de backup acessíveis no host. A configuração abaixo é um exemplo a adaptar; não é prova de que a stack foi executada.
 
@@ -675,6 +799,10 @@ O backend já faz `stop web` no drain e `up --detach --no-deps --no-build --forc
 
 **Backup** é a cópia consistente de banco e recursos necessários; **restore** é a reposição dessa cópia; **rollback** é retornar a um estado anterior. Só trocar arquivos ou o ponteiro de release não desfaz migrations ou escritas. A indisponibilidade planejada começa quando o tráfego é bloqueado e os escritores são drenados, e termina somente após verificar banco, release e workers.
 
+**Conferência antes da manutenção** (#246). A prévia e o início da execução conferem, antes de criar o marcador de manutenção ou drenar o web, que cada caminho de `recovery_paths` existe, é absoluto e não é nem contém symlink (`invalid_recovery_path`, `recovery_path_symlink`), que `pg_dump`, `pg_restore` e `psql` (e o `docker`, no backend Compose: `docker_unavailable`) são executáveis (`backup_tool_unavailable`) e que o `smoke_token_file` passa pela mesma regra de permissão do token de controle (`insecure_private_file`). Um erro desses termina a operação `failed` sem manutenção: corrija a configuração e submeta de novo. As conferências dentro do backup continuam como segunda barreira.
+
+**Logs da operação** (#244). Cada comando que uma operação executa (backup, `migrate`, `pip`, `docker`, hooks) grava a saída em `storage_root/logs/<operation_id>/NN-<código>.log`, com os últimos 256 KiB, e o evento `failed` do journal cita só o nome do arquivo (`"log": "03-migration_failed.log"`). Esses arquivos podem conter o que um comando imprimiu com a credencial owner no ambiente: o diretório é 0700 e os arquivos 0600, legíveis só pela conta do agente, e nem a API de controle nem a página de status mostram o conteúdo ou o nome. Ao investigar uma operação `failed`, leia o arquivo citado no último evento do journal (`storage_root/operations/<operation_id>.json`). Comandos fora de uma operação (prévia, ambiente alvo) não gravam log.
+
 Antes de escolher recuperação, identifique no journal a primeira migration e a intenção de reabrir tráfego:
 
 | Momento da falha | Ação segura e limite |
@@ -690,6 +818,18 @@ Antes de escolher recuperação, identifique no journal a primeira migration e a
 Adicione `recovery_paths`, por exemplo `["/srv/skeleton/uploads","/srv/skeleton/private/mfa-keys.json"]`, para recursos mutáveis/chaves que precisam acompanhar o DB. Eles devem existir, ser externos a releases e não conter symlinks. Pare todos os escritores antes do snapshot. Não inclua diretório de estado/journal do agente, o marker ou o próprio backup em `recovery_paths`.
 
 Antes da primeira migration, o journal registra `backup` apontando para `agent-state/backups/.../backup.json`: PostgreSQL custom dump do schema `skeleton` inteiro (negócio, tabelas técnicas, migrations e auditoria; o agente recusa outro backend), hashes e snapshots exatos dos recursos. Extensões/roles PostgreSQL são provisionadas separadamente; dados fora de `skeleton` exigem procedimento offline específico. Um backup parcial de crash é preservado; uma nova tentativa usa outro diretório. Backup/journal/uploads/plans permanecem privados e fora do DB da aplicação. Nunca apague o release anterior, os artefatos aprovados ou esses snapshots enquanto houver recuperação/retention pendente.
+
+#### Retenção e limpeza
+
+O agente nunca apaga nada sozinho: a limpeza é uma decisão do operador, offline, com o daemon parado ou ocioso (#245):
+
+```sh
+skeleton-deployment-agent --config /etc/skeleton/agent.json prune                       # só lista
+skeleton-deployment-agent --config /etc/skeleton/agent.json prune --plan-days 7 --apply # remove
+skeleton-deployment-agent --config /etc/skeleton/agent.json prune --backup-days 30 --apply
+```
+
+Sem `--apply`, nada muda. O comando é recusado com marcador de manutenção ou com operação `queued`, `running` ou `interrupted`, e nunca está na API de controle. Candidatos: prévias não submetidas mais velhas que `--plan-days` (plano e release), releases de operações `succeeded`, `restored` ou `cancelled` que não são a mais recente, e as imagens `<image_repository>:<release>` do Compose (uma falha ao remover a imagem só entra em `errors`). Backups e logs de operação (`backups/<operação>`, `logs/<operação>`) só saem com `--backup-days`, e só de operações concluídas. Ficam sempre: o release ativo, o `release` e o `previous_release` da última operação `succeeded`, o `release`, o `previous_release` e o backup de toda operação `failed` que `recover` ainda aceitaria (uma operação superada por um deployment posterior deixa de proteger), o `project_root`, o journal (`operations/`) e os artefatos `uploads/`. Um release cujo caminho está fora de `releases_root` não é apagado e aparece em `skipped`.
 
 Falha/crash sob manutenção mantém o marker; ao reiniciar `serve`, queued/running/commit interrompidos tornam-se `interrupted`. **Não remova o marker à mão para esconder divergência.** Pare o daemon, consulte `journal`, escolha a operação e execute como conta do agente:
 

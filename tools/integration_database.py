@@ -1,50 +1,138 @@
 """Destructive integration setup is restricted to an explicitly disposable database."""
 
+import hashlib
+import json
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
+# The barriers of a destructive reset live in the wheel, for derived projects (#334).
+from skeleton.testing.database import (  # noqa: F401 - re-exported for the core suite
+    _SELECTED_ENV,
+    OWNER_ENV,
+    RUNTIME_ENV,
+    SUFFIX,
+    WORKER_ENV,
+    DatabasePair,
+    _create_empty_schema,
+    _identity,
+    _owner_connection,
+    _verify_owner,
+    disposable_database_pair,
+    reset_schema,
+)
 
-@dataclass(frozen=True)
-class DatabasePair:
-    runtime: str
-    owner: str
-    database: str
+_WORKER = re.compile(r"gw(0|[1-9][0-9]{0,2})")
 
 
-def _identity(dsn):
-    values = conninfo_to_dict(dsn)
-    database = values.get("dbname")
-    if not database:
-        raise RuntimeError("Integration DSNs must explicitly name a database.")
-    return (values.get("host", ""), values.get("port", "5432"), database)
+def worker_database_name(database, worker):
+    """Database of one parallel worker: ``ci_skeleton_test`` and ``gw3`` give ``ci_gw3_skeleton_test``.
+
+    The name keeps the ``_skeleton_test`` suffix, so every barrier of
+    ``disposable_database_pair()`` applies to it unchanged.
+    """
+    if not _WORKER.fullmatch(worker or ""):
+        raise RuntimeError(f"Unexpected parallel worker id {worker!r}; expected gw0, gw1, ...")
+    if not database or not database.endswith(SUFFIX) or database == SUFFIX:
+        raise RuntimeError(f"Integration database name must end with {SUFFIX}.")
+    return f"{database[: -len(SUFFIX)]}_{worker}{SUFFIX}"
 
 
-def disposable_database_pair():
-    if os.environ.get("SKELETON_TEST_ALLOW_SCHEMA_RESET") != "1":
-        raise RuntimeError("Set SKELETON_TEST_ALLOW_SCHEMA_RESET=1 for a disposable integration database.")
-    runtime = os.environ.get("TEST_DATABASE_URL")
-    owner = os.environ.get("TEST_MIGRATION_DATABASE_URL")
+def worker_database_url(url, worker):
+    """The same URL (role, password, host, port, options) pointing at the worker's database."""
+    parts = urlsplit(url)
+    if parts.scheme not in {"postgres", "postgresql"} or not parts.path.startswith("/"):
+        raise RuntimeError("Parallel workers require postgres:// URLs that name a database.")
+    return parts._replace(path="/" + worker_database_name(parts.path[1:], worker)).geturl()
+
+
+def worker_database_urls(count, environment=None):
+    """Runtime and owner URLs of the first ``count`` workers, from the two base variables."""
+    environment = os.environ if environment is None else environment
+    runtime, owner = environment.get(RUNTIME_ENV), environment.get(OWNER_ENV)
     if not runtime or not owner:
-        raise RuntimeError("TEST_DATABASE_URL and TEST_MIGRATION_DATABASE_URL are both required.")
-    identity = _identity(runtime)
-    if identity != _identity(owner):
-        raise RuntimeError("Runtime and migration DSNs must target the same host, port and database.")
-    if not identity[2].endswith("_skeleton_test"):
-        raise RuntimeError("Integration database name must end with _skeleton_test.")
-    for name in ("DATABASE_URL", "MIGRATION_DATABASE_URL"):
-        configured = os.environ.get(name)
-        if configured and _identity(configured) == identity:
-            raise RuntimeError(f"Integration database must differ from {name}.")
-    if conninfo_to_dict(runtime).get("user") != "skeleton_runtime":
-        raise RuntimeError("Assertions require the skeleton_runtime role, not an owner or superuser.")
-    if conninfo_to_dict(owner).get("user") != "skeleton_owner":
-        raise RuntimeError("Schema setup requires the dedicated skeleton_owner role.")
-    return DatabasePair(runtime, owner, identity[2])
+        raise RuntimeError(f"{RUNTIME_ENV} and {OWNER_ENV} are both required.")
+    return [
+        (worker_database_url(runtime, f"gw{index}"), worker_database_url(owner, f"gw{index}")) for index in range(count)
+    ]
+
+
+def select_worker_database(environment=None):
+    """Point this process (a pytest-xdist worker) at its own disposable database.
+
+    Rewrites both variables in place, so the settings, ``disposable_database_pair()``, tests
+    that read the variables and the subprocesses they start all agree. Returns the worker's
+    database name, or None outside a worker and when the variables are not set. Calling it
+    twice is refused: the second call would derive a database from an already derived name.
+    """
+    environment = os.environ if environment is None else environment
+    worker = environment.get(WORKER_ENV)
+    runtime, owner = environment.get(RUNTIME_ENV), environment.get(OWNER_ENV)
+    if not worker or not runtime or not owner:
+        return None
+    if environment.get(_SELECTED_ENV) == worker:
+        raise RuntimeError("The worker database was already selected for this process.")
+    environment[RUNTIME_ENV] = worker_database_url(runtime, worker)
+    environment[OWNER_ENV] = worker_database_url(owner, worker)
+    environment[_SELECTED_ENV] = worker
+    return _identity(environment[RUNTIME_ENV])[2]
+
+
+# restore_schema() drops and recreates every object of schema skeleton in one transaction and
+# holds one lock per object until the commit: about 2,100 today, counted with pg_locks.
+LOCKS_PER_RESTORE = 3000
+_LOCK_ADVICE = (
+    "raise max_locks_per_transaction and restart the server (`tools/dev_postgres.py start` does "
+    "it for the local one), or run fewer parallel workers"
+)
+
+
+def lock_table_shortfall(count, environment=None):
+    """None when ``count`` workers can restore at once; otherwise the message that says what to raise.
+
+    PostgreSQL shares one lock table of max_locks_per_transaction x (max_connections +
+    max_prepared_transactions) slots among all sessions; any role may read the three settings.
+    """
+    import psycopg
+
+    _, owner = worker_database_urls(1, environment)[0]
+    with psycopg.connect(owner, connect_timeout=10) as connection:
+        per_transaction, sessions = connection.execute(
+            "SELECT current_setting('max_locks_per_transaction')::int, "
+            "current_setting('max_connections')::int + current_setting('max_prepared_transactions')::int"
+        ).fetchone()
+    needed = count * LOCKS_PER_RESTORE
+    if per_transaction * sessions >= needed:
+        return None
+    return (
+        f"{count} workers recreating schema skeleton at once need about {needed} lock slots and the server "
+        f"has {per_transaction * sessions} (max_locks_per_transaction={per_transaction}): set it to at least "
+        f"{-(-needed // sessions)}. To fix it, {_LOCK_ADVICE}."
+    )
+
+
+def missing_worker_databases(count, environment=None):
+    """Names of the worker databases that the owner cannot open, in worker order.
+
+    Read-only: it connects and disconnects. The fixture never creates a database or a role;
+    provisioning them is the operator's step (``tools/dev_postgres.py start`` or the CI).
+    """
+    import psycopg
+
+    missing = []
+    for _, owner in worker_database_urls(count, environment):
+        try:
+            psycopg.connect(owner, connect_timeout=10).close()
+        except psycopg.OperationalError:
+            missing.append(_identity(owner)[2])
+    return missing
 
 
 @dataclass(frozen=True)
@@ -53,47 +141,6 @@ class SchemaTemplate:
 
     sql: str
     fingerprint: dict
-
-
-def _verify_owner(connection, pair):
-    """The connected role is the validated, unprivileged owner of the disposable database."""
-    if not isinstance(pair, DatabasePair):
-        raise RuntimeError("Schema operations require the pair returned by disposable_database_pair().")
-    identity = connection.execute("SELECT current_database(), current_user").fetchone()
-    if identity != (pair.database, "skeleton_owner"):
-        raise RuntimeError("Connected migration identity differs from the validated DSN.")
-    role = connection.execute(
-        "SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname=current_user"
-    ).fetchone()
-    if role is None or any(role):
-        raise RuntimeError("Integration migrator must not be a PostgreSQL superuser/role/database creator.")
-
-
-def _owner_connection(pair):
-    import psycopg
-
-    if not isinstance(pair, DatabasePair):
-        raise RuntimeError("Schema operations require the pair returned by disposable_database_pair().")
-    connection = psycopg.connect(pair.owner, autocommit=True)
-    try:
-        _verify_owner(connection, pair)
-    except BaseException:
-        connection.close()
-        raise
-    return connection
-
-
-def _create_empty_schema(connection):
-    connection.execute("DROP SCHEMA IF EXISTS skeleton CASCADE")
-    connection.execute("CREATE SCHEMA skeleton AUTHORIZATION skeleton_owner")
-    connection.execute("REVOKE ALL ON SCHEMA skeleton FROM PUBLIC")
-    connection.execute("GRANT USAGE ON SCHEMA skeleton TO skeleton_runtime, skeleton_audit_writer")
-
-
-def reset_schema(pair):
-    """Do not create a database/role or touch anything outside schema skeleton."""
-    with _owner_connection(pair) as connection:
-        _create_empty_schema(connection)
 
 
 # Template of the migrated schema: migrate once per test session, restore it for each test.
@@ -166,14 +213,167 @@ def restore_schema(pair, template):
     """Recreate schema skeleton from the template in one transaction, as skeleton_owner."""
     if not isinstance(template, SchemaTemplate):
         raise RuntimeError("restore_schema() requires the SchemaTemplate returned by dump_schema().")
-    with _owner_connection(pair) as connection, connection.transaction():
-        _create_empty_schema(connection)
-        # Audit functions are owned by skeleton_audit_writer; like InstallRecordInfrastructure,
-        # the ownership transfer needs schema CREATE only for the duration of the DDL.
-        connection.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
-        # No parameters: psycopg sends the whole script with the simple query protocol.
-        connection.execute(template.sql)
-        connection.execute("REVOKE CREATE ON SCHEMA skeleton FROM skeleton_audit_writer")
+    import psycopg
+
+    try:
+        with _owner_connection(pair) as connection, connection.transaction():
+            # A lost fixture schema is rebuilt by the next test: do not wait for the WAL flush.
+            connection.execute("SET LOCAL synchronous_commit = off")
+            _create_empty_schema(connection)
+            # Audit functions are owned by skeleton_audit_writer; like InstallRecordInfrastructure,
+            # the ownership transfer needs schema CREATE only for the duration of the DDL.
+            connection.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
+            # No parameters: psycopg sends the whole script with the simple query protocol.
+            connection.execute(template.sql)
+            connection.execute("REVOKE CREATE ON SCHEMA skeleton FROM skeleton_audit_writer")
+    except psycopg.errors.OutOfMemory as exc:
+        # "out of shared memory": the lock table is full, usually with several workers restoring.
+        raise RuntimeError(
+            f"PostgreSQL ran out of lock slots while recreating schema skeleton: {_LOCK_ADVICE}."
+        ) from exc
+
+
+# Cache of the template between local runs (#350). Migrating costs 4 to 8 s per process and per
+# worker, and between two runs of the suite usually only tests changed. The cache is keyed by
+# everything that shapes the migrated schema; any difference migrates again. The CI disables it
+# (SKELETON_TEST_TEMPLATE_CACHE=0) so that every run proves the migrations.
+
+CACHE_ENV = "SKELETON_TEST_TEMPLATE_CACHE"
+CACHE_FORMAT = 1
+CACHE_ENTRIES_KEPT = 4
+ROOT = Path(__file__).resolve().parents[1]
+# Code and data that migrations, post_migrate handlers, specs and settings are made of. Broad on
+# purpose: an edit outside tests/ costs one migrate, a missed input would cost a wrong schema.
+_KEY_TREES = ("skeleton", "config", "applications", "examples")
+_KEY_FILES = ("tools/integration_database.py", "tests/conftest.py")
+_KEY_SUFFIXES = {".py", ".json", ".sql", ".toml", ".cfg", ".txt"}
+
+
+def template_cache_dir(environment=None):
+    """Directory of the cache, or None when ``SKELETON_TEST_TEMPLATE_CACHE=0`` disables it."""
+    environment = os.environ if environment is None else environment
+    value = environment.get(CACHE_ENV, "")
+    if value == "0":
+        return None
+    return Path(value) if value else ROOT / "var" / "test-template-cache"
+
+
+def _source_files(root):
+    for tree in _KEY_TREES:
+        base = root / tree
+        if base.is_dir():
+            for path in base.rglob("*"):
+                if path.suffix in _KEY_SUFFIXES and "__pycache__" not in path.parts and path.is_file():
+                    yield path
+    for name in _KEY_FILES:
+        if (root / name).is_file():
+            yield root / name
+
+
+def template_cache_key(
+    *, server_version, pg_dump_version, installed_apps, migration_modules, environment=None, root=None
+):
+    """Hash of every input that shapes the migrated schema. Values are hashed, never stored."""
+    from importlib import metadata
+
+    environment = os.environ if environment is None else environment
+    root = ROOT if root is None else Path(root)
+    digest = hashlib.sha256()
+
+    def add(label, value):
+        digest.update(f"{label}\0{len(value)}\0".encode())
+        digest.update(value if isinstance(value, bytes) else value.encode())
+
+    add("format", str(CACHE_FORMAT))
+    add("server", str(server_version))
+    add("pg_dump", str(pg_dump_version))
+    add("apps", json.dumps(list(installed_apps)))
+    add("migration_modules", json.dumps(dict(migration_modules), sort_keys=True))
+    # The settings module and the project's own variables (SKELETON_ENABLE_EXAMPLE_APP,
+    # SKELETON_BUNDLED_APPS...); the test harness variables (URLs, worker ids) do not shape it.
+    for name in sorted(environment):
+        if name == "DJANGO_SETTINGS_MODULE" or (name.startswith("SKELETON_") and not name.startswith("SKELETON_TEST_")):
+            add("env:" + name, environment[name])
+    # Django and every library with migrations or DDL of their own.
+    for name, version in sorted({(dist.metadata["Name"] or "", dist.version) for dist in metadata.distributions()}):
+        add("dist:" + name, version)
+    for path in sorted(_source_files(root), key=lambda item: item.relative_to(root).as_posix()):
+        add("file:" + path.relative_to(root).as_posix(), path.read_bytes())
+    return digest.hexdigest()
+
+
+def _rows(fingerprint):
+    """The fingerprint as _fingerprint() builds it: lists of row tuples (JSON keeps lists)."""
+    return {section: [tuple(row) for row in rows] for section, rows in fingerprint.items()}
+
+
+def load_cached_template(directory, key):
+    """The template stored under ``key``, or None when it is missing, foreign or malformed."""
+    if directory is None or not re.fullmatch(r"[0-9a-f]{64}", key or ""):
+        return None
+    try:
+        stored = json.loads((Path(directory) / f"{key}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(stored, dict) or stored.get("format") != CACHE_FORMAT or stored.get("key") != key:
+        return None
+    sql, fingerprint = stored.get("sql"), stored.get("fingerprint")
+    if not isinstance(sql, str) or not isinstance(fingerprint, dict):
+        return None
+    # The same guards as a fresh dump: no psql meta-command, no CREATE SCHEMA of its own.
+    if any(line.startswith("\\") for line in sql.splitlines()) or _CREATE_SCHEMA in sql.splitlines():
+        return None
+    if not all(isinstance(rows, list) and all(isinstance(row, list) for row in rows) for rows in fingerprint.values()):
+        return None
+    return SchemaTemplate(sql=sql, fingerprint=_rows(fingerprint))
+
+
+def save_cached_template(directory, key, template):
+    """Store the template atomically; a failure leaves the cache as it was (it is only a cache)."""
+    if directory is None or not re.fullmatch(r"[0-9a-f]{64}", key or ""):
+        return False
+    payload = {"format": CACHE_FORMAT, "key": key, "sql": template.sql, "fingerprint": template.fingerprint}
+    try:
+        exact = _rows(json.loads(json.dumps(payload["fingerprint"]))) == template.fingerprint
+    except (TypeError, ValueError, AttributeError):
+        exact = False
+    if not exact:
+        return False  # A value JSON cannot round-trip: do not store an approximation.
+    directory = Path(directory)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=directory, prefix=".tmp-", suffix=".json", delete=False
+        ) as handle:
+            json.dump(payload, handle)
+        # Workers may store the same key at once: os.replace keeps one complete file.
+        os.replace(handle.name, directory / f"{key}.json")
+    except OSError:
+        try:
+            os.unlink(handle.name)
+        except (OSError, UnboundLocalError):
+            pass
+        return False
+    entries = sorted(directory.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for stale in entries[CACHE_ENTRIES_KEPT:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    return True
+
+
+def pg_dump_version():
+    executable = shutil.which(os.environ.get(PG_DUMP_ENV, "pg_dump"))
+    if executable is None:
+        return ""
+    result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
+    return result.stdout.strip()
+
+
+def server_version(pair):
+    with _owner_connection(pair) as connection:
+        return connection.execute("SELECT current_setting('server_version_num')").fetchone()[0]
 
 
 def schema_fingerprint(pair):

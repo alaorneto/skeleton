@@ -1,8 +1,8 @@
-<nav class="pagination" aria-label="Paginação">
-  <p class="pagination-summary">{% if rows.paginator.count %}Mostrando <strong>{{ rows.start_index }}–{{ rows.end_index }}</strong> de <strong>{{ rows.paginator.count }}</strong>{% else %}Nenhum registro{% endif %}</p>
+{% load i18n %}<nav class="pagination" aria-label="{% translate "Paginação" %}">
+  <p class="pagination-summary">{% if rows.paginator.count %}{% translate "Mostrando" %} <strong>{{ rows.start_index }}–{{ rows.end_index }}</strong> {% translate "de" %} <strong>{{ rows.paginator.count }}</strong>{% else %}{% translate "Nenhum registro" %}{% endif %}</p>
   <div class="pagination-links">
-    {% if rows.has_previous %}<a class="pagination-prev" rel="prev" href="{{ rows.previous_url }}">Anterior</a>{% else %}<span class="pagination-prev pagination-disabled" aria-disabled="true">Anterior</span>{% endif %}
-    <span class="pagination-current" aria-current="page">Página {{ rows.number }} de {{ rows.paginator.num_pages }}</span>
-    {% if rows.has_next %}<a class="pagination-next" rel="next" href="{{ rows.next_url }}">Próxima</a>{% else %}<span class="pagination-next pagination-disabled" aria-disabled="true">Próxima</span>{% endif %}
+    {% if rows.has_previous %}<a class="pagination-prev" rel="prev" href="{{ rows.previous_url }}">{% translate "Anterior" %}</a>{% else %}<span class="pagination-prev pagination-disabled" aria-disabled="true">{% translate "Anterior" %}</span>{% endif %}
+    <span class="pagination-current" aria-current="page">{% translate "Página" %} {{ rows.number }} {% translate "de" %} {{ rows.paginator.num_pages }}</span>
+    {% if rows.has_next %}<a class="pagination-next" rel="next" href="{{ rows.next_url }}">{% translate "Próxima" %}</a>{% else %}<span class="pagination-next pagination-disabled" aria-disabled="true">{% translate "Próxima" %}</span>{% endif %}
   </div>
 </nav>

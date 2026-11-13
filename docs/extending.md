@@ -29,11 +29,12 @@ python manage.py skeleton_startapp project_tasks --app-id com.example.tasks --pu
 
 Ele cria `applications/<package>/` (por padrão o package é o label; mude com `--package-name`, e o diretório-pai com `--directory`) com:
 
-- `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos;
+- `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos (tuplas de nomes; uma lista é aceita e convertida, uma string solta ou um item que não é nome levanta `TypeError` na construção, #310). O check E008 exige declarar como sensível todo campo não relacional chamado `password`, `token`, `token_digest`, `secret`, `private_key` ou `recovery_codes`, os mesmos nomes que a auditoria redige;
 - `models.py`: um modelo `SecuredRecord` mínimo (`code` único entre registros vivos da organização e `title`);
 - `service_api.py`: `<Model>Service` (`ServiceAPI`) com `<model>_count`, `list_<model>_summaries` e `get_<model>`, DTO `<Model>Summary` e `app_label` da app;
 - `views.py`, `urls.py` e `api_urls.py`: uma página `tenant_page` e um sumário `TenantAPI`, ambos chamando o serviço, sem consultar o modelo;
-- `tests/test_service_api.py`: o teste de contrato `assert_service_contract(<Model>Service)`;
+- `tests/test_service_api.py`: o teste de contrato `assert_service_contract(<Model>Service)` e os seis testes de cenário dos três métodos (caminho autorizado, default deny, registro privado como inexistente, A/B, app desativada e ator divergente, #334);
+- `tests/conftest.py`: a fixture `skeleton_db` distribuída no wheel (`skeleton.testing.database`), que recria e migra o schema a cada teste e roda as asserções na role runtime;
 - `templates/<app_label>/home.html`, `migrations/__init__.py`;
 - `docs/spec.md`, `docs/adr.md` e `docs/service-api.md` com as seções exigidas pela check E012 (texto inicial a substituir);
 - `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls`, `runtime.service_api` e uma entrada de navegação apontando para os módulos gerados. A compatibilidade começa em `>=0.4.0,<1.0.0` e `default_enabled` começa `false`: o campo é obsoleto e ignorado (#22), e `package doctor` avisa quando ele é `true`.
@@ -46,9 +47,10 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 4. `python manage.py migrate`;
 5. `python manage.py sync_table_catalog`;
 6. `python manage.py check_skeleton_schema`;
-7. atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
-8. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
-9. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
+7. conferir que as migrations da app não criam view, função alcançável pelo runtime, privilégio por coluna nem trigger em tabela técnica no schema `skeleton` (o `check_skeleton_schema` reprova, #299); atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
+8. rodar os testes da app: `python -m pytest applications/<package>/tests` com `TEST_DATABASE_URL` (role `skeleton_runtime`), `TEST_MIGRATION_DATABASE_URL` (role `skeleton_owner`) e `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`, num banco `*_skeleton_test` provisionado como em `deploy/postgres/bootstrap.sql` (mais `GRANT CREATE ON DATABASE <banco> TO skeleton_owner`, para o owner recriar o schema); veja [Isolamento da suíte](testing.md#isolamento-da-suíte);
+9. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
+10. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
 O código gerado é um começo, não uma app aprovada: revise allowlists e `sensitive_fields` a cada campo novo e escreva os testes de isolamento, autorização e concorrência do checklist do `AGENTS.md`.
 
@@ -58,11 +60,13 @@ O manifesto é o contrato versionado da app: identifica o componente e declara o
 
 A seção de runtime descreve configuração escalar, navegação, módulos de URLs/API, política de habilitação e documentação. No formato 2, acrescenta `administration` para seções/telas de parâmetros e `model_ui` para apresentação de negócio fora do admin. `ConfigField`, `MenuEntry` e specs imutáveis de apresentação são representações do manifesto canônico; não mantenha uma segunda versão manual. Registrar esses contratos em `ready()` não consulta banco nem executa DDL. Dependências devem estar instaladas, com versões compatíveis e sem ciclos.
 
-As rotas declaradas são incluídas antes dos gateways, exclusivamente sob `/o/<org>/apps/<app_label>/` e `/api/v1/o/<org>/apps/<app_label>/`. Views usam `tenant_page`/`TenantAPI` e serviços autorizados; esses prefixes recebem contexto tenant validado. `config.urls_project` também precede os gateways para não capturar rotas do projeto. Não crie rotas organizacionais fora deste contrato.
+As rotas declaradas são incluídas antes dos gateways, exclusivamente sob `/o/<org>/apps/<app_label>/` e `/api/v1/o/<org>/apps/<app_label>/`. Views usam `tenant_page`/`TenantAPI` e serviços autorizados; esses prefixes recebem contexto tenant validado. Antes de qualquer view, o guarda do núcleo exige login (visitante anônimo vai à página de login com `next`; na API, 403 JSON), organização no contexto (404 para quem não tem vínculo), app ativa e, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA de quem tem alguma capacidade (redirecionamento a `mfa_index` no HTML, 403 `mfa_required` na API), mesmo numa view que não use `tenant_page` (#322). `tenant_page`/`TenantAPI` continuam recomendados pelo mapeamento de erros e pelo fuso. `config.urls_project` também precede os gateways para não capturar rotas do projeto. Não crie rotas organizacionais fora deste contrato.
 
-**Instalação global e ativação por organização são operações diferentes.** Instalar disponibiliza código e migrations no ambiente compartilhado; ativar autoriza que uma organização use uma app já instalada, sem instalar Python nem criar tabelas. `/o/<org>/apps/` administra ativação/configuração e apresenta a versão declarada. `AppInstallation`, um `OrganizationRecord` com UUID, guarda esse estado com infraestrutura de migration e auditoria.
+**Instalação global e ativação por organização são operações diferentes.** Instalar disponibiliza código e migrations no ambiente compartilhado; ativar autoriza que uma organização use uma app já instalada, sem instalar Python nem criar tabelas. `/o/<org>/apps/` administra ativação/configuração e apresenta a versão declarada. `AppInstallation`, um `OrganizationRecord` com UUID, guarda esse estado com infraestrutura de migration e auditoria. Uma configuração gravada que não cabe mais no manifesto (campo removido, por exemplo) fecha só aquela app naquela organização (`configuration_valid` falso no estado, negação em `require_application_enabled`, fora do menu); a tela de configuração explica, e nem a página nem a API a regravam: o operador corrige com uma migration de dados (#251).
 
-A configuração JSON é redigida integralmente na auditoria. Segredos pertencem à configuração privada do deployment, nunca à configuração organizacional. Sem linha persistida, a app está **desativada** na organização: o `default_enabled` do manifesto não ativa mais nada (#22). A API exige `If-Match`: use a revisão virtual `"0"` na primeira escrita e, depois, a revisão atual. CAS evita sobrescrever configuração concorrente; o bloqueio de Organization serializa também as validações de dependências. Somente `organization_admin` configura.
+A configuração JSON é redigida integralmente na auditoria. Segredos pertencem à configuração privada do deployment, nunca à configuração organizacional. Sem linha persistida, a app está **desativada** na organização: o `default_enabled` do manifesto não ativa mais nada (#22). A API exige `If-Match`: use a revisão virtual `"0"` na primeira escrita e, depois, a revisão atual. CAS evita sobrescrever configuração concorrente; o bloqueio de Organization serializa também as validações de dependências. Configura quem tem a capacidade `apps.manage`: o gestor de apps (`app_manager`) ou o administrador (#24). Quem não a tem recebe 404 no painel e na API. O painel lista só as apps disponíveis para a organização; uma app ativa que a plataforma retirou aparece sinalizada, com o negócio bloqueado, e aceita apenas a desativação (qualquer outro PUT responde 400 `app_unavailable`). Telas tenant `custom` marcadas `organization_admin_only` no manifesto também exigem `apps.manage`: o nome do campo continua aceito por compatibilidade.
+
+O estado das apps de uma organização (`application_states()`: disponibilidade, ativação, configuração e uso efetivo com as dependências) é lido em consultas fixas, qualquer que seja o número de apps, e memoizado só durante a requisição; uma escrita na própria requisição desliga o memo, e nada fica em cache entre requisições, de modo que uma revogação vale na requisição seguinte. `navigation_for_user`, `require_application_enabled` e `authorized_queryset` usam esse estado; o menu avalia as permissões de tabela numa única consulta (`table_permissions`).
 
 Desativar bloqueia endpoints próprios, gateway e políticas e remove o menu, mas preserva registros, IDs e ACL (regras de acesso). O bloqueio fica na URL, antes da view: `runtime.urls` passa por `guard_application_urls` e `runtime.api_urls` por `guard_application_api_urls`, então um endpoint que não chama `authorized_queryset` também fecha. Com a app, ou uma dependência transitiva dela, desativada, a API responde 404 JSON neutro (`{"code": "not_found"}`); a configuração do núcleo em `/api/v1/o/<org>/apps/<app_label>/configuration/` continua disponível ao administrador para reativar. Reativar não concede `TablePermission`. Instalação, atualização e retirada global do código são solicitadas pela plataforma em `/platform/updates/` e executadas por um agente separado; a requisição web não executa instalador nem DDL. Remoção de dados/schema permanece exclusivamente offline e revisada.
 
@@ -76,7 +80,7 @@ Modelos elegíveis sem `model_ui` recebem defaults sem Form/template próprios. 
 
 ### Dependências entre apps
 
-`dependencies` mapeia o app ID de cada app exigida para uma faixa de versão, como `{"com.example.customers": ">=1.2,<2.0"}`. `conflicts` usa o mesmo formato para versões que não podem coexistir. O core não entra em `dependencies`: a faixa do núcleo é `compatibility.skeleton`, e o manifesto que tentar declarar `django-skeleton` como dependência é recusado. Não há dependências opcionais; uma integração que só funciona com outra app presente precisa declará-la.
+`dependencies` mapeia o app ID de cada app exigida para uma faixa de versão, como `{"com.example.customers": ">=1.2,<2.0"}`. `conflicts` usa o mesmo formato para versões que não podem coexistir. Uma pré-release dentro da faixa a satisfaz (`1.2.0-rc.1` atende `>=1.0.0,<2.0.0`), com qualquer versão suportada de `packaging`; pela regra do PEP 440, a pré-release do próprio limite fica fora (`1.0.0rc1` não atende `<1.0.0` nem `>=1.0.0`) (#256). O core não entra em `dependencies`: a faixa do núcleo é `compatibility.skeleton`, e o manifesto que tentar declarar `django-skeleton` como dependência é recusado. Não há dependências opcionais; uma integração que só funciona com outra app presente precisa declará-la.
 
 O mesmo resolvedor (`skeleton.system.dependencies.resolve_dependencies`) roda em quatro momentos e relata todos os problemas de uma vez, cada um com um código estável:
 
@@ -99,7 +103,7 @@ O mesmo resolvedor (`skeleton.system.dependencies.resolve_dependencies`) roda em
 
 A ordem resolvida vale para o inventário e para `INSTALLED_APPS`: uma app sempre vem depois das que ela exige, então o `ready()` dela encontra as dependências já registradas.
 
-Acima da ativação há a **disponibilidade** decidida pela plataforma (`skeleton/system/availability.py`): `set_app_availability` (CAS, revisão virtual 0), `grant_app` e `revoke_app` exigem administrador de plataforma e só escrevem linhas globais. `grant_app` recusa uma app cuja dependência esteja indisponível para a organização (`dependency_unavailable`); `revoke_app` recusa enquanto uma dependente estiver concedida (`dependent_granted`). `application_state` informa `available`, `require_application_enabled` exige disponibilidade da app e das dependências e responde 404 quando falta (`ApplicationUnavailable`), e `configure_application` recusa ativar app indisponível (`app_unavailable`), mas permite desativar. Sem linha de disponibilidade, a app está **indisponível** para todas as organizações (#22); conceder uma organização a uma app sem linha cria `selected`, nunca `all`. Re-conceder restaura a mesma concessão e devolve a escolha de ativação anterior da organização.
+Acima da ativação há a **disponibilidade** decidida pela plataforma (`skeleton/system/availability.py`): `set_app_availability` (CAS, revisão virtual 0), `grant_app` e `revoke_app` exigem administrador de plataforma e só escrevem linhas globais. `grant_app` recusa uma app cuja dependência esteja indisponível para a organização (`dependency_unavailable`); `revoke_app` recusa enquanto uma dependente estiver concedida (`dependent_granted`). `application_state` informa `available`, `require_application_enabled` exige disponibilidade da app e das dependências e responde 404 quando falta (`ApplicationUnavailable`), e `configure_application` recusa ativar app indisponível (`app_unavailable`), mas permite desativar. Uma tela de parâmetro `custom` (código da própria app) de app indisponível para a organização não resolve (`ApplicationUnavailable`: some da lista e o acesso direto responde 404); a tela de configuração do núcleo continua acessível, para desativar. `configure_application` toma o lock da organização por `organization_lock(user, capability="apps.manage")`, que revalida organização e capacidade depois de adquirido, seja chamada pela página, pela API ou por um serviço (#253). Sem linha de disponibilidade, a app está **indisponível** para todas as organizações (#22); conceder uma organização a uma app sem linha cria `selected`, nunca `all`. Re-conceder restaura a mesma concessão e devolve a escolha de ativação anterior da organização.
 
 ### Default fechado e upgrade da ativação (#22)
 
@@ -109,11 +113,15 @@ As organizações que usavam apps ativas por padrão mantêm essas apps com `man
 
 Em desenvolvimento, `manage.py set_app_availability <app_label> --mode all|selected [--grant SLUG] [--enable SLUG]` abre a app e a ativa nas organizações indicadas, uma transação por organização. `check_skeleton_schema` avisa sobre app carregada sem linha de disponibilidade (fechada para todos). Nos testes, `skeleton.testing.applications` oferece `open_app`, `activate_app` e `apps_open_by_default`.
 
+Para declarar tipos só dentro de um teste, `skeleton.testing.registries` isola os registries do núcleo e devolve os objetos originais na saída, mesmo quando o teste falha: `isolated_job_types()` (tipos de job e jobs periódicos), `isolated_event_types()` (tipos de evento, copiando os do núcleo; consumidores vazios, ou copiados com `keep_consumers=True`), `isolated_notification_types()`, `isolated_token_scopes()` (escopos nomeados de token) e `table_spec_override(table_key, **mudanças)`, que troca o `TableSpec` de uma tabela por uma cópia alterada. Use-os num fixture com `yield` dentro do `with`; não combine com `monkeypatch` no mesmo registry, porque a ordem de restauração dos dois deixaria o valor alterado para o teste seguinte.
+
 Uma tabela `SecuredRecord` pode aceitar anexos com `TableSpec(attachments=AttachmentPolicy(max_bytes=..., types=(...)))`; a autorização vem do registro alvo. Os anexos contam na cota de armazenamento da organização e, com antivírus configurado, só podem ser baixados depois da verificação. Veja [arquivos e anexos](files.md#anexos).
+
+Do mesmo modo, `TableSpec(comments=CommentPolicy())` abre comentários na tabela: quem lê o registro lê e escreve comentários, só o autor edita e o administrador modera. Veja [comentários](comments.md).
 
 A ativação por organização segue o fecho transitivo. Para habilitar uma app, todas as que ela exige, direta ou indiretamente, precisam estar habilitadas; para desabilitar, nenhuma app habilitada pode depender dela. A mensagem de erro lista as apps que bloqueiam.
 
-Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas:
+Declarar a dependência no manifesto é obrigatório sempre que o código a usa. As checks abaixo, que não consultam o banco, cobram isso das apps registradas (lista completa: [checks](checks.md)):
 
 | Check | Regra |
 |---|---|
@@ -127,6 +135,7 @@ Declarar a dependência no manifesto é obrigatório sempre que o código a usa.
 | E019 | Um módulo da app importa de outra app algo que não seja o `service_api` declarado dela, ou importa esse `service_api` sem declarar a app em `dependencies`. Análise estática (AST) de todos os `.py` da app, inclusive imports relativos e `from pacote import modulo`. |
 | W019 | A app importa um módulo do núcleo fora das [superfícies públicas](service-api.md#superfícies-públicas-do-núcleo-para-apps). É aviso nesta versão e vira erro numa próxima. |
 | E020 | Um modelo `OperationalRecord` tem `expose_api=True` ou `write_fields`; tabelas operacionais são estado de pipeline e nunca vão para o gateway. |
+| E029 | Um [fluxo de processo](flows.md#validação-estrutural) declarado com `register_flow` é inválido: chave duplicada, etapa inalcançável, beco sem saída, bifurcação sem junção, gateway sem transição padrão, aprovação sem as transições de aprovado e rejeitado, condição com operador ou campo desconhecido, handler, condição ou regra de atribuição não registrados pela própria app, campo de formulário divergente ou registro de negócio que não é um `SecuredRecord` exposto da app. |
 | E026 | Um `EncryptedTextField` não está em `TableSpec.sensitive_fields`, ou um keyring (`MFA_ENCRYPTION_KEYS`, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`) tem chave Fernet inválida. |
 | E027 | Check de banco (`check --database`): há segredos cifrados gravados, mas o keyring deles está vazio. |
 
@@ -165,6 +174,8 @@ Algumas apps genéricas (a agenda é a primeira, #84) vêm **dentro do wheel do 
 
 O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` prova no CI), e a suíte do núcleo roda sem nenhuma app first-party instalada.
 
+**Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
@@ -192,7 +203,7 @@ Publicar produz um artefato `.skapp` verificável; não significa instalá-lo ne
 
 Os utilitários funcionam tanto por `manage.py package` quanto sem settings/Django inicializado por `.venv/bin/python -m skeleton.system.packages`. O agente externo usa as mesmas funções puras de validação; nunca importa código de um upload antes de verificar assinatura, inventário e hashes. Assinatura controla procedência, **não** transforma Python/migrations em sandbox: aprove somente publishers que podem executar código privilegiado.
 
-Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e no namespace gerenciado `applications.<package_name>`. O `app_config` e os módulos declarados no JSON são sempre gerenciados (`applications.tasks.apps.TasksConfig`, `applications.tasks.urls`); o loader adapta módulos ao AppConfig local e valida identidade. Templates/static ficam em `templates/<app_label>/` e `static/<app_label>/`; a app não escreve em config, settings ou arquivos de outra app. Versione `spec.md` e `adr.md` com as seções obrigatórias acima e mantenha todas as migrations históricas.
+Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e no namespace gerenciado `applications.<package_name>`. O `app_config` e os módulos declarados no JSON são sempre gerenciados (`applications.tasks.apps.TasksConfig`, `applications.tasks.urls`); o loader adapta módulos ao AppConfig local e valida identidade. Templates/static ficam em `templates/<app_label>/` e `static/<app_label>/`; como a política de conteúdo é de mesma origem, templates de página não usam `<script>` inline, atributo `style=` nem handlers `on*=` ([Content-Security-Policy](deployment.md#content-security-policy)). Quem sobrescrever `FILE_UPLOAD_HANDLERS` mantém `skeleton.common.uploads.BoundedUploadHandler` em primeiro lugar, para nenhum corpo multipart passar de `SKELETON_UPLOAD_MAX_BYTES` (#242). Páginas sob `tenant_page` herdam `Cache-Control: no-store, private` (#289); uma app que precise de cache do navegador numa página não a põe sob esse decorador. A app não escreve em config, settings ou arquivos de outra app. Versione `spec.md` e `adr.md` com as seções obrigatórias acima e mantenha todas as migrations históricas.
 
 ```sh
 # Chaves ficam FORA da app e do Git; a privada é criada com modo 0600.
@@ -311,7 +322,7 @@ register(
 )
 ```
 
-A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória. Um código comercial gerado pelo núcleo entra em `sequence_fields=(("code", "<chave da sequência>"),)` e fica fora de `write_fields`: a criação genérica (formulário e API) o preenche com o próximo número ([sequências](sequences.md#campos-preenchidos-pelo-gateway)).
+A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória. Um código comercial gerado pelo núcleo entra em `sequence_fields=(("code", "<chave da sequência>"),)` e fica fora de `write_fields`: a criação genérica (formulário e API) o preenche com o próximo número ([sequências](sequences.md#campos-preenchidos-pelo-gateway-156)). Para busca textual, declare `search_fields=("code", "title")`, só com campos de texto de `read_fields` e nunca sensíveis (E031). Na migration, instale `InstallSearchIndex("<app>", "<model>", fields=[...], label="<campo do rótulo do picker>")`. A lista passa a aceitar `?q=` e o picker `q` ([#180](https://github.com/alaorneto/skeleton/issues/180), [#181](https://github.com/alaorneto/skeleton/issues/181)). O índice ausente ou divergente reprova o `check_skeleton_schema`.
 
 ### Migration de segurança
 
@@ -408,3 +419,26 @@ Implemente a regra de negócio em um serviço da app, não em `skeleton`. O serv
 Uma referência a outro registro organizacional precisa apontar para a mesma organização e para um alvo vivo que o ator possa ler. Combine validação no serviço, seleção autorizada de FK e infraestrutura de integridade no banco: apenas comparar UUIDs não assegura isso. Relações entre registros próprios usam `PROTECT`, para impedir remoção com referências vivas, e links de negócio são tabelas UUID explícitas, não M2M implícito. Marque campos sensíveis no `TableSpec` e na especificação congelada de migration antes de persistir dados em auditoria.
 
 Use o checklist de [AGENTS](../AGENTS.md) e [testing](testing.md). Mantenha testes de API pública, A/B/default deny, auditoria redigida, concorrência, referências e schema checks. Testes por inspeção de strings de source não provam esses contratos.
+
+## Texto traduzível e outros idiomas
+
+O núcleo entrega só pt-BR, e as msgids do gettext são o próprio texto em português ([#171](https://github.com/alaorneto/skeleton/issues/171), [#172](https://github.com/alaorneto/skeleton/issues/172)). Siga as mesmas regras na app.
+
+- **Python:** dentro de funções, use `gettext("…")`; em constantes de módulo ou de classe (rótulos de campo, `TextChoices`, `TableSpec`, tipos de notificação, `verbose_name`), use `gettext_lazy("…")`. Isso inclui os registros feitos em `ready()`, que rodam na inicialização. Com variáveis, use `gettext("Use %(campo)s.") % {"campo": valor}`, nunca uma f-string dentro do gettext.
+- **Templates:** use `{% load i18n %}` e `{% translate "…" %}`; nos argumentos de tags, `_("…")`.
+- **O que fica fora do gettext:**
+  - a documentação da API: resumos e descrições do schema OpenAPI (`openapi = {...}`, `Operation(...)`), que é contrato para integradores e não muda conforme o idioma de quem pede;
+  - texto que o código compara literalmente, como cabeçalhos de documentação (`## Serviços`) e seções de docstring da API de serviços (`Autorização:`);
+  - códigos de erro (`code`) e chaves de JSON;
+  - logs e eventos de segurança;
+  - diagnósticos técnicos em inglês: system checks, manifestos, pacotes e os `PermissionDenied` internos, que as fronteiras já transformam em 403/404 neutros.
+- **JSON:** um texto lazy não passa por `json.dumps`. Converta com `str()` antes de serializar fora do `JsonResponse` e do DRF, que já sabem lidar com ele.
+- **Validação:** `python tools/i18n_check.py` (exige o GNU gettext) extrai o catálogo e o valida com `msgfmt --check-format`. O teste de pseudolocalização `tests/integration/test_i18n_coverage.py` falha quando sobra texto fora do gettext nas páginas-chave.
+
+Para entregar outro idioma, o projeto derivado:
+
+1. acrescenta o idioma em `LANGUAGES`;
+2. cria o catálogo em `LOCALE_PATHS` com `manage.py makemessages -l <idioma>`, traduzindo a partir das msgids em pt-BR;
+3. compila com `compilemessages`.
+
+Os emails aceitam também templates por idioma (`body.<idioma>.html`), que têm precedência sobre o gettext.

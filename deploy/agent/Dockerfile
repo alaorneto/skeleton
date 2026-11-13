@@ -1,4 +1,4 @@
-ARG RELEASE_BASE=python:3.14-slim
+ARG RELEASE_BASE=python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 FROM ${RELEASE_BASE}
 USER root
 
@@ -27,4 +27,4 @@ RUN groupadd --gid 10001 skeleton && useradd --uid 10001 --gid 10001 \
     --no-create-home --shell /usr/sbin/nologin skeleton
 USER skeleton
 WORKDIR /opt/release
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "1800"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]

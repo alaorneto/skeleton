@@ -1,0 +1,17 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Admissão · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0">
+{% include 'skeleton/web/components/breadcrumbs.html' %}
+<h1>Admissão</h1>
+<p class="page-description">Como pessoas de fora pedem para entrar. Convites continuam valendo independentemente desta política.</p></div></div>
+<form method="post" class="card">
+{% csrf_token %}
+{% include "skeleton/web/components/form-errors.html" %}
+{% include "skeleton/web/components/form-fields.html" %}
+<p class="mt-4 text-sm/6 text-body-subtle">Endereço para pedidos: <code class="uuid">{{ join_url }}</code></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button><a class="btn btn-secondary" href="{% url 'web:dashboard' organization_id %}">Cancelar</a></div>
+</form>
+</div>
+{% endblock %}

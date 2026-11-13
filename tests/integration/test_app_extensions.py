@@ -23,6 +23,7 @@ def app_actor():
     return actor, organization, client
 
 
+@pytest.mark.needs_example_app
 def test_ea01_activation_is_tenant_scoped_cas_and_audited(app_actor):
     from skeleton.audit.models import AuditEvent
     from skeleton.common.exceptions import ConcurrentUpdate
@@ -45,6 +46,7 @@ def test_ea01_activation_is_tenant_scoped_cas_and_audited(app_actor):
         assert application_state("example_notes")["enabled"]
 
 
+@pytest.mark.needs_example_app
 def test_ea03_extension_routes_precede_generic_resource_capture(app_actor):
     actor, organization, client = app_actor
     path = f"/api/v1/o/{organization.pk}/apps/example_notes/summary/"
@@ -54,6 +56,7 @@ def test_ea03_extension_routes_precede_generic_resource_capture(app_actor):
     assert resolve(path).namespace == "example_notes_api"
 
 
+@pytest.mark.needs_example_app
 def test_ea04_extension_routes_require_validated_tenant(app_actor):
     actor, organization, client = app_actor
     _, foreign = bootstrap_identity(
@@ -64,6 +67,7 @@ def test_ea04_extension_routes_require_validated_tenant(app_actor):
     assert Client().get(f"/api/v1/o/{organization.pk}/apps/example_notes/summary/").status_code == 403
 
 
+@pytest.mark.needs_example_app
 def test_ea05_navigation_hides_disabled_or_unauthorized_apps(app_actor):
     from skeleton.system.applications import configure_application, navigation_for_user
 
@@ -81,6 +85,7 @@ def test_ea05_navigation_hides_disabled_or_unauthorized_apps(app_actor):
     assert client.get(f"/api/v1/o/{organization.pk}/tables/example_notes.note/records/").status_code == 403
 
 
+@pytest.mark.needs_example_app
 def test_ea06_manifest_dependency_and_configuration_contract(app_actor):
     from skeleton.system.app_registry import AppManifest, register_app, unregister_app
     from skeleton.system.applications import application_state, configure_application
@@ -157,6 +162,7 @@ def test_ea07_explicit_external_application_rejects_non_uuid_model():
             unregister_app("external_inventory")
 
 
+@pytest.mark.needs_example_app
 def test_ea08_example_configuration_changes_its_own_domain_surface(app_actor):
     from skeleton.system.applications import configure_application
 
@@ -194,6 +200,7 @@ def test_ea09_manifest_requires_spec_and_decision_documents(tmp_path):
     validate_documentation(manifest)
 
 
+@pytest.mark.needs_example_app
 def test_activation_follows_transitive_dependencies_and_names_blockers(app_actor):
     from django.core.exceptions import PermissionDenied
 
@@ -234,7 +241,7 @@ def test_activation_follows_transitive_dependencies_and_names_blockers(app_actor
                 configuration={},
                 revision=activation_revision("example_notes"),
             )
-            with pytest.raises(ValidationError, match="Enable required applications first: Anotações, Middle_Fixture"):
+            with pytest.raises(ValidationError, match="Ative antes os aplicativos exigidos: Anotações, Middle_Fixture"):
                 configure_application(
                     "top_fixture",
                     user=actor,

@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import importlib.metadata
+import io
 import json
 import os
 import zipfile
@@ -11,7 +12,14 @@ from pathlib import Path
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
-from skeleton.system.packages import PackageError, build_artifact, validate_package
+from skeleton.system.packages import (
+    MAX_METADATA_BYTES,
+    PackageError,
+    _read_member,
+    build_artifact,
+    load_trust_store,
+    validate_package,
+)
 
 
 def _digest(data):
@@ -34,13 +42,13 @@ def wheel_inventory(wheel):
             if (info.external_attr >> 16) & 0o170000 == 0o120000:
                 raise PackageError("Core wheel cannot contain symlinks.")
             if name.startswith("skeleton/"):
-                inventory[name] = {"sha256": _digest(archive.read(info)), "size": info.file_size}
+                inventory[name] = {"sha256": _digest(_read_member(archive, info)), "size": info.file_size}
             elif ".dist-info/" not in name or "/" not in name:
                 raise PackageError("Core wheel contains project-owned files.")
             if name.endswith(".dist-info/METADATA"):
                 from email.parser import BytesParser
 
-                metadata.append(BytesParser().parsebytes(archive.read(info)))
+                metadata.append(BytesParser().parsebytes(_read_member(archive, info, MAX_METADATA_BYTES)))
         if len(metadata) != 1 or canonicalize_name(metadata[0]["Name"]) != "django-skeleton":
             raise PackageError("Expected a django-skeleton core wheel.")
         if "skeleton/__init__.py" not in inventory or "skeleton/conf/base.py" not in inventory:
@@ -65,7 +73,8 @@ def build_core_release(wheel_path, manifest_path, output_path, private_key_path,
 
 
 def _release_wheel(verified, destination):
-    with zipfile.ZipFile(verified.path) as archive:
+    # The verified snapshot, never the path again: the file may have changed since (#255).
+    with zipfile.ZipFile(io.BytesIO(verified._snapshot)) as archive:
         core_candidates = []
         for item in verified.manifest["files"]:
             path = item["path"]
@@ -78,7 +87,7 @@ def _release_wheel(verified, destination):
         if len(core_candidates) != 1:
             raise PackageError("Core release must contain exactly one core wheel.")
         target = destination / Path(core_candidates[0]).name
-        target.write_bytes(archive.read(core_candidates[0]))
+        target.write_bytes(_read_member(archive, archive.getinfo(core_candidates[0])))
         return target
 
 
@@ -149,13 +158,17 @@ def adopt_source_core(project_root, verified, backup_root):
     target = backup / ("skeleton-" + verified.digest)
     if target.exists():
         raise PackageError("Base backup already exists; adoption is not repeated.")
-    # Rename preserves every historical migration and fails closed across filesystems.
-    os.rename(project / "skeleton", target)
     record = {key: value for key, value in plan.items() if key != "files"}
     record["backup"] = str(target)
-    (backup / ("adoption-" + verified.digest + ".json")).write_text(
-        json.dumps(record, sort_keys=True), encoding="utf-8"
-    )
+    # Rename preserves every historical migration and fails closed across filesystems.
+    os.rename(project / "skeleton", target)
+    try:
+        (backup / ("adoption-" + verified.digest + ".json")).write_text(
+            json.dumps(record, sort_keys=True), encoding="utf-8"
+        )
+    except OSError:
+        os.rename(target, project / "skeleton")  # Without the record, undo the cut-over (#255).
+        raise
     return record
 
 
@@ -184,7 +197,7 @@ def main(argv=None):
                 )
             )
         else:
-            trust = json.loads(Path(args.trust_store).read_text(encoding="utf-8"))
+            trust = load_trust_store(args.trust_store)
             verified = validate_package(args.base_release, trust)
             result = (
                 adopt_source_core(args.project_root, verified, args.backup_root)

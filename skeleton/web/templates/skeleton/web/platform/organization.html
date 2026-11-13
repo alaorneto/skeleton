@@ -1,68 +1,86 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}{{ subject.name }}{% endblock %}
+{% load i18n %}{% block page_title %}{{ subject.name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header">
   <div class="min-w-0">
-    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:organizations' %}">Organizações</a></li><li><span aria-current="page">{{ subject.name }}</span></li></ol></nav>
+    <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'platform:organizations' %}">{% translate "Organizações" %}</a></li><li><span aria-current="page">{{ subject.name }}</span></li></ol></nav>
     <h1>{{ subject.name }}</h1>
-    <p class="mt-2">{% if subject.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}</p>
+    <p class="mt-2">{% if subject.is_active %}<span class="badge badge-success badge-dot">{% translate "Ativa" %}</span>{% else %}<span class="badge badge-dot">{% translate "Inativa" %}</span>{% endif %}</p>
   </div>
 </div>
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
   <section class="card" aria-labelledby="organization-edit">
-    <h2 id="organization-edit">Dados da organização</h2>
+    <h2 id="organization-edit">{% translate "Dados da organização" %}</h2>
     <form method="post" class="mt-5">
       {% csrf_token %}
       {% include "skeleton/web/components/form-errors.html" %}
       {% include "skeleton/web/components/form-fields.html" %}
-      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar</button><a class="btn btn-secondary" href="{% url 'platform:organizations' %}">Cancelar</a></div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button><a class="btn btn-secondary" href="{% url 'platform:organizations' %}">{% translate "Cancelar" %}</a></div>
     </form>
   </section>
   <section class="card" aria-labelledby="organization-meta">
-    <h2 id="organization-meta" class="mb-4">Registro</h2>
+    <h2 id="organization-meta" class="mb-4">{% translate "Registro" %}</h2>
     <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>Identificador</dt><dd><code class="uuid">{{ subject.slug }}</code></dd></div>
-      <div><dt>UUID</dt><dd><code class="uuid">{{ subject.pk }}</code></dd></div>
-      <div><dt>Criada em</dt><dd>{{ subject.created_at }}</dd></div>
-      <div><dt>Revisão</dt><dd>{{ subject.revision }}</dd></div>
+      <div><dt>{% translate "Identificador" %}</dt><dd><code class="uuid">{{ subject.slug }}</code></dd></div>
+      <div><dt>{% translate "UUID" %}</dt><dd><code class="uuid">{{ subject.pk }}</code></dd></div>
+      <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at }}</dd></div>
+      <div><dt>{% translate "Revisão" %}</dt><dd>{{ subject.revision }}</dd></div>
     </dl>
-    <p class="mt-4 text-sm/6 text-body-subtle">Para administrar membros e dados, entre na organização com um vínculo de administrador.</p>
+    <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Para administrar membros e dados, entre na organização com um vínculo de administrador." %}</p>
   </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-administrators">
-    <h2 id="organization-administrators">Administradores</h2>
-    <p class="mt-1 text-sm/6 text-body-subtle">A plataforma vê só a contagem de membros e o email de quem administra; membros e dados de negócio continuam visíveis apenas dentro da organização.</p>
+    <h2 id="organization-administrators">{% translate "Administradores" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "A plataforma vê só a contagem de membros e o email de quem administra; membros e dados de negócio continuam visíveis apenas dentro da organização." %}</p>
     <dl class="meta-list mt-4">
-      <div><dt>Membros ativos</dt><dd>{{ overview.active_members }}</dd></div>
-      <div><dt>Administradores ativos</dt><dd>{{ overview.administrators|length }}</dd></div>
+      <div><dt>{% translate "Membros ativos" %}</dt><dd>{{ overview.active_members }}</dd></div>
+      <div><dt>{% translate "Administradores ativos" %}</dt><dd>{{ overview.administrators|length }}</dd></div>
     </dl>
-    <ul class="mt-4 space-y-1" aria-label="Emails dos administradores">
-      {% for admin in overview.administrators %}<li><span>{{ admin.email }}</span>{% if not admin.direct %} <span class="badge">via grupo</span>{% endif %}</li>{% empty %}<li class="text-body-subtle">Nenhum administrador ativo.</li>{% endfor %}
+    <ul class="mt-4 space-y-1" aria-label="{% translate "Emails dos administradores" %}">
+      {% for admin in overview.administrators %}<li><span>{{ admin.email }}</span>{% if not admin.direct %} <span class="badge">{% translate "via grupo" %}</span>{% endif %}</li>{% empty %}<li class="text-body-subtle">{% translate "Nenhum administrador ativo." %}</li>{% endfor %}
     </ul>
     {% if admin_form %}
     <form method="post" action="{% url 'platform:organization-administrators' subject.pk %}" class="mt-5">
       {% csrf_token %}
       {% with form=admin_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
-      <p class="mt-2 text-sm/6 text-body-subtle">A designação é auditada em nome de quem a fez e exige autenticação recente. Ela não dá à administração da plataforma acesso à organização.</p>
-      <div class="form-actions"><button type="submit" class="btn btn-primary">Designar administrador</button></div>
+      <p class="mt-2 text-sm/6 text-body-subtle">{% translate "A designação é auditada em nome de quem a fez e exige autenticação recente. Ela não dá à administração da plataforma acesso à organização." %}</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Designar administrador" %}</button></div>
     </form>
     {% else %}
-    <p class="mt-4 text-sm/6 text-body-subtle">Reative a organização para designar administradores.</p>
+    <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Reative a organização para designar administradores." %}</p>
     {% endif %}
   </section>
+  <section class="card lg:col-span-2" aria-labelledby="organization-applications">
+    <h2 id="organization-applications">Aplicativos</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização. Esta leitura não mostra parâmetros nem dados de negócio.</p>
+    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Aplicativo</th><th scope="col">Disponível</th><th scope="col">Ativada pela organização</th><th scope="col">Em uso</th></tr></thead><tbody>
+    {% for app in overview.applications %}<tr>
+      <td><a href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></td>
+      <td>{% if app.available %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
+      <td>{% if app.enabled %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
+      <td>{% if app.effective %}<span class="badge badge-success badge-dot">Sim</span>{% elif app.enabled %}<span class="badge badge-warning badge-dot">Bloqueada</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhum aplicativo instalado.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="card lg:col-span-2" aria-labelledby="organization-identity">
+    <h2 id="organization-identity">Provedores de identidade</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">Login corporativo ligado a esta organização. Quem entra por ele (JIT, papel, domínios) é decidido pela própria organização.</p>
+    <ul class="mt-4 space-y-1">{% for row in identity_providers %}<li><a href="{% url 'platform:identity-provider' row.pk %}">{{ row.name }}</a> <span class="text-sm text-body-subtle">{{ row.get_protocol_display }} · {% if row.enabled %}ativo{% else %}desligado{% endif %}</span></li>{% empty %}<li class="text-body-subtle">Nenhum provedor cadastrado no banco.</li>{% endfor %}</ul>
+    <p class="mt-4"><a class="btn btn-secondary" href="{% url 'platform:identity-provider-create' %}?protocol=oidc">Cadastrar provedor</a></p>
+  </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-storage">
-    <h2 id="organization-storage">Armazenamento</h2>
-    <p class="mt-1 text-sm/6 text-body-subtle">Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador.</p>
+    <h2 id="organization-storage">{% translate "Armazenamento" %}</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">{% translate "Soma dos anexos vivos da organização. Um upload ou restauração acima da cota é recusado; a recontagem diária corrige o contador." %}</p>
     <dl class="meta-list mt-4">
-      <div><dt>Em uso</dt><dd>{{ storage.bytes_used|filesizeformat }}</dd></div>
-      <div><dt>Cota</dt><dd>{% if storage.quota_bytes is None %}Ilimitada{% else %}{{ storage.quota_bytes|filesizeformat }}{% endif %}{% if not storage.overridden %} <span class="badge">padrão da instância</span>{% endif %}</dd></div>
-      <div><dt>Última recontagem</dt><dd>{{ storage.recounted_at|default:"Ainda não recontado" }}</dd></div>
+      <div><dt>{% translate "Em uso" %}</dt><dd>{{ storage.bytes_used|filesizeformat }}</dd></div>
+      <div><dt>{% translate "Cota" %}</dt><dd>{% if storage.quota_bytes is None %}{% translate "Ilimitada" %}{% else %}{{ storage.quota_bytes|filesizeformat }}{% endif %}{% if not storage.overridden %} <span class="badge">{% translate "padrão da instância" %}</span>{% endif %}</dd></div>
+      <div><dt>{% translate "Última recontagem" %}</dt><dd>{{ storage.recounted_at|default:_("Ainda não recontado") }}</dd></div>
     </dl>
     <form method="post" action="{% url 'platform:organization-storage' subject.pk %}" class="mt-5">
       {% csrf_token %}
       {% with form=quota_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
-      <p class="mt-2 text-sm/6 text-body-subtle">A alteração é auditada e exige autenticação recente.</p>
-      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar cota</button></div>
+      <p class="mt-2 text-sm/6 text-body-subtle">{% translate "A alteração é auditada e exige autenticação recente." %}</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar cota" %}</button></div>
     </form>
   </section>
 </div>

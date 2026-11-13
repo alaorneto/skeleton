@@ -15,6 +15,8 @@ from skeleton.integrations.tokens.services import issue_personal_token
 from skeleton.tenancy.context import request_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 NOTE = "example_notes.note"
 
 
@@ -91,3 +93,45 @@ def test_last_use_is_written_at_most_once_per_window(access):
     )
     with request_context(actor=platform, request_id=None, source="test:activity-audit"):
         assert not AuditEvent.objects.filter(model_label="sk_integrations.apitokenactivity").exists()
+
+
+class _DownCache:
+    """A cache whose server is gone: every call raises."""
+
+    def _fail(self, *args, **kwargs):
+        raise ConnectionError("cache down")
+
+    add = incr = get = set = delete = _fail
+
+
+def test_rate_limits_let_requests_through_when_the_cache_is_down(access, monkeypatch):
+    """The limiter is a brake, never the authorization: no 429 nor 500 without the cache (#328)."""
+    from skeleton.common import ratelimit
+
+    monkeypatch.setattr(ratelimit, "cache", _DownCache())
+    client = bearer(token_for(access.alice, [f"{NOTE}:read"]).text)
+    assert client.get(records(access.a)).status_code == 200
+    invalid = bearer("skt_00000000_" + "A" * 43).get(records(access.a))
+    assert invalid.status_code == 401
+
+
+def test_last_use_is_still_bounded_by_the_database_without_the_cache(access, monkeypatch):
+    """Without the cache marker, the database window still writes at most once (#328)."""
+    from skeleton.integrations.tokens import activity
+    from skeleton.tenancy.context import system_context
+
+    monkeypatch.setattr(activity, "cache", _DownCache())
+    issued = token_for(access.alice, [f"{NOTE}:read"])
+    client = bearer(issued.text)
+
+    def stored():
+        with system_context(reason="test:token-activity"):
+            return list(
+                ApiTokenActivity.objects.filter(token_id=issued.token.pk).values_list("last_used_at", flat=True)
+            )
+
+    assert client.get(records(access.a)).status_code == 200
+    first = stored()
+    for _ in range(2):
+        assert client.get(records(access.a)).status_code == 200
+    assert len(first) == 1 and stored() == first

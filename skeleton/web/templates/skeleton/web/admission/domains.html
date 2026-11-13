@@ -1,0 +1,29 @@
+{% extends 'skeleton/web/base.html' %}
+{% block title %}Domínios verificados · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header"><div class="min-w-0">
+{% include 'skeleton/web/components/breadcrumbs.html' %}
+<h1>Domínios verificados</h1>
+<p class="page-description">Quem confirma um email de um domínio verificado entra direto ou cria um pedido. Um domínio só vale para uma organização.</p></div></div>
+{% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}Não foi possível concluir</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+{% if not enabled %}<div class="card mb-6"><p>A admissão por domínio está desligada. Ligue-a em <a href="{% url 'web:admission' organization_id %}">Admissão</a>; enquanto isso, os domínios podem ser cadastrados e verificados, mas não admitem ninguém.</p></div>{% endif %}
+<div class="table-scroll mb-8"><table><thead><tr><th scope="col">Domínio</th><th scope="col">Situação</th><th scope="col">Entrada e papel</th><th scope="col">Registro TXT</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+{% for item in rows %}<tr>
+<td>{{ item.domain }}</td>
+<td>{% if item.status == "verified" %}<span class="badge badge-success badge-dot">Verificado</span>{% elif item.status == "failed" %}<span class="badge badge-warning badge-dot">Falhou</span>{% else %}<span class="badge badge-dot">Aguardando</span>{% endif %}{% if item.last_error_code %}<br><span class="text-sm text-body-subtle">Última verificação: {{ item.last_error_code }}</span>{% endif %}</td>
+<td>{% if item.admission == "auto" %}Direta{% else %}Com aprovação{% endif %} · {{ item.role.name }}</td>
+<td class="break-all"><code class="uuid">{{ prefix }}{{ item.domain }}</code><br><code class="uuid">{{ item.challenge }}</code></td>
+<td class="text-right"><form method="post" action="{% url 'web:verified-domain-action' organization_id item.pk %}" class="inline-flex gap-2">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
+<button type="submit" name="action" value="verify" class="btn btn-primary btn-sm">Verificar<span class="sr-only"> {{ item.domain }}</span></button>
+<button type="submit" name="action" value="revoke" class="btn btn-secondary btn-sm">Remover<span class="sr-only"> {{ item.domain }}</span></button></form></td>
+</tr>{% empty %}<tr><td colspan="5" class="empty-state">Nenhum domínio cadastrado.</td></tr>{% endfor %}
+</tbody></table></div>
+<section aria-labelledby="domains-new"><h2 id="domains-new" class="section-heading">Novo domínio</h2>
+<form method="post" class="card">{% csrf_token %}
+{% include "skeleton/web/components/form-errors.html" %}
+{% include "skeleton/web/components/form-fields.html" %}
+<div class="form-actions"><button type="submit" class="btn btn-primary">Cadastrar domínio</button></div>
+</form></section>
+</div>
+{% endblock %}

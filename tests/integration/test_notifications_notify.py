@@ -9,35 +9,32 @@ from django.core.exceptions import ValidationError
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.jobs.models import Job
-from skeleton.notifications import registry
 from skeleton.notifications.models import Notification, NotificationRecipient
 from skeleton.notifications.registry import NotificationType, notification_problems, register_notification_type
 from skeleton.notifications.services import Recipients, notify
 from skeleton.tenancy.context import own_rows, request_context, system_context, tenant_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_notification_types
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Notify-Password!93"
 
 
 @pytest.fixture(autouse=True)
 def types(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-    monkeypatch.setattr(registry, "_types", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_notification_type(
-        NotificationType(
-            "notes.shared",
-            "Nota compartilhada",
-            payload_fields=("message",),
-            snapshot_fields=("title", "code"),
-            target_table_key="example_notes.note",
+    with isolated_notification_types():
+        register_notification_type(
+            NotificationType(
+                "notes.shared",
+                "Nota compartilhada",
+                payload_fields=("message",),
+                snapshot_fields=("title", "code"),
+                target_table_key="example_notes.note",
+            )
         )
-    )
-    register_notification_type(NotificationType("system.hello", "Olá", payload_fields=("message",)))
+        register_notification_type(NotificationType("system.hello", "Olá", payload_fields=("message",)))
+        yield
 
 
 @pytest.fixture
@@ -149,3 +146,22 @@ def test_declarations_with_sensitive_fields_fail_the_check():
     problems = "\n".join(notification_problems())
     assert "notes.leak: snapshot field body is sensitive" in problems
     assert "notes.leak2: payload field body is sensitive" in problems
+
+
+def test_notify_with_key_reraises_foreign_integrity_errors(tenants, monkeypatch):
+    """Only the dedupe constraint means "already notified" (#278)."""
+    from types import SimpleNamespace
+
+    from django.db import IntegrityError
+
+    alice, alpha, bob, _ = tenants
+
+    def broken_save(self, *args, **kwargs):
+        cause = Exception("driver error")
+        cause.diag = SimpleNamespace(constraint_name="some_other_constraint")
+        raise IntegrityError("other constraint") from cause
+
+    monkeypatch.setattr(Notification, "save", broken_save)
+    with tenant_context(organization_id=alpha.pk, actor=alice, source="test:notify-foreign-integrity"):
+        with pytest.raises(IntegrityError):
+            notify("system.hello", recipients=Recipients(users=(bob.pk,)), dedupe_key="hello:foreign")

@@ -43,5 +43,5 @@ def peek(key: str, *, window_s: int, now: float | None = None) -> int:
     now = time.time() if now is None else now
     try:
         return int(cache.get(f"{PREFIX}{key}:{window_s}:{int(now // window_s)}", 0))
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - an unavailable cache reads as zero: the limits fail open, by design
         return 0

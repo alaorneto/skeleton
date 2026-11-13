@@ -12,6 +12,7 @@ from skeleton.system.checks import (
     undeclared_migration_dependencies,
     undeclared_relations,
 )
+from skeleton.testing.registries import table_spec_override
 
 
 def ids(errors):
@@ -52,6 +53,7 @@ def test_relations_to_registered_apps_must_be_declared():
     assert undeclared_relations([Source], {"fixture_source"}, {"fixture_source"}) == []
 
 
+@pytest.mark.needs_example_app
 def test_manifest_leaves_must_match_the_migration_graph(monkeypatch):
     from skeleton.system import app_registry
 
@@ -60,15 +62,14 @@ def test_manifest_leaves_must_match_the_migration_graph(monkeypatch):
     monkeypatch.setitem(app_registry._manifests, "example_notes", replace(manifest, canonical=canonical))
     errors = [error for error in extension_consistency_checks() if error.id == "skeleton.W017"]
     assert len(errors) == 1
-    assert "0099_missing" in errors[0].msg and "0001_initial" in errors[0].msg
+    assert "0099_missing" in errors[0].msg and "0002_search_index" in errors[0].msg
 
 
 @pytest.mark.parametrize("sensitive", [(), ("body", "title")])
+@pytest.mark.needs_example_app
 def test_table_spec_sensitive_fields_must_match_the_frozen_specification(monkeypatch, sensitive):
-    from skeleton.system import registry
 
-    spec = registry._registry["example_notes.note"]
-    monkeypatch.setitem(registry._registry, "example_notes.note", replace(spec, sensitive_fields=sensitive))
-    errors = [error for error in extension_consistency_checks() if error.id == "skeleton.E016"]
-    assert len(errors) == 1
-    assert "example_notes.Note" in errors[0].msg
+    with table_spec_override("example_notes.note", sensitive_fields=sensitive):
+        errors = [error for error in extension_consistency_checks() if error.id == "skeleton.E016"]
+        assert len(errors) == 1
+        assert "example_notes.Note" in errors[0].msg

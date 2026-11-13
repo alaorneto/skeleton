@@ -1,8 +1,10 @@
 """HTML pages of the organization's webhooks: ``/o/<org>/integrations/webhooks/`` (#63).
 
 Only ``integrations.manage`` sees them (404 otherwise, as if they did not exist). Every POST
-needs CSRF and a recent authentication; the signing secret is rendered once, by creation and
-rotation, on a page that is never cached.
+needs CSRF. Creating, changing, rotating and removing an endpoint also need a recent
+authentication; resending a delivery and the ping need only the capability, CSRF and the
+endpoint's revision (#327). The signing secret is rendered once, by creation and rotation, on
+a page that is never cached.
 """
 
 from functools import wraps
@@ -15,6 +17,7 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
@@ -47,13 +50,16 @@ def integrations_page(view):
 
 
 class EndpointForm(forms.Form):
-    name = forms.CharField(label="Nome", max_length=150)
-    url = forms.CharField(label="URL HTTPS", max_length=2000, help_text="Validada contra destinos internos ao salvar.")
-    principal = forms.ChoiceField(
-        label="Conta de serviço", help_text="As entregas só falam de registros que essa conta pode ler."
+    name = forms.CharField(label=gettext_lazy("Nome"), max_length=150)
+    url = forms.CharField(
+        label="URL HTTPS", max_length=2000, help_text=gettext_lazy("Validada contra destinos internos ao salvar.")
     )
-    event_types = forms.MultipleChoiceField(label="Eventos", widget=forms.CheckboxSelectMultiple)
-    is_enabled = forms.BooleanField(label="Ativo", required=False, initial=True)
+    principal = forms.ChoiceField(
+        label=gettext_lazy("Conta de serviço"),
+        help_text=gettext_lazy("As entregas só falam de registros que essa conta pode ler."),
+    )
+    event_types = forms.MultipleChoiceField(label=gettext_lazy("Eventos"), widget=forms.CheckboxSelectMultiple)
+    is_enabled = forms.BooleanField(label=gettext_lazy("Ativo"), required=False, initial=True)
     revision = forms.IntegerField(widget=forms.HiddenInput, required=False)
 
     def __init__(self, *args, **kwargs):
@@ -76,7 +82,7 @@ class EndpointForm(forms.Form):
 
 def _apply_error(form, error):
     if isinstance(error, ConcurrentUpdate):
-        form.add_error(None, "O webhook mudou. Atualize a página antes de tentar novamente.")
+        form.add_error(None, gettext("O webhook mudou. Atualize a página antes de tentar novamente."))
         return 409
     for field, problems in error.message_dict.items():
         form.add_error(field if field in form.fields else None, problems)
@@ -164,7 +170,7 @@ def endpoint_detail(request, organization_id, sysid):
             except (ValidationError, ConcurrentUpdate) as exc:
                 status = _apply_error(form, exc)
             else:
-                messages.success(request, "Webhook atualizado.")
+                messages.success(request, gettext("Webhook atualizado."))
                 return redirect("integrations:webhook", organization_id=organization_id, sysid=endpoint.pk)
         else:
             status = 400
@@ -193,7 +199,7 @@ def endpoint_rotate(request, organization_id, sysid):
         with transaction.atomic():
             issued = services.rotate_secret(endpoint, actor=request.user, expected_revision=_revision(request))
     except ConcurrentUpdate:
-        messages.error(request, "O webhook mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O webhook mudou. Atualize a página antes de tentar novamente."))
         return redirect("integrations:webhook", organization_id=organization_id, sysid=endpoint.pk)
     return _secret_page(request, organization_id, issued, created=False)
 
@@ -208,9 +214,9 @@ def endpoint_delete(request, organization_id, sysid):
         with transaction.atomic():
             services.delete_endpoint(endpoint, actor=request.user, expected_revision=_revision(request))
     except ConcurrentUpdate:
-        messages.error(request, "O webhook mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O webhook mudou. Atualize a página antes de tentar novamente."))
         return redirect("integrations:webhook", organization_id=organization_id, sysid=endpoint.pk)
-    messages.success(request, f"Webhook {endpoint.name} removido.")
+    messages.success(request, gettext("Webhook %(name)s removido.") % {"name": endpoint.name})
     return redirect(reverse("integrations:webhooks", kwargs={"organization_id": organization_id}))
 
 
@@ -237,11 +243,11 @@ def _log_action(request, organization_id, endpoint, action):
         with transaction.atomic():
             action()
     except ConcurrentUpdate:
-        messages.error(request, "O webhook mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O webhook mudou. Atualize a página antes de tentar novamente."))
     except ValidationError:
-        messages.error(request, "O webhook está desativado: reative-o antes de reenviar ou testar.")
+        messages.error(request, gettext("O webhook está desativado: reative-o antes de reenviar ou testar."))
     else:
-        messages.success(request, "Entrega enfileirada.")
+        messages.success(request, gettext("Entrega enfileirada."))
     return redirect("integrations:webhook-deliveries", organization_id=organization_id, sysid=endpoint.pk)
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 REASON = "test:app-activation"
 
@@ -34,10 +34,14 @@ def open_app(app_label: str, *, using: str = "default") -> None:
 
 
 def activate_app(app_label: str, organization_id: UUID, *, using: str = "default") -> None:
-    """Create or enable the organization's ``AppInstallation`` with the default configuration."""
+    """Create or enable the organization's ``AppInstallation`` with the default configuration.
+
+    Refuses (``ValueError``) while a dependency is not active in the organization: an operator
+    could not reach that state either (#321).
+    """
     from django.db import transaction
 
-    from skeleton.system.app_registry import get_app, validate_configuration
+    from skeleton.system.app_registry import get_app, required_labels, validate_configuration
     from skeleton.system.models import AppInstallation
     from skeleton.tenancy.context import system_context
 
@@ -45,6 +49,14 @@ def activate_app(app_label: str, organization_id: UUID, *, using: str = "default
         transaction.atomic(using=using),
         system_context(reason=REASON, organization_id=organization_id, using=using),
     ):
+        for dependency in required_labels(app_label):
+            active = (
+                AppInstallation.all_objects.using(using)
+                .filter(organization_id=organization_id, app_label=dependency, enabled=True)
+                .exists()
+            )
+            if not active:
+                raise ValueError(f"{app_label} depends on {dependency}, which is not active in the organization.")
         record = (
             AppInstallation.all_objects.using(using)
             .filter(organization_id=organization_id, app_label=app_label)
@@ -93,11 +105,13 @@ def apps_open_by_default(app_labels: Iterable[str] | None = None, *, using: str 
 
         transaction.on_commit(run, using=alias)
 
-    post_save.connect(activate, sender=Organization, weak=False, dispatch_uid="skeleton-testing-open-apps")
+    # One receiver per use: a nested block never disconnects the outer one (#321).
+    uid = f"skeleton-testing-open-apps-{uuid4()}"
+    post_save.connect(activate, sender=Organization, weak=False, dispatch_uid=uid)
     try:
         yield
     finally:
-        post_save.disconnect(sender=Organization, dispatch_uid="skeleton-testing-open-apps")
+        post_save.disconnect(sender=Organization, dispatch_uid=uid)
 
 
 def activation_revision(app_label: str) -> int:

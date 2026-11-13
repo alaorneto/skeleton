@@ -120,3 +120,16 @@ def test_member_access_is_an_admin_action(agenda, login):
     assert admin.post(url, {"csrfmiddlewaretoken": admin.cookies["csrftoken"].value}).status_code == 302
     with actor_tenant(agenda.admin, agenda.a):
         assert services.grant_member_access(actor=agenda.admin) == ()  # Already granted: no change.
+
+
+def test_capability_holder_without_mfa_is_sent_to_mfa_setup(agenda, login, settings):
+    """An administrator without MFA is sent to set it up before granting anything (#234)."""
+    settings.SKELETON_REQUIRE_ADMIN_MFA = True
+    bob = login(agenda.bob)  # Bob administers B, where the member role has no calendar access yet.
+    home_b = reverse("skeleton_calendar:home", kwargs={"organization_id": agenda.b.pk})
+    url = reverse("skeleton_calendar:member-access", kwargs={"organization_id": agenda.b.pk})
+    assert bob.get(home_b)["Location"] == reverse("mfa_index")
+    response = bob.post(url, {"csrfmiddlewaretoken": bob.cookies["csrftoken"].value})
+    assert response.status_code == 302 and response["Location"] == reverse("mfa_index")
+    with actor_tenant(agenda.bob, agenda.b):
+        assert len(services.grant_member_access(actor=agenda.bob)) == 4  # Nothing had been granted.

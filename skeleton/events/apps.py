@@ -1,10 +1,11 @@
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy
 
 
 class EventsConfig(AppConfig):
     name = "skeleton.events"
     label = "sk_events"
-    verbose_name = "Eventos de domínio"
+    verbose_name = gettext_lazy("Eventos de domínio")
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):

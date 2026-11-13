@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext
 
 from .presentation import (
     AdministrationSpec,
@@ -189,6 +190,8 @@ CORE_APP_LABELS = frozenset(
         "sk_files",
         "sk_integrations",
         "sk_sequences",
+        "sk_flows",
+        "sk_comments",
     }
 )
 
@@ -274,15 +277,15 @@ def all_apps():
 
 def validate_configuration(manifest, values):
     if not isinstance(values, dict):
-        raise ValidationError({"configuration": "Use an object of declared fields."})
+        raise ValidationError({"configuration": gettext("Use um objeto com os campos declarados.")})
     fields = {field.name: field for field in manifest.configuration_fields}
     if set(values) - fields.keys():
-        raise ValidationError({"configuration": "Unknown application configuration field."})
+        raise ValidationError({"configuration": gettext("Campo de configuração desconhecido.")})
     result = {}
     for name, field in fields.items():
         value = values.get(name, field.default)
         if type(value) is not field.value_type or (isinstance(value, str) and len(value) > field.max_length):
-            raise ValidationError({"configuration": f"Invalid value for {name}."})
+            raise ValidationError({"configuration": gettext("Valor inválido para %(name)s.") % {"name": name}})
         result[name] = value
     return result
 
@@ -364,47 +367,6 @@ def validate_documentation(manifest):
         text = path.read_text(encoding="utf-8")
         if any(heading not in text for heading in headings):
             raise ValidationError(f"Application {filename} is missing required sections.")
-
-
-def application_urlpatterns():
-    from django.urls import include, path
-
-    from .administration import guard_application_api_urls, guard_application_urls
-
-    result = []
-    for manifest in all_apps():
-        if manifest.urls:
-            module, app_name, namespace = include(manifest.urls)
-            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
-            guarded = guard_application_urls(patterns, manifest)
-            result.append(
-                path(
-                    f"o/<uuid:organization_id>/apps/{manifest.app_label}/",
-                    include((guarded, app_name), namespace=namespace),
-                )
-            )
-        if manifest.bundled and manifest.user_urls:
-            from .administration import guard_user_urls
-
-            module, app_name, namespace = include(manifest.user_urls)
-            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
-            result.append(
-                path(
-                    f"me/apps/{manifest.app_label}/",
-                    include((guard_user_urls(patterns), app_name), namespace=namespace or app_name),
-                )
-            )
-        if manifest.api_urls:
-            module, app_name, namespace = include(manifest.api_urls)
-            patterns = module.urlpatterns if hasattr(module, "urlpatterns") else module
-            guarded = guard_application_api_urls(patterns, manifest)
-            result.append(
-                path(
-                    f"api/v1/o/<uuid:organization_id>/apps/{manifest.app_label}/",
-                    include((guarded, app_name), namespace=namespace),
-                )
-            )
-    return result
 
 
 def registered_app_of_module(module):

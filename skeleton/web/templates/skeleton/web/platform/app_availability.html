@@ -1,0 +1,63 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% block page_title %}Disponibilidade · {{ application.label }}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header">
+  <div class="min-w-0">
+    <nav class="breadcrumbs" aria-label="Caminho"><ol><li><a href="{% url 'platform:apps' %}">Aplicativos instalados</a></li><li><a href="{% url 'platform:app' application.app_label %}">{{ application.label }}</a></li><li><span aria-current="page">Disponibilidade</span></li></ol></nav>
+    <h1>Disponibilidade</h1>
+    <p class="page-description">Instalar não disponibiliza e disponibilizar não ativa. A plataforma decide quais organizações podem usar {{ application.label }}; cada uma delas decide se ativa a app.</p>
+  </div>
+</div>
+<div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+  <section class="card" aria-labelledby="availability-mode">
+    <h2 id="availability-mode">Modo</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">
+      {% if availability.mode == "all" %}Disponível para todas as organizações ativas.
+      {% elif availability.mode == "selected" %}Disponível só para as organizações concedidas abaixo.
+      {% else %}Ainda sem disponibilidade definida: a app está fechada para todas as organizações.{% endif %}
+    </p>
+    <form method="post" action="{% url 'platform:app-availability' application.app_label %}" class="mt-5">
+      {% csrf_token %}
+      {% with form=mode_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+      <p class="mt-2 text-sm/6 text-body-subtle">A mudança é auditada e exige autenticação recente. As concessões ficam guardadas no modo "todas" e voltam a valer no modo "selecionadas".</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar modo</button></div>
+    </form>
+  </section>
+  <section class="card" aria-labelledby="availability-dependencies">
+    <h2 id="availability-dependencies" class="mb-2">Dependências</h2>
+    {% if requires %}
+    <p class="text-sm/6 text-body">Para conceder, estas apps já precisam estar disponíveis para a organização:</p>
+    <ul class="mt-2">{% for app in requires %}<li class="text-sm"><a href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></li>{% endfor %}</ul>
+    {% else %}<p class="text-sm/6 text-body-subtle">Não depende de outras apps.</p>{% endif %}
+    {% if required_by %}
+    <p class="mt-4 text-sm/6 text-body">Revogar é recusado enquanto a organização tiver concedidas as apps que dependem desta:</p>
+    <ul class="mt-2">{% for app in required_by %}<li class="text-sm"><a href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></li>{% endfor %}</ul>
+    {% endif %}
+  </section>
+  <section class="card lg:col-span-2" aria-labelledby="availability-grants">
+    <h2 id="availability-grants">Organizações concedidas</h2>
+    <p class="mt-1 text-sm/6 text-body-subtle">Revogar só fecha o portão: a ativação e os parâmetros que a organização escolheu ficam preservados e voltam se a concessão for refeita.</p>
+    {% if revoke_error %}<p class="errorlist nonfield mt-4" role="alert">{{ revoke_error }}</p>{% endif %}
+    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Organização</th><th scope="col">Identificador</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+    {% for grant in availability.grants %}<tr>
+      <td><a href="{% url 'platform:organization' grant.organization_id %}">{{ grant.name }}</a></td>
+      <td><code class="uuid">{{ grant.slug }}</code></td>
+      <td>{% if grant.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}</td>
+      <td class="text-right">{% if grant.blocked_by %}<span class="text-sm text-body-subtle">Bloqueada por {{ grant.blocked_by|join:", " }}</span>{% else %}
+        <form method="post" action="{% url 'platform:app-revoke' application.app_label %}">
+          {% csrf_token %}<input type="hidden" name="organization" value="{{ grant.organization_id }}"><input type="hidden" name="expected_revision" value="{{ grant.revision }}">
+          <button type="submit" class="btn btn-secondary">Revogar<span class="sr-only"> {{ grant.name }}</span></button>
+        </form>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhuma organização concedida.</td></tr>{% endfor %}
+    </tbody></table></div>
+    <form method="post" action="{% url 'platform:app-grant' application.app_label %}" class="mt-5">
+      {% csrf_token %}
+      {% with form=grant_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}{% endwith %}
+      <p class="mt-2 text-sm/6 text-body-subtle">Conceder não abre a app para as demais organizações; no modo "todas", a concessão só passa a valer quando o modo voltar a "selecionadas".</p>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Conceder</button></div>
+    </form>
+  </section>
+</div>
+</div>
+{% endblock %}

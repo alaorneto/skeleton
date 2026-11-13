@@ -1,11 +1,11 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}Visão geral{% endblock %}
+{% load i18n %}{% block page_title %}{% translate "Visão geral" %}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
-    <p class="page-eyebrow">Plataforma</p>
-    <h1>Administração da plataforma</h1>
-    <p class="page-description">Identidades, organizações, aplicativos instalados e catálogo global. Administrar a plataforma não concede acesso aos dados das organizações.</p>
+    <p class="page-eyebrow">{% translate "Plataforma" %}</p>
+    <h1>{% translate "Administração da plataforma" %}</h1>
+    <p class="page-description">{% translate "Identidades, organizações, aplicativos instalados e catálogo global. Administrar a plataforma não concede acesso aos dados das organizações." %}</p>
   </div>
 </div>
 <ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -13,20 +13,20 @@
 </ul>
 <div class="mt-8 grid gap-5 lg:grid-cols-3">
   <section class="card lg:col-span-1" aria-labelledby="overview-core">
-    <h2 id="overview-core" class="mb-3">Versão do núcleo</h2>
+    <h2 id="overview-core" class="mb-3">{% translate "Versão do núcleo" %}</h2>
     <dl class="meta-list sm:grid-cols-1!">
-      <div><dt>Versão</dt><dd>{{ core.version|default:"—" }}</dd></div>
-      <div><dt>Origem</dt><dd>{{ core.origin|default:"—" }}</dd></div>
+      <div><dt>{% translate "Versão" %}</dt><dd>{{ core.version|default:"—" }}</dd></div>
+      <div><dt>{% translate "Origem" %}</dt><dd>{{ core.origin_label|default:"—" }}</dd></div>
     </dl>
-    <a class="btn btn-secondary btn-sm mt-4" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}Versões e atualizações</a>
+    <a class="btn btn-secondary btn-sm mt-4" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Versões e atualizações" %}</a>
   </section>
   <section class="card lg:col-span-2" aria-labelledby="overview-operations">
-    <h2 id="overview-operations" class="mb-3">Operações recentes</h2>
+    <h2 id="overview-operations" class="mb-3">{% translate "Operações recentes" %}</h2>
     {% if operations %}
     <ul class="divide-y divide-default-subtle">
       {% for operation in operations %}<li class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"><a href="{% url 'platform:updates-operation' operation.sysid %}">{{ operation.get_operation_display }}</a><span class="flex items-center gap-2"><span class="badge">{{ operation.state }}</span><span class="text-body-subtle">{{ operation.created_at }}</span></span></li>{% endfor %}
     </ul>
-    {% else %}<p class="text-sm text-body-subtle">Nenhuma operação de versão registrada.</p>{% endif %}
+    {% else %}<p class="text-sm text-body-subtle">{% translate "Nenhuma operação de versão registrada." %}</p>{% endif %}
   </section>
 </div>
 {% endblock %}

@@ -4,6 +4,7 @@ import os
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 
+from skeleton.accounts.emails import normalize_email
 from skeleton.accounts.services import bootstrap_identity
 
 
@@ -19,7 +20,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         from skeleton.accounts.models import User
 
-        email = options["email"].strip().lower()
+        email = normalize_email(options["email"])
         password = os.environ.get("SKELETON_BOOTSTRAP_PASSWORD")
         if not User.all_objects.using(options["database"]).filter(email=email).exists() and not password:
             if not self.stdin.isatty() if hasattr(self, "stdin") else not __import__("sys").stdin.isatty():

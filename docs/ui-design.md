@@ -29,6 +29,20 @@ Este guia define os tokens visuais, os componentes disponíveis e o build. Ele n
 
 Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `ink-*`) e o mapeamento semântico do Flowbite 4. Para trocar a marca de um projeto derivado, altere só a escala `--color-cobalt-*` e recompile.
 
+### Marca por organização
+
+O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor primária e um logo ([#168](https://github.com/alaorneto/skeleton/issues/168)). Nas telas da organização, o nome e o logo substituem "Skeleton" no cabeçalho. A cor substitui só os tokens `--color-brand`, `--color-brand-strong`, `--color-fg-brand` e `--color-fg-brand-strong`, por um `<style>` no `base.html`.
+
+- **Contraste:**
+  - A cor precisa de contraste WCAG AA (4,5:1) com o branco, porque os botões levam texto branco sobre ela e os links a usam sobre o fundo claro.
+  - No modo escuro, os textos usam uma variante clareada até atingir 4,5:1 sobre o fundo escuro.
+  - O cálculo fica em `skeleton/tenancy/branding.py`.
+- **CSS:** sai só de valores `#rrggbb` validados (há também um check no banco), nunca de texto livre. Quando houver CSP global, esse `<style>` vai precisar de nonce.
+- **Logo:**
+  - PNG, JPEG ou WebP de até 512 KB, conferido pelo conteúdo; SVG é recusado.
+  - É servido inline só para membros, em `/o/<org>/settings/logo/`, com `Cache-Control: private`, `nosniff` e ETag.
+  - Fora das telas da organização (`/me`, login, `/platform/`), o tema do núcleo continua.
+
 ### Modo escuro
 
 Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
@@ -81,6 +95,18 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 Ícones: `{% include "skeleton/web/components/icon.html" with name="table" class="size-5" %}` (traço 24 px, estilo Heroicons, decorativos com `aria-hidden`).
 
 Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `pre`, inputs, selects e `button` têm estilo de base. Telas de apps que ainda usam `<h1>`/`<p>` soltos recebem o mesmo ritmo do cabeçalho padrão.
+
+### Linha do tempo do registro
+
+A página de detalhe mostra uma **linha do tempo** que junta a auditoria e os anexos do registro, do mais recente para o mais antigo, com até 50 itens ([#185](https://github.com/alaorneto/skeleton/issues/185)).
+
+- **Auditoria:** passa por `AuditService.history`, que exige o administrador ou a TablePermission `audit` mais a leitura do registro. A linha do tempo mostra só os nomes das colunas alteradas.
+- **Anexos:** seguem a autorização do alvo.
+
+Novas fontes entram com `skeleton.web.timeline.register_timeline_source`, e cada uma devolve só o que já mostraria sozinha.
+### Texto nos templates
+
+Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skeleton/issues/172)). Isso vale para o conteúdo entre tags, como em `{% translate "Salvar" %}`, e para os atributos visíveis (`alt`, `title`, `placeholder`, `aria-label`). Nos argumentos de tags, use `_("…")`, como em `{% include "…" with label=_("Abrir") %}`. As msgids ficam em pt-BR e o template carrega `{% load i18n %}`. Em frases com variável, prefira `{% blocktranslate trimmed %}` com nomes simples, usando `with` para os atributos. Dados (nomes, emails, valores) nunca entram no gettext.
 
 ### Regras que não mudam
 

@@ -11,7 +11,7 @@ from skeleton.testing.service_api import (
     build_service_scenario,
 )
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 NOTES = "example_notes"
 
 
@@ -32,10 +32,7 @@ def test_contract_and_caller_resolution():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="applications")
@@ -83,3 +80,72 @@ def test_my_configuration_is_only_for_the_calling_app(scenario):
         with acting_as(scenario.member, scenario.a) as actor, pytest.raises(Unavailable):
             as_module("examples.notes.services", service.my_configuration)(actor=actor, app_label=NOTES)
     assert_rejects_other_actor(scenario.caller(lambda actor: service.is_enabled(actor=scenario.denied, app_id=NOTES)))
+
+
+def _state(scenario, user, organization):
+    with acting_as(user, organization) as actor:
+        return ApplicationAdministrationService().application(actor=actor, app_label=NOTES)
+
+
+def test_administration_lists_and_reads_for_the_administrator(scenario):
+    service = ApplicationAdministrationService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        labels = {state.app_label for state in service.applications(actor=admin)}
+        state = service.application(actor=admin, app_label=NOTES)
+    assert NOTES in labels
+    assert (state.app_label, state.available, state.enabled) == (NOTES, True, True) and state.revision >= 1
+
+
+def test_administration_default_deny(scenario):
+    from skeleton.service_api.errors import NotFound
+
+    service = ApplicationAdministrationService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        for call in (
+            lambda: service.applications(actor=actor),
+            lambda: service.application(actor=actor, app_label=NOTES),
+            lambda: service.configure(
+                actor=actor, app_label=NOTES, enabled=True, configuration=(), expected_revision=1
+            ),
+        ):
+            with pytest.raises((NotFound, Forbidden)):  # Documented: NotFound for whoever lacks apps.manage.
+                call()
+    with acting_as(scenario.admin_a, scenario.a) as admin, pytest.raises(NotFound):
+        service.application(actor=admin, app_label="nope_app")
+
+
+def test_administration_rejects_other_actor(scenario):
+    service = ApplicationAdministrationService()
+    for call in (
+        lambda actor: service.applications(actor=scenario.denied),
+        lambda actor: service.application(actor=scenario.denied, app_label=NOTES),
+    ):
+        assert_rejects_other_actor(scenario.caller(call, user=scenario.admin_a))
+
+
+def test_configure_cas_conflict(scenario):
+    from skeleton.testing.service_api import assert_cas_conflict
+
+    state = _state(scenario, scenario.admin_a, scenario.a)
+    service = ApplicationAdministrationService()
+
+    def configure(actor):
+        return service.configure(
+            actor=actor, app_label=NOTES, enabled=True, configuration=(), expected_revision=state.revision
+        )
+
+    updated = assert_cas_conflict(
+        scenario.caller(configure, user=scenario.admin_a), scenario.caller(configure, user=scenario.admin_a)
+    )
+    assert updated.revision == state.revision + 1
+
+
+def test_configure_does_not_touch_other_organization(scenario):
+    before_b = _state(scenario, scenario.admin_b, scenario.b)
+    state = _state(scenario, scenario.admin_a, scenario.a)
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        ApplicationAdministrationService().configure(
+            actor=admin, app_label=NOTES, enabled=False, configuration=(), expected_revision=state.revision
+        )
+    after_b = _state(scenario, scenario.admin_b, scenario.b)
+    assert (after_b.revision, after_b.enabled) == (before_b.revision, before_b.enabled)

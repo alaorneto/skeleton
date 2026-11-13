@@ -104,11 +104,11 @@ def export_schema(app_label):
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Organization
 
-    from .checks import _frozen_operations
+    from .checks import frozen_operations
     from .registry import all_specs
 
     _identifier(app_label)
-    operations, _, _ = _frozen_operations()
+    operations, _, _ = frozen_operations()
     tables = []
     models = []
     for spec in all_specs():
@@ -141,8 +141,8 @@ def export_schema(app_label):
             {
                 "model_label": model._meta.label_lower,
                 "db_table": model._meta.db_table,
-                "label": spec.label or str(model._meta.verbose_name),
-                "description": spec.description,
+                "label": str(spec.label or model._meta.verbose_name),
+                "description": str(spec.description),
                 "scope": spec.scope,
                 "sensitive_fields": list(spec.sensitive_fields),
                 "columns": columns,
@@ -150,18 +150,23 @@ def export_schema(app_label):
             }
         )
         models.append(model)
+    if not models:
+        # An unknown label, or an app without own tables, has nothing to freeze (#366).
+        raise RetainedSchemaError("Application has no installed tables.")
     org_ids = list(Organization.all_objects.values_list("sysid", flat=True))
     records, affected = 0, set()
+    tenant_models = [model for model in models if any(f.name == "organization" for f in model._meta.concrete_fields)]
     for model in models:
-        if any(f.name == "organization" for f in model._meta.concrete_fields):
-            for org_id in org_ids:
-                with system_context(reason="deployment:schema-export", organization_id=org_id):
-                    count = model.all_objects.filter(organization_id=org_id).count()
-                records += count
-                if count:
-                    affected.add(str(org_id))
-        else:
+        if model not in tenant_models:
             records += model.all_objects.count()
+    if tenant_models:
+        for org_id in org_ids:
+            # One transaction per organization, every tenant model counted inside it (#284).
+            with system_context(reason="deployment:schema-export", organization_id=org_id):
+                counts = [model.all_objects.filter(organization_id=org_id).count() for model in tenant_models]
+            records += sum(counts)
+            if any(counts):
+                affected.add(str(org_id))
     references = []
     owned_tables = {entry["db_table"] for entry in tables}
     for model in apps.get_models():

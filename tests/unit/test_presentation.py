@@ -263,7 +263,7 @@ def test_rows_effective_model_widget_and_checks_are_database_free(monkeypatch, n
             administration=AdministrationSpec(),
             configuration_fields=(),
         )
-        monkeypatch.setattr(checks, "all_apps", lambda: (manifest,))
+        monkeypatch.setattr(checks.contract, "all_apps", lambda: (manifest,))
         if accepted:
             validate_presentation(manifest)
             assert not any(error.id == "skeleton.E013" for error in checks.record_contract_checks())
@@ -306,7 +306,7 @@ def test_readonly_rows_surface_as_existing_presentation_check(monkeypatch):
     manifest = replace(manifest, model_ui=(ui,))
     with pytest.raises(ValidationError, match="rows requires an editable textarea widget"):
         validate_presentation(manifest)
-    monkeypatch.setattr(checks, "all_apps", lambda: (manifest,))
+    monkeypatch.setattr(checks.contract, "all_apps", lambda: (manifest,))
     errors = checks.record_contract_checks()
     assert any(
         error.id == "skeleton.E013" and "rows requires an editable textarea widget" in error.msg for error in errors
@@ -529,7 +529,7 @@ def test_static_checks_report_presentation_failure(monkeypatch):
 
     manifest = get_app("example_notes")
     ui = replace(get_model_ui("example_notes.note"), list=ListSpec(columns=("missing",)))
-    monkeypatch.setattr(checks, "all_apps", lambda: (replace(manifest, model_ui=(ui,)),))
+    monkeypatch.setattr(checks.contract, "all_apps", lambda: (replace(manifest, model_ui=(ui,)),))
     errors = checks.record_contract_checks()
     assert any(error.id == "skeleton.E013" for error in errors)
 
@@ -809,3 +809,39 @@ def test_resolved_grid_rejects_invalid_dimensions(span, columns, wide):
 
     with pytest.raises(ValueError):
         resolve_field_span(span, columns, wide=wide)
+
+
+def test_audit_rows_tabulate_changes():
+    """One row per visible field, in alphabetical order, as text (#287)."""
+    import json as json_module
+
+    from skeleton.web.presentation import audit_rows
+
+    changes = {
+        "title": {"old": "Antes", "new": "Depois", "redacted": False},
+        "closed": {"old": False, "new": True, "redacted": False},
+        "body": {"old": "[REDACTED]", "new": "[REDACTED]", "redacted": True},
+        "meta": {"old": None, "new": {"b": 1, "a": "á"}, "redacted": False},
+    }
+    event = SimpleNamespace(
+        sysid=None,
+        created_at=None,
+        organization_id=None,
+        table_name="t",
+        model_label="app.model",
+        record_sysid=None,
+        record_revision=2,
+        operation="update",
+        actor_sysid=None,
+        request_id=None,
+        source="test",
+        db_principal="runtime",
+        changes_json=json_module.dumps(changes),
+    )
+    [row] = audit_rows([event])
+    assert row["changes"] == [
+        {"field": "body", "old": "[redigido]", "new": "[redigido]"},
+        {"field": "closed", "old": "false", "new": "true"},
+        {"field": "meta", "old": "—", "new": '{"a": "á", "b": 1}'},
+        {"field": "title", "old": "Antes", "new": "Depois"},
+    ]

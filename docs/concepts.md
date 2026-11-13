@@ -10,6 +10,14 @@ Pense em um exemplo: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela t
 
 **Identidade global** é a representação de uma pessoa no sistema inteiro. `User` guarda sua conta e os controles de autenticação; `UserProfile` guarda preferências como nome de exibição, idioma e fuso horário. Entrar em outra organização não cria uma segunda conta.
 
+**Idioma e fuso** de cada resposta e de cada email seguem esta ordem ([#170](https://github.com/alaorneto/skeleton/issues/170)):
+
+1. o perfil da pessoa;
+2. o padrão da organização atual, definido pelo administrador em `/o/<org>/settings/`;
+3. o padrão da instância (`SKELETON_DEFAULT_LANGUAGE` e `SKELETON_DEFAULT_TIMEZONE`).
+
+Um valor em branco passa para o próximo nível. Antes do login, só o `Accept-Language` do navegador escolhe, entre os idiomas de `LANGUAGES`. A organização vem sempre do contexto aberto pelo middleware de tenant, nunca de header ou parâmetro. O núcleo entrega só pt-BR; outro idioma entra quando o projeto derivado acrescenta o catálogo dele.
+
 **Organização** (`Organization`) é a unidade à qual os dados de negócio pertencem: por exemplo, uma clínica, empresa ou equipe. A palavra inglesa **tenant** significa essa organização no contexto de isolamento de dados. **Multi-tenancy** significa que uma instalação atende várias organizações sem misturar seus dados.
 
 **Vínculo** (`Membership`) liga uma conta a uma organização. Ter uma conta não significa pertencer a todas as organizações. Ana pode ter um papel de administradora na clínica e um papel de membro no laboratório. Um vínculo desativado deixa de permitir acesso, mas sua história continua armazenada.
@@ -18,9 +26,23 @@ Pense em um exemplo: Ana trabalha na Clínica Norte e no Laboratório Sul. Ela t
 
 A **plataforma** é a instalação inteira do sistema. Seu administrador usa a área `/platform/` (identidades, organizações, aplicativos instalados, catálogo e auditoria global) incluindo Versões e atualizações; o viewer de negócio fica no catálogo/tabelas de `/o/<org>/`. Acesso de plataforma exige flags Django, conta ativa e MFA quando configurado, sem conceder automaticamente vínculo/autorização tenant. Quem é administrador da plataforma é decidido por um único predicado, `is_platform_admin` (`skeleton/accounts/platform.py`): conta autenticada, ativa, não excluída, com `is_staff` **e** `is_superuser`. Só uma das flags ("Parcial") não concede nada. A plataforma nunca fica sem administrador: rebaixar, desativar ou remover o último administrador ativo é recusado com 409. De uma organização, a plataforma vê só o número de membros ativos e os emails de quem a administra, e pode designar ou substituir esse administrador por um serviço auditado ([controle de acesso](access-control.md#designação-de-administrador-pela-plataforma)); designar não dá à própria plataforma acesso aos dados da organização.
 
+Dois **papéis limitados de plataforma** (#34), em `PlatformRoleAssignment`, não dão administração: o **auditor de plataforma** lê a auditoria global e o catálogo de tabelas, e o **operador de releases** cuida só de `/platform/updates/`. Nenhum deles vê identidades ou organizações, edita o catálogo ou entra em `/o/<org>/` sem vínculo. Só o administrador concede e revoga, e a revogação vale na requisição seguinte ([controle de acesso](access-control.md#papéis-limitados-de-plataforma)).
+
 O **administrador de organização** tem o papel empresarial `organization_admin` dentro de uma organização. Ele gerencia seus vínculos, permissões e configuração das apps, mas não instala código nem recebe automaticamente `is_staff` ou `is_superuser`.
 
 Parte dessa gestão pode ser delegada sem conceder administração plena. O **gestor de pessoas** (`people_manager`) administra membros e convites; o **gestor de apps** (`app_manager`) recebe a capacidade de gerir apps. Esses perfis são papéis internos com **capacidades** declaradas em código; um papel criado pela organização nunca carrega capacidade. Veja [capacidades e papéis internos](access-control.md#capacidades-e-papéis-internos).
+
+### Ingresso numa organização
+
+Uma conta global só entra numa organização por um destes caminhos, cada um escolhido pela organização ou pela plataforma:
+
+- **Convite** por email, de uso único (já existente).
+- **Pedido com aprovação**: a organização aceita pedidos (e, se quiser, aparece em `/join/`); quem administra pessoas aprova ou recusa (#26).
+- **Link de ingresso**: multiuso, com validade, limite de usos e entrada direta ou com aprovação; pode abrir o cadastro (#27).
+- **Domínio verificado**: quem confirma um email de um domínio que a organização provou controlar por DNS entra direto ou cria um pedido (#28).
+- **SSO ou LDAP** configurado pela plataforma para aquela organização, com JIT, aprovação, papel e domínios decididos pela própria organização (#29–#33).
+
+Admissões automáticas (link, domínio, SSO, sincronização) nunca reativam um vínculo anterior: quem saiu ou foi removido sempre volta por um pedido decidido por uma pessoa. Sair é livre, menos para o último administrador (#25).
 
 A distinção importa: conceder administração de uma clínica não pode conceder administração das outras clínicas ou permissão para atualizar o servidor. E ser superusuário Django não elimina os requisitos de vínculo e autorização nas rotas organizacionais.
 

@@ -8,9 +8,10 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 2. `docs/data-model.md`, `docs/access-control.md`, `docs/audit-soft-delete.md`.
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
-5. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
-6. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
-7. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
+5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md` e `docs/sequences.md` antes de usar ou alterar o subsistema correspondente.
+6. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
+7. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
+8. `docs/workflow.md` antes de planejar, commitar ou abrir PR.
 
 ## Rastreabilidade: plano, issue, commit, versão e fechamento
 
@@ -32,15 +33,25 @@ Todo desenvolvimento versionado (código, testes, documentação, CI, dependênc
 - `skeleton/access`: papéis/grupos, concessões e serviços/policies.
 - `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
-- `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log); saídas HTTP só por `skeleton.common.outbound_http`.
+- `skeleton/jobs`: fila de jobs no banco, com tipos registrados em código; enqueue na transação do negócio; payload só com identificadores, nunca dado de negócio.
+- `skeleton/events`: eventos de domínio publicados explicitamente pelo serviço, na mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade.
+- `skeleton/notifications`: tipos de notificação, `notify()` e linhas por pessoa; snapshot só com campos declarados e não sensíveis; envio por jobs, nunca dentro da requisição.
+- `skeleton/files`: anexos em armazenamento privado; os bytes só saem por view autorizada, com autorização derivada do registro alvo; sem URL pública.
+- `skeleton/integrations`: webhooks da organização (endpoints, entrega assinada, log) e tokens de API (emissão, autenticação Bearer, limites); saídas HTTP só por `skeleton.common.outbound_http`; o banco guarda só o hash do token.
 - `skeleton/sequences`: sequências sem lacunas por organização e período.
+- `skeleton/records`: gateway genérico de registros (coerção por allowlist, criação/edição/exclusão/restauração, seletor de referências, entrada e saída dos recursos de acesso) usado pelas superfícies; sem modelos nem label; sempre por `authorized_queryset`/`require_record_action`. `skeleton.web.services`, `skeleton.web.references` e `skeleton.api.serializers` são caminhos históricos que só reexportam (#301).
+- `skeleton/transfer`: exportação e importação CSV de tabelas expostas por job, com o arquivo no storage privado e a retenção declarada (`TransferJob`, operacional); só pelo caminho autorizado de leitura e escrita do gateway.
+- `skeleton/flows`: motor de fluxos de processo de negócio (definições versionadas, instâncias, tarefas, formulários, aprovações; [docs/flows.md](docs/flows.md)). É só o motor: apps declaram os fluxos em código por `skeleton.flows.registry` e os usam pelo `FlowService`. Condições são árvores de dados ou callables registrados, nunca `eval`; nenhuma regra de negócio de um fluxo entra no núcleo.
+- `skeleton/comments`: comentários em registros ([docs/comments.md](docs/comments.md)). A autorização vem do registro alvo (como os anexos), a tabela precisa de `TableSpec.comments`; só o autor edita, autor e administrador excluem. Texto simples sempre escapado; nenhuma regra de negócio de app.
 - `skeleton/instance`: configuração da instância num SQLite próprio, lido antes do Django; nunca dados de aplicação. Todo dado vive no PostgreSQL (E025).
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
+- `skeleton/observability`: métricas, tracing e relato de erros, todos opt-in; nenhum rótulo ou atributo carrega `sysid` de organização ou de pessoa, slug, email, token ou segredo, e os eventos de erro só levam os campos estruturados permitidos aos logs.
+- `skeleton/conf`: defaults, profiles e URLs distribuídos com o núcleo; não importa negócio nem configurações do derivado (só referencia `config.*` por nome, em settings).
 - `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
-- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos e arquivos; epic #113).
+- `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos, arquivos, sequências, tokens de feed e fluxos de processo; epics #113 e #209).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
-- `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
+- `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado. `deployment_agent`: processo operacional separado que prepara e troca releases; a credencial owner e os comandos privilegiados nunca pertencem ao processo web.
 - `examples/notes`: exemplo didático opt-in, não dependência do núcleo.
 - `skeleton/contrib`: apps first-party distribuídas no wheel do núcleo (manifest `kind: "bundled_app"`, label `skeleton_*`, versão igual à do core). Entram em `INSTALLED_APPS` só por nome em `SKELETON_BUNDLED_APPS`, contra o mapa fixo de `skeleton/conf/bundled.py` (nunca import path do ambiente), e seguem as regras de qualquer app: API de serviços, disponibilidade e ativação fechadas. O resto do núcleo nunca importa `skeleton.contrib`; apps de terceiros não usam o prefixo `skeleton_` nem `runtime.user_urls`.
 
@@ -67,6 +78,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 - Na migration da criação, e após mudanças de colunas auditáveis/relações, instale `InstallRecordInfrastructure` com especificação congelada. Use modelos históricos; nunca imports dos modelos correntes nem dados editáveis do catálogo para DDL.
 - Relações entre entidades próprias usam `PROTECT`, links concretos UUID e infraestrutura de integridade tenant. Não introduza through implícito inteiro; não use `.add/.set/.clear` como caminho alternativo de segurança.
 - Marque segredos antes da persistência em audit. Claims/JSON sensíveis são redigidos integralmente; não prometa que campos desconhecidos serão detectados automaticamente.
+- Dados pessoais (email, nomes, documentos) entram em `personal_fields`: continuam legíveis pela API e saem `[REDACTED]` na auditoria, que cita a pessoa só pelo sysid (#189). A declaração é congelada com a infraestrutura (E032).
 - Toda tabela técnica precisa de exceção nominal com motivo no manifesto; não acrescente isenção por prefixo.
 
 ## Contexto, autorização e concorrência
@@ -81,7 +93,7 @@ Não aceite actor/tenant/sysid/revision/flags de usuário por mass assignment. P
 
 `delete` é soft delete. `restore` valida unicidade/referências ativas; não recria UUID. `bulk_update` e bulk conflict upsert são proibidos. User/Organization retêm vínculos históricos; os demais registros protegem referências vivas. Use serviços de lifecycle/revogação para não esquecer `auth_version`, último admin e relações de acesso.
 
-Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
+Não implemente purge por HTTP/admin/manager. O único expurgo de conteúdo de negócio é o job `files.purge` (#192), declarado em código: ele apaga os bytes de anexos excluídos há mais de `SKELETON_FILES_DELETED_RETENTION_DAYS` e mantém a linha como tombstone `purged`. Auditoria vem de triggers, na mesma transação; não adicione signal de save como segunda fonte de eventos. AuditEvent é append-only. A única exceção é `manage.py redact_audit_personal_data --confirm`: só o owner pode rodá-lo, e ele redige os `personal_fields` de eventos antigos numa transação que religa o guard (#189). DBA/owner permanecem fronteira privilegiada, não WORM; quem controla o SQLite da instância e a chave mestra controla a configuração.
 
 ## Checklist mínimo de nova tabela
 
@@ -94,5 +106,6 @@ Não implemente purge por HTTP/admin/manager. Auditoria vem de triggers, na mesm
 - Auditoria create/save/queryset/bulk/SQL/delete/restore correta, segredos redigidos, rollback/savepoint sem eventos residuais.
 - Soft delete/restore/conflito/referências preservam IDs e dados.
 - PostgreSQL com **role runtime** (toda a suíte; `tools/dev_postgres.py` localmente), sem usar owner para provar RLS; o owner só migra ou monta DDL de fixture. Fixtures protegidas, sem flush/TRUNCATE de tabelas próprias.
+- Testes novos seguem [Escrever testes que mantêm a suíte rápida](docs/testing.md#escrever-testes-que-mantêm-a-suíte-rápida). Banco só quando a prova depende dele; casos de leitura dividem um preparo (`subtests`). Nada de porta fixa, arquivo fora de `tmp_path`, `sleep` de espera, estado global sem restauração ou dependência de ordem: a suíte roda em paralelo (`-n`). Tempo não se ganha pulando teste nem trocando o PostgreSQL com a role runtime.
 
 Atualize documentação afetada. Registre somente testes realmente executados; serviços indisponíveis são bloqueios de verificação, nunca aprovação por inferência.

@@ -1,6 +1,7 @@
 """Worker: lease, retry with backoff, dead-letter, contexts per job and drain (#38)."""
 
 import threading
+import time
 from datetime import timedelta
 
 import pytest
@@ -15,6 +16,7 @@ from skeleton.jobs.services import enqueue
 from skeleton.jobs.worker import Worker, claim, execute, reap_expired_leases
 from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Jobs-worker-Password!58"
@@ -38,10 +40,10 @@ def as_actor(*, actor):
 @pytest.fixture(autouse=True)
 def job_types(monkeypatch):
     calls.clear()
-    monkeypatch.setattr(registry, "_registry", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_job_type(JobType("test.write", write_role, {"code": "str", "fail": "bool"}, max_attempts=2, backoff=1))
-    register_job_type(JobType("test.actor", as_actor, {}, run_as="actor"))
+    with isolated_job_types():
+        register_job_type(JobType("test.write", write_role, {"code": "str", "fail": "bool"}, max_attempts=2, backoff=1))
+        register_job_type(JobType("test.actor", as_actor, {}, run_as="actor"))
+        yield
 
 
 @pytest.fixture
@@ -193,3 +195,124 @@ def test_two_postgres_workers_never_run_the_same_job(tenant):
         thread.join()
     assert not set(claimed[0]) & set(claimed[1])
     assert len(claimed[0]) + len(claimed[1]) == 12
+
+
+def secret_failure(*, code, fail=False):
+    raise KeyError("valor-secreto")
+
+
+def test_busy_worker_keeps_heartbeat_fresh(tenant, monkeypatch):
+    """Jobs back to back still beat once the interval passes (#243)."""
+    from skeleton.jobs import worker as worker_module
+
+    _, organization = tenant
+    for index in range(3):
+        queue(organization, f"busy-{index}")
+    make_due()
+    clock = iter(range(0, 10_000, 20))
+    monkeypatch.setattr(worker_module.time, "monotonic", lambda: float(next(clock)))
+    beats = []
+    original = worker_module.heartbeat
+    monkeypatch.setattr(worker_module, "heartbeat", lambda *a, **k: (beats.append(k.get("state")), original(*a, **k)))
+    outcomes = Worker(worker_id="busy").run(max_jobs=3, idle_sleep=0)
+    assert len(outcomes) == 3
+    assert beats.count("running") >= 3  # The start plus at least one beat between the jobs.
+
+
+def test_idle_worker_writes_heartbeat_at_most_every_interval(tenant, monkeypatch):
+    from skeleton.jobs import worker as worker_module
+
+    worker = Worker(worker_id="idle")
+    turns = []
+
+    def sleep(seconds):
+        turns.append(seconds)
+        if len(turns) == 10:
+            worker.stop()
+
+    monkeypatch.setattr(worker_module.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(worker_module.time, "sleep", sleep)
+    beats = []
+    monkeypatch.setattr(worker_module, "heartbeat", lambda *a, **k: beats.append(k.get("state")))
+    worker.run(idle_sleep=0)
+    assert beats == ["running", "stopped"]
+
+
+def test_failed_job_logs_a_sanitized_stack_without_payload(tenant, caplog):
+    import json
+    import logging
+
+    from skeleton.common.logging import SecurityJSONFormatter
+
+    _, organization = tenant
+    register_job_type(JobType("test.secret", secret_failure, {"code": "str", "fail": "bool"}, max_attempts=2))
+    with system_context(reason="test:worker-secret", organization_id=organization.pk):
+        enqueue("test.secret", organization_id=organization.pk, payload={"code": "payload-value", "fail": False})
+    make_due()
+    with caplog.at_level(logging.INFO, logger="skeleton.security"):
+        Worker(worker_id="secret").run(once=True)
+    [record] = [record for record in caplog.records if getattr(record, "event", None) == "job.failed"]
+    assert record.exc_info
+    text = SecurityJSONFormatter().format(record)
+    payload = json.loads(text)
+    assert payload["error_stack"] and ":" in payload["error_stack"][0]
+    assert "valor-secreto" not in text and "payload-value" not in text
+
+
+def slow_write(*, code, fail=False):
+    write_role(code=code)
+    time.sleep(5)
+
+
+def lock_timeout(*, code, fail=False):
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW lock_timeout")
+        seen_lock_timeouts.append(cursor.fetchone()[0])
+
+
+seen_lock_timeouts = []
+
+
+@pytest.mark.posix
+def test_handler_past_timeout_is_interrupted_and_retried(tenant):
+    """A handler past timeout_s is interrupted; nothing it wrote persists (#297)."""
+    _, organization = tenant
+    register_job_type(JobType("test.slow", slow_write, {"code": "str", "fail": "bool"}, timeout_s=1))
+    with system_context(reason="test:slow", organization_id=organization.pk):
+        receipt = enqueue("test.slow", organization_id=organization.pk, payload={"code": "slow", "fail": False})
+    make_due()
+    started = time.monotonic()
+    Worker(worker_id="slow").run(once=True)
+    assert time.monotonic() - started < 3
+    job = Job.all_objects.get(pk=receipt.id)
+    assert (job.state, job.last_error_class, job.last_error_code) == ("queued", "JobTimeout", "timeout")
+    assert "slow" not in role_codes(organization)
+
+
+@pytest.mark.posix
+def test_worker_keeps_working_after_a_timeout(tenant):
+    _, organization = tenant
+    register_job_type(JobType("test.slow", slow_write, {"code": "str", "fail": "bool"}, timeout_s=1))
+    with system_context(reason="test:slow-then-ok", organization_id=organization.pk):
+        enqueue("test.slow", organization_id=organization.pk, payload={"code": "slow2", "fail": False})
+    make_due()
+    Worker(worker_id="slow-ok").run(once=True)
+    queue(organization, "after-timeout")
+    make_due()
+    Job.all_objects.filter(job_type="test.slow").update(state=Job.State.CANCELLED)
+    outcomes = Worker(worker_id="slow-ok").run(once=True)
+    assert [outcome.state for outcome in outcomes] == ["succeeded"]
+    assert "after-timeout" in role_codes(organization)
+
+
+def test_job_transaction_has_a_lock_timeout(tenant):
+    _, organization = tenant
+    seen_lock_timeouts.clear()
+    register_job_type(JobType("test.lock", lock_timeout, {"code": "str", "fail": "bool"}, timeout_s=7))
+    with system_context(reason="test:lock-timeout", organization_id=organization.pk):
+        enqueue("test.lock", organization_id=organization.pk, payload={"code": "x", "fail": False})
+    make_due()
+    Worker(worker_id="lock").run(once=True)
+    assert seen_lock_timeouts == ["7s"]

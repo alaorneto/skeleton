@@ -1,19 +1,20 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.common.exceptions import ImmutableRecord, LiveReferencesExist
 from skeleton.common.models import OrganizationRecord
 
 
 class Action(models.TextChoices):
-    READ = "read", "Ler"
-    CREATE = "create", "Criar"
-    UPDATE = "update", "Atualizar"
-    DELETE = "delete", "Excluir"
-    RESTORE = "restore", "Restaurar"
-    MANAGE_ACCESS = "manage_access", "Gerir acesso"
-    AUDIT = "audit", "Auditar"
+    READ = "read", gettext_lazy("Ler")
+    CREATE = "create", gettext_lazy("Criar")
+    UPDATE = "update", gettext_lazy("Atualizar")
+    DELETE = "delete", gettext_lazy("Excluir")
+    RESTORE = "restore", gettext_lazy("Restaurar")
+    MANAGE_ACCESS = "manage_access", gettext_lazy("Gerir acesso")
+    AUDIT = "audit", gettext_lazy("Auditar")
 
 
 def live_unique(fields, name):
@@ -38,7 +39,7 @@ class Role(OrganizationRecord):
         from .capabilities import BUILTIN_CODES
 
         if self.is_builtin and self.code not in BUILTIN_CODES:
-            raise ValidationError({"code": "Unknown builtin role."})
+            raise ValidationError({"code": gettext("Papel interno desconhecido.")})
         if self.is_builtin and self.deleted_at is not None:
             raise LiveReferencesExist("Builtin roles cannot be deleted.")
         if not self._state.adding:
@@ -61,7 +62,11 @@ def validate_service_account_role(membership, role):
 
     if membership.user.is_service_account and privileged_role(role):
         raise ValidationError(
-            {"role": ValidationError("Conta de serviço não recebe papel com capacidade.", code="service_account_role")}
+            {
+                "role": ValidationError(
+                    gettext("Conta de serviço não recebe papel com capacidade."), code="service_account_role"
+                )
+            }
         )
 
 
@@ -201,4 +206,4 @@ def validate_active_membership(record):
         organization__is_active=True,
         organization__deleted_at__isnull=True,
     ).exists():
-        raise ValidationError({"membership": "An active membership in this organization is required."})
+        raise ValidationError({"membership": gettext("É preciso um vínculo ativo nesta organização.")})

@@ -59,9 +59,9 @@ def test_rd06_restore_user_persists_version_with_one_cas():
         password=PASSWORD,
     )
     with request_context(actor=admin, request_id=uuid4(), source="test:restore-user"):
-        user = deactivate_user(user, delete=True)
+        user = deactivate_user(user, actor=admin, delete=True)
         revision, version = user.revision, user.auth_version
-        restored = restore_user(user)
+        restored = restore_user(user, actor=admin)
         persisted = User.all_objects.get(pk=user.pk)
         assert persisted.pk == restored.pk
         assert not persisted.is_active and persisted.deleted_at is None
@@ -136,7 +136,7 @@ def test_sbr11_non_string_language_is_validation_error_without_write(value):
 def test_sbr12_manager_created_identity_has_persisted_profile_and_me(method):
     with system_context(reason="test:manager-identity"):
         user = getattr(User.objects, method)(email=f"{method}@example.test", password=PASSWORD)
-        assert UserProfile.objects.get(user=user).timezone == "UTC"
+        assert UserProfile.objects.get(user=user).timezone == ""  # Blank follows the defaults (#170).
         EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
     response = login(user).get("/api/v1/me/")
     assert response.status_code == 200
@@ -157,7 +157,7 @@ def test_organization_creation_rolls_back_when_owner_becomes_inactive():
     )
     stale_owner = identity("org-owner@example.test")
     with request_context(actor=admin, request_id=uuid4(), source="test:org-owner-offboarding"):
-        deactivate_user(User.objects.get(pk=stale_owner.pk))
+        deactivate_user(User.objects.get(pk=stale_owner.pk), actor=admin)
     assert stale_owner.is_active
 
     with pytest.raises(ValidationError):

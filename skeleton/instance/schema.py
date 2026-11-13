@@ -53,6 +53,29 @@ def _list(value: str) -> str:
     return ",".join(items)
 
 
+def _fernet_keys(value: str) -> str:
+    """An ordered keyring: every item must be a Fernet key, or the first use after restart fails (#323)."""
+    from cryptography.fernet import Fernet
+
+    cleaned = _list(value)
+    for item in cleaned.split(","):
+        try:
+            Fernet(item.encode())
+        except (ValueError, TypeError):
+            raise ValueError(
+                "Cada item precisa ser uma chave Fernet (32 bytes em base64 url-safe); gere com: "
+                'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+            ) from None
+    return cleaned
+
+
+def _secret_key(value: str) -> str:
+    """The criterion of Django's ``security.W009``: long and varied (#323)."""
+    if len(_required_text(value)) < 50 or len(set(value)) < 5:
+        raise ValueError("Use ao menos 50 caracteres, com 5 ou mais caracteres diferentes.")
+    return value
+
+
 def _url(parser: str) -> Callable[[str], str]:
     def validate(value: str) -> str:
         from urllib.parse import urlsplit
@@ -63,7 +86,7 @@ def _url(parser: str) -> Callable[[str], str]:
             if not urlsplit(_required_text(value)).scheme or "://" not in value:
                 raise ValueError
             getattr(environ.Env, parser)(value)
-        except Exception:
+        except Exception:  # noqa: BLE001 - any parser failure is the same invalid-URL refusal
             raise ValueError("URL inválida para este campo.") from None
         return value
 
@@ -115,6 +138,24 @@ def _choice(*choices: str) -> Callable[[str], str]:
     return validate
 
 
+def _language(value: str) -> str:
+    import re
+
+    if not re.fullmatch(r"[a-z]{2,3}(-[a-z0-9]{2,8})?", value):
+        raise ValueError("Use um código de idioma como pt-br.")
+    return value
+
+
+def _timezone(value: str) -> str:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise ValueError("Use um fuso IANA, como America/Sao_Paulo.") from None
+    return value
+
+
 @dataclass(frozen=True)
 class SettingSpec:
     key: str
@@ -132,7 +173,7 @@ class SettingSpec:
 
 
 _SPECS = (
-    SettingSpec("secret_key", "DJANGO_SECRET_KEY", "secret", "Chave secreta do Django", _required_text, True, True),
+    SettingSpec("secret_key", "DJANGO_SECRET_KEY", "secret", "Chave secreta do Django", _secret_key, True, True),
     SettingSpec(
         "allowed_hosts", "DJANGO_ALLOWED_HOSTS", "list", "Hosts aceitos, separados por vírgula", _list, False, True
     ),
@@ -165,13 +206,13 @@ _SPECS = (
     ),
     SettingSpec("webpush_vapid_subject", "WEBPUSH_VAPID_SUBJECT", "str", "Contato VAPID (mailto: ou https:)", _subject),
     SettingSpec("webpush_allowed_hosts", "WEBPUSH_ALLOWED_HOSTS", "list", "Serviços de push permitidos", _list),
-    SettingSpec("mfa_encryption_keys", "MFA_ENCRYPTION_KEYS", "list", "Chaves de cifra do MFA", _list, True),
+    SettingSpec("mfa_encryption_keys", "MFA_ENCRYPTION_KEYS", "list", "Chaves de cifra do MFA", _fernet_keys, True),
     SettingSpec(
         "identity_provider_encryption_keys",
         "IDENTITY_PROVIDER_ENCRYPTION_KEYS",
         "list",
         "Chaves de cifra dos provedores de identidade",
-        _list,
+        _fernet_keys,
         True,
     ),
     SettingSpec(
@@ -179,7 +220,7 @@ _SPECS = (
         "INTEGRATION_ENCRYPTION_KEYS",
         "list",
         "Chaves de cifra dos segredos de integração (webhooks)",
-        _list,
+        _fernet_keys,
         True,
     ),
     SettingSpec("sso_provider_config_path", "SSO_PROVIDER_CONFIG_PATH", "path", "Arquivo de provedores SSO", _text),
@@ -191,7 +232,21 @@ _SPECS = (
     SettingSpec(
         "files_org_quota_bytes", "SKELETON_FILES_ORG_QUOTA_BYTES", "int", "Cota de anexos por organização", _int(0)
     ),
+    SettingSpec(
+        "files_deleted_retention_days",
+        "SKELETON_FILES_DELETED_RETENTION_DAYS",
+        "int",
+        "Dias até expurgar o conteúdo de anexos excluídos",
+        _int(1),
+    ),
+    SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
+    SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),
+    SettingSpec("export_max_rows", "SKELETON_EXPORT_MAX_ROWS", "int", "Linhas máximas de uma exportação CSV", _int(1)),
+    SettingSpec("import_max_rows", "SKELETON_IMPORT_MAX_ROWS", "int", "Linhas máximas de uma importação CSV", _int(1)),
+    SettingSpec(
+        "transfer_retention_days", "SKELETON_TRANSFER_RETENTION_DAYS", "int", "Retenção dos arquivos CSV", _int(1)
+    ),
     SettingSpec(
         "bundled_apps", "SKELETON_BUNDLED_APPS", "list", "Apps first-party do núcleo instaladas (nomes)", _list
     ),
@@ -204,6 +259,13 @@ _SPECS = (
     ),
     SettingSpec(
         "api_token_max_days", "SKELETON_API_TOKEN_MAX_DAYS", "int", "Validade máxima dos tokens de API (dias)", _int(1)
+    ),
+    SettingSpec(
+        "api_token_max_per_owner",
+        "SKELETON_API_TOKEN_MAX_PER_OWNER",
+        "int",
+        "Máximo de tokens de API vivos por pessoa ou conta de serviço",
+        _int(1),
     ),
     SettingSpec(
         "api_token_rate_per_minute",

@@ -12,12 +12,12 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from skeleton.accounts.services import bootstrap_identity
 from skeleton.integrations.webhooks.delivery import DELIVER_JOB
-from skeleton.jobs import registry
 from skeleton.jobs.models import Job, WorkerHeartbeat
 from skeleton.jobs.operations import queue_health
 from skeleton.jobs.registry import JobType, register_job_type
 from skeleton.jobs.services import enqueue
 from skeleton.tenancy.context import system_context
+from skeleton.testing.registries import isolated_job_types
 
 pytestmark = pytest.mark.usefixtures("skeleton_db")
 TOKEN = "metrics-token-for-tests-0123456789abcdef"
@@ -33,9 +33,9 @@ def noop(**kwargs):
 
 @pytest.fixture(autouse=True)
 def job_types(monkeypatch):
-    monkeypatch.setattr(registry, "_registry", dict(registry._registry))
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_job_type(JobType("test.metrics", noop, {}, max_attempts=2))
+    with isolated_job_types(keep_existing=True):
+        register_job_type(JobType("test.metrics", noop, {}, max_attempts=2))
+        yield
 
 
 @pytest.fixture

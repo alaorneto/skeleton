@@ -27,15 +27,13 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="audit-log")
 
 
+@pytest.mark.needs_example_app
 def test_events_are_filtered_before_counting_and_redacted(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="L-1", title="Visible", body="secret body")
     hidden = scenario.create(scenario.a, owner=scenario.admin_a, code="L-2", title="Hidden", visibility="private")
@@ -54,6 +52,7 @@ def test_events_are_filtered_before_counting_and_redacted(scenario):
         assert service.event(actor=admin, event_id=only.items[0].sysid).record_sysid == hidden.pk
 
 
+@pytest.mark.needs_example_app
 def test_default_deny_and_hidden_events_answer_not_found(scenario):
     note = scenario.create(scenario.a, owner=scenario.admin_a, code="L-3", title="Private", visibility="private")
     service = AuditLogService()
@@ -70,6 +69,7 @@ def test_default_deny_and_hidden_events_answer_not_found(scenario):
             service.event(actor=member, event_id="00000000-0000-0000-0000-000000000001")
 
 
+@pytest.mark.needs_example_app
 def test_pages_and_invalid_input(scenario):
     for number in range(3):
         scenario.create(scenario.a, owner=scenario.member, code=f"P-{number}", title=f"Page {number}")
@@ -88,6 +88,17 @@ def test_pages_and_invalid_input(scenario):
     assert_rejects_other_actor(scenario.caller(lambda actor: service.events(actor=scenario.denied)))
 
 
+def test_page_beyond_max_offset_is_invalid_input(scenario):
+    """The offset never reaches the database beyond MAX_OFFSET (#271)."""
+    service = AuditLogService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        with pytest.raises(InvalidInput) as error:
+            service.events(actor=admin, page=10**30)
+        assert "page" in error.value.errors
+        assert service.events(actor=admin, page=1).page == 1
+
+
+@pytest.mark.needs_example_app
 def test_events_of_another_organization_never_appear(scenario):
     scenario.create(scenario.a, owner=scenario.member, code="L-4", title="A note")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="L-5", title="B secret title")
@@ -104,6 +115,7 @@ def test_events_of_another_organization_never_appear(scenario):
             service.event(actor=admin, event_id=foreign_event)
 
 
+@pytest.mark.needs_example_app
 def test_without_organization_only_the_platform_reads_global_events(scenario):
     from uuid import uuid4
 
@@ -113,3 +125,43 @@ def test_without_organization_only_the_platform_reads_global_events(scenario):
     with request_context(actor=scenario.admin_a, request_id=uuid4(), source="test:service-api"):
         with pytest.raises(Forbidden):
             service.events(actor=scenario.admin_a)
+
+
+@pytest.mark.needs_example_app
+def test_non_admin_auditor_does_not_see_infrastructure_fields(scenario):
+    """Database role and physical table name are only for administrators (#324)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="INF-1", title="Visible")
+    service = AuditLogService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        log = service.events(actor=actor, model_label=TABLE)
+        single = service.event(actor=actor, event_id=log.items[0].sysid)
+    for event in (*log.items, single):
+        assert (event.db_principal, event.table_name) == ("", "")
+        assert event.model_label == TABLE and event.record_sysid == note.pk and event.operation == "create"
+
+
+@pytest.mark.needs_example_app
+def test_organization_admin_sees_infrastructure_fields(scenario):
+    from examples.notes.models import Note
+
+    scenario.create(scenario.a, owner=scenario.member, code="INF-2", title="Visible")
+    service = AuditLogService()
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        log = service.events(actor=admin, model_label=TABLE)
+        single = service.event(actor=admin, event_id=log.items[0].sysid)
+    for event in (*log.items, single):
+        assert event.table_name == Note._meta.db_table and event.db_principal != ""
+
+
+def test_platform_admin_sees_infrastructure_fields_of_global_events():
+    from uuid import uuid4
+
+    from skeleton.accounts.services import bootstrap_identity
+    from skeleton.tenancy.context import request_context
+
+    user, _ = bootstrap_identity(
+        email="audit-infra@example.test", organization="audit-infra", name="Infra", password="Audit-infra-2026!"
+    )
+    with request_context(actor=user, request_id=uuid4(), source="test:service-api"):
+        log = AuditLogService().events(actor=user)
+    assert log.items and all(event.db_principal != "" and event.table_name != "" for event in log.items)

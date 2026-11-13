@@ -3,7 +3,6 @@
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
-from django.test import Client
 from django.test.utils import isolate_apps
 from django.urls import reverse
 
@@ -13,23 +12,15 @@ from skeleton.system import availability
 from skeleton.system.applications import application_state, configure_application, navigation_for_user
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.applications import activate_app
+from tests import support
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.closed_app_defaults]
 PASSWORD = "Availability-gate-Password!61"
 NOTES = "example_notes"
 
 
-def require_notes():
-    from django.apps import apps
-
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
-
-
 def login(user):
-    client = Client()
-    assert client.post(reverse("account_login"), {"login": user.email, "password": PASSWORD}).status_code == 302
-    return client
+    return support.login(user, password=PASSWORD, csrf=False)
 
 
 def demote(user):
@@ -40,7 +31,6 @@ def demote(user):
 
 @pytest.fixture
 def setup():
-    require_notes()
     platform, org_a = bootstrap_identity(
         email="availability-platform@example.test", organization="availability-a", name="A", password=PASSWORD
     )
@@ -57,6 +47,7 @@ def as_platform(user, fn):
         return fn()
 
 
+@pytest.mark.needs_example_app
 def test_selected_app_is_closed_for_organizations_without_grant(setup):
     platform, org_a, member_b, org_b = setup
     as_platform(platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=0))
@@ -72,12 +63,13 @@ def test_selected_app_is_closed_for_organizations_without_grant(setup):
     client = login(member_b)
     records = {"organization_id": org_b.pk, "table_key": "example_notes.note"}
     assert client.get(reverse("example_notes:home", kwargs={"organization_id": org_b.pk})).status_code == 404
-    assert client.get(reverse("api:records", kwargs=records)).status_code in (403, 404)
-    assert client.get(reverse("web:records", kwargs=records)).status_code in (403, 404)
+    assert client.get(reverse("api:records", kwargs=records)).status_code == 404
+    assert client.get(reverse("web:records", kwargs=records)).status_code == 404
     catalog = client.get(reverse("api:catalog", kwargs={"organization_id": org_b.pk})).json()
     assert all(row["table_key"] != "example_notes.note" for row in catalog["results"])
 
 
+@pytest.mark.needs_example_app
 def test_revoke_applies_on_next_request_and_preserves_activation(setup):
     from skeleton.system.models import AppInstallation
 
@@ -102,6 +94,7 @@ def test_revoke_applies_on_next_request_and_preserves_activation(setup):
     assert client.get(home).status_code == 200
 
 
+@pytest.mark.needs_example_app
 def test_configure_refuses_to_enable_unavailable_app_but_allows_disabling(setup):
     platform, org_a, _, _ = setup
     as_platform(platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=0))
@@ -118,6 +111,7 @@ def test_configure_refuses_to_enable_unavailable_app_but_allows_disabling(setup)
         assert record.enabled is False
 
 
+@pytest.mark.needs_example_app
 def test_dependencies_gate_grant_and_revoke(setup, monkeypatch):
     platform, org_a, _, _ = setup
     monkeypatch.setattr(availability, "required_labels", lambda label: ("base_app",) if label == NOTES else ())
@@ -143,6 +137,7 @@ def test_dependencies_gate_grant_and_revoke(setup, monkeypatch):
     assert error.value.error_dict["app_label"][0].code == "dependent_granted"
 
 
+@pytest.mark.needs_example_app
 def test_availability_cas_has_one_winner_and_is_audited(setup):
     from skeleton.audit.models import AuditEvent
 
@@ -169,6 +164,7 @@ def test_availability_cas_has_one_winner_and_is_audited(setup):
     assert operations == ["create", "update"]
 
 
+@pytest.mark.needs_example_app
 def test_only_platform_administrators_change_availability(setup):
     _, org_a, member_b, org_b = setup
     with request_context(actor=member_b, request_id=None, source="test:availability-denied"):
@@ -193,3 +189,99 @@ def test_e017_rejects_system_record_with_organization_field():
 
         ids = {error.id for error in record_contract_checks(apps_registry=registry)}
     assert "skeleton.E017" in ids
+
+
+# --------------------------------------------------------------------------- custom screens of closed apps (#253)
+
+
+def _with_custom_screen(monkeypatch):
+    from dataclasses import replace
+
+    from skeleton.system import app_registry
+    from skeleton.system.presentation import AdminScreenSpec, AdminSectionSpec
+
+    manifest = app_registry.get_app(NOTES)
+    administration = replace(
+        manifest.administration,
+        sections=(*manifest.administration.sections, AdminSectionSpec("parameters", "Parameters")),
+        screens=(
+            *manifest.administration.screens,
+            AdminScreenSpec(
+                "custom",
+                "parameters",
+                "Custom parameters",
+                "organization",
+                "custom",
+                url_name="example_notes:parameters",
+                organization_admin_only=True,
+            ),
+        ),
+    )
+    custom = replace(manifest, administration=administration)
+    monkeypatch.setitem(app_registry._manifests, NOTES, custom)
+    return custom
+
+
+@pytest.mark.needs_example_app
+def test_custom_parameter_screen_is_closed_when_app_unavailable(setup, monkeypatch):
+    from skeleton.common.exceptions import ApplicationUnavailable
+    from skeleton.system.administration import resolve_application_screen
+
+    platform, _, member_b, org_b = setup
+    _with_custom_screen(monkeypatch)
+    with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:custom-closed"):
+        with pytest.raises(ApplicationUnavailable):
+            resolve_application_screen(NOTES, "custom", user=member_b, scope="organization")
+    as_platform(platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="all", revision=0))
+    with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:custom-open"):
+        manifest, screen = resolve_application_screen(NOTES, "custom", user=member_b, scope="organization")
+    assert screen.id == "custom"
+
+
+@pytest.mark.needs_example_app
+def test_unavailable_app_lists_only_core_configuration_screen(setup, monkeypatch):
+    from skeleton.system.administration import screen_sections
+
+    _, _, member_b, org_b = setup
+    manifest = _with_custom_screen(monkeypatch)
+    with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:custom-sections"):
+        sections = screen_sections(manifest, user=member_b, scope="organization")
+    screens = [screen["id"] for section in sections for screen in section["screens"]]
+    assert "configuration" in screens and "custom" not in screens
+
+
+@pytest.mark.needs_example_app
+def test_cli_refuses_enabling_app_with_closed_dependency(setup, monkeypatch):
+    """The command applies the activation rule of configure_application (#282)."""
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from skeleton.system.models import AppInstallation
+
+    _, _, _, org_b = setup
+    monkeypatch.setattr(availability, "required_labels", lambda label: ("base_app",) if label == NOTES else ())
+    with pytest.raises(CommandError, match="cannot be enabled in availability-b"):
+        call_command("set_app_availability", NOTES, "--mode", "all", "--enable", "availability-b", stdout=StringIO())
+    with system_context(reason="test:cli-refused", organization_id=org_b.pk):
+        assert not AppInstallation.objects.filter(app_label=NOTES).exists()
+
+
+@pytest.mark.needs_example_app
+def test_availability_services_require_mfa_when_enforced(setup, settings):
+    """The availability services use the platform guard, MFA included (#285)."""
+    from skeleton.system.models import AppAvailability, AppOrganizationGrant
+
+    platform, org_a, _, _ = setup
+    settings.SKELETON_REQUIRE_ADMIN_MFA = True
+    for call in (
+        lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=0),
+        lambda: availability.grant_app(NOTES, user=platform, organization_id=org_a.pk),
+        lambda: availability.revoke_app(NOTES, user=platform, organization_id=org_a.pk),
+    ):
+        with pytest.raises(PermissionDenied):
+            as_platform(platform, call)
+    with system_context(reason="test:availability-mfa"):
+        assert not AppAvailability.objects.filter(app_label=NOTES).exists()
+        assert not AppOrganizationGrant.objects.exists()

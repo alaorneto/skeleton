@@ -2,6 +2,7 @@ from pathlib import Path
 
 import environ
 
+from skeleton.conf.mailers import mailer_from_url
 from skeleton.conf.paths import project_root
 from skeleton.instance.resolve import instance_env
 
@@ -42,6 +43,9 @@ INSTALLED_APPS = [
     "skeleton.files.apps.FilesConfig",
     "skeleton.integrations.apps.IntegrationsConfig",
     "skeleton.sequences.apps.SequencesConfig",
+    "skeleton.transfer.apps.TransferConfig",
+    "skeleton.flows.apps.FlowsConfig",
+    "skeleton.comments.apps.CommentsConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",
@@ -52,6 +56,7 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = ("skeleton_crud",)
 CRISPY_FAIL_SILENTLY = False
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "skeleton.common.http_logging.RequestCompletionMiddleware",
     # Serves /metrics before session, auth and tenant; removes itself without SKELETON_METRICS_TOKEN (#175).
@@ -68,6 +73,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    # After the tenant context: reads the organization defaults under RLS (#170).
+    "skeleton.common.locale.LocaleMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -80,6 +87,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.template.context_processors.csp",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "skeleton.system.applications.application_navigation",
@@ -104,14 +112,21 @@ def database_config(env, variable, *, conn_max_age=60):
     if config["ENGINE"] == "django.db.backends.postgresql":
         config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
         config["CONN_MAX_AGE"] = conn_max_age
+        # A persistent connection may have been closed by the server: probe it before reuse (#333).
+        config["CONN_HEALTH_CHECKS"] = conn_max_age != 0
     return config
 
 
 _database = database_config(env, "DATABASE_URL")
 DATABASES = {"default": _database} if _database else {}
 CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
-EMAIL_CONFIG = env.email("EMAIL_URL", default="consolemail://")
-vars().update(EMAIL_CONFIG)
+# EMAIL_URL stays the operation interface; it becomes MAILERS["default"] (#127), never the
+# per-connection EMAIL_* settings Django 6.1 deprecated. EMAIL_TIMEOUT (seconds an SMTP
+# connection may block, so the notification jobs never hang on a mute server, #297) is read
+# from the environment into the SMTP OPTIONS.
+MAILERS = {
+    "default": mailer_from_url(env("EMAIL_URL", default="consolemail://"), timeout=env.int("EMAIL_TIMEOUT", default=30))
+}
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="skeleton@localhost")
 AUTH_USER_MODEL = "sk_accounts.User"
 AUTHENTICATION_BACKENDS = ["skeleton.accounts.backends.SkeletonAuthenticationBackend"]
@@ -121,8 +136,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
-LANGUAGE_CODE = "pt-br"
-LANGUAGES = [("pt-br", "Português"), ("en", "English")]
+# The core ships pt-BR only (msgids are pt-BR); derived projects add languages with their
+# catalogs in LOCALE_PATHS (#85). Defaults apply to people and organizations without a choice.
+SKELETON_DEFAULT_LANGUAGE = env("SKELETON_DEFAULT_LANGUAGE", default="pt-br")
+SKELETON_DEFAULT_TIMEZONE = env("SKELETON_DEFAULT_TIMEZONE", default="UTC")
+LANGUAGE_CODE = SKELETON_DEFAULT_LANGUAGE
+LANGUAGES = [("pt-br", "Português")]
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
@@ -157,8 +176,17 @@ STORAGES = {
     "skeleton_files": private_files_storage(env, BASE_DIR),
 }
 SKELETON_UPLOAD_MAX_BYTES = env.int("SKELETON_UPLOAD_MAX_BYTES", default=10 * 1024 * 1024)
+# The bounded handler comes first: no multipart body passes SKELETON_UPLOAD_MAX_BYTES into memory
+# or the temporary directory (#242); the package upload swaps it for its own larger bound.
+FILE_UPLOAD_HANDLERS = [
+    "skeleton.common.uploads.BoundedUploadHandler",
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler",
+]
 # Default quota of live attachment bytes per organization (empty: unlimited); the platform overrides it.
 SKELETON_FILES_ORG_QUOTA_BYTES = env.int("SKELETON_FILES_ORG_QUOTA_BYTES", default=0) or None
+# Deleted attachments keep their bytes this long, then files.purge removes them (#192).
+SKELETON_FILES_DELETED_RETENTION_DAYS = env.int("SKELETON_FILES_DELETED_RETENTION_DAYS", default=90)
 # Antivirus (#62): "none" (files are available at once) or "clamav" (clamd INSTREAM).
 SKELETON_FILES_SCANNER = env("SKELETON_FILES_SCANNER", default="none")
 SKELETON_FILES_CLAMAV_ADDRESS = env("SKELETON_FILES_CLAMAV_ADDRESS", default="")
@@ -202,9 +230,15 @@ from skeleton.api.proxy import proxy_settings
 globals().update(proxy_settings(env))
 SKELETON_PUBLIC_SIGNUP = env.bool("SKELETON_PUBLIC_SIGNUP", default=False)
 SKELETON_EVENT_RETENTION_DAYS = env.int("SKELETON_EVENT_RETENTION_DAYS", default=30)
+# CSV export and import (#182, #183).
+SKELETON_EXPORT_MAX_ROWS = env.int("SKELETON_EXPORT_MAX_ROWS", default=100_000)
+SKELETON_IMPORT_MAX_ROWS = env.int("SKELETON_IMPORT_MAX_ROWS", default=10_000)
+SKELETON_TRANSFER_RETENTION_DAYS = env.int("SKELETON_TRANSFER_RETENTION_DAYS", default=7)
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # API tokens (#45): maximum validity in days of a newly issued token.
 SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
+# Live tokens per person or service account; expired ones count until revoked (#327).
+SKELETON_API_TOKEN_MAX_PER_OWNER = env.int("SKELETON_API_TOKEN_MAX_PER_OWNER", default=50)
 # Rate limits (#48): requests per token per minute and failed token authentications per IP per minute.
 SKELETON_API_TOKEN_RATE_PER_MINUTE = env.int("SKELETON_API_TOKEN_RATE_PER_MINUTE", default=600)
 SKELETON_API_TOKEN_FAILURES_PER_MINUTE = env.int("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", default=20)
@@ -217,6 +251,8 @@ SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Observability (#87): each piece stays off until its setting is present and its extra installed.
 # Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.
 SKELETON_METRICS_TOKEN = env("SKELETON_METRICS_TOKEN", default="")
+# Seconds one process reuses the queue figures between scrapes; 0 reads the database on every scrape (#275).
+SKELETON_METRICS_QUEUE_TTL_S = 15
 # Sentry DSN (extra [sentry], #177); without it Sentry is never initialized. Tracing (#176) has no
 # setting here: the SDK reads the standard OTEL_* variables from the environment.
 SKELETON_SENTRY_DSN = env("SKELETON_SENTRY_DSN", default="")
@@ -251,6 +287,24 @@ MFA_ALLOW_UNVERIFIED_EMAIL = False
 MFA_RECOVERY_CODES_SHOW_ONCE = True
 MFA_TRUST_ENABLED = False
 X_FRAME_OPTIONS = "DENY"
+from django.utils.csp import CSP as _CSP  # noqa: E402  Underscore: the overlay's star import must not export it.
+
+# Same-origin only (#266). No inline script exists in the core templates (json_script blocks
+# are data); the only inline style is the organization's brand palette, allowed by nonce.
+# No form-action: SSO starts with a POST to this origin that redirects to the identity
+# provider, and Chromium applies form-action to the redirect target too.
+SKELETON_CSP = {
+    "default-src": [_CSP.SELF],
+    "script-src": [_CSP.SELF],
+    "style-src": [_CSP.SELF, _CSP.NONCE],
+    "img-src": [_CSP.SELF, "data:"],  # allauth renders the TOTP QR code as a data: image.
+    "font-src": [_CSP.SELF],
+    "connect-src": [_CSP.SELF],
+    "object-src": [_CSP.NONE],
+    "base-uri": [_CSP.SELF],
+    "frame-ancestors": [_CSP.NONE],
+}
+SECURE_CSP = SKELETON_CSP
 SKELETON_JSON_MAX_BYTES = env.int("SKELETON_JSON_MAX_BYTES", default=1048576)
 if SKELETON_JSON_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured
@@ -260,8 +314,8 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "skeleton.api.errors.exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 25,
+    # JSON only: the DRF browsable API (HTML) is never served (docs/api.md, #230).
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PARSER_CLASSES": ["skeleton.api.parsers.BoundedJSONParser"],
 }
 LOGGING = {
@@ -279,8 +333,10 @@ LOGGING = {
 SOCIALACCOUNT_FORMS = {"signup": "skeleton.accounts.forms.InvitationSocialSignupForm"}
 from skeleton.deployment import load_deployment_inventory
 
+# Read before the inventory: a managed app may depend on an installed first-party app (#254).
+SKELETON_BUNDLED_APPS = tuple(env.list("SKELETON_BUNDLED_APPS", default=[]))
 SKELETON_DEPLOYMENT_INVENTORY = env("SKELETON_DEPLOYMENT_INVENTORY", default=None)
-SKELETON_DEPLOYMENT_STATE = load_deployment_inventory(SKELETON_DEPLOYMENT_INVENTORY)
+SKELETON_DEPLOYMENT_STATE = load_deployment_inventory(SKELETON_DEPLOYMENT_INVENTORY, bundled_apps=SKELETON_BUNDLED_APPS)
 SKELETON_RETAINED_SCHEMA_PATHS = SKELETON_DEPLOYMENT_STATE.retained_schema_paths
 SKELETON_MIGRATION_ARCHIVES = SKELETON_DEPLOYMENT_STATE.migration_archives
 SKELETON_FROZEN_INFRASTRUCTURE = SKELETON_DEPLOYMENT_STATE.frozen_infrastructure
@@ -298,12 +354,12 @@ if SKELETON_PACKAGE_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured
 
     raise ImproperlyConfigured("SKELETON_PACKAGE_MAX_BYTES must be positive.")
-INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
 # First-party apps of the core wheel (#66): opt-in by name from the fixed map, never by import path.
+# They come before the managed apps: a managed app may depend on them, never the reverse (#254).
 from skeleton.conf.bundled import bundled_app_configs
 
-SKELETON_BUNDLED_APPS = tuple(env.list("SKELETON_BUNDLED_APPS", default=[]))
 INSTALLED_APPS += bundled_app_configs(SKELETON_BUNDLED_APPS)
+INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
 # Opted out after migrating (#67): the tables stay, checked against the snapshot in the wheel.
 from skeleton.conf.bundled import retained_snapshot_paths
 

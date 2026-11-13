@@ -6,7 +6,6 @@ import pytest
 from django.utils import timezone
 
 from skeleton.accounts.services import bootstrap_identity
-from skeleton.events import registry
 from skeleton.events.consumers import consume
 from skeleton.events.core_events import CORE_EVENT_TYPES
 from skeleton.events.models import DomainEvent
@@ -17,8 +16,9 @@ from skeleton.jobs.models import Job
 from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.events import capture_events
 from skeleton.testing.jobs import run_pending_jobs
+from skeleton.testing.registries import isolated_event_types
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Event-consumers-Password!81"
 seen = {"stable": set(), "flaky": [], "envelopes": []}
 
@@ -36,20 +36,16 @@ def flaky(envelope):
 
 @pytest.fixture(autouse=True)
 def declarations(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     seen["stable"].clear()
     seen["flaky"].clear()
     seen["envelopes"].clear()
-    monkeypatch.setattr(registry, "_types", dict(registry._types))  # Keeps the core lifecycle types (#43).
-    monkeypatch.setattr(registry, "_consumers", {})
-    monkeypatch.setattr(registry, "_duplicates", [])
-    register_event_type(EventType("notes.note_created", "example_notes.note", ("code",)))
-    register_consumer("notes.note_created", "test.stable", stable)
-    # The wildcard narrowed to the test types: the fixture's membership events (#43) stay out.
-    register_consumer("*", "test.flaky", flaky, accepts=lambda event_type: event_type.code.startswith("notes."))
+    with isolated_event_types():
+        register_event_type(EventType("notes.note_created", "example_notes.note", ("code",)))
+        register_consumer("notes.note_created", "test.stable", stable)
+        # The wildcard narrowed to the test types: the fixture's membership events (#43) stay out.
+        register_consumer("*", "test.flaky", flaky, accepts=lambda event_type: event_type.code.startswith("notes."))
+        yield
 
 
 @pytest.fixture
@@ -134,3 +130,33 @@ def test_retention_deletes_only_expired_events(tenant):
         # A delivery of a purged event is a no-op.
         consume(event_id=str(old.pk), consumer="test.stable")
     assert seen["stable"] == set()
+
+
+def test_event_retention_deletes_in_batches_and_only_its_organization(tenant):
+    """Batched deletes keep the organization filter of the manager (#308)."""
+    from skeleton.accounts.services import bootstrap_identity
+
+    user, organization = tenant
+    other_user, other = bootstrap_identity(
+        email="events-b@example.test", organization="events-b", name="B", password="Events-B-Password-2026!"
+    )
+    old = timezone.now() - timedelta(days=31)
+
+    def seed(org, count):
+        with system_context(reason="test:retention-batches", organization_id=org.pk):
+            for _ in range(count):
+                DomainEvent(
+                    organization_id=org.pk,
+                    event_type="notes.note_created",
+                    table_key="example_notes.note",
+                    record_sysid=org.pk,
+                    source="test",
+                    occurred_at=old,
+                ).save()
+
+    seed(organization, 3)
+    seed(other, 2)
+    with system_context(reason="test:retention-a", organization_id=organization.pk):
+        assert purge_expired_events() == 3
+    with system_context(reason="test:retention-b", organization_id=other.pk):
+        assert DomainEvent.objects.filter(occurred_at__lt=timezone.now() - timedelta(days=30)).count() == 2

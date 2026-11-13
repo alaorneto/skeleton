@@ -2,27 +2,35 @@
 
 Server-rendered month, week, day and list views on a CSS grid, without JavaScript. ``?view=`` and
 ``?date=`` are validated (anything else is a 400 page). Times are shown in the profile time zone.
-Every read goes through ``CalendarService``, so an unreadable event is never rendered and private
-events show as "Ocupado".
+The pages read through ``CalendarService``, so an unreadable event is never rendered and private
+events show as "Ocupado"; the ICS download (and the feed) read ``policies.readable_events`` with the
+same masking.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST
 
 from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound
+from skeleton.web.views import tenant_page
 
 from .service_api import CalendarService
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 VIEWS = ("month", "week", "day", "list")
 PRESETS = {
@@ -34,16 +42,16 @@ PRESETS = {
 }
 
 
-def _zone(user) -> ZoneInfo:
+def _zone(user: Any) -> ZoneInfo:
     from skeleton.service_api.identity import IdentityService
 
     try:
         return ZoneInfo(IdentityService().me(actor=user).timezone or "UTC")
-    except Exception:  # noqa: BLE001 - an unknown stored zone falls back to UTC for display
+    except (ZoneInfoNotFoundError, ValueError):  # An unknown stored zone falls back to UTC for display.
         return ZoneInfo("UTC")
 
 
-def _bad_request(request, organization_id, detail):
+def _bad_request(request: HttpRequest, organization_id: UUID, detail: str) -> HttpResponse:
     return render(
         request,
         "skeleton_calendar/bad_request.html",
@@ -74,18 +82,19 @@ def _step(view: str, day: date, direction: int) -> date:
     return day + timedelta(days={"day": 1, "week": 7, "list": 30}[view] * direction)
 
 
-def home(request, organization_id):
+@tenant_page()
+def home(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     view = request.GET.get("view", "week")
     if view not in VIEWS:
-        return _bad_request(request, organization_id, "Visão desconhecida: use month, week, day ou list.")
+        return _bad_request(request, organization_id, gettext("Visão desconhecida: use month, week, day ou list."))
     zone = _zone(request.user)
     raw = request.GET.get("date")
     try:
         day = date.fromisoformat(raw) if raw else datetime.now(zone).date()
     except ValueError:
-        return _bad_request(request, organization_id, "Data inválida: use AAAA-MM-DD.")
+        return _bad_request(request, organization_id, gettext("Data inválida: use AAAA-MM-DD."))
     if not date(1900, 1, 1) <= day <= date(2200, 12, 31):
-        return _bad_request(request, organization_id, "Data fora do intervalo aceito.")
+        return _bad_request(request, organization_id, gettext("Data fora do intervalo aceito."))
     first, last = _window(view, day)
     service = CalendarService()
     try:
@@ -97,7 +106,9 @@ def home(request, organization_id):
         )
     except (PermissionDenied, Forbidden):
         raise Http404 from None
-    days = {first + timedelta(days=index): [] for index in range((last - first).days)}
+    except InvalidInput:
+        return _bad_request(request, organization_id, gettext("Há eventos demais neste período; use uma visão menor."))
+    days: dict[date, list[Any]] = {first + timedelta(days=index): [] for index in range((last - first).days)}
     for occurrence in occurrences:
         local = occurrence.starts_at.date() if occurrence.all_day else occurrence.starts_at.astimezone(zone).date()
         if local in days:
@@ -129,38 +140,46 @@ def home(request, organization_id):
 
 
 class EventForm(forms.Form):
-    calendar = forms.ChoiceField(label="Calendário")
-    title = forms.CharField(label="Título", max_length=200)
-    all_day = forms.BooleanField(label="Dia inteiro", required=False)
-    day = forms.DateField(label="Data", widget=forms.DateInput(attrs={"type": "date"}))
-    start = forms.TimeField(label="Início", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
-    end = forms.TimeField(label="Fim", required=False, widget=forms.TimeInput(attrs={"type": "time"}))
-    location = forms.CharField(label="Local", max_length=300, required=False)
-    description = forms.CharField(label="Descrição", required=False, widget=forms.Textarea(attrs={"rows": 4}))
-    is_private = forms.BooleanField(label="Privado (os outros veem só Ocupado)", required=False)
+    calendar = forms.ChoiceField(label=gettext_lazy("Calendário"))
+    title = forms.CharField(label=gettext_lazy("Título"), max_length=200)
+    all_day = forms.BooleanField(label=gettext_lazy("Dia inteiro"), required=False)
+    day = forms.DateField(label=gettext_lazy("Data"), widget=forms.DateInput(attrs={"type": "date"}))
+    start = forms.TimeField(
+        label=gettext_lazy("Início"), required=False, widget=forms.TimeInput(attrs={"type": "time"})
+    )
+    end = forms.TimeField(label=gettext_lazy("Fim"), required=False, widget=forms.TimeInput(attrs={"type": "time"}))
+    location = forms.CharField(label=gettext_lazy("Local"), max_length=300, required=False)
+    description = forms.CharField(
+        label=gettext_lazy("Descrição"), required=False, widget=forms.Textarea(attrs={"rows": 4})
+    )
+    is_private = forms.BooleanField(label=gettext_lazy("Privado (os outros veem só Ocupado)"), required=False)
     repeat = forms.ChoiceField(
-        label="Repetir",
+        label=gettext_lazy("Repetir"),
         choices=(
-            ("none", "Não repete"),
-            ("daily", "Diariamente"),
-            ("weekly", "Semanalmente"),
-            ("monthly", "Mensalmente"),
-            ("yearly", "Anualmente"),
+            ("none", gettext_lazy("Não repete")),
+            ("daily", gettext_lazy("Diariamente")),
+            ("weekly", gettext_lazy("Semanalmente")),
+            ("monthly", gettext_lazy("Mensalmente")),
+            ("yearly", gettext_lazy("Anualmente")),
         ),
     )
-    count = forms.IntegerField(label="Quantas vezes", min_value=1, max_value=1000, initial=10, required=False)
+    count = forms.IntegerField(
+        label=gettext_lazy("Quantas vezes"), min_value=1, max_value=1000, initial=10, required=False
+    )
 
-    def __init__(self, *args, calendars=(), **kwargs):
+    def __init__(self, *args: Any, calendars: Iterable[Any] = (), **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["calendar"].choices = [(str(item.sysid), item.name) for item in calendars]
+        self.fields["calendar"].choices = [  # type: ignore[attr-defined]  # The calendar field is a ChoiceField.
+            (str(item.sysid), item.name) for item in calendars
+        ]
 
-    def clean(self):
-        data = super().clean()
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean()  # type: ignore[assignment]  # Form.clean returns cleaned_data.
         if not data.get("all_day") and (not data.get("start") or not data.get("end")):
-            raise forms.ValidationError("Informe início e fim, ou marque dia inteiro.")
+            raise forms.ValidationError(gettext("Informe início e fim, ou marque dia inteiro."))
         return data
 
-    def event_data(self, zone: ZoneInfo) -> dict:
+    def event_data(self, zone: ZoneInfo) -> dict[str, Any]:
         data = self.cleaned_data
         values = {
             "title": data["title"],
@@ -179,25 +198,37 @@ class EventForm(forms.Form):
         return values
 
 
-def _apply_error(form, error):
-    if isinstance(error, (ValidationError, InvalidInput)):
-        details = getattr(error, "message_dict", None) or getattr(error, "fields", None) or {}
-        for field, problems in dict(details).items():
-            form.add_error(field if field in form.fields else None, problems)
-        if not details:
-            form.add_error(None, "Verifique os campos informados.")
+# Fields of the service and the model that the form shows under another name (#234).
+FIELD_OF = {"starts_at": "start", "ends_at": "end", "start_date": "day", "end_date": "day", "rrule": "repeat"}
+
+
+def _apply_error(form: forms.Form, error: Exception) -> None:
+    """Each message next to its field: InvalidInput carries ``errors``, ValidationError ``message_dict``."""
+    if isinstance(error, InvalidInput):
+        details = dict(error.errors)
+    elif isinstance(error, ValidationError):
+        details = dict(getattr(error, "message_dict", {}) or {})
     else:
-        form.add_error(None, "O evento não pôde ser salvo.")
+        form.add_error(None, gettext("O evento não pôde ser salvo."))
+        return
+    if not details:
+        form.add_error(None, gettext("Verifique os campos informados."))
+    for field, problems in details.items():
+        target = FIELD_OF.get(field, field)
+        form.add_error(target if target in form.fields else None, list(problems))
 
 
 @require_http_methods(["GET", "POST"])
+@tenant_page()
 @transaction.atomic
-def event_new(request, organization_id):
+def event_new(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     service = CalendarService()
     try:
-        calendars = service.my_calendars(actor=request.user)
+        calendars = [item for item in service.my_calendars(actor=request.user) if item.writable]  # #344
     except (PermissionDenied, Forbidden):
         raise Http404 from None
+    if not calendars:
+        raise Http404
     zone = _zone(request.user)
     form = EventForm(request.POST or None, calendars=calendars, initial={"day": datetime.now(zone).date()})
     status = 200
@@ -212,7 +243,7 @@ def event_new(request, organization_id):
                 _apply_error(form, error)
                 status = 400
             else:
-                messages.success(request, "Evento criado.")
+                messages.success(request, gettext("Evento criado."))
                 day = form.cleaned_data["day"].isoformat()
                 return redirect(
                     reverse("skeleton_calendar:home", kwargs={"organization_id": organization_id})
@@ -226,23 +257,25 @@ def event_new(request, organization_id):
 
 
 @require_POST
+@tenant_page()
 @transaction.atomic
-def event_cancel(request, organization_id, sysid):
+def event_cancel(request: HttpRequest, organization_id: UUID, sysid: UUID) -> HttpResponse:
     try:
         revision = int(request.POST.get("revision", ""))
         CalendarService().cancel_event(actor=request.user, event_id=sysid, expected_revision=revision)
     except (ValueError, NotFound, Forbidden):
         raise Http404 from None
     except Conflict:
-        messages.error(request, "O evento mudou. Atualize a página antes de tentar novamente.")
+        messages.error(request, gettext("O evento mudou. Atualize a página antes de tentar novamente."))
     else:
-        messages.success(request, "Evento cancelado.")
+        messages.success(request, gettext("Evento cancelado."))
     return redirect("skeleton_calendar:home", organization_id=organization_id)
 
 
 @require_POST
+@tenant_page()
 @transaction.atomic
-def member_access(request, organization_id):
+def member_access(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     from .services import grant_member_access
 
     try:
@@ -250,16 +283,18 @@ def member_access(request, organization_id):
     except Forbidden:
         raise Http404 from None
     messages.success(
-        request, "Acesso básico concedido ao papel member." if granted else "O papel member já tinha acesso."
+        request,
+        gettext("Acesso básico concedido ao papel member.") if granted else gettext("O papel member já tinha acesso."),
     )
     return redirect("skeleton_calendar:home", organization_id=organization_id)
 
 
-def calendar_ics(request, organization_id, sysid):
+@tenant_page()
+def calendar_ics(request: HttpRequest, organization_id: UUID, sysid: UUID) -> HttpResponse:
     """Download one calendar as .ics (session), masked like the pages."""
     from django.http import HttpResponse
 
-    from .ics import calendar_bytes, calendar_components
+    from .ics import calendar_bytes, calendar_components, capped
     from .policies import readable_calendars, readable_events
 
     calendar = readable_calendars(request.user).filter(pk=sysid).first()
@@ -268,7 +303,11 @@ def calendar_ics(request, organization_id, sysid):
     busy_only = request.GET.get("busy") == "1"
     body = calendar_bytes(
         calendar.name,
-        calendar_components(request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only),
+        capped(
+            calendar_components(
+                request.user, readable_events(request.user).filter(calendar=calendar), busy_only=busy_only
+            )
+        ),
     )
     response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="agenda-{calendar.pk}.ics"'

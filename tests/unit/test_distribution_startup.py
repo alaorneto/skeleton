@@ -1,5 +1,6 @@
 """Startup metadata and maintenance must never require a database connection."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -171,3 +172,41 @@ def test_inventory_lists_apps_dependency_first_and_rejects_broken_graphs(tmp_pat
     consumer["dependencies"] = {"base_notes": ">=2.0.0"}
     with pytest.raises(ImproperlyConfigured):
         load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer), _entry(base)]))
+
+
+def _calendar_consumer():
+    consumer = manifest("billing_notes", "billing_notes")
+    consumer["dependencies"] = {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}
+    return consumer
+
+
+def test_inventory_app_may_depend_on_installed_first_party_app(tmp_path):
+    """Regression (#254): the startup accepts a dependency on an installed first-party app."""
+    consumer = _calendar_consumer()
+    state = load_deployment_inventory(_inventory_with(tmp_path, [_entry(consumer)]), bundled_apps=("calendar",))
+    assert state.installed_apps == (consumer["app_config"],)
+
+
+def test_inventory_app_depending_on_absent_first_party_app_is_refused(tmp_path):
+    path = _inventory_with(tmp_path, [_entry(_calendar_consumer())])
+    with pytest.raises(ImproperlyConfigured, match="Invalid private deployment inventory"):
+        load_deployment_inventory(path)
+    with pytest.raises(ImproperlyConfigured, match="'inexistente'"):
+        load_deployment_inventory(path, bundled_apps=("inexistente",))
+
+
+def test_worker_confirmation_checks_actual_loaded_core_bytes(monkeypatch):
+    import skeleton.deployment
+    from skeleton.deployment import DeploymentInventory, confirm_core
+
+    source = Path(skeleton.deployment.__file__)
+    payload = source.read_bytes()
+    files = {"skeleton/deployment.py": {"sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)}}
+    state = DeploymentInventory(5, {"version": "0.1.0", "digest": "a" * 64, "files": files}, (), (), ())
+    monkeypatch.setattr("skeleton.versioning.core_version", lambda: {"version": "0.1.0", "origin": "installed"})
+    assert confirm_core(state)[1] is True
+    files["skeleton/deployment.py"]["sha256"] = "0" * 64
+    assert confirm_core(state)[1] is False
+    files["skeleton/deployment.py"]["sha256"] = hashlib.sha256(payload).hexdigest()
+    monkeypatch.setattr("skeleton.versioning.core_version", lambda: {"version": "0.1.0", "origin": "source"})
+    assert confirm_core(state)[1] is False

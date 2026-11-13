@@ -3,13 +3,16 @@
 import argparse
 import json
 import sys
+import time
+from typing import Any
 
 from .config import Config
 from .server import StatusTickets, serve
 from .service import DeploymentService
+from .types import JSON
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="skeleton-deployment-agent")
     parser.add_argument("--config", required=True, help="Private operator-owned JSON configuration")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -51,26 +54,79 @@ def main():
         help="Operator reviewed loss/reconciliation of writes after cutover",
     )
     commands.add_parser("revoke-status-tickets")
-    options = parser.parse_args()
+    prune = commands.add_parser(
+        "prune", help="Offline: list, and with --apply remove, releases, plans, images and backups no operation needs"
+    )
+    prune.add_argument("--plan-days", type=int, default=7, help="Unsubmitted previews older than N days")
+    prune.add_argument("--backup-days", type=int, default=None, help="Also backups and logs older than N days")
+    prune.add_argument("--apply", action="store_true", help="Remove; without it, only list")
+    return parser
+
+
+def revoke_status_tickets(service: DeploymentService) -> JSON:
+    StatusTickets(service).revoke()
+    return {"state": "revoked"}
+
+
+# Offline commands act on the journal directly; the agent daemon must be stopped for initialize
+# and recover. Each returns the JSON printed on success.
+OFFLINE = {
+    "initialize": lambda service, options: service.initialize(
+        options.inventory, core_package=options.core_package, app_packages=options.app_package
+    ),
+    "recover": lambda service, options: service.recover(
+        options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes
+    ),
+    "journal": lambda service, options: {
+        "operations": [service.public_operation(row) for row in service.store.operations()]
+    },
+    "prune": lambda service, options: service.prune(
+        plan_days=options.plan_days, backup_days=options.backup_days, apply=options.apply
+    ),
+    "revoke-status-tickets": lambda service, options: revoke_status_tickets(service),
+}
+ONLINE = {
+    "inventory": lambda client, options: client.inventory(),
+    "operation": lambda client, options: client.operation(options.operation_id),
+    "upload": lambda client, options: client.upload(options.artifact),
+    "submit": lambda client, options: client.submit(
+        options.plan_id,
+        options.plan_digest,
+        options.generation,
+        options.operation_id,
+        options.actor_id,
+        options.request_id,
+    ),
+    "check-updates": lambda client, options: client.check_updates(),
+    "fetch-release": lambda client, options: client.fetch_release(
+        options.component_id, options.version, options.source_id
+    ),
+}
+
+
+def follow_preview(client: Any, options: argparse.Namespace) -> Any:
+    """The plan is prepared in the agent (#298): follow it until it is ready (plan) or failed (None)."""
+    result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
+    while result.get("state") == "preparing":
+        time.sleep(2)
+        result = client.plan(result["id"])
+    if result.get("state") == "failed":
+        failure = {"error": result.get("error"), "details": result.get("details")}
+        print(json.dumps(failure), file=sys.stderr)
+        return None
+    return result.get("plan", result)
+
+
+def main() -> int:
+    options = build_parser().parse_args()
     try:
         config = Config.load(options.config)
         service = DeploymentService(config)
         if options.command == "serve":
             serve(service)
             return 0
-        if options.command == "initialize":
-            result = service.initialize(
-                options.inventory, core_package=options.core_package, app_packages=options.app_package
-            )
-        elif options.command == "recover":
-            result = service.recover(
-                options.operation_id, options.action, acknowledge_new_writes=options.acknowledge_new_writes
-            )
-        elif options.command == "journal":
-            result = {"operations": [service.public_operation(row) for row in service.store.operations()]}
-        elif options.command == "revoke-status-tickets":
-            StatusTickets(service).revoke()
-            result = {"state": "revoked"}
+        if options.command in OFFLINE:
+            result = OFFLINE[options.command](service, options)
         else:
             # Online commands go through the same bounded authenticated interface as the platform admin.
             from skeleton.system.deployment_client import AgentClient
@@ -78,27 +134,12 @@ def main():
             client = AgentClient(
                 config["socket_path"], config["token_file"], timeout=config.get("command_timeout", 1800)
             )
-            if options.command == "inventory":
-                result = client.inventory()
-            elif options.command == "operation":
-                result = client.operation(options.operation_id)
-            elif options.command == "upload":
-                result = client.upload(options.artifact)
-            elif options.command == "preview":
-                result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
-            elif options.command == "submit":
-                result = client.submit(
-                    options.plan_id,
-                    options.plan_digest,
-                    options.generation,
-                    options.operation_id,
-                    options.actor_id,
-                    options.request_id,
-                )
-            elif options.command == "check-updates":
-                result = client.check_updates()
-            elif options.command == "fetch-release":
-                result = client.fetch_release(options.component_id, options.version, options.source_id)
+            if options.command == "preview":
+                result = follow_preview(client, options)
+                if result is None:
+                    return 1
+            else:
+                result = ONLINE[options.command](client, options)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except ValueError as error:

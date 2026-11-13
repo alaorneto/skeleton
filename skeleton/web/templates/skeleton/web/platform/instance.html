@@ -1,22 +1,22 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}Configuração da instância{% endblock %}
+{% load i18n %}{% block page_title %}{% translate "Configuração da instância" %}{% endblock %}
 {% block content %}
-<div class="page-header"><div class="min-w-0"><h1>Configuração da instância</h1>
-<p class="page-description">Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício.</p></div>
-<form method="post" action="{% url 'platform:instance-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">Pedir reinício</button></form></div>
+<div class="page-header"><div class="min-w-0"><h1>{% translate "Configuração da instância" %}</h1>
+<p class="page-description">{% translate "Chaves do catálogo e a origem de cada valor: o ambiente vence o SQLite da instância, que vence o padrão. Chaves que vêm do ambiente ficam somente leitura. Segredos nunca são exibidos. As mudanças valem depois do reinício." %}</p></div>
+<form method="post" action="{% url 'platform:instance-restart' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary">{% translate "Pedir reinício" %}</button></form></div>
 {% if form and form.errors %}{% include "skeleton/web/components/form-errors.html" %}{% endif %}
-<div class="table-scroll"><table><thead><tr><th scope="col">Chave</th><th scope="col">Origem</th><th scope="col">Valor</th><th scope="col">Alterar</th></tr></thead><tbody>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Alterar" %}</th></tr></thead><tbody>
 {% for row in rows %}<tr>
   <th scope="row"><span class="font-medium text-heading">{{ row.key }}</span><br><code class="text-body-subtle">{{ row.env }}</code><br><span class="text-body-subtle">{{ row.description }}</span></th>
-  <td>{% if row.origin == "env" %}<span class="badge badge-warning">ambiente</span>{% elif row.origin == "instance" %}<span class="badge badge-brand">SQLite da instância</span>{% else %}<span class="badge">padrão</span>{% endif %}</td>
-  <td>{% if row.secret %}{% if row.value %}<span aria-label="Segredo definido">{{ row.value }}</span>{% else %}<span class="text-body-subtle">não definido</span>{% endif %}{% else %}<code>{{ row.value|default:"—" }}</code>{% endif %}</td>
+  <td>{% if row.origin == "env" %}<span class="badge badge-warning">{% translate "ambiente" %}</span>{% elif row.origin == "instance" %}<span class="badge badge-brand">{% translate "SQLite da instância" %}</span>{% else %}<span class="badge">{% translate "padrão" %}</span>{% endif %}</td>
+  <td>{% if row.secret %}{% if row.value %}<span aria-label="{% translate "Segredo definido" %}">{{ row.value }}</span>{% else %}<span class="text-body-subtle">{% translate "não definido" %}</span>{% endif %}{% else %}<code>{{ row.value|default:"—" }}</code>{% endif %}</td>
   <td>{% if row.editable %}<form method="post" action="{% url 'platform:instance-setting' %}" class="flex flex-wrap gap-2">{% csrf_token %}<input type="hidden" name="key" value="{{ row.key }}">
-    <label class="sr-only" for="value-{{ row.key }}">Novo valor de {{ row.key }}</label>
-    <input id="value-{{ row.key }}" name="value" {% if row.secret %}type="password" autocomplete="new-password" placeholder="novo valor"{% else %}type="text" value="{{ row.value }}"{% endif %}>
-    <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">Gravar</button>
-    {% if row.origin == "instance" %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">Voltar ao padrão</button>{% endif %}
-  </form>{% else %}<span class="text-body-subtle">Somente leitura (ambiente)</span>{% endif %}</td>
+    <label class="sr-only" for="value-{{ row.key }}">{% translate "Novo valor de" %} {{ row.key }}</label>
+    <input id="value-{{ row.key }}" name="value" {% if row.secret %}type="password" autocomplete="new-password" placeholder="{% translate "novo valor" %}"{% else %}type="text" value="{{ row.value }}"{% endif %}>
+    <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>
+    {% if row.clearable %}<button type="submit" name="action" value="clear" class="btn btn-secondary btn-sm">{% translate "Voltar ao padrão" %}</button>{% endif %}
+  </form>{% else %}<span class="text-body-subtle">{% translate "Somente leitura (ambiente)" %}</span>{% endif %}</td>
 </tr>{% endfor %}
 </tbody></table></div>
-<p class="mt-4 text-sm/6 text-body-subtle">Cada alteração exige autenticação recente e fica registrada (chave, ação e quem alterou, nunca o valor). A URL do banco passa pela mesma validação de privilégios do setup.</p>
+<p class="mt-4 text-sm/6 text-body-subtle">{% translate "Cada alteração exige autenticação recente e fica registrada (chave, ação e quem alterou, nunca o valor). A URL do banco passa pela mesma validação de privilégios do setup." %}</p>
 {% endblock %}

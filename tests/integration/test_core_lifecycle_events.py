@@ -40,6 +40,7 @@ def test_core_event_types_are_declared_with_identifier_payloads():
         assert get_event_type(code).payload_fields == ("app_label",)
 
 
+@pytest.mark.needs_example_app
 def test_membership_services_emit_one_event_per_effective_change(access):
     from skeleton.access.services import create_membership, delete_membership, update_membership
     from skeleton.tenancy.models import Membership
@@ -79,6 +80,7 @@ def test_membership_services_emit_one_event_per_effective_change(access):
         assert codes(new) == [(MEMBERSHIP_CREATED, {"user": str(access.outsider.pk)})]
 
 
+@pytest.mark.needs_example_app
 def test_provisioning_and_leaving_emit_events(access):
     from skeleton.access.models import Role
     from skeleton.access.services import leave_organization, provision_membership
@@ -98,6 +100,7 @@ def test_provisioning_and_leaving_emit_events(access):
         assert codes(left) == [(MEMBERSHIP_DEACTIVATED, {"user": str(access.alice.pk)})]
 
 
+@pytest.mark.needs_example_app
 def test_service_accounts_emit_membership_events(access):
     from skeleton.accounts.services import create_service_account, deactivate_service_account
 
@@ -111,6 +114,7 @@ def test_service_accounts_emit_membership_events(access):
         assert codes(deactivated) == [(MEMBERSHIP_DEACTIVATED, {"user": str(account.pk)})]
 
 
+@pytest.mark.needs_example_app
 def test_app_activation_emits_only_on_enabled_changes(access):
     from skeleton.system.applications import application_state, configure_application
     from skeleton.testing.applications import open_app
@@ -137,6 +141,7 @@ def test_app_activation_emits_only_on_enabled_changes(access):
         assert codes(first) == [(APP_ENABLED, {"app_label": APP}), (APP_DISABLED, {"app_label": APP})]
 
 
+@pytest.mark.needs_example_app
 def test_rollback_leaves_no_event_and_tenants_are_isolated(access):
     from skeleton.access.services import update_membership
     from skeleton.events.models import DomainEvent
@@ -157,12 +162,15 @@ def test_rollback_leaves_no_event_and_tenants_are_isolated(access):
         assert not DomainEvent.objects.filter(record_sysid=access.bob_membership.pk).exists()
 
 
+@pytest.mark.needs_example_app
 def test_core_events_enqueue_no_webhook_job(access):
     from skeleton.access.services import update_membership
     from skeleton.events.registry import consumers_for
     from skeleton.jobs.models import Job
 
-    assert consumers_for(MEMBERSHIP_CREATED) == () and consumers_for(APP_ENABLED) == ()
+    assert consumers_for(MEMBERSHIP_CREATED) == ()
+    # The only core consumer of app.enabled reschedules the flows of that app (docs/flows.md); never the webhooks.
+    assert [consumer.code for consumer in consumers_for(APP_ENABLED)] == ["flows.resume_application"]
     before = Job.all_objects.filter(job_type="events.consume").count()
     with actor_tenant(access.admin, access.a):
         update_membership(access.bob_membership, user=access.admin, data={"is_active": False})

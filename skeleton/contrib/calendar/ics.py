@@ -7,7 +7,9 @@ calendar without delegation, or the "busy only" option) carries only DTSTART/DTE
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from icalendar import Calendar as ICalendar
 from icalendar import Event as IEvent
@@ -18,36 +20,54 @@ from .policies import BUSY_TITLE, sees_details
 PRODID = "-//Skeleton//Agenda//PT-BR"
 
 
-def vevent(reader: Any, event: Any, *, busy_only: bool = False) -> IEvent:
-    from .recurrence import _instant
+def _export_rule(event: Any) -> str:
+    """The stored rule with UNTIL as RFC 5545 requires next to a zoned DTSTART (UTC), or a date for all-day (#293)."""
+    from .recurrence import _until, parse_rule
 
-    details = not busy_only and sees_details(reader, event)
+    parts = parse_rule(event.rrule)
+    if "UNTIL" in parts:
+        if event.all_day:
+            parts["UNTIL"] = parts["UNTIL"][:8]
+        else:
+            zone = ZoneInfo(event.tzid)
+            local = _until(parts["UNTIL"], zone, all_day=False)  # On the local clock, naive.
+            parts["UNTIL"] = local.replace(tzinfo=zone).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return ";".join(f"{name}={value}" for name, value in parts.items())
+
+
+def vevent(reader: Any, event: Any, *, busy_only: bool = False, view: Any = None) -> IEvent:
+    from .recurrence import _instants
+
+    details = not busy_only and sees_details(reader, event, view)
     item = IEvent()
     item.add("uid", event.uid)
     item.add("dtstamp", event.updated_at)
     item.add("sequence", event.sequence)
-    item.add("summary", event.title if details else BUSY_TITLE)
+    item.add("summary", event.title if details else str(BUSY_TITLE))
     if details and event.description:
         item.add("description", event.description)
     if details and event.location:
         item.add("location", event.location)
     if not details or event.is_private:
         item.add("class", "PRIVATE")
+    # A series runs on the local clock of its tzid: exported with that TZID (and its VTIMEZONE),
+    # a client expands it at the same local hour across daylight saving changes (#293).
+    zone = ZoneInfo(event.tzid)
     if event.all_day:
         item.add("dtstart", event.start_date)
         item.add("dtend", event.end_date)
     else:
-        item.add("dtstart", event.starts_at)
-        item.add("dtend", event.ends_at)
-    item.add("status", event.status.upper())
+        item.add("dtstart", event.starts_at.astimezone(zone))
+        item.add("dtend", event.ends_at.astimezone(zone))
+    # An override marked is_cancelled is a cancelled occurrence, as the expansion already reads it (#345).
+    item.add("status", "CANCELLED" if getattr(event, "is_cancelled", False) else event.status.upper())
     if event.rrule:
-        item.add("rrule", vRecur.from_ical(event.rrule))
+        item.add("rrule", vRecur.from_ical(_export_rule(event)))
         for name, values in (("exdate", event.exdates), ("rdate", event.rdates)):
-            for value in values:
-                moment = _instant(value, event)
-                item.add(name, moment.date() if event.all_day else moment)
+            for moment in _instants(values, event):
+                item.add(name, moment.date() if event.all_day else moment.astimezone(zone))
     if event.recurrence_id is not None:
-        item.add("recurrence-id", event.recurrence_id.date() if event.all_day else event.recurrence_id)
+        item.add("recurrence-id", event.recurrence_id.date() if event.all_day else event.recurrence_id.astimezone(zone))
     return item
 
 
@@ -58,16 +78,47 @@ def calendar_bytes(name: str, components: list[IEvent]) -> bytes:
     calendar.add("x-wr-calname", name)
     for component in components:
         calendar.add_component(component)
+    calendar.add_missing_timezones()  # The VTIMEZONE of every TZID used (#293).
     return calendar.to_ical()
 
 
 def calendar_components(reader: Any, events: Any, *, busy_only: bool = False) -> list[IEvent]:
-    """Components of the masters in ``events`` and their overrides, masked for ``reader``."""
-    from .models import Event
+    """Components of the masters in ``events`` and their overrides, masked for ``reader``.
 
+    A fixed number of queries whatever the number of events (#291).
+    """
+    from .models import Event
+    from .policies import actor_view
+
+    masters = list(
+        events.filter(series__isnull=True).select_related("calendar").order_by("starts_at", "start_date", "sysid")
+    )
+    overrides: dict[Any, list[Any]] = {}
+    if masters:
+        for row in Event.objects.filter(series_id__in=[master.pk for master in masters]).select_related("calendar"):
+            overrides.setdefault(row.series_id, []).append(row)
+    view = None
+    if not busy_only:
+        view = actor_view(
+            reader, calendar_ids={master.calendar_id for master in masters}, event_ids={master.pk for master in masters}
+        )
     rows = []
-    for master in events.filter(series__isnull=True).select_related("calendar").order_by("starts_at", "start_date"):
-        rows.append(vevent(reader, master, busy_only=busy_only))
-        for override in Event.objects.filter(series=master).select_related("calendar"):
-            rows.append(vevent(reader, override, busy_only=busy_only))
+    for master in masters:
+        rows.append(vevent(reader, master, busy_only=busy_only, view=view))
+        for override in overrides.get(master.pk, ()):
+            rows.append(vevent(reader, override, busy_only=busy_only, view=view))
     return rows
+
+
+MAX_COMPONENTS = 2000
+
+
+def capped(components: list[IEvent]) -> list[IEvent]:
+    """At most ``MAX_COMPONENTS`` components; a cut is logged without any data of the events (#291)."""
+    import logging
+
+    if len(components) > MAX_COMPONENTS:
+        logging.getLogger("skeleton.contrib.calendar").warning(
+            "calendar.feed_truncated", extra={"event": "calendar.feed_truncated"}
+        )
+    return components[:MAX_COMPONENTS]

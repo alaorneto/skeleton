@@ -9,10 +9,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.utils.translation import gettext
+
 from skeleton.access.policies import authorized_queryset, require_record_action
 from skeleton.service_api import InvalidInput, NotFound, Page, ServiceAPI, as_utc, as_uuid, paginate, service_method
 from skeleton.tenancy.context import current_context
 
+from .flows import PUBLICATION
 from .models import Note
 
 if TYPE_CHECKING:
@@ -35,6 +38,18 @@ class NoteSummary:
     updated_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class PublicationStatus:
+    """The publication request of a note: the flow instance, its state and its result."""
+
+    instance_id: UUID
+    number: str
+    status: str
+    outcome: str
+    revision: int
+    created: bool
+
+
 def _summary(note: Note) -> NoteSummary:
     return NoteSummary(
         sysid=note.pk,
@@ -48,7 +63,7 @@ def _summary(note: Note) -> NoteSummary:
 
 
 def _text(values: dict[str, object]) -> dict[str, str]:
-    errors = {name: ["Use um texto."] for name, value in values.items() if not isinstance(value, str)}
+    errors = {name: [gettext("Use um texto.")] for name, value in values.items() if not isinstance(value, str)}
     if errors:
         raise InvalidInput(errors)
     return {name: str(value) for name, value in values.items()}
@@ -142,9 +157,9 @@ class NoteService(ServiceAPI):
             name: value for name, value in zip(_TEXT_FIELDS, (code, title, body), strict=True) if value is not None
         }
         if not changes:
-            raise InvalidInput({"non_field_errors": ["Informe ao menos um campo."]})
+            raise InvalidInput({"non_field_errors": [gettext("Informe ao menos um campo.")]})
         if type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use a revisão inteira atual."]})
+            raise InvalidInput({"expected_revision": [gettext("Use a revisão inteira atual.")]})
         values = _text(changes)
         note = require_record_action(_readable(actor, note_id), user=actor, action="update")
         note.revision = expected_revision  # CAS: save() raises ConcurrentUpdate -> Conflict(stale_revision).
@@ -152,3 +167,43 @@ class NoteService(ServiceAPI):
             setattr(note, name, value)
         note.save(update_fields=set(values))
         return _summary(note)
+
+    @service_method(read_only=False, since="0.4.0")
+    def request_publication(
+        self, *, actor: "User", note_id: UUID, idempotency_key: str | None = None
+    ) -> PublicationStatus:
+        """Starts the publication flow of a note (docs/flows.md).
+
+        Autorização: leitura da nota e escrita nela (a ação de início do fluxo é update).
+        Erros: NotFound se a nota não existir, for de outra organização ou não for legível;
+        Forbidden sem escrita na nota; Conflict(already_running) se a nota já tem um pedido em
+        andamento; Unavailable com a app desativada.
+        Efeitos: inicia a instância do fluxo example_notes.publication e abre a tarefa de
+        preparação para o ator, na transação do chamador. A chave de idempotência repetida
+        devolve o mesmo pedido (created=False).
+        """
+        from skeleton.service_api.flows import FlowService
+
+        note = _readable(actor, note_id)
+        receipt = FlowService().start(
+            actor=actor, flow_key=PUBLICATION, subject_id=note.pk, idempotency_key=idempotency_key
+        )
+        return PublicationStatus(receipt.sysid, receipt.number, receipt.status, "", receipt.revision, receipt.created)
+
+    @service_method(read_only=True, since="0.4.0")
+    def publication_status(self, *, actor: "User", note_id: UUID) -> PublicationStatus | None:
+        """Returns the latest publication request of a note, or None when there is none.
+
+        Autorização: leitura da nota; o pedido é o que o ator pode ler pelo FlowService.
+        Erros: NotFound se a nota não existir, for de outra organização ou não for legível;
+        Unavailable com a app desativada.
+        Efeitos: nenhum.
+        """
+        from skeleton.service_api.flows import FlowService
+
+        note = _readable(actor, note_id)
+        page = FlowService().instances(actor=actor, flow_key=PUBLICATION, subject_id=note.pk, page_size=1)
+        if not page.items:
+            return None
+        latest = page.items[0]
+        return PublicationStatus(latest.sysid, latest.number, latest.status, latest.outcome, latest.revision, False)

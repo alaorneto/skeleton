@@ -22,7 +22,7 @@ from skeleton.system.presentation import AdministrationSpec, AdminScreenSpec, Ad
 from skeleton.tenancy.context import system_context, tenant_context
 from skeleton.testing.applications import activation_revision
 
-pytestmark = pytest.mark.usefixtures("skeleton_db")
+pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
 PASSWORD = "Application-administration-Password!54"
 
 
@@ -224,9 +224,13 @@ def test_table_read_permission_does_not_grant_parameter_panel(actor, app_screens
     _, organization, _ = actor
     _, client = member_actor
     base = f"/o/{organization.pk}/apps/example_notes/"
-    assert client.get(base + "admin/").status_code == 403
-    assert client.get(base + "admin/screens/configuration/").status_code == 403
-    assert client.get(base + "configuration/").status_code == 403
+    # The parameter panel exists only for apps.manage: a member gets 404 (#24).
+    assert client.get(base + "admin/").status_code == 404
+    assert client.get(base + "admin/screens/configuration/").status_code == 404
+    assert client.get(base + "configuration/").status_code == 404
+    assert client.get(f"/o/{organization.pk}/apps/").status_code == 404
+    assert client.get(f"/api/v1/o/{organization.pk}/apps/").status_code == 404
+    assert client.get(f"/api/v1/o/{organization.pk}/apps/example_notes/configuration/").status_code == 404
     assert client.get(base).status_code == 200
     assert client.get(f"/o/{organization.pk}/catalog/").status_code == 200
     assert client.get(f"/o/{organization.pk}/tables/example_notes.note/").status_code == 200
@@ -238,8 +242,9 @@ def test_custom_parameter_wrapper_guards_direct_route_without_activation_gate(
     from django.core.exceptions import PermissionDenied
     from django.test import RequestFactory
 
-    from skeleton.system.administration import guard_application_urls, screen_sections
-    from skeleton.system.application_views import application_configuration
+    from skeleton.system.administration import screen_sections
+    from skeleton.web.app_routing import guard_application_urls
+    from skeleton.web.applications import application_configuration
 
     user, organization, client = actor
     member, member_client = member_actor
@@ -381,7 +386,7 @@ def test_api_namespace_wrapper_uses_owning_app_activation(actor, app_screens, mo
     from django.test import RequestFactory
 
     from examples.notes.views import SummaryView
-    from skeleton.system.administration import guard_application_urls
+    from skeleton.web.app_routing import guard_application_urls
 
     user, organization, _ = actor
     summary = SummaryView.as_view()
@@ -419,7 +424,9 @@ def bare_api_urlconf(monkeypatch):
     changed = replace(original, api_urls=([path("v/", include(nested))], "example_notes_api"))
     monkeypatch.setitem(app_registry._manifests, original.app_label, changed)
     urlconf = types.ModuleType("tests_application_api_guard_urlconf")
-    urlconf.urlpatterns = [*app_registry.application_urlpatterns(), *import_module(settings.ROOT_URLCONF).urlpatterns]
+    from skeleton.web.app_routing import application_urlpatterns
+
+    urlconf.urlpatterns = [*application_urlpatterns(), *import_module(settings.ROOT_URLCONF).urlpatterns]
     monkeypatch.setitem(sys.modules, urlconf.__name__, urlconf)
     return urlconf.__name__
 
@@ -496,7 +503,7 @@ def test_removed_app_api_route_answers_not_found(api_guard, monkeypatch):
 
 
 def test_api_guard_clones_nested_patterns_and_keeps_view_attributes(app_screens):
-    from skeleton.system.administration import guard_application_api_urls
+    from skeleton.web.app_routing import guard_application_api_urls
 
     view = BareAPI.as_view()
     nested = [path("bare/", view, name="bare")]
@@ -513,3 +520,159 @@ def test_api_guard_clones_nested_patterns_and_keeps_view_attributes(app_screens)
     assert pattern.callback.initkwargs == view.initkwargs
     with pytest.raises(TypeError):
         guard_application_api_urls([object()], app_screens)
+
+
+# --------------------------------------------------------------------------- incompatible stored configuration (#251)
+
+
+def store_incompatible_configuration(monkeypatch, organization, user):
+    """A row written by an older release, with a field the installed manifest no longer declares."""
+    from skeleton.system.app_registry import ConfigField
+    from skeleton.system.models import AppInstallation
+
+    manifest = app_registry.get_app("example_notes")
+    with monkeypatch.context() as old_release:
+        old_release.setitem(
+            app_registry._manifests,
+            "example_notes",
+            replace(
+                manifest, configuration_fields=(*manifest.configuration_fields, ConfigField("removed_field", str, ""))
+            ),
+        )
+        with tenant_context(organization_id=organization.pk, actor=user, source="test:legacy-configuration"):
+            record = AppInstallation.objects.get(app_label="example_notes")
+            record.configuration = {"removed_field": "must not be silently discarded"}
+            record.save(update_fields={"configuration"})
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:legacy-configuration-read"):
+        record = AppInstallation.objects.get(app_label="example_notes")
+        return record.revision, dict(record.configuration)
+
+
+def test_incompatible_stored_configuration_closes_only_that_app(actor, monkeypatch):
+    from django.core.exceptions import PermissionDenied
+
+    from examples.notes.models import Note
+    from skeleton.access.policies import authorized_queryset
+
+    user, organization, client = actor
+    store_incompatible_configuration(monkeypatch, organization, user)
+    home = client.get(reverse("web:dashboard", kwargs={"organization_id": organization.pk}))
+    assert home.status_code == 200
+    navigation = home.context["application_navigation"]
+    assert not any("example_notes" in str(entry) for entry in navigation)
+    assert client.get(reverse("example_notes:home", kwargs={"organization_id": organization.pk})).status_code == 403
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:incompatible-state"):
+        assert application_state("example_notes")["configuration_valid"] is False
+        with pytest.raises(PermissionDenied):
+            authorized_queryset(Note, user=user, action="read")
+
+
+def test_incompatible_configuration_is_not_rewritten_over_http(actor, monkeypatch):
+    import json
+
+    from skeleton.system.models import AppInstallation
+
+    user, organization, client = actor
+    revision, stored = store_incompatible_configuration(monkeypatch, organization, user)
+    values = {"organization_id": organization.pk, "app_label": "example_notes"}
+    page = reverse("application-configuration", kwargs=values)
+    client.get(page)
+    posted = client.post(
+        page, {"enabled": "on", "revision": revision, "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    )
+    assert posted.status_code == 400
+    put = client.put(
+        reverse("api-application-configuration", kwargs=values),
+        data=json.dumps({"enabled": True, "configuration": {}}),
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,
+        HTTP_IF_MATCH=f'"{revision}"',
+    )
+    assert put.status_code == 400
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:incompatible-row"):
+        record = AppInstallation.objects.get(app_label="example_notes")
+        assert (record.revision, dict(record.configuration)) == (revision, stored)
+
+
+def test_incompatible_configuration_page_explains_and_lists_apps(actor, monkeypatch):
+    user, organization, client = actor
+    store_incompatible_configuration(monkeypatch, organization, user)
+    assert client.get(reverse("application-list", kwargs={"organization_id": organization.pk})).status_code == 200
+    page = client.get(
+        reverse("application-configuration", kwargs={"organization_id": organization.pk, "app_label": "example_notes"})
+    )
+    assert page.status_code == 200
+    assert "incompatível com a versão instalada" in page.content.decode()
+
+
+def test_incompatible_configuration_does_not_affect_other_organization(actor, monkeypatch):
+    from skeleton.testing.applications import activate_app
+
+    user, organization, client = actor
+    store_incompatible_configuration(monkeypatch, organization, user)
+    other_user, other = bootstrap_identity(
+        email="administration-b@example.test", organization="administration-b", name="B", password=PASSWORD
+    )
+    activate_app("example_notes", other.pk)
+    with tenant_context(organization_id=other.pk, actor=other_user, source="test:other-organization"):
+        state = application_state("example_notes")
+        assert state["configuration_valid"] is True and state["effective"] is True
+
+
+def test_configure_application_requires_role_under_lock(actor, monkeypatch):
+    """configure_application takes the organization lock itself, wherever it is called from (#253)."""
+    from skeleton.access import services as access_services
+
+    user, organization, _ = actor
+    real, calls = access_services.organization_lock, []
+
+    def spy(lock_user=None, **kwargs):
+        calls.append((lock_user, kwargs))
+        return real(lock_user, **kwargs)
+
+    monkeypatch.setattr(access_services, "organization_lock", spy)
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:configure-lock"):
+        state = application_state("example_notes")
+        configure_application(
+            "example_notes",
+            user=user,
+            enabled=state["enabled"],
+            configuration=state["configuration"],
+            revision=state["revision"],
+        )
+    assert calls and calls[0][0] == user and calls[0][1].get("capability") == "apps.manage"
+
+
+def test_configuration_form_reports_specific_service_error(actor, monkeypatch):
+    """The form shows the service's own message, not a generic one (#338)."""
+    from django.core.exceptions import ValidationError
+
+    from skeleton.system import applications
+
+    user, organization, client = actor
+    url = reverse(
+        "application-configuration", kwargs={"organization_id": organization.pk, "app_label": "example_notes"}
+    )
+    client.get(url)
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:read-revision"):
+        current = activation_revision("example_notes")
+
+    def refuse(*args, **kwargs):
+        raise ValidationError(
+            {"enabled": ValidationError("Ative antes a dependência Base.", code="dependency_disabled")}
+        )
+
+    monkeypatch.setattr(applications, "configure_application", refuse)
+    response = client.post(
+        url,
+        {
+            "enabled": "on",
+            "revision": str(current),
+            "heading": "Any",
+            "csrfmiddlewaretoken": client.cookies["csrftoken"].value,
+        },
+    )
+    assert response.status_code == 400
+    page = response.content.decode()
+    assert "Ative antes a dependência Base." in page
+    assert "Verifique os campos e as dependências ativas." not in page

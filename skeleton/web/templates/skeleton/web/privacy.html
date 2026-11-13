@@ -1,0 +1,24 @@
+{% extends 'skeleton/web/base.html' %}{% load i18n %}
+{% block title %}{% translate "Privacidade" %} · Skeleton{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Perfil" %}</p><h1>{% translate "Seus dados" %}</h1><p class="page-description">{% translate "Baixe uma cópia do que o sistema guarda sobre você: identidade, perfil, tokens de API e, em cada organização, o vínculo, as notificações recebidas e os anexos que você enviou." %}</p></div></div>
+<section class="card">
+  <h2>{% translate "Exportar meus dados" %}</h2>
+  <p class="mt-2 text-sm/6 text-body">{% translate "O arquivo é um ZIP com JSON. Ele não inclui os registros de negócio das organizações, que pertencem a cada uma delas." %}</p>
+  <a class="btn btn-primary mt-4" href="{% url 'web:privacy-export' %}">{% translate "Baixar meus dados" %}</a>
+</section>
+<section class="card mt-5" aria-labelledby="erasure-title">
+  <h2 id="erasure-title">{% translate "Eliminar minha identidade" %}</h2>
+  <p class="mt-2 text-sm/6 text-body">{% translate "Depois da aprovação de um administrador da plataforma, seu email e seus nomes são substituídos, os logins, sessões e tokens deixam de funcionar e suas notificações e preferências são apagadas. Os registros das organizações continuam, ligados a uma identidade anônima. Não há como desfazer." %}</p>
+  {% if erasure %}
+  <p class="mt-4 text-sm/6"><strong>{% translate "Situação:" %}</strong> {{ erasure.get_status_display }} · {{ erasure.created_at }}</p>
+  {% if erasure.status == "pending" %}
+  <form method="post" action="{% url 'web:privacy-erasure' %}" class="mt-3">{% csrf_token %}<input type="hidden" name="intent" value="withdraw"><input type="hidden" name="request" value="{{ erasure.sysid }}"><input type="hidden" name="revision" value="{{ erasure.revision }}"><button type="submit" class="btn btn-secondary">{% translate "Retirar o pedido" %}</button></form>
+  {% endif %}
+  {% else %}
+  <form method="post" action="{% url 'web:privacy-erasure' %}" class="mt-4">{% csrf_token %}<button type="submit" class="btn btn-danger">{% translate "Pedir a eliminação" %}</button></form>
+  {% endif %}
+</section>
+</div>
+{% endblock %}

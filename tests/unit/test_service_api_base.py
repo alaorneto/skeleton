@@ -1,9 +1,11 @@
 """Service API base: caller contract, boundary values, pages and REST mapping (#97)."""
 
+import enum
 import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -163,6 +165,53 @@ def test_mutable_results_are_refused(value):
             Sample().leak(actor=actor, value=value)
 
 
+@dataclass
+class MutableInfo:
+    name: str
+
+
+class Level(enum.IntEnum):
+    LOW = 1
+
+
+class Color(enum.StrEnum):
+    RED = "red"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [(x for x in ()), iter(()), map(str, ()), 1.5, b"x", frozenset({1}), object(), MutableInfo("x"), Level.LOW],
+    ids=["generator", "iterator", "map", "float", "bytes", "frozenset", "object", "mutable-dataclass", "int-enum"],
+)
+def test_only_contract_values_cross_the_boundary(value):
+    """The return check is an allow-list: anything outside the contract is refused (#272)."""
+    actor = person()
+    with fake_context(actor=actor.pk, organization_id=ORGANIZATION), pytest.raises(TypeError):
+        Sample().leak(actor=actor, value=value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        True,
+        1,
+        "x",
+        Decimal("1.0"),
+        date(2026, 11, 12),
+        datetime(2026, 11, 12, tzinfo=UTC),
+        uuid4(),
+        Color.RED,
+        ((Info(sysid=uuid4(), name="a"),), (Info(sysid=uuid4(), name="b"),)),
+        Page((Info(sysid=uuid4(), name="x"),), None, 1),
+    ],
+)
+def test_contract_values_are_accepted(value):
+    actor = person()
+    with fake_context(actor=actor.pk, organization_id=ORGANIZATION):
+        assert Sample().leak(actor=actor, value=value) == value
+
+
 def test_models_and_querysets_are_refused():
     from skeleton.accounts.models import User
 
@@ -302,3 +351,69 @@ def test_context_required_is_a_server_error():
     from skeleton.api.errors import exception_handler
 
     assert exception_handler(ContextRequired(), {}) is None
+
+
+def test_cursor_beyond_max_offset_is_invalid_input():
+    """An offset the database cannot address is invalid input, never a database error (#271)."""
+    from skeleton.service_api import MAX_OFFSET
+
+    with pytest.raises(InvalidInput) as error:
+        paginate([1, 2], convert=str, cursor=encode_cursor(MAX_OFFSET + 1))
+    assert "cursor" in error.value.errors
+    assert paginate([1, 2], convert=str, cursor=encode_cursor(MAX_OFFSET)).items == ()
+
+
+def test_reference_page_beyond_max_offset_is_refused_before_any_query():
+    """The example table has no reference field: the picker check runs before the queryset (#271)."""
+    from skeleton.web.references import reference_options
+
+    with pytest.raises(ValidationError):
+        reference_options(None, "owner", user=None, page=10**30)
+
+
+def test_keyset_cursor_roundtrip():
+    """Keyset cursors carry the last row's key values as text (#305)."""
+    from skeleton.service_api.dto import decode_key_cursor, encode_key_cursor
+
+    values = ("2026-11-12T10:00:00.123456+00:00", "3", str(uuid4()))
+    assert decode_key_cursor(encode_key_cursor(values), 3) == values
+
+
+def _raw_cursor(text):
+    import base64
+
+    return base64.urlsafe_b64encode(text.encode("ascii")).decode("ascii").rstrip("=")
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "!!!",
+        _raw_cursor("o:3"),
+        _raw_cursor('k:{"a": 1}'),
+        _raw_cursor('k:["a", 1]'),
+        _raw_cursor('k:["a"]'),
+        _raw_cursor("k:not json"),
+        "x" * 513,
+        3,
+    ],
+    ids=["base64", "prefix", "object", "non-text", "length", "json", "too-long", "type"],
+)
+def test_keyset_cursor_tampered_is_invalid_input(cursor):
+    from skeleton.service_api.dto import decode_key_cursor
+
+    with pytest.raises(InvalidInput) as error:
+        decode_key_cursor(cursor, 2)
+    assert "cursor" in error.value.errors
+
+
+def test_keyset_requires_a_queryset():
+    with pytest.raises(TypeError):
+        paginate([1, 2], convert=str, key=("x",))
+
+
+def test_keyset_cursor_without_key_is_invalid_input():
+    from skeleton.service_api.dto import encode_key_cursor
+
+    with pytest.raises(InvalidInput):
+        paginate([1, 2], convert=str, cursor=encode_key_cursor(["a"]))

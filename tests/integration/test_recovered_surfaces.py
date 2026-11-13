@@ -163,6 +163,7 @@ def test_sbr08_invitation_resend_replaces_token_and_rejects_old_link(mailoutbox)
     assert api_post(client, resend, {}, first["ETag"]).status_code == 404
 
 
+@pytest.mark.needs_example_app
 def test_sbr14_pagination_retains_validated_filter_and_results():
     from examples.notes.models import Note
 

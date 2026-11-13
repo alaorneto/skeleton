@@ -5,6 +5,8 @@ Only historical migration models and the frozen specification determine DDL.
 
 from django.db.migrations.operations.base import Operation
 
+from .context import is_tenant_model
+
 MECHANICAL = {"sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_by", "revision"}
 POLICY_NAMES = (
     "skeleton_tenant",
@@ -65,6 +67,51 @@ def infrastructure_names(table, *, operational=False):
     return tuple(table + "_sk_" + suffix for suffix in suffixes)
 
 
+MAX_IDENTIFIER_BYTES = 63  # PostgreSQL NAMEDATALEN - 1; longer names are truncated silently.
+# Installed before the limit was checked (#238). PostgreSQL stores them truncated, the schema
+# check compares through the same truncation and the truncated names stay unique; renaming them
+# would need a data migration. Nominal and closed: never add a name here.
+LEGACY_LONG_IDENTIFIERS = frozenset(
+    {
+        "sk_tenancy_organizationadmissionpolicy_sk_org_request_default_role_id",
+        "sk_tenancy_organizationadmissionpolicy_sk_idx_request_default_role_id",
+    }
+)
+
+
+def organization_references(model):
+    """Concrete FKs to tenant tables other than ``organization``, ordered by column."""
+    return sorted(
+        (
+            field
+            for field in model._meta.concrete_fields
+            if field.is_relation
+            and field.name != "organization"
+            and any(f.name == "organization" for f in field.related_model._meta.concrete_fields)
+        ),
+        key=lambda field: field.column,
+    )
+
+
+def infrastructure_identifiers(model):
+    """Every database identifier InstallRecordInfrastructure may create for ``model``."""
+    table = model._meta.db_table
+    names = [table + "_sk_guard", table + "_sk_audit", table + "_sk_guard_fn", table + "_sk_audit_fn"]
+    for field in organization_references(model):
+        names.append(table + "_sk_org_" + field.column)
+        names.append(table + "_sk_idx_" + field.column)
+    return names
+
+
+def oversized_identifiers(model):
+    """The generated identifiers PostgreSQL would truncate, as (name, bytes) (#238)."""
+    return [
+        (name, len(name.encode()))
+        for name in infrastructure_identifiers(model)
+        if len(name.encode()) > MAX_IDENTIFIER_BYTES and name not in LEGACY_LONG_IDENTIFIERS
+    ]
+
+
 def require_postgresql(connection):
     """Every data table lives in PostgreSQL (#144); any other backend is refused explicitly."""
     if connection.vendor != "postgresql":
@@ -80,6 +127,14 @@ def is_operational(specification):
     return specification.get("lifecycle") == "operational"
 
 
+def field_internal_type(field):
+    """Django internal type of a concrete field; a relation reports its target's type.
+
+    Shared by the frozen specification below and the OpenAPI generator (#178).
+    """
+    return field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
+
+
 def build_infrastructure_specification(model, spec):
     """Return the frozen specification to paste into a new migration.
 
@@ -88,17 +143,21 @@ def build_infrastructure_specification(model, spec):
     Column order follows ``concrete_fields``; relations report the target type.
     """
     sensitive = set(spec.sensitive_fields)
+    personal = set(getattr(spec, "personal_fields", ()) or ())
     columns = []
     for field in model._meta.concrete_fields:
-        kind = field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
-        columns.append(
-            {
-                "name": field.column,
-                "type": kind,
-                "sensitive": field.name in sensitive or field.column in sensitive,
-            }
-        )
+        kind = field_internal_type(field)
+        column = {
+            "name": field.column,
+            "type": kind,
+            "sensitive": field.name in sensitive or field.column in sensitive,
+        }
+        if field.name in personal or field.column in personal:
+            column["personal"] = True
+        columns.append(column)
     specification = {"scope": spec.scope, "sensitive_fields": list(spec.sensitive_fields)}
+    if personal:
+        specification["personal_fields"] = list(spec.personal_fields)
     if getattr(model, "lifecycle", None) == "operational":
         specification["lifecycle"] = "operational"
     discovery = getattr(model, "self_discovery_field", None)
@@ -139,6 +198,13 @@ class InstallRecordInfrastructure(Operation):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         require_postgresql(schema_editor.connection)
+        oversized = oversized_identifiers(model)
+        if oversized:
+            details = ", ".join(f"{name} ({size} bytes)" for name, size in oversized)
+            raise ValueError(
+                f"{model._meta.label}: infrastructure identifiers longer than {MAX_IDENTIFIER_BYTES} bytes "
+                f"would be truncated by PostgreSQL: {details}. Shorten db_table or the db_column of the foreign key."
+            )
         self._postgres(schema_editor, model)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
@@ -150,18 +216,25 @@ class InstallRecordInfrastructure(Operation):
             return
         require_postgresql(schema_editor.connection)
         model = from_state.apps.get_model(self.app_label, self.model_name)
-        table, q = model._meta.db_table, schema_editor.quote_name
+        self._postgres_backwards(schema_editor, model)
+
+    def _postgres_backwards(self, editor, model):
+        """Remove the infrastructure and leave the table closed to the runtime (fail closed, #306)."""
+        table, q = model._meta.db_table, editor.quote_name
+        # First, so a failure further down never leaves an unprotected table open.
+        editor.execute(f"REVOKE ALL ON skeleton.{q(table)} FROM PUBLIC, skeleton_runtime, skeleton_audit_writer")
         for name in infrastructure_names(table):
-            schema_editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
+            editor.execute(f"DROP TRIGGER IF EXISTS {q(name)} ON skeleton.{q(table)}")
         for kind in ("guard", "audit"):
-            schema_editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
+            editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_' + kind + '_fn')}()")
         for name in POLICY_NAMES:
-            schema_editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
-        schema_editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
+            editor.execute(f"DROP POLICY IF EXISTS {q(name)} ON skeleton.{q(table)}")
+        editor.execute(f"ALTER TABLE skeleton.{q(table)} DISABLE ROW LEVEL SECURITY")
         for field in self._org_refs(model):
-            schema_editor.execute(
+            editor.execute(
                 f"ALTER TABLE skeleton.{q(table)} DROP CONSTRAINT IF EXISTS {q(table + '_sk_org_' + field.column)}"
             )
+            editor.execute(f"DROP INDEX IF EXISTS skeleton.{q(table + '_sk_idx_' + field.column)}")
 
     def operational(self):
         return is_operational(self.specification)
@@ -177,7 +250,7 @@ class InstallRecordInfrastructure(Operation):
         """RLS policies this frozen specification installs on ``model``."""
         if self._append_only(model):
             return ("skeleton_audit_select", "skeleton_audit_insert")
-        if not any(f.name == "organization" for f in model._meta.fields):
+        if not is_tenant_model(model):
             return ()
         mode, column = self_discovery_mode(model, self.specification)
         if mode is None:
@@ -188,20 +261,11 @@ class InstallRecordInfrastructure(Operation):
         return self.specification.get("append_only", model._meta.label_lower == "sk_audit.auditevent")
 
     def _org_refs(self, model):
-        return sorted(
-            (
-                field
-                for field in model._meta.concrete_fields
-                if field.is_relation
-                and field.name != "organization"
-                and any(f.name == "organization" for f in field.related_model._meta.concrete_fields)
-            ),
-            key=lambda field: field.column,
-        )
+        return organization_references(model)
 
     def _immutable(self, model):
         names = {"sysid"} | set(self.specification.get("immutable_fields", getattr(model, "immutable_fields", ())))
-        if any(f.name == "organization" for f in model._meta.fields):
+        if is_tenant_model(model):
             names.add("organization_id")
         if model._meta.label_lower == "sk_tenancy.organization":
             names.add("slug")
@@ -210,7 +274,12 @@ class InstallRecordInfrastructure(Operation):
         return sorted(names)
 
     def _audit_fields(self, model):
-        sensitive = set(self.specification.get("sensitive_fields", ())) | SENSITIVE
+        # Personal fields (#189) are redacted in the audit like secrets.
+        sensitive = (
+            set(self.specification.get("sensitive_fields", ()))
+            | set(self.specification.get("personal_fields", ()))
+            | SENSITIVE
+        )
         declared = self.specification.get("columns")
         fields = {field.column: field for field in model._meta.concrete_fields}
         if declared is not None:
@@ -222,6 +291,7 @@ class InstallRecordInfrastructure(Operation):
                 (
                     column["name"],
                     column.get("sensitive", False)
+                    or column.get("personal", False)
                     or fields[column["name"]].name in sensitive
                     or column["name"] in sensitive,
                 )
@@ -235,10 +305,24 @@ class InstallRecordInfrastructure(Operation):
         ]
 
     def _postgres(self, editor, model):
+        """Install the frozen protection of one table, in a fixed order (decomposed in #316)."""
+        self._drop_audited_triggers_of_operational(editor, model)
+        self._install_tenant_foreign_keys(editor, model)
+        self._install_guard(editor, model)
+        self._install_row_security(editor, model)
+        if self._install_grants(editor, model):
+            self._install_audit(editor, model)
+
+    def _drop_audited_triggers_of_operational(self, editor, model):
+        """Operational tables keep no audit or row trigger of an older specification."""
         q, table = editor.quote_name, model._meta.db_table
         if self.operational():
             for kind in ("guard", "audit"):
                 editor.execute(f"DROP TRIGGER IF EXISTS {q(table + '_sk_' + kind)} ON skeleton.{q(table)}")
+
+    def _install_tenant_foreign_keys(self, editor, model):
+        """Composite same-organization foreign keys and their indexes."""
+        q, table = editor.quote_name, model._meta.db_table
         for field in self._org_refs(model):
             constraint = q(table + "_sk_org_" + field.column)
             target = q(field.related_model._meta.db_table)
@@ -249,6 +333,10 @@ class InstallRecordInfrastructure(Operation):
             editor.execute(
                 f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_idx_' + field.column)} ON skeleton.{q(table)} (organization_id,{q(field.column)})"
             )
+
+    def _guard_body(self, editor, model) -> str:
+        """The PL/pgSQL body of the identity/revision guard for this kind of table."""
+        q = editor.quote_name
         append = self._append_only(model)
         operational = self.operational()
         immutable = " OR ".join(f"NEW.{q(name)} IS DISTINCT FROM OLD.{q(name)}" for name in self._immutable(model))
@@ -270,6 +358,14 @@ class InstallRecordInfrastructure(Operation):
             if append
             else f"IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF; ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF; IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
         )
+        return guard
+
+    def _install_guard(self, editor, model):
+        """The guard function and its BEFORE trigger."""
+        q, table = editor.quote_name, model._meta.db_table
+        guard = self._guard_body(editor, model)
+        operational = self.operational()
+        tenant_column = self.specification.get("tenant_column") if operational else None
         function = q(table + "_sk_guard_fn")
         editor.execute(
             f"CREATE OR REPLACE FUNCTION skeleton.{function}() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,skeleton AS $guard$ BEGIN {guard} RETURN NEW; END $guard$"
@@ -280,8 +376,13 @@ class InstallRecordInfrastructure(Operation):
             f"CREATE TRIGGER {q(table + '_sk_guard')} BEFORE {events} ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
         editor.execute(f"REVOKE ALL ON FUNCTION skeleton.{function}() FROM PUBLIC")
+
+    def _install_row_security(self, editor, model):
+        """ENABLE/FORCE RLS and the policies of the table's variant."""
+        q, table = editor.quote_name, model._meta.db_table
+        append = self._append_only(model)
         tenant = TENANT_PREDICATE
-        if append or any(f.name == "organization" for f in model._meta.fields):
+        if append or is_tenant_model(model):
             editor.execute(f"ALTER TABLE skeleton.{q(table)} ENABLE ROW LEVEL SECURITY")
             editor.execute(f"ALTER TABLE skeleton.{q(table)} FORCE ROW LEVEL SECURITY")
             for name in POLICY_NAMES:
@@ -289,7 +390,7 @@ class InstallRecordInfrastructure(Operation):
             mode, column = (None, None) if append else self_discovery_mode(model, self.specification)
             if append:
                 editor.execute(
-                    f"CREATE POLICY skeleton_audit_select ON skeleton.{q(table)} FOR SELECT TO skeleton_runtime USING ({tenant} OR (organization_id IS NULL AND current_setting('skeleton.platform_admin',true)='on'))"
+                    f"CREATE POLICY skeleton_audit_select ON skeleton.{q(table)} FOR SELECT TO skeleton_runtime USING ({tenant} OR (organization_id IS NULL AND (current_setting('skeleton.platform_admin',true)='on' OR current_setting('skeleton.platform_auditor',true)='on')))"
                 )
                 editor.execute(
                     f"CREATE POLICY skeleton_audit_insert ON skeleton.{q(table)} FOR INSERT TO skeleton_audit_writer WITH CHECK ({tenant} OR organization_id IS NULL)"
@@ -311,15 +412,26 @@ class InstallRecordInfrastructure(Operation):
                 editor.execute(
                     f"CREATE POLICY skeleton_tenant ON skeleton.{q(table)} FOR ALL TO skeleton_runtime USING ({tenant}) WITH CHECK ({tenant})"
                 )
+
+    def _install_grants(self, editor, model) -> bool:
+        """Runtime privileges; False when the table carries no row audit."""
+        q, table = editor.quote_name, model._meta.db_table
+        append = self._append_only(model)
+        operational = self.operational()
         editor.execute(f"REVOKE ALL ON skeleton.{q(table)} FROM PUBLIC, skeleton_runtime")
         privileges = "SELECT" if append else "SELECT,INSERT,UPDATE,DELETE" if operational else "SELECT,INSERT,UPDATE"
         editor.execute(f"GRANT {privileges} ON skeleton.{q(table)} TO skeleton_runtime")
         if append:
             editor.execute(f"GRANT INSERT ON skeleton.{q(table)} TO skeleton_audit_writer")
-            return
+            return False
         if operational:
             editor.execute(f"DROP FUNCTION IF EXISTS skeleton.{q(table + '_sk_audit_fn')}()")
-            return
+            return False
+        return True
+
+    def _install_audit(self, editor, model):
+        """The audit function owned by the audit writer and its AFTER trigger."""
+        q, table = editor.quote_name, model._meta.db_table
         fields = self._audit_fields(model)
         build = []
         for column, sensitive in fields:
@@ -328,11 +440,7 @@ class InstallRecordInfrastructure(Operation):
             build.append(
                 f"IF TG_OP <> 'UPDATE' OR (old_data->{_lit(column)}) IS DISTINCT FROM (new_data->{_lit(column)}) THEN changes := changes || jsonb_build_object({_lit(column)},jsonb_build_object('old',CASE WHEN TG_OP='INSERT' THEN NULL ELSE {old} END,'new',CASE WHEN TG_OP='DELETE' THEN NULL ELSE {new} END,'redacted',{'true' if sensitive else 'false'})); END IF;"
             )
-        org = (
-            "(record_data->>'organization_id')::uuid"
-            if any(f.name == "organization" for f in model._meta.fields)
-            else "NULL"
-        )
+        org = "(record_data->>'organization_id')::uuid" if is_tenant_model(model) else "NULL"
         function = q(table + "_sk_audit_fn")
         editor.execute(f"""CREATE OR REPLACE FUNCTION skeleton.{function}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,skeleton AS $audit$
             DECLARE old_data jsonb; new_data jsonb; record_data jsonb; changes jsonb := '{{}}'::jsonb; operation text;
@@ -352,7 +460,7 @@ class InstallRecordInfrastructure(Operation):
             {org},{_lit(table)},{_lit(model._meta.label_lower)},(record_data->>'sysid')::uuid,(record_data->>'revision')::bigint,operation,
             NULLIF(current_setting('skeleton.user_id',true),'')::uuid,NULLIF(current_setting('skeleton.request_id',true),'')::uuid,
             COALESCE(NULLIF(current_setting('skeleton.source',true),''),'sql:unattributed'),session_user,changes);
-            RETURN COALESCE(NEW,OLD); END $audit$""")
+            RETURN COALESCE(NEW,OLD); END $audit$""")  # noqa: S608 - DDL from the frozen spec, identifiers quoted by quote_name
         # Ownership transfer requires schema CREATE briefly; owner is an offline privileged role.
         editor.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
         editor.execute(f"ALTER FUNCTION skeleton.{function}() OWNER TO skeleton_audit_writer")
@@ -362,3 +470,63 @@ class InstallRecordInfrastructure(Operation):
         editor.execute(
             f"CREATE TRIGGER {q(table + '_sk_audit')} AFTER INSERT OR UPDATE OR DELETE ON skeleton.{q(table)} FOR EACH ROW EXECUTE FUNCTION skeleton.{function}()"
         )
+
+
+class InstallSearchIndex(Operation):
+    """Full-text index of ``fields`` and the picker index of ``label`` (#180, #181).
+
+    The fields are frozen in the migration; the deployment check compares the installed index
+    with the current ``TableSpec.search_fields``. The label index is trigram (``gin_trgm_ops``)
+    when ``pg_trgm`` is installed and ``text_pattern_ops`` (prefix) otherwise.
+    """
+
+    reversible = True
+    reduces_to_sql = True
+
+    def __init__(self, app_label, model_name, fields, label=None):
+        self.app_label = app_label
+        self.model_name = model_name
+        self.fields = tuple(fields)
+        self.label = label
+
+    def deconstruct(self):
+        kwargs = {"app_label": self.app_label, "model_name": self.model_name, "fields": list(self.fields)}
+        if self.label is not None:
+            kwargs["label"] = self.label
+        return (self.__class__.__name__, [], kwargs)
+
+    def state_forwards(self, app_label, state):
+        pass
+
+    def describe(self):
+        return f"Install the search index of {self.app_label}.{self.model_name}"
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state):
+        from skeleton.system.search import label_sql, vector_sql
+
+        model = to_state.apps.get_model(self.app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        require_postgresql(schema_editor.connection)
+        table, q = model._meta.db_table, schema_editor.quote_name
+        schema_editor.execute(
+            f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_search')} ON skeleton.{q(table)} "
+            f"USING gin ({vector_sql(model, self.fields, qualified=False)})"
+        )
+        if self.label is None:
+            return
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'")
+            trigram = cursor.fetchone() is not None
+        expression = label_sql(model, self.label, qualified=False)
+        method = f"gin ({expression} gin_trgm_ops)" if trigram else f"btree ({expression} text_pattern_ops)"
+        schema_editor.execute(
+            f"CREATE INDEX IF NOT EXISTS {q(table + '_sk_label')} ON skeleton.{q(table)} USING {method}"
+        )
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state):
+        model = from_state.apps.get_model(self.app_label, self.model_name)
+        require_postgresql(schema_editor.connection)
+        table, q = model._meta.db_table, schema_editor.quote_name
+        for suffix in ("_sk_search", "_sk_label"):
+            schema_editor.execute(f"DROP INDEX IF EXISTS skeleton.{q(table + suffix)}")

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,13 @@ class NotificationType:
     owner_app: str = ""
     # Web push carries only the type label and a link; True also sends the snapshot (#56).
     push_snapshot: bool = False
+    # For a type without a target table: ``open_url(user, row) -> str | None`` re-authorizes the
+    # person and returns where the notification leads (the flow task page, #204).
+    open_url: Callable[[Any, Any], str | None] | None = None
+    # For a type without a target table: ``authorize(user, notification) -> bool`` re-checks
+    # each person at fan-out time, so access revoked since the notification was created
+    # stops the delivery (comment mentions, #188).
+    authorize: Callable[[Any, Any], bool] | None = None
 
 
 _types: dict[str, NotificationType] = {}

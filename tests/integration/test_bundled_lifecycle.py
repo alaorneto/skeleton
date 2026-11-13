@@ -35,6 +35,7 @@ def component():
         return ComponentInstallation.all_objects.get(component_id="org.skeleton.bundled-stand-in")
 
 
+@pytest.mark.needs_example_app
 def test_a_new_first_party_app_starts_unavailable_and_inactive(stand_in, monkeypatch):
     access = build_security_fixture()
     fresh = replace(
@@ -55,6 +56,7 @@ def test_a_new_first_party_app_starts_unavailable_and_inactive(stand_in, monkeyp
     assert bundled_divergences() == []
 
 
+@pytest.mark.needs_example_app
 def test_opt_out_retains_and_deactivates_and_opt_in_keeps_the_rows(stand_in, monkeypatch, settings):
     access = build_security_fixture()
     sync_bundled_components()
@@ -86,6 +88,7 @@ def test_opt_out_retains_and_deactivates_and_opt_in_keeps_the_rows(stand_in, mon
     assert again.configuration == configuration and again.enabled is False
 
 
+@pytest.mark.needs_example_app
 def test_opted_in_but_unrecorded_is_a_divergence(stand_in):
     assert any("not recorded" in problem for problem in bundled_divergences())
 
@@ -98,3 +101,34 @@ def test_retained_names_come_from_the_fixed_map():
         bundled_conf.retained_snapshot_paths(["notes"], installed=("notes",), snapshots={"notes": "x.json"})
     [path] = bundled_conf.retained_snapshot_paths(["notes"], snapshots={"notes": "contrib/notes/retained.json"})
     assert path.replace("\\", "/").endswith("skeleton/contrib/notes/retained.json")
+
+
+@pytest.mark.needs_example_app
+def test_retention_publishes_app_disabled_per_active_organization(stand_in, monkeypatch, settings):
+    """Retiring an app with its data publishes app.disabled where it was on, and nowhere else (#282)."""
+    from skeleton.events.models import DomainEvent
+
+    access = build_security_fixture()
+    sync_bundled_components()
+    from skeleton.testing.applications import activate_app, open_app
+
+    open_app(LABEL)
+    activate_app(LABEL, access.a.pk)
+    with system_context(reason="test:bundled", organization_id=access.a.pk):
+        configuration = dict(AppInstallation.objects.get(app_label=LABEL).configuration)
+    with system_context(reason="test:bundled-b-off", organization_id=access.b.pk):
+        for row in AppInstallation.objects.filter(app_label=LABEL, enabled=True):  # B has the app off.
+            row.enabled = False
+            row.save(update_fields={"enabled"})
+    monkeypatch.setitem(app_registry._manifests, LABEL, replace(stand_in, bundled=False))
+    settings.SKELETON_BUNDLED_RETAINED = ("notes",)
+    sync_bundled_components()
+
+    def disabled(organization):
+        with system_context(reason="test:bundled-events", organization_id=organization.pk):
+            return list(DomainEvent.objects.filter(event_type="app.disabled").values_list("data", flat=True))
+
+    assert disabled(access.a) == [{"app_label": LABEL}]
+    assert disabled(access.b) == []
+    with system_context(reason="test:bundled", organization_id=access.a.pk):
+        assert dict(AppInstallation.objects.get(app_label=LABEL).configuration) == configuration

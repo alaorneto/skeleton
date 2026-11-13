@@ -10,7 +10,7 @@ def test_health_host_follows_the_mode_and_the_instance_configuration(tmp_path, m
     for name in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "DATABASE_URL", "DJANGO_HEALTH_HOST", "SKELETON_SETUP"):
         monkeypatch.delenv(name, raising=False)
     assert health_host(tmp_path) == "localhost"  # Setup mode.
-    write_setting(settings.BASE_DIR, "secret_key", "x" * 50, source="test")
+    write_setting(settings.BASE_DIR, "secret_key", "abcdefghij" * 5, source="test")
     write_setting(settings.BASE_DIR, "allowed_hosts", ".app.example.test,other.example.test", source="test")
     write_setting(settings.BASE_DIR, "database_url", "postgres://u:p@db/x", source="test")
     assert health_host(tmp_path) == "app.example.test"

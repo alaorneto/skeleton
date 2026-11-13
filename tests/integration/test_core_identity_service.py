@@ -3,6 +3,7 @@
 import dataclasses
 
 import pytest
+from django.test import override_settings
 
 from skeleton.service_api.errors import Conflict, ContextRequired, InvalidInput, NotFound
 from skeleton.service_api.identity import IdentityService, PersonSummary, UserProfileInfo
@@ -27,24 +28,24 @@ def test_contract():
 
 @pytest.fixture
 def scenario():
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
     return build_service_scenario(Note, slug="identity")
 
 
+@pytest.mark.needs_example_app
 def test_me_works_with_and_without_organization(scenario):
     with acting_as(scenario.member, scenario.a) as actor:
         me = IdentityService().me(actor=actor)
-    assert (me.sysid, me.email, me.language, me.kind) == (scenario.member.pk, scenario.member.email, "pt-br", "person")
+    assert (me.sysid, me.email, me.language, me.kind) == (scenario.member.pk, scenario.member.email, "", "person")
+    assert me.effective_language == "pt-br"  # A new profile follows the defaults (#170).
     with request_context(actor=scenario.member, request_id=None, source="test:identity-global"):
         assert IdentityService().me(actor=scenario.member).sysid == scenario.member.pk
     assert_rejects_other_actor(scenario.caller(lambda actor: IdentityService().me(actor=scenario.denied)))
 
 
+@pytest.mark.needs_example_app
 def test_get_person_is_limited_to_active_members_and_email_needs_members_view(scenario):
     service = IdentityService()
     with acting_as(scenario.member, scenario.a) as actor:
@@ -62,6 +63,7 @@ def test_get_person_is_limited_to_active_members_and_email_needs_members_view(sc
             service.get_person(actor=scenario.member, user_id=scenario.denied.pk)
 
 
+@pytest.mark.needs_example_app
 def test_inactive_membership_is_not_found(scenario):
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Membership
@@ -74,6 +76,8 @@ def test_inactive_membership_is_not_found(scenario):
         IdentityService().get_person(actor=actor, user_id=scenario.denied.pk)
 
 
+@override_settings(LANGUAGES=[("pt-br", "Português"), ("en", "English")])
+@pytest.mark.needs_example_app
 def test_update_my_preferences_with_cas(scenario):
     service = IdentityService()
     with acting_as(scenario.member, scenario.a) as actor:
@@ -101,3 +105,41 @@ def test_update_my_preferences_with_cas(scenario):
             service.update_my_preferences(actor=actor, expected_revision=current)
         with pytest.raises(Conflict):
             service.update_my_preferences(actor=actor, expected_revision=current - 1, language="pt-br")
+
+
+@pytest.mark.needs_example_app
+def test_get_person_reads_membership_user_and_profile_in_one_query(scenario):
+    """No separate UserProfile query after the membership (#231)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with acting_as(scenario.member, scenario.a) as actor:
+        with CaptureQueriesContext(connection) as captured:
+            person = IdentityService().get_person(actor=actor, user_id=scenario.denied.pk)
+    assert person.sysid == scenario.denied.pk
+    profile_alone = [query["sql"] for query in captured if query["sql"].startswith('SELECT "sk_accounts_userprofile"')]
+    assert profile_alone == []
+
+
+@pytest.mark.parametrize("field", ["display_name", "first_name"])
+@pytest.mark.parametrize("value", [{"a": 1}, ["x"], 7, True])
+def test_update_my_profile_rejects_non_text_values(scenario, field, value):
+    """A non-text value is refused, never stored as its Python repr (#272)."""
+    service = IdentityService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        before = service.me(actor=actor)
+        with pytest.raises(InvalidInput) as error:
+            service.update_my_profile(
+                actor=actor,
+                expected_user_revision=before.user_revision,
+                expected_revision=before.revision,
+                changes=((field, value),),
+            )
+        assert field in error.value.errors
+        after = service.me(actor=actor)
+    assert (after.first_name, after.profile_display_name, after.revision, after.user_revision) == (
+        before.first_name,
+        before.profile_display_name,
+        before.revision,
+        before.user_revision,
+    )

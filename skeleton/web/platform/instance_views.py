@@ -13,13 +13,14 @@ from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 
 from skeleton.accounts.reauthentication import recent_authentication_required
 from skeleton.common.logging import security_event
 from skeleton.instance.resolve import ORIGIN_ENV, resolve_instance_settings
 from skeleton.instance.schema import CATALOG
-from skeleton.instance.writer import clear_setting, write_setting
+from skeleton.instance.writer import can_clear, clear_setting, write_setting
 
 from .guards import platform_page
 
@@ -28,7 +29,7 @@ MASK = "••••••••"
 
 class SettingForm(forms.Form):
     key = forms.ChoiceField(choices=[(key, key) for key in CATALOG])
-    action = forms.ChoiceField(choices=(("set", "Gravar"), ("clear", "Voltar ao padrão")))
+    action = forms.ChoiceField(choices=(("set", gettext_lazy("Gravar")), ("clear", gettext_lazy("Voltar ao padrão"))))
     value = forms.CharField(required=False, max_length=2000, strip=False)
 
 
@@ -52,6 +53,7 @@ def _rows():
                 "origin": item.origin,
                 "value": shown,
                 "editable": item.origin != ORIGIN_ENV,
+                "clearable": item.origin == "instance" and can_clear(spec),
             }
         )
     return rows
@@ -94,7 +96,10 @@ def instance_setting(request):
     key, action, value = form.cleaned_data["key"], form.cleaned_data["action"], form.cleaned_data["value"]
     origin = next(item.origin for item in resolve_instance_settings(settings.BASE_DIR) if item.key == key)
     if origin == ORIGIN_ENV:
-        form.add_error("key", "Esta chave vem do ambiente e não pode ser alterada aqui.")
+        form.add_error("key", gettext("Esta chave vem do ambiente e não pode ser alterada aqui."))
+        return _page(request, form=form, status=409)
+    if action == "clear" and not can_clear(CATALOG[key]):
+        form.add_error("key", gettext("Esta chave é obrigatória: grave um novo valor em vez de voltar ao padrão."))
         return _page(request, form=form, status=409)
     source = f"platform:{request.user.pk}"
     try:
@@ -102,7 +107,7 @@ def instance_setting(request):
             changed = clear_setting(settings.BASE_DIR, key, source=source)
         else:
             if CATALOG[key].secret and value == "":
-                form.add_error("value", "Informe o novo valor; o atual nunca é exibido.")
+                form.add_error("value", gettext("Informe o novo valor; o atual nunca é exibido."))
                 return _page(request, form=form, status=400)
             _validate(key, value)
             write_setting(settings.BASE_DIR, key, value, source=source)
@@ -112,7 +117,9 @@ def instance_setting(request):
         return _page(request, form=form, status=400)
     if changed:
         security_event("instance.setting_changed", reason_code=f"{action}:{key}", source=source)
-        messages.success(request, f"{key} atualizada. A mudança vale depois do reinício da instância.")
+        messages.success(
+            request, gettext("%(key)s atualizada. A mudança vale depois do reinício da instância.") % {"key": key}
+        )
     return redirect("platform:instance")
 
 
@@ -125,7 +132,7 @@ def instance_restart(request):
     how = request_restart()
     security_event("instance.restart_requested", reason_code=how, source=f"platform:{request.user.pk}")
     if how == "manual":
-        messages.warning(request, "Sem supervisor conhecido: reinicie o serviço para aplicar as mudanças.")
+        messages.warning(request, gettext("Sem supervisor conhecido: reinicie o serviço para aplicar as mudanças."))
     else:
-        messages.success(request, "Reinício solicitado. A instância volta em alguns segundos.")
+        messages.success(request, gettext("Reinício solicitado. A instância volta em alguns segundos."))
     return redirect("platform:instance")

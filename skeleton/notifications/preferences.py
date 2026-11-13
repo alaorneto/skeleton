@@ -14,6 +14,7 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import ConcurrentUpdate
 
@@ -43,6 +44,10 @@ class Effective:
     mode: str
     digest_hour: int
     source: str
+
+
+class PreferenceNotFound(LookupError):
+    """The person has no live row for this type and channel (the view answers 404, #278)."""
 
 
 def type_default(kind: NotificationType, channel: str) -> str:
@@ -98,7 +103,7 @@ class PreferenceLine:
 
 def preference_lines(user: Any) -> list[PreferenceLine]:
     rows = own_rows(user)
-    defaults = NotificationType(DEFAULT_TYPE, "Padrão para todos os tipos", default_channels=("in_app",))
+    defaults = NotificationType(DEFAULT_TYPE, gettext("Padrão para todos os tipos"), default_channels=("in_app",))
     lines = []
     for kind in (defaults, *all_notification_types()):
         channels = {}
@@ -119,18 +124,18 @@ def preference_lines(user: Any) -> list[PreferenceLine]:
 
 def _validate(type_code: Any, channel: Any, mode: Any, digest_hour: Any) -> int:
     if not isinstance(type_code, str) or (type_code != DEFAULT_TYPE and known_type(type_code) is None):
-        raise ValidationError({"type_code": "Tipo de notificação desconhecido."})
+        raise ValidationError({"type_code": gettext("Tipo de notificação desconhecido.")})
     if channel not in CHANNELS:
-        raise ValidationError({"channel": "Canal desconhecido."})
+        raise ValidationError({"channel": gettext("Canal desconhecido.")})
     if mode not in MODES[channel]:
-        raise ValidationError({"mode": "Modo indisponível para este canal."})
+        raise ValidationError({"mode": gettext("Modo indisponível para este canal.")})
     kind = known_type(type_code)
     if kind is not None and kind.mandatory and channel == "in_app" and mode == "off":
-        raise ValidationError({"mode": "Este tipo é obrigatório na caixa de notificações."})
+        raise ValidationError({"mode": gettext("Este tipo é obrigatório na caixa de notificações.")})
     if digest_hour is None:
         return DEFAULT_DIGEST_HOUR
     if type(digest_hour) is not int or not 0 <= digest_hour <= 23:
-        raise ValidationError({"digest_hour": "Use uma hora de 0 a 23."})
+        raise ValidationError({"digest_hour": gettext("Use uma hora de 0 a 23.")})
     return digest_hour
 
 
@@ -188,9 +193,7 @@ def clear_preference(user: Any, *, type_code: str, channel: str, expected_revisi
     """Remove the person's row (soft delete): the next level of the resolution applies again."""
     row = _live(user, type_code, channel)
     if row is None:
-        from django.http import Http404
-
-        raise Http404
+        raise PreferenceNotFound
     if expected_revision != row.revision:
         raise ConcurrentUpdate("The preference was changed by another operation.")
     row.delete()

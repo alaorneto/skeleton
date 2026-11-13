@@ -7,6 +7,7 @@ exists while that request runs. ``/setup/`` answers 404 once the setup is comple
 
 from __future__ import annotations
 
+import logging
 import secrets
 from functools import wraps
 
@@ -15,8 +16,10 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods
 
+from skeleton.common.logging import security_event
 from skeleton.instance import crypto
 from skeleton.instance.writer import open_store, write_setting
 
@@ -24,14 +27,15 @@ from . import database, forms, restart, tokens
 from .mode import COMPLETED
 
 STEPS = (
-    ("instance", "Instância"),
-    ("database", "Banco de dados (role runtime)"),
-    ("schema", "Schema e catálogo"),
-    ("email", "Email"),
-    ("storage", "Cache e arquivos"),
-    ("admin", "Administrador e organização"),
+    ("instance", gettext_lazy("Instância")),
+    ("database", gettext_lazy("Banco de dados (role runtime)")),
+    ("schema", gettext_lazy("Schema e catálogo")),
+    ("email", gettext_lazy("Email")),
+    ("storage", gettext_lazy("Cache e arquivos")),
+    ("admin", gettext_lazy("Administrador e organização")),
 )
 SESSION_KEY = "skeleton_setup"
+logger = logging.getLogger("skeleton.setup")
 MAX_FAILURES = 5
 FAILURE_WINDOW = 15 * 60
 KEYRINGS = ("mfa_encryption_keys", "identity_provider_encryption_keys", "integration_encryption_keys")
@@ -94,33 +98,45 @@ def start(request):
     """Token form; with a valid setup session, the overview of the steps."""
     _not_completed()
     if request.session.get(SESSION_KEY):
-        return _render(request, "overview.html", {"title": "Configuração da instância"})
+        return _render(request, "overview.html", {"title": gettext("Configuração da instância")})
     form = forms.TokenForm(request.POST or None)
     status = 200
     if request.method == "POST":
         key = f"setup-token-failures:{_client(request)}"
-        failures = cache.get(key, 0)
-        if failures >= MAX_FAILURES:
-            return _render(
-                request,
-                "token.html",
-                {"form": form, "error": "Muitas tentativas. Aguarde 15 minutos.", "title": "Primeiro acesso"},
-                status=429,
-            )
+        # The token is checked before the limit (#290): behind a proxy every client shares one
+        # address, and wrong guesses from anyone would otherwise lock out the operator who has
+        # the right token. The token has 192 random bits; the limit is a signal, not the defence.
         if form.is_valid() and tokens.consume_token(_store()[0], form.cleaned_data["token"]):
+            cache.delete(key)
             request.session.cycle_key()
             request.session[SESSION_KEY] = True
             return redirect("setup:start")
-        cache.set(key, failures + 1, FAILURE_WINDOW)
-        form = forms.TokenForm()
-        status = 403
+        failures = cache.get(key, 0)
+        limited = failures >= MAX_FAILURES
+        if not limited:
+            cache.set(key, failures + 1, FAILURE_WINDOW)
+        status = 429 if limited else 403
+        security_event(
+            "setup.token_rejected",
+            level=logging.WARNING,
+            status=status,
+            outcome="denied",
+            reason_code="rate_limited" if limited else "invalid_token",
+            source="setup",
+        )
         return _render(
             request,
             "token.html",
-            {"form": form, "error": "Token inválido, já usado ou expirado.", "title": "Primeiro acesso"},
+            {
+                "form": forms.TokenForm(),
+                "error": gettext("Muitas tentativas. Aguarde 15 minutos.")
+                if limited
+                else gettext("Token inválido, já usado ou expirado."),
+                "title": gettext("Primeiro acesso"),
+            },
             status=status,
         )
-    return _render(request, "token.html", {"form": form, "title": "Primeiro acesso"})
+    return _render(request, "token.html", {"form": form, "title": gettext("Primeiro acesso")})
 
 
 def _step(request, name, form, *, status=200, **context):
@@ -189,7 +205,13 @@ def schema(request):
         except database.DatabaseCheckError as error:
             form.add_error("owner_url", str(error))
         except Exception as error:  # noqa: BLE001 - shown without detail; the DSN never reaches a message
-            form.add_error(None, f"A migração falhou ({type(error).__name__}). Corrija e tente de novo.")
+            # The log keeps the traceback for the operator; no form value is passed to it (#290).
+            logger.error("setup.step_failed step=%s error_class=%s", "schema", type(error).__name__, exc_info=True)
+            form.add_error(
+                None,
+                gettext("A migração falhou (%(__name__)s). Corrija e tente de novo.")
+                % {"__name__": type(error).__name__},
+            )
         finally:
             del owner_dsn  # Kept only in this request's memory; never stored, logged or in the session.
         if not form.errors and not problems:
@@ -200,21 +222,10 @@ def schema(request):
 
 
 def _email_connection(url: str):
-    import environ  # type: ignore[import-untyped]
-    from django.core.mail import get_connection
+    """A connection to the URL being configured, outside MAILERS (it is not saved yet)."""
+    from skeleton.conf.mailers import connection_for
 
-    config = environ.Env.email_url_config(url)
-    return get_connection(
-        backend=config["EMAIL_BACKEND"],
-        host=config.get("EMAIL_HOST"),
-        port=config.get("EMAIL_PORT"),
-        username=config.get("EMAIL_HOST_USER"),
-        password=config.get("EMAIL_HOST_PASSWORD"),
-        use_tls=config.get("EMAIL_USE_TLS", False),
-        use_ssl=config.get("EMAIL_USE_SSL", False),
-        timeout=10,
-        fail_silently=False,
-    )
+    return connection_for(url, timeout=10)
 
 
 @setup_page
@@ -222,6 +233,7 @@ def _email_connection(url: str):
 def email(request):
     form = forms.EmailForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
+        from django.core.exceptions import ImproperlyConfigured
         from django.core.mail import EmailMessage
 
         data = form.cleaned_data
@@ -230,18 +242,21 @@ def email(request):
 
             spec_for("email_url").clean(data["email_url"])
             message = EmailMessage(
-                subject="Teste do Skeleton",
-                body="O servidor de email da instância está configurado.",
+                subject=gettext("Teste do Skeleton"),
+                body=gettext("O servidor de email da instância está configurado."),
                 from_email=data["default_from_email"],
                 to=[data["test_recipient"]],
-                connection=_email_connection(data["email_url"]),
             )
-            if message.send() != 1:
+            # The URL is not in MAILERS yet: send through its own backend instance (#127).
+            if _email_connection(data["email_url"]).send_messages([message]) != 1:
                 raise RuntimeError("not accepted")
-        except ValueError as error:
-            form.add_error("email_url", str(error))
+        except (ValueError, ImproperlyConfigured) as error:
+            form.add_error("email_url", str(error))  # Scheme or parameter names only, never the password.
         except Exception as error:  # noqa: BLE001 - class only: the URL carries a password
-            form.add_error(None, f"O envio de teste falhou ({type(error).__name__}).")
+            logger.error("setup.step_failed step=%s error_class=%s", "email", type(error).__name__, exc_info=True)
+            form.add_error(
+                None, gettext("O envio de teste falhou (%(__name__)s).") % {"__name__": type(error).__name__}
+            )
         else:
             write_setting(settings.BASE_DIR, "email_url", data["email_url"], source="setup")
             write_setting(settings.BASE_DIR, "default_from_email", data["default_from_email"], source="setup")
@@ -276,7 +291,7 @@ def storage(request):
                 probe.write_bytes(b"ok")
                 probe.unlink()
             except OSError as error:
-                problems.append(f"A pasta não é gravável ({type(error).__name__}).")
+                problems.append(gettext("A pasta não é gravável (%(__name__)s).") % {"__name__": type(error).__name__})
         for problem in problems:
             form.add_error(None, problem)
         if not problems:
@@ -329,8 +344,12 @@ def admin(request):
         except ValidationError as error:
             for message in error.messages:
                 form.add_error(None, message)
-        except Exception as error:  # noqa: BLE001
-            form.add_error(None, f"Não foi possível criar o administrador ({type(error).__name__}).")
+        except Exception as error:  # noqa: BLE001 - class only on the page; the traceback goes to the log
+            logger.error("setup.step_failed step=%s error_class=%s", "admin", type(error).__name__, exc_info=True)
+            form.add_error(
+                None,
+                gettext("Não foi possível criar o administrador (%(__name__)s).") % {"__name__": type(error).__name__},
+            )
         else:
             _mark("admin")
             return redirect("setup:finish")
@@ -346,5 +365,5 @@ def finish(request):
         store.put_setup_state("status", COMPLETED)
         request.session.flush()
         how = restart.request_restart()
-        return _render(request, "done.html", {"title": "Configuração concluída", "restart": how, "steps": ()})
-    return _render(request, "finish.html", {"title": "Concluir", "pending": pending})
+        return _render(request, "done.html", {"title": gettext("Configuração concluída"), "restart": how, "steps": ()})
+    return _render(request, "finish.html", {"title": gettext("Concluir"), "pending": pending})

@@ -1,15 +1,15 @@
 {% extends 'skeleton/web/base.html' %}
-{% block title %}{{ application.label }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{{ application.label }} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0">
-<nav aria-label="Localização" class="breadcrumbs"><ol><li><a href="{% url 'application-list' organization_id %}">Apps</a></li><li><span aria-current="page">{{ application.label }}</span></li></ol></nav>
+<nav aria-label="{% translate "Localização" %}" class="breadcrumbs"><ol><li><a href="{% url 'application-list' organization_id %}">{% translate "Apps" %}</a></li><li><span aria-current="page">{{ application.label }}</span></li></ol></nav>
 <h1>{{ application.label }}</h1><p class="page-description">{{ application.description }}</p></div></div>
 <div class="grid gap-5 lg:grid-cols-3">
-<section class="card lg:col-span-2" aria-labelledby="app-overview"><h2 id="app-overview" class="mb-4">Visão geral</h2>
-<dl class="meta-list"><div><dt>Identidade</dt><dd>{{ application.app_id }}</dd></div><div><dt>Versão</dt><dd>{{ application.version }}</dd></div><div><dt>Origem</dt><dd>{{ application.origin }}</dd></div><div><dt>Estado</dt><dd>{% if state.enabled %}Ativa{% else %}Desativada — os dados são preservados; a configuração continua disponível para reativação.{% endif %}</dd></div></dl></section>
+<section class="card lg:col-span-2" aria-labelledby="app-overview"><h2 id="app-overview" class="mb-4">{% translate "Visão geral" %}</h2>
+<dl class="meta-list"><div><dt>{% translate "Identidade" %}</dt><dd>{{ application.app_id }}</dd></div><div><dt>{% translate "Versão" %}</dt><dd>{{ application.version }}</dd></div><div><dt>{% translate "Origem" %}</dt><dd>{{ application.origin }}</dd></div><div><dt>{% translate "Estado" %}</dt><dd>{% if not state.available %}{% translate "Indisponibilizada pela plataforma — o uso está bloqueado; dados e parâmetros foram preservados. Você ainda pode desativá-la." %}{% elif state.enabled %}{% translate "Ativa" %}{% else %}{% translate "Desativada — os dados são preservados; a configuração continua disponível para reativação." %}{% endif %}</dd></div></dl></section>
 <div class="space-y-5">
-<section class="panel card"><h2 class="mb-2">Configuração</h2><p class="mb-4 text-sm/6 text-body">Parâmetros e ativação desta app na organização.</p><a class="button" href="{% url 'application-configuration' organization_id application.app_label %}">{% include "skeleton/web/components/icon.html" with name="settings" %}Configurar e ativar aplicativo</a></section>
-{% if application.dependencies %}<section class="card"><h2 class="mb-2">Dependências</h2><ul>{% for dependency in application.dependencies %}<li><code>{{ dependency }}</code></li>{% endfor %}</ul></section>{% endif %}
+<section class="panel card"><h2 class="mb-2">{% translate "Configuração" %}</h2><p class="mb-4 text-sm/6 text-body">{% translate "Parâmetros e ativação desta app na organização." %}</p><a class="button" href="{% url 'application-configuration' organization_id application.app_label %}">{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Configurar e ativar aplicativo" %}</a></section>
+{% if application.dependencies %}<section class="card"><h2 class="mb-2">{% translate "Dependências" %}</h2><ul>{% for dependency in application.dependencies %}<li><code>{{ dependency }}</code></li>{% endfor %}</ul></section>{% endif %}
 </div>
 </div>
 {% for section in sections %}<section class="panel mt-8"><h2 class="section-heading">{{ section.label }}</h2><ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{% for screen in section.screens %}<li><a class="link-card items-center" href="{{ screen.url }}"><span class="link-card-icon">{% include "skeleton/web/components/icon.html" with name="settings" %}</span><span class="link-card-title">{{ screen.label }}</span></a></li>{% endfor %}</ul></section>{% endfor %}

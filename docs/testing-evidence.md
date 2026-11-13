@@ -1,0 +1,1542 @@
+# Evidência histórica de testes
+
+Registro do que rodou em cada rodada, com os comandos da época. As rodadas anteriores a [#144](https://github.com/alaorneto/skeleton/issues/144) citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Nada aqui é procedimento: para verificar hoje, use [testes](testing.md).
+
+## Rodada de qualidade: agente de deployment, CI e operação (epic #221)
+
+Rodada de 2026-11-13 na branch `fix/221-quality-agent-ops`, empilhada sobre a do epic #214. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou. Os testes do agente de deployment exigem `fcntl` e são pulados no Windows: localmente rodaram com um emulador de desenvolvimento (um `fcntl` falso, `O_NOFOLLOW`/`O_DIRECTORY`, `UnixStreamServer` e bits de permissão de dono e, onde dito, caminhos `/bin/...` tratados como absolutos), só para comparar antes e depois de cada issue; o que depende de modo de arquivo POSIX, symlink, FIFO ou socket Unix tem a prova no CI Linux do PR, que passou inteiro nas rodadas de `ace9075` e `8ec2c8a`.
+
+- **#244:** `Backend.logging_to(operation_id)` grava a saída de cada comando de uma operação em `storage_root/logs/<operation>/NN-<código>.log` (0700/0600, `O_EXCL`, últimos 256 KiB); `capture` guarda só o stderr no log; o erro leva `log` com o nome do arquivo, que o evento `failed`/`recovery_failed` do journal registra; `log_internal_error` foi para `deployment_agent/storage.py` (continua importável de `server`) e roda em `execute` e `recover` para exceção que não é `AgentError`. Novo `tests/unit/test_agent_operation_logs.py` (11 testes, `posix`): no Windows 11, com um `sitecustomize` local que emula `fcntl`, `O_NOFOLLOW`, `O_DIRECTORY`, `UnixStreamServer` e os bits de permissão, 10 falharam antes e passam, e 1 (link plantado) exige privilégio de symlink que o Windows não dá: a prova dele é o CI Linux. Com o mesmo emulador, os seis arquivos de teste do agente deram o mesmo resultado antes e depois (29 passed e as mesmas 8 falhas próprias do Windows: caminhos absolutos de comando e socket Unix). No fixture `approved_deployment` de `test_deployment_journal.py` o backend falso ganhou `logging_to` (preparo, sem mudar asserção).
+- **#245:** `ComposeBackend.composed()` escreve o override (0600, nome único) só durante o comando e o apaga depois, mesmo em falha; `remove_stale_overrides()` roda na partida do `serve`; `prune` offline (`DeploymentService.prune`, subcomando `prune [--plan-days] [--backup-days] [--apply]`), sob o lock e recusado com manutenção ou operação pendente, com o conjunto protegido descrito na issue (`_recoverable` extraído e usado também por `recover`) e `remove_release` em `releases.py`, reaproveitado pela limpeza de prévia falha. Novos: `tests/unit/test_agent_prune.py` (12 testes) e três testes do override em `test_agent_worker_lifecycle.py`; `test_compose_backend_overrides_and_cycles_the_worker_services` passou a ler o override durante o comando (ele deixou de existir depois), como a issue prevê. Com o emulador do Windows: antes, 22 desses testes falharam e 3 passaram; depois, os seis arquivos do agente mais os dois novos dão 54 passed e as mesmas falhas próprias do Windows (8, mais o teste de link de #244).
+- **#246:** `_validate_optional` em `Config.load` (forma das chaves opcionais, com os códigos da issue), `Backend.preflight` (e o de `ComposeBackend`, com `docker_unavailable`) chamado no fim das conferências da prévia e logo antes de `maintenance_entering`, e o token de smoke lido por `private_file`. Novo `tests/unit/test_agent_preflight.py` (21 itens): sem a correção o módulo nem importa; com ela, no Windows com o emulador, 17 passam e 4 dependem de semântica POSIX (bit de execução, symlink, caminho `/srv/...` absoluto, permissão do token), com prova no CI Linux. Os dublês de backend dos fixtures `approved_deployment` ganharam `preflight` (preparo, sem mudar asserção). Os arquivos do agente continuam com 54 passed e as mesmas falhas próprias do Windows.
+- **#280:** token comparado em bytes (`compare_digest` com texto não ASCII levantava `TypeError` e virava 500), `umask` 0117 só durante a criação do socket, `install_signal_handlers` (SIGTERM/SIGINT pedem `shutdown` numa thread) e `serve` esperando `service.worker` antes de sair, erro inesperado da página de status como JSON 500 com `log_internal_error` e geração 0 mostrada como `0`. Novo `tests/unit/test_agent_server_hardening.py` (11 testes): os 7 que não precisam de socket Unix passaram no Windows com o emulador e falharam antes (o módulo nem importa sem `install_signal_handlers`); os 4 de socket, `umask` e `SIGTERM` real (subprocesso) têm a prova no CI Linux. Unit `skeleton-agent.service` com `KillSignal`, `KillMode=mixed` e `TimeoutStopSec=1800`.
+- **#281:** `drift_status` guarda em memória, só para `inventory()`, o resultado do drift do release ativo por `drift_check_interval` (padrão 300 s; 0 desliga) sob um lock, devolve `drift_checked_at` e cai em `_write_active` (adoção, `finish`, recuperação); `Store.operations(limit=50)` lê só os 50 arquivos escritos mais recentemente; `ensure_available` usa `Store.operation_states()`. **Desvio do passo 7:** o índice `operations-index.json` não é mantido por `Store.put`; cada entrada guarda o `mtime_ns` do arquivo, e um arquivo com mtime diferente (ou ausente do índice) é relido, então uma atualização concorrente perdida nunca esconde uma operação pendente. Novo `tests/unit/test_agent_inventory.py` (12 testes): 7 falharam antes e passam, 5 passam antes e depois (limites de leitura e índice ainda inexistentes não mudam o resultado observável em todos os casos); com o emulador, o conjunto do agente segue com 83 passed e as mesmas 13 falhas próprias do Windows. `tests/integration/test_deployment_records.py` (web com o cliente do agente dublê): 32 passed.
+- **#298:** `preview` ficou com as conferências rápidas (`_preview_request` e `_check_preview`, as mesmas de antes, inclusive preflight e dependências com `details`), grava `plans/<id>.json` em `preparing` e solta o lock antes de iniciar a thread `prepare`, que toma o lock bloqueante, repete as conferências (ignorando o próprio plano) e a geração, e grava `ready` com o registro de antes ou `failed` com o código (ou a classe) depois de remover o release parcial. `ensure_available` recusa com plano `preparing`; `submit` recusa `plan_not_ready` antes da conferência de disponibilidade; `reconcile_interrupted` falha preparações interrompidas sem marcador de manutenção; `plan_status` e `GET /plans/<uuid>` não expõem inventário nem hashes; `AgentClient.plan`; CLI acompanha a cada 2 s. Web: `request_preview`/`preview_status`/`record_preview` no lugar de `create_preview`, página `updates/plan/<uuid>/` (refresh de 3 s, GET só lê, "Continuar" em POST com autenticação recente, mesma operação para o mesmo digest), tabelas do plano extraídas para `plan-details.html` (usado também pela tela da operação). `--timeout 120` nas duas imagens e nas duas linhas do Gunicorn de `docs/deployment.md`. Novos: `tests/unit/test_agent_preview.py` (15 itens, `posix`; todos passam no Windows com o emulador), `tests/unit/test_deployment_gunicorn_timeout.py` e 8 testes de web em `tests/integration/test_deployment_records.py`; `test_add_dependency_fetches_and_previews_the_combined_plan` passou a esperar o redirecionamento para a página de acompanhamento e nenhuma operação (o comportamento que a issue pede), e o teste de autenticação recente de `/platform/updates/` cobre o POST da página nova. Integração em PostgreSQL com a role runtime: `test_deployment_records.py`, `test_release_dependencies.py`, `test_platform_boundary.py`, `test_deployment_client.py`, `test_deployment_gunicorn_timeout.py`, `test_documentation_references.py` → 75 passed. Conjunto do agente com o emulador: 112 itens, as mesmas falhas próprias do Windows de antes (as 13 já citadas e os 4 testes de socket Unix de #280), nenhuma nova. Smoke no navegador com agente Linux real: não executado (o ambiente local é Windows); o fluxo da web está coberto pelos testes com o cliente dublê.
+- **#247:** seis módulos novos (`test_agent_control_api.py`, `test_agent_status_tickets.py`, `test_agent_config.py`, `test_agent_releases.py`, `test_agent_recovery.py`, `test_agent_catalogue.py`, 166 itens) e `tests/unit/agent_helpers.py`; nenhum arquivo de `deployment_agent/` ou de `skeleton/` mudou. **Desvio do passo 2:** em vez de subir um `UnixHTTPServer` numa thread, o `ControlHandler`/`StatusHandler` reais atendem cada requisição por um par de sockets (`exchange`), o que passa pelo mesmo `http.server` sem porta nem arquivo de socket. No Windows 11 sem emulador, os 14 módulos do agente são pulados com motivo. Com o emulador local (`fcntl`, bits de permissão e, só para esta rodada, caminhos `/bin/...` tratados como absolutos), 153 dos 166 passaram; os 13 restantes dependem de modo de arquivo POSIX, symlink ou FIFO, e a prova deles é o CI Linux. Nenhum teste precisou de `xfail`: todos os comportamentos descritos na issue conferiram com o código, salvo dois detalhes registrados nos próprios testes (arquivo de configuração com permissão frouxa responde `invalid_agent_config`, porque o erro de `private_file` é um `ValueError` capturado; hash malformado num lock responde `invalid_requirements_lock`, não `unlocked_dependency`).
+- **#248:** `.dockerignore` reescrito com os padrões recursivos e os diretórios privados da issue, estágio `project-assets` lendo `templates/` por `RUN --mount=type=bind` (com `# syntax=docker/dockerfile:1`), `.sso-fixtures/` no `.gitignore` e o passo "Contexto de build não vira camada" no job `build` do CI. Novo `tests/unit/test_dockerignore.py` (5 testes): antes da correção 4 falharam (padrões, `COPY .`, bind mount, `.gitignore`) e 1 passou (origens de `COPY` fora da lista); depois, 5 passed, mais `test_deployment_gunicorn_timeout.py` (o `CMD` não mudou). `git check-ignore -v .sso-fixtures/x` → `.gitignore:14`. Docker não está disponível neste ambiente: o `docker build` da imagem e do estágio `project-assets` sem `/project-source` são provados pelo job `build` do CI deste PR; o smoke `docker compose up` não foi executado.
+- **#249 (parte B):** `SECURITY.md` com as cinco seções (versões suportadas, como relatar pelo relato privado do GitHub, o que incluir, o que esperar sem prazo em dias, escopo com link para "o que a arquitetura não promete"), sem dado pessoal; comentário de `.github/dependabot.yml` corrigido (só comentário: `git diff --stat` 3+/2−, YAML carregado com PyYAML); `docs/workflow.md` com os checks a exigir no ruleset (`CI`, o job agregador estável, e `Verificação do PR`), os comandos de conferência e o link para a política, sem afirmar que a proteção existe; linha no `README.md`. **Parte A (do responsável) não está feita:** em 2026-11-13, `rulesets` → vazio, `rules/branches/main` → vazio, `vulnerability-alerts` → `HTTP/2.0 404`, `dependabot_security_updates` → `disabled`, `private-vulnerability-reporting` → `false`; nenhuma configuração do repositório foi alterada por API.
+- **#330:** `docs/deployment.md` com um fluxo Compose só (instalação nova em modo setup, o que o setup grava, sobrescritas em `.env.instance` carregado por `env_file` opcional no `web` e no `worker`, instalação existente), o bloco antigo de comandos trocado por `docker compose up -d` e `docker compose logs web`, o healthcheck descrito como `skeleton/api/healthcheck.py` faz (`localhost` em modo setup; depois `DJANGO_HEALTH_HOST` do ambiente ou do SQLite, senão o primeiro `DJANGO_ALLOWED_HOSTS`), a frase "Compose encaminha essas opções" removida (as chaves de proxy, hosts e origens são da configuração da instância), nomes de arquivo `<versão>` com a versão de `pyproject.toml`, `config/asgi.py` sem modo setup e a versão do agente vinda de `deployment_agent/pyproject.toml`. `.env.example`: duas linhas trocadas de lugar e o comentário de `DJANGO_HEALTH_HOST` ajustado, sem variável nova nem valor. Conferido por leitura ao lado de `compose.yaml` (nenhuma das variáveis de proxy/host está nele) e de `skeleton/api/healthcheck.py`; `grep -n "0\.2\.0"` só devolve a menção histórica da linha 35; âncoras citadas por outros documentos inalteradas. `test_documentation_references.py`, `test_deployment_gunicorn_timeout.py`, `test_container_healthcheck.py`, `test_instance_config.py`, `test_platform_instance.py` → 43 passed, 2 skipped. Sem Docker neste ambiente: o fluxo até a tela de setup não foi seguido.
+- **#329 (as quatro partes num commit):** (1) job `lint` com `uvx pre-commit run --all-files --hook-stage pre-commit` (Ruff pulado, ele já tem passos próprios); localmente os hooks passam em todos os arquivos versionados, e com dois arquivos não versionados de prova (YAML inválido e um cabeçalho PEM de chave RSA privada) `check-yaml` e `detect-private-key` falharam com saída 1 (arquivos apagados em seguida; não houve branch descartável, porque commitar esses arquivos exigiria pular os hooks locais). (2–3) `DTZ`, `BLE` e `S` em `select`, com `per-file-ignores` para testes, `tools/`, migrations, o agente e o skill; as 53 ocorrências restantes em `skeleton/`, `deployment_agent/` e `tools/` lidas uma a uma e anotadas `# noqa: REGRA - motivo` (relógio local deliberado da recorrência, catch amplo que vira código de erro, SQL com identificadores da metadata e valores ligados, `mark_safe` de templates fixos, asserts de estreitamento de tipo, nomes que não são segredo); nenhuma pareceu defeito real. Um script que compara os tokens sem comentários de cada arquivo Python alterado contra `HEAD` confirmou: 26 arquivos, código idêntico. `uvx ruff@0.17.4 check .` e `format --check .` limpos; `grep -rnE "noqa: (S|BLE|DTZ)[0-9]*$" skeleton deployment_agent tools` vazio (o `noqa: BLE001` sem motivo de `skeleton/common/ratelimit.py` ganhou motivo). `tests/contrib/calendar/test_recurrence.py` com `SKELETON_BUNDLED_APPS=calendar` → 43 passed; mypy limpo. (4) `fail_under = 81`: TOTAL 82% nos dois Pythons do job "Cobertura da suíte" do run 43368522664 (main `ec825cb`), arredondado para baixo e menos 1; as fatias do job `tests` rodam com `--cov-fail-under=0` (sem isso, pytest-cov aplicaria o piso à cobertura parcial de cada fatia) e o relatório combinado do job `coverage` aplica o piso. A reprovação abaixo do piso fica provada pelo CI deste PR só no caso positivo (piso atingido); o negativo não foi provocado.
+- **#331:** o job "Verificação do PR" (`.github/workflows/pr-check.yml` e o modelo do skill) faz checkout de `github.event.pull_request.base.sha` sem credenciais e roda o validador e a configuração da base; se a base ainda não tem o skill (o PR que o adota), o passo avisa e sai com 0. `_LINK_FIELDS` pede `pageInfo { hasNextPage }` em `subIssues` e `blockedBy`, e `parse_links` levanta `RuntimeError` quando há próxima página (resposta sem `pageInfo` vale como página única). Testes novos no skill (`test_github_issues.py`): 7, dos quais 5 falharam com o script antigo e passam; `test_config_and_bootstrap.py` passou a conferir a forma nova do passo (o modelo mudou de propósito) e as duas referências à base; suíte do skill → 82 testes OK. `tests/unit/test_workflow_files.py` (2): o passo de checkout usa a base, o gatilho é `pull_request` e o workflow instalado é o modelo renderizado. Smoke: `github_issues.py sync-epic --all --dry-run` → "0 vínculos a criar" em todos os epics. **Critério 1:** PR descartável #379 (base `fix/221-quality-agent-ops`, `check_pr` trocado por `return 0`, corpo citando só o epic): o job fez checkout de `bba9db2` (a base) e falhou com "O PR referencia apenas epics" (run https://github.com/alaorneto/skeleton/actions/runs/43388888081); o PR foi fechado sem merge e o branch apagado.
+- **#309:** todo `uses:` dos 8 workflows de `.github/workflows/` e dos 6 modelos do skill fixado por SHA de commit com o comentário da tag (`gh api repos/<dono>/<repo>/commits/<tag> --jq .sha` para cada uma das 9 actions, sem mudar versão; o job `tests` também, porque #198 já está na base); `python:3.14.10-slim@sha256:9aaa4740…802f` (o digest do índice de `3.14-slim`, que coincide com `3.14.10-slim` na API do Docker Hub) nas três referências dos dois Dockerfiles; blocos `npm` (`/frontend`), `docker-compose` (`/`) e `pip` (`/deployment_agent`) no Dependabot; `setuptools==84.2.1` e `wheel==0.48.0` no build do agente, como no lock de desenvolvimento; job `build` constrói o wheel do agente, instala-o num venv limpo com o lock, roda `pip check` e `--help`, e o `pip-audit` roda isolado em `--target`. Novo `tests/unit/test_workflow_pins.py` (5): antes, 4 falharam (o de SHA único passa sem SHA nenhum); depois, 5 passed. Wheel do agente construído localmente com `pip wheel --no-deps --no-build-isolation ./deployment_agent` (14 arquivos, entry point `skeleton-deployment-agent`). YAML de todos os workflows e do Dependabot carregado com PyYAML; suíte do skill OK; `test_workflow_files.py`, `test_workflow_dependabot_locks.py`, `test_documentation_references.py`, `test_versioning.py` passam. Sem Docker local: `docker build`, o venv do agente e os SHAs dos workflows que só rodam em evento de issue ou do Dependabot são conferidos pelo CI (os SHAs são os mesmos de `ci.yml`); o aceite do bloco `docker-compose` pelo GitHub só aparece depois do merge.
+- **#318 (as três partes):** (1) `compose.yaml` com o bloco `x-hardened` (`read_only`, `tmpfs` `/tmp` de 512 MiB, `cap_drop: ["ALL"]`, `no-new-privileges:true`) herdado por `web`, `worker`, `scheduler` e `migrator`; senha do Redis fora do `command` renderizado. **Desvio:** o comando é `exec docker-entrypoint.sh redis-server ...` em vez de `exec redis-server ...`, para o servidor continuar trocando root pelo usuário `redis` como faz a imagem. `INCLUDE_EXAMPLES` no `Dockerfile`. (2) `deploy/systemd/skeleton-web.service` e `skeleton-agent.service` (conteúdo da documentação, com as linhas de #280) e as restrições nas units de web, worker e agendador, com `ReadWritePaths` de exemplo prefixado por `-` (um caminho inexistente não impede a partida). **Desvio:** a unit do agente fica com `ProtectHome`, `PrivateTmp` e `ProtectControlGroups`, sem `PrivateDevices` e `ProtectKernelTunables`, porque numa unit com `User=` eles implicam `NoNewPrivileges=`, que quebra o `sudo` dos hooks; o comentário da unit explica. `docs/deployment.md` aponta para os arquivos. (3) `ALTER ROLE skeleton_runtime SET lock_timeout = '10s'` e `idle_in_transaction_session_timeout = '60s'` no `bootstrap.sql` (valores propostos na issue; a aprovação foi pedida num comentário da #318 e fica com a revisão do PR), com a instrução para instalações existentes; um `lock_timeout` estourado numa request vira 500 com rollback (não há tradução de `55P03`), registrado na documentação. Novos: `tests/unit/test_deploy_hardening.py` (6, lendo `compose.yaml` como texto porque PyYAML não está nos locks), `tests/integration/test_runtime_role_settings.py` (2) e `tests/integration_postgres/test_runtime_lock_timeout.py` (1: a conexão bloqueada recebe `55P03`, a nota não é gravada e nenhum `AuditEvent` aparece); `test_deployment_gunicorn_timeout.py` passou a ler o `ExecStart` da unit do web. Com os dois `ALTER ROLE` aplicados ao cluster local de testes (superusuário local), `tests/integration/test_runtime_role_settings.py` + `tests/integration_postgres` → 122 passed, e a suíte inteira (Windows 11, PostgreSQL local com a role runtime, `-n 6`) → 2561 passed, 99 skipped, 45 subtests passed. Sem Docker nem systemd: `docker compose config`, a stack no ar (setup, anexo, pacote, worker) e `systemd-analyze verify` não foram executados.
+- **#317:** `DeploymentService` virou fachada (`service.py`, 236 linhas) sobre `adoption.py`, `planning.py`, `execution.py`, `recovery.py` e `catalogue.py` (170 a 279 linhas), com os corpos copiados e `self` trocado por `service`; a criação das threads de `preview` e `submit` ficou na fachada (o patch de `threading` dos testes continua valendo), e `NoRedirect` e `APP_ACTIVATION_UPGRADE_CORE` são reexportados. Helpers no lugar das duplicações (`graph_matches`, `sync_state`, `catalogue_cache`, `Backend.export_schema(..., profile=)`, `member_files` lendo cada membro do zip uma vez), imports no topo, `create_release`, `build_lock`, `Config.load` (com `PATH_KEYS` e a mesma ordem de validação), `dispatch`, `main`, `initialize` e `prune` divididos; `__version__` removido (ninguém o usava). `uvx ruff@0.17.4 check deployment_agent --select C901 --config "lint.mccabe.max-complexity=15"` → limpo (antes: 7 funções). Testes: só os alvos de `monkeypatch` de `test_agent_preview.py` (`planning.create_release`, `planning.check_plan_dependencies`) e `test_agent_catalogue.py` (`catalogue.build_opener`, `catalogue.validate_catalog`) mudaram; novo `test_agent_public_names.py` (2). Com o emulador local, o conjunto do agente (`test_*agent*.py`, `test_deployment*.py`, `test_plan_dependencies.py`, `test_presentation_release_changes.py`) deu as mesmas 22 falhas próprias do Windows antes e depois, com 272 → 274 passed (os 2 testes novos); durante a refatoração, essa comparação pegou uma leitura antecipada de `service.plan_status` no novo `_get` do servidor, corrigida. `--help` lista os mesmos subcomandos. A prova em Linux é o CI deste PR.
+- **#347 (as três fatias num commit):** `[tool.mypy] files` ganhou `tools/workflow`, `tools/dev_postgres.py` e `deployment_agent`, e o override estrito os módulos `dependabot_locks`, `dev_postgres` e `deployment_agent.*` (o mypy nomeia os scripts de `tools/` pelo nome do arquivo, conferido com `mypy -v`). `tools/workflow/github_issues.py` já tinha ido para o skill em #214: a fatia 1 ficou com `dependabot_locks.py` (limpo) e `dev_postgres.py` (4 `dict` sem parâmetros). **Desvio da fatia 2:** em vez da guarda `sys.platform` no topo de `storage.py` (que faria o mypy no Windows pular o resto do módulo e todos os importadores), `platform = "linux"` em `[tool.mypy]`, o que faz a execução local no Windows ver o mesmo que o job `typecheck`; nenhum outro módulo checado ramifica por plataforma de forma que mude tipos. Fatia 3: `deployment_agent/types.py` com `Binding`, `Event`, `Plan`, `PlanRequest`, `PlanRecord`, `Operation` e `ActiveState`, tirados de `submit`, `prepare` e `_write_active`; `state()` devolve `ActiveState` e `prepare()` um `Plan` montado como `Plan`; os registros que o código altera por chave dinâmica (`stage` faz `operation.update(changes)`) seguem `JSON`, porque o mypy não aceita `TypedDict` nesses pontos. Mudanças além de anotações, todas sem efeito em tempo de execução: `cast` em três chamadas exclusivas do backend Compose e em duas uniões que o código já garante, `log: str | None = None` como atributo de classe de `AgentError` (o `getattr(error, "log", None)` dá o mesmo resultado), `if path is not None and descriptor is not None` (o `_open_log` devolve os dois ou nenhum) e `return preparation_failed(...)` virou a chamada seguida de `return None`. O probe, que carrega o registro de apps, tem `import-untyped` desligado só para ele. `python -m mypy` → "Success: no issues found in 64 source files"; com o emulador, o conjunto do agente deu as mesmas 22 falhas próprias do Windows e 274 passed, antes e depois; `test_workflow_dependabot_locks.py` → 26 passed; `tools/dev_postgres.py env` funciona.
+- **#348 (os seis passos num commit):** `files` e o override estrito ganharam `skeleton/accounts/{platform,services,adapters}.py`, `skeleton/access/{capabilities,services}.py`, `skeleton/integrations/webhooks/{delivery,services,log}.py`, `skeleton/integrations/tokens/{scopes,services,activity,middleware}.py` e `skeleton/contrib/calendar`; override `ignore_missing_imports` para `allauth.*` e `dateutil.*` (escolhido em vez de `types-python-dateutil` nos locks); `SKELETON_BUNDLED_APPS=calendar` no passo do mypy do job `typecheck`. Anotações seguindo os vizinhos: modelos sob `TYPE_CHECKING` (os imports locais que evitam ciclo ficaram onde estavam), `User | None` onde o código aceita ausência do ator, modelo concreto nos serviços públicos e `Any` só nos helpers genéricos de registro e nos objetos do allauth; `_create` virou genérico (`def _create[R: Model]`). Ajustes além de anotações, todos sem efeito em tempo de execução: `name=str(builtin.name)` ao criar um papel interno (o CharField já guardava esse texto), a segunda variável `existing` de `reconcile_builtin_roles` renomeada `granted`, `changed_user`/`changed_profile` em duas linhas, `_deny()` declarado `NoReturn`, `TableSpec.label`/`description` aceitando texto traduzido preguiçosamente, uma subclasse de `HttpRequest` só para tipos no middleware de tokens (os atributos que os middlewares penduram) e o `type: ignore` de `skeleton/testing/service_api.py` que o override do allauth tornou desnecessário. Cada `type: ignore` novo tem código e motivo (narrowing que o mypy não acompanha entre ramos de `all_day`, contexto tenant garantindo a organização, campo `ChoiceField`, `Form.clean`). Desvio: o `update_profile` aceita `AbstractBaseUser`, porque `skeleton/service_api/identity.py` (módulo já estrito) o chama assim. `SKELETON_BUNDLED_APPS=calendar python -m mypy` → "Success: no issues found in 99 source files"; sem a variável, só a agenda acusa (o plugin não carrega os modelos dela), como a issue prevê. Testes em PostgreSQL com a role runtime, sem alteração: `tests/accounts`, `tests/integration` e `tests/integration_postgres/test_admin_concurrency.py` → 1206 passed, 4 skipped, 45 subtests passed; `tests/contrib/calendar` com `SKELETON_BUNDLED_APPS=calendar` → 199 passed; `manage.py check --fail-level WARNING` limpo com e sem a agenda.
+
+## Refactoring de qualidade: catálogo, apps e empacotamento (epic #218)
+
+Rodada de 2026-11-13 na branch `refactor/218-quality-catalog-apps`, empilhada sobre a do epic #220. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou. Os testes `posix` (`test_packages.py`, `test_core_distribution.py`) e os do agente (`test_plan_dependencies.py`, `fcntl`) são pulados no Windows: a prova deles é o CI Linux do PR; onde a issue pedia, uma execução local com `os.O_NOFOLLOW` emulado por `sitecustomize` serviu só de comparação antes/depois.
+
+- **#252:** etapa A — `skeleton/system/checks.py` virou o pacote `skeleton/system/checks/` (oito submódulos e `__init__.py`), com os corpos das funções movidos sem alteração (só imports, a classe `Capture` única e `frozen_operations` como nome público). Lista de checks registrados igual antes e depois (8 funções e `shared_cache_checks` de deploy, comparadas por `django.core.checks.registry`); `manage.py check --fail-level WARNING` com a mesma saída. Nos testes mudaram só os alvos de `monkeypatch` da tabela da issue (e uma terceira ocorrência em `test_presentation.py`), mais o caminho da exceção em `test_core_layering.py`; cada alvo novo foi provado apontando o patch de volta para o pacote: o teste falha (identidade de provedores 1, schema retido 1, `test_service_api_checks.py` 16 erros, `test_presentation.py` 12, retenção da agenda 1). Novo `tests/unit/test_system_checks_package.py`. Etapa B — `check_deployed_schema` carrega numa consulta cada inventário que lia tabela a tabela (grants, privilégios efetivos, `sysid`, funções de trigger, nomes de função, FKs compostas): no banco de desenvolvimento com 73 tabelas, de 635 para 25 consultas (`CaptureQueriesContext`), com o mesmo resultado (`[]`; "Skeleton schema security inventory is valid."). A primeira versão divergiu num nome de constraint acima de 63 bytes (o PostgreSQL trunca identificadores; a consulta antiga comparava pelo nome truncado); a busca passou a truncar igual. A extração das funções auxiliares do passo 7 não foi feita, para manter o diff revisável; só as consultas mudaram. `tests/integration_postgres` (cenários adulterados), `test_record_contract.py`, `test_security_invariants.py`, `test_retained_schema.py`, `test_operational_records.py`, `test_app_extensions.py` e os demais listados: 190 passed, sem alteração; retenção da agenda: 2 passed.
+- **#299:** levantamento do passo 1 no banco de desenvolvimento: nenhuma view, materialized view ou foreign table; uma função fora dos três padrões, `immutable_unaccent` (busca de #180), que entrou no inventário conhecido (registrado na issue). Testes novos em `tests/integration_postgres/test_schema_assurance.py` (DDL de fixture pelo owner, asserção pela role runtime): `test_schema_check_rejects_unclassified_relation` (view e materialized view), `test_schema_check_rejects_runtime_reachable_function` (`EXECUTE` ao runtime e `SECURITY DEFINER`), `test_schema_check_rejects_column_level_grant` (`UPDATE (source)` em `sk_audit_auditevent`, conferido fora do inventário por `runtime_privileges`, e `INSERT (model)` em `django_content_type`) e `test_schema_check_rejects_trigger_on_technical_table` (`django_session`): 7 falharam antes e passam; `test_schema_check_ignores_unreachable_helper_function` passa antes e depois. Privilégio por coluna carregado numa consulta (como a etapa B de #252). `tests/integration_postgres`, `test_security_invariants.py`, `test_record_contract.py`, `test_retained_schema.py`, `test_operational_records.py`: 159 passed sem mudança de expectativa; retenção da agenda (que roda o check com a agenda): 2 passed; `check_skeleton_schema` no banco de desenvolvimento: válido.
+- **#310:** `SYSTEM_FIELD_NAMES`/`ACCESS_FIELD_NAMES` em `skeleton.common.models` como fonte única (`skeleton.records.services`, o shim `skeleton.web.services` e `SYSTEM_READ_FIELDS` derivam dela; o literal de `record_contract_checks` também); o E008 segue `SENSITIVE` da auditoria e ignora relações; `TableSpec.__post_init__` normaliza listas e recusa string solta ou item que não é nome. `tests/unit/test_table_spec.py` (9 casos) e `test_operational_records.py::test_e008_follows_audit_sensitive_names` (campo `token` texto sem declaração → E008; como FK → sem; declarado → sem): 11 falharam antes e passam, 2 passam antes e depois. `manage.py check --fail-level WARNING` limpo com o exemplo e com a agenda (nenhum E008 novo). O `grep` do critério ainda acha `MECHANICAL` da auditoria (colunas mecânicas sem `deleted_at`) e `ATTACHMENT_FIELDS` (campos do DTO de anexo): listas de outro propósito, mantidas. `test_sequence_fields.py`, `test_record_contract.py`, `test_security_invariants.py`, `test_presentation.py`: sem alteração; 181 passed no conjunto.
+- **#251:** em `test_application_administration.py`, `test_incompatible_stored_configuration_closes_only_that_app` (painel 200 sem a app no menu, rota da app 403, `authorized_queryset` negando, `configuration_valid` falso), `test_incompatible_configuration_is_not_rewritten_over_http` (POST HTML e PUT REST 400, linha intacta), `test_incompatible_configuration_page_explains_and_lists_apps` e `test_incompatible_configuration_does_not_affect_other_organization` falharam antes (500 nas páginas: `ValidationError: Campo de configuração desconhecido`) e passam. A variante com dependência (`test_incompatible_configuration_of_dependency_closes_dependent_app`) não foi escrita: montaria duas apps de teste com dependência e configuração; o laço de dependências de `require_application_enabled` recebeu a mesma checagem. `test_application_administration.py`, `test_reference_picker.py` (inclui `check_application_configuration`), `test_app_availability.py`, `test_app_extensions.py`: 41 passed.
+- **#253:** `test_app_availability.py::test_custom_parameter_screen_is_closed_when_app_unavailable` (fechada sem disponibilidade, resolve depois que a plataforma disponibiliza), `test_unavailable_app_lists_only_core_configuration_screen` e `test_application_administration.py::test_configure_application_requires_role_under_lock` (espião em `organization_lock`, chamado com o ator e `apps.manage`) falharam antes e passam. O teste de duas conexões em `test_admin_concurrency.py` não foi escrito: o arquivo não tem utilitário reaproveitável para segurar `organization_lock` noutra conexão, e a issue manda registrar em vez de criar infraestrutura. `test_app_availability.py`, `test_application_administration.py`, `test_app_extensions.py`, `test_reference_picker.py`, `test_admin_concurrency.py`, `test_platform_app_availability.py`, `test_core_application_service.py`: 69 passed, sem mudança de asserção.
+- **#282:** a regra de ativação saiu de `configure_application` para `require_activation_allowed` (o mesmo bloco, sem mudança), usada também por `set_app_availability --enable`; a retirada first-party e a do agente desativam linha a linha publicando `app.disabled` (decisão do responsável registrada na issue). Falharam antes e passam: `test_app_availability.py::test_cli_refuses_enabling_app_with_closed_dependency` (`CommandError`, nenhuma `AppInstallation`), `test_app_activation_upgrade.py::test_cli_enable_publishes_app_enabled_once` (um `app.enabled` em A, nenhum em B, repetir não publica) e `test_bundled_lifecycle.py::test_retention_publishes_app_disabled_per_active_organization` (um `app.disabled` onde estava ativa, nenhum onde estava desativada, configuração intacta). O caminho do agente (`sync_deployment_state` com `schema_retained`) recebeu a mesma troca, mas não ganhou teste próprio: o comando exige o journal do agente, e o caminho first-party exercita o mesmo laço. `test_core_lifecycle_events.py`, `test_application_administration.py`, `test_app_extensions.py`, `test_app_availability.py`, `test_app_activation_upgrade.py`, `test_bundled_lifecycle.py`, `test_deployment_records.py`: 86 passed sem alteração antes dos testes novos.
+- **#283:** defaults fechados nos modelos (`AppInstallation.enabled=False`, `AppAvailability.mode=selected`) com a migration `sk_system 0009_closed_defaults` gerada pelo `makemigrations` (a issue previa 0008, mas a 0008 já é a da busca): só dois `AlterField`; `record_infrastructure sk_system` sem pendência; `sqlmigrate` mostra no-op. Todos os construtores do núcleo e do kit passam o valor explicitamente (conferido). `tests/unit/test_app_model_defaults.py` (2 testes) falhou antes e passa. `makemigrations --check` limpo; testes de disponibilidade, ativação, administração e retenção: passaram sem alteração.
+- **#285:** `require_platform_context` em `skeleton/accounts/platform.py` passou a guardar disponibilidade (`_require_platform`), releases (`require_platform` e `require_release_operator`, este com a capacidade `updates.operate` de #34) e as telas de plataforma de apps (`administration.py`). O passo 4 da issue (trocar o import em `skeleton/web/platform/guards.py`) não se aplica mais: depois de #34 o arquivo usa `has_platform_capability`/`mfa_required` e não importa `require_platform`. `test_app_availability.py::test_availability_services_require_mfa_when_enforced` e `test_deployment_records.py::test_release_services_reject_actor_different_from_context` (o agente falso não é contatado; a operação continua `preview`) falharam antes e passam. `test_app_availability.py`, `test_deployment_records.py`, `test_platform_boundary.py`, `test_application_administration.py`, `tests/accounts`, `test_platform_roles.py`, `test_platform_app_availability.py`, `test_platform_identity_providers.py`: 268 passed sem alteração antes dos testes novos.
+- **#250:** `tests/unit/test_deployment_client.py` (prazos 10/10/10/30 s, chamadas longas com o prazo da instância, `timeout=5` limita todas): o primeiro falhou antes (todas com 1800 s), os outros dois passam antes e depois. Em `test_deployment_records.py`, `test_stale_approved_operation_can_be_resent` (reenvia exatamente `result["submission"]`), `test_operation_page_offers_retry_only_when_stale`, `test_operation_page_queries_agent_without_row_lock` (nenhum `FOR UPDATE` na operação antes da chamada ao agente) e `test_submission_failure_is_logged` (`target_sysid` e `error_class`, sem plano nem digest) falharam antes e passam; `test_fresh_approved_operation_cannot_be_resent` passa antes e depois. Os existentes de `test_deployment_records.py`, `test_deployment_journal.py` e `test_platform_boundary.py`: 43 passed, 1 skipped, sem alteração. Smoke com agente real não executado (exige o agente em execução).
+- **#284:** `reconcile_builtin_roles` lê as tabelas expostas e as permissões do administrador numa consulta cada; `sync_deployment_state` não visita organizações sem app retida; `export_schema` conta todos os modelos tenant de uma organização no mesmo contexto. `test_capabilities.py::test_reconcile_builtin_roles_uses_fixed_queries` (1 consulta em `sk_system_tabledefinition`, 1 em `sk_access_tablepermission`, nenhum INSERT) e `test_deployment_records.py::test_sync_deployment_state_skips_organizations_without_retained_apps` (com uma organização existente, nenhum `deployment:deactivate`) falharam antes e passam; `test_reconcile_builtin_roles_creates_only_missing_permissions` e `test_retained_schema.py::test_export_schema_opens_one_context_per_organization` passam antes e depois (o exemplo tem um só modelo tenant, então o número de contextos já coincidia). `test_capabilities.py`, `test_retained_schema.py`, `test_deployment_records.py`, `test_bundled_lifecycle.py`: 54 passed; retenção da agenda: 2 passed.
+- **#333:** `tests/unit/test_conf_settings.py` (5 testes): `CONN_HEALTH_CHECKS` ligado com `CONN_MAX_AGE=60` e desligado com 0, e o subprocesso com `config.settings.test` que não deixa o diretório `skeleton-files-*` ao terminar: 3 falharam antes e passam; `test_database_config_is_empty_without_the_variable` e `test_test_settings_add_no_unexpected_setting` passam antes e depois. `test_attachments.py`: 9 passed; `manage.py check --fail-level WARNING` limpo. O smoke de reiniciar o PostgreSQL com o `runserver` aberto não foi feito.
+- **#366:** `export_schema` levanta `RetainedSchemaError` quando o label não tem tabelas instaladas; `test_export_commands.py::test_export_record_schema_for_the_example_app` ganhou o caso `missing_app` (o comentário que apontava para esta issue saiu): falhou antes (snapshot vazio gravado) e passa, com `CommandError("Schema export failed: RetainedSchemaError")` e nenhum arquivo. `test_export_commands.py` + `test_retained_schema.py`: 6 passed, 1 skipped; retenção da agenda: 2 passed.
+- **#256:** `version_satisfies` usa `SpecifierSet.contains(..., prereleases=True)` e `catalog_candidates` passou a usá-la. `tests/unit/test_versioning.py` (8 casos) e dois casos em `test_dependencies.py` passam com o `packaging` 26.3 do ambiente, antes e depois: o defeito só aparece com `packaging` 24.2 e 25.0. Conferido com `uv run --no-project --with packaging==<versão>` sobre `skeleton/versioning.py`: o código anterior dava `[False, False, True, True]` em 24.2 e 25.0 para os quatro casos dos critérios; o novo dá `[True, True, True, True]` em 24.2, 25.0 e 26.3. `test_versioning.py`, `test_dependencies.py`, `test_packages.py`: 19 passed, 97 skipped (`posix`). O `grep "in SpecifierSet("` ainda acha `for item in SpecifierSet(specifier)` em `packages.py`, que itera e não testa pertinência.
+- **#255:** leitura única e tolerante a corrupção (`_read_member` com o limite lido na hora, usado em extração, assinatura, catálogo, `wheel_inventory` e `_release_wheel`, que passou a ler o snapshot verificado), limite por wheel (`MAX_WHEEL_MEMBERS=32768`) separado do artefato e da soma (`MAX_WHEELHOUSE_MEMBERS`), recusa explícita sem `O_NOFOLLOW`, `load_trust_store` único (pacotes, `skeleton-core` e `adopt_core_distribution`) e limpeza só do que o processo criou (build e assinatura), `rmtree(..., ignore_errors=True)` na extração e reversão do rename na adoção se o registro falhar. `tests/unit/test_package_robustness.py` (7 testes, sem marca `posix`, rodados no Windows 11): falharam antes e passam. `tests/unit/test_packages.py` e `tests/unit/test_core_distribution.py` são `posix` e foram pulados no Windows (102 skipped): a prova deles é o CI Linux. O passo 1 da issue (reproduzir em Linux antes) não foi feito: o WSL desta máquina não tem Python e instalar pacotes exigiria download.
+- **#254** (default do responsável, sem comentário na issue: só a first-party instalada satisfaz): `BUNDLED_APP_IDS`/`bundled_app_ids`, parâmetro `provided` em `resolve_dependencies` e `validate_dependency_graph`, `load_deployment_inventory(path, bundled_apps=...)` com `SKELETON_BUNDLED_APPS` lido antes do inventário e as first-party antes das apps gerenciadas em `INSTALLED_APPS`, `package doctor --bundled-app` (`bundled_app_unknown`) e, no agente, `effective_runtime_setting`/`installed_bundled_app_ids` usados por `check_plan_dependencies` e pela resolução de `create_release` (mesmo veredito do plano). 11 testes novos em `test_dependencies.py` (6), `test_bundled_apps.py` (2), `test_distribution_startup.py` (2) e `test_package_doctor.py` (2, um pelo CLI): falharam antes e passam. Os 2 de `test_plan_dependencies.py` exigem `fcntl` (pulados no Windows; prova no CI Linux). `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run` limpos com `SKELETON_BUNDLED_APPS` vazio e `=calendar`. Achado no caminho: o #310 fez `skeleton.system.presentation` importar `skeleton.common.models`, e `skeleton.system.packages` passou a carregar Django (o teste `posix` `test_standalone_import_needs_no_django_configuration` só roda no Linux); as listas foram para `skeleton.common.field_names` (sem Django, reexportadas por `common.models`) e `test_package_robustness.py::test_packaging_modules_import_without_django` prova isso também no Windows. Arquivos tocados + `test_table_spec.py` + `test_presentation.py`: 194 passed, 1 skipped.
+- **#286:** os 9 testes puros de `test_packages.py` saíram do módulo `posix`: 7 para o novo `tests/unit/test_manifest_validation.py` (fixture `app_manifest` igual ao manifesto de `signed_app`, helpers copiados) e, como `tests/unit/test_versioning.py` já existia (#256), `test_semver_prerelease_and_nonlexical_ranges` e `test_source_metadata_never_claims_an_unrelated_installed_distribution` foram para lá; `test_worker_confirmation_checks_actual_loaded_core_bytes` foi de `test_core_distribution.py` para `test_distribution_startup.py`. Só mudaram a origem do manifesto e o nome do fixture. Windows 11, os cinco arquivos: 118 itens coletados antes e depois, com o mesmo conjunto de nomes de teste; antes 16 passed e 102 skipped, depois 49 passed e 69 skipped. `test_manifest_validation.py` sozinho: 30 passed, nenhum skipped (a auditoria estimava 32 com os dois de versão; o real é 30 + 2 em `test_versioning.py` + 1 em `test_distribution_startup.py`). A contagem em Linux é a do CI.
+- **#300:** `PUBLIC_CORE_NAMES` (lista fechada por módulo; `None` para os módulos de construtores, OpenAPI e fluxos), regra de nome privado em qualquer componente do caminho, `core_model_lookups` (`get_model("sk_...")` fora de `migrations/`), análise de todos os diretórios exceto `__pycache__` e os iniciados por ponto, provedores antes do prefixo `skeleton` e `skeleton.contrib.<pacote>` desconhecido só com o `service_api`. Nomes em uso que a lista da issue não tinha (`InstallSearchIndex`, `request_fields`, `require_application_enabled`, `has_table_permission`, `user_context`, `skeleton.sequences.registry`) entraram na lista e na tabela de `docs/service-api.md`; o desvio está comentado na issue. 9 testes novos em `test_import_boundary.py` (23 itens) e `test_service_api_checks.py::test_repository_apps_have_no_boundary_warnings`: antes, o módulo de teste nem coleta (sem `PUBLIC_CORE_NAMES`); depois, `test_import_boundary.py`, `test_docs_app_snippets.py`, `test_documentation_references.py`, `test_package_doctor.py`, `test_service_api_checks.py` e `test_scaffold_end_to_end.py`: 84 passed; com `SKELETON_BUNDLED_APPS=calendar`, `test_service_api_checks.py` e `tests/contrib/calendar`: 217 passed. `manage.py check --fail-level WARNING` limpo com o núcleo, com o exemplo e com a agenda; `mypy` limpo.
+- **#315** (refatoração pura): `skeleton/system/packaging/` com `errors`, `limits`, `primitives`, `signing`, `manifest`, `zipio` (o módulo extra que a issue previa para `_zip_members`/`_read_member`/`_protected_snapshot`, sem ciclo entre `wheels` e `archive`), `wheels`, `archive`, `build`, `catalog`, `doctor`, `cli` e `template` (o `manifest_template`, para o `manifest` ficar abaixo de 450 linhas). `packages.py` virou fachada de 93 linhas que reexporta todo nome definido antes (os nomes de biblioteca importados, como `json` ou `Path`, deixaram de existir no módulo; nenhum importador os usava, conferido por AST sobre o repositório), com `__all__` dos públicos, `main` e o bloco `__main__`; nenhum módulo passa de 420 linhas e nenhuma função passa de complexidade 15 (`_validate_manifest` 64 → blocos nomeados, `run_command` → tabela `OPERATIONS`, `doctor`, `_catalog`, `_validate_archive`, `extract_package` e `load_deployment_inventory` divididos na ordem original). Limites lidos como `limits.MAX_*` e as funções que os testes trocam (`_protected_snapshot`, `validate_package`, `_validate_archive`) chamadas pelo módulo; nos testes mudou só o alvo do `monkeypatch`. A validação de migrations do catálogo não foi unificada com a do manifesto: mensagens e regra de labels únicos diferem. Provas, todas no Windows 11: (1) rede local com um `sitecustomize` que define `os.O_NOFOLLOW = 0`, para rodar os testes `posix`: 12 arquivos de pacotes, antes 229 passed, 2 failed e 2 errors (os 2 de symlink e os 2 de wheel do Windows), depois 360 passed e os mesmos 2 failed de symlink, com `test_packages_facade.py` (3) e os vizinhos somados; (2) diferencial do `_validate_manifest` antigo contra o novo em 12596 manifestos mutados (uma e duas mutações): 0 diferenças; (3) diferencial de `load_deployment_inventory` em 586 inventários mutados: 0 diferenças, inclusive a mensagem encadeada; (4) com o alvo do patch de volta na fachada, os 4 parâmetros de `test_archive_limits_fail_closed` e `test_runtime_wheelhouse_can_exceed_one_artifact_member_limit` falham, e com o alvo no `limits` passam. A prova literal do passo 3 (comentar a checagem de `_zip_members`) não isola `MAX_MEMBERS`: com ela desligada o teste continua passando, porque a checagem do inventário do manifesto (`MAX_MEMBERS - 2`) recusa antes, e isso já valia antes da divisão. `python -m skeleton.system.packages validate-manifest examples/notes/manifest.json` dá a mesma saída byte a byte; `manage.py package doctor examples/notes` responde `ok`; sem Django no import; `mypy` e `check --fail-level WARNING` limpos. A prova em Linux é o CI.
+- **#332** (refatoração pura): `skeleton/system/presentation/` com `specs` e `runtime` (sem Django), `routes` e `model_validation` (Django dentro das funções) e os registries no `__init__`, onde os testes os trocam; `presentation.py` removido. `validate_runtime_presentation` (complexidade 54) virou blocos com um objeto `_Checks` no lugar dos helpers aninhados, e `validate_presentation` (42) virou `_validate_model_presentation`, `_validate_application_routes`, `_validate_navigation` e `_validate_screens`, na ordem original; nenhuma função passa de 14. Nenhum teste existente foi editado; novo `tests/unit/test_presentation_package.py` (3). Diferencial do módulo antigo contra o novo em 4346 apresentações mutadas (uma e duas mutações): 0 diferenças em `validate_runtime_presentation` e `required_presentation_core`; os únicos nomes que deixaram o módulo são os importados (`re`, `dataclass`, `SYSTEM_FIELD_NAMES`), que ninguém importa dali. `test_presentation.py`, `test_presentation_package.py`, `test_reserved_routes.py`, `test_manifest_validation.py`, `test_record_presentation.py`, `test_application_administration.py`, `test_app_extensions.py` e `test_reference_picker.py`: 223 passed. `check --fail-level WARNING` limpo com e sem a agenda; `specs` e `runtime` importam sem Django.
+- **#338:** as páginas do painel de apps foram para `skeleton/web/applications.py`, a REST (`ApplicationAPI`, `state_data`) para `skeleton/api/applications.py`, as rotas para `skeleton/web/application_urls.py` e `skeleton/api/application_urls.py` (um módulo por superfície: a regra R3 do teste de camadas não deixa `web` importar `api`), e os guards de URL com `application_urlpatterns` para `skeleton/web/app_routing.py`; `require_apps_manager` ficou com a política em `skeleton/system/administration.py`. `skeleton/system/application_views.py` e `application_urls.py` saíram, e as cinco exceções `skeleton/system/application_views.py` do `test_core_layering.py` também. As páginas usam o `ApplicationAdministrationService`: o formulário mostra as mensagens do `InvalidInput` e o 409 continua no `Conflict("stale_revision")`. Desvio documentado: o DTO `ApplicationState` ganhou `configuration_valid` (padrão `True`, aditivo), porque a página precisa dele (#251) e a view não pode mais ler `skeleton.system.applications`. Os nomes de `skeleton.web`/`skeleton.api` que restam em `skeleton/system` são strings da lista pública de `import_boundary.py`, não imports. Nos testes mudaram só caminhos de import (`test_application_administration.py`, `test_application_route_guard.py`, `test_core_surfaces_on_services.py`) e a lista de exceções. Novo `test_configuration_form_reports_specific_service_error`: falhou antes (302: a view antiga chamava `configure_application` direto) e passa (400 com a mensagem do serviço). `test_core_layering.py`, `test_application_administration.py`, `test_app_extensions.py`, `test_app_availability.py`, `test_http_boundaries.py`, `test_http_findings.py`, `test_capabilities.py`, `test_application_route_guard.py`, `test_core_surfaces_on_services.py`, `test_core_application_service.py` e os de OpenAPI: 159 passed; `check --fail-level WARNING` e `mypy` limpos.
+- **#334:** `skeleton/testing/database.py` (no wheel) recebeu `DatabasePair`, `_identity`, `disposable_database_pair`, `_verify_owner`, `_owner_connection`, `_create_empty_schema` e `reset_schema` com o corpo idêntico (conferido por AST; só anotações de tipo para o mypy estrito) e as constantes que eles usam; `tools/integration_database.py` os reexporta. A fixture distribuída `skeleton_db` recria e migra o schema como owner a cada teste e volta para a role runtime antes do `yield`; não abre apps. O gerador cria `tests/conftest.py` e `tests/test_service_api.py` com o contrato e os seis cenários; o fixture `scenario` gerado chama `open_app` antes de `build_service_scenario`, porque o kit ativa a app mas não a disponibiliza (#22) — o passo 3 da issue supunha o contrário. `test_scaffold_end_to_end.py` roda os testes gerados com a runtime em `TEST_DATABASE_URL` e o owner em `TEST_MIGRATION_DATABASE_URL`: 7 passed, sem W019. Prova de mutação no projeto de rascunho, desfeita depois: com `get_<modelo>` lendo `<Modelo>.objects` em vez de `authorized_queryset`, só `test_private_record_of_someone_else_is_not_found` falhou (1 failed, 6 passed). Novos em `test_integration_database.py`: as cinco recusas da barreira pelo módulo distribuído, a reexportação, o kit sem pytest e a fixture que para com `UsageError` sem tocar no banco; `test_skeleton_startapp.py` passou a esperar `tests/conftest.py` e os seis cenários. Com `test_docs_app_snippets.py`, `test_documentation_references.py`, `test_notes_service_api.py` e `test_schema_template.py`: 134 passed; `check --fail-level WARNING` e `mypy` limpos.
+- **Smoke no navegador** (servidor de desenvolvimento sobre o banco de smoke, com o exemplo e a agenda, depois do `migrate` que aplicou `sk_system.0009_closed_defaults`): `/o/<org>/apps/` lista as duas apps pelo serviço; a configuração das Anotações salva (302) e um POST com a revisão anterior responde 409 com "A configuração mudou. Atualize a página."; `/apps/example_notes/admin/` 200, app inexistente 404; `GET /api/v1/o/<org>/apps/` 200; `/tables/example_notes.note/` 200 e `/new/` 200 com as seções do `model_ui` ("Identificação", "Conteúdo") e os campos `code`, `title`, `body`.
+- **Suíte inteira (primeira rodada):** 4 falhas, todas em `test_org_apps_available.py`, corrigidas em commit próprio (`Refs #338`): o teste lê o contexto da página de apps como dicionário, e a view nova passava o DTO; ela voltou a entregar ao template um dicionário por app.
+
+Suíte inteira no fim do epic: `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8` → 2565 passed, 4 failed (as acima), 87 skipped, 45 subtests passed em 9 min 37 s; depois da correção, `test_org_apps_available.py`, `test_application_administration.py` e `test_app_availability.py` → 38 passed. A agenda rodou nas issues que a tocam (#300: `tests/contrib/calendar` com `SKELETON_BUNDLED_APPS=calendar`, 217 passed); no fim do epic, `SKELETON_BUNDLED_APPS=calendar python -m pytest tests/contrib/calendar tests/unit/test_bundled_apps.py tests/integration/test_service_api_checks.py -n 8` → 230 passed e 1 failed, `test_the_suite_runs_without_any_bundled_app`, que por definição falha com a agenda instalada (falha igual sem as mudanças deste epic); `check --fail-level WARNING` com a agenda limpo. `npm run check` (CSS compilado e assets) limpo.
+
+## Refactoring de qualidade: agenda, exemplo e kit de testes (epic #220)
+
+Rodada de 2026-11-13 na branch `fix/220-quality-calendar-kit`, empilhada sobre a do epic #219. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou; os testes da agenda rodam com `SKELETON_BUNDLED_APPS=calendar`.
+
+- **#321:** `tests/integration/test_service_api_kit.py` (oito testes, PostgreSQL com a role runtime): sete falharam no kit anterior e passam — o kit aceitava `Forbidden` por falta de permissão como "ator divergente", qualquer erro de serviço como isolamento, chamada já `Unavailable` antes de desativar a app, `activate_app` com dependência desligada, o `apps_open_by_default` aninhado desligava o sinal externo, e não havia `scenario.password`; `test_kit_rejects_a_service_that_ignores_the_actor` passa antes e depois. Unitários `test_assert_tenant_isolated_requires_markers`, `test_assert_tenant_isolated_checks_expected_count` e `test_assert_cas_conflict_with_reread`. Ajustes em testes existentes: na agenda, os dois prescritos pela issue (outro ator plenamente autorizado; `pytest.raises(Forbidden)`); em `test_service_contract_kit.py::test_unavailable_other_actor_and_cas_helpers`, os casos positivos passaram a usar entradas válidas para o kit novo (`Forbidden(code="actor_mismatch")` e chamada que só fica `Unavailable` depois de desativar) e os antigos viraram casos de recusa. Desvios da issue: `actor=None` fora de `system_context` também recebe `actor_mismatch` (os testes de notas e fluxos o usam como "outro ator"); a chamada de controle de `assert_unavailable_when_disabled` reprova só `Unavailable` (comandos repetidos, como iniciar um fluxo ou assumir uma tarefa, respondem `Conflict` no controle e ainda provam que a chamada passou da verificação de disponibilidade); `FIXTURE_PASSWORD` é sorteada uma vez por processo, não por cenário, porque 25 arquivos de teste a importam para login (`ServiceScenario.password` a expõe). Os 60 arquivos que usam o kit: 708 passed, 1 skipped; agenda: 59 passed; `grep fixture-2026 skeleton` vazio.
+- **#322:** `tests/integration/test_application_route_guard.py` (oito testes): `test_anonymous_on_an_app_page_is_sent_to_login` falhou antes com 500 (`MissingTenantContext` no guarda) e `test_the_guard_itself_applies_the_mfa_gate_to_views_without_one` falhou antes (uma view sem `tenant_page`, atrás do guarda, respondia 200 ao administrador sem MFA); os dois passam depois. Os seis restantes (API anônima 403, administrador sem MFA nas páginas e API do exemplo, membro comum, app desativada, não membro) passam antes e depois: as views do exemplo já aplicam o portão por `tenant_page`/`TenantAPI`. A app desativada responde 403 no HTML e 404 na API, como em `test_application_administration.py` (a issue fala em 404 nas duas; o teste segue o contrato existente, que a issue manda preservar). `test_application_administration.py`, `test_http_boundaries.py`, `test_app_extensions.py` e o novo: 56 passed; agenda: 59 passed. Smoke no navegador não executado; o redirecionamento ao login está coberto pelo teste de integração.
+- **#337:** `tests/integration/test_job_owner_app.py` — `test_periodic_job_is_not_scheduled_where_the_app_is_disabled` e `test_queued_job_is_cancelled_when_the_app_was_disabled` falharam antes (job agendado em A com a app desligada; job enfileirado executado) e passam depois (`cancelled`/`application_disabled`, handler não chamado); `test_job_runs_again_after_the_app_is_enabled` (mesma janela agendada no tick seguinte à reativação, executada) e `test_core_owned_jobs_are_unaffected` (sem dono e `sk_notifications`) passam antes e depois. Agenda: `test_reminder_job_is_not_scheduled_for_an_organization_without_the_app` (agenda desativada em B; a issue sugeria também uma terceira organização, mas a fixture de testes ativa as apps em toda organização nova) falhou antes e passa depois; `test_the_periodic_job_is_registered_per_organization` sem alteração. Agenda inteira: 60 passed; `tests/integration -k "job or periodic or worker"`: 87 passed, 2 skipped.
+- **#343:** `AccessService.granted_record_ids`, `OrganizationService.member_refs` e `skeleton.tenancy.aggregate.user_context`, com a agenda migrada para eles (`grep -rn "_grant_ids\|get_model(\"sk_\|request_context" skeleton/contrib` vazio). Testes novos em PostgreSQL com a role runtime: `test_granted_record_ids_authorized_path` (concessão ao vínculo, por grupo e por papel; nenhuma para `update`), `test_granted_record_ids_default_deny_and_tenant_isolation` (`assert_tenant_isolated` com registro de B concedido em B), `test_granted_record_ids_invalid_input` (6 casos), `test_granted_record_ids_rejects_other_actor`; `test_member_refs_lists_only_active_members_of_this_organization`, `test_member_refs_excludes_service_accounts_by_default`, `test_member_refs_in_system_context_without_actor` (e `Forbidden` com `actor=None` fora de `system_context`), `test_member_refs_rejects_other_actor`; `test_user_context_opens_a_global_context` e `test_user_context_refuses_nesting`. `assert_service_contract` dos dois serviços passa. Agenda inteira sem alteração de expectativa: 60 passed; `tests/integration -k "organization_service or core_ or service_api"`: 169 passed; `SKELETON_BUNDLED_APPS=calendar manage.py check --fail-level WARNING` limpo. `free_busy` passou a excluir pessoa inativa ou excluída (o filtro antigo só olhava o vínculo). Smoke do link do feed não executado no navegador; `feed_token` é coberto pelos testes de feed da agenda.
+- **#223:** em `tests/contrib/calendar/test_reminders.py`, `test_organizer_without_membership_does_not_break_the_job` (organizadora sem vínculo; Bob recebe; nada em B), `test_occurrence_without_active_recipients_is_skipped`, `test_one_refused_notification_keeps_the_others` (o núcleo recusa uma notificação com `ValidationError`, que o serviço traduz em `InvalidInput`), `test_disabled_app_sends_no_reminder_and_resumes` e `test_finished_events_do_not_add_queries` (1 e 20 eventos encerrados, mesmas consultas) falharam no código anterior e passam; os quatro testes existentes passam sem alteração. `active_user_ids` usa `OrganizationService.member_refs` (#343), em vez do acesso interno que a issue descrevia, porque #343 entrou antes. Agenda inteira: 65 passed; `SKELETON_BUNDLED_APPS=calendar manage.py check --fail-level WARNING` limpo.
+- **#234:** `test_event_form_shows_field_errors` (fim antes do início → 400 com a mensagem no campo "Fim") falhou antes e passa depois. `test_anonymous_is_sent_to_login_on_every_page` (5 rotas), `test_member_without_capability_is_not_asked_for_mfa`, `test_times_are_shown_in_the_profile_time_zone` (12:00 UTC → 09:00 em America/Sao_Paulo) e `test_calendars.py::test_capability_holder_without_mfa_is_sent_to_mfa_setup` já passavam no código anterior: o guarda de rotas de app de #322 (login e MFA) e o `LocaleMiddleware` (fuso) cobriam esses casos; as páginas agora também usam `tenant_page`, como a issue prescreve. Ao estreitar o `except` de `_zone`, apareceu que "Minha agenda" chamava `_zone` fora de qualquer contexto (o `Forbidden` era engolido e o fuso caía sempre em UTC); a página agora lê o fuso dentro de `user_context` (#343). Agenda inteira: 74 passed, sem alteração de expectativa.
+- **#235:** `test_second_invitation_batch_is_notified` (Bob e depois o administrador: duas notificações, cada uma com o destinatário certo; nada em B) falhou antes (o segundo lote colidia na chave `calendar.invited:<evento>:<sequence>`) e passa depois; `test_same_invitation_twice_does_not_duplicate_the_notification` passa antes e depois. `test_updates_and_cancellation_notify_attendees` e `test_only_people_of_the_organization_can_be_invited` sem alteração. Agenda inteira: 76 passed.
+- **#236:** testes novos em `tests/contrib/calendar/test_recurrence.py`. Falharam no código anterior e passam: `test_far_or_impossible_until_is_refused` (4 casos: ano 9999, 1899, 30 de fevereiro, mês 13), `test_rule_without_occurrences_is_refused_quickly` (2 regras com filtros contraditórios; menos de 0,5 s), `test_invalid_exdates_rdates_and_tzid_answer_validation_error` (exdate e rdate inválidos, rdate no ano 9999 e regra sem ocorrência; o exdate não textual e o `tzid` desconhecido já eram recusados e passam antes e depois), `test_invalid_input_reaches_the_service_as_invalid_input`, `test_recurrence_dates_are_stored_normalized` (`-03:00` gravado como `+00:00`), `test_event_dates_outside_the_accepted_years_are_refused`, `test_stored_invalid_exdate_is_skipped` e os de `occurrence_starts` (que não existia): `test_bounded_iteration_matches_dateutil` (7 regras, 300 primeiras ocorrências iguais às do `dateutil` sem deslocamento) e `test_count_is_applied_after_the_shift`. `test_expand_of_a_sparse_rule_is_bounded` passa antes e depois. Na equivalência, a regra de referência passou a respeitar o mesmo `UNTIL` (erro do teste, não do código). Agenda inteira: 101 passed, sem alteração de expectativa dos testes existentes (horário de verão, divisão de série).
+- **#291:** falharam no código anterior e passam: `test_upcoming_query_count_does_not_grow_with_events` (10 e 100 eventos, mesmas consultas), `test_upcoming_in_someone_elses_personal_calendar_has_constant_queries` (administrador lendo o calendário pessoal de outra pessoa: só "Ocupado", consultas constantes), `test_window_over_400_days_is_invalid_without_events`, `test_too_many_occurrences_is_invalid_input` (teto 3 por `monkeypatch`), `test_views.py::test_too_many_events_answers_400`, `test_my_agenda.py::test_an_organization_over_the_limit_is_reported_not_fatal`, `test_ics_feed.py::test_feed_is_windowed_and_capped` (fora o evento terminado há 40 dias e o de daqui a 500; teto de componentes) e `test_export_query_count_is_constant`. `test_free_busy_query_count_is_constant` (1 e 10 pessoas, mesmos blocos) e `test_actor_view_does_not_leak_between_actors` (delegado vê o conteúdo, o administrador sem delegação logo depois vê "Ocupado") passam antes e depois. A delegação do `ActorView` vem de `AccessService.granted_record_ids` (#343), não de `_grant_ids`. Migration `skeleton_calendar 0006_event_window_indexes` gerada pelo `makemigrations` só com três `AddIndex` (formatada pelo ruff), `leaves` do manifesto atualizado; `makemigrations --check` com e sem a agenda e `manage.py check --fail-level WARNING` limpos; agenda inteira (com `test_retention.py`, que roda `check_skeleton_schema`): 111 passed, sem alteração dos testes de mascaramento.
+- **#292:** `test_delete_event_with_attendees_reminders_and_overrides` falhou antes com `LiveReferencesExist` (a substituição ainda apontava para o mestre; registrado na issue) e passa depois: as quatro espécies de linha ficam com `deleted_at` e os mesmos `sysid`, e há `AuditEvent` `soft_delete` do evento. `test_reminders.py::test_deleted_event_sends_no_reminder` e `test_attendees.py::test_deleting_the_event_notifies_cancellation` falharam antes e passam; `test_delete_event_stale_revision_changes_nothing` e `test_delete_event_requires_calendar_write` passam antes e depois. Agenda inteira: 116 passed.
+- **#293:** `test_ics_recurring_event_keeps_local_time_across_dst` (série semanal em Europe/Berlin cruzando 28/03/2027: a regra exportada reexpandida a partir do `DTSTART` exportado dá os mesmos instantes UTC que `upcoming`), `test_ics_until_is_exported_in_utc` (`UNTIL` com `Z` para evento com hora, 8 dígitos para dia inteiro) e `test_ics_contains_the_timezone_definition` falharam antes e passam; `test_ics_exdate_and_recurrence_id_are_the_stored_instants` passa antes e depois. Testes de feed e de token (`test_feed_respects_current_authorization_and_busy_blocks`, `test_revoked_expired_or_foreign_tokens_answer_404`) sem alteração. Conferido à parte que um `DTSTART` em `ZoneInfo("UTC")` sai como `...Z`, sem `TZID`. Agenda inteira: 120 passed. Importação num cliente de calendário não feita.
+- **#294:** `test_override_moved_past_the_series_end_is_listed`, `test_two_edits_of_one_occurrence_with_the_same_revision_have_one_winner` (a segunda edição recebe `Conflict("stale_revision")` e a primeira permanece; Bob convidado recebe `PermissionDenied`), `test_following_split_recomputes_the_end_of_both_series` (o `sysid` da substituição se mantém) e `test_events.py::test_empty_update_is_refused_and_notifies_nobody` falharam antes e passam; `test_recurrence_end_shrinks_when_the_override_is_removed` passa antes e depois (antes o fim nunca crescia). `test_this_and_following_splits_the_series_keeping_ids` sem alteração; nenhum chamador usava `data={}`. Agenda inteira: 125 passed.
+- **#312:** falharam antes e passam: `test_my_agenda.py::test_all_day_events_show_their_date` (o template lia `start_date`, que o DTO não tinha), `test_all_day_window_uses_local_days` (Asia/Tokyo sem o evento de ontem; America/Sao_Paulo sem o do 15º dia), `test_service_api.py::test_all_day_occurrences_carry_dates` (com `assert_service_contract`) e `test_reminders.py::test_all_day_reminder_counts_from_local_midnight` (0 às 21:05 UTC da véspera e à 00:05 UTC; 1 às 03:05 UTC; reexecução sem duplicar). `test_times_are_shown_in_the_profile_time_zone` já passava, pela leitura do fuso em `user_context` feita em #234; a página agora também renderiza sob `timezone.override`. Testes existentes de "Minha agenda" (revogação, vínculo inativo) sem alteração. Agenda inteira: 131 passed.
+- **#344:** onze métodos novos no `CalendarService` (`event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder`, `remove_reminder`), DTOs `AttendeeInfo`/`ReminderInfo` e `CalendarInfo.writable`; `attendees.remove`, `attendees.respond` e `reminders.remove_reminder` ganharam `expected_revision`. Arquivos novos `test_service_api_attendees.py` (7 testes), `test_service_api_reminders.py` (4) e `test_service_api_occurrences.py` (5), mais `test_idempotent_create_returns_the_existing_event_after_a_unique_conflict` (a busca inicial falha uma vez por `monkeypatch` em `_idempotent_event`; o conflito de unicidade é resolvido relendo o evento), `test_calendar_info_reports_writable` e `test_views.py::test_event_form_lists_only_writable_calendars`: falham ou não importam no código anterior e passam. Testes existentes ajustados só na assinatura (passam a revisão do convite em `attendees.remove`/`respond`): `test_attendees.py` (2 testes) e `test_reminders.py` (2 chamadas). `assert_service_contract(CalendarService)` passa; o `grep` do critério não acha superfícies chamando as funções internas. Agenda inteira: 150 passed; `SKELETON_BUNDLED_APPS=calendar manage.py check --fail-level WARNING` limpo; agenda + `tests/unit -k "service_api or docs or manifest or contract"`: 196 passed, 19 skipped.
+- **#345:** `test_ics_feed.py::test_cancelled_override_is_exported_as_cancelled` (fora da expansão e `STATUS:CANCELLED` no ICS) e `test_recurrence.py::test_following_split_partitions_exdates_by_instant` falharam antes e passam. No segundo, o EXDATE legado em `-05:00` (anterior à normalização de #236) é gravado por um `UPDATE` direto com a role runtime no contexto da organização, porque o ORM o normalizaria ao salvar; por texto ele se perdia na divisão, pelo instante vai para a metade certa. `COPIED_FIELDS` tem os mesmos 11 campos, sem `tzid` repetido. Docstrings e documentação descrevem o caminho real do ICS/feed, o retorno de `send_due_reminders` e a criação do calendário pessoal; `examples/notes/docs/spec.md` não cita mais SQLite. `is_cancelled` foi mantido (opção padrão da issue; a remoção da coluna fica para decisão do responsável). Agenda inteira: 152 passed; `manage.py check` limpo; o diff não toca `models.py`, migrations nem `.py` do exemplo.
+- **#320** (só testes): `tests/contrib/calendar/test_checklist_tables.py` (25 casos: auditoria de `Event` com título, descrição e local redigidos e `starts_at` em claro; auditoria de convite e lembrete com organização e ator; rollback sem linha nem auditoria; `MissingTenantContext` nas quatro tabelas; B não vê linhas de A, nem com `with_deleted()`; as cinco FKs de mesma organização recusadas pelo banco com `foreign_key_violation` (23503) num `INSERT` direto que copia a linha de A apontando para B; `DELETE` físico e mudança de cada coluna imutável recusados pelo banco; soft delete e restore de calendário com o mesmo `sysid`, revisão crescente e auditoria; calendário pessoal padrão não excluível; o gateway responde 404 ao estranho e 403 à pessoa de B sem `TablePermission`) e `test_checklist_service.py` (22 casos: A/B de `upcoming` e `free_busy`, `NotFound` igual para evento de B e inexistente em `update_event`/`cancel_event`, e, para os seis métodos originais, app desativada, ator divergente e default deny; CAS de `cancel_event`; mascaramento do calendário pessoal para o administrador). Tudo em PostgreSQL com a role runtime, sem conexão owner. Dois ajustes foram do próprio teste (forma da substituição e unicidade do lembrete na cópia), não do produto; nenhum `xfail`. Agenda inteira: 199 passed.
+- **Suíte inteira (primeira rodada):** 1 falha, corrigida em commit próprio: `test_documentation_references.py::test_core_service_catalog_matches_code` (a tabela-resumo do catálogo do núcleo não listava `member_refs` e `granted_record_ids` de #343).
+
+Suíte inteira no fim do epic: `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` → 2399 passed, 1 failed (a acima), 120 skipped, 45 subtests passed em 9 min 22 s; depois da correção, `test_documentation_references.py` → 6 passed. Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n 8`) → 199 passed; `mypy` sem erros; `ruff check` e `ruff format --check` limpos.
+
+## Refactoring de qualidade: jobs, notificações, arquivos e integrações (epic #219)
+
+Rodada de 2026-11-12/13 na branch `fix/219-quality-jobs-integrations`, criada sobre a do epic #217. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou; os testes marcados `posix` foram pulados no Windows e rodam no CI Linux.
+
+- **#224:** `tests/unit/test_outbound_http.py` — `test_total_deadline_bounds_a_dripping_answer` (corpo e cabeçalhos enviados em pedaços, prazo total reduzido a 1 s), `test_name_resolution_has_its_own_timeout`, `test_deadline_timer_is_cancelled_after_the_request` e `test_tls_context_is_built_once` falharam antes (4 failed) e passam depois, três vezes seguidas (50 passed); os 45 casos existentes sem alteração. `test_webhook_delivery.py`, `test_webhook_endpoints.py`, `test_web_push.py` → 29 passed; `mypy` sem erros.
+- **#225:** com um storage de teste que salva como o `S3Storage` (por `read()`, sem `chunks()`): `test_put_stream_counts_bytes_when_the_backend_reads_with_read`, `test_put_stream_enforces_the_limit_when_the_backend_reads_with_read`, `test_put_stream_still_counts_and_limits_on_the_local_backend` e `test_upload_records_real_size_and_digest_on_a_read_based_storage` (tamanho, `sha256` e `StorageUsage.bytes_used` corretos) falharam antes e passam depois; `test_upload_above_policy_limit_answers_413_on_a_read_based_storage` passa (o `Content-Length` declarado já recusava antes do storage). `test_private_storage.py`, `test_attachments.py`, `test_storage_quota.py`, `test_attachment_downloads.py` → 32 passed. O passo opcional 6 (django-storages e `moto` no lock de desenvolvimento) não foi feito: o storage de teste reproduz os passos do `_save` do S3 sem dependência nova.
+- **#240:** `test_second_tick_of_a_window_issues_no_insert`, `test_scheduler_memory_skips_the_lookup_for_completed_windows`, `test_new_organization_is_scheduled_in_the_current_window` (com e sem memória) e `test_memory_resets_when_the_window_changes` falharam antes e passam depois; `test_two_concurrent_schedulers_produce_one_job_per_window` e `test_inactive_and_deleted_organizations_receive_nothing` sem alteração. `test_jobs_periodic.py`, `test_jobs_queue.py` → 22 passed; `tests/contrib/calendar/test_reminders.py` → 4 passed. No banco de desenvolvimento, `run_scheduler --once` duas vezes: "Jobs periódicos criados: 10." e depois "0.".
+- **#241:** `test_same_key_in_two_organizations_creates_two_jobs` e `test_enqueue_with_key_reraises_foreign_integrity_errors` falharam antes e passam depois; `test_idempotency_key_returns_the_existing_job` teve alterada só a parte que esperava "Chave já usada" entre organizações (a expectativa era o defeito; agora B recebe o próprio job); `test_global_jobs_keep_one_job_per_key` e `test_two_connections_enqueue_the_same_key_in_one_organization` (duas threads, um job, um `created` de cada) passam. `makemigrations --check` sem mudanças; `test_jobs_queue.py`, `test_jobs_periodic.py`, `test_event_consumers.py`, `test_core_job_event_services.py`, `test_schema_assurance.py` → 72 passed. No banco de desenvolvimento, `migrate sk_jobs` aplicou `0003` com o owner e `check_skeleton_schema` com a role runtime é válido.
+- **#242:** `tests/unit/test_upload_handler.py` (limite pelo `Content-Length` declarado, pelos bytes recebidos, blocos repassados abaixo do limite, ordem de `FILE_UPLOAD_HANDLERS` e a troca pelo handler de pacotes só na view de upload de pacotes) e `test_html_upload_above_the_limit_is_refused_before_it_is_stored` (413, nenhum `Attachment`, o `MemoryFileUploadHandler` recebe no máximo o limite mais a margem) falharam antes e passam depois; `test_large_multipart_to_a_plain_form_is_stopped_at_the_limit` (formulário de perfil não termina em 500) passa. `test_upload_handler.py`, `test_attachments.py`, `test_http_boundaries.py`, `test_platform_boundary.py` → 54 passed. O smoke no navegador não foi executado.
+- **#243:** `test_busy_worker_keeps_heartbeat_fresh`, `test_idle_worker_writes_heartbeat_at_most_every_interval` (10 voltas ociosas com o relógio parado: só `running` na partida e `stopped`), `test_failed_job_logs_a_sanitized_stack_without_payload` (`error_stack` presente, sem `valor-secreto` nem o payload) e `test_worker_running_a_long_job_counts_as_live` (lease válido → vivo) falharam antes e passam depois; a variante com lease vencido continua `stale`. `test_jobs_worker.py`, `test_jobs_operations.py`, `test_jobs_queue.py` → 36 passed. No banco de desenvolvimento, `run_worker --once` e `check_jobs` rodaram sem erro (fila vazia).
+- **#275:** `test_queue_snapshot_is_reused_within_the_ttl`, `test_queue_snapshot_is_not_cached_when_the_ttl_is_zero`, `test_failed_queue_read_is_not_cached` e `test_multiprocess_check` (cinco casos) falharam antes e passam depois; `test_multiprocess_scrape_sums_two_processes` (dois subprocessos com `PROMETHEUS_MULTIPROC_DIR` somam `_count` 2 numa coleta) passa. A issue sugeria `W031`/`E031`, mas `031` já pertence a `search_fields`: os checks são `skeleton.W034`/`skeleton.E034` e o próximo livre passa a 035. `test_check_reference.py`, `test_observability_metrics.py`, `test_observability_optional.py`, `test_metrics_endpoint.py` → 32 passed (sem alteração de expectativas existentes); `manage.py check --fail-level WARNING` limpo; `mypy` sem erros. Continuam sem prova: gunicorn real com vários workers e um Prometheus real.
+- **#276:** `test_window_stamp_parses_to_the_utc_instant` (unitário), `test_window_is_passed_only_to_types_that_declare_it`, `test_late_job_still_sends_the_digest_of_its_window` (janela das 12:00 UTC executada às 13:05), `test_digest_omits_rows_whose_target_became_unreadable` e `test_digest_with_only_unreadable_rows_is_skipped` falharam antes e passam depois; os testes existentes do resumo, inclusive `test_weekly_digest_goes_out_only_on_mondays_and_per_organization` (A/B), sem alteração. `test_notification_digest_schedule.py`, `test_notification_digest.py`, `test_jobs_periodic.py`, `test_notification_email.py` → 28 passed.
+- **#277:** falharam antes e passam depois: `test_finished_and_abandoned_deliveries_expire_and_recent_open_ones_stay` (o teste antigo `test_finished_deliveries_expire_and_open_ones_stay` foi renomeado e só a asserção que mantinha a entrega `retrying` depois de 31 dias mudou: era o defeito), `test_notifications_never_fanned_out_are_purged_after_the_unread_window`, `test_pending_attachment_is_rescanned_after_the_scanner_returns`, `test_rescan_skips_recent_attachments_and_open_scans`, `test_without_scanner_pending_attachments_stay_closed_and_jobs_do_not_fail` e `test_rescan_is_scoped_to_its_organization`. `test_notification_retention.py`, `test_file_scanning_jobs.py`, `test_jobs_periodic.py` → 25 passed (inclui `test_only_expired_rows_go_and_the_counter_stays_right` e `test_scanner_down_keeps_the_file_pending_and_retries` sem alteração).
+- **#278:** `test_notify_with_key_reraises_foreign_integrity_errors` falhou antes (a violação de outra restrição virava `Notification.DoesNotExist`) e passa depois; `tests/unit/test_notification_jobs_registration.py` confere os cinco tipos e os dois periódicos depois da mudança para `skeleton/notifications/jobs.py`. `PreferenceNotFound` substitui o `Http404` na camada de regras (a view ainda responde 404); `failed` documentado como reservado; o exemplo de periódico da documentação corresponde ao código. `test_notifications_notify.py`, `test_notification_preferences.py`, `test_notifications_fanout.py`, `test_notification_email.py`, `test_notification_digest.py`, `test_notification_retention.py`, `test_web_push.py` e o unitário → 43 passed, sem alteração de expectativas; `mypy` sem erros.
+- **#279:** `tests/unit/test_notification_checks.py` (vazio, sem esquema, `ftp://`, com caminho → aviso; origem com ou sem barra → nada; o aviso só aparece com os checks de deploy) e `test_list_unsubscribe_is_omitted_without_public_url` falharam antes e passam depois; `test_list_unsubscribe_is_absolute_with_public_url` passa. O aviso é `skeleton.W035` (a issue sugeria `W031`, já usado por outro assunto). `test_notification_checks.py`, `test_notification_email_render.py`, `test_check_reference.py`, `test_notification_email.py` → 22 passed; `manage.py check --fail-level WARNING` limpo. Smoke com o ambiente do job `deploy-check`: sem `SKELETON_PUBLIC_URL`, `check --deploy --fail-level WARNING` falha com `skeleton.W035`; com `https://ci.example.test` (acrescentado ao job do CI), "no issues".
+- **#295:** com uma segunda conexão tentando `select_for_update(nowait=True)` durante o envio, falharam antes e passam depois: `test_endpoint_is_not_locked_while_the_request_is_in_flight`, `test_lock_waits_are_bounded_inside_the_delivery` (`lock_timeout` 5s), `test_url_is_validated_before_the_organization_lock` e `test_subscriptions_are_not_locked_while_the_push_is_sent`. `test_unsubscribing_during_the_push_does_not_fail_the_job` passa depois; no código antigo ele trava (a desinscrição espera o lock da assinatura que o push segura: é o defeito), por isso a rodada "antes" o excluiu. `test_without_the_capability_no_name_is_resolved` e `tests/unit/test_common_db.py` passam. `test_webhook_delivery.py`, `test_webhook_endpoints.py`, `test_web_push.py` e o unitário → 41 passed (inclui `test_fifteen_consecutive_failures_disable_the_endpoint_and_notify` sem alteração); `mypy` sem erros.
+- **#313:** falharam antes e passam depois: `test_deactivating_the_principal_disables_its_endpoints` (endpoint desativado com auditoria do administrador e notificação; nenhuma entrega depois), `test_fanout_disables_an_endpoint_whose_principal_lost_its_membership`, `test_abandoned_open_deliveries_are_closed_and_later_purged` e `test_changing_the_principal_keeps_open_deliveries` (a entrega reenfileirada termina `succeeded`, o receptor recebe duas vezes o mesmo `Skeleton-Webhook-Id`); `test_recent_retrying_deliveries_are_not_closed` e `test_deactivation_reports_no_error_without_webhooks` passam. A entrega fechada como abandonada fica no log até a rodada seguinte da retenção, o que mantém `test_retention_deletes_only_expired_final_deliveries` sem alteração. `test_webhook_delivery.py`, `test_webhook_endpoints.py`, `test_service_accounts.py`, `test_core_layering.py` → 47 passed. O smoke no navegador não foi executado.
+- **#346:** refatoração sem mudança de comportamento. `tests/unit/test_jobs_delivery.py` (agenda indexada pelas tentativas feitas, `retry_delay` dos webhooks igual à tupla antiga para 0–9 tentativas, `MAX_ATTEMPTS` das notificações igual a 5, canais das métricas vindos do registro) passa; uma primeira versão montava a agenda na importação e quebrou `test_server_errors_are_retried` e `test_smtp_failure_is_retried_and_then_dead`, que trocam `RETRY_SCHEDULE` em tempo de execução: a agenda passou a ser lida na hora da chamada, e os dois voltaram a passar sem alteração. `test_webhook_signature.py`, `test_webhook_delivery.py`, `test_webhook_endpoints.py`, `test_web_push.py`, `test_notification_email.py`, `test_metrics_endpoint.py`, `test_notification_digest.py` e o unitário → 83 passed; `mypy` sem erros. A avaliação do job em fases ficou registrada em comentário da issue.
+- **#296:** `tests/integration/test_access_policies_bulk.py` — `test_bulk_read_matches_require_record_action_for_every_case` compara `users_who_can_read` com `require_record_action` pessoa a pessoa, para registros privado, da organização, de grupo e excluído, com dono, membro sem dono, administrador direto e por grupo, sem `TablePermission`, permissão só por papel de grupo, vínculo inativo, usuário inativo, pessoa sem vínculo, conta de serviço e concessões de leitura por vínculo, grupo e papel (e de `update` sem `read`): iguais em todos. Os casos de papel ou grupo excluídos logicamente não entraram (a exclusão com vínculos vivos é recusada; ficam cobertos pela mesma consulta de "vivos" de `_Subject`). `test_bulk_read_cost_does_not_grow_with_people` e `test_bulk_read_requires_a_tenant_context` passam. Em `test_notifications_fanout.py`, `test_fanout_authorization_queries_do_not_grow_with_recipients` (5 x 50 pessoas) falhou antes e passa depois; `test_batches_of_500_chain_until_fanned_out` e `test_existing_deliveries_are_not_recreated_on_rerun` passam. Com `test_policy_query_budget.py` e `test_security_invariants.py` → 29 passed; os suítes de notificação (fan-out, notify, email, push, resumo) → 35 passed sem alteração.
+- **#297:** `tests/unit/test_job_deadline.py` (`_deadline` sem efeito fora da thread principal; `EMAIL_TIMEOUT` padrão 30) e `test_job_transaction_has_a_lock_timeout` (`SHOW lock_timeout` → `7s` com `timeout_s=7`) passam; `test_jobs_worker.py`, `test_job_deadline.py`, `test_notification_email.py`, `test_web_push.py` → 27 passed. **Não verificado localmente:** os três testes marcados `posix` (`test_deadline_interrupts_and_restores_the_previous_handler`, `test_handler_past_timeout_is_interrupted_and_retried`, `test_worker_keeps_working_after_a_timeout`) foram pulados nesta máquina Windows, que não tem `SIGALRM`; rodam no CI Linux. O teste de dois bancos com lock (`integration_postgres`) não foi escrito: o prazo de lock da transação do job está coberto pelo `SHOW lock_timeout`.
+- **#308:** medição no banco de desenvolvimento com 100 010 jobs e `VACUUM ANALYZE`, sob a role runtime: antes, a lista da plataforma fazia `Parallel Seq Scan` + `Sort`; depois, `Index Scan Backward using sk_jobs_job_created` com `Incremental Sort`. A retenção em regime (só o que passou da janela desde a rodada anterior) usa `Bitmap Index Scan on sk_jobs_job_finished`. A contagem por tipo e estado das métricas continuou em varredura sequencial mesmo com `(job_type, state)` (ela agrega a tabela inteira), por isso esse índice **não** foi criado, como a issue manda; a migration `sk_jobs.0004` tem só os dois índices usados, e `sk_notifications.0007` acrescenta `(organization, user, updated_at)` para a caixa. `test_retention_deletes_in_batches` (lote 2, cinco jobs, três `DELETE`), `test_job_indexes_exist` e `test_event_retention_deletes_in_batches_and_only_its_organization` passam; `test_jobs_operations.py`, `test_event_consumers.py`, `test_file_scanning_jobs.py`, `test_schema_template.py` → 43 passed sem alteração de expectativas. A consulta de órfãos em blocos de 1 000 não ganhou teste próprio (exigiria mais de 1 000 objetos); os testes de órfãos existentes passam. Os jobs de medição foram apagados do banco de desenvolvimento.
+- **#314:** `test_repeated_pushes_do_not_write_an_audit_event_each` (três pushes seguidos não mudam a `revision` da assinatura, prova de que nenhuma escrita auditada aconteceu; a issue sugeria contar `AuditEvent`, mas os eventos de linha global não são legíveis no contexto do teste por RLS), `test_eleventh_subscription_evicts_the_oldest` (dez vivas, a mais antiga excluída logicamente; renovar uma existente não exclui ninguém) e `test_send_push_never_contacts_more_than_the_cap` falharam antes e passam depois; `test_web_push.py` → 10 passed. A redação dos segredos no evento de exclusão não foi conferida pelo mesmo motivo de RLS; ela continua coberta pelos testes de auditoria de `sensitive_fields`.
+- **#323:** `test_keyrings_must_be_fernet_keys` (3 keyrings), `test_secret_key_has_a_minimum_strength`, `test_invalid_keyring_message_does_not_echo_the_value`, `test_missing_key_with_stored_secrets_refuses_to_create_another` e `test_invalid_keyring_is_refused_with_400` (PostgreSQL, role runtime) falham no código anterior e passam; `test_concurrent_first_use_reads_a_complete_key` (8 threads) e `test_missing_key_without_stored_secrets_is_created` passam antes e depois (a corrida não se reproduziu no Windows; a publicação por `os.link` fecha a janela por construção). `test_instance_config.py`, `test_container_healthcheck.py`, `test_setup.py`, `test_setup*.py` e `test_platform_instance.py`: 50 passed, 4 skipped (fcntl/`O_NOFOLLOW` no Windows), só com entradas ajustadas (`SECRET` com 54 caracteres, keyring com chaves geradas, `secret_key` variada). Smoke no navegador não executado; a recusa da página está coberta pelo teste de integração.
+- **#326:** `test_raw_request_path_is_never_sent_as_transaction` (`source="url"`, sem `transaction_info`, `transaction_info` malformado) e `test_route_pattern_is_kept_as_transaction` (`route`, `component`, `task`) falham no código anterior e passam; `test_transactions_with_values_are_dropped` só ganhou `transaction_info={"source": "route"}` na entrada e continua recusando UUID, `@` e `?`. `test_observability_sentry.py` + `test_observability_optional.py`: 12 passed, incluindo `test_real_client_sends_only_the_redacted_event`.
+- **#327:** `test_api_change_and_removal_require_recent_authentication`, `test_api_revocation_and_service_account_changes_require_recent_authentication`, `test_tokens_that_no_longer_authenticate_are_listed_as_unusable` (API `usable` e "Inválido" no HTML, por `auth_version` e por conta desativada), `test_token_and_service_account_lists_are_paginated`, `test_issue_is_refused_above_the_per_owner_limit` e `test_other_integrity_errors_are_not_reported_as_prefix_collisions` falham no código anterior e passam; `test_resend_and_ping_do_not_require_recent_authentication` passa antes e depois (guarda do comportamento). Os testes existentes passaram sem ajuste: nenhum comparava o corpo inteiro das listas. Webhooks, tokens (emissão, autenticação, limites, gestão), contas de serviço, instância e OpenAPI: 142 passed, 1 skipped; `manage.py check --fail-level WARNING` e `makemigrations --check` limpos. Smoke no navegador não executado; o HTML "Inválido" está coberto pelo teste de integração.
+- **#328** (só testes): em `test_webhook_delivery.py`, `test_network_failure_is_retried_like_a_server_error`, `test_refused_destination_fails_at_once`, `test_scheduled_retry_of_a_disabled_endpoint_is_skipped`, `test_exhausted_schedule_ends_as_failed` (8 tentativas, `http_503`, endpoint ainda ativo), `test_a_success_resets_the_failure_counter`, `test_original_delivery_is_unique_per_endpoint_and_event` e `test_a_job_failure_after_the_request_sends_again_with_the_same_id` (ao menos uma vez: dois envios com o mesmo `Skeleton-Webhook-Id`); em `test_api_token_limits.py`, `test_rate_limits_let_requests_through_when_the_cache_is_down` e `test_last_use_is_still_bounded_by_the_database_without_the_cache`; em `test_api_token_auth.py`, `test_personal_token_stops_working_only_where_the_membership_ended` e `test_expired_token_is_rejected_like_any_invalid_token`. Os três arquivos: 42 passed em PostgreSQL com a role runtime. Nenhum teste revelou defeito; todos documentam comportamento existente.
+- **#342:** `test_rotate_key_reencrypts_every_secret`, `test_rotate_key_output_and_log_carry_no_secret`, `test_drop_old_keeps_only_the_new_key`, `test_drop_old_is_refused_while_a_secret_depends_on_an_old_key`, `test_rotate_key_needs_an_existing_key`, `test_failed_reencryption_keeps_both_keys_and_every_secret_readable`, `test_reencryption_is_all_or_nothing` e `test_permission_check_is_silent_outside_posix` falham no código anterior e passam; `test_single_line_key_file_still_loads` passa antes e depois (compatibilidade do formato). `test_check_warns_about_group_or_world_readable_files` é `posix` (pulado no Windows; roda no CI Linux). `test_instance_config.py`, `test_check_reference.py`, `test_setup.py`, `test_platform_instance.py`, `test_container_healthcheck.py`: passam sem alteração dos testes existentes; `manage.py check --fail-level WARNING` sem avisos. Smoke manual numa instância temporária: `instance set email_url`, `rotate-key` (arquivo com 2 chaves, "1 segredos recifrados"), `show`, `rotate-key --drop-old` (1 chave) e a leitura por `instance_env` devolve o valor original.
+
+Suíte inteira no fim do epic, na primeira rodada: `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` → 2367 passed, 120 skipped, 45 subtests passed em 8 min 58 s; agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n 8`) → 59 passed; `mypy` sem erros; `ruff check` e `ruff format --check` limpos.
+
+## Refactoring de qualidade: superfícies web e REST e API de serviços (epic #217)
+
+Rodada de 2026-11-12 na branch `feat/217-quality-web-api`, empilhada sobre a do epic #216. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+- #230: quatro testes novos em `test_http_boundaries.py` falharam antes (HTML do DRF para o `Accept` de navegador) e passam depois: JSON para o `Accept` de navegador, 406 com corpo JSON para `Accept: text/html`, 403 JSON para anônimo, `DEFAULT_RENDERER_CLASSES == [JSONRenderer]`. `test_http_boundaries.py`, `test_openapi.py`, `test_api_tokens.py` → 34 passed. As chaves de paginação do DRF não tinham leitor (`grep` vazio) e saíram.
+- #231: `test_membership_list_query_count_is_constant` falhou antes (20 consultas com 2 vínculos, 26 com 8) e passa depois (iguais); `test_get_person_reads_membership_user_and_profile_in_one_query` falhou antes (consulta separada de `UserProfile`) e passa depois. `test_http_boundaries.py`, `test_core_identity_service.py`, `test_core_organization_service.py`, `test_service_accounts.py` → 37 passed.
+- #232: `tests/integration/test_service_api_atomicity.py` — os dois cenários reproduziram antes da correção (depois de `Conflict` por violação de unicidade, a consulta seguinte levantava `InternalError: current transaction is aborted`; com o enfileiramento do fan-out forçado a falhar, ficava uma `Notification` a mais) e passam depois. Vizinhos (`tests/unit/test_service_api_base.py` sem banco, `test_service_api_tenant.py`, serviços de notificações, jobs/eventos, acesso, API de Notes e de fluxos) → 88 passed; `mypy` sem erros.
+- **#266 (CSP):** `tests/integration/test_security_headers.py` (5 testes, 4 subtests: login, `/`, `/o/<org>/`, `/platform/`, `/api/v1/me/`, `/setup/`, nonce da marca diferente por resposta e igual ao do cabeçalho, download de anexo mantém `sandbox`). Fase 1 (report-only) no navegador com servidor local e PostgreSQL runtime: login, organizações, dashboard, Anotações (lista, formulário com abas), Agenda (swatch aplicado por `site.js`), catálogo, papéis, auditoria, notificações, perfil, plataforma (visão geral, organizações, apps) e ativação TOTP (QR `data:`), sem nenhuma violação no console (o detector foi validado com um `<style>` sem nonce injetado, que gerou o aviso). Fase 2 (enforce): cabeçalho `Content-Security-Policy` presente e report-only ausente; Agenda, formulário com abas e TOTP funcionam e o console não registra bloqueio. Templates com `style=` restantes são só de email.
+- **#267:** `test_required_key_is_not_unset_without_force`, `test_can_clear_follows_environment`, `test_required_keys_cannot_be_cleared` (409 para `secret_key`, `allowed_hosts`, `database_url`, sem evento `clear:`) e `test_clear_button_only_for_optional_keys` falharam antes da correção e passam depois; `test_import_env_unset_and_template`, `test_changes_need_a_recent_authentication` e `test_only_the_platform_reaches_the_page` passam sem alteração. `test_instance_config.py`, `test_setup_mode.py`, `test_platform_instance.py` → 25 passed, 1 skipped (O_NOFOLLOW só em POSIX).
+- **#270:** `tests/integration/test_audit_indexes.py` (índices instalados lidos de `pg_indexes` com a role runtime e índices declarados no modelo). A issue previa três índices; a #184 já tinha acrescentado `sk_audit_org_actor` e `sk_audit_request`, então a tabela fica com a chave primária e quatro índices, cada um com leitor. `makemigrations --check --dry-run` sem mudanças; `test_core_audit_service.py`, `test_core_audit_log_service.py`, `test_schema_assurance.py`, `test_schema_template.py` → 59 passed sem alteração; `-k "setup or audit"` → 100 passed, 6 skipped (o setup migra sem erro com a migration não atômica). No banco de desenvolvimento, com o owner: `migrate sk_audit` aplica 0005, `migrate sk_audit 0004` reverte e `migrate sk_audit` reaplica; `check_skeleton_schema` com a role runtime válido. Com 5 023 eventos na organização e `ANALYZE`, `EXPLAIN` sob a role runtime: log da organização usa `sk_audit_org_created` (Index Scan Backward); histórico e filtro por registro usam `sk_audit_record_created` (Index Scan Backward); log da plataforma usa `sk_audit_org_created` (Bitmap Index Scan, `organization_id IS NULL`).
+- **#271:** cinco testes novos falharam antes da correção e passam depois: `test_cursor_beyond_max_offset_is_invalid_input` e `test_reference_page_beyond_max_offset_is_refused_before_any_query` (unitários; o picker recusa antes de montar o queryset, porque a tabela de exemplo não tem campo de referência), `test_page_beyond_max_offset_is_400_not_500` (registros e auditoria da REST, `invalid_pagination`), `test_html_audit_page_beyond_max_offset_is_400` e `test_page_beyond_max_offset_is_invalid_input` (`AuditLogService`). `test_service_api_base.py`, `test_http_boundaries.py`, `test_core_audit_log_service.py`, `test_core_organization_service.py`, `test_record_presentation.py`, `test_core_layering.py` → 92 passed; `mypy` sem erros.
+- **#272 A (perfil):** `test_update_my_profile_rejects_non_text_values` (8 casos: dicionário, lista, número e booleano em `display_name` e `first_name`) e `test_me_patch_rejects_non_text_values` falharam antes (o valor era gravado como `str()`) e passam depois; `test_core_identity_service.py` e `test_http_boundaries.py` → 33 passed, inclusive os testes existentes de `me`.
+- **#272 B (dono do tipo):** `test_type_without_owner_is_forbidden_for_everyone` (jobs e eventos; notificações) e `test_sequence_without_owner_is_forbidden_for_everyone` falharam antes (o chamador que não é app usava o tipo sem dono) e passam depois; os casos existentes (app dona, outra app, núcleo) passam sem alteração. `tests/integration -k "core_ or service or sequence or notification or job or event"` → 259 passed com a mudança aplicada.
+- **#272 C (valor de retorno):** `test_only_contract_values_cross_the_boundary` (9 casos: gerador, iterador, `map`, `float`, `bytes`, `frozenset`, objeto, dataclass não congelada, `IntEnum`) falhou antes e passa depois; `test_contract_values_are_accepted` (11 casos) passa; `test_mutable_results_are_refused` e `test_models_and_querysets_are_refused` sem alteração. Nenhum serviço real devolveu tipo fora da lista: `tests/integration -k "core_ or service or sequence or notification or job or event or flow or notes or comment or file or attachment"` → 350 passed; `tests/contrib/calendar` → 59 passed; `mypy` sem erros.
+- **#287:** `test_audit_rows_tabulate_changes` (unitário), `test_audit_page_shows_changes_as_a_table` (título com `<b>` escapado, corpo sensível `[redigido]`, sem repr de dicionário) e `test_platform_audit_page_uses_the_same_table` falharam antes e passam depois; `test_presentation.py`, `test_audit_findings.py`, `test_core_audit_log_service.py`, `test_platform_boundary.py` → 151 passed (o teste existente de campo fora de `read_fields` sem alteração). CSS regenerado com `npm run build` (classe `wrap-break-word`) e `npm run check` limpo. No navegador, `/o/<org>/audit/` mostra a tabela Campo/Antes/Depois (`body` como `[redigido]`); em 375 px a página não rola na horizontal (a tabela interna fica no contêiner com rolagem da tabela externa).
+- **#288:** `tests/integration/test_form_locks_and_restore.py` — `test_restore_of_a_live_record_is_not_found` (GET/POST HTML e POST REST sobre nota viva → 404, sem `AuditEvent` novo, serviço de negócio `restore` não chamado) e `test_get_forms_take_no_row_lock` (GET de `record-edit`, `record-delete`, `record-access`, `record-restore`, `access-edit`, `access-delete` sem `FOR UPDATE`) falharam antes e passam depois; `test_restore_of_a_deleted_record_still_works` e `test_post_forms_still_lock_the_row` (POST com revisão desatualizada ainda toma `FOR UPDATE` e responde 409) passam. Com `test_http_boundaries.py`, `test_record_contract.py`, `test_record_presentation.py` e `integration_postgres/test_admin_concurrency.py` (ordem de locks do POST) → 66 passed.
+- **#289:** `test_authenticated_pages_are_not_cacheable` (9 rotas autenticadas e o redirecionamento anônimo, 10 subtests) falhou antes e passa depois; `test_static_files_keep_their_cache` (WhiteNoise servindo `site.css` sem `no-store`) passa. `test_http_boundaries.py`, `test_attachment_downloads.py`, `test_capabilities.py` → 39 passed (download de anexo sem regressão). O smoke de "voltar" no navegador depois do logout não foi executado; o cabeçalho é a prova automatizada.
+- **#290:** falharam antes e passam depois: `test_correct_token_enters_after_wrong_attempts` (token certo → 302 depois de seis errados), `test_rejected_tokens_are_logged_without_the_token` (cinco `invalid_token` e um `rate_limited`, sem o token no log), `test_failed_migration_is_logged_without_credentials` e `test_failed_admin_bootstrap_is_logged` (registro ERROR com `exc_info` e a etapa, sem senha nem DSN), `test_restart_modes` (`exit` → `os._exit(3)`, `autoreload`, `manual`; o caso `gunicorn`/`SIGHUP` é pulado no Windows, roda no CI Linux). `test_repeated_wrong_tokens_are_rate_limited` e `test_full_setup_never_keeps_the_owner_credential` sem alteração. `test_setup_mode.py`, `test_setup.py` → 19 passed, 1 skipped.
+- **#324 (opção A, a recomendada na issue, aguardando confirmação do responsável na revisão do PR):** `test_non_admin_auditor_does_not_see_infrastructure_fields` e `test_audit_api_hides_infrastructure_fields_from_non_admin` falharam antes e passam depois; `test_organization_admin_sees_infrastructure_fields` e `test_platform_admin_sees_infrastructure_fields_of_global_events` passam. `test_core_audit_log_service.py`, `test_core_audit_service.py`, `test_core_surfaces_on_services.py`, `test_http_boundaries.py`, `test_platform_boundary.py`, `test_audit_findings.py`, `test_audit_export.py` → 70 passed (negativos A/B e default deny sem alteração); `mypy` sem erros. A exportação CSV passa pelo mesmo serviço e só é oferecida ao administrador.
+- **#325:** `tests/unit/test_internal_error_mapping.py` escrito antes da refatoração e rodado no código antigo: as tabelas de caracterização (REST: 8 exceções com status, `code`, `detail` e `fields`; serviço: 9 exceções; formulários: 7 casos; desconhecida e `MissingTenantContext` → 500/propaga) passaram; só `test_last_platform_administrator_is_a_conflict_in_services` (comportamento novo; antes virava `InvalidInput`) e `test_classify_returns_none_for_unknown_exceptions` (módulo novo) falharam. Depois da refatoração, todas passam sem alteração. `tests/unit` → 1007 passed, 114 skipped; `test_core_surfaces_on_services.py`, `test_http_boundaries.py`, `test_http_findings.py`, `test_access_lifecycle_regressions.py`, `test_platform_boundary.py`, `test_application_administration.py` → 89 passed; `mypy` sem erros. A exceção conhecida de camadas `web/views.py → api.errors` saiu da lista.
+- **#265:** o despacho ficou em `skeleton/access/resources.py` (e não em `skeleton/access/administration.py`, como a issue sugeria, porque esse módulo já existe com a visão da plataforma sobre a organização). `tests/integration/test_access_administration.py`: `test_dispatch_covers_every_dedicated_resource`, `test_revoke_invitation_requires_capability_and_organization` (membro → `PermissionDenied`; convite de outra organização → `InvalidInvitation`; revogado deixa de validar) e `test_update_catalog_labels_compare_and_swap` passam. Sem alteração nos testes existentes: `test_http_boundaries.py`, `test_capabilities.py`, `test_access_lifecycle_regressions.py`, `test_platform_boundary.py`, `integration_postgres/test_admin_concurrency.py` (ordem de locks), `test_openapi.py` e os de convite → 88 passed; `tests/unit` → 1007 passed; `mypy` sem erros; `skeleton.api.serializers.{DEDICATED, LINKS, dedicated_model, dedicated_input, dedicated_data, audit_data}` continuam importáveis. A exceção de camadas `web/forms.py → api.serializers` saiu da lista.
+- **#340:** item 2 (docstring de `OwnMembershipView`) já estava correto e ganhou só o teste. `tests/unit/test_api_route_order.py` (seis rotas de outros pacotes não resolvem para `DedicatedView`; `roles/` resolve; docstring) e `test_invitation_resend_with_stale_revision_is_412` (412, 428, 400 e 201 com UUID novo; convite antigo substituído) passam; `profile_data` removida (sem uso); `OwnMembershipView` usa `active_membership`; o reenvio deixa lock e comparação só no serviço. `test_http_boundaries.py`, `test_access_lifecycle_regressions.py`, `test_capabilities.py`, `test_core_surfaces_on_services.py`, `test_openapi.py`, `test_core_layering.py` → 88 passed, sem alteração de expectativas.
+- **#301:** `skeleton/web/services.py` e `skeleton/web/references.py` foram movidos com `git mv` para `skeleton/records/`, e os caminhos antigos viraram shims; `dedicated_input`/`dedicated_data` (e `DEDICATED_REQUIRED`, `DEDICATED_EXTRA`, `dedicated_required`) foram para `skeleton/records/dedicated.py`, e `audit_data` para `skeleton/audit/presentation.py`. Diferenças em relação à issue: `validation_conflict` já delega a `skeleton.service_api.internal_errors` desde #325, por isso não foi para `skeleton/common/exceptions.py`; `profile_data` foi removida em #340 e não tem shim. Os três `grep` do passo 8 dão o resultado descrito (só `skeleton/web/urls.py → skeleton.api.health`). `tests/unit/test_record_gateway_paths.py` (33 nomes com o mesmo objeto nos caminhos antigo e novo; nenhum pacote do kernel importa `skeleton.records`) passa; saíram 9 exceções de camadas (`web ↔ api`, `transfer → web.services`/`api.serializers`). `tests/unit` → 1049 passed, 114 skipped; `test_http_boundaries.py`, `test_record_presentation.py`, `test_record_contract.py`, `test_capabilities.py`, `test_attachment_downloads.py`, `test_core_surfaces_on_services.py`, `test_platform_boundary.py`, `test_reference_picker.py`, `test_picker_search.py`, `test_comments.py`, `test_openapi.py` e os de transferência → 147 passed, 2 skipped, sem alteração de expectativas; `manage.py check --fail-level WARNING` limpo; `makemigrations --check` sem mudanças; `mypy` sem erros. O smoke no navegador não foi repetido para esta movimentação; as páginas e o picker são exercidos pelos testes HTTP acima.
+- **#302:** `tests/integration/test_web_query_budget.py` — `test_readable_specs_matches_authorized_queryset` (administrador, membro, membro sem permissão, membro na organização B, app desativada, tabela indisponível) passa antes e depois; `test_readable_specs_queries_do_not_grow_with_tables`, `test_dashboard_and_catalog_queries_do_not_grow_with_tables` (painel, catálogo HTML e REST com 1 e com 4 tabelas candidatas) e `test_access_list_queries_do_not_grow_with_rows` (`group-members` com 2 e 10 linhas) falharam antes e passam depois; `test_record_detail_actions_unchanged` (botões iguais aos da lógica anterior para dono, administrador e quem não lê) e `test_revoked_role_disappears_on_next_request` passam. Como o ambiente de teste tem uma só tabela exposta, "N tabelas" é simulado repetindo o spec em `all_specs`. `skeleton/access/policies.py` fora do diff. Com `test_http_boundaries.py`, `test_record_presentation.py`, `test_capabilities.py`, `test_api_token_management.py` (escopo de token), `test_record_gateway_paths.py`, `test_core_layering.py` → 95 passed.
+- **#305:** unitários `test_keyset_cursor_roundtrip`, `test_keyset_cursor_tampered_is_invalid_input` (8 casos), `test_keyset_requires_a_queryset`, `test_keyset_cursor_without_key_is_invalid_input`; integração `test_members_pagination_is_stable_when_a_member_leaves_between_pages` (falhou antes: com deslocamento, a saída de um membro já lido fazia o percurso pular outro), `test_tampered_keyset_cursor_is_invalid_input` (valor que não é UUID → `InvalidInput`; cursor com o UUID de alguém de B só move dentro dos membros de A), `test_groups_walk_in_code_order_with_keyset`, `test_history_walks_newest_first_with_keyset` (revisões 3, 2, 1 em três páginas) e `test_list_walks_oldest_first_with_keyset`. `test_service_api_base.py`, `test_service_contract_kit.py`, `test_core_organization_service.py`, `test_core_audit_service.py`, `test_core_file_service.py`, `test_core_notification_service.py` (caixa de entrada inalterada), `test_notes_service_api.py`, `test_service_api_tenant.py` → 143 passed; `tests/contrib/calendar` → 59 passed; `mypy` sem erros.
+- **#311:** `test_organization_create_takes_owner_email` (desconhecido, inativo e conta de serviço → 400 sem organização; email com maiúsculas → criada) e `test_organization_create_form_does_not_list_identities` falharam antes e passam depois; `test_update_mutations_still_require_recent_authentication` (POST sem autenticação recente em plano, dependência, busca e upload → reautenticação; a operação inexistente responde 302 ou 404; GETs de plano e upload abrem) passa; o único teste existente alterado é `test_platform_creates_identity_and_organization_through_services`, que agora envia o email em `owner` (o contrato do formulário mudou de propósito). A tela sensível exigindo reautenticação no GET continua coberta por `test_platform_handler_has_platform_guard_mfa_csrf_and_sensitive_reauth`. `test_platform_boundary.py`, `test_jobs_operations.py` (filtro inválido ignorado), `test_deployment_records.py`, `test_application_administration.py`, `test_app_extensions.py`, `test_platform_instance.py` → 82 passed. O smoke no navegador da criação por email não foi executado.
+- **#319:** conferência das seis lacunas registrada na issue (todas confirmadas). Testes novos, com `SKELETON_BUNDLED_APPS=""` (núcleo sem a agenda): `grant_member_table_access` (capacidade, só ações que faltam e repetição sem efeito, tabela/ação inválidas, A/B, ator divergente), `tests/integration/test_core_feed_token_service.py` (contrato, emissão, escopo que não é de feed, validade no passado, ator divergente, token de feed recusado em `/api/v1/me/` com 401), `ApplicationAdministrationService` (leitura pelo administrador, default deny, ator divergente, CAS de `configure`, B intacta), `FileService.remove` duas vezes na mesma revisão (a segunda é `NotFound`, anexo já excluído), app da tabela desativada em `AccessService.can/require`, `AuditService.history`, `FileService.list/attach` e `EventService.publish` (sempre erro ou `False`, nunca dados) e isolamento da caixa de entrada (`inbox` só de A; `unread_count` soma as linhas da própria pessoa nas organizações dela, como documentado). Os sete arquivos `test_core_*` tocados → 53 passed. Nenhum defeito encontrado; nenhum arquivo fora de `tests/` e da evidência mudou.
+- **Suíte inteira (primeira rodada):** 3 falhas, corrigidas em commits próprios: `test_i18n_coverage.py` (os valores Antes/Depois da tabela de auditoria de #287 eram lidos como texto de interface; passaram a sair em `<code>`, como os nomes de campo) e `test_example_app_requirement.py` (o teste de feed de #319 citava a tabela do exemplo; usa agora o escopo `files:read` do núcleo).
+
+Suíte inteira no fim do epic: `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` → 2229 passed, 116 skipped em 7 min 55 s; agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n 8`) → 59 passed; `mypy` sem erros; `ruff` limpo.
+
+## Refactoring de qualidade: camada de dados, contexto e autorização (epic #216)
+
+Rodada de 2026-11-12 na branch `fix/216-quality-data-context`, empilhada sobre a do epic #222. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+- #226: testes novos `test_lifecycle_services_refuse_a_non_platform_actor` (4 serviços × 3 atores), `test_lifecycle_services_refuse_an_actor_that_is_not_the_context_actor`, `test_lifecycle_services_accept_no_actor_only_under_system_context` (inclui `TypeError` sem `actor`), `test_deactivate_user_with_stale_revision_conflicts`, `test_user_delete_requires_current_revision` (400 sem revisão, 409 antiga, 302 atual) e `test_identity_and_organization_changes_require_recent_authentication` (cinco rotas: GET 200, POST redireciona para reautenticar, nada escrito). `pytest tests/accounts/test_platform_admin_lifecycle.py tests/integration/test_platform_boundary.py tests/accounts/test_flows.py tests/accounts/test_govbr.py tests/accounts/test_lifecycle_findings.py tests/integration/test_platform_app_availability.py tests/integration_postgres/test_admin_concurrency.py tests/integration_postgres/test_runtime_security.py -n 8` → 114 passed. No teste de concorrência de rebaixamento, o helper `_platform_admins` passou a marcar também o objeto em memória, que agora é o ator conferido pelo serviço.
+- #227: `tests/integration/test_policy_query_budget.py` falhou antes do refactor (a montagem do queryset de auditoria do membro custava 38 consultas) e passa depois: `authorized_queryset` ≤ 4 consultas de autorização além do estado da app (membro e administrador), `require_record_action` ≤ 5, o vínculo lido uma vez por decisão, auditoria com custo fixo mais um custo por tabela auditável, e a revogação de `MemberRole` na mesma transação é vista na chamada seguinte. Vizinhos sem mudança de expectativa: `test_security_invariants.py`, `test_capabilities.py`, `test_core_access_service.py`, `test_api_tokens.py`, `test_http_boundaries.py`, `test_runtime_security.py`, `test_audit_filters.py`, `test_core_audit_log_service.py`, `test_record_contract.py` → 84 passed; agenda (usa `_grant_ids`) → 59 passed.
+- #228: testes novos em `tests/accounts/test_social_hardening.py` (papéis com capacidade recusados na carga em `oidc` e `saml`, `member`/ausente/customizado ainda carregam, GitHub com JIT recusado e sem JIT aceito com ou sem `organization_slug`, binding do arquivo com papel privilegiado negado no uso, confirmação de email com admissão pendente impossível) falharam antes da correção (9 failed) — a Parte B reproduziu: `ImmediateHttpResponse` e email não verificado. Depois: `pytest tests/accounts -n 8` → 170 passed. Decisão: a recusa no uso vale para o papel do arquivo; o papel escolhido nas regras de admissão da organização (#31, `default_role_id`) continua permitido, porque só quem tem `access.manage` o define.
+- #229: `test_tombstones_are_reachable_only_through_restore` (cinco ações × dona, membro e administrador) falhou antes (5 failed) e passa depois; vizinhos `test_security_invariants.py`, `test_record_contract.py`, `test_attachments.py`, `test_comments.py`, `test_http_boundaries.py`, `test_core_audit_service.py`, `test_record_timeline.py`, `test_core_file_service.py` → 64 passed.
+- #237: `tests/integration/test_context_errors.py` antes da correção: 4 failed (DL-1 reproduziu: sai `InternalError` em vez de `DataError`; `_selected` vazava; 18 instruções `set_config` para `request_context` + `tenant_context`; `resolve` chamado 2 vezes). Depois: 8 passed. Vizinhos (`test_security_invariants.py`, `test_platform_boundary.py`, `test_aggregate.py`, `test_self_discovery.py`, `test_http_boundaries.py`, `test_jobs_worker.py`, `tests/unit/test_service_api_base.py`, `test_runtime_security.py`, `test_self_discovery_policies.py`) → 120 passed; `mypy` sem erros. A reinicialização de conexão nova passou a incluir `skeleton.platform_auditor`, que faltava na lista.
+- #238: `tests/unit/test_infrastructure_identifiers.py` → 8 passed (tabela curta, tabela de 60 caracteres, FK de coluna longa, nome acentuado medido em bytes, `database_forwards` recusa sem nenhum DDL, check `skeleton.E033`, núcleo sem identificador acima do limite, exceção legada única depois de truncada). O check novo achou um caso real já instalado: `sk_tenancy_organizationadmissionpolicy_sk_org_request_default_role_id` e o `_sk_idx_` correspondente (69 bytes). Como o schema check compara pela mesma truncagem do PostgreSQL (`conname = %s` converte para `name`) e as formas truncadas não colidem, os dois nomes ficaram numa lista nominal e fechada (`LEGACY_LONG_IDENTIFIERS`) em vez de uma migration de renomeação. O ID da issue (E031) já estava em uso: o check é `skeleton.E033` e o próximo livre passou a 034. `manage.py check --fail-level WARNING` com e sem a agenda: sem problemas; `makemigrations --check`: sem mudanças; `test_operational_records.py`, `test_record_contract.py`, `test_record_infrastructure_command.py`, `test_schema_assurance.py`, `test_runtime_security.py` → 64 passed.
+- #239: `tests/integration_postgres/test_organization_lock_mode.py`. Os quatro cenários da issue **passaram antes da correção**: as FKs do Django são `DEFERRABLE INITIALLY DEFERRED`, então a inserção não pede `FOR KEY SHARE` na hora, e o deadlock previsto não se reproduz. O efeito real aparece no commit: o teste novo `test_inserts_commit_while_the_organization_is_locked` falhou antes com `LockNotAvailable ... while locking tuple ... in relation "sk_tenancy_organization"` (o commit esperava o `organization_lock` de outra transação) e passa depois. Os 13 bloqueios da linha da organização (a issue listava 6; os outros vieram com admissão, links, domínios e LDAP) passaram a `select_for_update(no_key=True)`; dois `organization_lock` continuam se excluindo. `test_admin_concurrency.py` só teve o observador de SQL ajustado para reconhecer `FOR NO KEY UPDATE` (o critério de ordem é o mesmo) → 10 passed; vizinhos (`test_sequences.py`, `test_storage_quota.py`, `test_capabilities.py`, `test_application_administration.py`, `test_sequence_concurrency.py`, ingresso por link, pedido e domínio, `tests/accounts`) → verdes.
+- #268: testes novos falharam antes (3 de 5: restauração do vínculo excluído de conta de serviço pelo gestor de pessoas, código reservado em `update_role`, tipo errado nos serviços genéricos; o caso do vínculo só inativo já era recusado e ficou como regressão) e passam depois; `test_service_accounts.py`, `test_capabilities.py`, `test_access_lifecycle_regressions.py`, `test_http_boundaries.py`, `test_access_admin_tenant_isolation.py` → 51 passed.
+- #365: `test_people_manager_cannot_escalate` agora exige 403 `privileged_role` para os três papéis internos com capacidade (antes respondia 400, por isso a issue foi aberta em #262) e 400 para um papel que não é da organização; `test_capabilities.py`, `test_http_boundaries.py`, `test_openapi.py` → 30 passed. A tela HTML continua oferecendo só papéis sem capacidade; um POST forjado lá segue como erro de formulário.
+- #269: `tests/unit/test_email_normalization.py` (a função nova, a equivalência de `normalized_email`, `UserManager.normalize_email` e da função com as mesmas amostras, e o comportamento de validação/vazio) com `tests/accounts`, ingresso por link e capacidades → 200 passed; teste de camadas verde (o módulo novo fica em `accounts`, sem import novo entre pacotes). Além dos sete pontos da issue, o cliente LDAP também passou a usar a função.
+- #273: três testes novos em `test_record_contract.py` (salvar de novo depois de `ValidationError`, `delete()` que perde o CAS, `restore()` que esbarra na unicidade) falharam antes (3 failed) e passam depois; `test_record_contract.py`, `test_security_invariants.py`, `tests/accounts/test_lifecycle_findings.py`, `test_access_lifecycle_regressions.py`, `test_operational_records.py` → 60 passed; `mypy` sem erros.
+- #274: `tests/unit/test_record_queryset_with_deleted.py` (só compila SQL, sem banco) falhou antes nos casos `|` e `&` (2 failed) e passa depois (5 passed); integração com `test_record_contract.py`, `test_security_invariants.py`, anexos, comentários, auditoria e importação CSV → 56 passed.
+- #303: recorte sem editar corpos (script com `ast`), reexports no fim de `skeleton/accounts/services.py`. `tests/unit/test_moved_service_imports.py` (caminhos antigos são os mesmos objetos; `accounts` sem import privado de `access`), teste de camadas, referências da documentação, `tests/accounts`, `test_platform_boundary.py` (inclui o `monkeypatch` de `provision_membership`), contas de serviço, capacidades, cota, `test_admin_concurrency.py` e `test_access_lifecycle_regressions.py` → 245 passed; `mypy` sem erros. Os testes existentes não foram tocados e importam pelos caminhos antigos.
+- #304: teste de caracterização gravado antes (commit próprio): digest das configurações do allauth, bindings e fingerprints de um documento com os quatro protocolos, e a primeira mensagem de seis documentos com dois erros cada → 7 passed antes e depois. Depois da decomposição: `tests/accounts`, `test_platform_identity_providers.py`, ingresso por link e por domínio → 204 passed. `ruff --select C901` (limite 10) não acusa mais `load_provider_config` nem `pre_social_login`.
+- #306: `tests/integration/test_record_infrastructure_backwards.py` → 3 passed: depois da volta, a role runtime não tem `SELECT/INSERT/UPDATE/DELETE`, RLS desligado, nenhum índice `_sk_idx_` e nenhum trigger; reinstalar devolve `SELECT/INSERT/UPDATE` (sem `DELETE`), RLS, índice e os dois triggers; a primeira instrução da volta é o `REVOKE`; a volta com `replaces` emite exatamente o SQL de ida da especificação anterior. `test_schema_assurance.py`, `test_runtime_security.py` e `test_record_infrastructure_command.py` sem alteração → verdes.
+- #316: snapshot gravado em commit próprio antes da extração: SHA-256 do SQL de `_postgres` para as 60 tabelas congeladas (núcleo, exemplo e agenda), cobrindo global, organização, autodescoberta, só inserção, operacional com `tenant_column` e operacional de organização. Depois da extração (recorte das linhas por script, sem reescrever o SQL): o snapshot bate com e sem a agenda; `test_operational_records.py`, `test_record_contract.py`, `test_record_infrastructure_command.py`, `test_record_infrastructure_backwards.py`, `test_schema_assurance.py`, `test_runtime_security.py`, `test_self_discovery_policies.py` → 74 passed; `ruff --select C901,PLR0912,PLR0915` não acusa mais `_postgres`; `mypy` sem erros.
+- #341: dois testes novos falharam antes (a validação lia todas as colunas do alvo; a atualização operacional fazia `SELECT` antes do `UPDATE`) e passam depois: `full_clean()` de um `GroupMember` consulta o grupo e o vínculo só por `deleted_at`/`organization_id`, e o `save(update_fields=...)` operacional executa só o `UPDATE`, tanto na instância recém-criada quanto na carregada, mantendo `ImmutableRecord` para troca de organização. Vizinhos (`test_record_contract.py`, `test_operational_records.py`, `test_security_invariants.py`, fila de jobs, worker, fan-out de notificações, entrega de webhooks, capacidades) → 84 passed; `mypy` sem erros.
+- #307: `tests/unit/test_common_context.py` (reexports são os mesmos objetos, nomes públicos de `skeleton.tenancy.context` importáveis, `is_tenant_model` equivalente à expressão antiga em todos os modelos registrados, `skeleton/common` sem import de `skeleton.tenancy.context`); `tests/unit` → 957 passed; contextos, invariantes, fronteira da plataforma, base da API de serviços, `test_schema_assurance.py`, `test_runtime_security.py`, tabelas operacionais, contrato de registro e preferências de idioma → 152 passed; snapshot do SQL de infraestrutura (com a agenda) igual; `mypy` sem erros com o módulo novo no modo estrito. A lista `KNOWN_EXCEPTIONS` do teste de camadas perdeu as quatro entradas `common → tenancy.context` (logging, mail, querysets, locale); `common/locale.py` ainda lê `tenancy.organization_settings`.
+
+Suíte inteira no fim do epic: `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` → 2038 passed, 115 skipped em 7 min 37 s; agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n 8`) → 59 passed; `mypy` sem erros; `ruff` limpo.
+
+## Refactoring de qualidade: testes, documentação e arquitetura (epic #222)
+
+Rodada de 2026-11-12 na branch `test/222-quality-tests-docs`. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+- #364: `pytest tests/unit/test_core_origin_label.py tests/integration/test_i18n_coverage.py -n 4` → 8 passed (antes da correção, `test_platform_pages_are_translated` falhava na main local com `{'installed': 'installed'}`).
+- #259: `pytest tests/integration_postgres tests/integration/test_app_extensions.py tests/integration/test_access_lifecycle_regressions.py tests/integration/test_audit_findings.py tests/accounts/test_lifecycle_findings.py tests/accounts/test_social_hardening.py --collect-only -q` → 166 tests collected, nenhum caminho inexistente. `grep integration_sqlite docs/testing.md` vazio; os caminhos `tests/...` citados existem, exceto o exemplo `tests/integration/test_x.py` da tabela de #196 (marcador, não tocado).
+- #233: `pytest tests/unit/test_core_layering.py tests/unit/test_bundled_apps.py tests/unit/test_import_boundary.py -q` → 41 passed. A lista inicial ganhou 13 exceções que já existiam na `main` depois da auditoria (OpenAPI, comentários, transferência, locale, índice de busca). Negativos: `from skeleton.web import views` num arquivo novo de `skeleton/common/` fez `test_no_new_layering_violation` falhar com `('skeleton/common/errors.py', 'skeleton.web')`; uma exceção falsa `("skeleton/common/errors.py", "skeleton.nothing")` fez `test_known_exceptions_still_exist` falhar. Ambas desfeitas.
+- #257: `pytest tests/unit/test_check_reference.py` → 4 passed; `pytest tests/integration/test_operational_records.py tests/integration/test_app_availability.py tests/integration/test_extension_consistency.py tests/integration/test_service_api_checks.py tests/unit/test_check_reference.py -n 8` → 38 passed; `manage.py check --fail-level WARNING` (exemplo habilitado) → "no issues". A tabela tem 37 identificadores (E001–E032 e W017, W018, W019, W029, W030; desde a auditoria entraram E029 dos fluxos, E031 e E032); próximo livre 033. Negativo: apagar a linha do E031 faz `test_every_check_id_in_code_is_in_the_reference_table` falhar com `['skeleton.E031']` (desfeito). `test_table_contract_checks_have_hints` dispara os dez E001–E010 num registro isolado e exige `hint` com `docs/checks.md` em todos.
+- #258: os laços dos critérios (`skeleton/*/` com `__init__.py` em `AGENTS.md` e em `docs/architecture.md`; todo `label = "sk_…"` em `docs/architecture.md`) não imprimem nada; catálogo do núcleo conferido contra `grep "    def [a-z]" skeleton/service_api/*.py` (IdentityService ganhou `update_my_profile`, ApplicationAdministrationService perdeu `my_configuration`, FeedTokenService entrou); a busca por "django admin/admin global/no admin/tema do admin" só devolve frases que dizem que o admin não é usado; verificador local de links e âncoras de `AGENTS.md`, `README.md` e `docs/*.md` → 0 quebrados. Ajuste ao texto proposto: a linha de `skeleton/observability` diz que eventos de erro levam só os campos estruturados permitidos aos logs, porque o Sentry aceita `target_sysid` válido (`docs/deployment.md`, seção Sentry). Também entraram `sk_transfer` na lista de labels.
+- #260: `test_public_core_surfaces_are_allowed[skeleton.sequences.registry]` falhou antes de acrescentar o módulo e passa depois; `pytest tests/unit/test_docs_app_snippets.py tests/unit/test_import_boundary.py tests/integration/test_service_api_checks.py -n 4` → 53 passed. Os seis módulos internos (`skeleton.sequences.services`, `skeleton.events.core_events`, `skeleton.events.services`, `skeleton.jobs.services`, `skeleton.notifications.services`, `skeleton.common.exceptions`) continuam `core_import`. Negativo: voltar `from skeleton.jobs.services import enqueue` num bloco de `docs/jobs.md` faz `test_documented_app_snippets_import_only_public_core` falhar com `('docs/jobs.md', 'skeleton.jobs.services')` (desfeito). Os greps dos critérios não devolvem nada.
+- #261: `pytest tests/integration/test_operational_records.py` → 5 passed (o teste novo `test_tenantless_system_context_reads_no_tenant_audit` passou na primeira execução: há evento visível no `tenant_context` e 0 no `system_context` sem organização, o que confirma que a contagem antiga era sempre 0). Negativo: trocar o controle positivo para exigir 0 eventos do `AccessGroup` faz `test_update_and_delete_write_no_audit_and_manager_is_tenant_bound` falhar com `assert 1 == 0` (desfeito).
+- #262: valores observados e fixados — (1) POST sem CSRF: autenticado 403 e anônimo também 403 (o CSRF roda antes do redirecionamento ao login), contador de não lidas inalterado; (2) `/o/<outra org>/` 404; (3) pessoa sem vínculo no gateway 404; (4) e (5) `api:records`/`web:records` de app indisponível 404; (6) membro comum em `platform:organization` e `platform:organization-storage` 403; (7) convite com papel privilegiado pelo gestor de pessoas: **400** `Referência indisponível` em vez do 403 documentado → issue [#365](https://github.com/alaorneto/skeleton/issues/365), asserção mantida com `# ver #365`; (8) token de feed como Bearer 401; (9) com o banco fora, `/api/v1/me/` 500 e `/health/live/business/` 500. `pytest` dos oito arquivos `-n 8` → todos verdes depois de fixar; `tests/contrib/calendar/test_ics_feed.py` (agenda) → 4 passed. `tests/integration_postgres/test_admin_concurrency.py` cinco vezes seguidas → 10 passed em cada (16,7–17,3 s); os três testes alterados caíram de 1,10–1,12 s para 0,51–0,64 s. Negativo: chamar `wait_for_blocked_backend(..., timeout=1)` antes de o seguidor começar faz o teste falhar com "No backend blocked on a lock" (desfeito).
+- #263: (1) `pytest tests/integration_postgres/test_runtime_security.py` → 7 passed e `python tools/smoke_postgres.py` → "PostgreSQL runtime security smoke passed", com o inventário ampliado a oito tabelas operacionais com organização (`DomainEvent`, `StorageUsage`, `WebhookDelivery`, `WebhookEndpointHealth`, `Notification`, `NotificationDelivery`, `NotificationRecipient`, `TransferJob`); (2) seis negativos novos de `check_deployed_schema` → 6 passed (o fixture `pristine_schema` exige lista vazia antes de cada adulteração, então sem a linha de adulteração nenhum erro aparece); (3) `test_audit_redaction_matrix.py` → 3 passed (convite, configuração de app, assinatura push, cada um com controle positivo); (4) `test_access_admin_tenant_isolation.py` → 3 passed: detalhe de papel/grupo de B 404, os sete POSTs de vínculo com identificador de B 400, formulário HTML 200 sem gravar, contagens das cinco tabelas de vínculo iguais em A e B; (5) `test_record_contract.py` com os dois testes novos → 19 passed no conjunto. Nenhum comportamento inesperado; nenhum arquivo de `skeleton/` mudou.
+- #264: com a app instalada, `pytest tests --collect-only -q` coleta 1937 testes antes e 1942 depois (os 5 a mais são os de `tests/unit/test_example_app_requirement.py`). Sem a app, nos 49 módulos que tinham a guarda ou importavam a app sem guarda (comparação por teste de dois JUnit XML): 222 pulados continuam pulados, 32 que passavam continuam passando e 30 que falhavam (`test_record_contract.py`, `test_security_invariants.py`, os que dependiam de fixture sem guarda) passam a ser pulados; 0 mudanças em outra direção. Outros 37 módulos que usavam a app sem guarda receberam o marcador (módulo inteiro quando nenhum teste passava sem a app, ou só nos testes que falhavam); `test_platform_boundary.py` e `test_platform_instance.py` passam sem a app e ficaram na lista de exceções do teste. Sem a app e com `SKELETON_TEST_REQUIRE_EXAMPLE_APP=1`: `pytest tests/integration/test_http_boundaries.py` termina com código 4 e "ERROR: 7 tests need examples.notes: set SKELETON_ENABLE_EXAMPLE_APP=true". Com a app: `test_http_boundaries.py`, `test_attachments.py`, `test_record_infrastructure_command.py` → 21 passed.
+- #335: `pytest tests/unit/test_setup_restart.py tests/unit/test_vapid_command.py tests/integration/test_bootstrap_command.py tests/integration/test_scheduler_worker_commands.py tests/integration/test_export_commands.py tests/integration/test_sync_bundled_command.py -rs` → 17 passed, 3 skipped. Os três pulados são `posix` (`test_gunicorn_mode_signals_the_parent`, `test_private_key_file_is_0600`, `test_export_infrastructure_inventory_is_private`): **não executados localmente** no Windows; rodam no CI Linux. `run_worker --once` existe e foi testado. O teste revelou que `export_record_schema` com um label inexistente grava um snapshot vazio → issue [#366](https://github.com/alaorneto/skeleton/issues/366) (epic #218); o teste usa um identificador inválido para o caminho de erro. Ficam sem cobertura, como a issue prevê: `adopt_core_distribution`, `build_core_package`, `deployment_agent/probe.py` e `deployment_agent/__main__.py`.
+- #339: `pytest tests/unit/test_documentation_references.py tests/unit/test_docs_app_snippets.py tests/unit/test_check_reference.py` → 12 passed em 0,44 s (2,9 s com a partida). Ao ser escrito, o teste apontou dois guias fora do mapa (`docs/data-transfer.md`, `docs/privacy.md`), que entraram no `README.md`; `docs/versioning-packages-govbr-plan.md` ficou na lista de históricos. Violações injetadas de uma vez e desfeitas: link para `jobs.md#ancora-que-nao-existe`, caminho `skeleton/nope_probe.py`, `update_my_profile` tirado do catálogo, `skeleton/zz_probe/__init__.py`, `manage.py comando_inexistente` e `docs/zz_probe.md` não citado → os seis testes falharam, cada um com a violação correspondente.
+- #336: `pytest tests/unit/test_testing_registries.py` → 10 passed (cada context manager devolve o mesmo objeto original, também com exceção dentro do bloco). Os 56 arquivos tocados com `-n 8` → 361 passed; os mesmos em série e em **ordem inversa** → 361 passed (8 min 38 s). A primeira rodada paralela pegou um vazamento criado pela própria migração: em `test_sequence_fields.py`, um teste trocava o `TableSpec` com `monkeypatch.setitem` dentro de um fixture que já usava `table_spec_override`, e a restauração do `monkeypatch` (depois do fixture) devolvia a cópia alterada; `test_transfer_import.py` falhou por isso. O teste passou a usar `table_spec_override` também. Coleta com a app de exemplo: 1972 antes e depois da migração. Mantidos de propósito: registros de `TableSpec` para modelos isolados de teste (chave nova, `monkeypatch.setitem`: `test_audit_findings.py`, `test_operational_records.py`, `tests/unit/test_check_reference.py`, `tests/unit/test_crypto.py`), mudanças no dicionário já isolado (`test_jobs_periodic.py`, `test_jobs_worker.py`, `test_tracing.py`), `admin.site._registry` do Django e os registries que a issue não cobre (fluxos, sequências, apresentação, manifestos). Helpers de login mantidos por fazerem algo a mais: `test_lifecycle_findings.py` (kwargs do cliente), `tests/contrib/calendar/conftest.py` (fixture), `test_attachment_purge.py` (sem asserção), `test_audit_findings.py` e `test_http_findings.py`/`test_navigation_shell.py` (`raise_request_exception=False`), `test_i18n_coverage.py`, `test_jobs_operations.py` e `test_platform_instance.py` (email e senha como parâmetros), `test_platform_app_availability.py`, `test_platform_identity_providers.py` e `test_platform_boundary.py` (conferem o GET ou relêem o usuário), `test_recovered_surfaces.py` (`suppress_errors`), `test_service_accounts.py` (devolve a resposta).
+
+Suíte inteira no fim do epic: `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` → 1868 passed, 115 skipped em 6 min 55 s; `SKELETON_BUNDLED_APPS=calendar python -m pytest tests/contrib/calendar -n 8` → 59 passed; `python -m mypy` sem erros; `ruff check` e `ruff format --check` limpos. Na `main` de partida (2f7e711), a mesma suíte tinha 1 falha local (`test_platform_pages_are_translated`, corrigida por #364) e 1795 passed. Os pulados são os `posix` (Windows), o `pg_trgm` ausente no PostgreSQL local e a suíte SSO real.
+
+## Comentários em registros (#187, epic #93)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `tests/unit/test_comment_text.py` e `tests/integration/test_comments.py`: 10 passed, 15 subtests. Cobrem:
+  - corpo vazio, longo demais e com caracteres de controle recusados; HTML sempre escapado; só `http`/`https` viram links, sem quebrar o atributo;
+  - quem lê o registro lista e comenta; registro ilegível, default deny e A/B respondem 404 na lista e na criação; `assert_tenant_isolated`;
+  - tabela sem `CommentPolicy` recusa (REST e serviço);
+  - só o autor edita (o administrador recebe 403); outro membro não exclui; o administrador modera e restaura com o mesmo UUID; o autor exclui e restaura o próprio;
+  - CAS: `If-Match` antigo recusado, ausente responde 428, `assert_cas_conflict` com um vencedor;
+  - auditoria de create e update, e rollback sem evento nem linha residual;
+  - a página escapa o corpo, mostra o link e o item `comment` na linha do tempo; `assert_service_contract` e ator divergente.
+- `python -m pytest tests -q -n 8 -k "comment or i18n or openapi or schema or catalog or timeline or locale"`: 145 passed, 8 skipped.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8`, com a `main` mesclada: 1677 passed, 111 skipped.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+- Não verificado: `tools/i18n_check.py` (sem GNU gettext nesta máquina; o CI roda) e o smoke no navegador.
+
+## OpenAPI da API (epic #86)
+
+**Contrato da API.** Toda resposta de `/api/v1/` que a suíte recebe pelo cliente de teste do Django (`Client` e o `APIClient` do DRF) é validada contra o schema publicado. A fixture autouse `api_contract` de `tests/conftest.py` usa `skeleton.testing.openapi.checked_client_responses()`, que monta o schema completo uma vez por árvore de URLs e registry (`build_schema(full_audience())`, o mesmo gerador de `GET /api/v1/openapi.json`, sem filtro de ator). Para cada resposta, `assert_matches_schema` exige:
+
+- rota e método documentados;
+- status entre as respostas da operação, ou a `default`, que é `{code, detail, fields}`;
+- corpo JSON válido pelo schema (Draft 2020-12, com `jsonschema`, dependência só de desenvolvimento) e o header `ETag` quando ele é documentado.
+
+Um erro de rota ou método não documentado ainda precisa ter a forma `{code, detail, fields}`; uma página de erro que não é JSON fica fora do contrato. Uma divergência falha o teste com `SchemaMismatch`, que indica operação, status e caminho JSON. Um teste que monta de propósito uma resposta fora do contrato usa `@pytest.mark.no_api_contract`. Projetos derivados podem usar o mesmo helper nas suítes deles.
+
+Rodada de 2026-11-11 na branch `feat/86-openapi`, um commit por issue: [#178](https://github.com/alaorneto/skeleton/issues/178) (gerador e `GET /api/v1/openapi.json`) e [#179](https://github.com/alaorneto/skeleton/issues/179) (helper de contrato na suíte). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, com a validação de contrato em todos os testes | 1273 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `pytest tests/integration/test_openapi.py tests/unit/test_openapi_schema.py tests/unit/test_openapi_contract_helper.py` | 39 passed |
+| mesmo PostgreSQL, `SKELETON_BUNDLED_APPS=calendar` | `pytest tests/contrib/calendar -q`, também com a validação de contrato | 59 passed |
+| Windows, com e sem `SKELETON_BUNDLED_APPS=calendar` | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`; `uv 0.12.7 pip compile` do `requirements-dev.txt` com `jsonschema` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+
+- `tests/unit/test_openapi_schema.py` (#178):
+  - tipos de campo vindos do `_meta` (texto com `maxLength`, inteiros, positivos, decimal, UUID, datas, JSON, `null`, `choices`, tipo desconhecido);
+  - relações como UUID, e anuláveis no gateway;
+  - `sensitive_fields` fora de propriedades, entradas, filtros e pickers de todas as tabelas expostas e dos recursos de administração;
+  - o documento completo validado contra o meta-schema oficial do OpenAPI 3.1 (`tests/fixtures/openapi/oas-3.1-schema-2022-10-07.json`, cópia do arquivo publicado pela OpenAPI Initiative);
+  - nenhuma rota do núcleo sem `openapi`, com `operationId` únicos;
+  - `If-Match` com 412 e 428, `ETag` e paginação como componentes.
+- `tests/integration/test_openapi.py` (#178):
+  - sem sessão nem token, 401 ou 403 sem o documento;
+  - o schema servido é OpenAPI 3.1 válido;
+  - membro sem capacidade vê as operações da própria TablePermission, sem `body` (sensível), sem administração, webhooks nem apps; o administrador vê a administração e a rota da app ativa;
+  - membro só da organização B, cujo papel não tem permissão, não vê a tabela que A concede ao seu papel `member`; sem vínculo, só as rotas globais;
+  - revogar a TablePermission tira a tabela do schema na hora;
+  - token `example_notes.note:read` vê só os GET da tabela, nem `PATCH me`, tokens ou anexos sem `files:read`; token de criação vê só o POST; token de administrador não vê administração.
+- `tests/unit/test_openapi_contract_helper.py` (#179):
+  - resposta conforme passa;
+  - falham tipo errado, propriedade a mais, obrigatória ausente, erro sem `detail`, `ETag` documentado ausente, rota, método e status não documentados e HTML onde a operação promete JSON;
+  - erro de rota desconhecida ainda segue `{code, detail}`;
+  - caminhos fora da API são ignorados;
+  - o template mais literal resolve a tabela.
+
+Divergências achadas pela validação e corrigidas no schema, não na API: `GET` de anexos vale sem `AttachmentPolicy` (só o upload exige a política), e o `ETag` da preferência de notificação só existe depois que a pessoa grava uma preferência.
+
+**Decisão a confirmar:** a app de exemplo marca `body` como sensível e o gateway o devolve. O schema não o nomeia e deixa esse objeto aberto (sem `additionalProperties: false`). As respostas validam, mas o schema não descreve o campo.
+
+**Não verificado:**
+
+- geradores de cliente (openapi-generator e outros) sobre o documento;
+- `format: date-time`, porque o `jsonschema` só confere esse formato com um pacote opcional que não instalamos (`uuid` é conferido);
+- o PostgreSQL 16.15 do CI antes da execução do PR.
+
+## Busca textual (epic #91)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`. Esse PostgreSQL (`pgserver`) não traz extensões contrib (`pg_available_extensions` sem `unaccent` nem `pg_trgm`). Por isso:
+
+- o `immutable_unaccent` é uma função SQL própria com `translate`;
+- o teste de tolerância a erro de digitação do picker fica pulado aqui e roda no CI, que tem `pg_trgm`.
+
+**#180, busca nos campos declarados:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1621 passed, 1 failed, 112 skipped. A falha era `test_manifest_leaves_must_match_the_migration_graph`, que esperava a folha `0001_initial` da app de exemplo, agora `0002_search_index`. O teste foi ajustado e o arquivo dele passou com 6 passed.
+- Agenda: 59 passed.
+- `tests/integration/test_search.py`: 4 passed. Cobrem:
+  - variações e acentos ("contratos", "acao", "LOCAÇÃO");
+  - a nota privada de outro dono, a outra organização e a contagem da REST (`count` 1) e da lista web;
+  - termo curto e tabela sem `search_fields` recusados;
+  - E031 para campo sensível.
+- `tests/integration_postgres/test_search_schema.py`: 2 passed. Sem o índice ou sem a função, `check_deployed_schema` falha.
+
+**#181, busca no picker:**
+
+- `tests/integration/test_picker_search.py`: 1 passed e 1 pulado, porque `pg_trgm` não está instalado localmente. O que passou cobre o prefixo com e sem acento, só os registros legíveis da própria organização e o termo curto recusado.
+## Exportação e importação CSV (epic #92)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`.
+
+**#182, exportação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1465 passed, 111 skipped.
+- Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed. A primeira rodada com a agenda teve 23 erros de montagem de banco dos workers, que não se repetiram na rodada seguinte.
+- `tests/integration/test_transfer_export.py`: 9 passed. Cobrem:
+  - o formato (BOM, `;`, ISO 8601, ponto decimal, fórmulas neutralizadas só em texto, leitura com `;` e `,`);
+  - só os registros autorizados, sem o privado de outro dono, sem outra organização e sem o campo sensível;
+  - os filtros da lista aplicados, e recusados quando são inválidos ou sensíveis;
+  - quem não lê a tabela recebe 404 (inclusive o admin de B);
+  - o download só do solicitante (o admin da organização recebe 404), com `attachment`, `nosniff` e `no-store`, e a revogação parando o download;
+  - o limite de linhas, a revogação antes do job (falha fechada) e a retenção apagando a linha e o arquivo;
+  - a notificação ao solicitante e a lista mostrando só os pedidos da própria pessoa.
+- `tests/integration_postgres/test_transfer_schema.py`: 3 passed. RLS forçada, policy de tenant e guard instalados; sem o guard ou sem a policy, `check_deployed_schema` falha.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#183, importação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1473 passed, 111 skipped. Agenda: 59 passed.
+- `tests/integration/test_transfer_import.py`: 8 passed. Cobrem:
+  - a prévia sem gravar registros nem auditoria;
+  - a aplicação criando as linhas, com o dono sendo quem importa e o apóstrofo anti-fórmula removido;
+  - o CAS: uma revisão divergente vira erro da linha 3 no relatório, e a aplicação é recusada com 409;
+  - o tudo ou nada: uma mudança depois da prévia desfaz também a linha nova válida;
+  - a coluna `owner` recusando o arquivo;
+  - a vírgula aceita e o valor inválido reportado;
+  - o limite de linhas;
+  - quem não cria na tabela recebe 404, inclusive o admin de B;
+  - o relatório e a aplicação só para quem pediu;
+  - o arquivo fora de UTF-8 recusado.
+
+## Visualizador de auditoria (epic #94)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`. A branch parte da branch do epic #92.
+
+**#184, filtros de investigação:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1480 passed, 111 skipped. Agenda: 59 passed.
+- A primeira rodada teve 1 falha: a view de `/platform/audit/` importava `AuditEvent`, o que viola `test_core_surfaces_on_services`. As opções de operação foram para `skeleton.audit.filters.operation_choices`.
+- `tests/integration/test_audit_filters.py`: 7 passed. Cobrem:
+  - o contrato do `AuditLogService`;
+  - os filtros por ator, operação, `request_id` e período no serviço, com valores inválidos recusados;
+  - nenhum alcance em outra organização (`request_id` e ator de A vistos por B);
+  - o membro sem permissão `audit` sem ganho com os filtros;
+  - os eventos de domínio relacionados só para o administrador, sem `data`;
+  - a página e a REST aceitando os filtros e respondendo 400 a inválidos ou desconhecidos;
+  - a auditoria da plataforma com filtros.
+
+**#185, linha do tempo do registro:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1483 passed, 111 skipped. Agenda: 59 passed. `npm run check`: sem diferença depois do build.
+- `tests/integration/test_record_timeline.py`: 3 passed. Cobrem:
+  - auditoria e anexos juntos, do mais recente para o mais antigo, na página de detalhe;
+  - sem a TablePermission `audit`, só os anexos aparecem;
+  - o admin de B recebe 404 e quem não tem permissão na tabela recebe 403, como antes.
+
+**#186, exportação da auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1487 passed, 111 skipped.
+- Agenda: na primeira rodada, 38 passed e 21 erros de montagem dos bancos dos workers; na segunda, 59 passed. É o mesmo padrão transitório visto no #182.
+- `tests/integration/test_audit_export.py`: 4 passed. Cobrem:
+  - o administrador exportando com filtros (operação e tabela), só da própria organização, com `body` em `[REDACTED]` no JSON de `changes`;
+  - o download só do administrador que pediu;
+  - membro e admin de B recebendo 404;
+  - filtro inválido recusado antes do job;
+  - o botão só para o administrador.
+
+## LGPD: dados pessoais, titular e retenção (epic #88)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py start --workers 16`, usando a role `skeleton_runtime`; o owner foi usado só para ler a auditoria global e para o comando de redação.
+
+**#189, dados pessoais redigidos na auditoria:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1670 passed, 111 skipped.
+- `tests/integration_postgres/test_audit_personal_data.py`: 3 passed. Cobrem:
+  - os eventos novos de `User` (email e primeiro nome) e de `UserProfile` (`display_name`) redigidos, com os campos ainda legíveis no modelo;
+  - um evento antigo simulado (o owner recoloca o email em claro com o guard desligado) redigido pelo comando, com o guard de volta e o `UPDATE` recusado;
+  - o comando recusado sem `--confirm` e com a role runtime.
+- A leitura da auditoria global nos testes passa pelo owner, porque a RLS esconde da role runtime os eventos sem organização.
+
+**#192, expurgo dos bytes de anexos excluídos:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1673 passed, 111 skipped.
+- `tests/integration/test_attachment_purge.py`: 3 passed. Cobrem:
+  - dentro do prazo, nada é tocado;
+  - depois de 91 dias, os bytes saem e o anexo vira `purged`;
+  - a restauração é recusada com 400 e o anexo continua excluído;
+  - uma segunda rodada não refaz o expurgo;
+  - o anexo vivo e o anexo da organização B nunca são tocados;
+  - o anexo restaurado antes do expurgo é pulado.
+
+**#190, exportação dos dados do titular:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1675 passed, 111 skipped.
+- `tests/integration/test_privacy_export.py`: 2 passed. Cobrem:
+  - o ZIP com a identidade e as duas organizações da pessoa, cada uma com a própria notificação;
+  - nenhum email de outra pessoa nem digest de token;
+  - `attachment` e `no-store`;
+  - a página exigindo login;
+  - quem não tem vínculo recebendo só a identidade.
+- Escopo revisto (comentado na issue): a exportação é montada na requisição, como rota agregada, em vez de um job com arquivo guardado por 7 dias.
+
+**#191, eliminação da identidade aprovada pela plataforma:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6`: 2567 passed, 100 skipped (os pulos são os testes POSIX e o pg_trgm ausente no Windows).
+- `tests/integration/test_identity_erasure.py`: 5 passed. Cobrem:
+  - o pedido sozinho não muda a identidade, um segundo pedido é recusado e o pendente pode ser retirado, sem job;
+  - a aprovação anonimiza (email `anon-<sysid>@erased.invalid`, nomes vazios, inativo, sem senha utilizável), apaga email, conta social e token, encerra a sessão aberta e recusa o login pelos dois emails;
+  - as linhas de notificação da pessoa saem em A e em B, as de outra pessoa ficam; a nota e o vínculo continuam, apontando para a identidade anônima;
+  - o pedido e a decisão auditados, com a pessoa e o administrador como atores;
+  - a limpeza repetida não encontra nada e uma segunda decisão é recusada;
+  - o último administrador de B não é anonimizado, o pedido fica pendente e depois pode ser recusado;
+  - conta de serviço recusada e ninguém decide o próprio pedido;
+  - administrador de organização recebe 403 na lista e na decisão; decisão com revisão antiga não muda nada; GET na decisão responde 405.
+- `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos. `manage.py makemigrations --check`: sem mudanças. O snapshot SQL ganhou só `sk_accounts.erasurerequest`.
+- A role runtime só lê `socialaccount_socialtoken`; por isso a conta social sai sem o coletor de cascata, e o primeiro teste mostrou o `DELETE` recusado antes da correção.
+
+## Menções em comentários (#188, epic #93)
+
+A implementação foi feita em 2026-11-12 (PR #361), mas aquele PR entrou na branch de #187 depois que ela já tinha chegado à `main`, e o código não chegou à `main`. Os dois commits foram reaplicados sobre a pilha atual sem mudança de código; só a evidência, que vivia em `docs/testing.md`, passou para cá. Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6`: 2573 passed, 100 skipped e 1 failed; a falha era a regra do #264 (o módulo de menções com um skip próprio em vez do marcador `needs_example_app`), corrigida no commit seguinte e conferida com `tests/unit/test_example_app_requirement.py` passando.
+- `tests/unit/test_comment_mentions_parsing.py`, `tests/integration/test_comment_mentions.py`, `tests/integration/test_comments.py` e `tests/unit/test_comment_text.py`: 17 passed, 24 subtests. Cobrem:
+  - marcadores lidos uma vez, em ordem, ignorando os malformados; rótulo que não quebra a sintaxe; rótulo escapado e `sysid` fora do texto;
+  - o membro mencionado que lê o registro recebe uma notificação, com payload só de identificadores; editar não repete; mencionar a si mesmo não notifica; abrir a notificação leva ao registro;
+  - mencionar membro sem leitura, quem não é membro ou quem só é membro de B responde 400 (REST e serviço), sem gravar; a edição que acrescenta um não leitor também é recusada;
+  - revogar a leitura entre a menção e o fan-out impede a entrega;
+  - o seletor lista só membros que leem o registro, sem email, e responde 404 em outra organização;
+  - os testes de comentários do #187 seguem passando.
+- `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos. `manage.py makemigrations --check`: sem mudanças. `npm run check`: assets em dia.
+
+## Email por `MAILERS` do Django 6.1 (#127)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6 -W error::django.utils.deprecation.RemovedInDjango2028Warning`: 2586 passed, 100 skipped (testes POSIX e `pg_trgm` ausente no Windows). Nenhuma setting de email deprecada é lida ou definida.
+- `pytest tests/unit tests/integration/test_setup.py tests/accounts -W error::django.utils.deprecation.RemovedInDjango2028Warning`: 1445 passed, 96 skipped. Antes da correção do setup, `test_full_setup_never_keeps_the_owner_credential` falhava com o aviso do argumento `connection=` de `EmailMessage`.
+- `tests/unit/test_mailers.py`: 12 passed. Cobrem:
+  - `smtp+tls` com host, porta, usuário, senha codificada e `use_tls`; `smtp+ssl`, `smtps` e as opções `timeout`, `ssl_certfile` e `ssl_keyfile` na query; `consolemail`, `memorymail`, `dummymail` e `filemail:///caminho`;
+  - esquema desconhecido, parâmetro desconhecido, `timeout` inválido ou zero, parâmetro num backend local, `filemail://` sem caminho e SMTP sem host recusados;
+  - a senha redigida por `SafeExceptionReporterFilter`;
+  - o perfil de produção carregado num subprocesso: `MAILERS` SMTP sem nenhuma setting `EMAIL_*`, e `consolemail://` recusado com "Produção exige SMTP configurado.".
+- `DJANGO_SETTINGS_MODULE=config.settings.production python -W error::DeprecationWarning manage.py check --deploy` com `EMAIL_URL` SMTP: só `skeleton.W035` (`SKELETON_PUBLIC_URL` vazio no ambiente da rodada), nada de email.
+- `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos.
+- Não executado: `tests/sso` (exige o Keycloak local); o override de `MAILERS` ali só troca o nome da setting.
+
+## Sandbox no Coolify (#369)
+
+O commit original foi escrito em 2026-11-12 numa sessão separada, sobre uma `main` 136 commits mais antiga, e nunca virou PR. Ele foi reaplicado sobre a pilha atual e alinhado ao #309 (action fixada por SHA), ao #318 (âncora `x-hardened` e senha do Redis pelo ambiente) e ao #298 (`--timeout 120`). Rodadas no Windows, com Python 3.14.7, sem Docker.
+
+- `tests/unit`: 1263 passed, 96 skipped (POSIX).
+- `tests/unit/test_deploy_hardening.py`, `test_deployment_gunicorn_timeout.py`, `test_workflow_pins.py` e `test_workflow_files.py`: 16 passed. Os testes de endurecimento e do timeout passaram a ler também o `compose.sandbox.yaml`: `migrate`, `web`, `worker` e `scheduler` começam pela âncora, nenhum a sobrescreve, o comando do Redis não interpola a senha e o Gunicorn do sandbox usa o mesmo timeout.
+- `tests/unit/test_documentation_references.py` e `test_docs_app_snippets.py`: 8 passed.
+- Leitura textual do `compose.sandbox.yaml`: nenhum `ports:`; `MIGRATION_DATABASE_URL` só no `migrate`.
+- Não executado aqui: `docker compose -f compose.sandbox.yaml config` (sem Docker no Windows; o passo "Validar o compose do sandbox" do job de build roda no CI Linux), o primeiro start com volume novo e o deploy no Coolify (exigem a VPS e os secrets `COOLIFY_DEPLOY_URL` e `COOLIFY_TOKEN`).
+
+## Apps por organização, perfis e ingresso (epic #35)
+
+Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.
+
+**#23, telas de disponibilidade em `/platform/`:**
+
+- `python -m pytest tests/integration/test_platform_app_availability.py tests/integration/test_app_availability.py tests/integration/test_platform_boundary.py -q`: 26 passed. Os 7 testes novos cobrem:
+  - formulários: modo inválido, revisão negativa, organização inexistente ou já concedida, revogação com revisão 0 ou UUID inválido;
+  - seletor só com organizações ativas (inativa e inexistente recusadas com 400);
+  - modo com CAS (revisão stale responde 409), concessão e revogação refletidas na requisição seguinte, revogação stale ou repetida com 409, ativação da organização preservada e de volta na nova concessão;
+  - 403 para quem não é admin de plataforma (inclusive o admin da organização) nas telas e nas três mutações; CSRF ausente com 403; autenticação antiga leva à reautenticação sem escrever;
+  - abrir apps, disponibilidade e as páginas de duas organizações não grava evento de auditoria;
+  - card "Aplicativos" com disponibilidade, ativação e uso efetivo, sem configuração;
+  - dependentes concedidos bloqueiam a revogação naquela organização ("Bloqueada por …").
+- Smoke no navegador do painel, contra um banco PostgreSQL próprio (`local_skeleton_smoke`): modo "selecionadas", concessão de uma organização, tabela de concessões e card da organização; tema escuro e claro; largura de 375 px sem rolagem horizontal da página (a tabela rola dentro do contêiner, como as demais).
+- Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check` (depois de `npm run build`): sem problemas.
+
+**#24, apps disponíveis em `/o/<org>/apps/` e gestor de apps:**
+
+- `python -m pytest tests/integration/test_org_apps_available.py tests/integration/test_core_surfaces_on_services.py -q`: 18 passed. Os 6 testes novos cobrem:
+  - app indisponível fora da lista HTML e REST, telas e detalhe com 404, PUT com 400 `app_unavailable` (ativar ou desativar); a concessão aparece na requisição seguinte e B não vê a app concedida só a A;
+  - app ativa e depois retirada: sinalizada "Indisponibilizada pela plataforma", negócio com 404, reativar recusado com `app_unavailable`, desativar aceito e a app some da lista;
+  - gestor de apps ativa, configura e desativa pela API e abre o formulário; recebe 404 em membros, papéis e configurações da organização; menu com `can_manage_applications` e sem `can_manage_organization`; membro comum recebe 404 no painel, na lista REST e no PUT;
+  - gestor de apps de A recebe 404 em B; revogação vale na requisição seguinte;
+  - estado memoizado na requisição (segunda leitura sem consultas), refeito depois da escrita, e nenhum memo entre requisições;
+  - navegação com o mesmo número de consultas para 1, 5 e 20 apps com menu.
+- `tests/integration/test_application_administration.py`, `test_capabilities.py`, `test_navigation_shell.py`, `test_app_availability.py`, `test_core_application_service.py`, `test_app_activation_upgrade.py` e `test_app_extensions.py` (com as expectativas de 404 para membro e 200 para o gestor de apps atualizadas): passaram.
+- Smoke no navegador como administrador de uma organização concedida: lista só com a app disponível, ativação pela configuração, entrada no menu lateral e links de administração.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`: sem problemas.
+
+**#26, política de admissão e solicitações de ingresso:**
+
+- `python -m pytest tests/integration/test_join_requests.py tests/integration_postgres/test_admission_schema.py tests/integration/test_platform_boundary.py tests/integration/test_capabilities.py tests/integration/test_navigation_shell.py -q`: 47 passed. Os 12 testes de `test_join_requests.py` cobrem:
+  - sem política, nada listado e 404 neutro no HTML e na API, inclusive para organização inexistente; aceitando sem aparecer, só pelo endereço;
+  - conta sem email verificado recusada;
+  - fluxo completo HTML: pedido, reenvio idempotente, fila, aprovação com exatamente um vínculo e o papel do pedido, email só depois do commit;
+  - duas decisões na mesma revisão (uma vence, a outra 409 no HTML) e duas decisões concorrentes em threads no PostgreSQL (um vencedor);
+  - gestor de pessoas recusado (403) ao aprovar pedido com papel que tem capacidade; `organization_admin` recusado como papel padrão;
+  - solicitante vê os pedidos em A e B pela autodescoberta; o aprovador de A não vê, não lê nem decide pedido de B; membro comum sem acesso à fila;
+  - API: If-Match obrigatório (428), campos extras recusados (400), revisão stale 412, decisão repetida 409;
+  - retirada com CAS, estranho recebe 404, expiração derivada em 30 dias e pedido novo substituindo o expirado;
+  - rate limit com 429 e `Retry-After` igual para organização existente ou não;
+  - aprovação de quem saiu reativa o vínculo, com o aviso "Já foi membro";
+  - CAS e auditoria da política, tabelas fora do gateway, política só para `admission.configure`.
+- `tests/integration_postgres/test_admission_schema.py`: RLS forçada e policy de tenant na política, policies de autodescoberta no pedido, índice global sem RLS; sem o guard, sem o trigger de auditoria ou sem as policies, `check_deployed_schema` falha.
+- `python -m pytest tests/accounts tests/integration/test_access_lifecycle_regressions.py tests/integration/test_core_lifecycle_events.py tests/integration/test_http_boundaries.py tests/integration/test_recovered_surfaces.py tests/integration/test_self_discovery.py tests/integration/test_core_surfaces_on_services.py -q` (convites e SSO usam o `admit_member` extraído de `provision_membership`): 169 passed.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
+**#27, links de ingresso:**
+
+- `python -m pytest tests/integration/test_join_links.py tests/integration/test_join_requests.py tests/integration/test_platform_boundary.py tests/accounts/test_flows.py -q` e `tests/integration_postgres/test_admission_schema.py`: todos passaram (10 testes novos de links, 11 de schema). Cobrem:
+  - link direto admite uma vez com o papel do link; membro ativo não consome uso; a sessão guarda o resumo, nunca o token;
+  - link com aprovação e ex-membro (mesmo num link direto) geram pedido, nunca vínculo;
+  - quatro resgates concorrentes (threads, PostgreSQL) de um link com `max_uses=1`: um admitido, três inválidos, `use_count` 1;
+  - link expirado, revogado (revogação stale recusada), esgotado, de A no endereço de B e inexistente com a mesma página 404; desligar links na política fecha os vivos;
+  - token ausente da listagem HTML e REST, da auditoria (resumo redigido) e dos logs; resposta da criação sem cache;
+  - modo, limite e papel imutáveis;
+  - regras de criação (política, validade, limite, modo, `organization_admin`), gestor de pessoas recusado com papel com capacidade, membro sem acesso (403) e outra organização (404);
+  - cadastro pelo link fechado sem `signup_via_link_enabled`; com a opção, o cadastro cria pedido `awaiting_verification` e a confirmação em outro cliente, sem sessão, admite com aprovação automática;
+  - API com campos exatos, If-Match obrigatório (428) e stale (412).
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
+**#28, domínio de email verificado:**
+
+- `python -m pytest tests/integration/test_verified_domains.py tests/integration_postgres/test_admission_schema.py -q`: 25 passed. Os 10 testes de domínio cobrem:
+  - normalização IDNA e domínios inválidos;
+  - domínio pendente (sem TXT) ou com a política desligada sem efeito;
+  - verificação com resolvedor falso; admissão direta, pedido no modo com aprovação (idempotente) e email não verificado ignorado;
+  - domínio de A recusado para B com erro neutro (serviço e HTML 409) e email do domínio sem nunca levar a B;
+  - ex-membro que confirma outro email do domínio vira pedido, sem readmissão;
+  - reverificação: duas falhas contam, a terceira marca `failed`, remove a posse e suspende a admissão; `verify_domains --recheck` sem efeito sobre a posse removida;
+  - DNS fora do ar (servidor TEST-NET-1 sem resposta, limite de 0,5 s) falha em menos de 3 s com `timeout`;
+  - confirmação de email pelo allauth admite;
+  - sugestão na página inicial e entrada por ela (pedido com `channel=domain`), outra organização com 404;
+  - plataforma revoga a posse com CAS (stale 409); quem não é da plataforma recebe 403.
+- `tests/accounts`, `tests/integration/test_join_links.py`, `test_join_requests.py` e `test_platform_boundary.py`: passaram depois de corrigir o `verified_owner` fora de requisição (a primeira rodada mostrou 3 falhas em `test_social_hardening.py`, que chamam `confirm_email` sem contexto).
+- `dnspython` 2.9.2 nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package dnspython`.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `npm run check`: sem problemas.
+
+**#29, provedores de identidade no banco:**
+
+- `python -m pytest tests/accounts tests/integration_postgres/test_admission_schema.py tests/integration/test_platform_boundary.py tests/integration/test_join_requests.py tests/integration/test_join_links.py tests/integration/test_verified_domains.py -q`: 185 passed. Os 10 testes de `tests/accounts/test_identity_providers_db.py` cobrem:
+  - fingerprint do banco igual ao do carregador do JSON (OIDC e SAML);
+  - allowlist de `settings` por protocolo (escopo, prova de email, chave privada, `advanced`, entity ID, HTTP e SAML sem certificado recusados);
+  - provedor criado no banco resolvido pelo adapter na requisição seguinte, com segredo decifrado; `enabled=false` some do `list_apps` e o provider recusa o login;
+  - identidade imutável no modelo, no serviço e no guard da tabela (UPDATE direto recusado); quem não é da plataforma recebe `PermissionDenied`;
+  - segredo cifrado na coluna, fora do `repr` e redigido na auditoria;
+  - importação do JSON com `--dry-run` sem escrita, fingerprints iguais, segredo e regra JIT importados, avisos de transição enquanto a entrada continua no arquivo e o `SocialAccount` existente reconhecido depois que ela sai;
+  - troca do certificado SAML do IdP mantém o fingerprint e os subjects;
+  - JIT desligado sem `IdentityProviderAdmission`; papel padrão vindo da linha da organização;
+  - email existente sem auto-connect e flags de staff/superuser zeradas para identidade nova;
+  - validação recusa provider_id do arquivo com outra identidade e segredo que a chave atual não decifra.
+- A primeira versão fazia `configured_providers()` consultar o banco sempre; um teste unitário sem banco em `test_social_hardening.py` falhou e a mescla passou a ser preguiçosa (arquivo primeiro).
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas. SSO real com Keycloak (`tests/sso/`) não rodou: não há Docker neste ambiente.
+
+**#30, telas de provedores em `/platform/`:**
+
+- `python -m pytest tests/integration/test_platform_identity_providers.py tests/integration/test_platform_boundary.py -q`: 19 passed. Os 7 testes novos cobrem:
+  - criação OIDC, página sem o segredo e sem campos de identidade editáveis, edição com o segredo em branco mantendo o atual, revisão stale com 409, troca de segredo, auditoria com `[REDACTED]` e sem os valores;
+  - `client_id`, `issuer` e `provider_id` enviados no POST de edição recusados com 400 sem mudar nada;
+  - issuer HTTP e OIDC sem segredo recusados; SAML sem certificado nem metadata recusado e aceito com certificado;
+  - CSRF ausente (403), quem não é da plataforma (403) e autenticação antiga levando à reautenticação, sem gravar;
+  - "Testar" com o cliente de saída simulado: só `last_check_*` muda; destino inalcançável grava `unreachable`;
+  - card "Provedores de identidade" na página da organização, sem segredo.
+- Ruff 0.17.4 e `npm run check`: sem problemas. O smoke com um Keycloak de teste não rodou (sem Docker neste ambiente).
+
+**#31, regras de admissão do SSO pela organização:**
+
+- `python -m pytest tests/accounts tests/integration/test_navigation_shell.py tests/integration/test_capabilities.py tests/integration/test_platform_identity_providers.py -q`: 148 passed. Os 5 testes de `tests/accounts/test_identity_admission.py` cobrem:
+  - B não vê os provedores de A na página, na lista REST nem no detalhe, e o PUT de B no provedor de A responde 404; a lista de A não traz segredo;
+  - JIT desligado até a primeira gravação; CAS a partir de `"0"` (stale 412 na API e 409 no HTML), domínios normalizados e sem repetição, campo a mais recusado com 400;
+  - papel de outra organização recusado; o administrador pode escolher papel com capacidade;
+  - JIT com aprovação cria `JoinRequest(channel=sso)` pendente e sem vínculo, idempotente enquanto aberto; sem aprovação, o vínculo é criado;
+  - email fora dos domínios permitidos recebe a recusa neutra (403 "Identity admission denied."); email do domínio passa.
+- Ruff 0.17.4, `mypy`, `manage.py check --fail-level WARNING` e `npm run check`: sem problemas.
+
+**#32, login LDAP por organização:**
+
+- Spike com Python 3.14.7, `ldap3` 2.9.1 e `pyasn1` 0.6.5 registrado na issue: TLS com `SSLContext`, StartTLS, `MOCK_SYNC` e escape de filtro funcionam; dois `DeprecationWarning` no import.
+- `python -m pytest tests/accounts/test_ldap_login.py -q`: 7 passed, contra o diretório simulado do `ldap3` (`MOCK_SYNC`, trocado em `client.set_connection_factory`). Cobrem:
+  - login cria identidade só-SSO (`local_password_allowed=False`, senha inutilizável) com `SocialAccount(provider, uid=entryUUID)` e o fingerprint, e o vínculo pelo JIT da organização; email mudado no diretório volta para a mesma identidade;
+  - email igual ao de uma conta local recebe a recusa neutra (403), sem conectar;
+  - senha errada, usuário inexistente e filtro injetado (`*)(uid=*`) com a mesma resposta 401; o filtro injetado não encontra ninguém; senha vazia nunca chega a um bind;
+  - limite por usuário com 429 e `Retry-After`;
+  - configuração recusa `ldap://` sem StartTLS, URL sem base, filtro sem parênteses, identificador fora de `entryUUID`/`objectGUID` e opção desconhecida; aceita `ldap://` com StartTLS;
+  - provedor desligado responde 404; `objectGUID` convertido com `bytes_le`;
+  - cadastro LDAP pela plataforma (HTTP recusado, senha cifrada e fora da página) e "Testar" com `ok`.
+- Os testes com contêiner OpenLDAP em `tests/sso/` não rodaram: não há Docker neste ambiente. A MFA no fluxo LDAP é a etapa padrão do allauth e não ganhou teste próprio.
+- `ldap3` e `pyasn1` nos dois locks, com hashes, regenerados com `uv pip compile` 0.12.7 e `--upgrade-package ldap3`.
+
+**#33, sincronização do diretório LDAP:**
+
+- `python -m pytest tests/accounts/test_ldap_sync.py -q`: 6 passed, contra o diretório simulado do `ldap3` (`MOCK_SYNC`, busca paginada). Cobrem:
+  - `--dry-run` relata a desativação e não grava nada (nem `last_sync_*`);
+  - desativação só na organização do provedor (o vínculo da mesma pessoa em outra organização fica), `last_sync_code=ok`, segunda rodada sem mudança e quem volta ao diretório continua desativado;
+  - diretório vazio e diretório inalcançável abortam com erro de comando e sem desativar ninguém;
+  - acima de `--max-deactivations`, a organização aborta sem gravar;
+  - o último administrador é pulado e reportado;
+  - `--provision` desligado por padrão e sem efeito com JIT desligado; com JIT admite só quem nunca foi membro, nunca um ex-membro; com aprovação cria `JoinRequest(channel=sso)`.
+- Sem Docker, os testes com OpenLDAP real em `tests/sso/` não rodaram.
+
+**#34, auditor e operador de releases:**
+
+- `python -m pytest tests/integration/test_platform_roles.py -q`: 5 passed; com as suítes de plataforma, auditoria, deployment, jobs, administração de apps e `tests/integration_postgres`, 189 passed. Os 5 cobrem:
+  - matriz: o auditor lê `/platform/audit/` e o catálogo e recebe 403 em visão geral, usuários, organizações, apps, jobs e atualizações; o operador acessa só `/platform/updates/`; nenhum dos dois entra em `/o/<org>/`; o auditor não edita rótulo do catálogo (403) e o link do cabeçalho leva à auditoria;
+  - RLS com a role runtime: fora de `platform_audit_scope` o auditor não vê eventos globais, dentro vê, e UPDATE na auditoria continua recusado; o operador não abre o escopo;
+  - revogação incrementa o `auth_version`, a sessão seguinte perde o acesso e a capacidade some;
+  - só o administrador concede papéis; papel desconhecido recusado;
+  - `check_deployed_schema` recusa a política antiga de SELECT da auditoria.
+
+**Branch do epic (`feat/35-org-apps-admission`, todas as issues unidas):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1432 passed, 111 skipped (os pulos exigem `O_NOFOLLOW`/`fcntl`, só em Linux/macOS, ou o CLI do Docker).
+- **Não executado:** `tests/sso/` com Keycloak e OpenLDAP em contêiner, por falta de Docker neste ambiente; login real com IdP e MFA no fluxo LDAP ficam para o CI e a homologação.
+- Depois do merge da `main` (i18n, OpenAPI, fluxos, auditoria, LGPD e suíte rápida), com as migrations do epic renumeradas sobre as da `main` (`sk_accounts.0005`–`0007`, `sk_audit.0004`) e as rotas REST do epic declaradas no schema OpenAPI: `python -m pytest tests -q -n 8`, 1788 passed, 111 skipped e 1 failed. A falha é `test_platform_pages_are_translated`, que acusa a palavra `installed`: é a origem do núcleo que este `.venv` informa, enquanto no CI ela é `source`, palavra que o teste já aceita.
+
+## Fluxos de processo (epic #209)
+
+Rodada de 2026-11-12 na branch `feat/209-business-flows`, um commit por issue ([#200](https://github.com/alaorneto/skeleton/issues/200) a [#207](https://github.com/alaorneto/skeleton/issues/207)) e um de testes de concorrência. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1441 passed, 111 skipped (marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker), 1 failed: `test_core_events_enqueue_no_webhook_job` afirmava que `app.enabled` não tinha consumidor nenhum, e o motor de fluxos passou a consumi-lo para reagendar etapas. O teste foi ajustado (o único consumidor é `flows.resume_application`; o fan-out de webhooks continua fora) e o arquivo rodou de novo: 7 passed |
+| mesmo ambiente, commit `7067a3e` (já com o ajuste acima) | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1442 passed, 111 skipped, nenhuma falha, em 32 min 03 s |
+| mesmo ambiente, depois da decisão 9 (quem perde a corrida numa tarefa de fila recebe conflito) | `python -m pytest tests/integration/test_flow_tasks.py tests/integration/test_flow_service_api.py tests/integration/test_flow_http.py tests/integration/test_flow_engine.py tests/integration/test_notes_publication_flow.py tests/integration_postgres/test_flow_concurrency.py` | 59 passed; a suíte inteira não foi repetida depois dessa mudança |
+| mesmo ambiente, merge da `main` com o schema OpenAPI (#195) e a suíte rápida (#352), commit `a9fa9f5`; as rotas REST de fluxos e o endpoint de publicação do Notes documentados no schema | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, em série (sem `pytest-xdist` no ambiente local), com toda resposta de `/api/v1/` validada contra o schema | 1615 passed, 111 skipped, nenhuma falha, em 42 min 57 s; Ruff, mypy, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` e `package doctor examples/notes` sem problemas |
+| mesmo PostgreSQL | `python -m pytest tests/unit/test_flow_spec.py tests/unit/test_flow_expressions.py tests/unit/test_flow_validation.py` | 92 passed |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_flow_tables.py tests/integration/test_flow_engine.py tests/integration/test_flow_tasks.py tests/integration/test_flow_service_api.py tests/integration/test_flow_http.py tests/integration/test_notes_publication_flow.py` | 10 + 17 + 14 + 12 + 6 + 6 passed (rodados por arquivo durante o desenvolvimento e de novo na suíte inteira) |
+| mesmo PostgreSQL | `python -m pytest tests/integration_postgres/test_flow_concurrency.py` | 3 passed |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui as seis tabelas novas); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING` (com o exemplo habilitado), `makemigrations --check --dry-run`, `python -m skeleton.system.packages doctor examples/notes` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_flow_spec.py`, `test_flow_expressions.py`, `test_flow_validation.py`: forma canônica e digest; condições tipadas, recusa de operador desconhecido, de campo não declarado e de comparação com campo sensível, falha fechada sob `negate`; uma mutação por regra estrutural (alcançabilidade, becos sem saída, bifurcação sem junção, regras de cada tipo de etapa, formulários divergentes) e o check `skeleton.E029`.
+- `tests/integration/test_flow_tables.py`: catálogo e `check_skeleton_schema`; tenant ausente falha fechado (ORM e RLS); A/B em leitura e escrita; FK composta e `WITH CHECK` entre organizações; auditoria de criação, alteração, exclusão lógica e restauração com `sensitive_data`, `sensitive_values` e `comment` redigidos; rollback sem resíduo; CAS com um vencedor; `update_fields` vazio; campos imutáveis no Python e no guard; DELETE físico recusado; uma instância ativa por fluxo e registro.
+- `tests/integration/test_flow_engine.py`: gateway exclusivo, bloco paralelo (a junção espera todos e dispara uma vez), bloco inclusivo (só os ramos ativados, com padrão); serviço com saídas declaradas rodando como sistema; temporizador; espera com sinal, formulário e tempo limite; instância presa à versão e recusa de spec alterada sem versão nova; idempotência e uma instância ativa; rollback do chamador sem instância, job, evento nem auditoria; default deny no início (inexistente, outra organização e ilegível respondem igual); A/B; app desativada bloqueia e reativar retoma; handler que falha é retentado, falha a instância e `retry` retoma, sem guardar a mensagem do erro; handler ausente; suspender, retomar e cancelar; administrador e revisão exigidos; início e sinal em `system_context`.
+- `tests/integration/test_flow_tasks.py`: formulário como allowlist (campo não declarado, obrigatório, tipo, limites, pessoa de fora, campo de outra transição); fila com assumir e liberar, e perda imediata da fila ao perder o papel; um vencedor por revisão; rejeição que devolve à etapa anterior com os envios preservados; políticas `all`, `quorum` e `sequential`; atribuição por campo de formulário; delegação e reatribuição pelo administrador; atribuição sem resolução; instância suspensa ou cancelada e outra organização; SLA com lembrete único, reatribuição e expiração; notificação que só leva à tarefa quem ainda pode vê-la.
+- `tests/integration/test_flow_service_api.py`: `assert_service_contract(FlowService)` e, para os 17 métodos, caminho autorizado, default deny (`assert_denied_as_not_found`), A/B (`assert_tenant_isolated`), app desativada (`assert_unavailable_when_disabled`), ator divergente (`assert_rejects_other_actor`), CAS (`assert_cas_conflict`) nos comandos de tarefa e de instância, idempotência do `start`, valores sensíveis só para quem pode agir e rollback sem efeitos.
+- `tests/integration/test_flow_http.py`: anônimo e pessoa sem vínculo; caixa, detalhe e ações por REST com CSRF, `If-Match` (428, 412) e formulário inválido (400 com `fields`); administração da instância (403 para quem não administra, 409 de estado); outra organização (404), token de API (403 `token_not_allowed`) e app desativada (404); as páginas sem JavaScript, com 400 e 409 no formulário, e as ações da instância por POST com CSRF e revisão.
+- `tests/integration/test_notes_publication_flow.py`: o fluxo do exemplo de ponta a ponta (uma aprovação para público interno, duas em paralelo para externo, devolução e desistência, etapa de serviço), com um aprovador que não lê a anotação; default deny, A/B, app desativada e ator divergente dos dois métodos novos do `NoteService`; a página e o endpoint do exemplo.
+- `tests/integration_postgres/test_flow_concurrency.py`: em conexões e threads separadas, três decisões simultâneas em ramos paralelos disparam a junção uma vez e não perdem numeração de ativações; duas pessoas na mesma tarefa de fila têm um vencedor, e a outra recebe conflito de revisão; três inícios simultâneos do mesmo registro criam uma instância.
+
+**Não verificado:** a suíte SQLite pedida no plano original não existe mais (o projeto é só PostgreSQL desde #144); `cd frontend && npm run check` (os templates novos só usam classes que já estão no `site.css` compilado, conferido por script, mas o build do Tailwind não foi rodado); smoke manual no navegador das telas de fluxos e do exemplo (cobertos pelo cliente de teste com login de sessão real, não por navegador); o PostgreSQL 16.15 e o Python 3.12 do CI; os testes `posix`, do agente e do Docker, pulados no Windows. `tests/unit/test_flow_forms.py`, previsto em #204, não foi escrito: a coerção por tipo está em `test_flow_expressions.py` e a validação de formulários, que consulta vínculos, em `test_flow_tasks.py`.
+
+## Suíte de testes em menos de 10 minutos (epic #199)
+
+Rodadas de 2026-11-11 e 2026-11-12 na branch `test/199-fast-test-suite` ([#349](https://github.com/alaorneto/skeleton/issues/349), [#350](https://github.com/alaorneto/skeleton/issues/350), [#196](https://github.com/alaorneto/skeleton/issues/196), [#197](https://github.com/alaorneto/skeleton/issues/197), [#198](https://github.com/alaorneto/skeleton/issues/198)). Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+| Execução | Antes | Depois |
+|---|---|---|
+| `pytest tests --cov`, serial | 1282 passed, 111 skipped em 26 min 20 s (1320 s de preparação, 246 s de teste); 15353 de 21219 linhas (69,42%) | sem cobertura: 1329 passed, 111 skipped em 12 min 19 s (606 s de preparação, 124 s de teste) |
+| `pytest tests -n 8` | não existia | 1304 passed, 111 skipped em 3 min 56 s |
+| `pytest tests -n 16` | não existia | 1327 passed, 111 skipped em 3 min 53 s |
+| `pytest tests -n 8 --cov` | não existia | 1327 passed, 111 skipped em 4 min 12 s; 15369 de 21239 linhas (69,43%) |
+| `SKELETON_BUNDLED_APPS=calendar pytest tests/contrib/calendar -n 8` | 4 min no CI, serial | 59 passed em 36 s |
+| `pytest tests -n 8 --cov`, cache frio, rodada final (com #349, #350 e a introspecção em lote) | não existia | 1368 passed, 111 skipped em 5 min 0 s; 15396 de 21257 linhas (69,52%) |
+| `pytest tests -n 8`, cache quente, rodada final (duas vezes) | não existia | 1368 passed, 111 skipped em 3 min 59 s e 4 min 13 s |
+| `pytest tests` em série, cache quente, rodada final | 26 min 20 s (com cobertura) | 1368 passed, 111 skipped em 13 min 13 s |
+| Agenda com `-n 8`, rodada final | 4 min no CI, serial | 59 passed em 44 s |
+| Jobs de teste do CI | run 43028212566: um job por Python, 36 min (3.12) e 31 min (3.14) | run 43219085131 (PR #352): o maior job levou 5 min 17 s (3.12, núcleo 2/2) e os outros de 1 min 44 s a 4 min 5 s; por Python, 943 + 614 testes do núcleo e 59 da agenda, sem nenhum pulado no Linux; da criação da execução ao agregador `CI`, 5 min 53 s |
+
+Equivalência (rodada final contra a linha de base, comparando os dois JUnit XML e os dois relatórios JSON do `coverage`): os 1393 testes da linha de base aparecem com o mesmo resultado; os 86 a mais são testes novos (59 em `test_integration_database.py`, 23 em `test_suite_shards.py`, 4 em `test_table_catalog_sync.py`). A cobertura de linhas subiu de 15353 de 21219 (69,42%) para 15396 de 21257 (69,52%), e a de ramos de 3888 de 6496 para 3912 de 6516. Nos arquivos não editados, as linhas executadas são idênticas; nos editados (`skeleton/conf/profiles.py`, `skeleton/system/synchronization.py`, `skeleton/testing/hashers.py`), as linhas cobertas ficaram iguais ou maiores. Rodadas paralelas completas sem falha nesta branch: dez.
+
+`sync_table_catalog` (#197): uma ressincronização sem mudanças caiu de 903 consultas (0,54 s) para 215 com as linhas do catálogo lidas de uma vez, e para 13 (0,013 s) com a introspecção do schema inteiro em duas consultas, gravando o mesmo catálogo (638 linhas comparadas com a implementação anterior). `tests/integration/test_table_catalog_sync.py` compara a introspecção em lote com a do Django em todas as colunas do schema migrado e numa tabela de prova com identidade, serial, default, collation, comentário, coluna removida, chave composta e domínio sobre domínio. O teste achou uma diferença antes do commit: colunas de domínio precisam do tipo base, como na descrição do `SELECT *`.
+
+Catálogo do migrate ([#349](https://github.com/alaorneto/skeleton/issues/349)): depois de todo `migrate`, as dez tabelas operacionais ficavam catalogadas com `soft_delete=True` e `audit_mode=trigger`, e `auth_group_permissions.id` como `BigAutoField`, até a sincronização seguinte. A causa eram os modelos históricos do `post_migrate`, sem `lifecycle` nem o `default_auto_field` da app. A regressão `test_catalog_written_by_migrate_is_the_runtime_catalog` falhou antes da correção e passa depois; uma sincronização logo depois do migrate não grava nada.
+
+Na suíte inteira, o cache e a introspecção em lote não mudam o tempo de forma mensurável: ele é dominado pela restauração do schema antes de cada teste, e a variação entre rodadas iguais (3 min 59 s e 4 min 13 s) é maior que o ganho. O ganho deles é a partida, no ciclo de um arquivo ou de um teste.
+
+Template em cache ([#350](https://github.com/alaorneto/skeleton/issues/350)): um teste com banco, de 6,2 s (migra) para 1,6 s (cache); `tests/integration/test_record_contract.py` com `-n 8`, de 18,9 s para 11,0 s. Testes unitários da chave (estável, ignora o harness e os testes, muda com código, settings, variáveis, bibliotecas, servidor e `pg_dump`), da leitura (recusa entrada malformada, de outra chave ou com meta-comando) e da gravação (atômica, limitada a 4 entradas).
+
+Estabilidade: dez rodadas paralelas completas sem nenhuma falha (as três da rodada final acima e sete anteriores), com ordens e distribuições diferentes (`-n 8` duas vezes, `-n 16`, `-n 8 --cov`, `-n 16 --dist load`, `-n 8 --dist loadfile`, `-n 12`, `-n 16 --dist worksteal`; as quatro últimas com 1329 passed, 111 skipped em 3 min 40 s a 4 min 6 s). A primeira tentativa com `-n 8` teve 93 erros de `out of shared memory` na restauração do schema; a causa era a tabela de locks do servidor, corrigida com `max_locks_per_transaction` e a conferência prévia.
+
+No run 43219085131, o container `postgres:16.15` aplicou os ajustes de `POSTGRES_INITDB_ARGS` (o passo de provisionamento lista `fsync`, `synchronous_commit` e `full_page_writes` em `off` e `max_locks_per_transaction` em 2048), e todos os jobs de teste passaram. O job `coverage` falhou com "No data to combine": num diretório, o `coverage combine` só procura nomes `.coverage*`. A correção, que passa os arquivos das fatias pelo nome, foi reproduzida localmente ("Combined 2 files").
+
+Com a correção, o run 43220490740 passou inteiro em 6 min 17 s, da criação ao agregador `CI`. O maior job de teste levou 5 min 10 s (3.12, núcleo 2/2), e o job `coverage` combinou as duas fatias de cada Python em 30 s. A cobertura combinada da suíte do núcleo ficou em 77% (linhas e ramos), com 17227 de 21714 linhas cobertas (79,34%). O run 43028212566, antes deste epic, tinha 76%, com 16847 de 21324 linhas (79,00%); o total de linhas cresceu com o código que entrou na `main` nesse meio-tempo.
+
+## Configurações e marca da organização (epic #90)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#167, configurações da organização:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1250 passed, 111 skipped.
+- `tests/integration/test_organization_settings.py` (12) e `tests/integration/test_core_organization_service.py` (4): 16 passed. Cobrem:
+  - revisão virtual 0;
+  - CAS na primeira gravação e nas seguintes;
+  - só o administrador grava (membro recebe `Forbidden` e 403 na página; outra organização recebe 404);
+  - validação de idioma, fuso, cor e tamanho do nome;
+  - isolamento A/B;
+  - auditoria de create e update com `logo_key` redigido;
+  - campo extra no POST recusado com 400.
+- `tests/integration_postgres/test_organization_settings_schema.py`: 4 passed. RLS forçada, policy de tenant e triggers instalados; sem o guard, sem o trigger de auditoria ou sem a policy de tenant, `check_deployed_schema` falha.
+- Ruff 0.17.4 (`check` e `format --check`), `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#168, logo e cor da organização:**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`: 1280 passed, 111 skipped. A rodada usou um PostgreSQL só deste worktree, enquanto outras suítes rodavam em servidores próprios.
+- `tests/unit/test_branding_palette.py`, `tests/integration/test_organization_branding.py` e `tests/integration/test_organization_settings.py`: 42 passed. Cobrem:
+  - contraste WCAG contra valores de referência;
+  - cores abaixo de AA recusadas e a paleta mantendo AA nos dois temas;
+  - CSS só com hex;
+  - o logo inline só para membros (outra organização recebe 404, sem login há redirecionamento), com `private`, `nosniff`, ETag e 304;
+  - recusa de SVG (também disfarçado de PNG), de GIF, de nome e conteúdo divergentes e de arquivos acima de 512 KB;
+  - a troca e a remoção apagando o objeto anterior depois do commit, com CAS;
+  - a marca aplicada só nas telas da própria organização;
+  - `files.orphans` mantendo o logo atual e removendo objetos de logo abandonados.
+- `npm run check`, Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+- Não verificado: o smoke visual no navegador, porque a renderização da marca foi provada pelo HTML nos testes de integração.
+
+## Observabilidade (epic #87)
+
+Rodada de 2026-11-11 na branch `feat/87-observability`, um commit por issue. Somente o que rodou.
+
+### Métricas Prometheus (#175)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime`, `prometheus-client` 0.26.0 | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k metrics` | 23 passed, 5 skipped (agente sem `fcntl`) |
+| mesmo PostgreSQL | `pytest tests/unit/test_observability_metrics.py tests/unit/test_observability_optional.py tests/integration/test_metrics_endpoint.py tests/unit/test_instance_config.py tests/unit/test_security_logging.py tests/integration/test_jobs_operations.py` | 46 passed, 1 skipped (`posix`) |
+
+Cobertura nova:
+- `tests/integration/test_metrics_endpoint.py`: sem `SKELETON_METRICS_TOKEN`, `/metrics` é 404; sem cabeçalho, sem token, token errado, esquema `Basic`/`Token` e token com sufixo respondem 401 sem corpo, com `WWW-Authenticate: Bearer` e `no-store`; POST é 405 e HEAD não tem corpo; a resposta não abre sessão nem grava cookie; `skeleton_jobs_due`, `skeleton_jobs_dead`, o atraso e os workers `live`/`stale` batem com `queue_health()` sobre jobs reais (um vencido, um futuro, um esgotado e uma entrega de webhook esgotada) e os heartbeats; o histograma usa o padrão de rota (inclusive em 404 de tenant, que responde antes da resolução de URL), `unresolved` e `health/live/`; **negativo de segurança**: depois de login por email e de requests com sysid, slug e email no caminho e na query, nenhum rótulo de nenhuma série tem UUID, `@`, o slug, o email ou os sysids, e nenhum deles aparece no texto da coleta.
+- `tests/unit/test_observability_metrics.py`: o Bearer é comparado com `hmac.compare_digest` sobre digests do mesmo tamanho em todas as tentativas, inclusive as de tamanho diferente; o rótulo de rota é o padrão; o histograma só tem `method`, `route` e `status`; o middleware se remove sem token ou sem o extra; o coletor agrupa entregas por canal, junta tipos não registrados em `other` e ignora estados desconhecidos; uma falha do banco devolve só `skeleton_queue_metrics_up 0`; os checks `skeleton.W030` (token sem extra, token sem middleware) e `skeleton.E030` (token curto); `metrics_token` é segredo do catálogo e recusa tokens curtos ou com espaço.
+- `tests/unit/test_observability_optional.py`: num processo novo, sem nenhum setting de observabilidade, `django.setup()`, `check`, `/health/live/` (200) e `/metrics` (404) não importam `prometheus_client`, `opentelemetry` nem `sentry_sdk`.
+
+**Não verificado:** a coleta por um Prometheus real e o modo multiprocess do gunicorn (`PROMETHEUS_MULTIPROC_DIR`) com vários workers.
+
+### Tracing OpenTelemetry (#176)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime`, `opentelemetry-sdk` 1.45.2 e instrumentações 0.66b2 | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k tracing` | 15 passed, 5 skipped (agente sem `fcntl`) |
+| mesmo PostgreSQL | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k "job or worker or logging or tracing or observability"` (jobs e logs, pelo `request_id` novo nos logs do worker) | 77 passed, 6 skipped |
+| mesmo | `pytest tests/unit/test_observability_optional.py` | 1 passed |
+
+Cobertura nova:
+- `tests/integration/test_tracing.py`, com as instrumentações oficiais de Django e psycopg e um exportador em memória atrás do `RedactingSpanExporter`: um GET autenticado gera um único span `SERVER` `GET o/<uuid:organization_id>/` com `skeleton.request_id` igual ao `X-Request-ID`, e todos os spans de SQL são descendentes dele, no mesmo trace e com o mesmo `request_id`; um job executado pelo worker gera o span `CONSUMER` `job test.tracing` com `skeleton.job_id` e `skeleton.job_state`, e os spans de SQL do handler são filhos dele com o `request_id` da execução; um job que falha registra só `error.type`; **negativos de segurança**: o login (consulta por email) e o GET com email, nome e slug na query não deixam email, senha, nome, slug, sysid de organização ou de pessoa, `db.statement`, `db.query.text` nem `http.url` em nenhum span.
+- `tests/unit/test_observability_tracing.py`: o tracing só liga com endpoint OTLP e respeita `OTEL_SDK_DISABLED`; sem configuração, `job_span` não faz nada; o exportador descarta texto e parâmetros SQL, usuário e host do banco, URL, alvo, query, user agent, IP, `enduser.id`, cookie e `Authorization`, mantém do evento de exceção só o tipo e tira a descrição do status; nomes de SQL viram a palavra-chave ou `SQL`; o `request_id` só entra em spans iniciados dentro do bloco; o check `skeleton.W030` avisa endpoint sem o extra.
+
+**Não verificado:** o envio a um coletor OTLP real (o exportador OTLP/HTTP não foi exercitado contra rede) e o tracing sob gunicorn com vários workers.
+
+### Sentry (#177)
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, `sentry-sdk` 2.74.0 | `pytest tests/unit/test_observability_sentry.py` e `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k sentry` | 9 passed (5 skipped do agente sem `fcntl` no `-k`) |
+| mesmo, PostgreSQL local de `tools/dev_postgres.py` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -k "sentry or logging or instance_config or observability"` (inclui os testes do `SecurityJSONFormatter`, que passou a usar `safe_fields`) | 46 passed, 6 skipped |
+
+Cobertura nova, em `tests/unit/test_observability_sentry.py`:
+- **Negativo de segurança:** um evento sintético com corpo, cookies, `Authorization`, query string com token e email, usuário, IP, user agent, variáveis locais, linhas de código, caminho absoluto, mensagem da exceção, mensagem e parâmetros do log, breadcrumbs de SQL com parâmetros, tags e `extra` arbitrários, threads e contextos sai sem nenhum desses valores; o teste falha se qualquer um sobreviver. Ficam o tipo e os frames (nome do arquivo, linha, função, módulo), o método, o nome do evento, os campos de `safe_fields`, a tag `skeleton.request_id`, os IDs de trace e o runtime.
+- O cliente real do `sentry-sdk`, com as opções do núcleo e um transporte em memória (sem rede), captura uma exceção com email e token na mensagem, usuário, tag, `extra` e breadcrumb sensíveis: o envelope enviado não tem nenhum deles, não tem `user` e traz o `request_id` do request em curso.
+- Transações com UUID, email ou query são descartadas; a pilha é cortada nos mesmos 25 frames dos logs; `send_default_pii=False`, corpo nunca lido, sem variáveis locais nem código-fonte, transações descartadas; sem DSN ou sem o extra, `sentry_sdk.init` não é chamado, e com eles é chamado uma vez; `skeleton.W030` para DSN sem extra; `sentry_dsn` é segredo do catálogo e recusa DSN sem chave ou sem projeto.
+
+**Não verificado:** o envio a um projeto Sentry real e a integração do SDK com o Django num request que falha (o `before_send` foi exercitado com eventos sintéticos e com o cliente real fora do Django).
+
+### Verificação conjunta do epic
+
+Com os três commits na branch, no mesmo PostgreSQL local:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, PostgreSQL local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1282 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) em 40 min |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com `skeleton/observability` no modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+| Windows | `uv 0.12.7 pip compile` dos dois locks (comandos do `README.md`) e `pip-audit 2.9.0 --strict --require-hashes --disable-pip` de `requirements.txt` e `requirements-dev.txt` | locks regenerados; nenhuma vulnerabilidade conhecida |
+
+## Operação do worker de jobs (#40, epic #77)
+
+Rodada de 2026-11-11 na branch `feat/40-worker-operations`, um commit para [#40](https://github.com/alaorneto/skeleton/issues/40). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1172 passed, 111 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_jobs_operations.py` | 9 passed |
+| Windows, com `fcntl`, `os.O_DIRECTORY` e `UnixStreamServer` substituídos só no processo do teste | os três testes de backend de `tests/unit/test_agent_worker_lifecycle.py` | 3 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` em `frontend/` | sem problemas, sem migrations pendentes, assets atualizados |
+
+Cobertura nova:
+- `tests/integration/test_jobs_operations.py`: a lista de `/platform/jobs/` mostra tipo, organização e código de erro e nunca o payload; filtro inválido é ignorado; anônimo vai ao login e quem não é da plataforma recebe 403 (GET e POST); GET na ação é 405 e POST sem CSRF é 403, sem mudar o job; reenviar zera as tentativas uma vez (o segundo envio com o `updated_at` antigo não muda nada, e o serviço levanta `ConcurrentUpdate`); uma mudança concorrente vence um reenvio desatualizado; descartar deixa `cancelled`/`discarded` e um job na fila não é acionável; sem autenticação recente a ação vai à reautenticação; a retenção, pelo job registrado executado pelo worker com a role runtime, apaga só `succeeded`/`cancelled` acima de 7 dias e `dead` acima de 30, nunca `queued`/`running`, e os heartbeats `stopped` antigos; `check_jobs` falha por atraso, por esgotados e sem worker vivo.
+- `tests/unit/test_agent_worker_lifecycle.py`: com um runner falso, o backend de diretório executa `drain` → `worker_stop` e `restart` → `worker_restart` (no release novo), e sem os hooks o comportamento antigo; o backend Compose gera o override do `worker`/`scheduler` com a imagem do release, sem trocar o comando, para os workers depois do web e os recria depois do web, e recusa `MIGRATION_DATABASE_URL` num worker; a configuração recusa `worker_stop` sem `worker_restart`, comando relativo e `worker_services` inválidos. Os testes de configuração só rodam em Linux/macOS (CI).
+- `tests/unit/test_deployment_journal.py::test_execution_stops_workers_before_migrations_and_restarts_them_after_cutover`: num plano aprovado, `drain-web` → `stop-worker` → `migrate` → `cutover` → `restart-web` → `start-worker` → health. Só roda em Linux/macOS (CI).
+
+**Não verificado:** os testes do agente que exigem `fcntl` nesta máquina (rodam no CI), `docker compose up` com os serviços `worker` e `scheduler`, as units systemd num host real, smoke de `/platform/jobs/` no navegador (o template é renderizado e conferido pelos testes de integração) e o PostgreSQL 16.15 do CI.
+
+## i18n: idioma, fuso, textos traduzíveis e emails (epic #85)
+
+Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`.
+
+**#169, origem pública do convite:**
+
+- `tests/integration/test_invitation_public_url.py`: 3 passed com a correção e 2 failed sem ela. O patch foi desfeito e reaplicado com `git apply -R`/`git apply`.
+- Os casos cobertos:
+  - sem requisição, o link usa `SKELETON_PUBLIC_URL`;
+  - sem requisição e sem o setting, o erro cita `SKELETON_PUBLIC_URL`;
+  - com requisição, continua valendo o host da requisição.
+
+**#170, idioma e fuso em todas as superfícies:**
+
+- Suíte completa `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, num PostgreSQL só deste worktree: 1257 passed, 3 failed, 111 skipped. As três falhas eram testes antigos que esperavam `UTC` no perfil novo, ou `en` em `LANGUAGES`, ou que o destinatário de email tivesse `is_authenticated`. Os testes foram ajustados e `preferences_for` passou a aceitar o destinatário sem sessão.
+- Depois da correção: `tests/accounts/test_lifecycle_findings.py`, `tests/unit/test_notification_email_render.py` e `tests/integration/test_locale_preferences.py`, 18 passed.
+- Antes, nesta rodada, `test_locale_preferences.py` com `test_core_identity_service.py`, `test_notification_email.py`, `test_notification_digest.py` e `test_organization_settings.py` tinham dado 34 passed.
+- Os testes cobrem a precedência perfil > organização > instância na web da organização, na API, fora de organização e em `/me`, além de:
+  - perfil explícito vencendo a organização;
+  - padrões da instância e `Accept-Language` antes do login (com `Vary`);
+  - organização vinda só do contexto (header ignorado; sem vínculo, 404);
+  - valores efetivos no `IdentityService.me`;
+  - idioma fora de `LANGUAGES` recusado;
+  - `<html lang>` dinâmico.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#172, templates traduzíveis:**
+
+- 93 templates convertidos por um script que usa o lexer do Django. O texto entre tags e os atributos visíveis viraram `{% translate %}`, e os literais de rótulo nas tags viraram `_("…")`.
+- Ficaram de fora os templates `.en.` de email (eles já são a tradução) e os elementos `script`, `style`, `code` e `pre`.
+- Todos os templates de `skeleton/` e `examples/` compilam: 0 erros.
+- `tests/accounts`, `tests/unit` e os testes de integração que renderizam telas e emails: 816 passed, 111 skipped. São navegação, superfícies recuperadas, apresentação de registros, `/platform/`, email, resumo, configurações e marca, administração de apps, webhooks, tokens, anexos, fronteiras HTTP e setup.
+- A suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- A cobertura sem texto fora do gettext é verificada pela pseudolocalização do #174.
+
+**#171, textos do Python traduzíveis:**
+
+- Por volta de 680 strings em português foram envolvidas por um script AST, com `gettext` em funções e `gettext_lazy` em módulos, classes e registros de inicialização. As f-strings viraram `gettext("… %(nome)s") % {...}`.
+- 55 mensagens de validação em inglês que chegam às pessoas passaram para pt-BR, e o teste que conferia uma delas foi ajustado. Os diagnósticos técnicos ficaram em inglês.
+- Strings de protocolo foram revertidas: `DOCSTRING_SECTIONS`, `SERVICE_API_HEADINGS` e o script `SERVICE_WORKER`.
+- Suíte completa: 1289 passed, 1 failed, 111 skipped. A falha era o `export_schema` serializando a descrição lazy de um spec com `json.dumps`. A correção (`str()` na exportação e no título do push) passou em `test_retained_schema.py`, `test_web_push.py` e `tests/contrib`, com 7 passed, e no `test_retention.py` da agenda, com 2 passed.
+- Suíte da agenda (`SKELETON_BUNDLED_APPS=calendar`): 59 passed.
+- Ruff, `mypy`, `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`: sem problemas.
+
+**#174, validação dos catálogos:**
+
+- `tests/integration/test_i18n_coverage.py`: 4 passed. O teste troca o gettext por uma pseudotradução que marca cada mensagem com `⟦…⟧` e renderiza as páginas-chave para três perfis:
+  - o admin da organização: painel, catálogo, auditoria, configurações, apps, webhooks, contas de serviço, recursos de acesso, perfil e início;
+  - o admin da plataforma: visão geral, organizações, usuários, auditoria, jobs e apps;
+  - o visitante: login e recuperação de senha.
+- O teste falha se sobrar texto fora das marcas, descontados os dados do cenário: nomes, emails, papéis, manifestos, fusos, endônimos de idioma e códigos crus.
+- O caso negativo (texto fixo e atributo) é detectado.
+- A rodada achou rótulos que tinham escapado e que foram corrigidos no commit seguinte ao #171: `TextChoices`, palavras soltas, `yesno`/`default_if_none` e as colunas dos recursos de acesso.
+- Suíte completa com as correções: 1294 passed, 111 skipped. Agenda: 59 passed.
+- `tools/i18n_check.py` (`makemessages` e `msgfmt --check-format`) entrou no job estático do CI, que instala o `gettext`. Não rodou localmente porque o Windows desta rodada não tem GNU gettext; a evidência é o CI.
+
+**#173, emails com a marca da organização:**
+
+- `tests/integration/test_email_branding.py`: 4 passed. Cobre:
+  - o layout com a cor padrão e o nome da organização;
+  - a cor e o nome configurados e o logo como parte inline `<organization-logo>` referenciada por `cid:`;
+  - o email da organização B sem a marca nem o logo de A;
+  - o convite saindo de templates, com a marca, o link e `<html lang>` no idioma padrão da organização.
+- Suíte completa depois do merge da branch do #90 atualizada com a `main`: 1346 passed, 111 skipped. Agenda: 59 passed.
+- A varredura de texto pós-merge envolveu os rótulos que restavam: "Gestor de apps", "Apps organizacionais", "Disponibilidade de apps", "Assinaturas de push" e "Observabilidade".
+- Não verificado: a renderização num cliente de email real.
+
+**Epic #85 depois do merge da `main` (`da0eb3a`):**
+
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`, com 16 bancos de worker de `tools/dev_postgres.py start --workers 16`: 1471 passed, 111 skipped. Agenda (`SKELETON_BUNDLED_APPS=calendar`, `-n auto`): 59 passed.
+- A primeira rodada pós-merge teve 1 falha: a sonda de teste de `test_locale_preferences.py` em `/api/v1/` caiu na verificação de contrato OpenAPI do #179. O teste recebeu `@pytest.mark.no_api_contract`, porque a rota só existe no teste.
+- O texto que veio da `main` é documentação OpenAPI e fica fora do gettext, por regra registrada em `docs/extending.md`.
+
+**Epic #85 depois do merge da `main` com os fluxos (#351):**
+
+- Templates e Python do módulo `skeleton/flows` e da app de exemplo passaram pelos mesmos conversores. Ficaram fora, pela regra do `docs/extending.md`:
+  - as regex de URL;
+  - as mensagens técnicas de validação da especificação do fluxo;
+  - os rótulos da especificação de fluxo congelada;
+  - os textos de OpenAPI.
+- A primeira rodada achou um texto de OpenAPI lazy (`test_openapi_schema`). Ele foi corrigido.
+- `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto`: 1633 passed, 111 skipped. Agenda: 59 passed.
+
+## Só PostgreSQL, setup e configuração da instância (epic #150)
+
+Rodada de 2026-11-11 na branch do epic [#150](https://github.com/alaorneto/skeleton/issues/150), um commit por issue ([#144](https://github.com/alaorneto/skeleton/issues/144) a [#149](https://github.com/alaorneto/skeleton/issues/149)) e um de correções da suíte. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` (com as variáveis de `tools/dev_postgres.py env`) | 1093 passed, 110 skipped (marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows, PostgreSQL 16.2 local (outro servidor) | a mesma suíte numa branch que junta `main` (com #158), #159, #160 e esta | 1160 passed, 110 skipped, 3 failed (os três corrigidos depois nesta branch: o teste de reset desativava como sistema, sem o plano de plataforma que o guard PostgreSQL exige; o scaffold desligava o app de exemplo) e 25 erros da suíte SSO real sem Keycloak. Depois da correção, `test_flows.py`, `test_scaffold_end_to_end.py`, `test_setup.py` e `test_platform_instance.py` na junção: 18 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING` (settings de teste e `config.settings.setup`), `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+| navegador (painel do app) | `runserver` com SQLite da instância vazio | redirecionamento de qualquer rota para `/setup/`, token impresso uma vez (o processo filho do autoreload não emitiu outro), token aceito e páginas das etapas. O resto do fluxo não pôde ser clicado (painel oculto) e está coberto por `test_setup.py` |
+
+Cobertura nova: `tests/unit/test_postgresql_only.py` (E025 com outro backend, `DATABASES` vazio fora e dentro do setup; migration recusada fora do PostgreSQL), `tests/unit/test_setup_mode.py` (token emitido uma vez, 0600, só o digest no SQLite; token errado, reutilizado e expirado; troca de modo e `SKELETON_SETUP=off`; URLs não PostgreSQL), `tests/integration/test_setup.py` (qualquer rota leva ao setup, CSRF, token de uso único, rate limit 429, DSN privilegiada recusada com mensagem de `BYPASSRLS`, setup completo contra o PostgreSQL de teste sem a senha do owner no SQLite, no log nem na sessão assinada, `/setup/` 404 depois de concluir e administrador criado), `tests/integration/test_platform_instance.py` (anônimo, não plataforma, segredo ausente do HTML, do log e do `change_log`, validação, chave do ambiente somente leitura com 409, autenticação recente), `tests/unit/test_container_healthcheck.py` (Host do healthcheck nos dois modos) e `tests/unit/test_agent_instance_configuration.py` (URL runtime do agente pelo SQLite da instância; só roda em Linux/macOS).
+
+**Não verificado:** `docker compose up` de uma instalação nova até o setup e o reinício pelo Compose (sem Docker nesta máquina; os testes de renderização do Compose rodam só no CI), o agente de deployment (exige `fcntl`), o reinício por `SIGHUP` do Gunicorn, a suíte SSO real e o PostgreSQL 16.15 do CI.
+## Eventos do núcleo para vínculos e ativação de apps (#43, epic #78)
+
+Rodada de 2026-11-11 na branch `feat/43-core-lifecycle-events`, um commit para [#43](https://github.com/alaorneto/skeleton/issues/43). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1170 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `python -m pytest tests/integration/test_core_lifecycle_events.py` | 7 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+A primeira rodada completa teve 1 falha e 33 erros: o fan-out de webhooks (consumidor `"*"`) enfileirava um job de entrega inócuo para cada evento de vínculo, e os testes que esvaziam o registro de jobs ou de eventos quebravam no bootstrap. A correção foi o filtro `accepts` dos consumidores `"*"` (o fan-out aceita só tipos `webhook=True`) e manter os tipos do núcleo nos fixtures desses testes; a rodada acima é a de depois da correção.
+
+Cobertura nova em `tests/integration/test_core_lifecycle_events.py`: os quatro tipos declarados com payload só de identificadores e fora dos webhooks; `update_membership`, `delete_membership`, `create_membership` (novo, restaurado, restaurado inativo, já ativo) publicam um evento por mudança efetiva e nada sem efeito; `provision_membership` e `leave_organization`; criação e desativação (repetida) de conta de serviço; `configure_application` publica só quando `enabled` muda (configuração sozinha não publica); um rollback do chamador não deixa evento, e a organização B não lê os eventos de A (RLS); os tipos do núcleo não geram job de entrega.
+
+**Não verificado:** o PostgreSQL 16.15 do CI.
+
+## Tokens de API e contas de serviço (epic #79)
+
+Rodada de 2026-11-11 na branch `feat/79-api-tokens`, um commit por issue: [#45](https://github.com/alaorneto/skeleton/issues/45) (token, `sk_integrations.0004`), [#46](https://github.com/alaorneto/skeleton/issues/46) (Bearer em `/api/v1/`), [#47](https://github.com/alaorneto/skeleton/issues/47) (telas e REST) e [#48](https://github.com/alaorneto/skeleton/issues/48) (limites e uso, `sk_integrations.0005`). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` | 1194 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | os sete arquivos de tokens (abaixo) | 31 passed |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` em `frontend/` | sem problemas, sem migrations pendentes, assets atualizados |
+
+Cobertura nova:
+- `tests/integration/test_api_tokens.py` e `tests/unit/test_api_token_format.py` (#45): só prefixo e digest persistidos, segredo e digest ausentes da auditoria global (lida como administrador da plataforma, por causa da RLS); escopos vazios, desconhecidos, de tabela não exposta, de ação não aceita, nomeado não registrado ou que não seja lista recusados; validade ausente, passada, sem fuso ou acima do limite recusada; revogação (com CAS), `auth_version`, expiração (relógio simulado), segredo errado e texto malformado invalidam; outra pessoa e outra organização recebem "inexistente"; sem `integrations.manage` não há token de serviço; contas de serviço não emitem token pessoal; política de MFA.
+- `tests/integration/test_api_token_auth.py` e `tests/unit/test_api_token_header.py` (#46): token sem CSRF cria registro e a sessão continua exigindo CSRF; sessão + Bearer é 400; escopo de leitura não cria e escopo de criação não lê, mesmo com o papel; em B o papel de Alice não tem permissão e o escopo não a cria; não membro recebe 404; `PATCH me`, vínculos, auditoria e anexos sem `files:read` são 403; token de conta de serviço em outra organização é 404; revogado, `auth_version` mudado, desconhecido e lixo são 401 com `WWW-Authenticate` e evento sem o token; rotas HTML ignoram o cabeçalho; a auditoria grava o usuário do token e `http:token:<prefixo>`.
+- `tests/integration/test_api_token_management.py` (#47): a página mostra o token uma vez com `no-store` e depois só o prefixo; validade e escopo inválidos são 400; Bob não revoga nem vê os tokens de Alice (404); a REST emite, lista sem segredo e revoga com `If-Match` (428 sem ele); um token recebe 403 nos endpoints de token; contas de serviço de A são 404 para quem não tem `integrations.manage` e pela URL de B; desativar a conta invalida o token.
+- `tests/integration/test_api_token_limits.py` e `tests/unit/test_ratelimit.py` (#48): acima do limite do token, 429 com `Retry-After` e nada gravado, e outro token segue livre; falhas de um IP bloqueiam qualquer Bearer desse IP e não de outro; `last_used_at` grava uma vez por janela, mesmo sem o cache, e não gera `AuditEvent`; janela fixa e cache fora do ar deixam passar.
+
+Depois da rodada completa, o trabalho da agenda (#76) achou que um token de feed autenticava `GET /api/v1/me/` como Bearer; o middleware passou a recusá-lo (`6794c1d`, com `test_feed_tokens_are_not_api_credentials`). Rodado depois da correção: `test_api_token_auth.py` e `test_api_tokens.py`, 20 passed; a suíte completa não foi repetida.
+
+**Não verificado:** clientes reais (curl com um token emitido pela página), Redis compartilhado entre vários workers (os testes usam o cache local), smoke das páginas no navegador e o PostgreSQL 16.15 do CI.
+
+## Arquivos: cota por organização, antivírus e órfãos (epic #81)
+
+Rodada de 2026-11-10 na branch do epic [#81](https://github.com/alaorneto/skeleton/issues/81), com um commit por issue: [#61](https://github.com/alaorneto/skeleton/issues/61) (cota, `sk_files.0002`) e [#62](https://github.com/alaorneto/skeleton/issues/62) (antivírus e órfãos). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1019 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com `test_storage_quota.py`, `test_file_scanning_jobs.py` e `tests/integration_postgres/test_storage_quota_concurrency.py` | 392 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/integration_postgres/test_storage_quota_concurrency.py`: duas reservas simultâneas que juntas passam da cota, na primeira reserva e com contador existente: uma vence, a outra recebe `QuotaExceeded`, o contador fica certo e o de A é invisível para B (RLS).
+- `tests/integration_sqlite/test_storage_quota.py`: reserva e liberação pelo upload e pela remoção, upload recusado não conta, restaurar acima da cota responde 409 `quota_exceeded`, contador próprio por organização; upload HTML acima da cota é uma página 409; a recontagem corrige uma divergência plantada; a página da plataforma mostra uso e cota (403/404 para quem não é plataforma), limite sem valor é 400, a cota própria vence o padrão, formulário sem a revisão da linha existente é 409 e voltar ao padrão remove a linha.
+- `tests/unit/test_storage_quota_form.py`: MiB para bytes e os três modos.
+- `tests/unit/test_file_scanning.py`: respostas do `clamd` (OK, FOUND, erro), o protocolo INSTREAM contra um `clamd` falso em TCP (EICAR em quarentena, arquivo limpo em vários blocos) e `clamd` inacessível.
+- `tests/integration_sqlite/test_file_scanning_jobs.py`: com scanner, o anexo nasce `pending` e o download fica bloqueado; limpo vira `available`, EICAR vira `quarantined` com a assinatura; scanner fora deixa `pending`, o job volta à fila com `ScannerUnavailable` e o download continua 404; sem scanner, `available` na hora; o objeto de um upload revertido é apagado depois da carência, e os de linhas vivas e excluídas logicamente ficam.
+
+**Não verificado:** um `clamd` real (a suíte usa um `clamd` falso e um scanner falso), armazenamento S3, o `run_worker` real, smoke manual no navegador da página da plataforma e o PostgreSQL 16.15 do CI.
+
+## Apps first-party no wheel do núcleo (epic #83)
+
+Rodada de 2026-11-11 na branch `feat/83-bundled-apps`: [#66](https://github.com/alaorneto/skeleton/issues/66) (contrato, mais duas correções) e a parte de estado de [#67](https://github.com/alaorneto/skeleton/issues/67). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q`, no commit `2735c0c` | 1179 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker). O commit seguinte só troca o namespace das rotas `/me/apps/`, que não existem sem app first-party |
+| mesmo PostgreSQL | `tests/unit/test_bundled_apps.py`, `tests/integration/test_bundled_lifecycle.py`, `tests/unit/test_presentation.py`, `tests/unit/test_packages.py` | 12, 4 e 137 passed (97 skipped `posix`) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+A primeira rodada completa teve 1 falha (`test_presentation.py::test_v2_rejects_unsafe_specs_before_import[old-core]`): a validação de first-party tinha capturado a checagem do piso do core do manifesto v2. Corrigido em `2735c0c`; a rodada acima é a de depois.
+
+Cobertura nova:
+- `tests/unit/test_bundled_apps.py` (#66): manifesto `bundled_app` válido; fora de `skeleton.contrib`, sem o prefixo `skeleton_`, v1 e com arquivos próprios recusados; app de terceiro com `skeleton_*` ou `runtime.user_urls` recusada; manifest fora do pacote instalado recusado; versão divergente para o startup; o namespace `skeleton.contrib` é só de first-party; opt-in só por nome do mapa fixo; a suíte roda sem app first-party; o núcleo nunca importa `skeleton.contrib` (análise `ast`).
+- `tests/integration/test_bundled_lifecycle.py` (#67, estado): app nova registrada `kind=bundled` com disponibilidade `selected` e nenhuma ativação; retirada sem declaração é divergência; com `SKELETON_BUNDLED_RETAINED` vira `schema_retained` e desativa as organizações; reinstalada volta a `bundled` com a mesma linha e configuração; instalada sem registro é divergência; nomes retidos vêm do mapa fixo.
+
+A retirada com tabelas de verdade (schema retido validado pelo snapshot do wheel) exige uma app first-party com tabelas, a agenda; ela é verificada no PR do epic #84, que fecha o #67.
+
+**Não verificado:** o PostgreSQL 16.15 do CI e um deployment real com `SKELETON_BUNDLED_APPS`.
+
+## Notificações: preferências, email, resumo, push e retenção (epic #80)
+
+Rodada de 2026-11-10 na branch do epic [#80](https://github.com/alaorneto/skeleton/issues/80), com um commit por issue: [#53](https://github.com/alaorneto/skeleton/issues/53) (preferências, `sk_notifications.0003`), [#54](https://github.com/alaorneto/skeleton/issues/54) (email imediato, `NotificationDelivery`, `0004`), [#55](https://github.com/alaorneto/skeleton/issues/55) (resumo, `0005`), [#56](https://github.com/alaorneto/skeleton/issues/56) (web push, `WebPushSubscription`, `0006`) e [#57](https://github.com/alaorneto/skeleton/issues/57) (retenção). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1052 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com os seis arquivos novos de notificação | 407 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_notification_preference_resolution.py`: linha do tipo > linha `*` > padrão do tipo; tipo obrigatório sempre in-app.
+- `tests/integration_sqlite/test_notification_preferences.py`: sem linha valem os padrões; a API cria, altera com `If-Match` (428 sem ele, 412 com revisão antiga) e exclui logicamente; desligar in-app de tipo obrigatório, modo inválido, hora fora de 0–23 e campo `user` no corpo respondem 400; tipo ou canal desconhecido 404; anônimo 403; a página salva sem JavaScript, mostra o tipo obrigatório travado, responde 409 a um formulário com revisão antiga sem gravar, 400 a campo estranho e 403 sem CSRF; outra pessoa não vê a linha alheia.
+- `tests/unit/test_notification_email_render.py` e `tests/integration_sqlite/test_notification_email.py`: email em inglês para perfil `en` com hora no fuso (12:00 UTC → 09:00 em São Paulo) e em português por padrão; `List-Unsubscribe`; nada sai na transação do `notify()`; entrega `sent` não sai de novo; opt-out antes do fan-out não cria entrega; opt-out e desativação depois do fan-out viram `skipped` (`opted_out`, `recipient_inactive`); SMTP recusando vira cinco tentativas e `dead`; rollback não envia; entregas de A não aparecem em B.
+- `tests/unit/test_notification_digest_schedule.py` e `tests/integration_sqlite/test_notification_digest.py`: hora local do resumo (diário e semanal às segundas, inclusive com virada de dia em Tóquio); a mesma janela não duplica; lidas ficam fora; resumo vazio não é criado; itens lidos entre a criação e o envio viram `skipped` (`empty_digest`); um resumo por organização; tipos imediatos fora do resumo.
+- `tests/unit/test_web_push_encoding.py`: o vetor de teste do apêndice A da RFC 8291 byte a byte; ida e volta com chaves aleatórias; allowlist (HTTP, porta, credenciais na URL, IP, host parecido e subdomínio); JWT VAPID ES256 verificado com a chave pública.
+- `tests/integration_sqlite/test_web_push.py`: assinatura exige sessão e CSRF e recusa metadados de nuvem, host fora da lista e chaves inválidas; endpoint cifrado no banco; o mesmo navegador com outra pessoa move a assinatura; payload decifrado pelo "navegador" só com rótulo e link (o snapshot só com `push_snapshot`); 410 exclui logicamente e não reenvia; 503 retentado até `dead`; seção de push oculta sem JavaScript e ausente sem chave VAPID, `/sw.js` 404 sem configuração.
+- `tests/integration_sqlite/test_notification_retention.py`: prazos por setting; só linhas vencidas saem e o contador continua igual às não lidas restantes; outra organização intocada; entregas `retrying` ficam; notificações órfãs saem só depois das linhas e entregas.
+
+**Não verificado:** envio real por SMTP, push real a um serviço do navegador (a suíte usa um serviço falso no lugar do `outbound_http`), o `run_worker` real, smoke manual no navegador (opt-in de push e página de preferências) e o PostgreSQL 16.15 do CI.
+
+## Agenda, app first-party (epic #84)
+
+Rodada de 2026-11-11 na branch `feat/84-calendar`, que mescla as branches dos epics #79 e #83; um commit por issue ([#74](https://github.com/alaorneto/skeleton/issues/74), [#68](https://github.com/alaorneto/skeleton/issues/68) a [#73](https://github.com/alaorneto/skeleton/issues/73), [#111](https://github.com/alaorneto/skeleton/issues/111), [#71](https://github.com/alaorneto/skeleton/issues/71), [#75](https://github.com/alaorneto/skeleton/issues/75), [#76](https://github.com/alaorneto/skeleton/issues/76) e o fechamento de [#67](https://github.com/alaorneto/skeleton/issues/67)). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, PostgreSQL 16.2 local de `tools/dev_postgres.py`, assertions como `skeleton_runtime` | `SKELETON_BUNDLED_APPS="" SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q` (núcleo, sem a agenda) | 1218 passed, 110 skipped (os marcados `posix`, os do agente que exigem `fcntl` e os que exigem Docker) |
+| mesmo PostgreSQL | `SKELETON_BUNDLED_APPS=calendar python -m pytest tests/contrib/calendar -q` | 59 passed |
+| Windows | `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run`, com e sem `SKELETON_BUNDLED_APPS=calendar`; Ruff 0.17.4 `check .` e `format --check .`; `python -m mypy`; `npm run check`; `uv 0.12.7 pip compile` dos dois locks | sem problemas, sem migrations pendentes, assets e locks sem diff |
+
+Cobertura nova:
+- `tests/integration/test_aggregate.py` (#74): cada organização com a própria autorização e RLS (contagem pelo manager sem filtro), escrita no callback falha (`READ ONLY`), resultado preguiçoso recusado, vínculo inativo, app desativada e negação pulam a organização, limite e aninhamento, rota marcada fora da transação do middleware.
+- `tests/contrib/calendar/test_calendars.py` (#68): um calendário pessoal padrão (restrição no banco e corrida que lê o vencedor), visibilidade travada (400 pela gestão de acesso), padrão não excluível, gateway cria compartilhado, fuso inválido 400, sem TablePermission 404, B isolada, ação de admin.
+- `test_events.py` (#69): leitura sem update lê e não cria, privado é "Ocupado", admin vê só ocupado e não escreve no pessoal alheio, horários e dia inteiro, CAS e `sequence`.
+- `test_recurrence.py` (#70): 09:00 locais através do horário de verão em Europe/Berlin (2026) e America/Sao_Paulo (2018), EXDATE e substituição, regras fora do subconjunto (inclusive `FREQ=SECONDLY`) recusadas, truncamento sinalizado, divisão "esta e as seguintes" preservando IDs.
+- `test_attendees.py` (#72), `test_reminders.py` (#73), `test_service_api.py` (#111, kit de contrato), `test_views.py` (#71), `test_my_agenda.py` (#75), `test_ics_feed.py` (#76: parser `icalendar` com RRULE, EXDATE e RECURRENCE-ID, feed com a autorização atual, 404 para token revogado, expirado ou desconhecido, token de feed recusado na API) e `test_retention.py` (#67: snapshot do wheel igual aos modelos; retirada sem declaração reprovada pelo `check_skeleton_schema`; com `SKELETON_BUNDLED_RETAINED` as tabelas passam no check, as organizações ficam desativadas e os dados ficam; reinstalação com os mesmos UUIDs).
+
+**Não verificado:** clientes de calendário reais assinando o feed, smoke das telas no navegador, um deployment real com `SKELETON_BUNDLED_APPS=calendar` e o PostgreSQL 16.15 do CI.
+
+## Superfícies do núcleo sobre a API de serviços (#110)
+
+Rodada de 2026-11-10 para [#110](https://github.com/alaorneto/skeleton/issues/110), que fecha o epic [#113](https://github.com/alaorneto/skeleton/issues/113): a auditoria (`/o/<org>/audit/`, a REST `/api/v1/o/<org>/audit/` com o filtro por registro e `/platform/audit/`) passou a usar o `AuditLogService`, com a paginação numerada e os campos publicados. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1015 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com `test_core_audit_log_service.py` | 391 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_core_audit_log_service.py` (SQLite e PostgreSQL): contrato do serviço; a lista é filtrada antes de contar (membro com `audit` vê só os eventos dos registros que lê, sem o registro privado do administrador; colunas sensíveis redigidas); `denied` (sem `TablePermission`) conta zero e recebe `NotFound` no detalhe; páginas numeradas sem repetição, página além do fim vazia e entradas inválidas (`page`, `page_size`, `record_id`, `model_label`) como `InvalidInput`; ator divergente recusado; eventos de B nunca aparecem para o administrador de A, nem pelo identificador; sem organização, quem não administra a plataforma recebe `Forbidden`. Em `test_core_surfaces_on_services.py`, `AuditView`, a página de auditoria e a auditoria da plataforma entraram na lista das superfícies que só chamam serviços. A suíte HTTP existente (`test_audit_findings.py`, `test_http_boundaries.py`, `test_platform_boundary.py` e demais) passou sem mudar expectativas.
+
+**Não verificado:** smoke manual no navegador das páginas de auditoria; o PostgreSQL 16.15 do CI. A primeira rodada PostgreSQL desta branch teve 5 falhas em `test_core_surfaces_on_services.py` porque os arquivos foram editados com a suíte em execução (`inspect.getsource` leu linhas deslocadas); a rodada da tabela, depois das edições, passou inteira.
+## Rodada combinada: instância, webhooks e sequências
+
+Rodada de 2026-11-10 na branch que junta #143, #49, #44, #63, #64, #65, #155 e #156 (um commit por issue e o ajuste final do catálogo da instância e do mapa de pacotes). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 1006 passed, 112 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI, com `test_app_activation_upgrade.py`, `test_sequences.py`, `test_sequence_fields.py`, `test_service_accounts.py`, `test_webhook_endpoints.py`, `test_webhook_delivery.py` e `tests/integration_postgres/test_sequence_concurrency.py` | 382 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido com as quatro tabelas novas; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (31 arquivos), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` | sem problemas, sem migrations pendentes |
+
+As falhas de teste da #44 e da #63 (seções abaixo) não se repetem aqui: a lista inteira passou com as correções.
+
+**Não verificado:** smokes manuais no navegador, entrega de webhook a um destino HTTPS público real, o `run_worker` real, os testes `posix` e o PostgreSQL 16.15 do CI.
+
+## Log, reenvio e teste de webhooks (#65)
+
+Rodada de 2026-11-10 para [#65](https://github.com/alaorneto/skeleton/issues/65): log de entregas (HTML e API), reenvio com `resend_of` (`sk_integrations.0003`), `webhook.ping` e o job periódico `webhooks.retention`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 977 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 369 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run build` e `npm run check` | sem problemas, sem migrations pendentes; o Tailwind passou a ler `skeleton/integrations/templates` |
+
+Cobertura nova em `tests/integration_sqlite/test_webhook_delivery.py` (SQLite e PostgreSQL):
+- o log guarda e mostra no máximo 1 KB da resposta, escapado na página e igual na API;
+- o reenvio exige `If-Match` do endpoint (428/412; no HTML, revisão antiga não cria nada), cria uma entrega nova com `resend_of`, o mesmo evento e o mesmo corpo, e a original continua `failed` com a mesma tentativa e o mesmo status;
+- o `webhook.ping` chega assinado, com `data: {}` e sem registro;
+- membro sem a capacidade e administrador de B recebem 404 na página, na lista, no detalhe e no reenvio, inclusive pela URL de B;
+- a retenção apaga só a entrega final expirada, mantém a que tem retentativa agendada e a original de um reenvio vivo.
+
+**Não verificado:** smoke manual no navegador da página de entregas; o PostgreSQL 16.15 do CI.
+
+## Entrega assinada de webhooks (#64)
+
+Rodada de 2026-11-10 para [#64](https://github.com/alaorneto/skeleton/issues/64): `WebhookDelivery` e `WebhookEndpointHealth` (`sk_integrations.0002`, operacionais), o consumidor `webhooks.fanout`, o job `webhooks.deliver` e a notificação `webhooks.endpoint_disabled`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 972 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_webhook_delivery.py`) | 364 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_webhook_signature.py`: o vetor de teste publicado em `docs/webhooks.md`; duas assinaturas na rotação, a atual primeiro; agenda de retentativas (1 min a 24 h, nada depois da sétima); 5xx/408/429/timeout retentáveis e os demais 4xx não; trecho de resposta limitado a 1 KB e sem caracteres de controle.
+- `tests/integration_sqlite/test_webhook_delivery.py` (SQLite e PostgreSQL, com um receptor HTTP local pelo override de desenvolvimento):
+  - entrega assinada e verificável com o segredo, corpo só com identificadores (nenhum campo da nota), `Skeleton-Webhook-Id` igual à entrega e consumidor idempotente;
+  - 503 é retentado em cerca de 1 minuto e entregue na segunda tentativa; 400 falha sem retentativa;
+  - principal que não lê a nota privada gera entrega `unauthorized` e nada chega ao receptor;
+  - evento não inscrito ou não exposto não cria entrega;
+  - a rotação envia duas assinaturas, ambas válidas;
+  - 15 falhas seguidas desativam o endpoint, notificam os administradores, e o próximo evento não é entregue.
+
+**Não verificado:** entrega a um destino HTTPS público real (a suíte usa o override de desenvolvimento com HTTP local), o worker `run_worker` de fato (os testes usam `run_pending_jobs`) e o PostgreSQL 16.15 do CI.
+
+## Endpoints de webhook por organização (#63)
+
+Rodada de 2026-11-10 para [#63](https://github.com/alaorneto/skeleton/issues/63): app `skeleton.integrations` (`sk_integrations.0001`), `WebhookEndpoint` com segredo cifrado (`INTEGRATION_ENCRYPTION_KEYS`), serviços, páginas e API. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 962 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_webhook_endpoints.py`) | 357 passed, 1 skipped, 1 failed: a consulta crua do teste rodava fora do tenant, e a RLS escondia as linhas. Com a leitura dentro do contexto da organização, `test_webhook_endpoints.py` repetido no PostgreSQL e no SQLite: 13 passed em cada. A lista inteira não foi repetida |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui a infraestrutura nova); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `npm run check` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_webhook_endpoints.py` (SQLite e PostgreSQL):
+- a criação devolve o segredo uma vez, com `no-store`; a leitura, a lista e a página não o mostram; a coluna guarda só o token Fernet; a auditoria não traz nem o segredo nem o texto cifrado;
+- recusas com 400: `http://`, IP privado, nome que resolve para endereço interno, metadados de nuvem, tipo de evento não exposto, desconhecido ou vazio;
+- o principal precisa ser conta de serviço ativa da mesma organização (conta de B e pessoa: 400); campo desconhecido é recusado;
+- sem `integrations.manage` (gestor de pessoas, membro), lista, detalhe e página respondem 404; B não vê o endpoint de A;
+- a rotação exige `If-Match` (428/412), devolve segredo novo e mantém o anterior por 24 horas;
+- `PATCH` e `DELETE` usam CAS, e a URL interna também é recusada na alteração;
+- as páginas HTML exigem CSRF e autenticação recente (redireciona; na API, 403 `reauthentication_required`).
+
+O módulo `outbound_http` passou a resolver o DNS no momento da chamada, para o resolver poder ser substituído; os 45 testes da #49 continuam passando.
+
+**Não verificado:** smoke manual no navegador; o PostgreSQL 16.15 do CI. `INTEGRATION_ENCRYPTION_KEYS` ainda não está no catálogo da configuração da instância (#143, outra branch).
+
+## Contas de serviço (#44)
+
+Rodada de 2026-11-10 para [#44](https://github.com/alaorneto/skeleton/issues/44): `User.account_type`/`service_organization` (`sk_accounts.0002`, com a infraestrutura do `User` reinstalada), `integrations.manage`, `create_service_account`/`deactivate_service_account`, recusa de login e o diretório. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 949 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_service_accounts.py`) | 343 passed, 1 skipped, 1 failed: o teste lia o evento global de auditoria sem a GUC de plataforma, que a RLS exige. Corrigido o teste; depois disso, e do ajuste do diretório, rodaram de novo no PostgreSQL `test_service_accounts.py`, `test_notifications_fanout.py`, `test_core_organization_service.py` e `test_core_identity_service.py`: 23 passed. A lista inteira não foi repetida |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run`, `record_infrastructure sk_accounts` | sem problemas, sem migrations nem infraestrutura pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_service_accounts.py` (SQLite e PostgreSQL):
+- o administrador cria a conta: email `@service.invalid`, senha inutilizável, um vínculo sem papel, auditoria com o administrador como ator, marca nas listas HTML e API;
+- login com a senha inutilizável responde igual a um email desconhecido; mesmo com uma senha forjada no banco, o backend recusa, a sessão forçada não vale, o reset não envia email e `pre_login`/`pre_social_login` negam;
+- `organization_admin`, `app_manager` e `people_manager` são recusados com 400, direto e por grupo, nos dois sentidos; `member` é aceito;
+- o vínculo numa segunda organização é recusado pela API e pelo provisionamento de sistema;
+- a desativação revoga os papéis, desativa vínculo e identidade e incrementa `auth_version`; pessoa e conta de outra organização respondem como indisponíveis;
+- o gestor de pessoas não cria, desativa nem altera o vínculo da conta, mas continua gerindo pessoas;
+- a conta fica fora das listas da plataforma (404 no detalhe), e o CHECK do banco recusa flags de plataforma;
+- fica fora do diretório de pessoas e do fan-out de notificações.
+
+**Não verificado:** a lista inteira do PostgreSQL depois das duas últimas correções; SSO real; o PostgreSQL 16.15 do CI.
+
+## Cliente HTTP de saída com proteção contra SSRF (#49)
+
+Rodada de 2026-11-10 para [#49](https://github.com/alaorneto/skeleton/issues/49): `skeleton/common/outbound_http.py`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 941 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (sem teste novo: o cliente não usa banco) | 337 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com o módulo em modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/unit/test_outbound_http.py` (45 casos):
+- tabela de faixas bloqueadas: loopback, `169.254.169.254`, 10/8, 172.16/12, 192.168/16, CGNAT 100.64/10, `0.0.0.0`, multicast, reservados, documentação, `::1`, `::`, link-local e ULA IPv6, `::ffff:127.0.0.1`, NAT64 e 6to4. Endereços públicos IPv4 e IPv6 passam;
+- URLs internas são recusadas sem nenhuma tentativa de conexão;
+- um nome com qualquer endereço interno é recusado;
+- só HTTPS, portas permitidas (configuráveis) e nenhuma credencial na URL;
+- um resolver que responde público e depois privado é consultado uma vez, e a conexão vai ao endereço público validado;
+- o TLS usa o nome no SNI e no certificado;
+- o override de desenvolvimento é recusado com `DEBUG=False`;
+- com um receptor HTTP local e o override ligado: redirect 302 devolvido sem ser seguido, corpo truncado em 64 KB, `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` ignorados, e exatamente três requisições recebidas.
+
+**Não verificado:** uma requisição HTTPS real a um destino público (a suíte não sai para a internet), deployments atrás de proxy de saída corporativo (sem suporte, documentado) e o PostgreSQL 16.15 do CI.
+
+## Campos de sequência no formulário genérico (#156)
+
+Rodada de 2026-11-10 para [#156](https://github.com/alaorneto/skeleton/issues/156) (epic #89): `TableSpec.sequence_fields`, preenchimento na criação genérica e o check no `skeleton.E028`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 916 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_sequence_fields.py`) | 350 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova em `tests/integration_sqlite/test_sequence_fields.py` (SQLite e PostgreSQL), com a spec do Notes trocada no teste para numerar `code`:
+- a API e o formulário preenchem o código com números consecutivos (`NT-<ano>-001`, `-002`); o formulário não mostra o campo; B numera de forma independente;
+- enviar o código na criação ou no `PATCH` responde 400, sem consumir número nem mudar o código;
+- uma criação recusada pela validação, ou por quem não é membro, não consome número;
+- o check reprova campo inexistente, campo gravável e sequência não declarada.
+
+**Não verificado:** smoke manual no navegador (o exemplo Notes não liga a sequência por padrão); o PostgreSQL 16.15 do CI.
+
+## Sequências sem lacunas (#155)
+
+Rodada de 2026-11-10 para [#155](https://github.com/alaorneto/skeleton/issues/155) (epic #89): app `skeleton.sequences` (`sk_sequences.0001`), registro em código com o check `skeleton.E028`, `next_number` e `SequenceService`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 912 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `tests/integration_postgres/test_sequence_concurrency.py` e `test_sequences.py`) | 346 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido (inclui a tabela nova); smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations pendentes |
+
+Cobertura nova:
+- `tests/unit/test_sequence_registry.py`: declarações válidas; recusas de chave, período, modelo sem `{number}`, campo desconhecido, formato inválido e duplicata; períodos de calendário em UTC.
+- `tests/integration_sqlite/test_sequences.py` (SQLite e PostgreSQL):
+  - números consecutivos no modelo `AT-{year}-{number:04d}`;
+  - um rollback devolve o número, sem lacuna;
+  - organizações, anos, meses e sequências sem período são independentes;
+  - sem tenant, sequência não declarada e data sem fuso são recusadas sem gravar;
+  - os contadores são auditados (criação e incremento) e isolados por organização;
+  - `SequenceService` passa no `assert_service_contract`, só a app dona numera, e ator divergente, ator ausente e contexto global são recusados.
+- `tests/integration_postgres/test_sequence_concurrency.py`: seis alocações simultâneas recebem números distintos e consecutivos, tanto na criação do contador quanto com o contador existente, sem deadlock; B não vê o contador de A.
+
+**Não verificado:** o PostgreSQL 16.15 do CI.
+
+## Configuração da instância num SQLite próprio (#143)
+
+Rodada de 2026-11-10 para [#143](https://github.com/alaorneto/skeleton/issues/143): `skeleton/instance/` (armazém, catálogo, cifra, resolução), `manage.py instance` e os settings lendo ambiente > SQLite > default. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 905 passed, 112 skipped (marcados `posix`, inclusive o teste de permissão 0600, e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (sem teste novo: o armazém não usa o PostgreSQL) | 337 passed, 1 skipped |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy` (com `skeleton/instance` em modo estrito), `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+| Windows, SQLite e chave temporários | `instance status`, `set` (com e sem `--stdin`), `set` de chave desconhecida e de valor inválido, `show` com uma variável de ambiente definida, busca da senha nos bytes do SQLite, settings `development` carregados num processo novo | recusas com mensagem clara; `show` com a origem `env` e o segredo mascarado; a senha não aparece no arquivo; os settings usaram os valores gravados |
+
+Cobertura nova em `tests/unit/test_instance_config.py`:
+- o catálogo é fechado e valida bool, inteiro, lista, URL e escolha; variáveis de bootstrap e a credencial owner ficam fora dele;
+- `set` cifra segredos (a senha e a senha do banco não aparecem nos bytes do SQLite) e `show` os mascara;
+- o `change_log` registra chave, ação e origem, nunca o valor;
+- `set` recusa chave desconhecida e valor inválido sem gravar;
+- o ambiente vence o SQLite, e a origem `env`/`instance`/`default` aparece em `show`;
+- sem a chave mestra, ou com outra, a leitura do segredo falha com erro explícito, sem cair para o default;
+- `import-env`, `unset`, `export-template` (sem valores) e `status`;
+- SQLite e chave em arquivos separados, e criados com 0600 (POSIX);
+- **settings de produção carregados num processo novo só a partir do SQLite**, sem `.env` e sem as variáveis do catálogo.
+
+**Não verificado:** o teste de permissão 0600 (pulado no Windows), o PostgreSQL 16.15 do CI e um smoke num checkout limpo em Linux.
+
+## Apps fechadas por padrão e upgrade da ativação (#22)
+
+Rodada de 2026-11-10 para [#22](https://github.com/alaorneto/skeleton/issues/22): disponibilidade e ativação fechadas por padrão, `upgrade_app_activation`, `set_app_availability`, aviso de `check_skeleton_schema` e de `package doctor`, e agente/núcleo 0.5.0. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 881 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI (com `test_app_activation_upgrade.py`) | 316 passed, 1 skipped, 2 failed em `test_schema_template.py`: o fingerprint compara as linhas e a pré-condição de testes já tinha gravado a disponibilidade. Com o módulo marcado `closed_app_defaults`, `tests/integration_postgres/test_schema_template.py` repetido sozinho: 12 passed. A lista inteira não foi repetida depois dessa correção |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+| SQLite de desenvolvimento novo com o Notes e duas organizações | `check_skeleton_schema`, `upgrade_app_activation --dry-run`, o comando duas vezes, `set_app_availability example_notes --mode selected --enable smoke-a` | aviso de app sem disponibilidade; o dry-run listou e não gravou; a primeira execução criou `all` para o Notes (sem ativações, porque o manifesto do exemplo agora diz `false`), a segunda não fez nada; o CLI deixou o Notes `selected`, concedido e ativo só em `smoke-a`, e o aviso sumiu |
+
+Cobertura nova em `tests/integration_sqlite/test_app_activation_upgrade.py` (SQLite e PostgreSQL, marcado `closed_app_defaults`): sem o upgrade nenhuma app responde (404/403); o upgrade preserva exatamente as apps efetivamente ativas (Notes com default antigo verdadeiro ativo em A, desativado em B por escolha anterior, app com default falso continua desligada), com eventos de `AppInstallation` com `source` `system:upgrade:app-activation`; organização criada depois do upgrade não tem app ativa e repetir o comando não muda nada; app instalada depois nasce `selected` sem concessão e o upgrade não a abre; com inventário do agente, só as apps conhecidas antes viram `all`; interrupção depois de cada fase e falha numa organização retomam sem duplicar linhas (a organização que já tinha confirmado mantém a sua transação); `--dry-run` lista e não grava; linhas do #21 (`upgrade_state` vazio) são processadas uma vez; `set_app_availability` e o aviso do `check_skeleton_schema`. Em `tests/unit/test_package_doctor.py`: `default_enabled: true` gera só o aviso `default_enabled_ignored`. Os testes que dependiam do default aberto passaram a declarar a pré-condição: `skeleton_db` abre e ativa as apps por `skeleton.testing.applications.apps_open_by_default`, e as revisões de ativação vêm de `activation_revision` em vez da revisão virtual 0.
+
+**Não verificado:** os testes do agente (`fcntl`) e de pacotes (`posix`), inclusive o passo novo do `finish()` e a remoção de `activation_default_upgrade_requires_review`; uma atualização real pelo agente; Docker e SSO real; o PostgreSQL 16.15 do CI.
+
+## Saída voluntária da organização e caminhos de ingresso (#25)
+
+Rodada de 2026-11-10 para [#25](https://github.com/alaorneto/skeleton/issues/25): `leave_organization`, `/o/<org>/leave/`, `GET /api/v1/o/<org>/membership/`, `POST /api/v1/o/<org>/membership/leave/`, botão no painel e página inicial em blocos. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 878 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 318 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/integration_sqlite/test_access_lifecycle_regressions.py` (SQLite e PostgreSQL): membro comum com papel direto, grupo e concessão de registro sai, os três vínculos ficam excluídos logicamente e `/o/<org>/` responde 404 na requisição seguinte, sem afetar a organização B onde ele administra; GET da confirmação não altera nada; POST sem CSRF 403, revisão antiga ou ausente 409; o último administrador recebe 409 no HTML e `last_administrator` na API, sem mudança de revisão nem de papéis; a API exige `If-Match` (428), recusa revisão antiga (412), campos no corpo (400), GET (405) e POST sem CSRF (403), e responde 204; administrador direto sai quando outra pessoa administra via grupo, e essa pessoa, agora sozinha, não sai; o serviço recusa ator diferente do contexto; convite aceito depois readmite com o mesmo vínculo; a página inicial sem vínculo mostra os caminhos de ingresso e, com convite aberto na sessão, o bloco "Convite pendente" sem revelar a organização. Em `tests/accounts/test_social_hardening.py`: a confirmação de email do JIT não readmite quem saiu. Em `tests/integration_postgres/test_admin_concurrency.py`: dois administradores saindo ao mesmo tempo serializam no lock da organização (um sai, o outro recebe 409) e a saída concorrente com a remoção do mesmo vínculo pelo administrador termina sem deadlock.
+
+**Não verificado:** smoke manual no navegador; os fluxos de domínio e de link (#26, #28) ainda não existem, então a regra "não readmitir quem saiu" só foi provada para o JIT de SSO; testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
+## Designação de administrador pela plataforma (#20)
+
+Rodada de 2026-11-10 para [#20](https://github.com/alaorneto/skeleton/issues/20): `designate_organization_admin`, `organization_overview`, as razões fechadas de `HTTP_SYSTEM_REASONS` e o card "Administradores" em `/platform/organizations/<id>/`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.13.15, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 875 passed, 111 skipped (marcados `posix` e os que exigem Docker ou PostgreSQL) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI | 315 passed, 1 skipped (o teste do serviço que vaza, que a RLS impede de reproduzir) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .` e `format --check .`, `python -m mypy`, `manage.py check --fail-level WARNING`, `makemigrations --check --dry-run` | sem problemas, sem migrations novas |
+
+Cobertura nova em `tests/integration_sqlite/test_platform_boundary.py` (SQLite e PostgreSQL): lista fechada das razões aceitas por HTTP e recusa para quem não é administrador de plataforma; designar e substituir pelo formulário, com eventos de `MemberRole` com `source` `system:organization:designate-admin` e o administrador de plataforma como ator; a página mostra só contagem e emails dos administradores, não o membro comum; formulário com versão antiga (409), substituir alguém por ele mesmo (400), designar a si mesmo (403), email sem identidade (400); último administrador protegido (409, sem escrita); GET 405, POST sem CSRF 403, autenticação vencida redireciona para reautenticar, não administrador 403; depois de designar, o administrador de plataforma continua com 404 em `/o/<org>/`. Em `tests/integration_postgres/test_admin_concurrency.py`: a designação sob o contexto de A não lê nem altera linhas de B (RLS com a role runtime), e designação concorrente com a remoção de um administrador serializa no lock da organização, sem deadlock.
+
+**Não verificado:** smoke manual no navegador; testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
+## Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122)
+
+Rodada de 2026-11-09 em Windows 11 com Python 3.14 e os locks regenerados por `uv pip compile`. O venv local foi instalado com as versões do novo `requirements-dev.txt` usadas como constraints (sem `--require-hashes`, porque os hashes são de wheels Linux). Para comparação, os testes que falharam também rodaram num venv com os locks anteriores (Django 5.2.18, allauth 65.19.7): passaram nos dois casos, o que confirma que as falhas eram regressões da atualização e não do ambiente.
+
+| Conjunto executado | Backend | Resultado observado |
+|---|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 531 passed, 107 skipped (marcados `posix`, agente e os que exigem Docker) |
+| `ruff check`, `ruff format --check` (0.17.4) e `mypy` | — | sem problemas |
+| `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run` | SQLite em memória | sem problemas, sem migrations novas |
+
+Antes das correções, a mesma suíte teve 13 falhas: API interna de reautenticação removida no allauth 65.21 (`did_recently_authenticate`), `get_authentication_records` passando a exigir o usuário, o decorator `reauthentication_required` deixando de aceitar login recente, e faixas `django >=5.2,<5.3` no manifesto do Notes e no template de scaffold.
+
+**Não verificado nesta rodada:** PostgreSQL com role runtime, os testes POSIX (pacotes, `test_core_distribution`, agente), `pip install --require-hashes` dos locks e build da imagem; ficam a cargo do CI do PR. A suíte emite `RemovedInDjango2028Warning` para as settings `EMAIL_*` (substituídas por `MAILERS` no Django 6.1); a migração fica para uma issue própria.
+
+## Segredos de provedores de identidade cifrados (#19)
+
+Rodada de 2026-11-09 para [#19](https://github.com/alaorneto/skeleton/issues/19): `skeleton/common/crypto.py` (keyrings Fernet por setting, `EncryptedTextField`, `SealedSecret`), MFA sobre o módulo comum, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`, checks E026/E027 e `rotate_identity_provider_keys`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 869 passed, 111 skipped (marcados `posix` e os que exigem Docker) |
+| Windows 11, PostgreSQL 16.2 local descartável (`pgserver`), assertions como `skeleton_runtime` | lista do job `postgres` do CI mais `tests/unit/test_crypto.py` e `tests/accounts/test_identity_provider_secrets.py` | 312 passed, 5 skipped: os 4 testes com tabela descartável de `test_identity_provider_secrets.py` (criada pelo owner do SQLite; os modelos de provedor chegam com #29) e o teste do serviço que vaza |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança válido; smoke do runtime aprovado |
+| Windows | Ruff 0.17.4 `check .`, `python -m mypy`, `manage.py check --fail-level WARNING` | sem problemas |
+
+Cobertura nova: `tests/unit/test_crypto.py` (keyring vazio ou inválido, cifra e decifra, `repr` sem segredo, rotação com `nova,antiga` e leitura só com `nova`, keyrings separados, E026) e `tests/accounts/test_identity_provider_secrets.py` (só texto cifrado no banco, `SealedSecret` na leitura, comando de rotação com saída só de contagens e IDs, rotação sem a chave antiga sem nenhuma escrita, E027). As regressões do MFA (`tests/accounts/test_identity.py`, `test_flows.py`, `test_providers.py`) continuam passando com os dados no formato anterior.
+
+**Não verificado:** testes `posix`, Docker e SSO real; o PostgreSQL 16.15 do CI.
+
+## API de serviços do núcleo e subsistemas (epic #113)
+
+Rodada de 2026-11-09 para o epic [#113](https://github.com/alaorneto/skeleton/issues/113) (#102 a #110) e as dependências implementadas no mesmo branch: #17, #21, #18, #36, #37, #38, #39, #41, #42, #50, #51, #52, #58, #59 e #60. Cada commit de issue foi verificado em seguida num worktree separado; a tabela registra a rodada final no commit `27f9e8e`. Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite (venv com as versões do lock, sem `--require-hashes`) | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 820 passed, 111 skipped (marcados `posix` e os que exigem Docker) |
+| Windows 11, PostgreSQL 16.2 local (binários portáteis do pacote `pgserver`, banco descartável `local_skeleton_test` provisionado por `deploy/postgres/bootstrap.sql`, migrations como `skeleton_owner`, assertions como `skeleton_runtime`) | a lista de testes do job `postgres` do CI (`tests/integration_postgres` e os módulos SQLite listados, inclusive os novos deste epic) | 307 passed, 1 skipped (o teste do serviço que vaza, pulado de propósito no PostgreSQL) |
+| mesmo PostgreSQL | `tools/smoke_postgres.py` | inventário de segurança do schema válido; smoke de segurança do runtime aprovado |
+| Windows | `manage.py check --fail-level WARNING`, `manage.py makemigrations --check --dry-run` | sem problemas; nenhuma migration pendente |
+| Windows, settings de produção com valores descartáveis (como o job `deploy-check`) | `manage.py check --deploy --fail-level WARNING` | sem problemas (inclui o check E024 de armazenamento privado) |
+| Windows | Ruff 0.17.4 `check .`/`format --check .` e `python -m mypy` (estrito em `skeleton/service_api` e `skeleton/testing`) | sem erros |
+
+Cobertura nova, por área:
+
+- **Capacidades e disponibilidade:** `test_capabilities.py` (matriz papel × recurso em HTML e API, escalada negada, reconciliação, MFA, menu) e `test_app_availability.py` (A/B, revogação, dependências, CAS, E017).
+- **RLS e contrato operacional:** `test_self_discovery.py`, `tests/integration_postgres/test_self_discovery_policies.py` (política faltante, extra ou alargada reprova o check de schema) e `test_operational_records.py`.
+- **Jobs e eventos:** `test_jobs_queue.py`, `test_jobs_worker.py` (dois workers PostgreSQL nunca executam o mesmo job), `test_jobs_periodic.py` (dois agendadores concorrentes), `test_domain_events.py` e `test_event_consumers.py`.
+- **Notificações:** `test_notifications_notify.py`, `test_notifications_fanout.py` e `test_notifications_inbox.py` (contador com número constante de consultas; a caixa global revelou no PostgreSQL um JOIN bloqueado pela RLS, corrigido em `sk_notifications.0002`).
+- **Arquivos:** `tests/unit/test_private_storage.py`, `test_attachments.py` e `test_attachment_downloads.py` (streaming com zero consultas, revogação, estados, X-Accel-Redirect).
+- **Serviços do núcleo:** `test_core_identity_service.py`, `test_core_organization_service.py`, `test_core_access_service.py` (matriz papel × ação igual a `authorized_queryset`), `test_core_application_service.py`, `test_core_audit_service.py`, `test_core_notification_service.py`, `test_core_job_event_services.py`, `test_core_file_service.py` e `test_core_surfaces_on_services.py` (superfícies migradas sem caminhos internos e mapeamento único de erros).
+
+**Não verificado nesta rodada:** os testes `posix` (pacotes, agente) e os que exigem Docker, pulados no Windows; SSO real; o PostgreSQL 16.15 do CI (a rodada local usou 16.2). Esses ficam a cargo do CI do PR.
+
+## API de serviços entre apps — core/agente 0.4.0 (epic #112)
+
+Rodada de 2026-11-09 para [#98](https://github.com/alaorneto/skeleton/issues/98), [#99](https://github.com/alaorneto/skeleton/issues/99), [#100](https://github.com/alaorneto/skeleton/issues/100) e [#101](https://github.com/alaorneto/skeleton/issues/101): `runtime.service_api`, checks E012/E018/W018/E019/W019, `package doctor`/`build`, kit `skeleton.testing.service_api`, `NoteService` e gerador. Rodada depois do merge da `main` com Django 6.1.3, django-allauth 65.21.1 e psycopg 3.3.8 (#122). Somente o que rodou:
+
+| Ambiente | Comando | Resultado |
+|---|---|---|
+| Windows 11, Python 3.14.7, SQLite (venv com as versões do lock, sem `--require-hashes`: os hashes são de wheels Linux) | `SKELETON_ENABLE_EXAMPLE_APP=true TEST_DATABASE_URL=sqlite:///:memory: .venv/Scripts/python.exe -m pytest tests/unit tests/integration_sqlite tests/accounts -q` | 680 passed, 108 skipped (marcados `posix` e Docker) |
+| Linux (WSL Debian), Python 3.14.7 standalone, venv com `requirements-dev.txt` por hashes, SQLite | mesmo comando com `.venv/bin/python` | 807 passed, 3 skipped (Compose exige o CLI do Docker): inclui os testes `posix` de artefatos assinados; `pip check` sem problemas |
+| Linux (WSL), mesmo venv | `manage.py check --fail-level WARNING` e `manage.py makemigrations --check --dry-run` | sem problemas; nenhuma migration pendente |
+| Windows | `python -m mypy` (inclui `skeleton/testing` e `skeleton/system/import_boundary.py` no modo estrito) e Ruff 0.17.4 `check`/`format --check` | sem erros |
+
+Cobertura nova: `tests/unit/test_service_api_manifest.py` (validação do campo, piso 0.4.0, manifesto histórico, doctor/build e estrutura E018), `tests/unit/test_import_boundary.py` (imports absolutos, relativos, `from pacote import módulo`, superfícies do núcleo), `tests/unit/test_service_contract_kit.py` (kit contra serviços corretos e defeituosos), `tests/unit/test_package_doctor.py` (fronteira no doctor), `tests/integration_sqlite/test_service_api_checks.py` (checks com apps de fixture registradas), `tests/integration_sqlite/test_notes_service_api.py` (NoteService pelo kit: default deny, A/B, app desativada, ator divergente, CAS, conflito de código, rollback sem evento de auditoria, página e sumário via serviço, e um serviço que vaza B para A reprovado pelo kit) e o fluxo `skeleton_startapp` → `check --fail-level WARNING` → teste de contrato gerado em `tests/integration_sqlite/test_scaffold_end_to_end.py`.
+
+**PostgreSQL com a role runtime não rodou localmente** (sem servidor PostgreSQL nesta máquina). `tests/integration_sqlite/test_notes_service_api.py` foi incluído no job `postgres` do CI; a evidência PostgreSQL é o resultado desse job no PR do epic, não esta rodada. O teste do serviço que vaza é pulado no PostgreSQL de propósito: lá a RLS da role runtime já impede o vazamento.
+
+## Interface Tailwind/Flowbite e administração em `/platform/`
+
+Rodada de 2026-11-08 em Windows 11 com Python 3.14.7 e Django 5.2.18 (venv local; lock Linux instalado sem `--require-hashes`), Node 25.9 para o build do CSS. Cobre a renovação visual, a navegação em três áreas e a retirada do Django admin.
+
+| Conjunto executado | Backend | Resultado observado |
+|---|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 452 passed, 107 skipped (marcados `posix` e os que exigem Docker) |
+| `ruff check`, `ruff format --check` (0.17.4) e `mypy` | — | sem problemas |
+| `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run` | SQLite de desenvolvimento | sem problemas, sem migrations novas |
+| `collectstatic` com `config.settings.build` (ManifestStaticFilesStorage) | — | `url()` das fontes e o JS do Flowbite resolvidos com hash |
+| `npm ci --ignore-scripts` + `npm run check` em `frontend/` | — | CSS e `vendor/` atualizados |
+
+No navegador (servidor de desenvolvimento, SQLite descartável, login real), foram conferidos em 1280px e 390px, claro e escuro: login (inclusive erro), Minha conta (perfil, senha, 2FA, sair), organizações, painel, catálogo, lista com paginação, detalhe, formulário com abas (teclado ArrowLeft/ArrowRight/Home/End), administração de acesso com abas, apps da organização, e toda a área `/platform/` (visão geral, usuários, organizações, catálogo, auditoria, apps, documentação e as cinco etapas de Versões e atualizações, com uma operação de exemplo). Nenhuma página tinha rolagem horizontal em 390px.
+
+**Não verificado nesta rodada:** PostgreSQL/RLS (inclusive a listagem do seletor de organização dentro do contexto tenant), os testes POSIX (`test_core_distribution`, pacotes, agente), o fluxo real com o agente de deployment e o comportamento com JavaScript desligado (`@media (scripting: none)` não emulado).
+
+## Integração do renderer CRUD — core/agente 0.3.0
+
+Rodada de 2026-10-14 com Python 3.14.7, Django 5.2.18 e django-crispy-forms 2.7. Locks runtime/dev regenerados por `pip-compile --generate-hashes` e instalados com `--require-hashes`; `pip check` e `manage.py check` concluíram sem problemas.
+
+| Conjunto executado | Backend | Resultado observado |
+|---|---|---|
+| Nove arquivos do conjunto específico abaixo | SQLite isolado, wheel instalado externamente | 280 passed |
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 499 passed |
+| `tests/integration_postgres` e cinco arquivos HTTP/UI compartilhados abaixo | PostgreSQL 16.15; assertions com `skeleton_runtime` NOSUPERUSER/NOBYPASSRLS | 88 passed |
+
+Os dois conjuntos SQLite conservaram um warning do ZIP malicioso com membro duplicado; a execução PostgreSQL não reportou warnings. O par privado de DSNs passou pelas barreiras de `disposable_database_pair()`: mesmo banco terminado `_skeleton_test`, diferente dos bancos normais, reset explicitamente autorizado, migrations com `skeleton_owner` e verificações com runtime. Não se usou owner para provar isolamento/UI.
+
+```sh
+DJANGO_SETTINGS_MODULE=config.settings.test TEST_DATABASE_URL=sqlite:///:memory: \
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit/test_presentation.py tests/unit/test_packages.py \
+  tests/unit/test_presentation_release_changes.py tests/unit/test_core_distribution.py \
+  tests/integration_sqlite/test_record_presentation.py \
+  tests/integration_sqlite/test_reference_picker.py \
+  tests/integration_sqlite/test_http_boundaries.py \
+  tests/integration_sqlite/test_application_administration.py \
+  tests/integration_sqlite/test_platform_boundary.py -q
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit tests/integration_sqlite tests/accounts -q
+# Ambiente privado já provisionado; não imprimir DSNs:
+set -a
+. .private/runtime/services.env
+set +a
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/integration_postgres \
+  tests/integration_sqlite/test_record_presentation.py \
+  tests/integration_sqlite/test_reference_picker.py \
+  tests/integration_sqlite/test_http_boundaries.py \
+  tests/integration_sqlite/test_application_administration.py \
+  tests/integration_sqlite/test_platform_boundary.py -q
+```
+
+### Smoke do manifesto ao Chromium
+
+Projeto/SQLite/venv Python 3.14 descartáveis **fora do checkout**: wheel `django_skeleton-0.3.0-py3-none-any.whl` construído com `pip wheel --no-deps --no-build-isolation`, dependências runtime instaladas por hashes e wheel instalado com `--no-deps`. Copiados somente overlays `config`/`manage.py`; nenhum diretório `skeleton` foi copiado ao projeto.
+
+A app temporária registrou `Folder` e `Item` como `SecuredRecord`, specs explícitas e manifesto canônico v2. `Folder` não declarou `model_ui`; `Item` declarou code 4/title 8/target 12, body 12/rows 8 e UUID readonly na aba Conteúdo. Body era sensível e write-only desde o startup. Migrations reais instalaram infraestrutura congelada; `migrate`, `sync_table_catalog`, `check_skeleton_schema` e `bootstrap_skeleton` concluíram antes de iniciar runserver em loopback.
+
+Observações com login allauth real, sessão/CSRF e Chromium:
+
+- Catálogo fora do admin abriu ambos os modelos. Desktop 1280px: code/title na mesma linha, razão de larguras corrigida pelo gap ≈2, tanto no form como no detalhe. Mobile 390px: campos em uma coluna e `scrollWidth=390`. Textarea declarou rows 8; detalhe não tinha inputs editáveis.
+- Criação com FK escolhida pelo popup e edição concordaram com API e consulta em contexto autorizado. Body não apareceu em GET edit/detail/API; edição sem opt-in preservou o segredo. Opt-in vazio limpou o valor, inclusive com JavaScript desabilitado; auditoria conservou `[REDACTED]`.
+- POST de body com 10001 caracteres, opt-in marcado e aba inicialmente oculta respondeu 400; título retido, aba Conteúdo ativa, erro/ARIA associado e link do resumo focou `id_body`. ArrowRight/Home/End e seções sem JavaScript foram exercitados.
+- FK de B e FK cuja leitura foi revogada entre GET/POST responderam 400, sem revisão/eventos de escrita residuais. Duas revisões iguais produziram um vencedor: formulário stale 409, API stale 412 e apenas um evento da edição vencedora.
+- GET/Cancelar de delete conservou revisão/audit. Confirmação tinha apenas CSRF/revisão; soft delete/restore conservaram UUID e acrescentaram eventos próprios. Ator delete-sem-read não recebeu título/campos/segredo e seu Cancelar apontou à lista.
+- Desativação bloqueou com 403 o POST de formulário já aberto. A configuração dedicada continuou disponível e reativou a app. Perfil, gestão de acesso e configuração salvaram pelo renderer comum; modelo sem UI usou spans 12 automáticos.
+- `/admin/` mostrou somente configuração/parametrização, sem listas/forms de Item/Folder. CSS/JS do renderer vieram da própria origem, sem CDN. A regressão do wheel também renderizou form/detail nos cinco profiles, com valores/erros escapados e media uma vez.
+
+Tabs, servidor, PostgreSQL iniciado para a fixture e arquivos temporários do smoke foram encerrados/removidos. Os arquivos privados PostgreSQL preexistentes foram preservados. Esta prova é de renderer/CRUD/autorização nos backends indicados; não homologa SSO externo, Compose ou backup/restore pelo agente.
+
+
+## Verificação da revisão de código e documentação
+
+Rodada de 2026-10-13, posterior ao checkpoint inicial `2207ba4`, com Python 3.14.7 e Django 5.2.18. Os resultados históricos das seções seguintes foram mantidos, não substituídos por contagens inferidas.
+
+| Conjunto | Evidência observada |
+|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | 306 passed, um warning do ZIP malicioso |
+| Matriz PostgreSQL: segurança/infraestrutura, deployment, schema retido, gov.br e rollback da criação de organização | 104 casos concluídos com `skeleton_runtime`, em dois lotes |
+| `tests/sso` | 25 passed, Chromium e Keycloak 26.8.0 reais, 94 warnings SAML preservados |
+
+O primeiro comando PostgreSQL coletou 104 casos e atingiu seu limite operacional de 600 segundos depois de 86 casos concluídos. A retomada executou exatamente os 17 casos gov.br restantes e o caso de rollback da organização: **18 passed**. Não houve falha de assertion nessa matriz, mas o timeout não foi apresentado como uma execução única bem-sucedida. Separadamente, os quatro cenários de concorrência administrativa e o rollback da organização passaram juntos (**5 passed**); as dez regressões de journal passaram após remover uma assertion incidental sobre flags de `flock`.
+
+### Reproduções e smokes desta revisão
+
+- **Antes da correção:** criação com objeto de proprietário ainda ativo em memória, mas desativado no banco, deixou uma organização órfã. Depois, a validação continuou recusando o vínculo e a organização não permaneceu.
+- **HTTP real + PostgreSQL runtime + Redis:** duas sessões com cookies/CSRF reais, POST e PATCH concorrentes do mesmo vínculo. Antes, `201/500` com deadlock; depois, `201/412`, vínculo desativado, revisão incrementada uma vez e sem sobrescrita silenciosa. Hooks apenas coordenaram o instante dos locks; não substituíram SQL, views ou respostas.
+- **HTML no Chromium + SQLite isolado:** formulário aberto na revisão 1; mudança concorrente pela API confirmou revisão 2. O envio do formulário antigo retornou 409 e exibiu a orientação de atualizar a página. GET posterior conservou estado e ETag da revisão 2.
+- **Agente real + socket Unix:** a resposta de `/submit` foi descartada depois da persistência do journal. O worker real encontrou drift de arquivo e falhou antes de manutenção. Reenvio com vínculo idêntico recuperou o mesmo resultado; outro request ID recebeu `idempotency_conflict`. Nenhum novo worker, gate ou cutover foi iniciado. Esse negativo prova transporte/idempotência, não atualização ou restauração completas.
+- **Documentação e CLI:** 16 documentos Markdown verificados quanto a links relativos, anchors, fences e headings obrigatórios do exemplo. `manage.py package versions --manifest examples/notes/manifest.json` informou core `0.1.0` instalado e Notes `0.1.0` project-local. `check` passou, `makemigrations --check --dry-run` não encontrou mudanças e `pip check` não encontrou dependências quebradas.
+
+Scripts e bancos desses smokes são descartáveis. Esta revisão não homologa gov.br, não ensaia Compose e não acrescenta prova de backup/restore PostgreSQL pelo agente. A evidência histórica diretório/SQLite abaixo mantém seu escopo original.
+
+
+O smoke `tools/smoke_postgres.py` também passou nesta rodada: runtime sem ownership/superuser/BYPASSRLS, inventário exato de RLS/FORCE, ausência de contexto, isolamento A/B e entre conexões, FK tenant, imutabilidade, recusa de DML/DDL privilegiado, limpeza após COMMIT/ROLLBACK e rollback conjunto de negócio/auditoria quando INSERT do writer é revogado. O schema check runtime confirmou o inventário de segurança.
+
+## Verificação da retomada: versões, pacotes e gov.br
+
+Registro histórico da retomada, com Python 3.14.7, locks então usados e bancos isolados. Os números abaixo foram efetivamente observados naquela rodada; não são a contagem atual garantida nem resultado desta revisão documental:
+
+| Suíte | Backend/protocolo exercitado | Resultado |
+|---|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado, artefatos assinados e wheels reais | 279 passed |
+| `tests/integration_postgres` + `test_deployment_records.py`, `test_retained_schema.py`, `test_govbr.py` | PostgreSQL 16.15, assertions com `skeleton_runtime` | 83 passed |
+| `tests/sso` | Chromium e Keycloak 26.8.0 reais, OIDC/SAML | 25 passed |
+
+Também executados: `manage.py check` sem problemas, `makemigrations --check --dry-run` sem alterações e `pip check` sem dependências quebradas. `tools/smoke_postgres.py` passou com runtime sem ownership/superuser/BYPASSRLS, incluindo isolamento A/B, guards/FKs, COMMIT/ROLLBACK e rollback de negócio/auditoria quando INSERT do writer é revogado.
+
+### Smoke de instalação e atualização, não apenas testes
+
+Deployment descartável em diretório com agente Unix-socket independente, virtualenv/wheelhouse offline bloqueado por hashes, Gunicorn real, banco SQLite externo aos releases e login/sessão/CSRF reais no Chromium:
+
+- Publicados pacotes assinados do exemplo Notes e wheels core somente com `skeleton`. Exercitados os comandos `manage.py package init`, `versions`, `build` e `validate`, além das APIs de assinatura/publicação do core.
+- Pelo admin: upload verificado → preview de arquivos/recursos/migrations → aprovação → manutenção/backup/migrator/checks runtime → reinício → confirmação. Apps instalaram em `applications/notes`, sem editar overlays do projeto.
+- Notes `0.1.0` → `0.2.0`: dois registros em organizações distintas, incluindo tombstone, conservaram UUIDs, conteúdo e revisão; configurações e audit permaneceram. O arquivo antigo declarado deixou o release ativo.
+- Desinstalação removeu código/rotas ativas, conservou schema, três eventos audit de negócio e migrations históricas reais; reinstalação conservou dados e deixou ambas organizações desabilitadas. Reativação explícita pela UI tenant restaurou leitura de seu registro/configuração, sem ativar a outra organização.
+- Upgrades core de fixtures até `0.1.3` pela interface conservaram `config/settings/project.py`, rota customizada e dados empresariais. Esses números são versões dos artefatos descartáveis, não alteração da versão publicada deste checkout.
+- Índice local assinado mostrou app atual e core disponível. POST sem CSRF retornou 403; usuário autenticado somente como admin de organização recebeu 403 no admin de releases. Reautenticação foi exigida ao expirar a janela.
+- Ticket antecipado exibiu `awaiting_submission`, acompanhou a operação durante manutenção e não foi persistido no resultado. Histórico voltou após reinício. Painel e plano foram vistos em viewport de 390px, sem overflow global.
+- Uma migration real deliberadamente falha conservou manutenção e dados. Com o daemon parado, `recover <id> restore` restaurou backup/release anterior, removeu o gate somente após checks/health e apareceu como `restored` na UI. A migration falha não ficou aplicada.
+- Probe separado de startup aceitou manifesto local coerente e recusou versão local divergente do inventário. Os dez servidores LSP iniciaram; navegação Python resolveu Django na `.venv`, símbolos de documentos/estilos/configurações responderam e SQL foi analisado sem conexão ao banco.
+
+As verificações encontraram e corrigiram falhas reais de integração: markers Python com duas partes tratados como SemVer, limite de um artefato aplicado ao wheelhouse completo, `config.py` do agente sombreando settings no probe, permissões congeladas copiadas ao staging, enum de lifecycle incompleto, fallback de template sobre chave inexistente, admissão gov.br sem email e initial de formulário de convite. O negativo de nonce assinado pelo IdP foi corrigido para interceptar o primeiro request do redirect, realmente alterar o nonce antes da assinatura e verificar recusa sem criar identidade.
+
+### Limites desta verificação
+
+O fluxo diretório/SQLite acima não prova execução de imagem/Compose nem backup/restore de PostgreSQL pelo agente. Esses caminhos têm implementação/runbook, mas continuam sem smoke completo nesta rodada; não foi concedido acesso adicional ao daemon Docker nem há runtime rootless alternativo instalado. Não extrapole as assertions PostgreSQL de segurança para cutover/restore de container.
+
+Gov.br: os 36 casos de perfil no conjunto de contas usam JWTs RS256 locais e transporte HTTP controlado; Keycloak real prova os contratos corporativos OIDC/SAML, **não** homologação governamental. Credenciais/callback/logout autorizados de gov.br continuam ausentes. Login/logout governamentais reais e aprovação produtiva dependem do credenciamento descrito em [authentication-sso](authentication-sso.md#credenciamento-e-evidência-obrigatória). Nenhuma dessas aprovações foi simulada.
+
+Um warning ZIP de membro duplicado pertence ao teste de pacote malicioso. Os 94 DeprecationWarnings de `python3-saml` continuam visíveis; não foram ocultados.
+
+### Comandos das suítes desta retomada
+
+```sh
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit tests/integration_sqlite tests/accounts
+# Ambiente privado dos dois DSNs do mesmo DB descartável e marcador de reset:
+set -a
+. .private/runtime/services.env
+set +a
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/integration_postgres \
+  tests/integration_sqlite/test_deployment_records.py \
+  tests/integration_sqlite/test_retained_schema.py tests/accounts/test_govbr.py
+.venv/bin/python tools/smoke_postgres.py
+# Keycloak real iniciado; exports preparados antes de carregar Django:
+. .private/sso-fixtures/environment.sh
+env -u TEST_DATABASE_URL -u TEST_MIGRATION_DATABASE_URL \
+  SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest tests/sso
+```
+
+Serviços e scripts descartáveis do smoke são encerrados/removidos após a prova. Fixtures privadas preexistentes permanecem ignoradas; não são configuração produtiva. Para repetir o fluxo administrativo, siga o provisionamento de [deployment](deployment.md#agente-independente-de-deployment) com raiz/DB descartáveis e pacotes reais; não reaplique reset sobre dados de instalação.
+
+## Verificação anterior: correções de segurança
+
+Verificação final das correções executada em 2026-10-12, com Python 3.14.7 e os locks deste template:
+
+| Suíte | Backend real | Resultado observado |
+|---|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | SQLite isolado | 137 passed |
+| `tests/integration_postgres` + regressões compartilhadas de apps, acesso, audit e contas (comando abaixo) | PostgreSQL 16.15, `skeleton_runtime` sem BYPASSRLS | 78 passed |
+| `tests/sso` | Chromium + Keycloak 26.8.0, OIDC e SAML em dois realms | 23 passed |
+
+Nesta rodada também executados: setup em SQLite vazio (`migrate`, catálogo, schema check e bootstrap), `check` sem problemas, `makemigrations --check --dry-run` sem alterações e `pip check` sem dependências quebradas. Na integração inicial, anterior às correções, também foram executados bootstrap repetido, `collectstatic` (160 arquivos existentes e 421 pós-processados) e sincronizações idempotentes de catálogo (29 tabelas e 291 campos naquele schema).
+
+Smoke desta rodada no Chromium com login real, cookies e CSRF: configuração da app alterou o título da página própria; desativação removeu o menu e bloqueou sua API com 403. PATCH JSON acima de 1048576 bytes respondeu 413 `request_too_large`, mantendo ETag e perfil inalterados. A superfície também retornou `X-Frame-Options: DENY`. Banco/servidor temporários foram descartados. O smoke PostgreSQL passou novamente com runtime restrito e schema check positivo; negativos de trigger, lifecycle e FK passaram na suíte.
+
+Na integração inicial, Gunicorn WSGI foi iniciado com PostgreSQL/Redis reais: readiness respondeu HTTP 200/`status=ok` e WhiteNoise entregou `site.css`. O navegador exibiu conflito ao remover o último administrador, preservando a sessão. Esses smokes históricos não são build de imagem nem implantação HTTPS/SMTP produtiva.
+
+Ao terminar a integração, todas as abas e os serviços descartáveis de aplicação, Gunicorn, PostgreSQL, Redis e Keycloak foram encerrados. Os arquivos privados ignorados permanecem apenas como fixtures locais; os comandos abaixo exigem reiniciar/provisionar os serviços antes de repetir.
+
+`tools/smoke_postgres.py` passou usando conexões runtime: inventário exato de RLS/FORCE/policies, isolamento A/B, FK composta, imutabilidade, recusa de DML/DDL privilegiado, limpeza após COMMIT/ROLLBACK, conexões intercaladas e rollback conjunto de negócio/auditoria quando INSERT do writer foi revogado. O guard por owner foi exercitado separadamente, sem apresentá-lo como prova de RLS. A suíte PostgreSQL também demonstrou dois consumidores concorrentes de convite com exatamente um vencedor e lifecycle global sem perder o último administrador de outra organização.
+
+Na integração inicial, o navegador real também exercitou login, perfil, emissão/aceitação de convite com email fixado, cadastro, reset por link de mailbox, grupos/vínculos, visibilidade, auditoria redigida, exclusão lógica/restauração com o mesmo UUID e layout de 390px sem overflow global. Cookie/CSRF reais deram PATCH 200, falta de CSRF 403 e revisão antiga 412; outro usuário recebeu lista privada vazia/detalhe 404 e, após compartilhamento, GET 200 mas PATCH 403. Login MFA correto/incorreto após rotação e recovery code de uso único foram exercitados via endpoints reais na suíte de contas.
+
+Os negativos OIDC/SAML manipulam intercâmbios reais do IdP, sem substituir seus validadores. A rodada final passou com 94 DeprecationWarnings de `python3-saml` sobre `datetime.utcnow/utcfromtimestamp` no Python atual; avisos não foram ocultados.
+
+Serviços usados: PostgreSQL em loopback:5433, Redis 8.8.3 em loopback:6380 na integração inicial e em socket temporário no probe de regressão, e Keycloak em loopback:8080, isolados e sem alterar configurações/grupos/socket do sistema. Arquivos privados de fixture em `.private/runtime/services.env` e `.private/sso-fixtures` são ignorados e não são configuração produtiva. O Docker default recusou o socket: build/execução da imagem e da stack Compose **não foram verificados**; renderização da configuração e execução isolada dos probes foram verificadas. GitHub OAuth real, SMTP externo, HTTPS/domínio produtivo e transporte de dados SQLite→PostgreSQL **não foram exercitados** por falta de credenciais/ambiente ou por serem procedimentos offline de outro projeto.
+
+Para repetir em outra máquina, provisione os pré-requisitos abaixo; falta de serviço/secret é falha de pré-requisito, não aprovação por SQLite ou mocks. Não execute reset/DDL concorrente sobre o mesmo banco de fixture.
+
+### Regressões dos achados recuperados
+
+As correções cobrem EA01–EA09, SP01–SP05, RD01–RD10 e SBR01–SBR16. Os históricos da implementação registram falhas antes das alterações; as regressões permanentes abaixo exercitam os contratos corrigidos. Requisitos de providers ainda não habilitados e hipóteses sem reprodução não foram convertidos em bugs confirmados.
+
+| Achados | Regressões permanentes |
+|---|---|
+| EA01, EA03–EA09 | `tests/integration_sqlite/test_app_extensions.py` |
+| EA02, SBR08, SBR14 | `tests/integration_sqlite/test_recovered_surfaces.py` |
+| SP01–SP05, SBR03, SBR10, SBR13 | `tests/accounts/test_social_hardening.py` |
+| RD01, RD06, SBR02, SBR11, SBR12 | `tests/accounts/test_lifecycle_findings.py` |
+| RD03, RD04 | `tests/integration_postgres/test_schema_assurance.py` |
+| RD05, SBR01, SBR04 | `tests/integration_sqlite/test_access_lifecycle_regressions.py` |
+| SBR05, SBR06 | `tests/integration_sqlite/test_audit_findings.py` |
+| RD02, RD10, SBR07, SBR15, SBR16 | `tests/integration_sqlite/test_http_findings.py` |
+| RD07–RD09, SBR09 | `tests/unit/test_deployment_findings.py` |
+
+RD04 inclui substituir a função de lifecycle por uma procedure de mesmo nome, assinatura e corpo: antes da correção, o check retornou `[]` e a regressão falhou. SBR03 inclui novo callback antes da confirmação local, preservando a admissão inicial sem permitir readmissão de vínculo suspenso; o fluxo SAML real também executa essa repetição.
+
+As regressões de deployment usam `docker compose config --format json`, executam o probe renderizado contra Redis real e o probe web contra servidor WSGI real com Host produtivo permitido. Isso comprova esses comandos/configurações, não build de imagem nem execução da stack pelo daemon Docker.
+
+
+## Administração/configuração e viewer — core 0.2.0
+
+Rodada desta implementação, com Notes opt-in, Python 3.14 e Django 5.2.18:
+
+| Execução observada | Resultado |
+|---|---|
+| `tests/unit tests/integration_sqlite tests/accounts` | 402 passed; 1 warning esperado de ZIP com membro duplicado no negativo de arquivo malicioso |
+| PostgreSQL 16.15, role runtime restrita: `tests/integration_postgres` + administração, apresentação, picker, fronteira de admin e extensões | 76 passed |
+| Login real e HTTP do projeto gerado com dois modelos expostos e um não exposto | CAS 200/412/409; FK revogada recusada; A/B, mass assignment e filtro desconhecido negados; boolean null; delete/restore com mesmo UUID; write-only preservado/limpo |
+| Chromium real, desktop/390px/sem JavaScript | Admin só parâmetros; viewer e registros globais externos; abas por teclado; erro focável na aba correta; sem disclosure write-only; popup seleciona UUID autorizado; largura do documento 390px |
+| Agente independente, backend directory, SQLite e Gunicorn com dois workers | Core update e install → update → uninstall → reinstall confirmados; negativo de staging e restore de migration falhada confirmados |
+
+Comandos das duas matrizes:
+
+```sh
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/unit tests/integration_sqlite tests/accounts -q
+
+# Ambiente privado de DB descartável, runtime/owner separados como descrito acima:
+SKELETON_ENABLE_EXAMPLE_APP=true .venv/bin/python -m pytest \
+  tests/integration_postgres \
+  tests/integration_sqlite/test_application_administration.py \
+  tests/integration_sqlite/test_record_presentation.py \
+  tests/integration_sqlite/test_reference_picker.py \
+  tests/integration_sqlite/test_platform_boundary.py \
+  tests/integration_sqlite/test_app_extensions.py -q
+```
+
+Os testes de fronteira percorrem login allauth/CSRF, flags/MFA, namespace único, rotas antigas 404, shell/media e CAS dos registros globais. Os testes de apresentação/picker cobrem projeção, orçamento de queries independente de linhas, relações negadas, cobertura/widget/allowlists e serviços próprios comuns a HTML/API. V1 assinado, rejeições do schema v2 e diffs/compatibilidade de configuração fazem parte dos unitários. A rodada completa antecedeu apenas a adição do clearfix no shell; essa correção foi confirmada no navegador com rodapé abaixo do formulário e mesmas mídias.
+
+### Smoke de lifecycle observado
+
+Fixture de publicador/app própria assinada, trust store privado, ambientes offline por hashes, DB externo ao release, supervisor real e canal independente:
+
+- Core 0.2.0 novo ativado na geração 1; instalação do app 0.1.0 na geração 2 mostrou exatamente um grupo, sem links/modelos de negócio no admin. Configuração tenant começou na revisão virtual 0 e foi persistida pela tela real.
+- Update 0.2.0 na geração 3 exibiu `presentation_changes` para campo/label, tela removida/adicionada e colunas. Grupo não duplicou; tela velha saiu, tela nova apareceu; UUIDs de configuração e registro, e valor configurado, permaneceram.
+- Coluna write-only numa lista de um pacote assinado foi recusada no staging com `static_checks_failed`, sem formulário de aprovação e sem cutover.
+- Uninstall na geração 4 mostrou retenção de dois registros em uma organização e removeu o grupo. Reinstall na geração 5 conservou registro/configuração/valor e voltou desativado; negócio retornou 403 até reativação explícita. Formulário aberto antes de desativar também recebeu 403 no POST, enquanto parâmetros permitiram reativar.
+- Update com `RunPython` histórica deliberadamente falhada terminou `failed/migration_failed`, geração 5, backup registrado e sem workers servindo o destino. Com daemon parado, `recover <operation> restore` confirmou `restored`. Depois de checks/saúde e reinício, browser/API observaram app 0.2.0, tela anterior válida, mesmos UUIDs e configuração anterior; nenhuma publicação parcial.
+
+Os scripts/chaves/DBs eram descartáveis e não são fixtures distribuídas. Essa rodada **não ensaiou lifecycle/backup/restore PostgreSQL ou backend Compose**, nem repetiu SSO/Keycloak/gov.br. Os 76 testes PostgreSQL demonstram contratos de runtime/RLS e das superfícies, não essas operações de deployment. Resultado SQLite não substitui esses ensaios produtivos.
+
+Fechamento: o negativo/positivo de fronteira administrativa passou novamente (**5 passed**) após o clearfix; `manage.py check` não encontrou problemas e `makemigrations --check --dry-run` não detectou mudanças. Verificador descartável confirmou links locais de 16 documentos e validou o exemplo JSON do contrato pelo schema fechado de apresentação.

@@ -1,15 +1,14 @@
 """FileService of the core service API (#109)."""
 
 import io
-from dataclasses import replace
 
 import pytest
 from django.test import override_settings
 
 from skeleton.service_api.errors import Conflict, Forbidden, InvalidInput, NotFound
 from skeleton.service_api.files import FileService
-from skeleton.system import registry
 from skeleton.system.registry import AttachmentPolicy
+from skeleton.testing.registries import table_spec_override
 from skeleton.testing.service_api import (
     acting_as,
     assert_rejects_other_actor,
@@ -29,24 +28,18 @@ def test_contract():
 
 @pytest.fixture
 def scenario(monkeypatch):
-    from django.apps import apps
 
-    if not apps.is_installed("examples.notes"):
-        pytest.skip("SKELETON_ENABLE_EXAMPLE_APP=true is required")
     from examples.notes.models import Note
 
-    monkeypatch.setitem(
-        registry._registry,
-        TABLE,
-        replace(registry._registry[TABLE], attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))),
-    )
-    return build_service_scenario(Note, slug="file-service")
+    with table_spec_override(TABLE, attachments=AttachmentPolicy(max_bytes=1000, types=("application/pdf",))):
+        yield build_service_scenario(Note, slug="file-service")
 
 
 def attach(service, actor, note, *, content=PDF, name="doc.pdf"):
     return service.attach(actor=actor, table_key=TABLE, record_id=note.pk, filename=name, stream=io.BytesIO(content))
 
 
+@pytest.mark.needs_example_app
 def test_attach_list_download_url_and_remove_with_cas(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="FS-1", title="T")
     service = FileService()
@@ -72,6 +65,7 @@ def test_attach_list_download_url_and_remove_with_cas(scenario):
         assert service.list(actor=actor, table_key=TABLE, record_id=note.pk).items == ()
 
 
+@pytest.mark.needs_example_app
 def test_reader_without_update_is_forbidden_and_foreign_target_not_found(scenario):
     shared = scenario.create(scenario.a, owner=scenario.admin_a, code="FS-2", title="T", visibility="organization")
     foreign = scenario.create(scenario.b, owner=scenario.member, code="FS-3", title="B secret")
@@ -99,6 +93,7 @@ def test_reader_without_update_is_forbidden_and_foreign_target_not_found(scenari
     )
 
 
+@pytest.mark.needs_example_app
 def test_quota_exceeded_is_a_conflict(scenario):
     note = scenario.create(scenario.a, owner=scenario.member, code="FS-5", title="T")
     service = FileService()
@@ -112,6 +107,7 @@ def test_quota_exceeded_is_a_conflict(scenario):
     assert error.value.code == "quota_exceeded"
 
 
+@pytest.mark.needs_example_app
 def test_pending_or_quarantined_has_no_download_url(scenario):
     from skeleton.files.models import Attachment
     from skeleton.tenancy.context import system_context
@@ -124,3 +120,51 @@ def test_pending_or_quarantined_has_no_download_url(scenario):
         Attachment.objects.filter(pk=info.sysid).update(state="quarantined")
     with acting_as(scenario.member, scenario.a) as actor, pytest.raises(NotFound):
         service.download_url(actor=actor, attachment_id=info.sysid)
+
+
+@pytest.mark.needs_example_app
+def test_list_walks_oldest_first_with_keyset(scenario):
+    """Keyset pages over (created_at, sysid) (#305)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-KEY", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        created = [attach(service, actor, note, name=f"doc-{index}.pdf").sysid for index in range(3)]
+        first = service.list(actor=actor, table_key=TABLE, record_id=note.pk, page_size=2)
+        rest = service.list(actor=actor, table_key=TABLE, record_id=note.pk, page_size=2, cursor=first.next_cursor)
+    assert [item.sysid for item in (*first.items, *rest.items)] == created
+    assert rest.next_cursor is None
+
+
+@pytest.mark.needs_example_app
+def test_remove_twice_with_the_same_revision(scenario):
+    """Two removals with one revision: one wins; the other finds no live attachment (#319).
+
+    A removal is the attachment's only write, so the loser does not see a newer revision: it
+    sees a tombstone, which the service answers as NotFound ("inexistente"), never a second
+    removal. A stale revision on a live attachment is Conflict (see the test above).
+    """
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-CAS", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        info = attach(service, actor, note)
+
+    def remove(actor):
+        return service.remove(actor=actor, attachment_id=info.sysid, expected_revision=info.revision)
+
+    scenario.caller(remove)()
+    with pytest.raises(NotFound):
+        scenario.caller(remove)()
+
+
+@pytest.mark.needs_example_app
+def test_file_methods_follow_table_app_activation(scenario):
+    """With the table's app disabled, attach and list answer an error, never data (#319)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="FS-OFF", title="T")
+    service = FileService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        attach(service, actor, note)
+    with scenario.application_disabled(scenario.a), acting_as(scenario.member, scenario.a) as actor:
+        with pytest.raises((NotFound, Forbidden)):
+            service.list(actor=actor, table_key=TABLE, record_id=note.pk)
+        with pytest.raises((NotFound, Forbidden)):
+            attach(service, actor, note, name="other.pdf")

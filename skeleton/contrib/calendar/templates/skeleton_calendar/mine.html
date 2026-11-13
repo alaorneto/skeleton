@@ -1,14 +1,15 @@
-{% extends "skeleton/web/base.html" %}{% block title %}Minha agenda · Skeleton{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Minha agenda · Skeleton" %}{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div class="min-w-0"><p class="page-eyebrow">Agenda</p><h1>Minha agenda</h1><p class="page-description">Próximos 14 dias em todas as suas organizações, no fuso {{ zone }}. Cada organização mostra só o que você pode ler nela.</p></div>
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Agenda" %}</p><h1>{% translate "Minha agenda" %}</h1><p class="page-description">{% translate "Próximos 14 dias em todas as suas organizações, no fuso" %} {{ zone }}. {% translate "Cada organização mostra só o que você pode ler nela." %}</p></div>
 </div>
-<p class="mb-4"><a href="{% url 'skeleton_calendar_me:feed-token' %}">Assinar a agenda num cliente de calendário</a></p>
+<p class="mb-4"><a href="{% url 'skeleton_calendar_me:feed-token' %}">{% translate "Assinar a agenda num cliente de calendário" %}</a></p>
 {% if organizations %}
-<nav class="mb-4" aria-label="Novo evento por organização"><p class="text-sm text-body-subtle">Novo evento em:</p><ul class="mt-1 flex flex-wrap gap-2">{% for organization in organizations %}<li><a class="btn btn-secondary" href="{{ organization.new_url }}">{{ organization.name }}</a></li>{% endfor %}</ul></nav>
+<nav class="mb-4" aria-label="{% translate "Novo evento por organização" %}"><p class="text-sm text-body-subtle">{% translate "Novo evento em:" %}</p><ul class="mt-1 flex flex-wrap gap-2">{% for organization in organizations %}<li><a class="btn btn-secondary" href="{{ organization.new_url }}">{{ organization.name }}</a></li>{% endfor %}</ul></nav>
 {% endif %}
-<div class="table-scroll"><table><thead><tr><th scope="col">Quando</th><th scope="col">Evento</th><th scope="col">Organização</th></tr></thead><tbody>
-{% for item in items %}<tr><td class="whitespace-nowrap!">{% if item.occurrence.all_day %}{{ item.occurrence.start_date|date:"d/m" }} (dia inteiro){% else %}<time datetime="{{ item.start|date:'c' }}">{{ item.start|date:"D d/m H:i" }}</time>{% endif %}</td><td>{% if item.occurrence.busy_only %}<span class="text-body-subtle">Ocupado</span>{% else %}{{ item.occurrence.title }}{% endif %}</td><td>{{ item.organization }}</td></tr>
-{% empty %}<tr><td colspan="3" class="empty-state">Nada nos próximos 14 dias.</td></tr>{% endfor %}
+{% if skipped %}<p class="alert mb-4" role="status">{% translate "Eventos demais para listar em:" %} {{ skipped|join:", " }}.</p>{% endif %}
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Quando" %}</th><th scope="col">{% translate "Evento" %}</th><th scope="col">{% translate "Organização" %}</th></tr></thead><tbody>
+{% for item in items %}<tr><td class="whitespace-nowrap!">{% if item.occurrence.all_day %}{{ item.occurrence.start_date|date:"d/m" }} ({% translate "dia inteiro)" %}{% else %}<time datetime="{{ item.start|date:'c' }}">{{ item.start|date:"D d/m H:i" }}</time>{% endif %}</td><td>{% if item.occurrence.busy_only %}<span class="text-body-subtle">{% translate "Ocupado" %}</span>{% else %}{{ item.occurrence.title }}{% endif %}</td><td>{{ item.organization }}</td></tr>
+{% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nada nos próximos 14 dias." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% endblock %}

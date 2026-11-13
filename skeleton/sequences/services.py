@@ -2,7 +2,8 @@
 
 The counter row of ``(organization, key, period)`` is locked with ``SELECT … FOR UPDATE``;
 its first creation is serialized on the organization lock, so two transactions never both
-create it. Incrementing in the caller's transaction is what makes the numbering gapless: a
+create it. That lock is ``FOR NO KEY UPDATE`` (#239): it does not conflict with the inserts the
+transaction already made, whose foreign keys take ``FOR KEY SHARE`` on the organization. Incrementing in the caller's transaction is what makes the numbering gapless: a
 rollback of the business write also rolls the counter back, and the next allocation reuses
 the number. The price is that allocations of one sequence and period in one organization
 run one at a time.
@@ -17,6 +18,7 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext
 
 from skeleton.common.exceptions import MissingTenantContext
 from skeleton.tenancy.context import current_context
@@ -52,10 +54,10 @@ def next_number(key: str, *, at: datetime | None = None) -> SequenceNumber:
     try:
         spec = get_sequence(key)
     except KeyError:
-        raise ValidationError({"key": "Sequência não declarada."}) from None
+        raise ValidationError({"key": gettext("Sequência não declarada.")}) from None
     moment = at or timezone.now()
     if timezone.is_naive(moment):
-        raise ValidationError({"at": "Use data e hora com fuso."})
+        raise ValidationError({"at": gettext("Use data e hora com fuso.")})
     period = period_of(spec, moment)
     with transaction.atomic():
         counter = SequenceCounter.objects.select_for_update().filter(key=key, period=period).first()

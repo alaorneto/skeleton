@@ -57,7 +57,7 @@ def fixture_app(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(tmp_path))
     write(tmp_path, "svc_fixtures/__init__.py", "")
     labels, configs = [], {}
-    real_apps = checks.apps
+    real_apps = checks.service_api.apps
 
     class Apps:
         def get_app_config(self, label):
@@ -68,7 +68,7 @@ def fixture_app(tmp_path, monkeypatch):
         def __getattr__(self, name):
             return getattr(real_apps, name)
 
-    monkeypatch.setattr(checks, "apps", Apps())
+    monkeypatch.setattr(checks.service_api, "apps", Apps())
 
     def make(label, *, files=None, docs=DOCS, service=True, dependencies=(), service_module=None):
         package = f"svc_fixtures.{label}"
@@ -214,6 +214,7 @@ def test_non_public_core_import_is_a_warning(fixture_app):
     assert ids(boundary("svc_core"), "skeleton.") == ["skeleton.W019"]
 
 
+@pytest.mark.needs_example_app
 def test_importing_notes_internals_from_a_fixture_app_fails(fixture_app):
     notes = get_app("example_notes")
     assert notes.service_api == ServiceAPIDeclaration("examples.notes.service_api", ("NoteService",))
@@ -230,6 +231,7 @@ def test_importing_notes_internals_from_a_fixture_app_fails(fixture_app):
     assert sorted(error.msg.split(":")[1].strip() for error in errors) == ["alias.py", "bad.py"]
 
 
+@pytest.mark.needs_example_app
 def test_registry_lists_declared_services(fixture_app):
     from skeleton.service_api.registry import service_registry
 
@@ -239,6 +241,7 @@ def test_registry_lists_declared_services(fixture_app):
     assert [cls.__name__ for cls in registry["org.skeleton.example-notes"]] == ["NoteService"]
 
 
+@pytest.mark.needs_example_app
 def test_e012_reports_the_missing_document_name(monkeypatch, tmp_path):
     from skeleton.system import app_registry
 
@@ -246,3 +249,8 @@ def test_e012_reports_the_missing_document_name(monkeypatch, tmp_path):
     monkeypatch.setitem(app_registry._manifests, "example_notes", replace(manifest, documentation_root=str(tmp_path)))
     errors = [error for error in checks.record_contract_checks() if error.id == "skeleton.E012"]
     assert len(errors) == 1 and "spec.md" in errors[0].msg
+
+
+def test_repository_apps_have_no_boundary_warnings():
+    """The example (and the calendar when installed) follow the closed public lists (#300)."""
+    assert checks.import_boundary_checks() == []

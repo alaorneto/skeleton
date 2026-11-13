@@ -11,9 +11,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from skeleton.accounts.services import create_service_account
+from skeleton.integrations.tokens.scopes import register_token_scope
 from skeleton.integrations.tokens.services import issue_personal_token, issue_service_token, revoke_token
 from skeleton.tenancy.context import request_context, system_context
+from skeleton.testing.registries import isolated_token_scopes, table_spec_override
+from tests import support
 from tools.security_fixtures import actor_tenant, build_security_fixture
+
+pytestmark = pytest.mark.needs_example_app
 
 PASSWORD = "Fixture-only-password-2026!"
 NOTE = "example_notes.note"
@@ -40,14 +45,7 @@ def records_url(organization):
 
 
 def login(user):
-    client = Client(enforce_csrf_checks=True)
-    client.get(reverse("account_login"))
-    response = client.post(
-        reverse("account_login"),
-        {"login": user.email, "password": PASSWORD, "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
-    )
-    assert response.status_code == 302
-    return client
+    return support.login(user, password=PASSWORD)
 
 
 def create_note(client, organization, code):
@@ -91,27 +89,25 @@ def test_scope_narrows_the_role_and_never_widens_it(access):
 
 
 def test_tokens_cannot_reach_administration_and_patch_me(access, monkeypatch):
-    from dataclasses import replace
 
-    from skeleton.system import registry
     from skeleton.system.registry import AttachmentPolicy
 
     policy = AttachmentPolicy(max_bytes=200, types=("application/pdf",))
-    monkeypatch.setitem(registry._registry, NOTE, replace(registry._registry[NOTE], attachments=policy))
-    client = bearer(token_for(access.admin, [f"{NOTE}:read"]).text)
-    assert client.get(reverse("api:me")).status_code == 200
-    patched = client.patch(reverse("api:me"), data="{}", content_type="application/json")
-    assert patched.status_code == 403 and patched.json()["code"] == "token_not_allowed"
-    memberships = reverse("api:access-list", kwargs={"organization_id": access.a.pk, "resource": "memberships"})
-    assert client.get(memberships).status_code == 403
-    audit = reverse("api:audit", kwargs={"organization_id": access.a.pk})
-    assert client.get(audit).status_code == 403
-    attachments = reverse(
-        "api:attachments", kwargs={"organization_id": access.a.pk, "table_key": NOTE, "sysid": access.shared.pk}
-    )
-    assert client.get(attachments).status_code == 403  # files:read missing.
-    files = bearer(token_for(access.admin, [f"{NOTE}:read", "files:read"]).text)
-    assert files.get(attachments).status_code == 200
+    with table_spec_override(NOTE, attachments=policy):
+        client = bearer(token_for(access.admin, [f"{NOTE}:read"]).text)
+        assert client.get(reverse("api:me")).status_code == 200
+        patched = client.patch(reverse("api:me"), data="{}", content_type="application/json")
+        assert patched.status_code == 403 and patched.json()["code"] == "token_not_allowed"
+        memberships = reverse("api:access-list", kwargs={"organization_id": access.a.pk, "resource": "memberships"})
+        assert client.get(memberships).status_code == 403
+        audit = reverse("api:audit", kwargs={"organization_id": access.a.pk})
+        assert client.get(audit).status_code == 403
+        attachments = reverse(
+            "api:attachments", kwargs={"organization_id": access.a.pk, "table_key": NOTE, "sysid": access.shared.pk}
+        )
+        assert client.get(attachments).status_code == 403  # files:read missing.
+        files = bearer(token_for(access.admin, [f"{NOTE}:read", "files:read"]).text)
+        assert files.get(attachments).status_code == 200
 
 
 def test_bound_token_on_another_organization_is_not_found(access):
@@ -158,20 +154,19 @@ def test_invalid_tokens_answer_401_with_a_challenge(access, caplog):
 
 
 def test_feed_tokens_are_not_api_credentials(access):
-    from skeleton.integrations.tokens.scopes import _named, register_token_scope
-
-    if "test.feed" not in _named:
+    with isolated_token_scopes():
         register_token_scope("test.feed", "Feed de teste", feed=True)
-    with request_context(actor=access.alice, request_id=uuid4(), source="test:tokens"):
-        feed = issue_personal_token(
-            actor=access.alice,
-            name="Feed",
-            scopes=["test.feed"],
-            expires_at=timezone.now() + timedelta(days=7),
-            feed=True,
-        )
-    response = bearer(feed.text).get(reverse("api:me"))
-    assert response.status_code == 401 and response.json()["code"] == "invalid_token"
+
+        with request_context(actor=access.alice, request_id=uuid4(), source="test:tokens"):
+            feed = issue_personal_token(
+                actor=access.alice,
+                name="Feed",
+                scopes=["test.feed"],
+                expires_at=timezone.now() + timedelta(days=7),
+                feed=True,
+            )
+        response = bearer(feed.text).get(reverse("api:me"))
+        assert response.status_code == 401 and response.json()["code"] == "invalid_token"
 
 
 def test_html_routes_ignore_the_bearer_header(access):
@@ -190,3 +185,41 @@ def test_audit_records_the_token_user_and_prefix(access):
         event = AuditEvent.objects.get(record_sysid=created.json()["sysid"], operation="create")
     assert event.actor_sysid == access.alice.pk
     assert event.source == f"http:token:{issued.token.prefix}"
+
+
+def test_personal_token_stops_working_only_where_the_membership_ended(access):
+    """Ending a membership closes that organization to the token; the token itself stays valid (#328)."""
+    from skeleton.access.services import update_membership
+    from skeleton.tenancy.models import Membership
+
+    client = bearer(token_for(access.bob, [f"{NOTE}:read"]).text)
+    assert client.get(records_url(access.a)).status_code == 200
+    assert client.get(records_url(access.b)).status_code == 200
+    with actor_tenant(access.admin, access.a):
+        membership = Membership.objects.get(user=access.bob)
+        update_membership(membership, user=access.admin, data={"is_active": False})
+    assert client.get(records_url(access.a)).status_code == 404
+    assert client.get(records_url(access.b)).status_code == 200
+    assert client.get(reverse("api:me")).status_code == 200
+
+
+def test_expired_token_is_rejected_like_any_invalid_token(access, monkeypatch):
+    """Expiry is checked at each request, with the same 401 as any other invalid token (#328)."""
+    from types import SimpleNamespace
+
+    from skeleton.integrations.tokens import services
+
+    with request_context(actor=access.alice, request_id=uuid4(), source="test:tokens"):
+        issued = issue_personal_token(
+            actor=access.alice,
+            name="short",
+            scopes=[f"{NOTE}:read"],
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+    client = bearer(issued.text)
+    assert client.get(records_url(access.a)).status_code == 200
+    later = timezone.now() + timedelta(days=1)
+    monkeypatch.setattr(services, "timezone", SimpleNamespace(now=lambda: later))  # verify_token only.
+    response = client.get(records_url(access.a))
+    assert response.status_code == 401 and response.json()["code"] == "invalid_token"
+    assert response["WWW-Authenticate"].startswith("Bearer")

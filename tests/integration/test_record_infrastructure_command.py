@@ -2,7 +2,6 @@ import importlib
 from io import StringIO
 
 import pytest
-from django.apps import apps
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
@@ -16,9 +15,7 @@ from skeleton.common.migration_operations import (
 )
 from skeleton.system.registry import get_spec
 
-pytestmark = pytest.mark.skipif(
-    not apps.is_installed("examples.notes"), reason="Requer SKELETON_ENABLE_EXAMPLE_APP=true."
-)
+pytestmark = pytest.mark.needs_example_app
 
 
 def _notes_frozen_operation():

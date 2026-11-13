@@ -12,10 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from skeleton.access.policies import authorized_queryset, require_record_action
-from skeleton.common.exceptions import ConcurrentUpdate
-from skeleton.service_api.base import ServiceAPI, service_method
-from skeleton.service_api.dto import Page, paginate
-from skeleton.service_api.errors import Conflict, NotFound
+from skeleton.service_api import NotFound, Page, ServiceAPI, paginate, service_method
 
 from . import services
 from .models import Task
@@ -67,10 +64,11 @@ class TaskService(ServiceAPI):
         Erros: InvalidInput para status desconhecido ou page_size > 100.
         Efeitos: nenhum.
         """
-        rows = authorized_queryset(Task, user=actor, action="read").order_by("created_at", "sysid")
+        rows = authorized_queryset(Task, user=actor, action="read")
         if status is not None:
             rows = rows.filter(status=services.validated_status(status))
-        return paginate(rows, cursor=cursor, page_size=page_size, convert=_info)
+        # key: keyset pages over immutable columns, the last one unique (docs/service-api.md, #305).
+        return paginate(rows, cursor=cursor, page_size=page_size, convert=_info, key=("created_at", "sysid"))
 
     @service_method(since="1.0")
     def create_task(
@@ -96,10 +94,8 @@ class TaskService(ServiceAPI):
         if task is None:
             raise NotFound()
         require_record_action(task, user=actor, action="update")
-        try:
-            return _info(services.close_task(task, actor=actor, expected_revision=expected_revision))
-        except ConcurrentUpdate:
-            raise Conflict(code="stale_revision") from None
+        # ConcurrentUpdate vira Conflict("stale_revision") no @service_method; não capture aqui.
+        return _info(services.close_task(task, actor=actor, expected_revision=expected_revision))
 ```
 
 ## Manifesto
@@ -115,7 +111,7 @@ class TaskService(ServiceAPI):
 
 ```python
 from applications.tasks.service_api import TaskService
-from skeleton.service_api.errors import Unavailable
+from skeleton.service_api import Unavailable
 
 
 def schedule_followup(*, actor, invoice):
@@ -136,7 +132,8 @@ import pytest
 
 from applications.tasks.models import Task
 from applications.tasks.service_api import TaskService
-from skeleton.service_api.errors import Forbidden
+from skeleton.service_api import Forbidden
+from skeleton.testing.applications import open_app
 from skeleton.testing.service_api import (
     assert_cas_conflict,
     assert_denied_as_not_found,
@@ -149,7 +146,8 @@ from skeleton.testing.service_api import (
 
 
 @pytest.fixture
-def scenario(skeleton_db):  # a fixture de banco isolado do projeto (PostgreSQL com a role runtime)
+def scenario(skeleton_db):  # skeleton.testing.database.skeleton_db no conftest.py (PostgreSQL, role runtime)
+    open_app(Task._meta.app_label)  # apps nascem indisponíveis (#22); skeleton.testing.applications
     return build_service_scenario(Task)
 
 

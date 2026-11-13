@@ -22,6 +22,8 @@ from skeleton.integrations.tokens.services import (
 from skeleton.tenancy.context import request_context, system_context
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 NOTE_READ = "example_notes.note:read"
 
 
@@ -146,4 +148,38 @@ def test_others_cannot_revoke_and_service_tokens_need_the_capability(access):
 def test_mfa_policy_blocks_issue_without_enrolment(access, settings):
     settings.SKELETON_REQUIRE_ADMIN_MFA = True
     with pytest.raises(PermissionDenied):
+        personal(access.alice)
+
+
+def test_issue_is_refused_above_the_per_owner_limit(access, settings):
+    """A live-token cap per owner; expired tokens count until revoked, revoking frees a slot (#327)."""
+    settings.SKELETON_API_TOKEN_MAX_PER_OWNER = 2
+    first = personal(access.alice)
+    personal(access.alice)
+    with pytest.raises(ValidationError) as error:
+        personal(access.alice)
+    assert "Limite de 2 tokens" in str(error.value)
+    assert ApiToken.objects.filter(user=access.alice).count() == 2
+    personal(access.bob)  # The cap is per owner.
+    with request_context(actor=access.alice, request_id=uuid4(), source="test:tokens"):
+        revoke_token(actor=access.alice, token_id=first.token.pk, expected_revision=first.token.revision)
+    personal(access.alice)
+    with actor_tenant(access.admin, access.a):
+        account = create_service_account(actor=access.admin, name="ERP")
+        for _ in range(2):
+            issue_service_token(actor=access.admin, account=account, name="ERP", scopes=[NOTE_READ], expires_at=soon())
+        with pytest.raises(ValidationError):
+            issue_service_token(actor=access.admin, account=account, name="ERP", scopes=[NOTE_READ], expires_at=soon())
+        assert ApiToken.objects.filter(user=account).count() == 2
+
+
+def test_other_integrity_errors_are_not_reported_as_prefix_collisions(access, monkeypatch):
+    """Only the prefix constraint means "draw again"; anything else is a real error (#327)."""
+    from django.db import IntegrityError
+
+    def broken(self, *args, **kwargs):
+        raise IntegrityError('new row violates check constraint "outra_constraint"')
+
+    monkeypatch.setattr(ApiToken, "save", broken)
+    with pytest.raises(IntegrityError, match="outra_constraint"):
         personal(access.alice)

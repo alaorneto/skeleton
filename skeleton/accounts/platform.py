@@ -9,6 +9,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.utils.translation import gettext
 
 PLATFORM_FLAGS = ("is_staff", "is_superuser")
 
@@ -18,7 +19,7 @@ class LastPlatformAdministrator(ValidationError):
 
     def __init__(self) -> None:
         super().__init__(
-            "A plataforma precisa manter ao menos um administrador ativo.", code="last_platform_administrator"
+            gettext("A plataforma precisa manter ao menos um administrador ativo."), code="last_platform_administrator"
         )
 
 
@@ -43,9 +44,40 @@ def require_platform_admin(user: Any) -> None:
         raise PermissionDenied("Platform administration required.")
 
 
-def platform_admin_context(request: Any) -> dict[str, bool]:
-    """Template context processor: ``platform_admin`` for the requesting identity."""
-    return {"platform_admin": is_platform_admin(getattr(request, "user", None))}
+def require_platform_context(
+    user: Any, *, capability: str | None = None, message: str = "Platform administration required."
+) -> None:
+    """Guard of global platform services (#285): the administrator, with MFA, acting as the request actor.
+
+    ``user`` must be the authenticated actor of the current context, outside any organization;
+    the administrator needs the context's ``platform_admin`` flag, which a token never sets. With
+    ``capability``, a limited platform role holding it (#34) also passes.
+    """
+    from skeleton.accounts.mfa import mfa_required
+    from skeleton.tenancy.context import current_context
+
+    context = current_context()
+    allowed = is_platform_admin(user) and context.platform_admin
+    if not allowed and capability is not None:
+        allowed = has_platform_capability(user, capability)
+    if (
+        not allowed
+        or context.actor != getattr(user, "pk", None)
+        or context.organization_id is not None
+        or mfa_required(user)  # Last: the only condition that reads the database.
+    ):
+        raise PermissionDenied(message)
+
+
+def platform_admin_context(request: Any) -> dict[str, Any]:
+    """Template context processor: ``platform_admin`` and the lazy ``platform_capabilities`` (#34)."""
+    from django.utils.functional import SimpleLazyObject
+
+    user = getattr(request, "user", None)
+    return {
+        "platform_admin": is_platform_admin(user),
+        "platform_capabilities": SimpleLazyObject(lambda: platform_capabilities(user)),
+    }
 
 
 def lock_platform_admins(*, using: str = "default") -> list[Any]:
@@ -72,3 +104,115 @@ def assert_platform_admin_remains(admins: list[Any], target: Any, *, keeps_role:
         return
     if not any(admin.pk != target.pk for admin in admins):
         raise LastPlatformAdministrator()
+
+
+# --------------------------------------------------------------------------- limited platform roles (#34)
+
+AUDIT_READ = "audit.read"
+INVENTORY_READ = "inventory.read"
+UPDATES_OPERATE = "updates.operate"
+PLATFORM_ROLES = {
+    "auditor": frozenset({AUDIT_READ, INVENTORY_READ}),
+    "operator": frozenset({UPDATES_OPERATE}),
+}
+PLATFORM_CAPABILITIES = frozenset().union(*PLATFORM_ROLES.values())
+
+
+def platform_capabilities(user: Any) -> frozenset[str]:
+    """What ``user`` may do on the platform, recomputed on every call (revocation is immediate)."""
+    if is_platform_admin(user):
+        return PLATFORM_CAPABILITIES
+    if not (
+        user is not None
+        and getattr(user, "is_authenticated", False) is True
+        and getattr(user, "is_active", False) is True
+        and getattr(user, "deleted_at", None) is None
+        and not getattr(user, "is_service_account", False)
+    ):
+        return frozenset()
+    from skeleton.accounts.models import PlatformRoleAssignment
+
+    roles = PlatformRoleAssignment.objects.filter(user_id=user.pk).values_list("role", flat=True)
+    result: set[str] = set()
+    for role in roles:
+        result |= PLATFORM_ROLES.get(role, frozenset())
+    return frozenset(result)
+
+
+def has_platform_capability(user: Any, capability: str) -> bool:
+    if capability not in PLATFORM_CAPABILITIES:
+        raise ValueError(f"Unknown platform capability: {capability}")
+    return capability in platform_capabilities(user)
+
+
+def require_platform_capability(user: Any, capability: str) -> None:
+    if not has_platform_capability(user, capability):
+        raise PermissionDenied("Platform capability required.")
+
+
+def _bump(user_id: Any) -> None:
+    from skeleton.accounts.models import User
+
+    locked = User.all_objects.select_for_update().get(pk=user_id)
+    locked.auth_version += 1
+    locked.save(update_fields={"auth_version"})
+
+
+def grant_platform_role(*, actor: Any, user: Any, role: str) -> Any:
+    """A platform administrator grants a limited role; the identity's sessions are renewed."""
+    from skeleton.accounts.models import PlatformRoleAssignment
+
+    require_platform_admin(actor)
+    if role not in PLATFORM_ROLES:
+        raise ValidationError({"role": "Use auditor ou operator."})
+    if user.pk == actor.pk or not user.is_active or user.deleted_at is not None or user.is_service_account:
+        raise ValidationError({"user": "Escolha outra identidade ativa."})
+    with transaction.atomic():
+        existing = PlatformRoleAssignment.objects.filter(user=user, role=role).first()
+        if existing is not None:
+            return existing
+        record = PlatformRoleAssignment(user=user, role=role)
+        record.save()
+        _bump(user.pk)
+        return record
+
+
+def revoke_platform_role(*, actor: Any, assignment_id: Any, expected_revision: Any) -> Any:
+    """Revoke with CAS; takes effect on the identity's next request."""
+    from skeleton.accounts.models import PlatformRoleAssignment
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    require_platform_admin(actor)
+    with transaction.atomic():
+        record = PlatformRoleAssignment.objects.select_for_update().filter(pk=assignment_id).first()
+        if record is None:
+            raise ValidationError({"role": "Papel inexistente."})
+        if type(expected_revision) is not int or record.revision != expected_revision:
+            raise ConcurrentUpdate("Platform role changed.")
+        record.delete()
+        _bump(record.user_id)
+        return record
+
+
+def require_context_actor(actor: Any) -> None:
+    from skeleton.tenancy.context import InvalidContext, current_context
+
+    current = current_context().actor
+    if current is not None and current != actor.pk:
+        raise InvalidContext("The actor must be the request's authenticated identity.")
+
+
+def require_platform_actor(actor: Any) -> None:
+    """Platform lifecycle services act for the authenticated platform administrator (#226).
+
+    ``actor=None`` is accepted only inside ``system_context`` (CLI/infrastructure), never
+    in a plain request context.
+    """
+    from skeleton.tenancy.context import current_context
+
+    if actor is None:
+        if not current_context().system:
+            raise PermissionDenied("Platform administration required.")
+        return
+    require_platform_admin(actor)
+    require_context_actor(actor)

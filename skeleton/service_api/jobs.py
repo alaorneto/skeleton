@@ -7,11 +7,12 @@ from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.utils.translation import gettext
 
-from .applications import calling_app_label
+from .applications import require_owning_app
 from .base import ServiceAPI, service_method
 from .dto import as_utc
-from .errors import Forbidden, InvalidInput
+from .errors import InvalidInput
 
 Scalar = str | int | bool
 
@@ -56,9 +57,8 @@ class JobService(ServiceAPI):
         try:
             kind = get_job_type(job_type)
         except KeyError:
-            raise InvalidInput({"job_type": ["Tipo de job desconhecido."]}) from None
-        if calling_app_label() != (kind.owner_app or None):
-            raise Forbidden("A app só enfileira os próprios tipos de job.")
+            raise InvalidInput({"job_type": [gettext("Tipo de job desconhecido.")]}) from None
+        require_owning_app(kind.owner_app, gettext("A app só enfileira os próprios tipos de job."))
         receipt = enqueue(
             kind.code,
             organization_id=current_context().organization_id,

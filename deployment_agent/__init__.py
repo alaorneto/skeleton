@@ -1,3 +1,5 @@
-"""Operator-owned deployment control plane, installed outside managed releases."""
+"""Operator-owned deployment control plane, installed outside managed releases.
 
-__version__ = "0.1.0"
+The version is the distribution's own (deployment_agent/pyproject.toml); read it with
+importlib.metadata.version("skeleton-deployment-agent").
+"""

@@ -66,16 +66,24 @@ Não existe isenção geral para `django_*`, `account_*` ou apps de terceiros. U
 
 **A spec define o contrato; a migration instala sua proteção física.** `InstallRecordInfrastructure(app_label, model_name, specification)` usa modelos históricos de migrations e uma spec congelada com alcance (`scope`), sensibilidade/colunas, `append_only` e imutabilidade. Reemita a operação após alterações de campos auditáveis ou relações. Atualizar o cadastro de uma coluna não atualiza o trigger.
 
-Há duas verificações complementares:
+Os nomes que a operação gera (`<tabela>_sk_guard`, `_sk_audit`, `_sk_guard_fn`, `_sk_audit_fn` e, por FK organizacional, `_sk_org_<coluna>` e `_sk_idx_<coluna>`) precisam caber nos 63 bytes de identificador do PostgreSQL, que trunca o excesso em silêncio: a migration recusa antes de qualquer DDL e `skeleton.E033` acusa já no `manage.py check` (#238).
+
+Reverter a operação (sem `replaces`) falha fechado: o primeiro passo revoga todo privilégio de `PUBLIC`, `skeleton_runtime` e `skeleton_audit_writer` na tabela, e a volta remove triggers, funções, policies, RLS, as FKs compostas e os índices `_sk_idx_`; reinstalar devolve tudo (#306).
+
+Há duas verificações complementares (lista completa dos checks: [checks](checks.md)):
 
 - **Checks estáticos:** não consultam o banco no `ready`; verificam base/UUID, organização obrigatória, associações próprias, listas de campos permitidos/sensibilidade, middleware/`ATOMIC_REQUESTS` e classificação.
-- **`check_skeleton_schema` após migrations:** inspeciona tabelas/tipos/triggers/guards/FKs/RLS/FORCE e inventário de policies/roles/grants SQL. Policy permissiva extra, trigger ausente, UUID incorreto e tabela desconhecida são falhas, não avisos a ignorar. Em produção, inclui backend, ownership, privilégios e `SET ROLE`; o check comum não exige banco já migrado.
+- **`check_skeleton_schema` após migrations:** inspeciona tabelas/tipos/triggers/guards/FKs/RLS/FORCE e inventário de policies/roles/grants SQL. Policy permissiva extra, trigger ausente, UUID incorreto e tabela desconhecida são falhas, não avisos a ignorar. Também reprova (#299) view, materialized view ou foreign table no schema `skeleton`; função fora do inventário (guards e auditoria por tabela, `assert_user_deactivation` e `immutable_unaccent` da busca) que seja `SECURITY DEFINER` ou executável pelo runtime; privilégio por coluna do runtime numa ação fora do inventário; e trigger em tabela técnica. Migrations de apps não criam esses objetos no schema `skeleton`. Em produção, inclui backend, ownership, privilégios e `SET ROLE`; o check comum não exige banco já migrado.
 
 Tabelas operacionais (`OperationalRecord`) aparecem com `audit_mode=operational`, `base_class=OperationalRecord` e `soft_delete=False`. Não entram no gateway (E020) e não recebem `TablePermission`; o check de schema exige o guard, a RLS tenant, o grant com DELETE e a ausência de trigger de auditoria. Veja [tabelas operacionais](data-model.md#tabelas-operacionais-adr).
 
 Apps próprias são identificadas por manifestos explícitos e pelo inventário nominal do núcleo, não por prefixos de pacote. `AppInstallation` é uma tabela organizacional própria não exposta no gateway; tem UUID, configuração JSON sensível e infraestrutura congelada na migration `sk_system.0003_appinstallation`. `AppAvailability` e `AppOrganizationGrant` são `SystemRecord` globais de controle da plataforma, com infraestrutura congelada em `sk_system.0006_app_availability`; a FK da concessão chama-se `granted_organization`, porque um campo `organization` num `SystemRecord` ativaria a semântica tenant (check `skeleton.E017`). Specs, registros de decisões arquiteturais (ADRs) e dependências do manifesto participam dos checks estáticos.
 
 `ComponentInstallation` e `DeploymentOperation` são entidades globais próprias, não exceções técnicas: derivam de SystemRecord, têm specs explícitas sem gateway e guards/auditoria instalados por `sk_system.0004_deployment`. Plano/resultado são sensíveis. Tabelas de apps retiradas permanecem catalogadas e protegidas por cópias congeladas da infraestrutura do release confiável; o catálogo editável não vira fonte de DDL. Histórico de migrations fica separado, somente no migrator; modelos conservados nunca entram no registry/gateway.
+
+As tabelas de [fluxos de processo](flows.md#modelo-de-dados) (`sk_flows.flowdefinition`, `flowinstance`, `flowsteprun`, `flowtask`, `flowsubmission` e `flowactivity`) são entidades organizacionais próprias do núcleo, com specs explícitas sem gateway e infraestrutura congelada em `sk_flows.0001_initial`. `sensitive_data`, `sensitive_values` e `comment` são sensíveis. Só `sk_flows.flowinstance` declara `read_fields` (chave e versão do fluxo, estado, resultado e o registro de negócio): são os campos que os eventos de domínio do subsistema podem levar. Nenhuma delas recebe `TablePermission`.
+
+`sk_comments.comment` é a entidade organizacional dos [comentários](comments.md#modelo): alvo (`target_table`, `target_sysid`) imutável, corpo em texto simples e `edited_at`, com guard, RLS tenant e auditoria congelados em `sk_comments.0001_initial`; sem gateway nem `write_fields`.
 
 No PostgreSQL, encontrar um nome conhecido não basta. O check compara:
 
@@ -87,4 +95,4 @@ Uma procedure com o mesmo nome, assinatura e corpo não substitui a função exi
 
 
 
-A execução real desses checks e os negativos estão em [testing](testing.md); descrição do contrato não substitui resultado observado.
+A execução real desses checks e os negativos estão na [evidência de testes](testing-evidence.md); descrição do contrato não substitui resultado observado.

@@ -130,3 +130,104 @@ def test_metrics_token_is_a_catalogued_secret():
     for weak in ("short", "x" * 31, "a" * 20 + " " + "b" * 20):
         with pytest.raises(ValueError):
             spec.clean(weak)
+
+
+def _collect_up():
+    return next(family for family in metrics.QueueCollector().collect() if family.name == "skeleton_queue_metrics_up")
+
+
+def test_queue_snapshot_is_reused_within_the_ttl(settings, monkeypatch):
+    """One process reads the queue at most once per TTL, whatever the scrape rate (#275)."""
+    settings.SKELETON_METRICS_QUEUE_TTL_S = 15
+    monkeypatch.setattr(metrics, "_queue_cache", None)
+    health = QueueHealth(due=0, oldest_due_lag_s=0.0, dead=0, live_workers=1, stale_workers=0)
+    calls = []
+    monkeypatch.setattr(metrics, "queue_snapshot", lambda: (calls.append(1), (health, {}))[1])
+    clock = [1000.0]
+    monkeypatch.setattr(metrics.time, "monotonic", lambda: clock[0])
+    list(metrics.QueueCollector().collect())
+    list(metrics.QueueCollector().collect())
+    assert len(calls) == 1
+    clock[0] += 16
+    list(metrics.QueueCollector().collect())
+    assert len(calls) == 2
+
+
+def test_queue_snapshot_is_not_cached_when_the_ttl_is_zero(settings, monkeypatch):
+    settings.SKELETON_METRICS_QUEUE_TTL_S = 0
+    monkeypatch.setattr(metrics, "_queue_cache", None)
+    health = QueueHealth(due=0, oldest_due_lag_s=0.0, dead=0, live_workers=1, stale_workers=0)
+    calls = []
+    monkeypatch.setattr(metrics, "queue_snapshot", lambda: (calls.append(1), (health, {}))[1])
+    list(metrics.QueueCollector().collect())
+    list(metrics.QueueCollector().collect())
+    assert len(calls) == 2
+
+
+def test_failed_queue_read_is_not_cached(settings, monkeypatch):
+    settings.SKELETON_METRICS_QUEUE_TTL_S = 15
+    monkeypatch.setattr(metrics, "_queue_cache", None)
+    health = QueueHealth(due=0, oldest_due_lag_s=0.0, dead=0, live_workers=1, stale_workers=0)
+    answers = iter([RuntimeError("database down"), (health, {})])
+
+    def snapshot():
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(metrics, "queue_snapshot", snapshot)
+    assert _collect_up().samples[0].value == 0
+    assert _collect_up().samples[0].value == 1
+
+
+def test_multiprocess_check(settings, monkeypatch, tmp_path):
+    """W034 without the directory outside DEBUG, E034 for a missing one, nothing otherwise (#275)."""
+    monkeypatch.setattr(metrics, "metrics_enabled", lambda: True)
+    settings.DEBUG = False
+    monkeypatch.delenv("PROMETHEUS_MULTIPROC_DIR", raising=False)
+    assert [message.id for message in checks.multiprocess_problems()] == ["skeleton.W034"]
+    monkeypatch.setenv("PROMETHEUS_MULTIPROC_DIR", str(tmp_path / "missing"))
+    assert [message.id for message in checks.multiprocess_problems()] == ["skeleton.E034"]
+    monkeypatch.setenv("PROMETHEUS_MULTIPROC_DIR", str(tmp_path))
+    assert checks.multiprocess_problems() == []
+    monkeypatch.delenv("PROMETHEUS_MULTIPROC_DIR")
+    settings.DEBUG = True
+    assert checks.multiprocess_problems() == []
+    settings.DEBUG = False
+    monkeypatch.setattr(metrics, "metrics_enabled", lambda: False)
+    assert checks.multiprocess_problems() == []
+
+
+def test_multiprocess_scrape_sums_two_processes(tmp_path):
+    """With PROMETHEUS_MULTIPROC_DIR, two web processes' requests add up in one scrape (#275)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from prometheus_client import CollectorRegistry, generate_latest
+    from prometheus_client.multiprocess import MultiProcessCollector
+
+    code = (
+        "import django; django.setup()\n"
+        "from skeleton.observability.metrics import request_histogram\n"
+        "request_histogram().labels('GET', 'o/<uuid:organization_id>/', '200').observe(0.1)\n"
+    )
+    environment = {
+        **os.environ,
+        "PROMETHEUS_MULTIPROC_DIR": str(tmp_path),
+        "DJANGO_SETTINGS_MODULE": "config.settings.test",
+    }
+    root = Path(__file__).resolve().parents[2]
+    for _ in range(2):
+        subprocess.run([sys.executable, "-c", code], env=environment, cwd=root, check=True, timeout=120)
+    registry = CollectorRegistry()
+    MultiProcessCollector(registry, path=str(tmp_path))
+    found = {
+        sample.name: sample.value
+        for family in text_string_to_metric_families(generate_latest(registry).decode())
+        for sample in family.samples
+        if sample.name == "skeleton_http_request_duration_seconds_count"
+    }
+    assert found == {"skeleton_http_request_duration_seconds_count": 2.0}

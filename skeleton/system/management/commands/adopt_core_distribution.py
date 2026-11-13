@@ -1,10 +1,9 @@
 import json
-from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
 from skeleton.distribution import adopt_source_core, source_adoption_plan
-from skeleton.system.packages import PackageError, validate_package
+from skeleton.system.packages import PackageError, load_trust_store, validate_package
 
 
 class Command(BaseCommand):
@@ -22,7 +21,7 @@ class Command(BaseCommand):
         if options["apply"] and not options["backup_root"]:
             raise CommandError("--apply requires --backup-root outside the project.")
         try:
-            trust = json.loads(Path(options["trust_store"]).read_text(encoding="utf-8"))
+            trust = load_trust_store(options["trust_store"])
             base = validate_package(options["base_release"], trust)
             result = (
                 adopt_source_core(options["project_root"], base, options["backup_root"])

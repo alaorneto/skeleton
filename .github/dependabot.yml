@@ -4,8 +4,9 @@ updates:
   # Dependabot não reproduz: ele muda só os .in ou regenera no estilo pip-compile,
   # sem pip/setuptools. O job "locks" do CI reprova esses PRs, e o workflow
   # dependabot-locks os regenera no branch do PR (docs/testing.md, "Locks dos PRs
-  # do Dependabot"). O grupo junta os bumps num PR por semana; atualizações de
-  # segurança continuam separadas.
+  # do Dependabot"). O grupo junta os bumps de versão num PR por semana. Alertas e
+  # atualizações de segurança são configuração do repositório (Settings → Advanced
+  # Security), não deste arquivo: veja SECURITY.md.
   - package-ecosystem: pip
     directory: /
     schedule:
@@ -25,5 +26,19 @@ updates:
       interval: weekly
   - package-ecosystem: github-actions
     directory: /
+    schedule:
+      interval: weekly
+  # Também monitorados (#309): o CSS/JS do frontend (o flowbite.min.js vai no wheel), as imagens
+  # do Compose e a distribuição do agente.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /deployment_agent
     schedule:
       interval: weekly

@@ -56,6 +56,12 @@ class UnixConnection(http.client.HTTPConnection):
         self.sock.connect(self.socket_path)
 
 
+# Deadlines per kind of call (#250): reads of the agent journal and the queueing of an approved
+# plan are short; uploads, previews and catalog fetches keep the instance deadline.
+STATUS_TIMEOUT = 10
+SUBMIT_TIMEOUT = 30
+
+
 class AgentClient:
     def __init__(self, socket_path, token_file, *, timeout=1800, max_upload_bytes=128 * 1024 * 1024):
         if (
@@ -70,7 +76,7 @@ class AgentClient:
         self.timeout = timeout
         self.max_upload_bytes = max_upload_bytes
 
-    def _request(self, method, path, body=None, *, upload=False):
+    def _request(self, method, path, body=None, *, upload=False, timeout=None):
         try:
             token = self.token_file.read_text().strip()
             if not token or len(token) < 32:
@@ -85,7 +91,7 @@ class AgentClient:
                     encoded = json.dumps(body or {}, separators=(",", ":")).encode()
             else:
                 encoded = None
-            connection = UnixConnection(self.socket_path, self.timeout)
+            connection = UnixConnection(self.socket_path, min(self.timeout, timeout) if timeout else self.timeout)
             try:
                 connection.request(method, path, body=encoded, headers=headers)
                 response = connection.getresponse()
@@ -121,7 +127,7 @@ class AgentClient:
         return self._request("POST", "/uploads", data, upload=True)
 
     def inventory(self):
-        return self._request("GET", "/inventory")
+        return self._request("GET", "/inventory", timeout=STATUS_TIMEOUT)
 
     def preview(self, action, artifacts=None, app_ids=None):
         return self._request(
@@ -140,6 +146,7 @@ class AgentClient:
                 "actor_id": str(actor_id),
                 "request_id": str(request_id),
             },
+            timeout=SUBMIT_TIMEOUT,
         )
 
     def operation(self, operation_id):
@@ -147,10 +154,20 @@ class AgentClient:
             operation_id = str(UUID(str(operation_id)))
         except (ValueError, TypeError):
             raise AgentError("invalid_uuid") from None
-        return self._request("GET", f"/operations/{operation_id}")
+        return self._request("GET", f"/operations/{operation_id}", timeout=STATUS_TIMEOUT)
+
+    def plan(self, plan_id):
+        """State of a preview in preparation (#298): preparing, ready (with the plan) or failed."""
+        try:
+            plan_id = str(UUID(str(plan_id)))
+        except (ValueError, TypeError):
+            raise AgentError("invalid_uuid") from None
+        return self._request("GET", f"/plans/{plan_id}", timeout=STATUS_TIMEOUT)
 
     def status_ticket(self, operation_id):
-        return self._request("POST", "/status-ticket", {"operation_id": str(UUID(str(operation_id)))})
+        return self._request(
+            "POST", "/status-ticket", {"operation_id": str(UUID(str(operation_id)))}, timeout=STATUS_TIMEOUT
+        )
 
     def check_updates(self):
         return self._request("POST", "/catalog/check")

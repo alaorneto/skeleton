@@ -246,3 +246,55 @@ def test_service_accounts_stay_out_of_the_people_directory_and_inboxes(access):
             actor_id = None
 
         assert service.pk not in set(resolve_people(Everyone()))
+
+
+def _people_manager(fixture):
+    from skeleton.access.models import MemberRole, Role
+
+    with actor_tenant(fixture.admin, fixture.a):
+        MemberRole(
+            organization=fixture.a, membership=fixture.alice_membership, role=Role.objects.get(code="people_manager")
+        ).save()
+
+
+@pytest.mark.parametrize("state", ["deleted", "inactive"])
+def test_people_manager_cannot_bring_back_a_service_account_membership(access, state):
+    from skeleton.access.services import create_membership, delete_membership, update_membership
+    from skeleton.tenancy.models import Membership
+
+    fixture, service = access
+    _people_manager(fixture)
+    membership = membership_of(fixture, service)
+    with actor_tenant(fixture.admin, fixture.a):
+        if state == "deleted":
+            delete_membership(membership, user=fixture.admin)
+        else:
+            update_membership(membership, user=fixture.admin, data={"is_active": False})
+    with actor_tenant(fixture.alice, fixture.a):
+        with pytest.raises(PermissionDenied):
+            create_membership(user=fixture.alice, data={"user": service})
+    with actor_tenant(fixture.admin, fixture.a):
+        stored = Membership.objects.with_deleted().get(user=service)
+        assert (stored.deleted_at is not None) if state == "deleted" else not stored.is_active
+        # The administrator (integrations.manage) still brings it back.
+        create_membership(user=fixture.admin, data={"user": service})
+        assert Membership.objects.get(user=service).is_active
+
+
+def test_people_manager_still_restores_people(access):
+    from skeleton.access.services import create_membership, delete_membership
+    from skeleton.tenancy.models import Membership
+
+    fixture, _ = access
+    _people_manager(fixture)
+    with actor_tenant(fixture.alice, fixture.a):
+        delete_membership(fixture.bob_membership, user=fixture.alice)
+        create_membership(user=fixture.alice, data={"user": fixture.bob})
+        assert Membership.objects.get(user=fixture.bob).is_active
+
+
+def test_deactivation_reports_no_error_without_webhooks(access):
+    """An account that is nobody's webhook principal deactivates as before (#313)."""
+    fixture, service = access
+    with actor_tenant(fixture.admin, fixture.a):
+        assert deactivate_service_account(actor=fixture.admin, user=service).is_active is False

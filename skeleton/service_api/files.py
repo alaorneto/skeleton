@@ -8,6 +8,7 @@ from typing import Any, BinaryIO
 from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate
@@ -104,9 +105,9 @@ class FileService(ServiceAPI):
         except services.QuotaExceeded:
             raise Conflict("quota_exceeded") from None
         except services.UploadTooLarge:
-            raise InvalidInput({"file": ["O arquivo excede o limite permitido."]}) from None
+            raise InvalidInput({"file": [gettext("O arquivo excede o limite permitido.")]}) from None
         except services.UnsupportedFileType:
-            raise InvalidInput({"file": ["Tipo de arquivo não permitido."]}) from None
+            raise InvalidInput({"file": [gettext("Tipo de arquivo não permitido.")]}) from None
         return _info(attachment)
 
     @service_method(read_only=True, since="0.5.0")
@@ -129,7 +130,13 @@ class FileService(ServiceAPI):
         from skeleton.files import services
 
         rows = services.attachments_for(_spec(table_key), as_uuid(record_id, field="record_id"), user=actor)
-        return paginate(rows.select_related("target_table"), convert=_info, page_size=page_size, cursor=cursor)
+        return paginate(
+            rows.select_related("target_table"),
+            convert=_info,
+            page_size=page_size,
+            cursor=cursor,
+            key=("created_at", "sysid"),
+        )
 
     @service_method(read_only=True, since="0.5.0")
     def download_url(self, *, actor: AbstractBaseUser, attachment_id: UUID) -> str:
@@ -171,6 +178,6 @@ class FileService(ServiceAPI):
         from skeleton.files import services
 
         if type(expected_revision) is not int:
-            raise InvalidInput({"expected_revision": ["Use a revisão inteira do anexo."]})
+            raise InvalidInput({"expected_revision": [gettext("Use a revisão inteira do anexo.")]})
         attachment, spec = _attachment(attachment_id)
         services.remove(spec, attachment.target_sysid, attachment.pk, user=actor, revision=expected_revision)

@@ -1,13 +1,15 @@
 """REST for attachments under the target record: list/upload, remove and restore with If-Match."""
 
 from django.db import transaction
+from django.utils.translation import gettext
 from rest_framework.response import Response
 
 from skeleton.access.policies import require_credential_scope
 from skeleton.api.errors import BoundaryError, parse_revision
+from skeleton.api.openapi import TableRoutes
 from skeleton.api.parsers import BoundedJSONParser, BoundedMultiPartParser
 from skeleton.api.views import TenantAPI, etag, request_fields
-from skeleton.web.services import exposed_spec
+from skeleton.records.services import exposed_spec
 
 from . import services
 
@@ -17,17 +19,18 @@ FILES_WRITE = "files:write"
 
 def _translate(error):
     if isinstance(error, services.UploadTooLarge):
-        return BoundaryError("request_too_large", "O arquivo excede o limite permitido.", 413)
+        return BoundaryError("request_too_large", gettext("O arquivo excede o limite permitido."), 413)
     if isinstance(error, services.QuotaExceeded):
-        return BoundaryError("quota_exceeded", "A cota de armazenamento da organização foi atingida.", 409)
+        return BoundaryError("quota_exceeded", gettext("A cota de armazenamento da organização foi atingida."), 409)
     if isinstance(error, services.UnsupportedFileType):
-        return BoundaryError("unsupported_type", "Tipo de arquivo não permitido.", 400)
+        return BoundaryError("unsupported_type", gettext("Tipo de arquivo não permitido."), 400)
     return error
 
 
 class AttachmentsView(TenantAPI):
     parser_classes = [BoundedMultiPartParser]
     token_methods = ("GET", "POST")
+    openapi = TableRoutes("attachments")
 
     def get(self, request, organization_id, table_key, sysid):
         require_credential_scope(FILES_READ)
@@ -55,12 +58,13 @@ class AttachmentsView(TenantAPI):
 class AttachmentDetailView(TenantAPI):
     parser_classes = [BoundedJSONParser]
     token_methods = ("DELETE",)
+    openapi = TableRoutes("attachment")
 
     @transaction.atomic
     def delete(self, request, organization_id, table_key, sysid, attachment_id):
         require_credential_scope(FILES_WRITE)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Remoção não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Remoção não aceita campos."))
         revision = parse_revision(request.headers.get("If-Match"))
         services.remove(exposed_spec(table_key), sysid, attachment_id, user=request.user, revision=revision)
         return Response(status=204)
@@ -69,12 +73,13 @@ class AttachmentDetailView(TenantAPI):
 class AttachmentRestoreView(TenantAPI):
     parser_classes = [BoundedJSONParser]
     token_methods = ("POST",)
+    openapi = TableRoutes("attachment-restore")
 
     @transaction.atomic
     def post(self, request, organization_id, table_key, sysid, attachment_id):
         require_credential_scope(FILES_WRITE)
         if request_fields(request):
-            raise BoundaryError("invalid_request", "Restauração não aceita campos.")
+            raise BoundaryError("invalid_request", gettext("Restauração não aceita campos."))
         revision = parse_revision(request.headers.get("If-Match"))
         try:
             attachment = services.restore(

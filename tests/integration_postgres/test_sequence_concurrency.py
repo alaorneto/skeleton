@@ -12,6 +12,8 @@ from skeleton.sequences.registry import SequenceSpec, register_sequence
 from tools.integration_database import disposable_database_pair
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 KEY = "example_notes.ticket"
 AT = datetime(2026, 5, 1, tzinfo=UTC)
 

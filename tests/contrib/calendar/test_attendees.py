@@ -57,21 +57,29 @@ def test_attendee_reads_but_does_not_edit_and_removal_revokes(agenda, meeting):
         with pytest.raises(PermissionDenied):
             services.update_event(actor=agenda.bob, event_id=meeting.pk, data={"title": "x"}, expected_revision=1)
     with actor_tenant(agenda.alice, agenda.a):
-        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk)
+        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk, expected_revision=invitation.revision)
     with actor_tenant(agenda.bob, agenda.a):
         assert not readable_events(agenda.bob).filter(pk=meeting.pk).exists()
 
 
 def test_rsvp_only_for_oneself(agenda, meeting):
     with actor_tenant(agenda.alice, agenda.a):
-        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        [invitation] = attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+    revision = invitation.revision
     with actor_tenant(agenda.bob, agenda.a):
-        assert attendees.respond(actor=agenda.bob, event_id=meeting.pk, response="accepted").response == "accepted"
+        answered = attendees.respond(
+            actor=agenda.bob, event_id=meeting.pk, response="accepted", expected_revision=revision
+        )
+        assert answered.response == "accepted"
         with pytest.raises(ValidationError):
-            attendees.respond(actor=agenda.bob, event_id=meeting.pk, response="maybe")
+            attendees.respond(
+                actor=agenda.bob, event_id=meeting.pk, response="maybe", expected_revision=answered.revision
+            )
     with actor_tenant(agenda.admin, agenda.a):  # Not invited: someone else's invitation does not exist for them.
         with pytest.raises(PermissionDenied):
-            attendees.respond(actor=agenda.admin, event_id=meeting.pk, response="declined")
+            attendees.respond(
+                actor=agenda.admin, event_id=meeting.pk, response="declined", expected_revision=answered.revision
+            )
 
 
 def test_updates_and_cancellation_notify_attendees(agenda, meeting):
@@ -97,3 +105,36 @@ def test_shared_calendar_readers_and_inactive_attendees(agenda, meeting):
     with actor_tenant(agenda.alice, agenda.a):
         assert attendees.attendee_users(meeting) == ()  # Inactive members are no longer notified.
         assert EventAttendee.objects.filter(event=meeting).count() == 1  # The row stays (history).
+
+
+def _invited(organization):
+    from skeleton.notifications.models import Notification
+    from skeleton.tenancy.context import system_context
+
+    with system_context(reason="test:invited-notifications", organization_id=organization.pk):
+        return list(Notification.objects.filter(type_code="calendar.invited").values_list("recipients", flat=True))
+
+
+def test_second_invitation_batch_is_notified(agenda, meeting):
+    """Two batches of invitations to the same event notify each batch (#235)."""
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.admin.pk,))
+    recipients = sorted(row["users"] for row in _invited(agenda.a))
+    assert recipients == sorted([[str(agenda.bob.pk)], [str(agenda.admin.pk)]])
+    assert _invited(agenda.b) == []
+
+
+def test_same_invitation_twice_does_not_duplicate_the_notification(agenda, meeting):
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        assert attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,)) == []
+    assert len(_invited(agenda.a)) == 1
+
+
+def test_deleting_the_event_notifies_cancellation(agenda, meeting):
+    with actor_tenant(agenda.alice, agenda.a):
+        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        meeting.refresh_from_db()
+        services.delete_event(actor=agenda.alice, event_id=meeting.pk, expected_revision=meeting.revision)
+    assert "calendar.cancelled" in notifications_of(agenda, agenda.bob, agenda.a)

@@ -1,10 +1,11 @@
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy
 
 
 class NotesConfig(AppConfig):
     name = __package__
     label = "example_notes"
-    verbose_name = "Anotações de demonstração"
+    verbose_name = gettext_lazy("Anotações de demonstração")
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
@@ -19,12 +20,16 @@ class NotesConfig(AppConfig):
         register(
             TableSpec(
                 model=Note,
-                description="Anotações de demonstração do contrato de registros",
-                label="Anotações",
+                description=gettext_lazy("Anotações de demonstração do contrato de registros"),
+                label=gettext_lazy("Anotações"),
                 scope="organization",
                 read_fields=("code", "title", "body", "owner", "visibility", "owning_group"),
                 write_fields=("code", "title", "body"),
                 sensitive_fields=("body",),
                 expose_api=True,
+                search_fields=("code", "title"),
             )
         )
+        from .flows import register as register_flows
+
+        register_flows()

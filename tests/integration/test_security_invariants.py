@@ -6,6 +6,8 @@ from django.db import IntegrityError, connection, transaction
 
 from tools.security_fixtures import actor_tenant, build_security_fixture
 
+pytestmark = pytest.mark.needs_example_app
+
 
 @pytest.fixture
 def access(skeleton_db):
@@ -220,3 +222,28 @@ def test_catalog_sync_preserves_uuid_human_text_without_ddl(access):
     assert table.label == "Human label" and table.description == "Human explanation"
     assert table.revision == revision
     assert connection.introspection.table_names() == tables_before
+
+
+@pytest.mark.parametrize("action", ["read", "update", "delete", "manage_access", "audit"])
+def test_tombstones_are_reachable_only_through_restore(access, action):
+    """A deleted record is never read or changed through another action, even with every permission (#229)."""
+    from examples.notes.models import Note
+    from skeleton.access.policies import authorized_queryset, require_record_action
+
+    with actor_tenant(access.alice, access.a):
+        note = Note.objects.get(pk=access.shared.pk)
+        note.delete()
+        tombstone = Note.objects.with_deleted().get(pk=note.pk)
+        assert require_record_action(tombstone, user=access.alice, action="restore") is tombstone
+        assert (
+            authorized_queryset(Note, user=access.alice, action="restore", include_deleted=True)
+            .filter(pk=note.pk)
+            .exists()
+        )
+    for user in (access.alice, access.bob, access.admin):
+        with actor_tenant(user, access.a):
+            with pytest.raises(PermissionDenied):
+                authorized_queryset(Note, user=user, action=action, include_deleted=True)
+            with pytest.raises(PermissionDenied):
+                require_record_action(tombstone, user=user, action=action)
+            assert not authorized_queryset(Note, user=user, action="read").filter(pk=note.pk).exists()

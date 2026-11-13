@@ -83,7 +83,16 @@ def test_compose_backend_overrides_and_cycles_the_worker_services(tmp_path, monk
 
     backend = ComposeBackend(Values(config), store)
     recorder = Recording()
-    backend.run = recorder
+    overrides = []
+
+    def run(arguments, **kwargs):
+        # The override exists only while its command runs (#245): read it at call time.
+        recorder(arguments, **kwargs)
+        files = [index for index, value in enumerate(map(str, arguments)) if value == "--file"]
+        if len(files) > 1:  # Compose calls; operator hooks have no override.
+            overrides.append(json.loads(Path(str(arguments[files[-1] + 1])).read_text()))
+
+    backend.run = run
     rendered = {"services": {name: {"environment": {}} for name in ("web", "worker", "scheduler", "migrator")}}
     backend.capture = lambda *args, **kwargs: json.dumps(rendered).encode()
     release = tmp_path / "releases" / "r2"
@@ -95,7 +104,8 @@ def test_compose_backend_overrides_and_cycles_the_worker_services(tmp_path, monk
     up_web = next(index for index, call in enumerate(joined) if call.endswith("--force-recreate web"))
     up_workers = next(index for index, call in enumerate(joined) if call.endswith("--force-recreate worker scheduler"))
     assert stop_web < stop_workers < up_web < up_workers
-    override = json.loads((tmp_path / "compose-r2-runtime.json").read_text())
+    override = overrides[-1]
+    assert not list(tmp_path.glob("compose-*.json"))
     assert set(override["services"]) == {"web", "worker", "scheduler"}
     assert override["services"]["worker"]["image"] == override["services"]["web"]["image"] == "skeleton-managed:r2"
     assert "command" not in override["services"]["worker"]  # The worker keeps its run_worker command.
@@ -167,3 +177,64 @@ def test_compose_worker_services_are_validated(tmp_path, workers):
     assert agent_config(tmp_path, backend="compose", compose={**compose, "worker_services": ["worker"]})
     with pytest.raises(AgentError, match="invalid_compose_worker_services"):
         agent_config(tmp_path, backend="compose", compose={**compose, "worker_services": workers})
+
+
+def compose_backend(tmp_path, *, fail=False):
+    config = {
+        "commands": {name: COMMANDS[name] for name in ("drain", "restart", "stop")},
+        "active_link": str(tmp_path / "current"),
+        "storage_root": str(tmp_path),
+        "maintenance_marker": str(tmp_path / "control" / "maintenance"),
+        "compose": {
+            "project": "sk",
+            "env_file": "/srv/compose.env",
+            "file": "/srv/compose.yaml",
+            "web_service": "web",
+            "migrator_service": "migrator",
+            "worker_services": ["worker"],
+        },
+    }
+
+    class Values(dict):
+        def environment(self, profile, release):
+            return {"MIGRATION_DATABASE_URL": "postgres://owner:secret@db/app"}
+
+    backend = ComposeBackend(Values(config), SimpleNamespace(root=tmp_path))
+    seen = []
+
+    def run(arguments, **kwargs):
+        files = [index for index, value in enumerate(map(str, arguments)) if value == "--file"]
+        if len(files) > 1:  # The last --file is the private override of this call.
+            seen.append(Path(str(arguments[files[-1] + 1])))
+            assert seen[-1].exists()
+        if fail:
+            raise AgentError(kwargs.get("code", "command_failed"), 409)
+
+    backend.run = run
+    rendered = {"services": {name: {"environment": {}} for name in ("web", "worker", "migrator")}}
+    backend.capture = lambda *args, **kwargs: json.dumps(rendered).encode()
+    return backend, seen
+
+
+def test_compose_override_is_removed_after_each_command(tmp_path):
+    backend, seen = compose_backend(tmp_path)
+    release = tmp_path / "releases" / "r3"
+    backend.python(release, ["-c", "pass"], "migration")
+    backend.stop(release, "op")
+    backend.start(release, "op")
+    assert seen and not list(tmp_path.glob("compose-*.json"))
+
+
+def test_compose_override_is_removed_when_command_fails(tmp_path):
+    backend, _ = compose_backend(tmp_path, fail=True)
+    with pytest.raises(AgentError):
+        backend.python(tmp_path / "releases" / "r3", ["-c", "pass"], "migration")
+    assert not list(tmp_path.glob("compose-*.json"))
+
+
+def test_serve_start_removes_stale_overrides(tmp_path):
+    backend, _ = compose_backend(tmp_path)
+    (tmp_path / "compose-r1-migration.json").write_text('{"secret": true}')
+    (tmp_path / "keep.json").write_text("{}")
+    assert backend.remove_stale_overrides() == 1
+    assert not (tmp_path / "compose-r1-migration.json").exists() and (tmp_path / "keep.json").exists()

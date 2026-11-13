@@ -13,6 +13,8 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from django.utils.translation import gettext
+
 TOKEN_LIFETIME = timedelta(hours=24)
 TOKEN_BYTES = 24
 
@@ -41,8 +43,10 @@ def issue_token(store, *, now: datetime | None = None, stream=None) -> str | Non
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(token + "\n")
     print(  # noqa: T201 - the one place the operator learns the token
-        f"[skeleton setup] Token de primeiro acesso (uso único, vale 24 h): {token}\n"
-        f"[skeleton setup] Também gravado em {path} (0600). Abra /setup/ e informe o token.",
+        gettext(
+            "[skeleton setup] Token de primeiro acesso (uso único, vale 24 h): %(token)s\n[skeleton setup] Também gravado em %(path)s (0600). Abra /setup/ e informe o token."
+        )
+        % {"token": token, "path": path},
         file=stream or sys.stderr,
         flush=True,
     )

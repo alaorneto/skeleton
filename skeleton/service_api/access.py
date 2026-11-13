@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import as_uuid
@@ -14,13 +15,16 @@ from .errors import Forbidden, InvalidInput, NotFound
 from .identity import _user
 from .organizations import GroupSummary
 
+GRANT_ACTIONS = ("read", "update", "delete")
+MAX_RECORD_IDS = 500
+
 
 def _model(table_key: str) -> Any:
     from skeleton.common.models import SecuredRecord
     from skeleton.system.registry import get_spec
 
     if not isinstance(table_key, str):
-        raise InvalidInput({"table_key": ["Use o identificador da tabela."]})
+        raise InvalidInput({"table_key": [gettext("Use o identificador da tabela.")]})
     try:
         spec = get_spec(table_key)
     except KeyError:
@@ -34,7 +38,7 @@ def _action(action: str) -> str:
     from skeleton.access.policies import ACTIONS
 
     if action not in ACTIONS:
-        raise InvalidInput({"action": [f"Use uma de: {', '.join(sorted(ACTIONS))}."]})
+        raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(sorted(ACTIONS))}]})
     return action
 
 
@@ -96,6 +100,38 @@ class AccessService(ServiceAPI):
         if not allowed:
             raise Forbidden()
 
+    @service_method(read_only=True, since="0.6.0")
+    def granted_record_ids(
+        self, *, actor: AbstractBaseUser, table_key: str, record_ids: tuple[UUID, ...], action: str = "read"
+    ) -> tuple[UUID, ...]:
+        """Which of ``record_ids`` the actor holds an explicit record grant for (membership, group or role).
+
+        Autorização: vínculo ativo do ator; só as concessões do próprio ator, na organização do
+        contexto; não dispensa a TablePermission nem diz se o registro existe (#343).
+        Erros: InvalidInput para tabela desconhecida ou não exposta, ação fora de read/update/delete,
+        identificador inválido ou mais de 500 identificadores.
+        Efeitos: nenhum.
+        """
+        from skeleton.access.policies import _grant_ids
+
+        if action not in GRANT_ACTIONS:
+            raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(GRANT_ACTIONS)}]})
+        model = _model(table_key)
+        if model is None:
+            raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
+        if not isinstance(record_ids, tuple) or len(record_ids) > MAX_RECORD_IDS:
+            raise InvalidInput(
+                {"record_ids": [gettext("Informe até %(value1)s identificadores.") % {"value1": MAX_RECORD_IDS}]}
+            )
+        identifiers = [as_uuid(value, field="record_ids") for value in record_ids]
+        if not identifiers:
+            return ()
+        try:
+            granted = set(_grant_ids(model, _user(actor), action).filter(record_sysid__in=identifiers))
+        except PermissionDenied:
+            return ()
+        return tuple(sorted(granted, key=str))
+
     @service_method(read_only=True, since="0.5.0")
     def capabilities(self, *, actor: AbstractBaseUser) -> tuple[str, ...]:
         """Return the actor's organizational capabilities, sorted.
@@ -144,14 +180,14 @@ class AccessService(ServiceAPI):
             raise Forbidden()
         model = _model(table_key)
         if model is None:
-            raise InvalidInput({"table_key": ["Tabela desconhecida ou não exposta."]})
+            raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
         if not isinstance(actions, tuple) or not actions:
-            raise InvalidInput({"actions": ["Informe as ações."]})
+            raise InvalidInput({"actions": [gettext("Informe as ações.")]})
         for action in actions:
             _action(action)
         table, role = table_definition(model), Role.objects.filter(code="member", is_builtin=True).first()
         if table is None or role is None:
-            raise InvalidInput({"table_key": ["Catálogo ou papel member indisponível."]})
+            raise InvalidInput({"table_key": [gettext("Catálogo ou papel member indisponível.")]})
         granted = []
         for action in dict.fromkeys(actions):
             if not TablePermission.objects.filter(role=role, table=table, action=action).exists():

@@ -5,10 +5,12 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 from rest_framework.response import Response
 
 from skeleton.api.errors import BoundaryError
+from skeleton.api.openapi import BOOLEAN, INTEGER, OBJECT, UUID, Operation, array, obj, string
 from skeleton.api.views import SessionAPI, TenantAPI, request_fields
 from skeleton.web.views import pagination, tenant_page
 
@@ -32,7 +34,7 @@ def _render_inbox(request, *, organization_id=None):
         request,
         "skeleton/notifications/inbox.html",
         {
-            "title": "Notificações",
+            "title": gettext("Notificações"),
             "rows": rows,
             "organization_id": organization_id,
             "scope": "organization" if organization_id else "global",
@@ -84,19 +86,52 @@ def open_notification(request, organization_id, sysid):
     return render(
         request,
         "skeleton/notifications/unavailable.html",
-        {"title": "Conteúdo indisponível", "organization_id": organization_id},
+        {"title": gettext("Conteúdo indisponível"), "organization_id": organization_id},
+    )
+
+
+def _inbox_row():
+    from skeleton.api.openapi import model_fields
+
+    from .models import NotificationRecipient
+
+    return model_fields(
+        NotificationRecipient,
+        {
+            "sysid": "sysid",
+            "organization_id": "organization",
+            "type_code": "type_code",
+            "count": "count",
+            "created_at": "created_at",
+            "updated_at": "updated_at",
+        },
+        label=string(),
+        snapshot=OBJECT,
+        payload=OBJECT,
+        read=BOOLEAN,
+        archived=BOOLEAN,
     )
 
 
 class InboxAPI(SessionAPI):
+    openapi = {
+        "GET": Operation(
+            "Caixa de notificações do ator, de todas as organizações",
+            _inbox_row,
+            paginated=True,
+            page_extra={"unread": INTEGER},
+            query=(("archived", string(enum=["0", "1"]), "1 inclui as arquivadas."),),
+        )
+    }
+
     def get(self, request):
         from skeleton.api.views import page
 
         if set(request.query_params) - {"page", "page_size", "archived"}:
-            raise BoundaryError("invalid_filter", "Filtro não permitido.")
+            raise BoundaryError("invalid_filter", gettext("Filtro não permitido."))
         archived = request.query_params.get("archived", "0")
         if archived not in {"0", "1"}:
-            raise BoundaryError("invalid_filter", "Filtro inválido.")
+            raise BoundaryError("invalid_filter", gettext("Filtro inválido."))
         response = page(inbox.inbox_queryset(request.user, include_archived=archived == "1"), request, inbox.row_data)
         response.data["unread"] = inbox.unread_count(request.user)
         return response
@@ -104,19 +139,29 @@ class InboxAPI(SessionAPI):
 
 class InboxActionAPI(TenantAPI):
     ACTIONS = {"read", "unread", "archive", "read_all"}
+    openapi = {
+        "POST": Operation(
+            "Marca como lidas, não lidas ou arquivadas",
+            obj({"changed": INTEGER, "unread": INTEGER}),
+            request=obj(
+                {"action": string(enum=sorted(ACTIONS)), "ids": {**array(UUID), "minItems": 1, "maxItems": 100}},
+                required=("action",),
+            ),
+        )
+    }
 
     @transaction.atomic
     def post(self, request, organization_id):
         data = request_fields(request)
         action = data.get("action")
         if action not in self.ACTIONS or set(data) - {"action", "ids"}:
-            raise BoundaryError("invalid_request", "Informe action e ids.")
+            raise BoundaryError("invalid_request", gettext("Informe action e ids."))
         if action == "read_all":
             changed = inbox.mark_all_read(request.user)
         else:
             ids = data.get("ids")
             if not isinstance(ids, list) or not 1 <= len(ids) <= 100:
-                raise BoundaryError("invalid_request", "Informe de 1 a 100 ids.")
+                raise BoundaryError("invalid_request", gettext("Informe de 1 a 100 ids."))
             if action == "archive":
                 changed = inbox.archive(request.user, ids)
             else:
