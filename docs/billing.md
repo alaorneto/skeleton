@@ -92,6 +92,21 @@ O motor (`skeleton/billing/engine.py`) trabalha numa organização, na transaç�
 
 `billing.invoice_finalized`, `billing.invoice_paid` e `billing.subscription_changed`, com número, situação, moeda e total da fatura, ou a situação da assinatura ([eventos](events.md#eventos-da-cobrança)). Não vão para webhooks.
 
+### Vouchers
+
+A plataforma cria vouchers (`Voucher`, global, termos imutáveis) e a organização resgata o código (`skeleton.billing.vouchers.redeem`), uma vez por organização (`VoucherRedemption`).
+
+| Tipo | `value` | Efeito |
+|---|---|---|
+| `percent` | pontos-base (10000 = 100%) | Desconto nas linhas elegíveis de cada renovação coberta |
+| `fixed` | menor unidade de `currency` | Desconto fixo em cada renovação coberta, nunca acima das linhas elegíveis; só na moeda da assinatura |
+| `free_cycles` | não usado | As linhas elegíveis de `duration_cycles` renovações saem de graça (exige `duration=repeating`) |
+| `trial_extension` | dias (1 a 365) | Estende uma vez o trial em curso; fora do trial é recusado (`not_trialing`) |
+
+`duration` diz quantas renovações um desconto cobre: `once` (uma), `repeating` (`duration_cycles`) ou `forever`. `applies_to` lista códigos de produto; vazio cobre todos. Os descontos entram nas **faturas de renovação**, como a última fonte de linhas: nunca passam das cobranças da fatura, então o total não fica negativo. As faturas imediatas (início, contratação, upgrade) não recebem desconto.
+
+O código é guardado normalizado (sem espaços, em maiúsculas), então o resgate ignora caixa e espaços. Código inexistente, inativo, fora da validade, esgotado (`max_redemptions`, contado sob o lock da linha do voucher, então o último uso tem um vencedor) ou de outra moeda respondem igual, `invalid_voucher`; o mesmo voucher de novo na organização é `already_redeemed`. As tentativas são limitadas a 10 por hora por organização e por pessoa (`too_many_attempts`), no cache compartilhado.
+
 ### Impostos
 
 O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora com `skeleton.billing.tax.register_tax_calculator(...)` em `ready()`: ela recebe a conta e as linhas e devolve o imposto na menor unidade da moeda. Nota fiscal fica fora do núcleo; um consumidor de `billing.invoice_paid` pode entregá-la a um emissor.
@@ -100,7 +115,6 @@ O núcleo não cobra imposto. Um projeto que precisa registra uma calculadora co
 
 | Issue | Entrega |
 |---|---|
-| [#397](https://github.com/alaorneto/skeleton/issues/397) | Vouchers |
 | [#398](https://github.com/alaorneto/skeleton/issues/398) | Cotas: excedente de armazenamento e limites de plano |
 | [#399](https://github.com/alaorneto/skeleton/issues/399) | Régua de inadimplência e bloqueio progressivo |
 | [#400](https://github.com/alaorneto/skeleton/issues/400) | Interface de provedor, webhooks de entrada e conciliação |

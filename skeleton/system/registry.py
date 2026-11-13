@@ -482,6 +482,18 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_billing.voucher": (
+            gettext_lazy("Vouchers"),
+            gettext_lazy("Código de desconto, ciclos grátis ou extensão de avaliação; os termos nunca mudam."),
+            "global",
+            (),
+        ),
+        "sk_billing.voucherredemption": (
+            gettext_lazy("Vouchers usados"),
+            gettext_lazy("Voucher usado por uma organização, com as renovações que ele ainda cobre."),
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),
             gettext_lazy("Histórico transacional imutável de alterações, com dados sensíveis redigidos."),

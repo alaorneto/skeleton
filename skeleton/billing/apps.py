@@ -19,6 +19,7 @@ class BillingConfig(AppConfig):
         from .events import register_billing_events
         from .jobs import register_billing_jobs
         from .lifecycle import organization_created
+        from .vouchers import register_voucher_lines
 
         # The policy is always registered and answers "allow everything" while billing is off,
         # so a setting override in tests or at runtime needs no new registration.
@@ -26,4 +27,5 @@ class BillingConfig(AppConfig):
         register_exempt_segment("billing")
         register_organization_created(organization_created)
         register_billing_events()
+        register_voucher_lines()
         register_billing_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))

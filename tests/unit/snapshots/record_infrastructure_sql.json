@@ -22,6 +22,8 @@
   "sk_billing.product": "b449baeaa2bf88b0cce093f12d4e3c3046878ef64f042fe17c2631b073ac97e5",
   "sk_billing.subscription": "6ae4e556e24cf85391b921d9f1cc5b03abdd58cb4770f718962a53eacf9e205e",
   "sk_billing.subscriptionitem": "7854d685b43f4e91764da3738daac305f9035b859ccd4bc1c0c28c353a89e23f",
+  "sk_billing.voucher": "0dc82160e4eeeb4401960ad2ca554b311f32ef48914e79743da01b9fe61a106c",
+  "sk_billing.voucherredemption": "1f871e10f23695642a1d9c498b3af010e149c5a119fd7c2ab5a720ee68465dee",
   "sk_comments.comment": "a13473b0d69ecae484f4cd9c30712add78a069abc8e753889176dd7658cd591b",
   "sk_events.domainevent": "748b2bd5187c2cb3e7f99c5b1d2c7aa508698dd0837887ab1e4ff5643666babf",
   "sk_files.attachment": "80994223aef5c36e2d0c586ce079036eb1967c84cb521d61cbba3461db73ef2b",

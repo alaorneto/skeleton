@@ -537,3 +537,127 @@ class Payment(OrganizationRecord):
 
     def __str__(self):
         return f"{self.invoice_id} {self.method} {self.status}"
+
+
+class Voucher(SystemRecord):
+    """A code the platform creates and an organization redeems (#397); its terms never change."""
+
+    class Kind(models.TextChoices):
+        PERCENT = "percent", gettext_lazy("Percentual")
+        FIXED = "fixed", gettext_lazy("Valor fixo")
+        FREE_CYCLES = "free_cycles", gettext_lazy("Ciclos grátis")
+        TRIAL_EXTENSION = "trial_extension", gettext_lazy("Extensão do período de avaliação")
+
+    class Duration(models.TextChoices):
+        ONCE = "once", gettext_lazy("Uma renovação")
+        REPEATING = "repeating", gettext_lazy("Algumas renovações")
+        FOREVER = "forever", gettext_lazy("Sempre")
+
+    # Stored normalized (no spaces, upper case): codes ignore case.
+    code = models.CharField(max_length=40)
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    # Basis points (percent), minor units (fixed) or days (trial extension); ignored for free cycles.
+    value = models.PositiveIntegerField(default=0)
+    currency = models.CharField(max_length=3, blank=True, default="")
+    duration = models.CharField(max_length=10, choices=Duration.choices, default=Duration.ONCE)
+    duration_cycles = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Product codes the discount covers; empty covers every product.
+    applies_to = models.JSONField(default=list, blank=True)
+    max_redemptions = models.PositiveIntegerField(null=True, blank=True)
+    redemption_count = models.PositiveIntegerField(default=0)
+    valid_from = models.DateTimeField(null=True, blank=True)
+    valid_until = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    immutable_fields = ("code", "kind", "value", "currency", "duration", "duration_cycles", "applies_to")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("code",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_billing_voucher_code_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=("percent", "fixed", "free_cycles", "trial_extension")),
+                name="sk_billing_voucher_kind",
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="percent") | Q(value__gte=1, value__lte=10000), name="sk_billing_voucher_percent"
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="fixed") | (Q(value__gte=1) & Q(currency__regex=r"^[A-Z]{3}$")),
+                name="sk_billing_voucher_fixed",
+            ),
+            models.CheckConstraint(
+                condition=~Q(duration="repeating") | Q(duration_cycles__isnull=False, duration_cycles__gte=1),
+                name="sk_billing_voucher_cycles",
+            ),
+            models.CheckConstraint(
+                condition=Q(max_redemptions__isnull=True) | Q(redemption_count__lte=F("max_redemptions")),
+                name="sk_billing_voucher_redemptions",
+            ),
+        ]
+
+    def clean(self):
+        from .vouchers import normalize
+
+        super().clean()
+        if self._state.adding:
+            self.code = normalize(self.code)
+        if not re.fullmatch(r"[A-Z0-9_-]{3,40}", self.code or ""):
+            raise ValidationError({"code": gettext("Use de 3 a 40 letras, dígitos, _ ou -.")})
+        if self.kind == self.Kind.FREE_CYCLES and self.duration != self.Duration.REPEATING:
+            raise ValidationError({"duration": gettext("Ciclos grátis dizem quantas renovações cobrem.")})
+        if self.kind == self.Kind.TRIAL_EXTENSION and not 1 <= self.value <= 365:
+            raise ValidationError({"value": gettext("Estenda o período de avaliação de 1 a 365 dias.")})
+        if self.kind == self.Kind.FIXED:
+            try:
+                validate_currency(self.currency)
+            except ValidationError as exc:
+                raise ValidationError({"currency": exc.messages}) from None
+        if self.kind != self.Kind.FIXED and self.currency:
+            raise ValidationError({"currency": gettext("Só o voucher de valor fixo tem moeda.")})
+        codes = self.applies_to
+        if not isinstance(codes, list) or not all(isinstance(code, str) and _CODE.match(code) for code in codes):
+            raise ValidationError({"applies_to": gettext("Use uma lista de códigos de produto.")})
+
+    def covered_cycles(self):
+        """How many renewals the discount covers (``None``: every one)."""
+        if self.duration == self.Duration.FOREVER:
+            return None
+        return 1 if self.duration == self.Duration.ONCE else self.duration_cycles
+
+    def usable(self, *, now):
+        if not self.is_active or self.deleted_at is not None:
+            return False
+        if (self.valid_from and now < self.valid_from) or (self.valid_until and now >= self.valid_until):
+            return False
+        return self.max_redemptions is None or self.redemption_count < self.max_redemptions
+
+    def __str__(self):
+        return self.code
+
+
+class VoucherRedemption(OrganizationRecord):
+    """A voucher used by an organization, once; ``remaining_cycles`` counts the renewals left."""
+
+    voucher = models.ForeignKey(Voucher, on_delete=models.PROTECT, related_name="redemptions")
+    subscription = models.ForeignKey(Subscription, on_delete=models.PROTECT, related_name="redemptions")
+    redeemed_at = models.DateTimeField()
+    # None: every renewal (forever); 0: nothing left.
+    remaining_cycles = models.PositiveSmallIntegerField(null=True, blank=True)
+    immutable_fields = ("voucher_id", "subscription_id", "redeemed_at")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "voucher"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_billing_redemption_once",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.voucher_id} {self.remaining_cycles}"
