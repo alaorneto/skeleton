@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Fluxo de issues do projeto
-    url: __REPOSITORY_URL__/blob/__DEFAULT_BRANCH__/__SKILL_DIR__/references/flow.md
+    url: __REPOSITORY_URL__/blob/__DEFAULT_BRANCH__/__SKILL_PATH__references/flow.md
     about: Como classificar, detalhar, vincular commits e fechar issues.

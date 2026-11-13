@@ -54,6 +54,7 @@ def test_installed_workflows_match_the_skill_templates():
         installed = ROOT / ".github" / "workflows" / template.name
         rendered = (
             template.read_text(encoding="utf-8")
+            .replace("__SKILL_GLOB__", f"{SKILL_DIR}/**")
             .replace("__SKILL_DIR__", SKILL_DIR)
             .replace("__DEFAULT_BRANCH__", "main")
             .replace("__RELEASE_LABEL__", "release")

@@ -668,7 +668,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(plan.version or plan.base_version)
             return 0
         if args.command == "check":
-            latest = session.repo.latest("HEAD", final_only=False)
+            # Repositório sem commit ainda (recém-adotado): vale a versão inicial da configuração.
+            latest = session.repo.latest("HEAD", final_only=False) if session.git.ok("rev-parse", "HEAD") else None
             current = latest[1] if latest else Version.parse(str(cfg.versioning["initial_version"]))
             tree = Path(args.tree).resolve() if args.tree else None
             if tree is not None and not tree.is_dir():

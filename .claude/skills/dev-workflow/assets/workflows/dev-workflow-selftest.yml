@@ -4,10 +4,10 @@ name: Autoteste do skill dev-workflow
 
 on:
   pull_request:
-    paths: ["__SKILL_DIR__/**", ".github/dev-workflow.toml"]
+    paths: ["__SKILL_GLOB__", ".github/dev-workflow.toml"]
   push:
     branches: [__DEFAULT_BRANCH__]
-    paths: ["__SKILL_DIR__/**", ".github/dev-workflow.toml"]
+    paths: ["__SKILL_GLOB__", ".github/dev-workflow.toml"]
 
 permissions:
   contents: read

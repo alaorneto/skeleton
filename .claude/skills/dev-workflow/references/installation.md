@@ -4,17 +4,18 @@
 
 ## 1. Um comando
 
-Com o skill em qualquer lugar (por exemplo `~/.claude/skills/dev-workflow`), na raiz do repositório do projeto:
+A origem é o repositório do skill (um clone em qualquer lugar fora do projeto, por exemplo `~/src/dev-workflow`). Na raiz do repositório do projeto:
 
 ```bash
-python3 <skill>/scripts/bootstrap.py init
+git clone https://github.com/<dono>/dev-workflow ~/src/dev-workflow
+python3 ~/src/dev-workflow/scripts/bootstrap.py init
 ```
 
 O que ele faz:
 
 | Passo | Resultado |
 |---|---|
-| Copia o skill para `.claude/skills/dev-workflow/` se estiver fora do repositório | Os workflows do CI chamam os scripts de lá; por isso o skill é versionado junto com o projeto |
+| Copia o skill para `.claude/skills/dev-workflow/` se estiver fora do repositório, sem `.git/` e `.github/` do repositório do skill | Os workflows do CI chamam os scripts de lá; por isso o skill é versionado junto com o projeto. `bootstrap.py version` diz qual versão está instalada |
 | Detecta a branch padrão e os arquivos de versão (`pyproject.toml`, `package.json`, `Cargo.toml`, `VERSION`, `pubspec.yaml`, `mix.exs`, `build.gradle`, `Directory.Build.props`…) | `.github/dev-workflow.toml` com `initial_version` e `[[versioning.files]]` preenchidos |
 | Gera os workflows a partir dos modelos | `.github/workflows/pr-check.yml`, `pr-merged.yml`, `release.yml`, `epic-checklist.yml`, `semver-analysis.yml` |
 | Copia os modelos | `.github/ISSUE_TEMPLATE/*.yml`, `.github/pull_request_template.md` |
@@ -77,7 +78,23 @@ Acrescente às instruções do projeto (`AGENTS.md`, `CLAUDE.md`) um parágrafo 
 
 ## Atualizar o skill
 
-Substitua `.claude/skills/dev-workflow/` pela versão nova e rode `bootstrap.py doctor`: ele aponta os workflows que diferem dos modelos. `bootstrap.py init --force` os regenera (revise o diff antes de commitar, para não perder personalizações). A configuração nunca é trocada sem `--force`.
+A versão nova vem do repositório do skill, e o comando roda **a partir dela**:
+
+```bash
+git -C ~/src/dev-workflow pull
+python3 ~/src/dev-workflow/scripts/bootstrap.py update --dry-run
+python3 ~/src/dev-workflow/scripts/bootstrap.py update
+python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor
+```
+
+| O que | Comportamento |
+|---|---|
+| Cópia em `.claude/skills/dev-workflow/` | Espelhada: arquivos novos entram, os que saíram da versão nova são removidos |
+| Workflows, formulários de issue e modelo de PR | Os iguais ao modelo da versão anterior recebem o modelo novo; os personalizados ficam como estão, com aviso (`--force` troca). Opcional ausente (`semver-analysis.yml`, autoteste) continua ausente |
+| `.github/dev-workflow.toml` | Nunca é trocado. Chave nova tem padrão; chave removida aparece como erro no `doctor` |
+| Versão mais antiga que a instalada | Recusada sem `--force` |
+
+Rodar o `update` a partir da cópia instalada é recusado: ela não é uma versão nova. Commite o resultado numa branch de issue (`chore`), como qualquer mudança; os workflows novos valem depois do merge.
 
 ## Conferir que funciona
 

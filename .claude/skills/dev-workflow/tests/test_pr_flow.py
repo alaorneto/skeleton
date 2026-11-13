@@ -194,7 +194,7 @@ class BootstrapTest(unittest.TestCase):
         box.git("commit", "-q", "-am", "chore: drop the config")
         completed = box.run("bootstrap.py", "init", "--no-labels")
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("skill copiado para .claude/skills/dev-workflow", completed.stdout)
+        self.assertIn("copiado para .claude/skills/dev-workflow", completed.stdout)
 
         config = box.read(".github/dev-workflow.toml")
         self.assertIn('initial_version = "2.4.1"', config)
@@ -235,6 +235,120 @@ class BootstrapTest(unittest.TestCase):
         again = box.run(str(vendored / "bootstrap.py"), "init", "--no-labels")
         self.assertIn(".github/dev-workflow.toml mantido (já existe)", again.stdout)
         self.assertIn("release.yml já está igual ao modelo", again.stdout)
+
+    def _installed(self):
+        box = Sandbox()
+        self.addCleanup(box.close)
+        self.assertEqual(box.run("bootstrap.py", "init", "--no-labels").returncode, 0)
+        box.git("add", "-A")
+        box.git("commit", "-q", "-m", "chore: adopt the workflow\n\nRefs #1")
+        return box, box.work / ".claude/skills/dev-workflow"
+
+    def test_update_replaces_the_copy_and_keeps_the_project_configuration(self):
+        box, vendored = self._installed()
+        version = (SCRIPTS.parent / "VERSION").read_text(encoding="utf-8").strip()
+        doctor = box.run(str(vendored / "scripts/bootstrap.py"), "doctor").stdout
+        self.assertIn(f"skill dev-workflow {version} versionado", doctor)
+        config = box.read(".github/dev-workflow.toml") + "# ajuste do projeto\n"
+        box.write({".github/dev-workflow.toml": config})
+        # Uma cópia antiga: outra versão, um arquivo que saiu, um modelo que mudou.
+        (vendored / "VERSION").write_text("0.9.0\n", encoding="utf-8")
+        (vendored / "scripts/devflow/obsolete.py").write_text("", encoding="utf-8")
+        old_template = (vendored / "assets/workflows/pr-merged.yml").read_text(encoding="utf-8") + "# antigo\n"
+        (vendored / "assets/workflows/pr-merged.yml").write_text(old_template, encoding="utf-8")
+        box.write(
+            {".github/workflows/pr-merged.yml": old_template.replace("__SKILL_DIR__", ".claude/skills/dev-workflow")}
+        )
+        customized = box.read(".github/workflows/release.yml") + "# do projeto\n"
+        box.write({".github/workflows/release.yml": customized, ".github/workflows/semver-analysis.yml": None})
+
+        dry = box.run("bootstrap.py", "update", "--dry-run")
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertTrue((vendored / "scripts/devflow/obsolete.py").exists())
+
+        done = box.run("bootstrap.py", "update")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(f"skill dev-workflow 0.9.0 → {version}", done.stdout)
+        self.assertIn("removido .claude/skills/dev-workflow/scripts/devflow/obsolete.py", done.stdout)
+        self.assertFalse((vendored / "scripts/devflow/obsolete.py").exists())
+        self.assertEqual((vendored / "VERSION").read_text(encoding="utf-8").strip(), version)
+        self.assertIn(".github/workflows/pr-merged.yml atualizado pelo modelo novo", done.stdout)
+        self.assertNotIn("# antigo", box.read(".github/workflows/pr-merged.yml"))
+        self.assertIn("ATENÇÃO: .github/workflows/release.yml foi personalizado", done.stdout)
+        self.assertEqual(box.read(".github/workflows/release.yml"), customized)
+        self.assertFalse((box.work / ".github/workflows/semver-analysis.yml").exists())
+        self.assertEqual(box.read(".github/dev-workflow.toml"), config)
+
+        forced = box.run("bootstrap.py", "update", "--force")
+        self.assertIn(".github/workflows/release.yml atualizado pelo modelo novo", forced.stdout)
+
+    def test_update_refuses_what_is_not_an_upgrade_of_this_skill(self):
+        box, vendored = self._installed()
+        (vendored / "VERSION").write_text("99.0.0\n", encoding="utf-8")
+        older = box.run("bootstrap.py", "update")
+        self.assertEqual(older.returncode, 1)
+        self.assertIn("é mais nova que a de origem", older.stderr)
+        self.assertEqual(box.run("bootstrap.py", "update", "--force").returncode, 0)
+
+        itself = box.run(str(vendored / "scripts/bootstrap.py"), "update")
+        self.assertEqual(itself.returncode, 1)
+        self.assertIn("a partir da versão nova", itself.stderr)
+
+        (vendored / "SKILL.md").write_text("---\nname: outro\n---\n", encoding="utf-8")
+        other = box.run("bootstrap.py", "update")
+        self.assertEqual(other.returncode, 1)
+        self.assertIn("não tem o skill dev-workflow", other.stderr)
+
+    def test_the_copy_leaves_out_what_belongs_to_the_skill_repository(self):
+        from devflow.bootstrap import copy_skill
+
+        box = Sandbox()
+        self.addCleanup(box.close)
+        source, target = box.base / "source", box.base / "target"
+        box_files = {
+            "SKILL.md": "x",
+            "scripts/a.py": "x",
+            ".github/workflows/selftest.yml": "x",
+            ".git/HEAD": "x",
+            "scripts/__pycache__/a.cpython.pyc": "x",
+            "x-workspace/out.txt": "x",
+        }
+        for name, content in box_files.items():
+            (source / name).parent.mkdir(parents=True, exist_ok=True)
+            (source / name).write_text(content, encoding="utf-8")
+        (target / "scripts/old").mkdir(parents=True)
+        (target / "scripts/old/gone.py").write_text("x", encoding="utf-8")
+        copied, removed = copy_skill(source, target)
+        self.assertEqual(copied, ["SKILL.md", "scripts/a.py"])
+        self.assertEqual(removed, ["scripts/old/gone.py"])
+        self.assertFalse((target / ".github").exists() or (target / ".git").exists())
+        self.assertFalse((target / "scripts/old").exists())
+
+    def test_the_skill_at_the_repository_root_adopts_its_own_workflow(self):
+        from devflow.bootstrap import copy_skill
+
+        box = Sandbox(config="", files={"README.md": "x\n"})
+        self.addCleanup(box.close)
+        root = box.base / "skill-repo"
+        copy_skill(SCRIPTS.parent, root)
+        for args in (("init", "-q", "-b", "main"), ("config", "user.email", "d@e.x"), ("config", "user.name", "D")):
+            subprocess.run(["git", *args], cwd=root, check=True)
+        script = str(root / "scripts" / "bootstrap.py")
+        init = box.run(script, "init", "--no-labels", "--selftest", cwd=root)
+        self.assertEqual(init.returncode, 0, init.stdout + init.stderr)
+        self.assertNotIn("skill copiado", init.stdout)
+        self.assertFalse((root / ".claude").exists())
+        version = (root / "VERSION").read_text(encoding="utf-8").strip()
+        config = (root / ".github/dev-workflow.toml").read_text(encoding="utf-8")
+        self.assertIn(f'initial_version = "{version}"', config)
+        self.assertIn("path = \"VERSION\"\nsearch = '{current}'", config)
+        self.assertIn("python3 ./scripts/release.py run", (root / ".github/workflows/release.yml").read_text("utf-8"))
+        selftest = (root / ".github/workflows/dev-workflow-selftest.yml").read_text("utf-8")
+        self.assertIn("-s ./tests", selftest)
+        self.assertIn('paths: ["**", ".github/dev-workflow.toml"]', selftest)
+        doctor = box.run(script, "doctor", cwd=root)
+        self.assertIn("0 erro(s)", doctor.stdout, doctor.stdout + doctor.stderr)
+        self.assertEqual(box.run(script, "version", cwd=root).stdout.strip(), version)
 
     def test_the_scripts_do_not_depend_on_the_host_project(self):
         forbidden = (

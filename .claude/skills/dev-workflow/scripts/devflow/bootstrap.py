@@ -4,14 +4,19 @@
   configuração, os workflows, os modelos de issue e de PR e instala o hook ``commit-msg``. Se o
   skill estiver fora do repositório, copia-o para ``.claude/skills/dev-workflow`` (o CI precisa
   dos scripts versionados). Arquivos que já existem só são trocados com ``--force``.
+- ``update [--force] [--dry-run]``: rodado a partir da versão nova do skill (fora do projeto),
+  troca a cópia em ``.claude/skills/dev-workflow`` e regenera os workflows e modelos que não foram
+  personalizados. A configuração do projeto nunca é tocada.
 - ``install-hook``: instala o hook ``commit-msg`` em ``.git/hooks`` (projetos sem pre-commit).
 - ``doctor``: confere a instalação e lista o que falta, inclusive os passos de quem é dono.
+- ``version``: a versão do skill.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import stat
@@ -29,6 +34,8 @@ from .text import sections
 SKILL = Path(__file__).resolve().parents[2]
 ASSETS = SKILL / "assets"
 VENDOR_PATH = ".claude/skills/dev-workflow"
+# O que é do repositório do skill, não do skill: não vai para a cópia dentro de um projeto.
+COPY_IGNORE = ("__pycache__", "*.pyc", "*-workspace", ".git", ".github", ".pr-head")
 WORKFLOWS = ("pr-check.yml", "pr-merged.yml", "release.yml", "epic-checklist.yml", "semver-analysis.yml")
 OPTIONAL_WORKFLOWS = ("dev-workflow-selftest.yml",)
 
@@ -46,6 +53,51 @@ DETECTORS: tuple[tuple[str, str, str], ...] = (
     ("VERSION", r"^(?P<v>\d+\.\d+\.\d+[^\s]*)\s*$", "{current}"),
     ("version.txt", r"^(?P<v>\d+\.\d+\.\d+[^\s]*)\s*$", "{current}"),
 )
+
+
+def skill_version(skill: Path = SKILL) -> str:
+    """Versão do skill (arquivo ``VERSION``); ``"?"`` numa cópia antiga, sem o arquivo."""
+    try:
+        return (skill / "VERSION").read_text(encoding="utf-8").strip() or "?"
+    except OSError:
+        return "?"
+
+
+def is_skill(path: Path) -> bool:
+    """O diretório tem este skill (e não outro com o mesmo caminho)?"""
+    skill_md = path / "SKILL.md"
+    if not skill_md.is_file() or not (path / "scripts" / "bootstrap.py").is_file():
+        return False
+    head = skill_md.read_text(encoding="utf-8", errors="replace")[:400]
+    return re.search(r"^name:\s*dev-workflow\s*$", head, re.MULTILINE) is not None
+
+
+def _skill_files(base: Path) -> set[str]:
+    """Arquivos do skill em ``base``, relativos a ela, sem o que é só do repositório do skill."""
+    ignore = shutil.ignore_patterns(*COPY_IGNORE)
+    found: set[str] = set()
+    for directory, dirs, names in os.walk(base):
+        skipped = ignore(directory, [*dirs, *names])
+        dirs[:] = [name for name in dirs if name not in skipped]
+        here = Path(directory)
+        found |= {(here / name).relative_to(base).as_posix() for name in names if name not in skipped}
+    return found
+
+
+def copy_skill(source: Path, destination: Path) -> tuple[list[str], list[str]]:
+    """Espelha ``source`` em ``destination``: copia tudo e remove o que saiu. Devolve (copiados, removidos)."""
+    wanted = _skill_files(source)
+    removed = sorted(_skill_files(destination) - wanted) if destination.exists() else []
+    for name in removed:
+        (destination / name).unlink()
+    for name in sorted(wanted):
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / name, target)
+    for directory, _dirs, _names in sorted(os.walk(destination), key=lambda item: -len(Path(item[0]).parts)):
+        if Path(directory) != destination and not any(Path(directory).iterdir()):
+            Path(directory).rmdir()
+    return sorted(wanted), removed
 
 
 def _normalize(version: str) -> Version | None:
@@ -125,20 +177,26 @@ def template_values(root: Path, skill_dir: str, branch: str, cfg: Config | None,
     repository = current_repository(git) or "OWNER/REPO"
     return {
         "SKILL_DIR": skill_dir,
+        "SKILL_GLOB": "**" if skill_dir == "." else f"{skill_dir}/**",
+        "SKILL_PATH": "" if skill_dir == "." else f"{skill_dir}/",
         "DEFAULT_BRANCH": branch,
         "RELEASE_LABEL": cfg.label("release") if cfg else "release",
         "REPOSITORY_URL": f"https://github.com/{repository}",
     }
 
 
-def planned_files(values: dict[str, str], *, selftest: bool) -> dict[str, str]:
+def planned_files(values: dict[str, str], *, selftest: bool, assets: Path = ASSETS) -> dict[str, str]:
     """``{caminho no projeto: conteúdo}`` dos modelos, sem a configuração."""
     files: dict[str, str] = {}
     for name in (*WORKFLOWS, *(OPTIONAL_WORKFLOWS if selftest else ())):
-        files[f".github/workflows/{name}"] = render((ASSETS / "workflows" / name).read_text(encoding="utf-8"), values)
-    for template in sorted((ASSETS / "ISSUE_TEMPLATE").glob("*.yml")):
+        template = assets / "workflows" / name
+        if template.is_file():
+            files[f".github/workflows/{name}"] = render(template.read_text(encoding="utf-8"), values)
+    for template in sorted((assets / "ISSUE_TEMPLATE").glob("*.yml")):
         files[f".github/ISSUE_TEMPLATE/{template.name}"] = render(template.read_text(encoding="utf-8"), values)
-    files[".github/pull_request_template.md"] = (ASSETS / "pull_request_template.md").read_text(encoding="utf-8")
+    pull_request = assets / "pull_request_template.md"
+    if pull_request.is_file():
+        files[".github/pull_request_template.md"] = pull_request.read_text(encoding="utf-8")
     return files
 
 
@@ -178,13 +236,11 @@ def init(args: argparse.Namespace) -> int:
             print(f"ERRO: {VENDOR_PATH} já existe; rode o bootstrap de lá ou use --force.", file=sys.stderr)
             return 1
         if not args.dry_run:
-            shutil.copytree(
-                SKILL,
-                destination,
-                dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*-workspace"),
-            )
-        actions.append(f"skill copiado para {VENDOR_PATH} (os workflows do CI chamam os scripts de lá)")
+            copy_skill(SKILL, destination)
+        actions.append(
+            f"skill dev-workflow {skill_version()} copiado para {VENDOR_PATH} "
+            "(os workflows do CI chamam os scripts de lá)"
+        )
         skill_dir = VENDOR_PATH
     branch = args.default_branch or default_branch(git)
     entries, detected = detect_version_files(root)
@@ -253,6 +309,91 @@ def init(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- update ------------------------------------------------------------------------------------
+
+
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    except OSError:
+        return None
+
+
+def _refuse(message: str) -> int:
+    print(f"ERRO: {message}", file=sys.stderr)
+    return 1
+
+
+def update(args: argparse.Namespace) -> int:
+    """Troca a cópia do skill no projeto pela versão que está rodando este comando."""
+    root = find_root()
+    destination = root / VENDOR_PATH
+    if skill_dir_in(root) is not None:
+        return _refuse(
+            "este é o skill que já está no projeto. Rode o update a partir da versão nova (por exemplo o\n"
+            "clone do repositório do skill): python3 <skill-novo>/scripts/bootstrap.py update"
+        )
+    if not is_skill(destination):
+        return _refuse(f"{VENDOR_PATH} não tem o skill dev-workflow; para instalar, use `bootstrap.py init`.")
+    old, new = skill_version(destination), skill_version()
+    old_version, new_version = Version.try_parse(old), Version.try_parse(new)
+    if new_version is None:
+        return _refuse(f"a versão do skill de origem ({new}) não é SemVer; confira o arquivo VERSION.")
+    if old_version is not None and new_version.key() < old_version.key() and not args.force:
+        return _refuse(f"a cópia instalada ({old}) é mais nova que a de origem ({new}); use --force para voltar.")
+    try:
+        cfg = load(root)
+    except ConfigError as exc:
+        return _refuse(str(exc))
+
+    # Arquivo igual ao modelo antigo não foi personalizado: recebe o modelo novo. Arquivo diferente
+    # dos dois é do projeto e só é trocado com --force. Opcional ausente continua ausente.
+    values = template_values(root, VENDOR_PATH, cfg.default_branch, cfg, Git(root))
+    before = planned_files(values, selftest=True, assets=destination / "assets")
+    after = planned_files(values, selftest=True)
+    optional = {f".github/workflows/{name}" for name in (*OPTIONAL_WORKFLOWS, "semver-analysis.yml")}
+    regenerate: dict[str, str] = {}
+    customized: list[str] = []
+    for name, content in after.items():
+        current = _read(root / name)
+        if current == content or (current is None and name in optional):
+            continue
+        if current is None or current == before.get(name) or args.force:
+            regenerate[name] = content
+        else:
+            customized.append(name)
+
+    prefix = "[dry-run] " if args.dry_run else ""
+    if args.dry_run:
+        print(f"{prefix}skill dev-workflow {old} → {new} em {VENDOR_PATH}")
+    else:
+        copied, removed = copy_skill(SKILL, destination)
+        print(
+            f"skill dev-workflow {old} → {new} em {VENDOR_PATH}: {len(copied)} arquivo(s), {len(removed)} removido(s)"
+        )
+        for name in removed:
+            print(f"  removido {VENDOR_PATH}/{name}")
+    for name, content in regenerate.items():
+        if not args.dry_run:
+            target = root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content.encode("utf-8"))
+        print(f"{prefix}{name} atualizado pelo modelo novo")
+    for name in customized:
+        print(
+            f"{prefix}ATENÇÃO: {name} foi personalizado e difere do modelo novo; compare e ajuste à mão "
+            "(ou rode de novo com --force para trocar)"
+        )
+    print(f"{prefix}{CONFIG_CANDIDATES[0]} mantido (o update nunca troca a configuração)")
+    print(
+        "\nPróximos passos:\n"
+        f"  1. python3 {VENDOR_PATH}/scripts/bootstrap.py doctor\n"
+        "  2. Revise o diff e commite numa branch da issue da atualização; workflows novos valem depois\n"
+        "     do merge na branch padrão."
+    )
+    return 0
+
+
 # --- doctor ------------------------------------------------------------------------------------
 
 
@@ -294,7 +435,7 @@ def doctor(_args: argparse.Namespace) -> int:
         )
         skill_dir = VENDOR_PATH
     else:
-        report.ok(f"skill versionado em {skill_dir}")
+        report.ok(f"skill dev-workflow {skill_version()} versionado em {skill_dir}")
 
     values = template_values(root, skill_dir, cfg.default_branch, cfg, git)
     for name, content in planned_files(values, selftest=False).items():
@@ -376,12 +517,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     command.add_argument("--no-labels", action="store_true")
     command.add_argument("--selftest", action="store_true", help="instala também o workflow de autoteste do skill")
     command.add_argument("--dry-run", action="store_true")
+    command = sub.add_parser("update", help="troca a cópia do skill no projeto por esta versão")
+    command.add_argument(
+        "--force", action="store_true", help="volta a uma versão anterior e troca modelos personalizados"
+    )
+    command.add_argument("--dry-run", action="store_true")
     command = sub.add_parser("install-hook")
     command.add_argument("--force", action="store_true")
     sub.add_parser("doctor")
+    sub.add_parser("version", help="mostra a versão do skill")
     args = parser.parse_args(argv)
     if args.command == "init":
         return init(args)
+    if args.command == "update":
+        return update(args)
+    if args.command == "version":
+        print(skill_version())
+        return 0
     if args.command == "install-hook":
         root = find_root()
         skill_dir = skill_dir_in(root)
