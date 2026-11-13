@@ -96,6 +96,15 @@ def _organization_for(job_type: JobType, organization_id: Any) -> UUID | None:
     return organization_id
 
 
+_IDEMPOTENCY_CONSTRAINTS = frozenset({"sk_jobs_job_idem_org", "sk_jobs_job_idem_global"})
+
+
+def _is_idempotency_conflict(error: IntegrityError) -> bool:
+    """The violation is one of the idempotency constraints, named by PostgreSQL."""
+    diag = getattr(error.__cause__, "diag", None)
+    return getattr(diag, "constraint_name", None) in _IDEMPOTENCY_CONSTRAINTS
+
+
 def enqueue(
     code: str,
     *,
@@ -135,16 +144,18 @@ def enqueue(
         run_after=run_after or timezone.now(),
         idempotency_key=idempotency_key,
     )
+    using = current_context().using
     try:
-        with transaction.atomic(using=current_context().using):
-            job.save()
+        with transaction.atomic(using=using):
+            job.save(using=using)
         created = True
-    except IntegrityError:
-        if idempotency_key is None:
+    except IntegrityError as error:
+        if idempotency_key is None or not _is_idempotency_conflict(error):
             raise
-        job = Job.all_objects.get(job_type=job_type.code, idempotency_key=idempotency_key)
-        if job.job_organization_id != organization:
-            # Never hand out another tenant's job identity through a shared key.
-            raise ValidationError({"idempotency_key": gettext("Chave já usada.")}) from None
+        # The key is unique within the caller's organization (or among global jobs): the job found
+        # is always the caller's own, never another tenant's (#241).
+        job = Job.all_objects.using(using).get(
+            job_type=job_type.code, job_organization_id=organization, idempotency_key=idempotency_key
+        )
         created = False
     return JobReceipt(job.pk, job.job_type, job.state, job.run_after, created)

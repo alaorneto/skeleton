@@ -42,10 +42,18 @@ class Job(OperationalRecord):
 
     class Meta(OperationalRecord.Meta):
         constraints = [
+            # One job per key in each organization, and one per key among global jobs (#241):
+            # a key chosen by organization A never collides with the same key in B.
+            models.UniqueConstraint(
+                fields=("job_type", "job_organization", "idempotency_key"),
+                condition=Q(idempotency_key__isnull=False, job_organization__isnull=False),
+                name="sk_jobs_job_idem_org",
+                violation_error_code="unique",
+            ),
             models.UniqueConstraint(
                 fields=("job_type", "idempotency_key"),
-                condition=Q(idempotency_key__isnull=False),
-                name="sk_jobs_job_idempotency",
+                condition=Q(idempotency_key__isnull=False, job_organization__isnull=True),
+                name="sk_jobs_job_idem_global",
                 violation_error_code="unique",
             ),
             models.CheckConstraint(

@@ -69,7 +69,7 @@ receipt = JobService().enqueue(
 | `scope="global"` com organização ou de dentro de um tenant | `ValidationError` |
 | `run_as="actor"` sem ator ou sem organização | `ValidationError` |
 | `idempotency_key` repetida para o mesmo tipo e organização | devolve o job existente (`created=False`), inserido em savepoint |
-| A mesma chave usada por outra organização | `ValidationError`, sem revelar o job alheio |
+| A mesma chave usada por outra organização | cria um job próprio da organização chamadora: a chave é única por organização (e entre os jobs globais), e o recibo nunca traz o job alheio (#241) |
 
 A função interna do núcleo é `skeleton.jobs.services.enqueue(code, *, organization_id=None, …)`; apps não a importam. A tabela acima descreve a função interna; o serviço devolve `Forbidden` para tipo de outra app e `InvalidInput` para as recusas de validação.
 
