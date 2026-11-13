@@ -11,7 +11,16 @@ from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 from .config import read_environment
-from .storage import AgentError, atomic_bytes, atomic_json, file_hash, identifier, inventory_files, load_json
+from .storage import (
+    AgentError,
+    atomic_bytes,
+    atomic_json,
+    file_hash,
+    identifier,
+    inventory_files,
+    load_json,
+    private_file,
+)
 
 # Each command of an operation keeps its last output bytes in a private log (#244).
 MAX_COMMAND_LOG_BYTES = 256 * 1024
@@ -106,6 +115,28 @@ class Backend:
         finally:
             if descriptor is not None:
                 self._bound_log(path, descriptor)
+
+    def preflight(self, release):
+        """Configuration problems that would otherwise surface after maintenance and drain (#246)."""
+        for source in self.config.get("recovery_paths", []):
+            source = Path(source)
+            if not source.is_absolute() or source.is_symlink() or not source.exists():
+                raise AgentError("invalid_recovery_path", 409)
+            if source.is_dir() and any(path.is_symlink() for path in source.rglob("*")):
+                raise AgentError("recovery_path_symlink", 409)
+        for key, default in (
+            ("pg_dump", "/usr/bin/pg_dump"),
+            ("pg_restore", "/usr/bin/pg_restore"),
+            ("psql", "/usr/bin/psql"),
+        ):
+            tool = Path(self.config.get(key, default))
+            if not tool.is_file() or not os.access(tool, os.X_OK):
+                raise AgentError("backup_tool_unavailable", 409)
+        if self.config.get("smoke_token_file"):
+            try:
+                private_file(self.config["smoke_token_file"])
+            except OSError:
+                raise AgentError("insecure_private_file", 409) from None
 
     def target_environment(self):
         script = "import json,os,platform,sys; print(json.dumps(dict(implementation_name=sys.implementation.name,implementation_version=platform.python_version(),os_name=os.name,platform_machine=platform.machine(),platform_release=platform.release(),platform_system=platform.system(),platform_version=platform.version(),python_full_version=platform.python_version(),platform_python_implementation=platform.python_implementation(),python_version='.'.join(map(str,sys.version_info[:2])),sys_platform=sys.platform)))"
@@ -388,6 +419,12 @@ class Backend:
 
 
 class ComposeBackend(Backend):
+    def preflight(self, release):
+        super().preflight(release)
+        docker = Path(self.config.get("docker", "/usr/bin/docker"))
+        if not docker.is_file() or not os.access(docker, os.X_OK):
+            raise AgentError("docker_unavailable", 409)
+
     def image(self, release):
         return f"{self.config['compose'].get('image_repository', 'skeleton-managed')}:{Path(release).name}"
 

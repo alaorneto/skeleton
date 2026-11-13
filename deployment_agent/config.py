@@ -56,6 +56,52 @@ def installed_bundled_app_ids(config):
         raise AgentError("unknown_bundled_app", 409) from None
 
 
+NUMERIC_SETTINGS = ("command_timeout", "health_timeout", "catalogue_timeout", "max_upload_bytes", "minimum_free_bytes")
+TOOL_SETTINGS = ("python", "pg_dump", "pg_restore", "psql", "docker")
+
+
+def _absolute(value):
+    return isinstance(value, str) and bool(value) and "\x00" not in value and Path(value).is_absolute()
+
+
+def _validate_optional(values):
+    """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
+    paths = values.get("recovery_paths")
+    if paths is not None and (not isinstance(paths, list) or not all(_absolute(path) for path in paths)):
+        raise AgentError("invalid_recovery_path")
+    if "smoke_token_file" in values and not _absolute(values["smoke_token_file"]):
+        raise AgentError("invalid_smoke_token_path")
+    for key in TOOL_SETTINGS:
+        if key in values and not _absolute(values[key]):
+            raise AgentError("invalid_tool_path")
+    if "socket_gid" in values and (type(values["socket_gid"]) is not int or values["socket_gid"] < 0):
+        raise AgentError("invalid_socket_gid")
+    status = values.get("status_http")
+    if status is not None:
+        url = urlsplit(status.get("public_url", "")) if isinstance(status, dict) else None
+        port = status.get("port") if isinstance(status, dict) else None
+        if (
+            url is None
+            or type(port) is not int
+            or not 1 <= port <= 65535
+            or url.scheme not in ("http", "https")
+            or not url.hostname
+            or status.get("host", "127.0.0.1") not in ("127.0.0.1", "::1")
+        ):
+            raise AgentError("insecure_status_listener")
+    sources = values.get("catalogue_sources")
+    if sources is not None and (
+        not isinstance(sources, list)
+        or not all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in sources)
+    ):
+        raise AgentError("invalid_catalogue_sources")
+    for key in NUMERIC_SETTINGS:
+        if key in values:
+            value = values[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                raise AgentError("invalid_numeric_setting")
+
+
 def read_environment(path):
     result = {}
     for line in private_file(path).read_text().splitlines():
@@ -153,6 +199,7 @@ class Config:
         for url in values["health_urls"]:
             if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname or urlsplit(url).username:
                 raise AgentError("invalid_health_url")
+        _validate_optional(values)
         if values["backend"] == "compose":
             compose = values.get("compose", {})
             for key in ("file", "env_file", "dockerfile"):

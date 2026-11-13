@@ -45,6 +45,7 @@ from .storage import (
     load_json,
     log_internal_error,
     now,
+    private_file,
 )
 
 # First core release whose apps are closed by default and that ships ``upgrade_app_activation`` (#22).
@@ -276,6 +277,7 @@ class DeploymentService:
             if str(source) != state["release"]:
                 raise AgentError("active_pointer_conflict", 409)
             check_drift(source, state["owned_files"])
+            self.backend.preflight(source)  # The operation would fail after maintenance otherwise (#246).
             inventory = state["inventory"]
             old_apps = {entry["manifest"]["app_id"]: entry for entry in inventory["apps"]}
             kinds = []
@@ -551,6 +553,8 @@ class DeploymentService:
                         or graph["targets"] != plan["migration_targets"]
                     ):
                         raise AgentError("migration_plan_changed", 409)
+                    # Configuration checked before any effect: no marker, no drain on a typo (#246).
+                    self.backend.preflight(state["release"])
                     self.stage(operation, "maintenance_entering", state="running")
                     self.maintain(operation)
                     self.backend.drain(state["release"], operation_id)
@@ -644,7 +648,8 @@ class DeploymentService:
             try:
                 headers = {"Host": self.config["health_host"]} if self.config.get("health_host") else {}
                 if self.config.get("smoke_token_file"):
-                    headers["X-Skeleton-Deployment-Smoke"] = Path(self.config["smoke_token_file"]).read_text().strip()
+                    token = private_file(self.config["smoke_token_file"])  # Same rule as the control token.
+                    headers["X-Skeleton-Deployment-Smoke"] = token.read_text().strip()
                 with opener.open(Request(release_url, headers=headers), timeout=5) as response:
                     result = json.loads(response.read(4 * 1024 * 1024))
                 if (

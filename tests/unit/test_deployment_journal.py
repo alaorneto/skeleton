@@ -78,6 +78,7 @@ def approved_deployment(tmp_path, monkeypatch):
         drain=lambda *args: None,
         backup=lambda *args: str(tmp_path / "backup.json"),
         logging_to=lambda operation_id: nullcontext(),
+        preflight=lambda *args: None,
     )
     pending = []
 
