@@ -460,7 +460,7 @@ class InstallRecordInfrastructure(Operation):
             {org},{_lit(table)},{_lit(model._meta.label_lower)},(record_data->>'sysid')::uuid,(record_data->>'revision')::bigint,operation,
             NULLIF(current_setting('skeleton.user_id',true),'')::uuid,NULLIF(current_setting('skeleton.request_id',true),'')::uuid,
             COALESCE(NULLIF(current_setting('skeleton.source',true),''),'sql:unattributed'),session_user,changes);
-            RETURN COALESCE(NEW,OLD); END $audit$""")
+            RETURN COALESCE(NEW,OLD); END $audit$""")  # noqa: S608 - DDL from the frozen spec, identifiers quoted by quote_name
         # Ownership transfer requires schema CREATE briefly; owner is an offline privileged role.
         editor.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
         editor.execute(f"ALTER FUNCTION skeleton.{function}() OWNER TO skeleton_audit_writer")

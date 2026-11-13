@@ -12,10 +12,10 @@ register = template.Library()
 def crud_form_fields(context, form):
     html = render_crispy_form(form, helper=build_crud_helper(form, context.get("sections")), context=context.flatten())
     # Only fixed, autoescaped core templates produce this HTML.
-    return mark_safe(html)
+    return mark_safe(html)  # noqa: S308 - Only fixed, autoescaped core templates produce this HTML
 
 
 @register.simple_tag(takes_context=True)
 def crud_detail_fields(context, sections):
     html = build_crud_layout(sections, mode="read").render(None, context, template_pack="skeleton_crud")
-    return mark_safe(html)
+    return mark_safe(html)  # noqa: S308 - rendered by the fixed, autoescaped core templates

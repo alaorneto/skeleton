@@ -68,7 +68,7 @@ DELIVERY = model_label_fields(
         "created_at": "created_at",
     },
 )
-SECRET_ONCE = "Exige autenticação recente; o segredo aparece só nesta resposta (Cache-Control: no-store)."
+SECRET_ONCE = "Exige autenticação recente; o segredo aparece só nesta resposta (Cache-Control: no-store)."  # noqa: S105 - help text of the API schema, not a secret
 
 
 def endpoint_data(endpoint):

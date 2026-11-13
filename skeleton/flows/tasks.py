@@ -62,7 +62,7 @@ def _schedule_sla(
 ) -> None:
     from skeleton.jobs.services import enqueue
 
-    assert step.sla is not None and task.due_at is not None
+    assert step.sla is not None and task.due_at is not None  # noqa: S101 - type narrowing; the caller only schedules steps with an SLA
     ticket = int(run.state.get("sla_ticket", 0))
     if reminders:
         for index, before in enumerate(sorted(step.sla.remind_before_seconds, reverse=True)):
@@ -375,7 +375,7 @@ def overdue_task(*, task_id: str, ticket: int) -> None:
     run = task.step_run
     if task.escalated_at is not None or int(run.state.get("sla_ticket", 0)) != ticket:
         return
-    assert step.sla is not None
+    assert step.sla is not None  # noqa: S101 - type narrowing; only steps with an SLA are escalated
     try:
         with transaction.atomic():
             task.escalated_at = execution.now

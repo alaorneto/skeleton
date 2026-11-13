@@ -74,6 +74,9 @@ source = ["skeleton", "deployment_agent"]
 omit = ["*/migrations/*"]
 
 [tool.coverage.report]
+# Piso medido (#329): TOTAL 82% nos dois Pythons do job "Cobertura da suíte" do run 43368522664
+# (main ec825cb), arredondado para baixo e menos 1. Não baixe para fazer o CI passar.
+fail_under = 81
 show_missing = true
 skip_covered = true
 exclude_also = [
@@ -90,15 +93,23 @@ extend-exclude = [".private", "staticfiles"]
 [tool.ruff.lint]
 # Linha de base aplicada a todo o repositório. E501 (strings SQL/HTML longas que o
 # formatter não quebra) e PLC0415 (imports tardios contra ciclos de apps) ficam fora.
-select = ["F", "E9", "B", "UP", "DJ", "I"]
+# DTZ, BLE e S (#329): uma dispensa pontual leva o motivo, `# noqa: REGRA - motivo`.
+select = ["F", "E9", "B", "UP", "DJ", "I", "DTZ", "BLE", "S"]
 ignore = [
     "DJ012",  # ordem de membros em modelos abstratos é estilística
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "config/settings/*.py" = ["F403", "F405"]  # overlays herdam os defaults por star import
-"tests/**" = ["DJ008"]
-"**/migrations/**" = ["I"]  # migrations históricas não são reescritas
+# Testes montam datas e credenciais de fixture, usam assert e chamam subprocessos fixos.
+"tests/**" = [
+    "DJ008", "DTZ", "BLE001", "S101", "S103", "S104", "S105", "S106", "S108", "S310", "S311", "S603", "S607", "S608",
+]
+# O skill é portátil e mantém o próprio estilo: testes unittest com assert e git/gh com argv fixo.
+".claude/skills/**" = ["S101", "S603", "S607"]
+"tools/**" = ["S603", "S607"]  # subprocessos com argv fixo do operador
+"**/migrations/**" = ["I", "S608"]  # migrations históricas não são reescritas
+"deployment_agent/**" = ["S603", "S607", "S103"]  # argv fixo da configuração; modos de arquivo explícitos
 
 [tool.ruff.lint.isort]
 known-first-party = ["applications", "config", "deployment_agent", "examples", "skeleton", "tests", "tools"]

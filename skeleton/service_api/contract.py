@@ -64,7 +64,7 @@ def structural_problems(service_class: object) -> list[str]:
     problems: list[str] = []
     try:
         service_class()
-    except Exception as exc:  # Any failure means consumers cannot instantiate it.
+    except Exception as exc:  # noqa: BLE001 - Any failure means consumers cannot instantiate it
         problems.append(f"consumers instantiate it without arguments ({type(exc).__name__}).")
     methods = 0
     for name, member in sorted(_public_members(service_class).items()):
@@ -137,7 +137,7 @@ def _type_problem(annotation: Any, *, seen: set[type], depth: int = 0) -> str | 
         seen.add(annotation)
         try:
             fields = typing.get_type_hints(annotation)
-        except Exception as exc:  # Unresolvable field annotations are reported.
+        except Exception as exc:  # noqa: BLE001 - Unresolvable field annotations are reported
             return f"{annotation.__name__} field annotations cannot be resolved ({type(exc).__name__})"
         for field in dataclasses.fields(annotation):
             problem = _type_problem(fields.get(field.name), seen=seen, depth=depth + 1)
@@ -167,7 +167,7 @@ def _annotation_problems(name: str, function: Callable[..., Any]) -> list[str]:
         return [*problems, f"{name}: the return type must be annotated."]
     try:
         resolved = _resolve(raw["return"], function)
-    except Exception as exc:  # Reported instead of failing on import details.
+    except Exception as exc:  # noqa: BLE001 - Reported instead of failing on import details
         return [*problems, f"{name}: the return annotation cannot be resolved ({type(exc).__name__})."]
     problem = _type_problem(resolved, seen=set())
     if problem:

@@ -188,7 +188,7 @@ class ControlHandler(QuietHandler):
             self.send_json(body, error.status)
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - unexpected errors become a 500 with class and stack only
             log_internal_error(error)
             self.send_json({"error": "agent_internal_error"}, 500)
         finally:
@@ -249,7 +249,7 @@ class StatusHandler(QuietHandler):
             )
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - unexpected errors become a JSON 500 with class and stack only
             # Class and stack only, never the raw traceback with its message (#280).
             log_internal_error(error)
             self.send_json({"error": "agent_internal_error"}, 500)

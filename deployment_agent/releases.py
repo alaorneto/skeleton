@@ -68,7 +68,7 @@ def parse_lock(path, target_environment=None):
         requirement_text = re.sub(r"\s*--hash=sha256:[a-f0-9]{64}", "", line).strip()
         try:
             requirement = Requirement(requirement_text)
-        except Exception:
+        except Exception:  # noqa: BLE001 - any parse failure of the lock is the same refusal
             raise AgentError("invalid_requirements_lock") from None
         pins = list(requirement.specifier)
         if len(pins) != 1 or pins[0].operator != "==" or "*" in pins[0].version or requirement.url or not hashes:

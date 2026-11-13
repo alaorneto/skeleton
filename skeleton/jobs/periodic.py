@@ -32,7 +32,7 @@ class PeriodicJob:
         if self.every is not None:
             steps = (now - _EPOCH) // self.every
             return _EPOCH + steps * self.every
-        assert self.daily_at is not None
+        assert self.daily_at is not None  # noqa: S101 - type narrowing; the constructor requires every or daily_at
         today = datetime.combine(now.date(), self.daily_at, tzinfo=UTC)
         return today if now >= today else today - timedelta(days=1)
 

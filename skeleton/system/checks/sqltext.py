@@ -15,7 +15,7 @@ def _canonical(expression):
             depth = 0
             enclosed = True
             for index, token in enumerate(items):
-                depth += (token == "(") - (token == ")")
+                depth += (token == "(") - (token == ")")  # noqa: S105 - SQL tokenizer variable, not a secret
                 if depth == 0 and index != len(items) - 1:
                     enclosed = False
                     break
@@ -25,7 +25,7 @@ def _canonical(expression):
         for operator in ("or", "and"):
             depth, start, pieces = 0, 0, []
             for index, token in enumerate(items):
-                depth += (token == "(") - (token == ")")
+                depth += (token == "(") - (token == ")")  # noqa: S105 - SQL tokenizer variable, not a secret
                 if token == operator and depth == 0:
                     pieces.append(tree(items[start:index]))
                     start = index + 1
@@ -41,7 +41,7 @@ def _sql_tokens(sql):
     return tuple(
         token
         for token in re.findall(r"'(?:''|[^'])*'|[a-zA-Z_][a-zA-Z_0-9]*|[^\s]", sql.replace('"', ""))
-        if token != ";"
+        if token != ";"  # noqa: S105 - SQL tokenizer variable, not a secret
     )
 
 

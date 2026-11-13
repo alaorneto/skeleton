@@ -28,7 +28,7 @@ def touch(token: Any, *, using: str = "default") -> bool:
     try:
         if not cache.add(marker, 1, timeout=ACTIVITY_WINDOW_S):
             return False
-    except Exception:  # noqa: BLE001 - without the cache, the database check below still bounds writes
+    except Exception:  # noqa: BLE001, S110 - without the cache, the database check below still bounds writes
         pass
     now = timezone.now()
     with system_context(reason="api-token:activity", using=using):

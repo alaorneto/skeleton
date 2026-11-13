@@ -182,7 +182,7 @@ def record_contract_checks(app_configs=None, **kwargs):
     auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
     account = "allauth.account.middleware.AccountMiddleware"
     messages = "django.contrib.messages.middleware.MessageMiddleware"
-    token = "skeleton.integrations.tokens.middleware.ApiTokenMiddleware"
+    token = "skeleton.integrations.tokens.middleware.ApiTokenMiddleware"  # noqa: S105 - middleware import path, not a secret
     setup = getattr(settings, "SKELETON_SETUP_MODE", False)  # Setup mode has no tenant at all (#146).
     if not setup and (
         tenant not in middleware

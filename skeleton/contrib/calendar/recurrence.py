@@ -39,7 +39,7 @@ MAX_COUNT = 1000
 YEARS = (1900, 2200)  # The same range as ?date= of the pages.
 MAX_SPAN = timedelta(days=36525)  # 100 years: no series is expanded beyond this (#236).
 _CYCLE = timedelta(days=146097)  # Exactly 400 Gregorian years (and whole weeks).
-_LAST = datetime(9999, 12, 31, 23, 59, 59)
+_LAST = datetime(9999, 12, 31, 23, 59, 59)  # noqa: DTZ001 - bound on the naive local wall clock of the series
 MAX_WINDOW_DAYS = 400
 MAX_OCCURRENCES = 1000
 FREQUENCIES = {
@@ -94,8 +94,11 @@ def parse_rule(text: str) -> dict[str, str]:
     if "UNTIL" in parts:
         text = parts["UNTIL"]
         try:
+            # Only the year range is checked here; _until applies the zone.
             moment = (
-                datetime.strptime(text[:15], "%Y%m%dT%H%M%S") if len(text) > 8 else datetime.strptime(text, "%Y%m%d")
+                datetime.strptime(text[:15], "%Y%m%dT%H%M%S")  # noqa: DTZ007 - validation of the calendar date only
+                if len(text) > 8
+                else datetime.strptime(text, "%Y%m%d")  # noqa: DTZ007 - validation of the calendar date only
             )
         except ValueError:
             raise _invalid(gettext("UNTIL não é uma data válida.")) from None
@@ -120,9 +123,9 @@ def format_rule(parts: dict[str, str]) -> str:
 
 def _until(value: str, zone: ZoneInfo, *, all_day: bool) -> datetime:
     if len(value) == 8:
-        moment = datetime.strptime(value, "%Y%m%d")
+        moment = datetime.strptime(value, "%Y%m%d")  # noqa: DTZ007 - the rule runs on the naive local clock
         return moment.replace(hour=23, minute=59, second=59)
-    moment = datetime.strptime(value[:15], "%Y%m%dT%H%M%S")
+    moment = datetime.strptime(value[:15], "%Y%m%dT%H%M%S")  # noqa: DTZ007 - local clock; a Z suffix is converted below
     if value.endswith("Z"):
         # UNTIL in UTC; the rule runs on the local clock, so compare on that clock.
         moment = moment.replace(tzinfo=UTC).astimezone(zone).replace(tzinfo=None)

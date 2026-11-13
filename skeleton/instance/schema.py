@@ -86,7 +86,7 @@ def _url(parser: str) -> Callable[[str], str]:
             if not urlsplit(_required_text(value)).scheme or "://" not in value:
                 raise ValueError
             getattr(environ.Env, parser)(value)
-        except Exception:
+        except Exception:  # noqa: BLE001 - any parser failure is the same invalid-URL refusal
             raise ValueError("URL inválida para este campo.") from None
         return value
 

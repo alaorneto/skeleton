@@ -22,6 +22,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      # The local hooks again, for commits made without pre-commit installed (#329). The Ruff
+      # hooks are skipped (the steps below run them) and commit-msg is not a pre-commit stage.
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.12.7"
+          enable-cache: false
+      - name: Hooks do pre-commit (exceto o commit-msg)
+        run: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
+        env:
+          SKIP: ruff-check,ruff-format
       - uses: astral-sh/ruff-action@v3
         with:
           version: "0.17.4"
@@ -163,7 +173,9 @@ jobs:
           COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
         run: |
           mkdir -p coverage-data
-          .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report=
+          # A slice covers only part of the code: the floor (fail_under) applies to the combined
+          # report of the "coverage" job, never to a slice (#329).
+          .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report= --cov-fail-under=0
       - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
         # Its own suite and checks with the app installed; the core slices run without it.
         if: matrix.slug == 'calendar'

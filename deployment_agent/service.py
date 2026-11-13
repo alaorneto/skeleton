@@ -411,7 +411,7 @@ class DeploymentService:
                 required = self.config.get("minimum_free_bytes", 512 * 1024 * 1024)
                 if shutil.disk_usage(self.config["releases_root"]).free < required:
                     raise AgentError("insufficient_disk_space", 409)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - any failure marks the plan failed with its code or class
                 return self._preparation_failed(plan_id, request_record, error)
             release = Path(self.config["releases_root"]) / f"{inventory['generation'] + 1}-{plan_id}"
             try:
@@ -512,7 +512,7 @@ class DeploymentService:
                 )
                 freeze(release)
                 return plan
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - any failure removes the partial release and fails the plan
                 if release.exists():
                     # Preparation has not touched live state; retain no unsigned/partial executable release.
                     remove_release(release)
@@ -695,7 +695,7 @@ class DeploymentService:
                         raise AgentError("migration_plan_changed", 409)
                     self.stage(operation, "migration_started")
                     self.finish(operation, record)
-                except Exception as error:
+                except Exception as error:  # noqa: BLE001 - any failure is journaled before re-raising
                     if not isinstance(error, AgentError):
                         log_internal_error(error)  # Class and stack only, never the message (#244).
                     code = error.code if isinstance(error, AgentError) else type(error).__name__
@@ -771,7 +771,7 @@ class DeploymentService:
                 if self.config.get("smoke_token_file"):
                     token = private_file(self.config["smoke_token_file"])  # Same rule as the control token.
                     headers["X-Skeleton-Deployment-Smoke"] = token.read_text().strip()
-                with opener.open(Request(release_url, headers=headers), timeout=5) as response:
+                with opener.open(Request(release_url, headers=headers), timeout=5) as response:  # noqa: S310 - health_urls are http(s) only, validated by Config.load
                     result = json.loads(response.read(4 * 1024 * 1024))
                 if (
                     result.get("generation") != inventory["generation"]
@@ -781,11 +781,11 @@ class DeploymentService:
                 ):
                     raise AgentError("worker_release_mismatch", 409)
                 for url in urls:
-                    with opener.open(Request(url, headers=headers), timeout=5) as response:
+                    with opener.open(Request(url, headers=headers), timeout=5) as response:  # noqa: S310 - health_urls are http(s) only, validated by Config.load
                         if response.status != 200:
                             raise AgentError("application_smoke_failed", 409)
                 return
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - any failure is retried until the health deadline
                 last = error.code if isinstance(error, AgentError) else "health_unavailable"
                 time.sleep(0.5)
         raise AgentError(last, 409)
@@ -1076,7 +1076,7 @@ class DeploymentService:
             raise AgentError("catalogue_artifact_off_origin")
         try:
             with build_opener(NoRedirect()).open(
-                Request(location, headers={"Accept": "application/json, application/octet-stream"}),
+                Request(location, headers={"Accept": "application/json, application/octet-stream"}),  # noqa: S310 - fetch_bytes accepts https only, checked above
                 timeout=self.config.get("catalogue_timeout", 20),
             ) as response:
                 content = response.read(maximum + 1)
@@ -1085,7 +1085,7 @@ class DeploymentService:
                 return content
         except AgentError:
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001 - any transport failure is catalogue_unavailable
             raise AgentError("catalogue_unavailable", 409) from None
 
     def check_updates(self):
@@ -1167,7 +1167,7 @@ class DeploymentService:
                             "compatibility": release["compatibility"],
                         }
                     )
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - one unverifiable source never hides the others
                 entry.update(
                     state="unavailable",
                     error_code=error.code if isinstance(error, AgentError) else "catalogue_verification_failed",
