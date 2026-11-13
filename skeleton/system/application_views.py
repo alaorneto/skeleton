@@ -1,6 +1,7 @@
 import re
 
 from django import forms
+from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.http import Http404
 from django.shortcuts import redirect, render
@@ -234,8 +235,19 @@ def application_configuration(request, organization_id, app_label):
         initial={"enabled": state["enabled"], "revision": state["revision"], **state["configuration"]},
     )
     status = 200
+    incompatible = not state["configuration_valid"]  # #251
+    if incompatible:
+        messages.error(
+            request,
+            gettext(
+                "A configuração gravada desta app é incompatível com a versão instalada. Ela fica fechada nesta "
+                "organização até o operador aplicar a migration de dados; nada pode ser alterado por aqui."
+            ),
+        )
     if request.method == "POST":
-        if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
+        if incompatible:
+            status = 400
+        elif set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
             form.add_error(None, gettext("Campo não permitido."))
             status = 400
         elif form.is_valid():

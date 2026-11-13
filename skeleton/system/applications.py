@@ -49,6 +49,13 @@ def _load_states():
     states = {}
     for manifest in manifests:
         record = records.get(manifest.app_label)
+        stored = record.configuration if record else {}
+        try:
+            configuration, configuration_valid = validate_configuration(manifest, stored), True
+        except ValidationError:
+            # The stored value no longer fits the manifest (#251): show the defaults, close the app
+            # in this organization and never rewrite the row over HTTP (a data migration fixes it).
+            configuration, configuration_valid = validate_configuration(manifest, {}), False
         states[manifest.app_label] = {
             "app_label": manifest.app_label,
             "available": available[manifest.app_label],
@@ -58,14 +65,18 @@ def _load_states():
             "version": manifest.version,
             # Closed by default (#22): the obsolete manifest default_enabled no longer activates anything.
             "enabled": record.enabled if record else False,
-            "configuration": validate_configuration(manifest, record.configuration if record else {}),
+            "configuration": configuration,
+            "configuration_valid": configuration_valid,
             "revision": record.revision if record else 0,
             "sysid": str(record.pk) if record else None,
         }
     for label, state in states.items():
         closure = [label, *required_labels(label)]
         state["effective"] = all(
-            dependency in states and states[dependency]["available"] and states[dependency]["enabled"]
+            dependency in states
+            and states[dependency]["available"]
+            and states[dependency]["enabled"]
+            and states[dependency]["configuration_valid"]
             for dependency in closure
         )
     return states
@@ -112,6 +123,12 @@ def require_application_enabled(app_label):
                 if dependency
                 else gettext("O aplicativo não está disponível para esta organização.")
             )
+        if not state["configuration_valid"]:
+            raise PermissionDenied(
+                "Application dependency configuration is incompatible."
+                if dependency
+                else "Application configuration is incompatible with the installed version."
+            )
         if not state["enabled"]:
             raise PermissionDenied(
                 gettext("Uma dependência do aplicativo está desativada.")
@@ -140,6 +157,20 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     expected = record.revision if record else 0
     if type(revision) is not int or revision != expected:
         raise ConcurrentUpdate("Application configuration changed.")
+    if record is not None:
+        try:
+            validate_configuration(manifest, record.configuration)
+        except ValidationError:
+            # Nothing is written while the stored row is incompatible (#251): the app is closed
+            # until the operator's data migration fixes it.
+            raise ValidationError(
+                {
+                    "configuration": ValidationError(
+                        "Stored configuration is incompatible with the installed version; a data migration is required.",
+                        code="configuration_incompatible",
+                    )
+                }
+            ) from None
     from .availability import available_with_dependencies
 
     forget_application_states()

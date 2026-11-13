@@ -517,3 +517,100 @@ def test_api_guard_clones_nested_patterns_and_keeps_view_attributes(app_screens)
     assert pattern.callback.initkwargs == view.initkwargs
     with pytest.raises(TypeError):
         guard_application_api_urls([object()], app_screens)
+
+
+# --------------------------------------------------------------------------- incompatible stored configuration (#251)
+
+
+def store_incompatible_configuration(monkeypatch, organization, user):
+    """A row written by an older release, with a field the installed manifest no longer declares."""
+    from skeleton.system.app_registry import ConfigField
+    from skeleton.system.models import AppInstallation
+
+    manifest = app_registry.get_app("example_notes")
+    with monkeypatch.context() as old_release:
+        old_release.setitem(
+            app_registry._manifests,
+            "example_notes",
+            replace(
+                manifest, configuration_fields=(*manifest.configuration_fields, ConfigField("removed_field", str, ""))
+            ),
+        )
+        with tenant_context(organization_id=organization.pk, actor=user, source="test:legacy-configuration"):
+            record = AppInstallation.objects.get(app_label="example_notes")
+            record.configuration = {"removed_field": "must not be silently discarded"}
+            record.save(update_fields={"configuration"})
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:legacy-configuration-read"):
+        record = AppInstallation.objects.get(app_label="example_notes")
+        return record.revision, dict(record.configuration)
+
+
+def test_incompatible_stored_configuration_closes_only_that_app(actor, monkeypatch):
+    from django.core.exceptions import PermissionDenied
+
+    from examples.notes.models import Note
+    from skeleton.access.policies import authorized_queryset
+
+    user, organization, client = actor
+    store_incompatible_configuration(monkeypatch, organization, user)
+    home = client.get(reverse("web:dashboard", kwargs={"organization_id": organization.pk}))
+    assert home.status_code == 200
+    navigation = home.context["application_navigation"]
+    assert not any("example_notes" in str(entry) for entry in navigation)
+    assert client.get(reverse("example_notes:home", kwargs={"organization_id": organization.pk})).status_code == 403
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:incompatible-state"):
+        assert application_state("example_notes")["configuration_valid"] is False
+        with pytest.raises(PermissionDenied):
+            authorized_queryset(Note, user=user, action="read")
+
+
+def test_incompatible_configuration_is_not_rewritten_over_http(actor, monkeypatch):
+    import json
+
+    from skeleton.system.models import AppInstallation
+
+    user, organization, client = actor
+    revision, stored = store_incompatible_configuration(monkeypatch, organization, user)
+    values = {"organization_id": organization.pk, "app_label": "example_notes"}
+    page = reverse("application-configuration", kwargs=values)
+    client.get(page)
+    posted = client.post(
+        page, {"enabled": "on", "revision": revision, "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+    )
+    assert posted.status_code == 400
+    put = client.put(
+        reverse("api-application-configuration", kwargs=values),
+        data=json.dumps({"enabled": True, "configuration": {}}),
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,
+        HTTP_IF_MATCH=f'"{revision}"',
+    )
+    assert put.status_code == 400
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:incompatible-row"):
+        record = AppInstallation.objects.get(app_label="example_notes")
+        assert (record.revision, dict(record.configuration)) == (revision, stored)
+
+
+def test_incompatible_configuration_page_explains_and_lists_apps(actor, monkeypatch):
+    user, organization, client = actor
+    store_incompatible_configuration(monkeypatch, organization, user)
+    assert client.get(reverse("application-list", kwargs={"organization_id": organization.pk})).status_code == 200
+    page = client.get(
+        reverse("application-configuration", kwargs={"organization_id": organization.pk, "app_label": "example_notes"})
+    )
+    assert page.status_code == 200
+    assert "incompatível com a versão instalada" in page.content.decode()
+
+
+def test_incompatible_configuration_does_not_affect_other_organization(actor, monkeypatch):
+    from skeleton.testing.applications import activate_app
+
+    user, organization, client = actor
+    store_incompatible_configuration(monkeypatch, organization, user)
+    other_user, other = bootstrap_identity(
+        email="administration-b@example.test", organization="administration-b", name="B", password=PASSWORD
+    )
+    activate_app("example_notes", other.pk)
+    with tenant_context(organization_id=other.pk, actor=other_user, source="test:other-organization"):
+        state = application_state("example_notes")
+        assert state["configuration_valid"] is True and state["effective"] is True
