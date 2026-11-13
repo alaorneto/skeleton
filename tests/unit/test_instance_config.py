@@ -1,5 +1,6 @@
 """Instance configuration in its own SQLite with encrypted secrets (#143)."""
 
+import base64
 import json
 import os
 import sqlite3
@@ -22,7 +23,12 @@ from skeleton.instance.store import InstanceStore
 ROOT = Path(__file__).resolve().parents[2]
 SECRET = "Only-in-the-store-Pass-2026-" + "abcdefghijklmnopqrstuvwxyz"
 DATABASE_PASSWORD = "db-password-never-plain"
-MFA_KEYS = (Fernet.generate_key().decode(), Fernet.generate_key().decode())
+# Fixed Fernet keys: a generated one starts with "-" about once in 64 and argparse then reads it as an option (#444).
+MFA_KEYS = (
+    base64.urlsafe_b64encode(bytes(range(32))).decode(),
+    base64.urlsafe_b64encode(bytes(range(32, 64))).decode(),
+)
+DASH_KEY = base64.urlsafe_b64encode(bytes([0xF8, *range(1, 32)])).decode()
 
 
 @pytest.fixture
@@ -94,6 +100,26 @@ def test_set_encrypts_secrets_and_show_masks_them(instance, monkeypatch):
         ("allowed_hosts", "create", "cli:set"),
     ]
     assert SECRET.encode() not in key.read_bytes()
+
+
+def test_set_accepts_values_starting_with_a_dash_after_double_dash_or_from_stdin(instance, monkeypatch):
+    """A Fernet key may start with "-": "--" or --stdin carry it, a bare value is refused (#444)."""
+    database, key = instance
+    assert DASH_KEY.startswith("-") and not any(value.startswith("-") for value in MFA_KEYS)
+    Fernet(DASH_KEY.encode())  # A valid key, so only the parsing is under test.
+
+    def stored():
+        value, secret = InstanceStore(database).settings()["mfa_encryption_keys"]
+        assert secret
+        return crypto.decrypt(crypto.load_key(key), value)
+
+    with pytest.raises(CommandError, match="unrecognized arguments"):
+        run("set", "mfa_encryption_keys", DASH_KEY)
+    assert InstanceStore(database).settings() == {}
+    run("set", "mfa_encryption_keys", "--", DASH_KEY)
+    assert stored() == DASH_KEY
+    run("set", "mfa_encryption_keys", "--stdin", stdin=f"{DASH_KEY},{MFA_KEYS[0]}\n", monkeypatch=monkeypatch)
+    assert stored() == f"{DASH_KEY},{MFA_KEYS[0]}"
 
 
 def test_set_refuses_unknown_keys_and_invalid_values(instance):
