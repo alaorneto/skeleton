@@ -9,7 +9,7 @@ events show as "Ocupado".
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 from django.contrib import messages
@@ -22,6 +22,7 @@ from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_http_methods, require_POST
 
 from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound
+from skeleton.web.views import tenant_page
 
 from .service_api import CalendarService
 
@@ -40,7 +41,7 @@ def _zone(user) -> ZoneInfo:
 
     try:
         return ZoneInfo(IdentityService().me(actor=user).timezone or "UTC")
-    except Exception:  # noqa: BLE001 - an unknown stored zone falls back to UTC for display
+    except (ZoneInfoNotFoundError, ValueError):  # An unknown stored zone falls back to UTC for display.
         return ZoneInfo("UTC")
 
 
@@ -75,6 +76,7 @@ def _step(view: str, day: date, direction: int) -> date:
     return day + timedelta(days={"day": 1, "week": 7, "list": 30}[view] * direction)
 
 
+@tenant_page()
 def home(request, organization_id):
     view = request.GET.get("view", "week")
     if view not in VIEWS:
@@ -186,18 +188,28 @@ class EventForm(forms.Form):
         return values
 
 
+# Fields of the service and the model that the form shows under another name (#234).
+FIELD_OF = {"starts_at": "start", "ends_at": "end", "start_date": "day", "end_date": "day", "rrule": "repeat"}
+
+
 def _apply_error(form, error):
-    if isinstance(error, (ValidationError, InvalidInput)):
-        details = getattr(error, "message_dict", None) or getattr(error, "fields", None) or {}
-        for field, problems in dict(details).items():
-            form.add_error(field if field in form.fields else None, problems)
-        if not details:
-            form.add_error(None, gettext("Verifique os campos informados."))
+    """Each message next to its field: InvalidInput carries ``errors``, ValidationError ``message_dict``."""
+    if isinstance(error, InvalidInput):
+        details = dict(error.errors)
+    elif isinstance(error, ValidationError):
+        details = dict(getattr(error, "message_dict", {}) or {})
     else:
         form.add_error(None, gettext("O evento não pôde ser salvo."))
+        return
+    if not details:
+        form.add_error(None, gettext("Verifique os campos informados."))
+    for field, problems in details.items():
+        target = FIELD_OF.get(field, field)
+        form.add_error(target if target in form.fields else None, list(problems))
 
 
 @require_http_methods(["GET", "POST"])
+@tenant_page()
 @transaction.atomic
 def event_new(request, organization_id):
     service = CalendarService()
@@ -233,6 +245,7 @@ def event_new(request, organization_id):
 
 
 @require_POST
+@tenant_page()
 @transaction.atomic
 def event_cancel(request, organization_id, sysid):
     try:
@@ -248,6 +261,7 @@ def event_cancel(request, organization_id, sysid):
 
 
 @require_POST
+@tenant_page()
 @transaction.atomic
 def member_access(request, organization_id):
     from .services import grant_member_access
@@ -263,6 +277,7 @@ def member_access(request, organization_id):
     return redirect("skeleton_calendar:home", organization_id=organization_id)
 
 
+@tenant_page()
 def calendar_ics(request, organization_id, sysid):
     """Download one calendar as .ics (session), masked like the pages."""
     from django.http import HttpResponse

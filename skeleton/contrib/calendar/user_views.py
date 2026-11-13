@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timedelta
 from django.shortcuts import render
 from django.urls import reverse
 
-from skeleton.tenancy.aggregate import aggregate_route, for_each_organization
+from skeleton.tenancy.aggregate import aggregate_route, for_each_organization, user_context
 
 from .service_api import CalendarService
 from .views import _zone
@@ -23,7 +23,8 @@ APP_LABEL = "skeleton_calendar"
 
 @aggregate_route
 def my_agenda(request):
-    zone = _zone(request.user)
+    with user_context(request, source="http:calendar-mine-zone"):  # The profile zone needs the person's context.
+        zone = _zone(request.user)
     try:
         day = date.fromisoformat(request.GET["date"]) if request.GET.get("date") else datetime.now(zone).date()
     except ValueError:
