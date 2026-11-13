@@ -69,7 +69,7 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 - Destinatários: pessoas citadas, membros dos grupos, quem tem os papéis (diretamente ou por grupo) ou toda a organização. Só vínculos ativos de identidades ativas contam, e o ator nunca recebe a própria notificação. Contas de serviço (#44) ficam de fora: não têm caixa de notificações.
 - Autorização no alvo: cada pessoa precisa passar em `require_record_action(alvo, action="read")`. Quem não lê o alvo não recebe linha, mesmo citado diretamente; um alvo excluído não notifica ninguém.
 - Snapshot dos destinatários: quem saiu do grupo antes do fan-out não recebe, e mudanças posteriores no grupo não reescrevem a história.
-- Lotes de até 10 mil pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`.
+- Lotes de até 500 pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`. A leitura do alvo é decidida para o lote inteiro por `users_who_can_read`, com a mesma regra de `require_record_action` e um número de consultas que não cresce com o lote; as entregas já existentes do lote são lidas numa consulta por canal (#296).
 - Agrupamento: com `group_key`, uma linha não lida e não arquivada da mesma chave recebe `count + 1` e passa a apontar para a notificação mais recente, em vez de criar outra linha.
 
 ## Caixa de notificações

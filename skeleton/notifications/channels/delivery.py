@@ -36,12 +36,23 @@ def enqueue_attempt(delivery: Any, *, run_after: Any = None) -> None:
 
 
 def create_delivery(
-    *, organization_id: Any, user_id: Any, channel: str, dedupe_key: str, notification_id: Any = None, items=()
+    *,
+    organization_id: Any,
+    user_id: Any,
+    channel: str,
+    dedupe_key: str,
+    notification_id: Any = None,
+    items=(),
+    known_absent: bool = False,
 ) -> Any | None:
-    """Create the delivery and its first job; an existing ``dedupe_key`` returns ``None``."""
+    """Create the delivery and its first job; an existing ``dedupe_key`` returns ``None``.
+
+    ``known_absent`` skips the lookup when the caller already checked the keys of a whole batch
+    (#296); the savepoint insert still settles a race.
+    """
     from ..models import NotificationDelivery
 
-    if NotificationDelivery.objects.filter(dedupe_key=dedupe_key).exists():
+    if not known_absent and NotificationDelivery.objects.filter(dedupe_key=dedupe_key).exists():
         return None
     delivery = NotificationDelivery(
         organization_id=organization_id,

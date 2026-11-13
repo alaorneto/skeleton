@@ -26,6 +26,8 @@ with tenant_context(organization_id=org_uuid, actor=user, source="job:export"):
 
 `authorized_queryset(model, *, user, action='read', include_deleted=False)` filtra antes de paginação/contagem. `require_record_action(record, *, user, action)` revalida um registro. Nunca exponha resultados de `_base_manager`/`all_objects` ou relações reversas como alternativa.
 
+`users_who_can_read(record, user_ids)` decide de uma vez quais pessoas leem um registro, com a mesma regra e na mesma ordem de `require_record_action` (vínculo ativo, papéis efetivos, `TablePermission`, administrador, dono, visibilidade e concessões) e um número fixo de consultas; um teste de equivalência a compara pessoa a pessoa (#296). Serve para decidir muitas pessoas para um registro (o fan-out de notificações); um endpoint continua usando `authorized_queryset`.
+
 A lista de tabelas legíveis do painel, do catálogo e do seletor (`skeleton.records.services.readable_specs`) decide por tabela com uma consulta de `table_permissions` e a checagem de app ativa uma vez por app, em vez de uma autorização inteira por tabela; um teste de equivalência a compara com `authorized_queryset` (#302). Nada é guardado entre chamadas.
 
 ## Algoritmo

@@ -9,11 +9,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from django.core.exceptions import PermissionDenied
 from django.db.models import F, Q
 from django.utils import timezone
 
-BATCH_SIZE = 10_000
+BATCH_SIZE = 500  # Small enough to fit well inside the job's deadline (#296).
 
 
 def resolve_people(notification) -> list[UUID]:
@@ -70,17 +69,11 @@ def _authorized(people: list[UUID], target) -> list[UUID]:
         return people
     if target is False:
         return []  # The target disappeared (deleted or retired): nobody is notified about it.
-    from skeleton.access.policies import require_record_action
-    from skeleton.accounts.models import User
+    from skeleton.access.policies import users_who_can_read
 
-    allowed = []
-    for user in User.objects.filter(pk__in=people).order_by("sysid"):
-        try:
-            require_record_action(target, user=user, action="read")
-        except PermissionDenied:
-            continue
-        allowed.append(user.pk)
-    return allowed
+    # One decision for the whole batch, the same answer as require_record_action per person (#296).
+    readable = users_who_can_read(target, people)
+    return [user for user in people if user in readable]
 
 
 def _display(notification) -> dict:
@@ -166,13 +159,22 @@ def _channels(notification, people: list[UUID]) -> tuple[list[UUID], dict[str, l
 
 def _schedule_channels(notification, channels: dict[str, list[UUID]]) -> None:
     from .channels.delivery import create_delivery
+    from .models import NotificationDelivery
 
     for channel, people in channels.items():
-        for user in people:
+        # The existing deliveries of the batch in one query per channel, not one per person (#296).
+        keys = {f"{channel}:{notification.pk}:{user}": user for user in people}
+        existing = set(
+            NotificationDelivery.objects.filter(dedupe_key__in=list(keys)).values_list("dedupe_key", flat=True)
+        )
+        for key, user in keys.items():
+            if key in existing:
+                continue
             create_delivery(
                 organization_id=notification.organization_id,
                 notification_id=notification.pk,
                 user_id=user,
                 channel=channel,
-                dedupe_key=f"{channel}:{notification.pk}:{user}",
+                dedupe_key=key,
+                known_absent=True,
             )
