@@ -21,7 +21,7 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from .quota import QuotaExceeded, release, reserve
 from .scanning import enqueue_scan, scanning_enabled
 from .sniffing import HEAD_BYTES, detect
-from .storage import StorageError, object_key, put_stream
+from .storage import ObjectTooLarge, object_key, put_stream
 
 
 class UploadTooLarge(ValidationError):
@@ -131,10 +131,8 @@ def upload(spec, target_sysid, *, user, stream: IO[bytes], filename: str, size: 
     key = object_key(record.organization_id, attachment_id)
     try:
         stored = put_stream(key, Hashing(), max_bytes=limit)
-    except StorageError as error:
-        if "large" in str(error):
-            raise UploadTooLarge() from None
-        raise
+    except ObjectTooLarge:
+        raise UploadTooLarge() from None
     try:
         # Organization, then usage locked in this transaction: concurrent uploads serialize here.
         reserve(record.organization_id, stored)

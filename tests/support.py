@@ -22,3 +22,49 @@ def login(user, *, password, csrf=True):
     )
     assert response.status_code == 302
     return client
+
+
+class ReadBasedStorage:
+    """A storage that saves as django-storages' S3Storage does: by ``read()``, never ``chunks()`` (#225).
+
+    Its ``_save`` copies the S3 backend's steps (rewind when seekable, then read in blocks), so
+    the gateway's size and limit are proven on a backend that never calls ``File.chunks()``.
+    """
+
+    def __new__(cls):
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import Storage
+
+        class _Storage(Storage):
+            def __init__(self):
+                self.objects = {}
+
+            def _save(self, name, content):
+                if not hasattr(content, "seekable") or content.seekable():
+                    content.seek(0)
+                data = b""
+                while True:
+                    block = content.read(8192)
+                    if not block:
+                        break
+                    data += block
+                self.objects[name] = data
+                return name
+
+            def _open(self, name, mode="rb"):
+                return ContentFile(self.objects[name], name=name)
+
+            def exists(self, name):
+                return name in self.objects
+
+            def delete(self, name):
+                self.objects.pop(name, None)
+
+            def size(self, name):
+                return len(self.objects[name])
+
+            def listdir(self, path):
+                prefix = path.rstrip("/") + "/"
+                return [], [key[len(prefix) :] for key in self.objects if key.startswith(prefix)]
+
+        return _Storage()

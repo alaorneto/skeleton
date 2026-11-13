@@ -15,6 +15,8 @@ O núcleo guarda arquivos num **armazenamento privado** (`skeleton/files`, label
 
 `skeleton/files/storage.py` oferece `put_stream`, `open_object`, `delete`, `presigned_url` e `list_prefix`. As chaves são sempre `org/<organização>/<anexo>`, dois UUIDs: o nome de arquivo do usuário nunca entra na chave, então não atravessa diretórios, não colide e não vaza numa URL. `put_stream` grava a chave exata, recusa objeto existente e interrompe acima do limite.
 
+`put_stream` mede e limita o tamanho na leitura (`read()`), que todo backend usa: o local lê por `File.chunks()` e o S3 do django-storages lê direto por `read()`, sem nunca chamar `chunks()`. O tamanho gravado, o digest e a reserva de cota vêm dos bytes lidos, nunca do `Content-Length` do cliente, e o arquivo acima do limite é recusado (`ObjectTooLarge`, 413) sem deixar objeto. Um storage de teste que salva como o S3 (`tests/support.py`, `ReadBasedStorage`) cobre esse caminho (#225).
+
 O check de deploy `skeleton.E024` (`manage.py check --deploy`) reprova armazenamento ausente, local sem `location`, dentro de `STATIC_ROOT` ou com `base_url`, e S3 com ACL pública, URL sem assinatura ou domínio público.
 
 ## Anexos

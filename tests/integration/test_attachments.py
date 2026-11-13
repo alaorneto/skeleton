@@ -158,3 +158,37 @@ def test_storage_object_is_removed_when_the_row_cannot_persist(scenario, monkeyp
         with pytest.raises(RuntimeError):
             services.upload(spec, note.pk, user=scenario.member, stream=io.BytesIO(PNG), filename="x.png")
     assert keys and not storage.private_storage().exists(keys[0])
+
+
+@pytest.mark.needs_example_app
+def test_upload_records_real_size_and_digest_on_a_read_based_storage(scenario, monkeypatch):
+    """The size, digest and quota come from the bytes read, on a backend that never calls chunks() (#225)."""
+    import hashlib
+
+    from skeleton.files import storage
+    from skeleton.files.models import Attachment, StorageUsage
+    from tests.support import ReadBasedStorage
+
+    backend = ReadBasedStorage()
+    monkeypatch.setattr(storage, "private_storage", lambda: backend)
+    note = scenario.create(scenario.a, owner=scenario.member, code="AT-S3", title="T")
+    created = upload(login(scenario.member), url(scenario, note), PNG)
+    assert created.status_code == 201, created.content
+    with system_context(reason="test:read-based-size", organization_id=scenario.a.pk):
+        attachment = Attachment.objects.get(pk=created.json()["sysid"])
+        usage = StorageUsage.objects.get(organization=scenario.a)
+    assert attachment.size == len(PNG) and attachment.sha256 == hashlib.sha256(PNG).hexdigest()
+    assert usage.bytes_used == len(PNG)
+    assert list(backend.objects.values()) == [PNG]
+
+
+@pytest.mark.needs_example_app
+def test_upload_above_policy_limit_answers_413_on_a_read_based_storage(scenario, monkeypatch):
+    from skeleton.files import storage
+    from tests.support import ReadBasedStorage
+
+    backend = ReadBasedStorage()
+    monkeypatch.setattr(storage, "private_storage", lambda: backend)
+    note = scenario.create(scenario.a, owner=scenario.member, code="AT-S3-BIG", title="T")
+    assert upload(login(scenario.member), url(scenario, note), PNG + b"x" * 300).status_code == 413
+    assert backend.objects == {}
