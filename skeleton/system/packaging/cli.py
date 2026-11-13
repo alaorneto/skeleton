@@ -85,98 +85,141 @@ def configure_parser(parser):
     return parser
 
 
+def _trust(options):
+    return load_trust_store(options["trust_store"])
+
+
+def _optional_trust(options):
+    return _trust(options) if options.get("trust_store") else None
+
+
+def _run_keygen(options):
+    private, public = initialize_keys(options["private_key"], options["public_key"])
+    return {"private_key": str(private), "public_key": str(public)}
+
+
+def _run_init(options):
+    value = manifest_template(
+        **{
+            key: options[key]
+            for key in ("app_id", "app_label", "package_name", "publisher", "version", "app_config_class")
+        },
+        service_classes=options.get("service_class") or [default_service_class(options["package_name"])],
+    )
+    with Path(options["output"]).open("xb") as handle:
+        handle.write(canonical_json(value))
+    return value
+
+
+def _run_build(options):
+    path = build_package(
+        options["app_root"], options["manifest"], options["output"], options["private_key"], options["wheel"]
+    )
+    return {"artifact": str(path)}
+
+
+def _run_validate_manifest(options):
+    return load_manifest(options["path"])
+
+
+def _run_inspect(options):
+    return inspect_package(options["path"], _optional_trust(options))
+
+
+def _run_sign(options):
+    path = sign_package(options["path"], options["output"], options["private_key"], publisher=options.get("publisher"))
+    return {"artifact": str(path)}
+
+
+def _run_extract(options):
+    roots = extract_package(
+        artifacts.validate_package(options["path"], _trust(options)),
+        options.get("destination"),
+        wheels_destination=options.get("wheels_destination"),
+    )
+    return {key: str(value) for key, value in roots.items()}
+
+
+def _run_index(options):
+    store = _trust(options)
+    entries = []
+    for artifact in options["artifacts"]:
+        package = artifacts.validate_package(artifact, store)
+        base = options["artifact_base"]
+        reference = urljoin(base.rstrip("/") + "/", Path(artifact).name) if base else Path(artifact).name
+        entries.append(catalog_entry(package, artifact=reference, channel=options["channel"]))
+    path = build_catalog(
+        entries,
+        options["output"],
+        options["private_key"],
+        publisher=options["publisher"],
+        generation=options["generation"],
+        expires_at=options["expires_at"],
+    )
+    return {"index": str(path), "entries": len(entries)}
+
+
+def _run_validate_index(options):
+    return validate_catalog(
+        options["path"],
+        _trust(options),
+        minimum_generation=options["minimum_generation"],
+        channels=options["channel"] or ("stable",),
+    )
+
+
+def _run_doctor(options):
+    def document(name):
+        path = options.get(name)
+        if not path:
+            return None
+        if Path(path).stat().st_size > 4 * 1024 * 1024:
+            _fail(f"{name} is too large.")
+        return _json(Path(path).read_bytes())
+
+    if options.get("catalog") and not options.get("trust_store"):
+        _fail("--catalog requires --trust-store.")
+    return doctor(
+        options["app_root"],
+        options.get("manifest"),
+        inventory=document("inventory"),
+        catalog=document("catalog"),
+        trust_store=_optional_trust(options),
+        bundled_apps=options.get("bundled_app") or (),
+    )
+
+
+def _run_versions(options):
+    return {
+        "core": core_version(),
+        "apps": [
+            {"app_id": m["app_id"], "version": m["version"], "origin": "project-local", "manifest": str(path)}
+            for path in options["manifest"]
+            for m in (load_manifest(path),)
+            if m["kind"] == "app"
+        ],
+    }
+
+
+# One handler per operation of configure_parser: options -> JSON-serializable result.
+OPERATIONS = {
+    "keygen": _run_keygen,
+    "init": _run_init,
+    "build": _run_build,
+    "validate-manifest": _run_validate_manifest,
+    "validate": _run_inspect,
+    "inspect": _run_inspect,
+    "sign": _run_sign,
+    "extract": _run_extract,
+    "index": _run_index,
+    "validate-index": _run_validate_index,
+    "doctor": _run_doctor,
+    "versions": _run_versions,
+}
+
+
 def run_command(options):
-    def trust():
-        return load_trust_store(options["trust_store"])
-
-    operation = options["operation"]
-    if operation == "keygen":
-        private, public = initialize_keys(options["private_key"], options["public_key"])
-        return {"private_key": str(private), "public_key": str(public)}
-    if operation == "init":
-        value = manifest_template(
-            **{
-                key: options[key]
-                for key in ("app_id", "app_label", "package_name", "publisher", "version", "app_config_class")
-            },
-            service_classes=options.get("service_class") or [default_service_class(options["package_name"])],
-        )
-        with Path(options["output"]).open("xb") as handle:
-            handle.write(canonical_json(value))
-        return value
-    if operation == "build":
-        path = build_package(
-            options["app_root"], options["manifest"], options["output"], options["private_key"], options["wheel"]
-        )
-        return {"artifact": str(path)}
-    if operation == "validate-manifest":
-        return load_manifest(options["path"])
-    if operation in ("validate", "inspect"):
-        return inspect_package(options["path"], trust() if options.get("trust_store") else None)
-    if operation == "sign":
-        path = sign_package(
-            options["path"], options["output"], options["private_key"], publisher=options.get("publisher")
-        )
-        return {"artifact": str(path)}
-    if operation == "extract":
-        roots = extract_package(
-            artifacts.validate_package(options["path"], trust()),
-            options.get("destination"),
-            wheels_destination=options.get("wheels_destination"),
-        )
-        return {key: str(value) for key, value in roots.items()}
-    if operation == "index":
-        store = trust()
-        entries = []
-        for artifact in options["artifacts"]:
-            package = artifacts.validate_package(artifact, store)
-            base = options["artifact_base"]
-            reference = urljoin(base.rstrip("/") + "/", Path(artifact).name) if base else Path(artifact).name
-            entries.append(catalog_entry(package, artifact=reference, channel=options["channel"]))
-        path = build_catalog(
-            entries,
-            options["output"],
-            options["private_key"],
-            publisher=options["publisher"],
-            generation=options["generation"],
-            expires_at=options["expires_at"],
-        )
-        return {"index": str(path), "entries": len(entries)}
-    if operation == "validate-index":
-        return validate_catalog(
-            options["path"],
-            trust(),
-            minimum_generation=options["minimum_generation"],
-            channels=options["channel"] or ("stable",),
-        )
-    if operation == "doctor":
-
-        def document(name):
-            path = options.get(name)
-            if not path:
-                return None
-            if Path(path).stat().st_size > 4 * 1024 * 1024:
-                _fail(f"{name} is too large.")
-            return _json(Path(path).read_bytes())
-
-        if options.get("catalog") and not options.get("trust_store"):
-            _fail("--catalog requires --trust-store.")
-        return doctor(
-            options["app_root"],
-            options.get("manifest"),
-            inventory=document("inventory"),
-            catalog=document("catalog"),
-            trust_store=trust() if options.get("trust_store") else None,
-            bundled_apps=options.get("bundled_app") or (),
-        )
-    if operation == "versions":
-        return {
-            "core": core_version(),
-            "apps": [
-                {"app_id": m["app_id"], "version": m["version"], "origin": "project-local", "manifest": str(path)}
-                for path in options["manifest"]
-                for m in (load_manifest(path),)
-                if m["kind"] == "app"
-            ],
-        }
-    _fail("Unknown package operation.")
+    handler = OPERATIONS.get(options["operation"])
+    if handler is None:
+        _fail("Unknown package operation.")
+    return handler(options)

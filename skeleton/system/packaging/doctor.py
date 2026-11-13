@@ -78,30 +78,8 @@ def _doctor_import_boundary(root, manifest, inventory, report):
         report(violation.code, violation.message, **values)
 
 
-def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_store=None, bundled_apps=()):
-    """Report every packaging, documentation, migration and dependency problem of an app source.
-
-    inventory is a target deployment inventory dict; catalog a signed catalogue envelope
-    verified with trust_store; bundled_apps the SKELETON_BUNDLED_APPS names of the target (#254).
-    Nothing is imported, built or written.
-    """
-    from skeleton.system.dependencies import catalog_candidates
-
-    root = Path(app_root).resolve()
-    manifest_file = Path(manifest_path).resolve() if manifest_path else root / "manifest.json"
-    problems = []
-
-    def report(code, message, **values):
-        problems.append({"code": code, "message": message, **values})
-
-    try:
-        manifest = load_manifest(manifest_file)
-    except (PackageError, OSError) as exc:
-        report("manifest_invalid", str(exc))
-        return {"ok": False, "problems": problems}
-    if manifest["kind"] != "app":
-        report("manifest_invalid", "doctor requires an application manifest.")
-        return {"ok": False, "problems": problems}
+def _doctor_source(root, manifest, manifest_file, report):
+    """Files, entry point, service API module and obsolete runtime flags of the source."""
     for code, message, path in _scan_application_root(root, manifest_file)[1]:
         report(code, message, path=path)
     if not (root / "apps.py").is_file():
@@ -121,6 +99,9 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
             "Set it to false.",
             severity="warning",
         )
+
+
+def _doctor_documentation(root, manifest, report):
     documentation = root / manifest["runtime"]["documentation_root"]
     documents = {**required_documents(manifest), SERVICE_API_DOCUMENT: SERVICE_API_HEADINGS}
     for filename, headings in documents.items():
@@ -131,7 +112,9 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
         missing = [heading for heading in headings if heading not in path.read_text(encoding="utf-8")]
         if missing:
             report("documentation_sections", f"{filename} lacks sections {missing}.", path=filename)
-    _doctor_import_boundary(root, manifest, inventory, report)
+
+
+def _doctor_migrations(root, manifest, report):
     actual = static_migration_leaves(root / "migrations", manifest["app_label"])
     declared = sorted(manifest["migrations"]["leaves"])
     if actual is None:
@@ -141,22 +124,34 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
             "migration_leaves_mismatch",
             f"Manifest migrations.leaves {declared} differ from the migration files {sorted(actual)}.",
         )
+
+
+def _doctor_provided(bundled_apps, report):
+    """App IDs of the first-party apps the target installs (#254)."""
+    if not bundled_apps:
+        return ()
+    from django.core.exceptions import ImproperlyConfigured
+
+    from skeleton.conf.bundled import bundled_app_ids
+
+    try:
+        return bundled_app_ids(bundled_apps)
+    except ImproperlyConfigured as exc:
+        report("bundled_app_unknown", str(exc))
+        return ()
+
+
+def _doctor_releases(manifest, inventory, catalog, trust_store, bundled_apps, report):
+    """Dependencies against the target inventory, else against the signed catalogue."""
+    from skeleton.system.dependencies import catalog_candidates
+
     entries = []
     if catalog is not None:
         try:
             entries = validate_catalog(catalog, trust_store or {})["entries"]
         except PackageError as exc:
             report("catalog_invalid", str(exc))
-    provided: tuple[str, ...] = ()
-    if bundled_apps:
-        from django.core.exceptions import ImproperlyConfigured
-
-        from skeleton.conf.bundled import bundled_app_ids
-
-        try:
-            provided = bundled_app_ids(bundled_apps)
-        except ImproperlyConfigured as exc:
-            report("bundled_app_unknown", str(exc))
+    provided = _doctor_provided(bundled_apps, report)
     if inventory is not None:
         _doctor_dependencies(manifest, inventory, entries, report, provided)
     elif entries:
@@ -170,6 +165,35 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
                     dependency=dependency,
                     required=required,
                 )
+
+
+def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_store=None, bundled_apps=()):
+    """Report every packaging, documentation, migration and dependency problem of an app source.
+
+    inventory is a target deployment inventory dict; catalog a signed catalogue envelope
+    verified with trust_store; bundled_apps the SKELETON_BUNDLED_APPS names of the target (#254).
+    Nothing is imported, built or written. The checks run, and report, in this order.
+    """
+    root = Path(app_root).resolve()
+    manifest_file = Path(manifest_path).resolve() if manifest_path else root / "manifest.json"
+    problems = []
+
+    def report(code, message, **values):
+        problems.append({"code": code, "message": message, **values})
+
+    try:
+        manifest = load_manifest(manifest_file)
+    except (PackageError, OSError) as exc:
+        report("manifest_invalid", str(exc))
+        return {"ok": False, "problems": problems}
+    if manifest["kind"] != "app":
+        report("manifest_invalid", "doctor requires an application manifest.")
+        return {"ok": False, "problems": problems}
+    _doctor_source(root, manifest, manifest_file, report)
+    _doctor_documentation(root, manifest, report)
+    _doctor_import_boundary(root, manifest, inventory, report)
+    _doctor_migrations(root, manifest, report)
+    _doctor_releases(manifest, inventory, catalog, trust_store, bundled_apps, report)
     failures = [problem for problem in problems if problem.get("severity") != "warning"]
     return {"ok": not failures, "app_id": manifest["app_id"], "problems": problems}
 

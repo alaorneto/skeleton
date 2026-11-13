@@ -29,6 +29,82 @@ from .primitives import (
 from .signing import _private_key, _trusted_key, _verify
 from .zipio import _read_member
 
+CATALOG_ENTRY_FIELDS = (
+    "component_id",
+    "kind",
+    "version",
+    "channel",
+    "compatibility",
+    "artifact",
+    "digest",
+    "signature",
+    "publisher",
+    "notes",
+    "migrations",
+)
+
+
+def _catalog_artifact(entry):
+    """HTTPS or relative safe artifact reference, digest and signature of one entry."""
+    _string(entry["artifact"], 2048)
+    url = urlsplit(entry["artifact"])
+    if url.scheme:
+        if url.scheme != "https" or not url.hostname or url.username or url.password or url.fragment:
+            _fail("Catalog artifacts require HTTPS or relative safe paths.")
+    else:
+        _path(entry["artifact"])
+    if not isinstance(entry["digest"], str) or not SHA256.fullmatch(entry["digest"]):
+        _fail("Invalid catalog artifact digest.")
+    try:
+        if len(b64decode(entry["signature"], validate=True)) != 64:
+            _fail("Invalid catalog artifact signature.")
+    except (ValueError, TypeError) as exc:
+        raise PackageError("Invalid catalog artifact signature.") from exc
+
+
+def _catalog_migrations(value):
+    """Catalogue migrations, with its own messages; labels need not be unique (unlike the manifest)."""
+    migrations = _object(value, ("leaves", "from_versions", "labels"), ("leaves", "from_versions"))
+    if not isinstance(migrations["leaves"], list) or any(
+        not isinstance(leaf, str) or not re.fullmatch(r"[A-Za-z0-9_]+", leaf) for leaf in migrations["leaves"]
+    ):
+        _fail("Invalid catalog migration leaves.")
+    if len(set(migrations["leaves"])) != len(migrations["leaves"]):
+        _fail("Duplicate catalog migration leaves.")
+    _specifier(migrations["from_versions"])
+    if "labels" in migrations:
+        if not isinstance(migrations["labels"], list):
+            _fail("Invalid catalog migration labels.")
+        for label in migrations["labels"]:
+            _identifier(label)
+
+
+def _catalog_entry(entry, catalog_version):
+    fields = CATALOG_ENTRY_FIELDS
+    if catalog_version >= 2:
+        # v2 entries carry the dependency contract so previews can suggest releases.
+        fields = (*fields, "dependencies", "conflicts")
+    _object(entry, fields, fields)
+    for relation in ("dependencies", "conflicts"):
+        ranges = entry.get(relation, {})
+        if not isinstance(ranges, dict):
+            _fail("Invalid catalog dependency ranges.")
+        for dependency, spec in ranges.items():
+            _stable_id(dependency)
+            _specifier(spec)
+    _stable_id(entry["component_id"])
+    _stable_id(entry["publisher"])
+    _stable_id(entry["channel"])
+    if entry["kind"] not in ("core", "app") or (entry["kind"] == "core" and entry["component_id"] != "django-skeleton"):
+        _fail("Invalid catalog component kind.")
+    if _version(entry["version"]) != entry["version"]:
+        _fail("Catalog version must be normalized.")
+    _compatibility(entry["compatibility"])
+    _catalog_artifact(entry)
+    if not isinstance(entry["notes"], str) or len(entry["notes"]) > 10000:
+        _fail("Invalid release notes.")
+    _catalog_migrations(entry["migrations"])
+
 
 def _catalog(value):
     _object(
@@ -49,70 +125,7 @@ def _catalog(value):
         _fail("Invalid release catalog entries.")
     identities = set()
     for entry in value["entries"]:
-        fields = (
-            "component_id",
-            "kind",
-            "version",
-            "channel",
-            "compatibility",
-            "artifact",
-            "digest",
-            "signature",
-            "publisher",
-            "notes",
-            "migrations",
-        )
-        if value["catalog_version"] >= 2:
-            # v2 entries carry the dependency contract so previews can suggest releases.
-            fields = (*fields, "dependencies", "conflicts")
-        _object(entry, fields, fields)
-        for relation in ("dependencies", "conflicts"):
-            ranges = entry.get(relation, {})
-            if not isinstance(ranges, dict):
-                _fail("Invalid catalog dependency ranges.")
-            for dependency, spec in ranges.items():
-                _stable_id(dependency)
-                _specifier(spec)
-        _stable_id(entry["component_id"])
-        _stable_id(entry["publisher"])
-        _stable_id(entry["channel"])
-        if entry["kind"] not in ("core", "app") or (
-            entry["kind"] == "core" and entry["component_id"] != "django-skeleton"
-        ):
-            _fail("Invalid catalog component kind.")
-        if _version(entry["version"]) != entry["version"]:
-            _fail("Catalog version must be normalized.")
-        _compatibility(entry["compatibility"])
-        _string(entry["artifact"], 2048)
-
-        url = urlsplit(entry["artifact"])
-        if url.scheme:
-            if url.scheme != "https" or not url.hostname or url.username or url.password or url.fragment:
-                _fail("Catalog artifacts require HTTPS or relative safe paths.")
-        else:
-            _path(entry["artifact"])
-        if not isinstance(entry["digest"], str) or not SHA256.fullmatch(entry["digest"]):
-            _fail("Invalid catalog artifact digest.")
-        try:
-            if len(b64decode(entry["signature"], validate=True)) != 64:
-                _fail("Invalid catalog artifact signature.")
-        except (ValueError, TypeError) as exc:
-            raise PackageError("Invalid catalog artifact signature.") from exc
-        if not isinstance(entry["notes"], str) or len(entry["notes"]) > 10000:
-            _fail("Invalid release notes.")
-        migrations = _object(entry["migrations"], ("leaves", "from_versions", "labels"), ("leaves", "from_versions"))
-        if not isinstance(migrations["leaves"], list) or any(
-            not isinstance(leaf, str) or not re.fullmatch(r"[A-Za-z0-9_]+", leaf) for leaf in migrations["leaves"]
-        ):
-            _fail("Invalid catalog migration leaves.")
-        if len(set(migrations["leaves"])) != len(migrations["leaves"]):
-            _fail("Duplicate catalog migration leaves.")
-        _specifier(migrations["from_versions"])
-        if "labels" in migrations:
-            if not isinstance(migrations["labels"], list):
-                _fail("Invalid catalog migration labels.")
-            for label in migrations["labels"]:
-                _identifier(label)
+        _catalog_entry(entry, value["catalog_version"])
         identity = (entry["component_id"], entry["version"], entry["channel"])
         if identity in identities:
             _fail("Duplicate catalog release identity.")

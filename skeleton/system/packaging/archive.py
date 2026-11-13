@@ -84,6 +84,28 @@ def _entrypoint(manifest, archive, files):
             _fail("Declared migration leaf is absent.")
 
 
+def _signature(archive, files):
+    signature = _read_member(archive, files["manifest.sig"], 256)
+    try:
+        if len(b64decode(signature, validate=True)) != 64:
+            _fail("Invalid release signature encoding.")
+    except (ValueError, TypeError) as exc:
+        raise PackageError("Invalid release signature encoding.") from exc
+    return signature
+
+
+def _nested_wheel(manifest, name, item, data):
+    """Validate one nested wheel: (expanded bytes, members, the claim the caller makes after the limits)."""
+    dependency = next(d for d in manifest["python_dependencies"] if d["wheel"] == name)
+    destinations, owned_roots, expanded, members, _ = _wheel(data, dependency, core=manifest["kind"] == "core")
+    owner = {
+        "name": canonicalize_name(dependency["name"]),
+        "version": dependency["version"],
+        "sha256": item["sha256"],
+    }
+    return expanded, members, (destinations, owned_roots, owner)
+
+
 def _validate_archive(path, trust_store=None):
     path = Path(path)
     snapshot = zipio._protected_snapshot(path, limits.MAX_ARCHIVE_BYTES)
@@ -97,12 +119,7 @@ def _validate_archive(path, trust_store=None):
             manifest = validate_manifest(_json(raw))
             if raw != canonical_json(manifest):
                 _fail("Manifest must use canonical JSON and normalized versions/ranges.")
-            signature = _read_member(archive, files["manifest.sig"], 256)
-            try:
-                if len(b64decode(signature, validate=True)) != 64:
-                    _fail("Invalid release signature encoding.")
-            except (ValueError, TypeError) as exc:
-                raise PackageError("Invalid release signature encoding.") from exc
+            signature = _signature(archive, files)
             key = _trusted_key(manifest["publisher"], trust_store) if trust_store is not None else None
             if key is not None:
                 _verify(key, signature, raw)
@@ -118,22 +135,14 @@ def _validate_archive(path, trust_store=None):
                 if len(data) != item["size"] or hashlib.sha256(data).hexdigest() != item["sha256"]:
                     _fail("Payload hash or size mismatch.")
                 if name.startswith("wheels/"):
-                    dependency = next(d for d in manifest["python_dependencies"] if d["wheel"] == name)
-                    destinations, owned_roots, expanded, members, _ = _wheel(
-                        data, dependency, core=manifest["kind"] == "core"
-                    )
+                    expanded, members, claim = _nested_wheel(manifest, name, item, data)
                     expanded_total += expanded
                     member_total += members
                     if member_total > limits.MAX_WHEELHOUSE_MEMBERS:
                         _fail("Combined nested wheel member limit exceeded.")
                     if expanded_total > limits.MAX_TOTAL_BYTES:
                         _fail("Combined nested wheel expansion limit exceeded.")
-                    owner = {
-                        "name": canonicalize_name(dependency["name"]),
-                        "version": dependency["version"],
-                        "sha256": item["sha256"],
-                    }
-                    _claim_wheel(destinations, owned_roots, owner, wheel_ownership, wheel_namespaces)
+                    _claim_wheel(*claim, wheel_ownership, wheel_namespaces)
                 if name.startswith("app/" + manifest.get("runtime", {}).get("documentation_root", "\x00") + "/"):
                     docs[name] = data
             if manifest["kind"] == "app":
@@ -159,6 +168,49 @@ def inspect_package(path, trust_store=None):
     return {"trusted": trust_store is not None, "digest": package.digest, "manifest": package.manifest}
 
 
+def _extraction_roots(manifest, destination, wheels_destination):
+    """Exact, separate, absent destinations without symlink ancestors."""
+    roots = {}
+    if manifest["kind"] == "app":
+        if destination is None:
+            _fail("Application destination is required.")
+        roots["app"] = Path(destination).absolute()
+    elif destination is not None:
+        _fail("Core artifacts contain isolated wheels only.")
+    if manifest["python_dependencies"]:
+        if wheels_destination is None:
+            _fail("An explicit isolated wheels destination is required.")
+        roots["wheels"] = Path(wheels_destination).absolute()
+    for root in roots.values():
+        if root.exists() or root.is_symlink() or any(parent.is_symlink() for parent in root.parents):
+            _fail("Extraction destination exists or has symlink ancestors.")
+    if len(roots) == 2 and (
+        roots["app"].is_relative_to(roots["wheels"]) or roots["wheels"].is_relative_to(roots["app"])
+    ):
+        _fail("App and wheels destinations must be separate.")
+    return roots
+
+
+def _write_payload(fresh, roots):
+    """Every inventory file from the verified snapshot, plus the canonical manifest beside the app."""
+    with zipfile.ZipFile(io.BytesIO(fresh._snapshot)) as archive:
+        for item in fresh.manifest["files"]:
+            prefix, relative = item["path"].split("/", 1)
+            target = roots[prefix] / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            data = _read_member(archive, archive.getinfo(item["path"]))
+            if hashlib.sha256(data).hexdigest() != item["sha256"]:
+                _fail("Artifact changed during extraction.")
+            with target.open("xb") as handle:
+                handle.write(data)
+            target.chmod(0o644)
+        if "app" in roots:
+            with (roots["app"] / "manifest.json").open("xb") as handle:
+                handle.write(canonical_json(fresh.manifest))
+            with (roots["app"] / "manifest.sig").open("xb") as handle:
+                handle.write(_read_member(archive, archive.getinfo("manifest.sig"), limits.MAX_METADATA_BYTES))
+
+
 def extract_package(verified, destination, *, wheels_destination=None):
     """Reverify and exclusively create exact app root and separate wheel root.
 
@@ -170,45 +222,13 @@ def extract_package(verified, destination, *, wheels_destination=None):
     fresh = validate_package(verified.path, {verified.manifest["publisher"]: verified._public_key})
     if fresh.digest != verified.digest or fresh.manifest != verified.manifest:
         _fail("Artifact changed after validation.")
-    roots = {}
-    if fresh.manifest["kind"] == "app":
-        if destination is None:
-            _fail("Application destination is required.")
-        roots["app"] = Path(destination).absolute()
-    elif destination is not None:
-        _fail("Core artifacts contain isolated wheels only.")
-    if fresh.manifest["python_dependencies"]:
-        if wheels_destination is None:
-            _fail("An explicit isolated wheels destination is required.")
-        roots["wheels"] = Path(wheels_destination).absolute()
-    for root in roots.values():
-        if root.exists() or root.is_symlink() or any(parent.is_symlink() for parent in root.parents):
-            _fail("Extraction destination exists or has symlink ancestors.")
-    if len(roots) == 2 and (
-        roots["app"].is_relative_to(roots["wheels"]) or roots["wheels"].is_relative_to(roots["app"])
-    ):
-        _fail("App and wheels destinations must be separate.")
+    roots = _extraction_roots(fresh.manifest, destination, wheels_destination)
     created = []
     try:
         for root in roots.values():
             root.mkdir(parents=True, exist_ok=False)
             created.append(root)
-        with zipfile.ZipFile(io.BytesIO(fresh._snapshot)) as archive:
-            for item in fresh.manifest["files"]:
-                prefix, relative = item["path"].split("/", 1)
-                target = roots[prefix] / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                data = _read_member(archive, archive.getinfo(item["path"]))
-                if hashlib.sha256(data).hexdigest() != item["sha256"]:
-                    _fail("Artifact changed during extraction.")
-                with target.open("xb") as handle:
-                    handle.write(data)
-                target.chmod(0o644)
-            if "app" in roots:
-                with (roots["app"] / "manifest.json").open("xb") as handle:
-                    handle.write(canonical_json(fresh.manifest))
-                with (roots["app"] / "manifest.sig").open("xb") as handle:
-                    handle.write(_read_member(archive, archive.getinfo("manifest.sig"), limits.MAX_METADATA_BYTES))
+        _write_payload(fresh, roots)
     except Exception:
         for root in created:
             shutil.rmtree(root, ignore_errors=True)  # The original error is the one that matters (#255).
