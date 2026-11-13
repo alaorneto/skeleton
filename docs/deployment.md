@@ -553,6 +553,9 @@ Group=skeleton-web
 UMask=0077
 ExecStart=/opt/skeleton-agent/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
 Restart=on-failure
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=1800
 [Install]
 WantedBy=multi-user.target
 ```
@@ -586,6 +589,8 @@ sudo systemctl start skeleton-web.service skeleton-agent.service
 ```
 
 Com apps existentes, cada entrada de `apps` declara o manifesto canônico completo e `state`. Para `installed`, informe `digest` SHA-256 do `.skapp` e repita `--app-package /caminho/app.skapp`: o código deve existir em `applications/<package_name>` com inventário **exato**, sem arquivos extras/divergentes. Para `project-local`, informe `path` relativo ao projeto (default `applications/<package_name>`), mantenha seu AppConfig em `PROJECT_APPS` e inclua sua raiz em `project_paths`; não é necessário um digest de artefato. Apps locais participam de compatibilidade/dependências, mas não podem ser substituídas/removidas por coincidência de ID. Adoção de `schema_retained` sem journal existente é recusada.
+
+Ao receber `SIGTERM` (ou `SIGINT`), o agente para de aceitar requisições, espera a operação em curso chegar ao estado final e sai (#280): `TimeoutStopSec` precisa ser pelo menos o `command_timeout` configurado (padrão 1800 s). Se o supervisor matar o processo antes, a operação aparece como `interrupted` na próxima partida, com a manutenção ativa, e segue o procedimento de recuperação. O socket nasce no máximo `0660` (a `umask` é restringida só durante a criação), e um cabeçalho `Authorization` com qualquer byte responde 401, nunca 500.
 
 O socket é `0660`, no grupo do processo do agente; use `socket_gid` numérico se o grupo web for diferente. Só o grupo de controle pode ler o token e atravessar o diretório do socket. O status independente é opcional:
 

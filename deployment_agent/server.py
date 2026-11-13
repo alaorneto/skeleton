@@ -5,6 +5,7 @@ import html
 import json
 import os
 import secrets
+import signal
 import socket
 import threading
 import time
@@ -92,7 +93,12 @@ class ControlHandler(QuietHandler):
     def authenticate(self):
         expected = private_file(self.server.service.config["token_file"]).read_text().strip()
         supplied = self.headers.get("Authorization", "")
-        if not expected or len(expected) < 32 or not hmac.compare_digest(supplied, "Bearer " + expected):
+        # Bytes, not str: compare_digest refuses non-ASCII text with TypeError, which became a 500 (#280).
+        if (
+            not expected
+            or len(expected) < 32
+            or not hmac.compare_digest(supplied.encode("utf-8", "replace"), ("Bearer " + expected).encode("utf-8"))
+        ):
             raise AgentError("unauthorized", 401)
 
     def body(self, *, upload=False):
@@ -215,7 +221,7 @@ class StatusHandler(QuietHandler):
                 self.send_json(summary)
                 return
             rows = "".join(
-                f"<tr><th>{html.escape(key)}</th><td>{html.escape(str(value or '—'))}</td></tr>"
+                f"<tr><th>{html.escape(key)}</th><td>{html.escape('—' if value is None else str(value))}</td></tr>"
                 for key, value in summary.items()
             )
             body = f'<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="3"><title>Operação de deployment</title><h1>Operação de deployment</h1><p>Canal independente, somente leitura. Atualização a cada 3 segundos; autorização expira em cinco minutos.</p><table>{rows}</table></html>'.encode()
@@ -239,8 +245,26 @@ class StatusHandler(QuietHandler):
                 {"error": error.code if isinstance(error, AgentError) else "invalid_request"},
                 error.status if isinstance(error, AgentError) else 400,
             )
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        except Exception as error:
+            # Class and stack only, never the raw traceback with its message (#280).
+            log_internal_error(error)
+            self.send_json({"error": "agent_internal_error"}, 500)
         finally:
             self.close_connection = True
+
+
+def install_signal_handlers(server):
+    """SIGTERM/SIGINT stop accepting requests; serve() then waits for the running operation (#280)."""
+
+    def request_shutdown(signum, frame):
+        # shutdown() blocks until serve_forever() returns: it must run outside the main thread.
+        threading.Thread(target=server.shutdown, daemon=True, name="deployment-shutdown").start()
+
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, request_shutdown)
+    return request_shutdown
 
 
 class UnixHTTPServer(ThreadingMixIn, UnixStreamServer):
@@ -265,7 +289,11 @@ def serve(service):
     if service.config.get("backend") == "compose":
         service.backend.remove_stale_overrides()  # Overrides of an abrupt stop hold secrets (#245).
     tickets = StatusTickets(service)
-    server = UnixHTTPServer(str(path), ControlHandler)
+    previous_umask = os.umask(0o117)  # The socket is born at most 0660 (#280).
+    try:
+        server = UnixHTTPServer(str(path), ControlHandler)
+    finally:
+        os.umask(previous_umask)
     server.service = service
     server.tickets = tickets
     os.chmod(path, 0o660)
@@ -282,6 +310,8 @@ def serve(service):
         status_server.service = service
         status_server.tickets = tickets
         threading.Thread(target=status_server.serve_forever, daemon=True, name="deployment-status").start()
+    if threading.current_thread() is threading.main_thread():
+        install_signal_handlers(server)
     try:
         server.serve_forever()
     finally:
@@ -289,4 +319,7 @@ def serve(service):
         if status_server:
             status_server.shutdown()
             status_server.server_close()
+        worker = getattr(service, "worker", None)
+        if worker is not None and worker.is_alive():
+            worker.join()  # The operation in progress reaches its final state before the agent exits.
         path.unlink(missing_ok=True)
