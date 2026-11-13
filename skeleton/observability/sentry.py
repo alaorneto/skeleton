@@ -32,6 +32,8 @@ EVENT_TAG = "skeleton.event"
 KEPT_KEYS = ("event_id", "timestamp", "level", "platform", "logger", "environment", "release", "dist", "server_name")
 HTTP_METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 CHAIN_SOURCES = frozenset({"__context__", "__cause__"})
+# Transaction names the SDK built from code, never from the request path (#326).
+TRANSACTION_SOURCES = frozenset({"route", "component", "task"})
 _DOTTED = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,199}")
 _FUNCTION = re.compile(r"[A-Za-z_<][A-Za-z0-9_.<>]{0,199}")
 _HEX = re.compile(r"[0-9a-f]{16,32}")
@@ -117,9 +119,16 @@ def safe_breadcrumb(crumb: Mapping[str, Any]) -> dict[str, Any]:
     return clean
 
 
-def _safe_transaction(value: Any) -> str | None:
-    """A route pattern (``/o/<uuid:organization_id>/``) passes; anything with a value in it does not."""
-    if not isinstance(value, str) or len(value) > 200 or "@" in value or "?" in value or _UUID.search(value):
+def _safe_transaction(event: Mapping[str, Any]) -> str | None:
+    """The route pattern the SDK resolved; a raw request path (source ``url``) never passes (#326).
+
+    The format test stays as a second defense: a value in the name still drops it.
+    """
+    value = event.get("transaction")
+    source = _mapping(event.get("transaction_info")).get("source")
+    if source not in TRANSACTION_SOURCES or not isinstance(value, str) or len(value) > 200:
+        return None
+    if "@" in value or "?" in value or _UUID.search(value):
         return None
     return value
 
@@ -129,8 +138,9 @@ def redact_event(event: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(event.get("sdk"), Mapping):
         sdk = event["sdk"]
         clean["sdk"] = {key: sdk[key] for key in ("name", "version") if isinstance(sdk.get(key), str)}
-    if transaction := _safe_transaction(event.get("transaction")):
+    if transaction := _safe_transaction(event):
         clean["transaction"] = transaction
+        clean["transaction_info"] = {"source": event["transaction_info"]["source"]}
     values = (event.get("exception") or {}).get("values") or []
     if isinstance(values, list) and values:
         clean["exception"] = {"values": [_safe_exception(value) for value in values if isinstance(value, Mapping)]}

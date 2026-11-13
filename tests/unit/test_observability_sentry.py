@@ -29,6 +29,7 @@ def synthetic_event():
         "environment": "production",
         "release": "skeleton@0.5.0",
         "transaction": "/o/<uuid:organization_id>/",
+        "transaction_info": {"source": "route"},
         "sdk": {"name": "sentry.python.django", "version": "2.74.0", "packages": [{"name": "x"}]},
         "message": f"Internal error for {EMAIL}",
         "logentry": {"message": "login failed for %s", "params": [EMAIL]},
@@ -143,7 +144,31 @@ def test_synthetic_event_leaves_without_sensitive_values():
 
 def test_transactions_with_values_are_dropped():
     for value in (f"/u/{EMAIL}/", "/o/6f1c2a9e-1d2b-4c3d-8e4f-5a6b7c8d9e0f/", "/search?q=x"):
-        assert "transaction" not in sentry.redact_event({"transaction": value})
+        assert "transaction" not in sentry.redact_event({"transaction": value, "transaction_info": {"source": "route"}})
+
+
+def test_raw_request_path_is_never_sent_as_transaction():
+    """A path the router did not resolve is the raw URL: it may carry tokens or codes (#326)."""
+    raw = "/reset/Mw/c4r5f6-0123456789abcdef0123456789abcdef/"
+    for event in (
+        {"transaction": raw, "transaction_info": {"source": "url"}},
+        {"transaction": raw},
+        {"transaction": raw, "transaction_info": "route"},
+    ):
+        clean = sentry.redact_event(event)
+        assert "transaction" not in clean and "transaction_info" not in clean
+        assert raw not in repr(clean)
+
+
+def test_route_pattern_is_kept_as_transaction():
+    for source, value in (
+        ("route", "/o/<uuid:organization_id>/"),
+        ("component", "skeleton.web.views.dashboard"),
+        ("task", "notifications.email"),
+    ):
+        clean = sentry.redact_event({"transaction": value, "transaction_info": {"source": source}})
+        assert clean["transaction"] == value
+        assert clean["transaction_info"] == {"source": source}
 
 
 def test_request_id_of_the_running_request_is_tagged():
