@@ -137,46 +137,65 @@ class ControlHandler(QuietHandler):
 
     def dispatch(self):
         self.authenticate()
-        service = self.server.service
         path = urlsplit(self.path)
         if path.query or path.fragment:
             raise AgentError("invalid_control_path")
         if self.command == "GET":
-            if path.path == "/inventory":
-                return service.inventory()
-            if path.path.startswith("/operations/"):
-                return self.operation(identifier(path.path.removeprefix("/operations/")))
-            if path.path.startswith("/plans/"):
-                return service.plan_status(identifier(path.path.removeprefix("/plans/")))
-        elif self.command == "POST":
+            return self._get(path.path)
+        if self.command == "POST":
             if path.path == "/uploads":
-                return service.upload(self.body(upload=True))
-            body = self.body()
-            if path.path == "/status-ticket":
-                if set(body) != {"operation_id"}:
-                    raise AgentError("invalid_status_ticket_fields")
-                return {"status_url": self.server.tickets.issue(identifier(body["operation_id"]))}
-            if path.path == "/preview":
-                if set(body) - {"action", "artifacts", "app_ids"}:
-                    raise AgentError("unknown_fields")
-                return service.preview(body.get("action"), body.get("artifacts", []), body.get("app_ids", []))
-            if path.path == "/submit":
-                if set(body) != {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}:
-                    raise AgentError("invalid_submit_fields")
-                result = service.submit(**body)
-                url = self.server.tickets.issue(result["id"])
-                if url:
-                    result["status_url"] = url
-                return result
-            if path.path == "/catalog/check":
-                if body:
-                    raise AgentError("unknown_fields")
-                return service.check_updates()
-            if path.path == "/catalog/fetch":
-                if set(body) != {"component_id", "version", "source_id"}:
-                    raise AgentError("invalid_catalogue_selection")
-                return service.fetch_release(**body)
+                return self.server.service.upload(self.body(upload=True))
+            body = self.body()  # Read and validated before the route, as for any POST.
+            route = self.POST_ROUTES.get(path.path)
+            if route:
+                return route(self, body)
         raise AgentError("not_found", 404)
+
+    def _get(self, path):
+        if path == "/inventory":
+            return self.server.service.inventory()
+        if path.startswith("/operations/"):
+            return self.operation(identifier(path.removeprefix("/operations/")))
+        if path.startswith("/plans/"):
+            return self.server.service.plan_status(identifier(path.removeprefix("/plans/")))
+        raise AgentError("not_found", 404)
+
+    def _status_ticket(self, body):
+        if set(body) != {"operation_id"}:
+            raise AgentError("invalid_status_ticket_fields")
+        return {"status_url": self.server.tickets.issue(identifier(body["operation_id"]))}
+
+    def _preview(self, body):
+        if set(body) - {"action", "artifacts", "app_ids"}:
+            raise AgentError("unknown_fields")
+        return self.server.service.preview(body.get("action"), body.get("artifacts", []), body.get("app_ids", []))
+
+    def _submit(self, body):
+        if set(body) != {"plan_id", "plan_digest", "generation", "operation_id", "actor_id", "request_id"}:
+            raise AgentError("invalid_submit_fields")
+        result = self.server.service.submit(**body)
+        url = self.server.tickets.issue(result["id"])
+        if url:
+            result["status_url"] = url
+        return result
+
+    def _catalog_check(self, body):
+        if body:
+            raise AgentError("unknown_fields")
+        return self.server.service.check_updates()
+
+    def _catalog_fetch(self, body):
+        if set(body) != {"component_id", "version", "source_id"}:
+            raise AgentError("invalid_catalogue_selection")
+        return self.server.service.fetch_release(**body)
+
+    POST_ROUTES = {
+        "/status-ticket": _status_ticket,
+        "/preview": _preview,
+        "/submit": _submit,
+        "/catalog/check": _catalog_check,
+        "/catalog/fetch": _catalog_fetch,
+    }
 
     def handle_request(self):
         try:

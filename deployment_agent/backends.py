@@ -7,8 +7,10 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import uuid4
+
+from packaging.markers import default_environment
 
 from .config import read_environment
 from .storage import (
@@ -209,14 +211,14 @@ class Backend:
         finally:
             path.unlink(missing_ok=True)
 
-    def export_schema(self, release, app_label, destination):
+    def export_schema(self, release, app_label, destination, profile="runtime"):
         temporary = self.store.root / "probe" / f"schema-{uuid4()}.json"
         temporary.parent.mkdir(exist_ok=True, mode=0o700)
         try:
             self.manage(
                 release,
                 ["export_record_schema", "--app-label", app_label, "--output", temporary],
-                "runtime",
+                profile,
                 code="schema_export_failed",
             )
             atomic_bytes(destination, temporary.read_bytes(), 0o644)
@@ -294,8 +296,6 @@ class Backend:
                 "PGPASSWORD": unquote(url.password or ""),
             }
         )
-        from urllib.parse import parse_qs
-
         allowed = {
             "sslmode": "PGSSLMODE",
             "sslrootcert": "PGSSLROOTCERT",
@@ -575,8 +575,6 @@ class ComposeBackend(Backend):
             path.unlink(missing_ok=True)
 
     def target_environment(self):
-        from packaging.markers import default_environment
-
         supplied = self.config["compose"].get("target_environment")
         if not isinstance(supplied, dict) or not all(
             key in supplied for key in ("python_full_version", "python_version", "platform_machine", "sys_platform")
@@ -584,19 +582,8 @@ class ComposeBackend(Backend):
             raise AgentError("compose_target_environment_required")
         return {**default_environment(), **supplied}
 
-    def export_schema(self, release, app_label, destination):
-        temporary = self.store.root / "probe" / f"schema-{uuid4()}.json"
-        temporary.parent.mkdir(exist_ok=True, mode=0o700)
-        try:
-            self.manage(
-                release,
-                ["export_record_schema", "--app-label", app_label, "--output", temporary],
-                "export",
-                code="schema_export_failed",
-            )
-            atomic_bytes(destination, temporary.read_bytes(), 0o644)
-        finally:
-            temporary.unlink(missing_ok=True)
+    def export_schema(self, release, app_label, destination, profile="export"):
+        return super().export_schema(release, app_label, destination, profile=profile)
 
     def start(self, release, operation):
         with self.composed(release) as base:

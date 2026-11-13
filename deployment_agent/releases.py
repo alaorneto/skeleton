@@ -10,6 +10,7 @@ from zipfile import ZipFile
 
 from packaging.markers import Marker, default_environment
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
@@ -32,13 +33,19 @@ def verified(store, config, artifact):
         raise AgentError("package_verification_failed", 409) from None
 
 
+def member_files(archive):
+    """Hash and size of every core file of an open wheel, each member read once (#317)."""
+    result = {}
+    for name in archive.namelist():
+        if name.startswith("skeleton/") and not name.endswith("/"):
+            data = archive.read(name)
+            result[name] = {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+    return result
+
+
 def wheel_files(path):
     with ZipFile(path) as archive:
-        return {
-            name: {"sha256": hashlib.sha256(archive.read(name)).hexdigest(), "size": len(archive.read(name))}
-            for name in archive.namelist()
-            if name.startswith("skeleton/") and not name.endswith("/")
-        }
+        return member_files(archive)
 
 
 def migrations(manifest):
@@ -91,17 +98,13 @@ def wheel_metadata(path):
         return canonicalize_name(metadata["Name"]), metadata["Version"]
 
 
-def build_lock(config, release, manifests, target_environment=None):
-    target_environment = target_environment or default_environment()
-    rows = parse_lock(config["requirements_lock"], target_environment)
-    wheels = release / "wheels"
+def _package_selections(manifests, rows, target_environment):
+    """Exact pins the packages declare for the target; one version per distribution."""
     selections = {}
     for manifest in manifests:
         for dependency in manifest["python_dependencies"]:
             marker = dependency.get("marker")
             if marker:
-                from packaging.markers import Marker
-
                 if not Marker(marker).evaluate(target_environment):
                     continue
             name = canonicalize_name(dependency["name"])
@@ -112,7 +115,14 @@ def build_lock(config, release, manifests, target_environment=None):
                 name, {"version": version, "hashes": set(), "extras": rows.get(name, {}).get("extras", set())}
             )
             record["hashes"].add(dependency["sha256"])
-    rows.update(selections)
+    return selections
+
+
+def build_lock(config, release, manifests, target_environment=None):
+    target_environment = target_environment or default_environment()
+    rows = parse_lock(config["requirements_lock"], target_environment)
+    wheels = release / "wheels"
+    rows.update(_package_selections(manifests, rows, target_environment))
     if "django-skeleton" not in rows or "django" not in rows:
         raise AgentError("missing_core_dependencies", 409)
     wheelhouse = Path(config["wheelhouse"])
@@ -345,44 +355,67 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
     }
     copy_project(config, source, release, managed_packages=managed_packages)
     entries = {key: dict(entry) for key, entry in old_entries.items()}
-    core = dict(inventory.get("core", {}))
+    core, changed = _apply_artifacts(config, store, artifacts, entries, dict(inventory.get("core", {})))
+    _apply_removals(entries, removals, changed)
+    if not core.get("digest") or not core.get("manifest"):
+        raise AgentError("unidentified_core_base", 409)
+    manifests = [entry["manifest"] for entry in entries.values() if entry["state"] != "schema_retained"]
+    environment = backend.target_environment()
+    _install_core_wheels(config, store, release, inventory, core, changed)
+    retained, archives = _materialize_apps(config, store, backend, release, source, entries, old_entries, removals)
+    return _finalize(config, backend, release, inventory, core, entries, manifests, environment, retained, archives)
+
+
+def _apply_artifacts(config, store, artifacts, entries, core):
+    """The core and the apps of the plan's packages; ``(core, changed component ids)``."""
     changed = set()
     for artifact in artifacts:
         package = verified(store, config, artifact)
         manifest = package.manifest
         if manifest["kind"] == "core":
-            if core.get("version") and not _supports_source(manifest, core["version"]):
-                raise AgentError("unsupported_core_upgrade", 409)
-            if core.get("version") and Version(manifest["version"]) < Version(core["version"]):
-                raise AgentError("downgrade_forbidden", 409)
-            core = {
-                "manifest": manifest,
-                "version": manifest["version"],
-                "origin": "installed",
-                "digest": artifact,
-                "publisher": manifest["publisher"],
-            }
+            core = _core_from_package(manifest, core, artifact)
             changed.add("django-skeleton")
             continue
         app_id = manifest["app_id"]
-        previous = entries.get(app_id)
-        if previous:
-            old = previous["manifest"]
-            if any(old[key] != manifest[key] for key in ("app_label", "package_name", "app_config")):
-                raise AgentError("component_identity_changed", 409)
-            if previous.get("origin") == "project-local" or previous.get("state") == "project-local":
-                raise AgentError("project_local_collision", 409)
-            if Version(manifest["version"]) < Version(old["version"]):
-                raise AgentError("downgrade_forbidden", 409)
-            if not _supports_source(manifest, old["version"]):
-                raise AgentError("unsupported_app_upgrade", 409)
-            compare_history(old, manifest)
-            # runtime.default_enabled is obsolete (#22): changing it activates nothing, so it is not refused.
-        entry = {"manifest": manifest, "digest": artifact, "state": "installed", "origin": "installed"}
-        if previous and (previous.get("activation_policy") == "explicit" or previous["state"] == "schema_retained"):
-            entry["activation_policy"] = "explicit"
-        entries[app_id] = entry
+        entries[app_id] = _app_from_package(manifest, entries.get(app_id), artifact)
         changed.add(app_id)
+    return core, changed
+
+
+def _core_from_package(manifest, core, artifact):
+    if core.get("version") and not _supports_source(manifest, core["version"]):
+        raise AgentError("unsupported_core_upgrade", 409)
+    if core.get("version") and Version(manifest["version"]) < Version(core["version"]):
+        raise AgentError("downgrade_forbidden", 409)
+    return {
+        "manifest": manifest,
+        "version": manifest["version"],
+        "origin": "installed",
+        "digest": artifact,
+        "publisher": manifest["publisher"],
+    }
+
+
+def _app_from_package(manifest, previous, artifact):
+    if previous:
+        old = previous["manifest"]
+        if any(old[key] != manifest[key] for key in ("app_label", "package_name", "app_config")):
+            raise AgentError("component_identity_changed", 409)
+        if previous.get("origin") == "project-local" or previous.get("state") == "project-local":
+            raise AgentError("project_local_collision", 409)
+        if Version(manifest["version"]) < Version(old["version"]):
+            raise AgentError("downgrade_forbidden", 409)
+        if not _supports_source(manifest, old["version"]):
+            raise AgentError("unsupported_app_upgrade", 409)
+        compare_history(old, manifest)
+        # runtime.default_enabled is obsolete (#22): changing it activates nothing, so it is not refused.
+    entry = {"manifest": manifest, "digest": artifact, "state": "installed", "origin": "installed"}
+    if previous and (previous.get("activation_policy") == "explicit" or previous["state"] == "schema_retained"):
+        entry["activation_policy"] = "explicit"
+    return entry
+
+
+def _apply_removals(entries, removals, changed):
     for app_id in removals:
         if app_id in changed or app_id not in entries or entries[app_id]["state"] != "installed":
             raise AgentError("invalid_uninstall_target", 409)
@@ -390,10 +423,10 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             raise AgentError("project_local_removal", 409)
         entries[app_id]["state"] = "schema_retained"
         entries[app_id]["activation_policy"] = "explicit"
-    if not core.get("digest") or not core.get("manifest"):
-        raise AgentError("unidentified_core_base", 409)
-    manifests = [entry["manifest"] for entry in entries.values() if entry["state"] != "schema_retained"]
-    environment = backend.target_environment()
+
+
+def _install_core_wheels(config, store, release, inventory, core, changed):
+    """Extract the core package's wheels and record the core files; migrations never change."""
     core_package = verified(store, config, core["digest"])
     extract_package(core_package, None, wheels_destination=release / "core-wheels")
     for path in (release / "core-wheels").iterdir():
@@ -416,20 +449,17 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             if "/migrations/" in path and path.endswith(".py")
         ):
             raise AgentError("core_migration_history_modified", 409)
+
+
+def _materialize_apps(config, store, backend, release, source, entries, old_entries, removals):
+    """Place each app in the release; ``(retained schema references, migration archives)``."""
     retained = []
     archives = []
     for app_id, entry in sorted(entries.items()):
         manifest = entry["manifest"]
-        package_name = manifest["package_name"]
-        target = release / "applications" / package_name
+        target = release / "applications" / manifest["package_name"]
         if entry.get("origin") == "project-local" or entry["state"] == "project-local":
-            previous_path = Path(entry["path"])
-            if source not in previous_path.resolve().parents:
-                raise AgentError("local_app_outside_project", 409)
-            local_path = release / previous_path.relative_to(source)
-            if not local_path.is_dir():
-                raise AgentError("local_app_not_preserved", 409)
-            entry["path"] = str(local_path)
+            entry["path"] = str(_preserved_local_app(release, source, entry))
             continue
         if target.exists():
             # Only remove a previously managed path with a verified ownership journal.
@@ -439,51 +469,75 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
             shutil.rmtree(target)
         package = verified(store, config, entry["digest"])
         if entry["state"] == "schema_retained":
-            archive_name = f"archive_{manifest['app_label']}"
-            archive = release / "archives" / archive_name
-            archive.mkdir()
-            atomic_bytes(archive / "__init__.py", b"", 0o644)
-            with ZipFile(package.path) as payload:
-                for record in manifest["files"]:
-                    relative = record["path"]
-                    if relative.startswith("app/migrations/"):
-                        destination = archive / relative.removeprefix("app/")
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        atomic_bytes(destination, payload.read(relative), 0o644)
-            snapshot = release / "retained" / f"{manifest['app_label']}.json"
-            if app_id in removals:
-                backend.export_schema(source, manifest["app_label"], snapshot)
-            else:
-                previous_schema = old_entries[app_id]["retained_schema"]
-                if file_hash(previous_schema["path"]) != previous_schema["sha256"]:
-                    raise AgentError("retained_schema_hash_conflict", 409)
-                shutil.copyfile(previous_schema["path"], snapshot)
-            reference = {"path": str(snapshot), "sha256": file_hash(snapshot)}
-            entry["retained_schema"] = reference
+            reference, archive = _retain_app(backend, release, source, app_id, entry, package, old_entries, removals)
             retained.append(reference)
-            archives.append(
-                {
-                    "app_label": manifest["app_label"],
-                    "package_name": package_name,
-                    "path": str(archive),
-                    "migrations_module": f"{archive_name}.migrations",
-                    "digest": entry["digest"],
-                }
-            )
-            entry["path"] = str(archive)
+            archives.append(archive)
         else:
-            extraction = release / f"wheels-{package_name}"
-            extract_package(package, target, wheels_destination=extraction)
-            if extraction.exists():
-                for path in extraction.iterdir():
-                    wheel = release / "wheels" / path.name
-                    if wheel.exists() and file_hash(wheel) != file_hash(path):
-                        raise AgentError("wheel_filename_collision", 409)
-                    if not wheel.exists():
-                        shutil.copyfile(path, wheel)
-                shutil.rmtree(extraction)
+            _extract_app(release, target, package, manifest["package_name"])
             entry.pop("retained_schema", None)
             entry["path"] = str(target)
+    return retained, archives
+
+
+def _preserved_local_app(release, source, entry):
+    previous_path = Path(entry["path"])
+    if source not in previous_path.resolve().parents:
+        raise AgentError("local_app_outside_project", 409)
+    local_path = release / previous_path.relative_to(source)
+    if not local_path.is_dir():
+        raise AgentError("local_app_not_preserved", 409)
+    return local_path
+
+
+def _retain_app(backend, release, source, app_id, entry, package, old_entries, removals):
+    """Archive the historical migrations and the schema snapshot of a retired app."""
+    manifest = entry["manifest"]
+    archive_name = f"archive_{manifest['app_label']}"
+    archive = release / "archives" / archive_name
+    archive.mkdir()
+    atomic_bytes(archive / "__init__.py", b"", 0o644)
+    with ZipFile(package.path) as payload:
+        for record in manifest["files"]:
+            relative = record["path"]
+            if relative.startswith("app/migrations/"):
+                destination = archive / relative.removeprefix("app/")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                atomic_bytes(destination, payload.read(relative), 0o644)
+    snapshot = release / "retained" / f"{manifest['app_label']}.json"
+    if app_id in removals:
+        backend.export_schema(source, manifest["app_label"], snapshot)
+    else:
+        previous_schema = old_entries[app_id]["retained_schema"]
+        if file_hash(previous_schema["path"]) != previous_schema["sha256"]:
+            raise AgentError("retained_schema_hash_conflict", 409)
+        shutil.copyfile(previous_schema["path"], snapshot)
+    reference = {"path": str(snapshot), "sha256": file_hash(snapshot)}
+    entry["retained_schema"] = reference
+    entry["path"] = str(archive)
+    return reference, {
+        "app_label": manifest["app_label"],
+        "package_name": manifest["package_name"],
+        "path": str(archive),
+        "migrations_module": f"{archive_name}.migrations",
+        "digest": entry["digest"],
+    }
+
+
+def _extract_app(release, target, package, package_name):
+    extraction = release / f"wheels-{package_name}"
+    extract_package(package, target, wheels_destination=extraction)
+    if extraction.exists():
+        for path in extraction.iterdir():
+            wheel = release / "wheels" / path.name
+            if wheel.exists() and file_hash(wheel) != file_hash(path):
+                raise AgentError("wheel_filename_collision", 409)
+            if not wheel.exists():
+                shutil.copyfile(path, wheel)
+        shutil.rmtree(extraction)
+
+
+def _finalize(config, backend, release, inventory, core, entries, manifests, environment, retained, archives):
+    """Lock, resolve, write the inventory and run the build checks of the prepared release."""
     lock = build_lock(config, release, [core["manifest"], *manifests], environment)
     resolution = resolve_target(
         [core["manifest"], *manifests],
@@ -511,8 +565,6 @@ def create_release(config, store, backend, inventory, artifacts, removals, relea
 
 
 def _supports_source(manifest, source):
-    from packaging.specifiers import SpecifierSet
-
     return Version(source) in SpecifierSet(manifest["migrations"]["from_versions"])
 
 

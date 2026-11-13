@@ -10,6 +10,7 @@ import pytest
 
 pytest.importorskip("fcntl", reason="O agente de deployment exige fcntl (Linux ou macOS).")
 
+from deployment_agent import planning  # noqa: E402
 from deployment_agent import service as service_module  # noqa: E402
 from deployment_agent.releases import owned_snapshot  # noqa: E402
 from deployment_agent.service import DeploymentService  # noqa: E402
@@ -155,8 +156,8 @@ def agent(approved_deployment, tmp_path, monkeypatch):
             "retained_schema_paths": [],
         }
 
-    monkeypatch.setattr(service_module, "create_release", create_release)
-    monkeypatch.setattr(service_module, "check_plan_dependencies", lambda *args, **kwargs: None)
+    monkeypatch.setattr(planning, "create_release", create_release)
+    monkeypatch.setattr(planning, "check_plan_dependencies", lambda *args, **kwargs: None)
     return SimpleNamespace(
         service=service, values=values, pending=pending, releases=releases_root, calls=calls, monkeypatch=monkeypatch
     )
@@ -202,7 +203,7 @@ def test_failed_preparation_is_recorded_and_leaves_no_release(agent):
         (release / "partial").write_text("x")
         raise AgentError("wheel_set_conflict", 409)
 
-    agent.monkeypatch.setattr(service_module, "create_release", conflicting)
+    agent.monkeypatch.setattr(planning, "create_release", conflicting)
     summary, worker = start(agent)
     assert run(worker) is None
     status = agent.service.plan_status(summary["id"])
@@ -215,7 +216,7 @@ def test_unexpected_preparation_error_records_class_without_message(agent, capsy
     def broken(*args):
         raise RuntimeError("segredo")
 
-    agent.monkeypatch.setattr(service_module, "create_release", broken)
+    agent.monkeypatch.setattr(planning, "create_release", broken)
     summary, worker = start(agent)
     run(worker)
     status = agent.service.plan_status(summary["id"])
@@ -229,7 +230,7 @@ def test_dependency_problem_is_still_synchronous(agent):
     def unsatisfied(*args, **kwargs):
         raise AgentError("dependency_unsatisfied", 409, details)
 
-    agent.monkeypatch.setattr(service_module, "check_plan_dependencies", unsatisfied)
+    agent.monkeypatch.setattr(planning, "check_plan_dependencies", unsatisfied)
     with pytest.raises(AgentError) as raised:
         agent.service.preview("uninstall", app_ids=["org.example.app"])
     assert raised.value.code == "dependency_unsatisfied" and raised.value.details == details

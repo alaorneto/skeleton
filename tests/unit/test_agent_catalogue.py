@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("fcntl", reason="O agente de deployment exige fcntl (Linux ou macOS).")
 
-from deployment_agent import service as service_module  # noqa: E402
+from deployment_agent import catalogue as catalogue_module  # noqa: E402
 from deployment_agent.service import NoRedirect  # noqa: E402
 from deployment_agent.storage import AgentError  # noqa: E402
 from skeleton.system.packages import PackageError  # noqa: E402
@@ -52,7 +52,7 @@ def network(monkeypatch):
         state.handlers.extend(handlers)
         return Opener()
 
-    monkeypatch.setattr(service_module, "build_opener", build_opener)
+    monkeypatch.setattr(catalogue_module, "build_opener", build_opener)
     return state
 
 
@@ -159,7 +159,7 @@ def catalogue(monkeypatch):
             raise PackageError("unsigned catalogue")
         return envelope["body"]
 
-    monkeypatch.setattr(service_module, "validate_catalog", validate_catalog)
+    monkeypatch.setattr(catalogue_module, "validate_catalog", validate_catalog)
 
 
 @pytest.mark.parametrize("source", [{"id": "s"}, {"id": "s", "path": "relative/index.json"}, {"id": "s", "path": ""}])

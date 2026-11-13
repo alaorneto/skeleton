@@ -124,6 +124,142 @@ def read_environment(path):
     return result
 
 
+PATH_KEYS = (
+    "storage_root",
+    "releases_root",
+    "project_root",
+    "active_link",
+    "socket_path",
+    "token_file",
+    "runtime_env_file",
+    "migration_env_file",
+    "build_env_file",
+    "requirements_lock",
+    "wheelhouse",
+    "maintenance_marker",
+)
+REQUIRED_KEYS = (*PATH_KEYS, "project_paths", "approved_publishers", "commands", "health_urls", "backend")
+RESERVED_PROJECT_PATHS = (
+    "skeleton",
+    ".venv",
+    "deployment_agent",
+    "staticfiles",
+    "archives",
+    "retained",
+    "inventory.json",
+    "owned-files.json",
+    "wheels",
+)
+COMPOSE_NAME = r"[a-zA-Z0-9_-]+"
+
+
+def _validate_paths(values):
+    for key in PATH_KEYS:
+        if not isinstance(values[key], str) or not Path(values[key]).is_absolute():
+            raise AgentError("invalid_config_path")
+    if values["backend"] not in ("directory", "compose"):
+        raise AgentError("invalid_backend")
+    if not isinstance(values["approved_publishers"], dict) or not values["approved_publishers"]:
+        raise AgentError("missing_publishers")
+
+
+def _validate_project_paths(values):
+    if not isinstance(values["project_paths"], list) or not values["project_paths"]:
+        raise AgentError("missing_project_paths")
+    for value in values["project_paths"]:
+        if (
+            not isinstance(value, str)
+            or value in ("", ".")
+            or value.startswith("/")
+            or ".." in Path(value).parts
+            or Path(value).parts[0] in RESERVED_PROJECT_PATHS
+        ):
+            raise AgentError("invalid_project_path")
+
+
+def _validate_commands(values):
+    commands = values["commands"]
+    if not isinstance(commands, dict) or any(name not in commands for name in ("drain", "restart", "stop")):
+        raise AgentError("missing_lifecycle_commands")
+    if ("worker_stop" in commands) != ("worker_restart" in commands):
+        raise AgentError("incomplete_worker_commands")
+    for command in commands.values():
+        if (
+            not isinstance(command, list)
+            or not command
+            or not all(isinstance(argument, str) and argument and "\x00" not in argument for argument in command)
+            or not Path(command[0]).is_absolute()
+        ):
+            raise AgentError("invalid_fixed_command")
+
+
+def _validate_health(values):
+    if not isinstance(values["health_urls"], list) or not values["health_urls"]:
+        raise AgentError("missing_health_checks")
+    for url in values["health_urls"]:
+        if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname or urlsplit(url).username:
+            raise AgentError("invalid_health_url")
+
+
+def _validate_compose(values):
+    if values["backend"] != "compose":
+        return
+    compose = values.get("compose", {})
+    for key in ("file", "env_file", "dockerfile"):
+        if not Path(compose.get(key, "")).is_absolute():
+            raise AgentError("invalid_compose_config")
+    for key in ("project", "web_service", "migrator_service"):
+        if not re.fullmatch(COMPOSE_NAME, compose.get(key, "")):
+            raise AgentError("invalid_compose_service")
+    workers = compose.get("worker_services", [])
+    if (
+        not isinstance(workers, list)
+        or len(set(workers)) != len(workers)
+        or not all(isinstance(name, str) and re.fullmatch(COMPOSE_NAME, name) for name in workers)
+        or any(name in (compose.get("web_service"), compose.get("migrator_service")) for name in workers)
+    ):
+        raise AgentError("invalid_compose_worker_services")
+    if not isinstance(compose.get("base_image"), str) or not compose["base_image"]:
+        raise AgentError("missing_compose_base_image")
+    target = compose.get("target_environment")
+    if not isinstance(target, dict) or not all(
+        isinstance(target.get(key), str) and target[key]
+        for key in ("python_full_version", "python_version", "platform_machine", "sys_platform")
+    ):
+        raise AgentError("compose_target_environment_required")
+
+
+def _validate_credentials(values):
+    """The owner DSN never reaches the runtime or build profiles; both are PostgreSQL."""
+    runtime = read_environment(values["runtime_env_file"])
+    migration = read_environment(values["migration_env_file"])
+    build = read_environment(values["build_env_file"])
+    if "MIGRATION_DATABASE_URL" in runtime or "MIGRATION_DATABASE_URL" in build:
+        raise AgentError("migration_secret_in_runtime")
+    if not migration.get("MIGRATION_DATABASE_URL"):
+        raise AgentError("missing_migration_credentials")
+    runtime_url = effective_runtime_database(runtime)
+    if migration.get("MIGRATION_DATABASE_URL") == runtime_url:
+        raise AgentError("shared_database_credentials")
+    if not runtime_url:
+        raise AgentError("missing_runtime_credentials")
+    for url in (runtime_url, migration["MIGRATION_DATABASE_URL"]):
+        if urlsplit(url).scheme not in ("postgres", "postgresql"):
+            raise AgentError("unsupported_database")  # PostgreSQL only (#144).
+    if values.get("backup_env_file"):
+        if not isinstance(values["backup_env_file"], str) or not Path(values["backup_env_file"]).is_absolute():
+            raise AgentError("invalid_backup_environment_path")
+        backup = urlsplit(read_environment(values["backup_env_file"]).get("MIGRATION_DATABASE_URL", ""))
+        owner = urlsplit(migration["MIGRATION_DATABASE_URL"])
+        if (
+            backup.scheme not in ("postgres", "postgresql")
+            or owner.scheme not in ("postgres", "postgresql")
+            or backup.path != owner.path
+            or backup.username != owner.username
+        ):
+            raise AgentError("backup_database_identity_mismatch")
+
+
 @dataclass(frozen=True)
 class Config:
     values: dict
@@ -134,126 +270,17 @@ class Config:
             values = json.loads(private_file(path).read_bytes())
         except (OSError, ValueError):
             raise AgentError("invalid_agent_config") from None
-        required = (
-            "storage_root",
-            "releases_root",
-            "project_root",
-            "active_link",
-            "socket_path",
-            "token_file",
-            "runtime_env_file",
-            "migration_env_file",
-            "build_env_file",
-            "requirements_lock",
-            "wheelhouse",
-            "maintenance_marker",
-            "project_paths",
-            "approved_publishers",
-            "commands",
-            "health_urls",
-            "backend",
-        )
-        if not isinstance(values, dict) or any(key not in values for key in required):
+        if not isinstance(values, dict) or any(key not in values for key in REQUIRED_KEYS):
             raise AgentError("missing_agent_config")
-        for key in (*required[:12], "maintenance_marker"):
-            if not isinstance(values[key], str) or not Path(values[key]).is_absolute():
-                raise AgentError("invalid_config_path")
-        if values["backend"] not in ("directory", "compose"):
-            raise AgentError("invalid_backend")
-        if not isinstance(values["approved_publishers"], dict) or not values["approved_publishers"]:
-            raise AgentError("missing_publishers")
-        if not isinstance(values["project_paths"], list) or not values["project_paths"]:
-            raise AgentError("missing_project_paths")
-        for value in values["project_paths"]:
-            if (
-                not isinstance(value, str)
-                or value in ("", ".")
-                or value.startswith("/")
-                or ".." in Path(value).parts
-                or Path(value).parts[0]
-                in (
-                    "skeleton",
-                    ".venv",
-                    "deployment_agent",
-                    "staticfiles",
-                    "archives",
-                    "retained",
-                    "inventory.json",
-                    "owned-files.json",
-                    "wheels",
-                )
-            ):
-                raise AgentError("invalid_project_path")
-        commands = values["commands"]
-        if not isinstance(commands, dict) or any(name not in commands for name in ("drain", "restart", "stop")):
-            raise AgentError("missing_lifecycle_commands")
-        if ("worker_stop" in commands) != ("worker_restart" in commands):
-            raise AgentError("incomplete_worker_commands")
-        for command in commands.values():
-            if (
-                not isinstance(command, list)
-                or not command
-                or not all(isinstance(argument, str) and argument and "\x00" not in argument for argument in command)
-                or not Path(command[0]).is_absolute()
-            ):
-                raise AgentError("invalid_fixed_command")
-        if not isinstance(values["health_urls"], list) or not values["health_urls"]:
-            raise AgentError("missing_health_checks")
-        for url in values["health_urls"]:
-            if urlsplit(url).scheme not in ("http", "https") or not urlsplit(url).hostname or urlsplit(url).username:
-                raise AgentError("invalid_health_url")
+        # The order of the checks is part of the contract: a configuration with two problems keeps
+        # reporting the same first error (#317).
+        _validate_paths(values)
+        _validate_project_paths(values)
+        _validate_commands(values)
+        _validate_health(values)
         _validate_optional(values)
-        if values["backend"] == "compose":
-            compose = values.get("compose", {})
-            for key in ("file", "env_file", "dockerfile"):
-                if not Path(compose.get(key, "")).is_absolute():
-                    raise AgentError("invalid_compose_config")
-            for key in ("project", "web_service", "migrator_service"):
-                if not re.fullmatch(r"[a-zA-Z0-9_-]+", compose.get(key, "")):
-                    raise AgentError("invalid_compose_service")
-            workers = compose.get("worker_services", [])
-            if (
-                not isinstance(workers, list)
-                or len(set(workers)) != len(workers)
-                or not all(isinstance(name, str) and re.fullmatch(r"[a-zA-Z0-9_-]+", name) for name in workers)
-                or any(name in (compose.get("web_service"), compose.get("migrator_service")) for name in workers)
-            ):
-                raise AgentError("invalid_compose_worker_services")
-            if not isinstance(compose.get("base_image"), str) or not compose["base_image"]:
-                raise AgentError("missing_compose_base_image")
-            target = compose.get("target_environment")
-            if not isinstance(target, dict) or not all(
-                isinstance(target.get(key), str) and target[key]
-                for key in ("python_full_version", "python_version", "platform_machine", "sys_platform")
-            ):
-                raise AgentError("compose_target_environment_required")
-        runtime = read_environment(values["runtime_env_file"])
-        migration = read_environment(values["migration_env_file"])
-        build = read_environment(values["build_env_file"])
-        if "MIGRATION_DATABASE_URL" in runtime or "MIGRATION_DATABASE_URL" in build:
-            raise AgentError("migration_secret_in_runtime")
-        if not migration.get("MIGRATION_DATABASE_URL"):
-            raise AgentError("missing_migration_credentials")
-        runtime_url = effective_runtime_database(runtime)
-        if migration.get("MIGRATION_DATABASE_URL") == runtime_url:
-            raise AgentError("shared_database_credentials")
-        if not runtime_url:
-            raise AgentError("missing_runtime_credentials")
-        for url in (runtime_url, migration["MIGRATION_DATABASE_URL"]):
-            if urlsplit(url).scheme not in ("postgres", "postgresql"):
-                raise AgentError("unsupported_database")  # PostgreSQL only (#144).
-        if values.get("backup_env_file"):
-            if not isinstance(values["backup_env_file"], str) or not Path(values["backup_env_file"]).is_absolute():
-                raise AgentError("invalid_backup_environment_path")
-            backup = urlsplit(read_environment(values["backup_env_file"]).get("MIGRATION_DATABASE_URL", ""))
-            owner = urlsplit(migration["MIGRATION_DATABASE_URL"])
-            if (
-                backup.scheme not in ("postgres", "postgresql")
-                or owner.scheme not in ("postgres", "postgresql")
-                or backup.path != owner.path
-                or backup.username != owner.username
-            ):
-                raise AgentError("backup_database_identity_mismatch")
+        _validate_compose(values)
+        _validate_credentials(values)
         token = private_file(values["token_file"]).read_text().strip()
         if not token.isascii() or len(token) < 32:
             raise AgentError("invalid_agent_token")
