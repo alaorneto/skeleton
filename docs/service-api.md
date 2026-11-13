@@ -227,8 +227,8 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
-| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
-| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
+| `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
+| `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
