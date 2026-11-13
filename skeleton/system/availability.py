@@ -34,7 +34,23 @@ def _organization(organization_id: UUID | None) -> UUID:
 
 
 def availability_map(app_labels: Iterable[str], *, organization_id: UUID | None = None) -> dict[str, bool]:
-    """Availability of several apps for one organization in two queries."""
+    """Effective availability of several apps for one organization: platform gate and entitlement.
+
+    An app the organization has to pay for and has no right to (``skeleton.common.entitlements``,
+    #395) is closed like an app the platform withdrew: the organization's activation and
+    configuration stay, and the app reopens as soon as the right comes back.
+    """
+    from skeleton.common.entitlements import entitled_apps
+
+    labels = list(dict.fromkeys(app_labels))
+    organization_id = _organization(organization_id)
+    platform = platform_availability_map(labels, organization_id=organization_id)
+    entitled = entitled_apps(organization_id, [label for label in labels if platform[label]])
+    return {label: platform[label] and entitled.get(label, True) for label in labels}
+
+
+def platform_availability_map(app_labels: Iterable[str], *, organization_id: UUID | None = None) -> dict[str, bool]:
+    """Availability decided by the platform alone, in two queries (no entitlement)."""
     from .models import AppAvailability, AppOrganizationGrant
 
     labels = list(dict.fromkeys(app_labels))

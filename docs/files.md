@@ -67,7 +67,7 @@ Toda resposta leva `Content-Disposition: attachment` (nome em RFC 5987), `X-Cont
 
 ## Cota por organização
 
-O contador fica em `StorageUsage` ([tabela operacional](data-model.md#tabelas-operacionais-adr), uma linha por organização, RLS tenant) e a exceção da plataforma em `StorageQuota` (`SystemRecord` global, auditado, campo `quota_organization`). A cota efetiva é a `StorageQuota` da organização (`quota_bytes` vazio significa ilimitada) ou, sem ela, `SKELETON_FILES_ORG_QUOTA_BYTES`.
+O contador fica em `StorageUsage` ([tabela operacional](data-model.md#tabelas-operacionais-adr), uma linha por organização, RLS tenant) e a exceção da plataforma em `StorageQuota` (`SystemRecord` global, auditado, campo `quota_organization`). A cota efetiva é a `StorageQuota` da organização (`quota_bytes` vazio significa ilimitada); sem ela, a franquia da assinatura quando a [cobrança](billing.md#ganchos-de-direito) está ligada; e, sem nenhuma das duas, `SKELETON_FILES_ORG_QUOTA_BYTES`.
 
 - **Reserva sob lock:** o upload grava os bytes, trava a linha da organização e, em seguida, a de `StorageUsage` (`SELECT ... FOR UPDATE`, sempre nessa ordem), e só então soma o tamanho, na mesma transação da linha `Attachment`. Dois uploads concorrentes que juntos passam da cota se serializam nesses locks, e o segundo recebe 409 `quota_exceeded` com os bytes apagados. Antes de ler o arquivo, uma checagem sem lock recusa o que já não cabe.
 - **Liberação e restauração:** remover (exclusão lógica) devolve o tamanho; restaurar reserva de novo e responde 409 acima da cota (API e serviço).

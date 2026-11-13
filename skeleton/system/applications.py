@@ -143,9 +143,29 @@ def require_activation_allowed(app_label, *, enabled):
     No actor authorization here: callers authorize first (configure_application) or run as
     infrastructure under system_context (CLI). Reads the organization of the current context.
     """
-    from .availability import available_with_dependencies
+    from skeleton.common.entitlements import entitled_apps
+    from skeleton.common.exceptions import ApplicationNotEntitled
+
+    from .availability import available_with_dependencies, platform_availability_map
 
     forget_application_states()
+    if enabled:
+        closure = [app_label, *required_labels(app_label)]
+        organization_id = current_context().organization_id
+        offered = platform_availability_map(closure, organization_id=organization_id)
+        if all(offered.values()):
+            missing = [label for label, ok in entitled_apps(organization_id, closure).items() if not ok]
+            if missing:
+                # Offered by the platform but not paid for (#395): the surfaces offer to contract it.
+                names = ", ".join(get_app(label).label for label in missing)
+                raise ApplicationNotEntitled(
+                    {
+                        "enabled": ValidationError(
+                            gettext("Contrate o aplicativo para ativá-lo: %(names)s.") % {"names": names},
+                            code="app_not_entitled",
+                        )
+                    }
+                )
     if enabled and not available_with_dependencies(app_label):
         # Disabling stays allowed so an organization can close an app the platform withdrew.
         raise ValidationError(

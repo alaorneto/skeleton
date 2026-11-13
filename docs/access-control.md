@@ -151,6 +151,10 @@ for org_id in materialized_organization_ids:
 
 O exemplo acima ilustra o contexto, não concede permissão HTTP nem `BYPASSRLS`. Não envolva todo o laço em uma `atomic` externa. `on_commit` recebe dados já materializados; consultas posteriores precisam de novo contexto. Um queryset Django é avaliado sob demanda: converta-o em dados dentro do bloco, não o devolva para consultar depois.
 
+### Direitos da assinatura
+
+Com a [cobrança](billing.md#ganchos-de-direito) ligada, a situação de pagamento da organização é mais um limite, aplicado depois da validação do vínculo e antes de qualquer autorização de registro: uma app paga sem direito fica indisponível como uma app retirada pela plataforma, uma organização `restricted` fica só leitura para pessoas e uma `suspended` só deixa passar as rotas de cobrança para quem pode regularizá-la. Quem não é membro continua recebendo 404, sem saber o estado. O estado vem da política registrada no servidor, nunca de body ou header, e não concede nada: ele só fecha.
+
 ### Leitura agregada entre organizações
 
 Uma requisição comum seleciona um tenant só. Para mostrar os itens de uma pessoa em todas as organizações dela (a visão "Minha agenda", o feed da agenda), o núcleo oferece `skeleton.tenancy.aggregate.for_each_organization(user, fn, *, source, app_label=None, limit=50)` (#74):

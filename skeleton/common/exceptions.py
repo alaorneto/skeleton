@@ -1,4 +1,4 @@
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 
 
 class RecordError(Exception):
@@ -23,6 +23,18 @@ class LiveReferencesExist(RecordError):
 
 class ImmutableRecord(RecordError):
     pass
+
+
+class ApplicationNotEntitled(ValidationError):
+    """Activation refused because the organization has not contracted a paid app (#395)."""
+
+
+class OrganizationAccessLimited(PermissionDenied):
+    """The organization's billing standing forbids this operation (#395); ``code`` says how."""
+
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
 
 
 class ApplicationUnavailable(PermissionDenied):

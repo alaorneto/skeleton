@@ -113,6 +113,7 @@ O decorador confere que `actor` é o mesmo de `current_context().actor` (`skelet
 - Campos de acesso (`owner`, `visibility`, `owning_group`, grants) só mudam pela gestão de acesso autorizada, também via serviço.
 - Registro inexistente, de outra organização ou não legível responde igual (`NotFound`). Diferenciar os casos revelaria a existência de dados.
 - Antes de qualquer coisa, o serviço do provedor exige que a app dele esteja ativa e disponível na organização. `Unavailable` diz ao consumidor que a integração está desligada.
+- Com a [cobrança](billing.md#ganchos-de-direito) ligada, a situação de pagamento da organização também vale: em `restricted`, os comandos respondem `Unavailable` com o código `organization_restricted` (leituras continuam); em `suspended`, todo método de um serviço de app responde `Unavailable` com `organization_suspended`, e os comandos do núcleo também. Chamadas em `system_context` não são limitadas, e um serviço com `access_exempt = True` (o de cobrança) também não.
 
 ## Retorno: DTOs e páginas
 
@@ -133,7 +134,7 @@ Os erros públicos ficam em `skeleton.service_api.errors` ([#97](https://github.
 | `Forbidden` | Ator legível, mas sem permissão para a ação; ator divergente do contexto ou ausente, com o código próprio `actor_mismatch` (#321) | 403 |
 | `InvalidInput(errors)` | Validação de campos; `errors` mapeia campo → mensagens | 400 |
 | `Conflict(code)` | Revisão desatualizada (`code="stale_revision"`), unicidade (`integrity_conflict`), vínculos ativos (`live_references`), último admin (`last_administrator`, `last_platform_administrator`), cota | 409 |
-| `Unavailable` | App provedora desativada, indisponível ou não instalada na organização | 404 |
+| `Unavailable` | App provedora desativada, indisponível ou não instalada na organização; ou organização com acesso limitado pela cobrança (`organization_restricted`, `organization_suspended`) | 404 |
 | `ContextRequired` | Chamada sem o contexto exigido | 500 (erro de programação) |
 
 O consumidor trata `Unavailable` como "integração desligada": esconde a funcionalidade, sem falhar a operação principal.

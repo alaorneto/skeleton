@@ -1,0 +1,9 @@
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% if code == "organization_suspended" %}{% translate "Organização suspensa" %}{% else %}{% translate "Organização em modo somente leitura" %}{% endif %} · Skeleton{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-xl py-8 text-center sm:py-12">
+  <span class="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-danger-soft text-fg-danger ring-1 ring-danger-subtle">{% include "skeleton/web/components/icon.html" with name="error" class="size-6" %}</span>
+  <h1>{% if code == "organization_suspended" %}{% translate "Organização suspensa" %}{% else %}{% translate "Organização em modo somente leitura" %}{% endif %}</h1>
+  <p role="alert" class="mt-2 text-body">{{ detail }}</p>
+  <p class="mt-6"><a class="btn btn-secondary" href="{% url 'web:home' %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar às organizações" %}</a></p>
+</div>
+{% endblock %}

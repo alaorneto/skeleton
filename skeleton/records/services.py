@@ -4,6 +4,7 @@ from django.http import Http404
 from django.utils.translation import gettext
 
 from skeleton.access.policies import authorized_queryset, is_organization_admin, require_record_action
+from skeleton.common.entitlements import require_writable
 from skeleton.common.models import ACCESS_FIELD_NAMES, SYSTEM_FIELD_NAMES, SecuredRecord
 from skeleton.system.registry import all_specs, get_spec
 from skeleton.tenancy.context import current_context
@@ -183,6 +184,7 @@ def filter_records(queryset, spec, params, *, ignore_empty=False):
 
 @transaction.atomic
 def create_record(spec, *, user, data):
+    require_writable()
     assert_fields(data, spec.write_fields)
     record_queryset(spec, user=user, action="create")
     values = coerce_fields(spec.model, data, user=user)
@@ -207,6 +209,7 @@ def create_record(spec, *, user, data):
 
 @transaction.atomic
 def update_record(record, spec, *, user, data):
+    require_writable()
     assert_fields(data, spec.write_fields)
     require_record_action(record, user=user, action="update")
     from skeleton.system.record_operations import require_operation
@@ -254,6 +257,7 @@ def record_permissions(record, spec, *, user):
 
 @transaction.atomic
 def change_record_access(record, *, user, data):
+    require_writable()
     assert_fields(data, ACCESS_FIELDS)
     require_access_management(record, user=user)
     values = coerce_fields(type(record), data, user=user)
@@ -274,6 +278,7 @@ def restore_record(record, *, user):
 
 
 def _record_lifecycle(record, *, user, action):
+    require_writable()
     spec = exposed_spec(record._meta.label_lower)
     require_record_action(record, user=user, action=action)
     from skeleton.system.record_operations import require_operation

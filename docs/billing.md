@@ -54,11 +54,23 @@ Quem emite as faturas é a plataforma, então a numeração é **global e sem la
 
 Os três ficam no catálogo da [instância](deployment.md), editáveis em `/platform/instance/`. Com a cobrança ligada e sem o keyring, `manage.py check` falha com `skeleton.E037`. Um keyring inválido é `skeleton.E026`, como os demais.
 
+## Ganchos de direito
+
+Os pacotes de domínio do núcleo não importam subsistemas (regra R2 de [camadas](architecture.md#direção-das-dependências-entre-pacotes)). Por isso os pontos de decisão consultam um registro em `skeleton/common/entitlements.py`, e a cobrança registra nele a sua política em `ready()` ([#396](https://github.com/alaorneto/skeleton/issues/396)). **Sem política registrada, tudo é permitido**, e o núcleo se comporta como antes.
+
+| Pergunta da política | Onde o núcleo pergunta | Efeito da resposta |
+|---|---|---|
+| `entitled_apps(organização, apps)` | `availability_map` (`skeleton/system/availability.py`) | Uma app sem direito fica indisponível como uma app retirada pela plataforma: fecha em páginas (404), API, API de serviços (`Unavailable`), jobs, fluxos e navegação, e a ativação e a configuração da organização ficam guardadas para quando o direito voltar. `platform_availability_map` dá só a decisão da plataforma. Ativar uma app oferecida pela plataforma mas não contratada é recusado com `ApplicationNotEntitled` (código `app_not_entitled`), para as telas oferecerem a contratação. |
+| `organization_access(organização)` | `TenantContextMiddleware`, `service_method`, gateway de registros, worker e agendador | `active` e `past_due`: normal. `restricted`: pessoas leem e não escrevem (método HTTP não seguro → 403 `organization_restricted`; comando da API de serviços → `Unavailable` com o mesmo código; escrita pelo gateway → `OrganizationAccessLimited`). `suspended`: só as rotas isentas, para quem pode regularizar; os demais membros veem a página "organização suspensa" (403 e, na API, `organization_suspended`); serviços de apps ficam `Unavailable` e jobs de apps são cancelados. A infraestrutura (`system_context`) continua escrevendo, e as leituras dos serviços do núcleo continuam, para as páginas de cobrança renderizarem. |
+| `may_use_exempt_routes(organização, pessoa)` | `TenantContextMiddleware` | Quem pode chegar às rotas isentas enquanto o acesso está limitado. Uma rota isenta é um segmento registrado com `register_exempt_segment("billing")`, que vale para `/o/<id>/billing/` e `/api/v1/o/<id>/billing/`. |
+| `storage_quota(organização)` | `quota_for` (`skeleton/files/quota.py`) | A franquia da assinatura (`None` para ilimitada, `NO_OPINION` para deixar a decisão ao setting). A `StorageQuota` da plataforma continua tendo precedência. |
+
+A validação do vínculo vem primeiro: quem não é membro recebe 404 e não descobre o estado da organização. O estado de acesso sai só da política do servidor, nunca do cliente. Uma app de terceiros escrevendo direto nos próprios modelos, fora dos serviços e do gateway, não é coberta pelo modo só leitura: as superfícies HTTP já recusam a requisição antes, e o contrato do projeto manda escrever pelos serviços. Um serviço do núcleo que precisa funcionar com o acesso limitado (o de cobrança) declara `access_exempt = True`.
+
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#395](https://github.com/alaorneto/skeleton/issues/395) | Ganchos de direito no núcleo: apps sem direito fecham, organização inadimplente fica só leitura ou suspensa, cota de armazenamento vinda do plano |
 | [#396](https://github.com/alaorneto/skeleton/issues/396) | Motor de assinatura: plano padrão, trial, renovação, proração e liberação da app pelo pagamento |
 | [#397](https://github.com/alaorneto/skeleton/issues/397) | Vouchers |
 | [#398](https://github.com/alaorneto/skeleton/issues/398) | Cotas: excedente de armazenamento e limites de plano |
