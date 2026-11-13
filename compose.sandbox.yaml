@@ -93,7 +93,7 @@ services:
           python manage.py upgrade_app_activation
           python manage.py check_skeleton_schema
         fi
-        exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
+        exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --no-control-socket
     environment:
       <<: *app-environment
       # The setup exits the process when it completes; the restart policy brings it back.

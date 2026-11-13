@@ -9,7 +9,7 @@ Group=skeleton-web
 WorkingDirectory=/srv/skeleton/current
 EnvironmentFile=/srv/skeleton/private/runtime.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
+ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120 --no-control-socket
 KillSignal=SIGTERM
 TimeoutStopSec=1800
 # Sandbox (#318): the whole file system is read-only except ReadWritePaths.
