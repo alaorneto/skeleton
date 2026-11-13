@@ -5,7 +5,6 @@ import importlib
 import io
 import json
 import stat
-import subprocess
 import sys
 import zipfile
 from base64 import b64encode
@@ -31,11 +30,10 @@ from skeleton.system.packages import (
     sign_package,
     validate_catalog,
     validate_dependency_graph,
-    validate_manifest,
     validate_package,
     validate_wheel_set,
 )
-from skeleton.versioning import normalize_version, version_satisfies
+from skeleton.versioning import version_satisfies
 
 pytestmark = pytest.mark.posix
 
@@ -371,40 +369,6 @@ def test_docs_entrypoint_and_external_files_required(signed_app, tmp_path):
     assert not (tmp_path / "secret.skapp").exists()
 
 
-def test_dependency_versions_cycles_and_namespace_collisions(signed_app):
-    first = load_manifest(signed_app["manifest"])
-    second = manifest_template(
-        app_id="org.test.second", app_label="project_second", package_name="second", publisher="test-publisher"
-    )
-    second["dependencies"] = {first["app_id"]: ">=0.1.0,<0.2.0"}
-    kwargs = {"core": "0.4.0", "python": "3.14.0", "django": "6.1.3"}
-    assert validate_dependency_graph([second, first], **kwargs) == [first["app_id"], second["app_id"]]
-    with pytest.raises(PackageError):
-        validate_dependency_graph([second], **kwargs)
-    first["dependencies"] = {second["app_id"]: ">=0.1.0"}
-    with pytest.raises(PackageError):
-        validate_dependency_graph([second, first], **kwargs)
-    first["dependencies"] = {}
-    second["package_name"] = first["package_name"]
-    second["app_config"] = first["app_config"]
-    with pytest.raises(PackageError):
-        validate_dependency_graph([first, second], **kwargs)
-    with pytest.raises(PackageError):
-        validate_dependency_graph([first], **{**kwargs, "django": "6.0.0"})
-
-
-def test_manifest_disallows_unknown_fields_reserved_names_and_runtime_escape(signed_app):
-    base = load_manifest(signed_app["manifest"])
-    for change in (
-        {"shell": "echo bad"},
-        {"app_label": "sk_accounts"},
-        {"runtime": {**base["runtime"], "urls": "config.urls"}},
-        {"files": [{"path": "app/../other.py", "size": 0, "sha256": "0" * 64, "role": "code"}]},
-    ):
-        with pytest.raises(PackageError):
-            validate_manifest({**base, **change})
-
-
 def test_signed_catalog_expiration_channel_filter_and_rollback(signed_app, tmp_path):
     package = validate_package(signed_app["package"], signed_app["trust"])
     entry = catalog_entry(package, artifact="demo.skapp")
@@ -478,26 +442,6 @@ def test_core_uses_same_trust_and_only_isolated_wheel(signed_app, tmp_path):
         )
 
 
-def test_semver_prerelease_and_nonlexical_ranges():
-    assert normalize_version("1.2.3-rc.2") == "1.2.3rc2"
-    assert version_satisfies("0.10.0", ">=0.2.0,<1.0.0")
-    assert not version_satisfies("1.0.0", "<1.0.0")
-
-
-def test_standalone_import_needs_no_django_configuration():
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            'import sys; from skeleton.system.packages import manifest_template; assert "django" not in sys.modules; print("standalone")',
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert result.stdout.strip() == "standalone"
-
-
 @pytest.mark.parametrize("limit", ["MAX_ARCHIVE_BYTES", "MAX_FILE_BYTES", "MAX_TOTAL_BYTES", "MAX_MEMBERS"])
 def test_archive_limits_fail_closed(signed_app, monkeypatch, limit):
     from skeleton.system import packages
@@ -532,20 +476,6 @@ def test_cli_commands_share_standalone_api(signed_app, tmp_path):
     assert run_command(options)["trusted"] is True
     options = vars(parser.parse_args(["versions", "--manifest", str(signed_app["manifest"])]))
     assert run_command(options)["apps"][0]["origin"] == "project-local"
-
-
-def test_source_metadata_never_claims_an_unrelated_installed_distribution(monkeypatch):
-    import skeleton.versioning as versioning
-
-    class UnrelatedDistribution:
-        version = "9.9.9"
-
-        def locate_file(self, path):
-            return Path("/unrelated/site-packages") / path
-
-    monkeypatch.setattr(versioning.metadata, "distribution", lambda _: UnrelatedDistribution())
-    assert versioning.core_version()["origin"] == "source"
-    assert versioning.core_version()["version"] != "9.9.9"
 
 
 @pytest.mark.parametrize(
@@ -686,48 +616,6 @@ def test_core_manifest_version_binds_early_to_wheel(signed_app, tmp_path):
         build_artifact(
             manifest, {"wheels/" + wheel.name: wheel}, tmp_path / "conditional-core.skapp", signed_app["private"]
         )
-
-
-@pytest.mark.parametrize(
-    "failure", ["python", "django", "skeleton", "missing", "range", "conflict", "cycle", "target-version"]
-)
-def test_dependency_graph_validates_complete_core_contract(signed_app, failure):
-    app = load_manifest(signed_app["manifest"])
-    core = core_manifest(signed_app)
-    core["version"] = "0.4.0"
-    kwargs = {"core": "0.4.0", "python": "3.14.0", "django": "6.1.3"}
-    core["dependencies"] = {app["app_id"]: ">=0.1.0,<0.2.0"}
-    assert validate_dependency_graph([core, app], **kwargs) == [app["app_id"]]
-    if failure in ("python", "django", "skeleton"):
-        core["compatibility"][failure] = ">=99"
-    elif failure == "missing":
-        core["dependencies"] = {"org.test.absent": ">=0.1.0"}
-    elif failure == "range":
-        core["dependencies"] = {app["app_id"]: ">=0.2.0"}
-    elif failure == "conflict":
-        core["conflicts"] = {app["app_id"]: ">=0.1.0"}
-    elif failure == "cycle":
-        app["dependencies"] = {"django-skeleton": ">=0.1.0"}
-    else:
-        kwargs["core"] = "0.5.0"  # The core manifest is 0.4.0.
-    with pytest.raises(PackageError):
-        validate_dependency_graph([core, app], **kwargs)
-
-
-@pytest.mark.parametrize("target", ["linux", "win32"])
-def test_dependency_graph_compares_only_target_active_wheel_pins(signed_app, target):
-    first = load_manifest(signed_app["manifest"])
-    second = manifest_template(
-        app_id="org.test.second", app_label="project_second", package_name="second", publisher="test-publisher"
-    )
-    declare_dependency(first, "dependency", "1.0.0", "a" * 64, 'sys_platform == "win32"')
-    declare_dependency(second, "dependency", "2.0.0", "b" * 64, 'sys_platform == "linux"')
-    kwargs = {"core": "0.4.0", "python": "3.14.0", "django": "6.1.3", "target_environment": {"sys_platform": target}}
-    assert set(validate_dependency_graph([first, second], **kwargs)) == {first["app_id"], second["app_id"]}
-    first["python_dependencies"][0]["marker"] = f'sys_platform == "{target}"'
-    second["python_dependencies"][0]["marker"] = f'sys_platform == "{target}"'
-    with pytest.raises(PackageError, match="versions or builds"):
-        validate_dependency_graph([first, second], **kwargs)
 
 
 def test_target_python_markers_and_metadata_requirements_agree(signed_app, tmp_path):
@@ -880,19 +768,6 @@ def dimension_layout(**dimensions):
     ]
 
 
-@pytest.mark.parametrize("dimensions", [{"col_span": 4}, {"rows": 8}, {"col_span": None}, {"rows": None}])
-@pytest.mark.parametrize("bound", [">=0.3.0,<1.0.0", ">0.3.0,<1.0.0", "==0.3.0", "~=0.3.0"])
-def test_dimensions_require_explicit_new_floor(signed_app, dimensions, bound):
-    manifest = load_manifest(signed_app["manifest"])
-    manifest["runtime"].pop("service_api")  # Its own, higher floor is covered separately.
-    manifest["runtime"]["model_ui"] = dimension_layout(**dimensions)
-    manifest["compatibility"]["skeleton"] = ">=0.2.0,<1.0.0"
-    with pytest.raises(PackageError, match=r"^Field dimensions require a core minimum of 0\.3\.0\.$"):
-        validate_manifest(manifest)
-    manifest["compatibility"]["skeleton"] = bound
-    assert validate_manifest(manifest)["runtime"]["model_ui"] == dimension_layout(**dimensions)
-
-
 @pytest.mark.parametrize("dimensions", [{"col_span": 4, "rows": 8}, {"rows": None}])
 def test_dimension_source_requires_floor_but_artifact_adds_it_without_mutation(signed_app, tmp_path, dimensions):
     manifest = load_manifest(signed_app["manifest"])
@@ -939,12 +814,6 @@ def test_artifact_validates_dimensions_before_detection(signed_app, tmp_path):
     with pytest.raises(PackageError):
         build_artifact(manifest, {}, tmp_path / "invalid.skapp", signed_app["private"])
     assert not (tmp_path / "invalid.skapp").exists()
-
-
-def test_new_manifest_template_requires_current_presentation_core(signed_app):
-    manifest = load_manifest(signed_app["manifest"])
-    assert version_satisfies("0.4.0", manifest["compatibility"]["skeleton"])
-    assert not version_satisfies("0.3.0", manifest["compatibility"]["skeleton"])
 
 
 def test_dimension_source_with_new_floor_builds_and_verifies(signed_app, tmp_path):

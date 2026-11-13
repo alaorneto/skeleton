@@ -1,5 +1,6 @@
 """Startup metadata and maintenance must never require a database connection."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -192,3 +193,20 @@ def test_inventory_app_depending_on_absent_first_party_app_is_refused(tmp_path):
         load_deployment_inventory(path)
     with pytest.raises(ImproperlyConfigured, match="'inexistente'"):
         load_deployment_inventory(path, bundled_apps=("inexistente",))
+
+
+def test_worker_confirmation_checks_actual_loaded_core_bytes(monkeypatch):
+    import skeleton.deployment
+    from skeleton.deployment import DeploymentInventory, confirm_core
+
+    source = Path(skeleton.deployment.__file__)
+    payload = source.read_bytes()
+    files = {"skeleton/deployment.py": {"sha256": hashlib.sha256(payload).hexdigest(), "size": len(payload)}}
+    state = DeploymentInventory(5, {"version": "0.1.0", "digest": "a" * 64, "files": files}, (), (), ())
+    monkeypatch.setattr("skeleton.versioning.core_version", lambda: {"version": "0.1.0", "origin": "installed"})
+    assert confirm_core(state)[1] is True
+    files["skeleton/deployment.py"]["sha256"] = "0" * 64
+    assert confirm_core(state)[1] is False
+    files["skeleton/deployment.py"]["sha256"] = hashlib.sha256(payload).hexdigest()
+    monkeypatch.setattr("skeleton.versioning.core_version", lambda: {"version": "0.1.0", "origin": "source"})
+    assert confirm_core(state)[1] is False
