@@ -216,9 +216,11 @@ def _apply_error(form, error):
 def event_new(request, organization_id):
     service = CalendarService()
     try:
-        calendars = service.my_calendars(actor=request.user)
+        calendars = [item for item in service.my_calendars(actor=request.user) if item.writable]  # #344
     except (PermissionDenied, Forbidden):
         raise Http404 from None
+    if not calendars:
+        raise Http404
     zone = _zone(request.user)
     form = EventForm(request.POST or None, calendars=calendars, initial={"day": datetime.now(zone).date()})
     status = 200

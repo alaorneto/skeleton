@@ -41,13 +41,17 @@ def add_reminder(*, actor: Any, event_id: Any, minutes_before: int) -> EventRemi
     return reminder
 
 
-def remove_reminder(*, actor: Any, reminder_id: Any) -> None:
+def remove_reminder(*, actor: Any, reminder_id: Any, expected_revision: int) -> None:
+    from skeleton.service_api import Conflict
+
     from .policies import require_writable_event
 
     reminder = EventReminder.objects.filter(pk=reminder_id).first()
     if reminder is None:
         raise ValidationError({"reminder": gettext("Lembrete indisponível.")})
     require_writable_event(actor, reminder.event_id)
+    if type(expected_revision) is not int or reminder.revision != expected_revision:
+        raise Conflict("stale_revision", gettext("O lembrete mudou."))  # #344
     reminder.delete()
 
 

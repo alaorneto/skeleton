@@ -31,6 +31,8 @@ O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de sub
 - `recurrence_end` guarda o fim da série para consultas por janela.
 
 ### Participantes (#72)
+As operações de participantes, lembretes, exclusão e ocorrências são oferecidas pelo `CalendarService` (#344), com CAS, `NotFound` igual para inexistente e ilegível, e as mesmas regras abaixo; as telas e outras apps usam o serviço.
+
 `EventAttendee` liga um evento a um vínculo da mesma organização (`response`: `needs_action`, `accepted`, `declined`, `tentative`; `optional`).
 
 - Só pessoas ativas da organização podem ser convidadas: um membro de outra organização ou uma conta de serviço responde 400.

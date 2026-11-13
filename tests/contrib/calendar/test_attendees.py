@@ -57,21 +57,29 @@ def test_attendee_reads_but_does_not_edit_and_removal_revokes(agenda, meeting):
         with pytest.raises(PermissionDenied):
             services.update_event(actor=agenda.bob, event_id=meeting.pk, data={"title": "x"}, expected_revision=1)
     with actor_tenant(agenda.alice, agenda.a):
-        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk)
+        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk, expected_revision=invitation.revision)
     with actor_tenant(agenda.bob, agenda.a):
         assert not readable_events(agenda.bob).filter(pk=meeting.pk).exists()
 
 
 def test_rsvp_only_for_oneself(agenda, meeting):
     with actor_tenant(agenda.alice, agenda.a):
-        attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+        [invitation] = attendees.invite(actor=agenda.alice, event_id=meeting.pk, user_ids=(agenda.bob.pk,))
+    revision = invitation.revision
     with actor_tenant(agenda.bob, agenda.a):
-        assert attendees.respond(actor=agenda.bob, event_id=meeting.pk, response="accepted").response == "accepted"
+        answered = attendees.respond(
+            actor=agenda.bob, event_id=meeting.pk, response="accepted", expected_revision=revision
+        )
+        assert answered.response == "accepted"
         with pytest.raises(ValidationError):
-            attendees.respond(actor=agenda.bob, event_id=meeting.pk, response="maybe")
+            attendees.respond(
+                actor=agenda.bob, event_id=meeting.pk, response="maybe", expected_revision=answered.revision
+            )
     with actor_tenant(agenda.admin, agenda.a):  # Not invited: someone else's invitation does not exist for them.
         with pytest.raises(PermissionDenied):
-            attendees.respond(actor=agenda.admin, event_id=meeting.pk, response="declined")
+            attendees.respond(
+                actor=agenda.admin, event_id=meeting.pk, response="declined", expected_revision=answered.revision
+            )
 
 
 def test_updates_and_cancellation_notify_attendees(agenda, meeting):

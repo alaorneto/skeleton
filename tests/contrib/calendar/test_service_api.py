@@ -304,3 +304,41 @@ def test_all_day_occurrences_carry_dates(scenario):
     assert (rows["Dia"].start_date, rows["Dia"].end_date) == (day, day + timedelta(days=2))
     assert (rows["Hora"].start_date, rows["Hora"].end_date) == (None, None)
     assert_service_contract(CalendarService)
+
+
+def test_idempotent_create_returns_the_existing_event_after_a_unique_conflict(scenario, monkeypatch):
+    """The lookup misses a concurrent creation; the unique conflict is resolved by reading it (#344)."""
+    from skeleton.contrib.calendar import service_api
+    from skeleton.testing.service_api import acting_as
+
+    calendar = shared(scenario).pk
+    with acting_as(scenario.member, scenario.a) as actor:
+        first = CalendarService().create_event(
+            actor=actor, calendar_id=calendar, data=event_data(), idempotency_key="race"
+        )
+    real, calls = service_api._idempotent_event, []
+
+    def misses_once(uid):
+        calls.append(uid)
+        return None if len(calls) == 1 else real(uid)
+
+    monkeypatch.setattr(service_api, "_idempotent_event", misses_once)
+    with acting_as(scenario.member, scenario.a) as actor:
+        again = CalendarService().create_event(
+            actor=actor, calendar_id=calendar, data=event_data(), idempotency_key="race"
+        )
+    assert again.sysid == first.sysid and len(calls) == 2
+
+
+def test_calendar_info_reports_writable(scenario):
+    from skeleton.testing.service_api import acting_as
+
+    readable = scenario.create(
+        scenario.a, owner=scenario.admin_a, name="Da diretoria", kind="shared", visibility="organization"
+    )
+    with acting_as(scenario.member, scenario.a) as actor:
+        rows = {row.sysid: row for row in CalendarService().my_calendars(actor=actor)}
+        assert rows[readable.pk].writable is False
+        assert all(row.writable for key, row in rows.items() if key != readable.pk)
+        with pytest.raises(Forbidden):
+            CalendarService().create_event(actor=actor, calendar_id=readable.pk, data=event_data())

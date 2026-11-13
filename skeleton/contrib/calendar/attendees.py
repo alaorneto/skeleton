@@ -61,19 +61,25 @@ def invite(*, actor: Any, event_id: Any, user_ids: tuple, optional: bool = False
     return created
 
 
-def remove(*, actor: Any, attendee_id: Any) -> None:
-    """Remove an invitation; the person stops reading the event on the next request."""
+def remove(*, actor: Any, attendee_id: Any, expected_revision: int) -> None:
+    """Remove an invitation, with CAS; the person stops reading the event on the next request."""
+    from skeleton.service_api import Conflict
+
     from .policies import require_writable_event
 
     attendee = EventAttendee.objects.filter(pk=attendee_id).first()
     if attendee is None:
         raise PermissionDenied(gettext("Participante indisponível."))
     require_writable_event(actor, attendee.event_id)
+    if type(expected_revision) is not int or attendee.revision != expected_revision:
+        raise Conflict("stale_revision", gettext("O convite mudou."))  # #344
     attendee.delete()
 
 
-def respond(*, actor: Any, event_id: Any, response: str) -> EventAttendee:
-    """RSVP of the actor; someone else's invitation, or none, is missing (404)."""
+def respond(*, actor: Any, event_id: Any, response: str, expected_revision: int) -> EventAttendee:
+    """RSVP of the actor, with CAS; someone else's invitation, or none, is missing (404)."""
+    from skeleton.service_api import Conflict
+
     if response not in EventAttendee.Response.values:
         raise ValidationError({"response": gettext("Use accepted, declined, tentative ou needs_action.")})
     attendee = EventAttendee.objects.filter(
@@ -81,6 +87,8 @@ def respond(*, actor: Any, event_id: Any, response: str) -> EventAttendee:
     ).first()
     if attendee is None:
         raise PermissionDenied(gettext("Convite indisponível."))
+    if type(expected_revision) is not int or attendee.revision != expected_revision:
+        raise Conflict("stale_revision", gettext("O convite mudou."))  # #344
     if attendee.response != response:
         attendee.response = response
         attendee.save(update_fields={"response"})

@@ -199,3 +199,17 @@ def test_too_many_events_answers_400(agenda, login, monkeypatch):
     response = login(agenda.alice).get(home(agenda.a) + f"?view=week&date={DAY}")
     assert response.status_code == 400
     assert "Há eventos demais neste período" in response.content.decode()
+
+
+def test_event_form_lists_only_writable_calendars(agenda, login):
+    with actor_tenant(agenda.admin, agenda.a):
+        Calendar(
+            organization_id=agenda.a.pk,
+            owner=agenda.admin,
+            name="Da diretoria",
+            kind="shared",
+            visibility="organization",
+        ).save()
+    response = login(agenda.alice).get(reverse("skeleton_calendar:event-new", kwargs={"organization_id": agenda.a.pk}))
+    names = [label for _, label in response.context["form"].fields["calendar"].choices]
+    assert "Da diretoria" not in names and names

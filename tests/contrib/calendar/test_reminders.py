@@ -59,7 +59,7 @@ def test_removed_attendee_and_cancelled_occurrence(agenda, daily):
 
     with actor_tenant(agenda.alice, agenda.a):
         invitation = EventAttendee.objects.get(event=daily)
-        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk)
+        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk, expected_revision=invitation.revision)
         tomorrow = daily.starts_at + timedelta(days=1)
         daily.refresh_from_db()
         services.cancel_occurrence(
@@ -142,7 +142,7 @@ def test_occurrence_without_active_recipients_is_skipped(agenda, daily):
 
     with actor_tenant(agenda.alice, agenda.a):
         invitation = EventAttendee.objects.get(event=daily)
-        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk)
+        attendees.remove(actor=agenda.alice, attendee_id=invitation.pk, expected_revision=invitation.revision)
     _deactivate(agenda, agenda.alice_membership)
     assert run(agenda, NOW) == 0
     assert notifications(agenda) == []
