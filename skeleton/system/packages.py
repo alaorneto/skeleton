@@ -15,6 +15,7 @@ import shutil
 import stat
 import unicodedata
 import zipfile
+import zlib
 from base64 import b64decode, b64encode
 from configparser import ConfigParser
 from configparser import Error as ConfigParserError
@@ -48,6 +49,8 @@ MAX_FILE_BYTES = 256 * 1024 * 1024
 MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_MEMBERS = 4096
 MAX_WHEELHOUSE_MEMBERS = 65536
+# Members of one wheel (#255): third-party wheels are larger than an app artifact.
+MAX_WHEEL_MEMBERS = 32768
 MAX_METADATA_BYTES = 2 * 1024 * 1024
 MAX_EXPANSION_RATIO = 200
 # First-party apps distributed inside the core wheel (#66): kind, package and label namespace.
@@ -526,9 +529,9 @@ def _verify(key, signature, data):
         raise PackageError("Invalid release signature.") from exc
 
 
-def _zip_members(archive):
+def _zip_members(archive, maximum=None):
     members = archive.infolist()
-    if len(members) > MAX_MEMBERS:
+    if len(members) > (MAX_MEMBERS if maximum is None else maximum):  # Read at call time.
         _fail("Archive contains too many members.")
     seen = set()
     files = {}
@@ -575,10 +578,15 @@ def _zip_members(archive):
     return files
 
 
-def _read_member(archive, info, maximum=MAX_FILE_BYTES):
+def _read_member(archive, info, maximum=None):
+    """One member, read once, within its limit; a corrupt member is a PackageError (#255)."""
+    maximum = MAX_FILE_BYTES if maximum is None else maximum  # Read at call time.
     if info.file_size > maximum:
         _fail("Release metadata/member size limit exceeded.")
-    data = archive.read(info)
+    try:
+        data = archive.read(info)
+    except (zlib.error, EOFError, zipfile.BadZipFile, NotImplementedError) as exc:
+        raise PackageError("Corrupt archive member.") from exc
     if len(data) != info.file_size:
         _fail("Archive member size mismatch.")
     return data
@@ -656,7 +664,7 @@ def _wheel_scripts(archive, files, dist_info, distribution):
 def _wheel(data, dependency, *, core=False):
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            files = _zip_members(archive)
+            files = _zip_members(archive, MAX_WHEEL_MEMBERS)
             distribution = canonicalize_name(dependency["name"])
             name = distribution.replace("-", "_")
             dist_info = f"{name}-{dependency['version']}.dist-info"
@@ -742,6 +750,9 @@ def _claim_wheel(destinations, roots, owner, ownership, namespaces):
 def _protected_snapshot(path, maximum=None):
     """Read once from a regular no-follow descriptor into immutable bytes."""
     maximum = MAX_ARCHIVE_BYTES if maximum is None else maximum
+    if not hasattr(os, "O_NOFOLLOW"):
+        # Never weakened to a plain open: the no-follow read is the guarantee (#255).
+        _fail("Artifact verification requires a POSIX filesystem (os.O_NOFOLLOW is unavailable).")
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(descriptor, "rb") as handle:
@@ -932,8 +943,10 @@ def _validate_archive(path, trust_store=None):
                     )
                     expanded_total += expanded
                     member_total += members
-                    if expanded_total > MAX_TOTAL_BYTES or member_total > MAX_MEMBERS:
-                        _fail("Combined nested wheel expansion/member limit exceeded.")
+                    if member_total > MAX_WHEELHOUSE_MEMBERS:
+                        _fail("Combined nested wheel member limit exceeded.")
+                    if expanded_total > MAX_TOTAL_BYTES:
+                        _fail("Combined nested wheel expansion limit exceeded.")
                     owner = {
                         "name": canonicalize_name(dependency["name"]),
                         "version": dependency["version"],
@@ -1018,15 +1031,18 @@ def build_artifact(manifest, payloads, output_path, private_key_path):
     if output.exists():
         _fail("Output already exists; releases are immutable.")
     output.parent.mkdir(parents=True, exist_ok=True)
+    created = False
     try:
         with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+            created = True
             archive.writestr("manifest.json", raw)
             archive.writestr("manifest.sig", b64encode(key.sign(raw)))
             for name, data in contents.items():
                 archive.writestr(name, data)
         validate_package(output, {m["publisher"]: key.public_key()})
     except Exception:
-        output.unlink(missing_ok=True)
+        if created:  # Only what this process created: a concurrent output is never removed (#255).
+            output.unlink(missing_ok=True)
         raise
     return output
 
@@ -1342,7 +1358,7 @@ def extract_package(verified, destination, *, wheels_destination=None):
                 prefix, relative = item["path"].split("/", 1)
                 target = roots[prefix] / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                data = archive.read(item["path"])
+                data = _read_member(archive, archive.getinfo(item["path"]))
                 if hashlib.sha256(data).hexdigest() != item["sha256"]:
                     _fail("Artifact changed during extraction.")
                 with target.open("xb") as handle:
@@ -1352,10 +1368,10 @@ def extract_package(verified, destination, *, wheels_destination=None):
                 with (roots["app"] / "manifest.json").open("xb") as handle:
                     handle.write(canonical_json(fresh.manifest))
                 with (roots["app"] / "manifest.sig").open("xb") as handle:
-                    handle.write(archive.read("manifest.sig"))
+                    handle.write(_read_member(archive, archive.getinfo("manifest.sig"), MAX_METADATA_BYTES))
     except Exception:
         for root in created:
-            shutil.rmtree(root)
+            shutil.rmtree(root, ignore_errors=True)  # The original error is the one that matters (#255).
         raise
     return roots
 
@@ -1471,21 +1487,24 @@ def sign_package(path, output_path, private_key_path, *, publisher=None):
         _fail("Signed output must be a new artifact.")
     key = _private_key(private_key_path)
     raw = canonical_json(m)
+    created = False
     try:
         with (
             zipfile.ZipFile(io.BytesIO(package._snapshot)) as source,
             zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as target,
         ):
+            created = True
             target.writestr("manifest.json", raw)
             target.writestr("manifest.sig", b64encode(key.sign(raw)))
             for item in m["files"]:
-                data = source.read(item["path"])
+                data = _read_member(source, source.getinfo(item["path"]))
                 if hashlib.sha256(data).hexdigest() != item["sha256"]:
                     _fail("Payload changed during signing.")
                 target.writestr(item["path"], data)
         validate_package(output, {m["publisher"]: key.public_key()})
     except Exception:
-        output.unlink(missing_ok=True)
+        if created:
+            output.unlink(missing_ok=True)
         raise
     return output
 
@@ -1635,7 +1654,7 @@ def catalog_entry(package, *, artifact, channel="stable", notes=""):
     if fresh.digest != package.digest or fresh.manifest != package.manifest:
         _fail("Catalog artifact changed after verification.")
     with zipfile.ZipFile(io.BytesIO(fresh._snapshot)) as archive:
-        signature = archive.read("manifest.sig").decode("ascii")
+        signature = _read_member(archive, archive.getinfo("manifest.sig"), MAX_METADATA_BYTES).decode("ascii")
     m = fresh.manifest
     return {
         "component_id": m.get("app_id", m.get("component_id")),
@@ -1717,26 +1736,35 @@ def configure_parser(parser):
     return parser
 
 
+def load_trust_store(path):
+    """Operator trust store: publisher -> PEM text, PEM path or {'public_key', 'publisher'}.
+
+    Relative PEM paths resolve against the trust store's own directory, never the artifact or the
+    CWD. One implementation for the package command and the core distribution commands (#255).
+    """
+    path = Path(path)
+    if path.stat().st_size > MAX_METADATA_BYTES:
+        _fail("Trust store is too large.")
+    store = _json(path.read_bytes())
+    if not isinstance(store, dict):
+        _fail("Trust store must map publishers to operator public keys.")
+    # Relative PEM paths are relative to operator config, never artifact.
+    result = {}
+    for publisher, value in store.items():
+        if isinstance(value, str) and "-----BEGIN" not in value:
+            value = str(path.parent / value) if not Path(value).is_absolute() else value
+        elif isinstance(value, dict):
+            value = dict(value)
+            public = value.get("public_key")
+            if isinstance(public, str) and "-----BEGIN" not in public:
+                value["public_key"] = str(path.parent / public) if not Path(public).is_absolute() else public
+        result[publisher] = value
+    return result
+
+
 def run_command(options):
     def trust():
-        path = Path(options["trust_store"])
-        if path.stat().st_size > MAX_METADATA_BYTES:
-            _fail("Trust store is too large.")
-        store = _json(path.read_bytes())
-        if not isinstance(store, dict):
-            _fail("Trust store must map publishers to operator public keys.")
-        # Relative PEM paths are relative to operator config, never artifact.
-        result = {}
-        for publisher, value in store.items():
-            if isinstance(value, str) and "-----BEGIN" not in value:
-                value = str(path.parent / value) if not Path(value).is_absolute() else value
-            elif isinstance(value, dict):
-                value = dict(value)
-                public = value.get("public_key")
-                if isinstance(public, str) and "-----BEGIN" not in public:
-                    value["public_key"] = str(path.parent / public) if not Path(public).is_absolute() else public
-            result[publisher] = value
-        return result
+        return load_trust_store(options["trust_store"])
 
     operation = options["operation"]
     if operation == "keygen":
