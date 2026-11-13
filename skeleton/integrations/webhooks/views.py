@@ -1,8 +1,10 @@
 """HTML pages of the organization's webhooks: ``/o/<org>/integrations/webhooks/`` (#63).
 
 Only ``integrations.manage`` sees them (404 otherwise, as if they did not exist). Every POST
-needs CSRF and a recent authentication; the signing secret is rendered once, by creation and
-rotation, on a page that is never cached.
+needs CSRF. Creating, changing, rotating and removing an endpoint also need a recent
+authentication; resending a delivery and the ping need only the capability, CSRF and the
+endpoint's revision (#327). The signing secret is rendered once, by creation and rotation, on
+a page that is never cached.
 """
 
 from functools import wraps

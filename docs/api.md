@@ -259,7 +259,9 @@ A gestão de tokens (#47) só aceita sessão: um token não emite, lista nem rev
 | `GET`, `POST /api/v1/o/<org>/service-accounts/`; `DELETE .../<conta>/` | `integrations.manage` | Lista e cria contas (`{"name": ...}`); `DELETE` desativa a conta |
 | `GET`, `POST .../service-accounts/<conta>/tokens/`; `DELETE .../tokens/<id>/` | `integrations.manage` | Tokens da conta |
 
-- Criar exige autenticação recente (`reauthentication_required`, 403, na API; a página pede a reautenticação) e, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA cadastrada (`mfa_required`).
+- Emitir e revogar tokens, criar e desativar contas de serviço exigem autenticação recente (`reauthentication_required`, 403, na API, depois do 404 de quem não tem `integrations.manage`; a página pede a reautenticação) (#327). Emitir também exige, com `SKELETON_REQUIRE_ADMIN_MFA`, MFA cadastrada (`mfa_required`).
+- As três listas da API (`me/tokens/`, `service-accounts/` e `<conta>/tokens/`) são paginadas: aceitam só `page` e `page_size` (outro parâmetro responde 400 `invalid_filter`) e respondem `count`, `page`, `page_size` e `results`. Cada token traz `usable`: `false` quando ele não autenticaria mais (conta desativada ou excluída, `auth_version` mudado, expirado ou revogado); a página mostra esse token como "Inválido" (#327).
+- Cada pessoa ou conta de serviço tem no máximo `SKELETON_API_TOKEN_MAX_PER_OWNER` tokens vivos (padrão 50, no catálogo da instância). Os expirados contam até serem revogados; acima do teto, a emissão responde 400 (erro no campo `name` da página) (#327).
 - A resposta da criação (página ou `201`) é a única que traz o texto do token, com `Cache-Control: no-store`. As listas e o resto da API nunca trazem o segredo nem o digest.
 - Revogar exige `If-Match` com a revisão (`428` sem ele, `412` desatualizado). Um token de outra pessoa ou de outra organização responde 404, como um inexistente.
 - Desativar a conta de serviço invalida todos os tokens dela na hora (`auth_version`).

@@ -553,3 +553,28 @@ def test_changing_the_principal_keeps_open_deliveries(pipeline, receiver):
     assert delivery.state == "succeeded"
     assert len(receiver.received) == 2
     assert {request["headers"]["Skeleton-Webhook-Id"] for request in receiver.received} == {str(delivery.pk)}
+
+
+def test_resend_and_ping_do_not_require_recent_authentication(pipeline, receiver):
+    """Resend and ping only repeat what the endpoint already does: capability, CSRF and revision (#327)."""
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, _, issued = pipeline
+    receiver.statuses.append(400)
+    publish(fixture, fixture.shared)
+    drain()
+    [original] = deliveries(fixture)
+    client = login(fixture.admin)
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    paths = urls(fixture, issued.endpoint, original)
+    with actor_tenant(fixture.admin, fixture.a):
+        revision = WebhookEndpoint.objects.get(pk=issued.endpoint.pk).revision
+    assert api_post(client, paths["resend"], revision).status_code == 202
+    assert api_post(client, paths["ping"], revision).status_code == 202
+    token = client.cookies["csrftoken"].value
+    html = client.post(paths["html_resend"], {"revision": revision, "csrfmiddlewaretoken": token})
+    assert html.status_code == 302 and "reauthenticate" not in html["Location"]
+    drain()
+    assert len(deliveries(fixture)) == 4  # The original, two resends and the ping.

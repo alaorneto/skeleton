@@ -1,8 +1,10 @@
 """REST of the organization's webhooks under ``/api/v1/o/<org>/webhooks/`` (#63).
 
 ``integrations.manage`` only (404 otherwise). Reads never carry a secret; ``POST`` (create)
-and ``rotate`` return it once, with ``Cache-Control: no-store``, and need a recent
-authentication. ``PATCH``, ``DELETE`` and ``rotate`` require ``If-Match`` with the revision.
+and ``rotate`` return it once, with ``Cache-Control: no-store``. Create, ``PATCH``, ``DELETE``
+and ``rotate`` need a recent authentication (403 ``reauthentication_required``, after the 404
+of a missing endpoint) (#327); resend and ping need only the capability. ``PATCH``,
+``DELETE`` and ``rotate`` require ``If-Match`` with the revision.
 """
 
 from django.db import transaction
@@ -104,7 +106,7 @@ class WebhookAPI(TenantAPI):
         from skeleton.accounts.reauthentication import has_recent_authentication
 
         if not has_recent_authentication(request._request):
-            raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para ver um segredo."), 403)
+            raise BoundaryError("reauthentication_required", gettext("Autentique-se de novo para continuar."), 403)
 
     def endpoint(self, sysid):
         from .models import WebhookEndpoint
@@ -178,6 +180,7 @@ class WebhookDetailView(WebhookAPI):
     @transaction.atomic
     def patch(self, request, organization_id, sysid):
         endpoint = self.endpoint(sysid)
+        self.recent_authentication(request)
         revision = parse_revision(request.headers.get("If-Match"))
         endpoint = services.update_endpoint(
             endpoint, actor=request.user, data=_input(request), expected_revision=revision
@@ -187,6 +190,7 @@ class WebhookDetailView(WebhookAPI):
     @transaction.atomic
     def delete(self, request, organization_id, sysid):
         endpoint = self.endpoint(sysid)
+        self.recent_authentication(request)
         if request_fields(request):
             raise BoundaryError("invalid_request", gettext("Remoção não aceita campos."))
         services.delete_endpoint(

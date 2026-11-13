@@ -231,6 +231,8 @@ SKELETON_TRANSFER_RETENTION_DAYS = env.int("SKELETON_TRANSFER_RETENTION_DAYS", d
 SKELETON_WEBHOOK_RETENTION_DAYS = env.int("SKELETON_WEBHOOK_RETENTION_DAYS", default=30)
 # API tokens (#45): maximum validity in days of a newly issued token.
 SKELETON_API_TOKEN_MAX_DAYS = env.int("SKELETON_API_TOKEN_MAX_DAYS", default=365)
+# Live tokens per person or service account; expired ones count until revoked (#327).
+SKELETON_API_TOKEN_MAX_PER_OWNER = env.int("SKELETON_API_TOKEN_MAX_PER_OWNER", default=50)
 # Rate limits (#48): requests per token per minute and failed token authentications per IP per minute.
 SKELETON_API_TOKEN_RATE_PER_MINUTE = env.int("SKELETON_API_TOKEN_RATE_PER_MINUTE", default=600)
 SKELETON_API_TOKEN_FAILURES_PER_MINUTE = env.int("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", default=20)

@@ -261,6 +261,13 @@ _SPECS = (
         "api_token_max_days", "SKELETON_API_TOKEN_MAX_DAYS", "int", "Validade máxima dos tokens de API (dias)", _int(1)
     ),
     SettingSpec(
+        "api_token_max_per_owner",
+        "SKELETON_API_TOKEN_MAX_PER_OWNER",
+        "int",
+        "Máximo de tokens de API vivos por pessoa ou conta de serviço",
+        _int(1),
+    ),
+    SettingSpec(
         "api_token_rate_per_minute",
         "SKELETON_API_TOKEN_RATE_PER_MINUTE",
         "int",

@@ -32,6 +32,8 @@ Ele aparece **uma única vez**: na resposta da criação e na da rotação, amba
 | `POST …/webhooks/<id>/rotate/` | `POST o/<org>/webhooks/<id>/rotate/` | Rotaciona e devolve o segredo novo |
 | `POST …/webhooks/<id>/delete/` | — | Remove |
 
+Criar, alterar, rotacionar e remover exigem autenticação recente nas duas superfícies (na API, 403 `reauthentication_required`, depois do 404 de quem não tem `integrations.manage` e antes do 428/412 da revisão). Reenviar uma entrega e o ping exigem só a capacidade, CSRF e a revisão do endpoint (#327).
+
 Reativar à mão um endpoint desativado limpa `disabled_at` e `disabled_reason`.
 
 ## Entrega (#64)

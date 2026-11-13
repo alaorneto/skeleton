@@ -275,3 +275,35 @@ def test_without_the_capability_no_name_is_resolved(webhooks, monkeypatch):
     monkeypatch.setattr(outbound_http, "validate_url", never)
     with actor_tenant(fixture.alice, fixture.a), pytest.raises(PermissionDenied):
         create_endpoint(actor=fixture.alice, data={**payload(principal), "principal": principal})
+
+
+def stale(client):
+    """Age the session's last authentication: the client is still logged in, but not recently."""
+    session = client.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    return client
+
+
+def test_api_change_and_removal_require_recent_authentication(webhooks):
+    """PATCH and DELETE change where events go: like create and rotate, they need a fresh login (#327)."""
+    from skeleton.integrations.models import WebhookEndpoint
+
+    fixture, principal, _ = webhooks
+    created = api(login(fixture.admin), "post", collection(fixture.a), payload(principal)).json()
+    url = detail(fixture.a, created["sysid"])
+    old = stale(login(fixture.admin))
+    for method, data in (("patch", {"name": "Changed"}), ("delete", None)):
+        response = api(old, method, url, data, revision=created["revision"])
+        assert response.status_code == 403 and response.json()["code"] == "reauthentication_required", method
+    # Without integrations.manage the endpoint does not exist, recent authentication or not.
+    for bob in (login(fixture.bob), stale(login(fixture.bob))):
+        for method, data in (("patch", {"name": "Bob"}), ("delete", None)):
+            assert api(bob, method, url, data, revision=created["revision"]).status_code == 404
+    with actor_tenant(fixture.admin, fixture.a):
+        endpoint = WebhookEndpoint.objects.get(pk=created["sysid"])
+    assert (endpoint.name, endpoint.revision) == ("ERP", created["revision"])
+    fresh = login(fixture.admin)
+    changed = api(fresh, "patch", url, {"name": "Changed"}, revision=created["revision"])
+    assert changed.status_code == 200 and changed.json()["name"] == "Changed"
+    assert api(fresh, "delete", url, revision=changed.json()["revision"]).status_code == 204
