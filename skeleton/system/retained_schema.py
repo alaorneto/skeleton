@@ -150,6 +150,9 @@ def export_schema(app_label):
             }
         )
         models.append(model)
+    if not models:
+        # An unknown label, or an app without own tables, has nothing to freeze (#366).
+        raise RetainedSchemaError("Application has no installed tables.")
     org_ids = list(Organization.all_objects.values_list("sysid", flat=True))
     records, affected = 0, set()
     tenant_models = [model for model in models if any(f.name == "organization" for f in model._meta.concrete_fields)]
