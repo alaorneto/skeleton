@@ -349,3 +349,51 @@ def test_invitation_resend_with_stale_revision_is_412(org):
         assert fresh.status_code == 201 and fresh.json()["sysid"] != created.json()["sysid"]
     with tenant_context(organization_id=organization.pk, actor=owner, source="test:resend-check"):
         assert Invitation.objects.filter(email="resend@example.test").count() == 1  # The old one was replaced.
+
+
+def test_reconcile_builtin_roles_uses_fixed_queries():
+    """An organization already reconciled costs one query per table, and nothing is written (#284)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from skeleton.access.services import reconcile_builtin_roles
+
+    _, organization = bootstrap_identity(
+        email="reconcile-fixed@example.test",
+        organization="reconcile-fixed",
+        name="Fixed",
+        password="Reconcile-fixed-2026!",
+    )
+    reconcile_builtin_roles(organization_id=organization.pk)
+    with CaptureQueriesContext(connection) as queries:
+        reconcile_builtin_roles(organization_id=organization.pk)
+    statements = [query["sql"] for query in queries]
+    assert sum("sk_system_tabledefinition" in sql for sql in statements) == 1
+    assert sum("sk_access_tablepermission" in sql for sql in statements) == 1
+    assert not any(sql.lstrip().upper().startswith("INSERT") for sql in statements)
+
+
+def test_reconcile_builtin_roles_creates_only_missing_permissions():
+    from skeleton.access.models import Role, TablePermission
+    from skeleton.access.services import reconcile_builtin_roles
+
+    _, organization = bootstrap_identity(
+        email="reconcile-missing@example.test",
+        organization="reconcile-missing",
+        name="Missing",
+        password="Reconcile-missing-2026!",
+    )
+    reconcile_builtin_roles(organization_id=organization.pk)
+    with system_context(reason="test:reconcile", organization_id=organization.pk):
+        admin = Role.objects.get(code="organization_admin", is_builtin=True)
+        before = set(TablePermission.objects.filter(role=admin).values_list("table_id", "action"))
+        removed = TablePermission.objects.filter(role=admin).order_by("sysid").first()
+        removed.delete()
+    reconcile_builtin_roles(organization_id=organization.pk)
+    with system_context(reason="test:reconcile", organization_id=organization.pk):
+        after = set(TablePermission.objects.filter(role=admin).values_list("table_id", "action"))
+        assert after == before
+        assert TablePermission.objects.filter(role=admin).count() == len(before)
+    reconcile_builtin_roles(organization_id=organization.pk)
+    with system_context(reason="test:reconcile", organization_id=organization.pk):
+        assert TablePermission.objects.filter(role=admin).count() == len(before)

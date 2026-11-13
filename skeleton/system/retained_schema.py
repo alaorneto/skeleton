@@ -152,16 +152,18 @@ def export_schema(app_label):
         models.append(model)
     org_ids = list(Organization.all_objects.values_list("sysid", flat=True))
     records, affected = 0, set()
+    tenant_models = [model for model in models if any(f.name == "organization" for f in model._meta.concrete_fields)]
     for model in models:
-        if any(f.name == "organization" for f in model._meta.concrete_fields):
-            for org_id in org_ids:
-                with system_context(reason="deployment:schema-export", organization_id=org_id):
-                    count = model.all_objects.filter(organization_id=org_id).count()
-                records += count
-                if count:
-                    affected.add(str(org_id))
-        else:
+        if model not in tenant_models:
             records += model.all_objects.count()
+    if tenant_models:
+        for org_id in org_ids:
+            # One transaction per organization, every tenant model counted inside it (#284).
+            with system_context(reason="deployment:schema-export", organization_id=org_id):
+                counts = [model.all_objects.filter(organization_id=org_id).count() for model in tenant_models]
+            records += sum(counts)
+            if any(counts):
+                affected.add(str(org_id))
     references = []
     owned_tables = {entry["db_table"] for entry in tables}
     for model in apps.get_models():

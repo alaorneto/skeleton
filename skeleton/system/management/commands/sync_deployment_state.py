@@ -44,7 +44,10 @@ class Command(BaseCommand):
                     for item in components
                     if item["kind"] == "app" and item.get("state") == "schema_retained"
                 ]
-                org_ids = list(Organization.all_objects.using(using).values_list("sysid", flat=True))
+                # Without a retained app there is nothing to deactivate: no organization is visited (#284).
+                org_ids = (
+                    list(Organization.all_objects.using(using).values_list("sysid", flat=True)) if disabled else []
+                )
             for organization_id in org_ids:
                 # A separate transaction per organization, including when runtime RLS is enabled.
                 with system_context(reason="deployment:deactivate", organization_id=organization_id, using=using):

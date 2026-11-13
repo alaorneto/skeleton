@@ -478,20 +478,28 @@ def reconcile_builtin_roles(*, organization_id, using="default"):
         role = Role.objects.using(using).filter(code="organization_admin", is_builtin=True).first()
         if role is None:
             return collisions
-        for spec in all_specs():
-            if not spec.expose_api:
+        # Two queries whatever the number of exposed tables (#284); the writes keep the order of
+        # all_specs() and then of the sorted actions, so the audit comes out as before.
+        exposed = [spec.model._meta.label_lower for spec in all_specs() if spec.expose_api]
+        tables = {}
+        for table in (
+            TableDefinition.objects.using(using).filter(model_label__in=exposed, available=True).order_by("sysid")
+        ):
+            tables.setdefault(table.model_label, table)  # The row .first() picked: the lowest primary key.
+        existing = set(
+            TablePermission.objects.using(using)
+            .filter(role=role, table__in=list(tables.values()))
+            .values_list("table_id", "action")
+        )
+        for label in exposed:
+            table = tables.get(label)
+            if table is None:
                 continue
-            table = (
-                TableDefinition.objects.using(using)
-                .filter(model_label=spec.model._meta.label_lower, available=True)
-                .first()
-            )
-            if table:
-                for action in sorted(ACTIONS):
-                    if not TablePermission.objects.using(using).filter(role=role, table=table, action=action).exists():
-                        TablePermission(organization_id=organization_id, role=role, table=table, action=action).save(
-                            using=using
-                        )
+            for action in sorted(ACTIONS):
+                if (table.pk, action) not in existing:
+                    TablePermission(organization_id=organization_id, role=role, table=table, action=action).save(
+                        using=using
+                    )
     return collisions
 
 

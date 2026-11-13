@@ -652,3 +652,25 @@ def test_submission_failure_is_logged(monkeypatch, caplog):
     [record] = [item for item in caplog.records if getattr(item, "event", "") == "deployment.submission_failed"]
     assert record.target_sysid == str(row.pk) and record.error_class == "AgentError"
     assert "never-logged" not in caplog.text and row.plan_digest not in caplog.text
+
+
+def test_sync_deployment_state_skips_organizations_without_retained_apps(tmp_path, monkeypatch):
+    """Without a retained app no organization context is opened (#284)."""
+    import json
+
+    from django.core.management import call_command
+
+    from skeleton.system.management.commands import sync_deployment_state as command
+
+    actor(platform=True)  # At least one organization exists.
+    inventory_path = tmp_path / "inventory.json"
+    inventory_path.write_text(json.dumps({"generation": 0, "apps": []}))
+    real, reasons = command.system_context, []
+
+    def spy(*args, **kwargs):
+        reasons.append(kwargs.get("reason"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(command, "system_context", spy)
+    call_command("sync_deployment_state", inventory=inventory_path)
+    assert "deployment:deactivate" not in reasons and "deployment:reconcile" in reasons
