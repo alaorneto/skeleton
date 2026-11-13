@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM python:3.14-slim AS core-builder
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /build
@@ -9,8 +10,10 @@ COPY skeleton ./skeleton
 RUN pip wheel --no-deps --no-build-isolation --wheel-dir /core-wheel .
 
 FROM core-builder AS project-assets
-COPY . /project-source
-RUN mkdir -p /project-assets/templates && if [ -d /project-source/templates ]; then cp -a /project-source/templates/. /project-assets/templates/; fi
+# Bind mount only during the RUN: the build context never becomes an image layer (#248).
+RUN --mount=type=bind,target=/project-source \
+    mkdir -p /project-assets/templates && \
+    if [ -d /project-source/templates ]; then cp -a /project-source/templates/. /project-assets/templates/; fi
 
 FROM python:3.14-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SKELETON_PROJECT_ROOT=/app

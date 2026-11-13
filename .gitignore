@@ -11,6 +11,7 @@ htmlcov/
 coverage.xml
 .mypy_cache/
 .private/
+.sso-fixtures/
 *.pem
 *.key
 build/

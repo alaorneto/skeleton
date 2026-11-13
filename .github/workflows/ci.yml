@@ -273,6 +273,10 @@ jobs:
           pip-audit --strict --require-hashes --disable-pip -r requirements-dev.txt
       - name: Construir imagem
         run: docker build --tag django-skeleton:ci .
+      - name: Contexto de build não vira camada
+        run: |
+          docker build --target project-assets --tag django-skeleton:assets .
+          docker run --rm django-skeleton:assets sh -c '! test -e /project-source'
       - uses: actions/upload-artifact@v7
         with:
           name: core-wheel
