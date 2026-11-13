@@ -12,6 +12,7 @@ from skeleton.records.services import (  # noqa: F401
     filter_records,
     readable_specs,
     record_data,
+    record_permissions,
     record_queryset,
     records_data,
     require_access_management,

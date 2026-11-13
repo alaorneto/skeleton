@@ -32,15 +32,33 @@ def exposed_spec(key):
 
 
 def readable_specs(user):
+    """Exposed business tables the actor may read: the answer of ``authorized_queryset`` per table.
+
+    One query of table permissions for every table (``table_permissions``: same roles, catalog
+    availability and token scopes) and the app check once per app, instead of a whole
+    authorization per table (#302). Nothing is cached beyond this call.
+    """
+    from skeleton.access.policies import table_permissions
+    from skeleton.system.applications import require_application_enabled
+
+    candidates = [spec for spec in all_specs() if spec.expose_api and issubclass(spec.model, SecuredRecord)]
+    if not candidates:
+        return []
+    permitted = table_permissions(user)
+    enabled = {}
     result = []
-    for spec in all_specs():
-        if not spec.expose_api or not issubclass(spec.model, SecuredRecord):
+    for spec in candidates:
+        if (spec.model._meta.label_lower, "read") not in permitted:
             continue
-        try:
-            authorized_queryset(spec.model, user=user)
-        except PermissionDenied:
-            continue
-        result.append(spec)
+        app_label = spec.model._meta.app_label
+        if app_label not in enabled:
+            try:
+                require_application_enabled(app_label)
+                enabled[app_label] = True
+            except PermissionDenied:  # ApplicationUnavailable included.
+                enabled[app_label] = False
+        if enabled[app_label]:
+            result.append(spec)
     return result
 
 
@@ -217,6 +235,30 @@ def require_access_management(record, *, user):
     record_queryset(exposed_spec(record._meta.label_lower), user=user, action="manage_access")
     if record.owner_id != user.pk and not is_organization_admin(user):
         raise PermissionDenied
+
+
+def record_permissions(record, spec, *, user):
+    """Which record actions the detail page may offer; every POST still revalidates (#302).
+
+    ``require_record_action`` already builds the authorized queryset of the action, so no
+    separate ``record_queryset`` is assembled just to be thrown away.
+    """
+    from skeleton.system.record_operations import require_operation
+
+    result = {}
+    for action in ("update", "delete"):
+        try:
+            require_operation(spec, action)
+            require_record_action(record, user=user, action=action)
+            result[action] = True
+        except PermissionDenied:
+            result[action] = False
+    try:
+        require_access_management(record, user=user)
+        result["manage_access"] = True
+    except PermissionDenied:
+        result["manage_access"] = False
+    return result
 
 
 @transaction.atomic

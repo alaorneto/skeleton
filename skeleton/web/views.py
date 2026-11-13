@@ -31,6 +31,7 @@ from skeleton.records.services import (
     delete_record,
     exposed_spec,
     readable_specs,
+    record_permissions,
     record_queryset,
     require_access_management,
     restore_record,
@@ -398,6 +399,8 @@ def access_list(request, organization_id, resource):
     model, fields = dedicated_model(resource)
     queryset = model.objects.order_by("created_at", "sysid")
     relations = [name for name in fields if model._meta.get_field(name).is_relation]
+    if "membership" in relations:
+        relations.append("membership__user")  # Membership.__str__ reads the user's email (#302).
     if relations:
         queryset = queryset.select_related(*relations)
     rows = pagination(request, queryset)
@@ -588,11 +591,15 @@ def records(request, organization_id, table_key, deleted=False):
 
 
 def can_action(spec, user, action):
+    """Whether to offer a table action; the list already authorized the table and its app (#302)."""
+    from skeleton.access.policies import has_table_permission
+    from skeleton.system.record_operations import require_operation
+
     try:
-        record_queryset(spec, user=user, action=action)
+        require_operation(spec, action)
     except PermissionDenied:
         return False
-    return True
+    return has_table_permission(spec.model, user=user, action=action)
 
 
 @tenant_page()
@@ -601,19 +608,7 @@ def record_detail(request, organization_id, table_key, sysid):
     item = record_queryset(spec, user=request.user).filter(pk=sysid).first()
     if item is None:
         raise Http404
-    permissions = {}
-    for action in ("update", "delete"):
-        try:
-            record_queryset(spec, user=request.user, action=action)
-            require_record_action(item, user=request.user, action=action)
-            permissions[action] = True
-        except PermissionDenied:
-            permissions[action] = False
-    try:
-        require_access_management(item, user=request.user)
-        permissions["manage_access"] = True
-    except PermissionDenied:
-        permissions["manage_access"] = False
+    permissions = record_permissions(item, spec, user=request.user)
     names = {
         "update": ("web:record-edit", gettext("Editar")),
         "delete": ("web:record-delete", gettext("Remover")),
