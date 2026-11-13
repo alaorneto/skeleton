@@ -135,7 +135,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.0
+    image: quay.io/keycloak/keycloak:26.8.2-2
     profiles: ["integrations"]
     command: ["start-dev", "--import-realm"]
     environment:
