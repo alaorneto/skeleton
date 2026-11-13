@@ -28,6 +28,11 @@ def write_setting(base_dir: Path, key: str, raw: str, *, source: str) -> Setting
     value = spec.clean(raw)
     store, key_path = open_store(base_dir)
     if spec.secret:
+        if not key_path.is_file() and any(secret for _, secret in store.settings().values()):
+            raise crypto.MasterKeyMissing(
+                f"Chave mestra ausente em {key_path} e há segredos gravados com ela: restaure o arquivo de backup "
+                "antes de gravar outro segredo."
+            )
         value = crypto.encrypt(crypto.load_key(key_path, create=True), value)
     store.put(spec.key, value, secret=spec.secret, source=source)
     return spec

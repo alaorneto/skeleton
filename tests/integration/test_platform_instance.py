@@ -116,7 +116,7 @@ def test_changes_need_a_recent_authentication(store, platform):
 
 
 REQUIRED = {
-    "secret_key": ("DJANGO_SECRET_KEY", "a-long-secret-key-only-for-this-test-2026"),
+    "secret_key": ("DJANGO_SECRET_KEY", "a-long-secret-key-only-for-this-test-2026-abcdefghijk"),
     "allowed_hosts": ("DJANGO_ALLOWED_HOSTS", "instance.example.test"),
     "database_url": ("DATABASE_URL", "postgres://runtime:pw@db.example.test:5432/skeleton"),
 }
@@ -147,3 +147,15 @@ def test_clear_button_only_for_optional_keys(store, platform, monkeypatch, setti
     assert 'value="clear"' not in rows["allowed_hosts"]
     assert 'value="clear"' in rows["default_from_email"] and 'value="clear"' in rows["email_url"]
     assert html.count('value="clear"') == 2  # The two optional keys stored: email_url and default_from_email.
+
+
+def test_invalid_keyring_is_refused_with_400(store, platform, caplog):
+    """A keyring item that is not a Fernet key never reaches the store (#323)."""
+    _, client = platform
+    refused = "not-a-fernet-key-but-secret-2026"
+    with caplog.at_level(logging.INFO):
+        response = change(client, "integration_encryption_keys", refused)
+    assert response.status_code == 400
+    assert refused not in response.content.decode() and refused not in caplog.text
+    assert "integration_encryption_keys" not in store.settings()
+    assert refused not in repr(store.changes())

@@ -14,6 +14,7 @@ from skeleton.instance import crypto
 from skeleton.instance.resolve import instance_paths, missing_for_setup, resolve_instance_settings
 from skeleton.instance.schema import BOOTSTRAP_ENV, CATALOG, spec_for
 from skeleton.instance.store import InstanceStore
+from skeleton.instance.writer import write_setting
 
 MASK = "****** (definido)"
 
@@ -67,18 +68,12 @@ class Command(BaseCommand):
                 shown = item.value
             self.stdout.write(f"{item.key} [{item.env}] = {shown}  <{item.origin}>")
 
-    def _write(self, store, key_path, spec, raw, *, source):
-        value = spec.clean(raw)
-        if spec.secret:
-            value = crypto.encrypt(crypto.load_key(key_path, create=True), value)
-        store.put(spec.key, value, secret=spec.secret, source=source)
-
     def _set(self, store, key, options):
         spec = spec_for(options["key"])
         if options["stdin"] == (options["value"] is not None):
             raise CommandError("Informe o valor como argumento ou com --stdin, não os dois.")
         raw = sys.stdin.readline().rstrip("\r\n") if options["stdin"] else options["value"]
-        self._write(store, key, spec, raw, source="cli:set")
+        write_setting(settings.BASE_DIR, spec.key, raw, source="cli:set")
         overridden = " (o ambiente ainda vence: " + spec.env + ")" if spec.env in os.environ else ""
         self.stdout.write(self.style.SUCCESS(f"{spec.key} gravada{overridden}."))
 
@@ -98,7 +93,7 @@ class Command(BaseCommand):
             if spec.env not in os.environ or (options["keep_existing"] and spec.key in stored):
                 continue
             try:
-                self._write(store, key, spec, os.environ[spec.env], source="cli:import-env")
+                write_setting(settings.BASE_DIR, spec.key, os.environ[spec.env], source="cli:import-env")
             except ValueError as exc:
                 raise CommandError(f"{spec.env}: {exc}") from None
             imported.append(spec.key)

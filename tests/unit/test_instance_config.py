@@ -10,6 +10,7 @@ from io import StringIO
 from pathlib import Path
 
 import pytest
+from cryptography.fernet import Fernet
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import CommandError, call_command
 
@@ -19,8 +20,9 @@ from skeleton.instance.schema import BOOTSTRAP_ENV, BY_ENV, CATALOG, spec_for
 from skeleton.instance.store import InstanceStore
 
 ROOT = Path(__file__).resolve().parents[2]
-SECRET = "Only-in-the-store-Pass-2026"
+SECRET = "Only-in-the-store-Pass-2026-" + "abcdefghijklmnopqrstuvwxyz"
 DATABASE_PASSWORD = "db-password-never-plain"
+MFA_KEYS = (Fernet.generate_key().decode(), Fernet.generate_key().decode())
 
 
 @pytest.fixture
@@ -217,7 +219,7 @@ def test_settings_start_from_the_store_without_env_file(instance):
         "cache_url": "rediscache://cache.example:6379/1",
         "email_url": "smtp+tls://mailer:mail-pass@mail.example:587",
         "default_from_email": "app@example.org",
-        "mfa_encryption_keys": "mfa-key-new,mfa-key-old",
+        "mfa_encryption_keys": ",".join(MFA_KEYS),
     }
     for name, value in values.items():
         run("set", name, value)
@@ -251,7 +253,76 @@ def test_settings_start_from_the_store_without_env_file(instance):
         True,
         "django.core.cache.backends.redis.RedisCache",
         "mail.example",
-        ["mfa-key-new", "mfa-key-old"],
+        list(MFA_KEYS),
         "app@example.org",
     ]
     assert SECRET not in result.stdout + result.stderr
+
+
+KEYRINGS = ("mfa_encryption_keys", "identity_provider_encryption_keys", "integration_encryption_keys")
+
+
+@pytest.mark.parametrize("name", KEYRINGS)
+def test_keyrings_must_be_fernet_keys(name):
+    """A keyring item that is not a Fernet key is refused on write, not on first use (#323)."""
+    with pytest.raises(ValueError, match="chave Fernet"):
+        CATALOG[name].clean("abc")
+    first, second = Fernet.generate_key().decode(), Fernet.generate_key().decode()
+    assert CATALOG[name].clean(f" {first} , {second} ") == f"{first},{second}"
+
+
+def test_secret_key_has_a_minimum_strength():
+    for weak in ("x" * 49, "x" * 60, "abcd" * 20):
+        with pytest.raises(ValueError, match="50 caracteres"):
+            CATALOG["secret_key"].clean(weak)
+    assert CATALOG["secret_key"].clean(SECRET) == SECRET
+
+
+def test_invalid_keyring_message_does_not_echo_the_value():
+    refused = "not-a-key-but-maybe-a-secret-2026"
+    with pytest.raises(ValueError) as error:
+        CATALOG["integration_encryption_keys"].clean(f"{Fernet.generate_key().decode()},{refused}")
+    assert refused not in str(error.value)
+
+
+def test_concurrent_first_use_reads_a_complete_key(tmp_path):
+    """Racing first uses all get the same, complete key; no temporary file is left (#323)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "keys" / "master.key"
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        keys = list(pool.map(lambda _: crypto.load_key(path, create=True), range(16)))
+    token = crypto.encrypt(keys[0], "secret")
+    assert all(crypto.decrypt(key, token) == "secret" for key in keys)
+    assert list(path.parent.glob("*.tmp")) == []
+
+
+def test_missing_key_with_stored_secrets_refuses_to_create_another(instance):
+    """A new key would strand the secrets already stored: restore the backup instead (#323)."""
+    from skeleton.instance.writer import write_setting
+
+    database, key = instance
+    write_setting(ROOT, "secret_key", SECRET, source="test")
+    key.unlink()
+    with pytest.raises(crypto.MasterKeyMissing, match="restaure"):
+        write_setting(ROOT, "email_url", "smtp+tls://user:pass@mail.example:587", source="test")
+    assert not key.exists()
+    assert "email_url" not in InstanceStore(database).settings()
+    with pytest.raises(CommandError, match="restaure"):
+        run("set", "email_url", "smtp+tls://user:pass@mail.example:587")
+    assert not key.exists()
+    # A non-secret key does not need the master key.
+    write_setting(ROOT, "allowed_hosts", "app.example", source="test")
+    assert InstanceStore(database).settings()["allowed_hosts"] == ("app.example", False)
+
+
+def test_missing_key_without_stored_secrets_is_created(instance):
+    from skeleton.instance.writer import write_setting
+
+    database, key = instance
+    write_setting(ROOT, "allowed_hosts", "app.example", source="test")
+    assert not key.exists()
+    write_setting(ROOT, "secret_key", SECRET, source="test")
+    assert key.is_file()
+    stored = InstanceStore(database).settings()["secret_key"][0]
+    assert crypto.decrypt(crypto.load_key(key), stored) == SECRET
