@@ -15,12 +15,13 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 
 ## Rastreabilidade: plano, issue, commit e fechamento
 
-Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub. O procedimento é o skill `issue-workflow` (`.claude/skills/issue-workflow/`); o racional e os mecanismos estão em [docs/workflow.md](docs/workflow.md).
+Todo desenvolvimento versionado (código, testes, documentação, CI, dependências) está vinculado a uma issue do GitHub. O procedimento é o skill `dev-workflow` (`.claude/skills/dev-workflow/`, configurado por `.github/dev-workflow.toml`); o racional e os mecanismos estão em [docs/workflow.md](docs/workflow.md).
 
-- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`tools/workflow/github_issues.py sync-epic`).
+- **Planos** do modo de planejamento terminam com a seção `Itens do GitHub`: para cada item, label de tipo, título, critérios de aceite, plano de testes e documentação a atualizar. Quando o plano é aceito, as issues (e um `epic` se houver duas ou mais) são criadas antes de qualquer edição. As filhas são sub-issues nativos do epic, e as dependências são relações "blocked by" (`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic`).
 - **Sem plano**, a issue é identificada ou criada antes da primeira edição. Perguntas e investigações sem mudança de arquivo não precisam de issue.
 - Cada issue tem **exatamente um** label de tipo (`bug`, `feature`, `enhancement`, `documentation`, `refactor`, `test`, `ci`, `chore`), mais `security` quando pertinente, e todas as seções do modelo: contexto, objetivo, escopo, abordagem, critérios de aceite, plano de testes, documentação, segurança, riscos e definição de pronto.
 - Branch `<tipo>/<N>-<slug>`; commits com trailer `Refs #N` (o hook `commit-msg` verifica); PR com `Closes #N`. Nunca `--no-verify`.
+- Versão: nunca editada à mão. Só o label `release` faz o merge publicar uma versão; PR sem ele fica acumulado. O nível vem da ferramenta (`release.py plan --pr N`) e um `semver:*` com motivo o sobrepõe ([docs/workflow.md](docs/workflow.md#versão-e-release)). A versão do projeto é a do core; agente e apps first-party seguem o mesmo número, e pisos de core (`*_CORE_MINIMUM`, `since=`, faixas de manifestos) não acompanham o bump.
 - A issue fecha só depois de aprovada: pelo merge do PR ou por aprovação explícita do responsável, com comentário listando commits, testes executados e documentação. Mudança de escopo atualiza a issue ou abre outra.
 
 ## Fronteiras de código

@@ -2,7 +2,7 @@
 
 Um pedido de compra passa por quem pede, por um gestor e, acima de certo valor, pela diretoria e pelo financeiro ao mesmo tempo. Uma anotação só é publicada depois de revisada. Esses são **processos de negócio**: sequências de etapas, com bifurcações, formulários, pessoas responsáveis e aprovações. O núcleo oferece o motor desses processos em `skeleton/flows` (label `sk_flows`, epic [#209](https://github.com/alaorneto/skeleton/issues/209)); as apps declaram os fluxos e os usam pela [API de serviços](service-api.md).
 
-**Sobre o nome.** O pedido original fala em "workflow". Neste repositório, "workflow" já é o fluxo de desenvolvimento (`docs/workflow.md`, `tools/workflow`, skill `issue-workflow`). Por isso o subsistema se chama **fluxos** (`flows`): "fluxo" é o processo declarado, "instância" é uma execução dele.
+**Sobre o nome.** O pedido original fala em "workflow". Neste repositório, "workflow" já é o fluxo de desenvolvimento (`docs/workflow.md`, `tools/workflow`, skill `dev-workflow`). Por isso o subsistema se chama **fluxos** (`flows`): "fluxo" é o processo declarado, "instância" é uma execução dele.
 
 **O que o núcleo faz e o que a app faz.** O núcleo é só o motor: guarda definições, executa instâncias, distribui tarefas, valida formulários e registra o histórico. Regras de negócio (que fluxo existe, quem aprova, o que acontece ao aprovar) ficam na app, declaradas em código.
 

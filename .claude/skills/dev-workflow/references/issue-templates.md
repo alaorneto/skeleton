@@ -19,9 +19,9 @@ Os títulos de seção (`##`) são fixos: os formulários em `.github/ISSUE_TEMP
 - <o que não será feito aqui e onde será tratado>
 
 ## Abordagem técnica
-- Módulos e arquivos: `<skeleton/...>`, `<tests/...>`
+- Módulos e arquivos: `<src/...>`, `<tests/...>`
 - Decisões e alternativas descartadas: <...>
-- Fronteiras do AGENTS.md envolvidas: <núcleo x `applications`, app labels, `/platform/`, specs, migrations de infraestrutura...>
+- Regras do projeto envolvidas: <contratos, fronteiras de módulo, convenções do arquivo de instruções do projeto...>
 
 ## Critérios de aceite
 - [ ] <comportamento observável e verificável, com entrada e resultado>
@@ -29,9 +29,8 @@ Os títulos de seção (`##`) são fixos: os formulários em `.github/ISSUE_TEMP
 
 ## Plano de testes
 - [ ] Unitários (`tests/unit/...`): <o que provar>
-- [ ] Integração em PostgreSQL com a role runtime (`tests/integration/...`): <o que provar>
-- [ ] PostgreSQL com role runtime (`tests/integration_postgres/...`): <o que provar | Não se aplica — motivo>
-- [ ] Negativos de segurança: <tenant A/B, default deny, CAS, auditoria, segredos redigidos...>
+- [ ] Integração (`tests/integration/...`): <o que provar | Não se aplica — motivo>
+- [ ] Negativos de segurança: <autorização negada, isolamento, entrada inválida, segredos redigidos...>
 - [ ] Smoke manual ou no navegador: <roteiro curto | Não se aplica>
 
 Comandos:
@@ -41,10 +40,10 @@ Comandos:
 
 ## Documentação a atualizar
 - [ ] `<docs/....md>` — <o que muda>
-- [ ] `docs/testing.md` — evidência dos testes executados
-- [ ] `README.md` / `AGENTS.md` — <se mudar contrato, setup ou navegação | Não se aplica>
+- [ ] <onde fica a evidência dos testes executados>
+- [ ] `README.md` / instruções do projeto — <se mudar contrato, setup ou navegação | Não se aplica>
 
-## Segurança e contrato do AGENTS.md
+## Segurança e regras do projeto
 - [ ] <itens pertinentes do "Checklist mínimo de nova tabela" ou de "Contexto, autorização e concorrência">
 <ou: Sem impacto — motivo>
 
@@ -76,7 +75,7 @@ Use o modelo acima com estas seções no lugar de "Contexto" e "Objetivo":
 1. <...>
 
 ## Ambiente
-<branch/commit, versão do PostgreSQL, settings, navegador, versão do core/agente>
+<branch/commit, versões, configuração, sistema>
 
 ## Causa provável
 <diagnóstico, se conhecido; senão "A investigar">
@@ -102,7 +101,7 @@ O "Plano de testes" de um bug sempre inclui um teste de regressão que falha ant
 ## Critérios de aceite
 - [ ] Conteúdo confere com o código em `<arquivos>`
 - [ ] Links e âncoras válidos; comandos testados quando houver
-- [ ] Nenhuma regra do AGENTS.md contradita
+- [ ] Nenhuma regra do projeto contradita
 
 ## Verificação
 <como conferir: comandos executados, arquivos lidos, renderização>
@@ -140,6 +139,9 @@ Closes #<N>
 ## Resumo
 - <mudança 1>
 
+## Versão
+- <acumulado | release; com `semver:*`, uma linha `Motivo: ...`>
+
 ## Testes executados
 - `<comando>` — <resultado observado>
 <serviços indisponíveis: declare como bloqueio, não como aprovação>
@@ -148,7 +150,7 @@ Closes #<N>
 - <arquivos atualizados | Não se aplica — motivo>
 
 ## Segurança e contrato
-- <itens do AGENTS.md verificados | Sem impacto — motivo>
+- <regras do projeto verificadas | Sem impacto — motivo>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ~~~
@@ -171,3 +173,17 @@ Concluído e aprovado por <quem / "merge do PR #P">.
 
 **Follow-ups:** <#N | nenhum>
 ~~~
+
+## Comentário de mudança de escopo
+
+Use quando o trabalho de uma issue precisar mudar o que ela promete: atualize o corpo (escopo, critérios de aceite) e registre a mudança aqui, ou crie outra issue para o excedente.
+
+~~~markdown
+**Mudança de escopo**
+
+- O que muda: <o que entra ou sai do escopo>
+- Motivo: <o que se descobriu ou decidiu, com link>
+- Critérios de aceite atualizados no corpo: <sim | não se aplica>
+- Excedente: <#N criada para o que ficou de fora | nenhum>
+~~~
+

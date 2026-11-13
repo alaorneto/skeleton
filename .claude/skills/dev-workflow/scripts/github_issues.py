@@ -1,13 +1,21 @@
-"""Vínculo entre trabalho versionado e issues do GitHub (docs/workflow.md).
+"""Vínculo entre trabalho versionado e issues do GitHub (skill dev-workflow).
 
-Subcomandos, todos só com a biblioteca padrão:
+Labels, seções e nomes vêm de ``.github/dev-workflow.toml`` (``workflow_config``); só a biblioteca
+padrão, ``git`` e ``gh``. Subcomandos:
+
+- ``start N``: cria a branch ``<tipo>/<N>-<slug>`` a partir da issue N e da branch padrão.
 
 - ``commit-msg ARQUIVO``: hook ``commit-msg`` do pre-commit. Aceita mensagens que
   referenciam uma issue; senão acrescenta ``Refs: #N`` a partir da branch
   ``<tipo>/<N>-<slug>``; senão recusa o commit.
-- ``check-pr``: usado pelo CI. Lê ``PR_BODY`` e ``GITHUB_REPOSITORY`` e exige que
-  o PR referencie ao menos uma issue existente com exatamente um label de tipo.
-- ``sync-labels``: cria/atualiza os labels de classificação com ``gh``.
+- ``check-pr``: usado pelo CI. Lê ``PR_TITLE``, ``PR_BODY``, ``PR_AUTHOR``, ``PR_LABELS`` (JSON),
+  ``PR_HEAD`` e ``GITHUB_REPOSITORY``. Erros: issue vinculada sem exatamente um label de tipo, seção
+  obrigatória do PR vazia ou só com o texto do modelo, ``semver:*`` sem ``release``, sem motivo ou
+  repetido, título fora de Conventional Commits. Avisos: critério de aceite não marcado, seção
+  faltando na issue, tipo do título diferente do tipo da issue.
+- ``pr-merged``: usado ao mesclar. Lê ``PR_NUMBER`` e comenta uma vez, em cada issue fechada pelo PR,
+  as evidências: commits, PR, testes executados, documentação, critérios pendentes e versão.
+- ``sync-labels``: cria/atualiza os labels da configuração com ``gh``.
 - ``sync-epic (N... | --all) [--dry-run]``: reconcilia a seção "Itens" de um epic
   com os sub-issues e as relações "blocked by" nativas do GitHub. É idempotente,
   nunca troca um parent existente e mostra as divergências. Também acerta as caixas.
@@ -27,24 +35,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-TYPE_LABELS: dict[str, tuple[str, str]] = {
-    "bug": ("d73a4a", "Comportamento incorreto, regressão ou falha de segurança existente"),
-    "feature": ("1d76db", "Nova funcionalidade"),
-    "enhancement": ("a2eeef", "Melhoria de funcionalidade existente"),
-    "documentation": ("0075ca", "Somente documentação"),
-    "refactor": ("fbca04", "Reestruturação sem mudança de comportamento"),
-    "test": ("bfd4f2", "Somente testes, fixtures ou evidência de verificação"),
-    "ci": ("5319e7", "Pipeline e checks automáticos"),
-    "chore": ("c5def5", "Dependências, ferramentas e configuração de desenvolvimento"),
-}
-EXTRA_LABELS: dict[str, tuple[str, str]] = {
-    "security": ("b60205", "Impacto em isolamento, autorização, autenticação, auditoria ou segredos"),
-    "epic": ("3e4b9e", "Acompanhamento de um plano com várias issues"),
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from workflow_config import DEFAULT, Config, ConfigError, load  # noqa: E402
 
 _ISSUE = r"(?:(?P<repo>[\w.-]+/[\w.-]+))?#(?P<number>\d+)"
 ISSUE_REFERENCE = re.compile(
@@ -117,7 +114,7 @@ def commit_msg(path: Path) -> int:
     print(
         "commit-msg: o commit precisa referenciar uma issue do GitHub.\n"
         "  Acrescente um trailer 'Refs #N' (ou trabalhe numa branch <tipo>/<N>-<slug>).\n"
-        "  Sem issue? Crie uma antes: veja docs/workflow.md e o skill issue-workflow.",
+        "  Sem issue? Crie uma antes: veja o skill dev-workflow (github_issues.py start N).",
         file=sys.stderr,
     )
     return 1
@@ -126,8 +123,9 @@ def commit_msg(path: Path) -> int:
 IssueFetcher = Callable[[int], dict[str, object] | None]
 
 
-def validate_pr(body: str, repository: str, fetch: IssueFetcher) -> list[str]:
+def validate_pr(body: str, repository: str, fetch: IssueFetcher, config: Config = DEFAULT) -> list[str]:
     """Erros que impedem o PR; lista vazia quando o vínculo está correto."""
+    type_names = config.type_names
     numbers = referenced_issues(body, repository)
     if not numbers:
         return ["O corpo do PR não referencia issue: use `Closes #N` (entrega completa) ou `Refs #N` (parcial)."]
@@ -147,13 +145,13 @@ def validate_pr(body: str, repository: str, fetch: IssueFetcher) -> list[str]:
             if isinstance(raw_labels, list)
             else set()
         )
-        if "epic" in labels:
+        if config.epic_label in labels:
             continue
-        types = sorted(labels & TYPE_LABELS.keys())
+        types = sorted(labels & set(type_names))
         if len(types) != 1:
             found = ", ".join(types) or "nenhum"
             errors.append(
-                f"#{number} precisa de exatamente um label de tipo ({', '.join(TYPE_LABELS)}); encontrado: {found}."
+                f"#{number} precisa de exatamente um label de tipo ({', '.join(type_names)}); encontrado: {found}."
             )
             continue
         typed += 1
@@ -175,22 +173,313 @@ def _gh_fetch(repository: str) -> IssueFetcher:
     return fetch
 
 
-def check_pr() -> int:
+# --- verificação completa do PR (#212) --------------------------------------------------------
+
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+CLOSING_REFERENCE = re.compile(rf"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s+{_ISSUE}", re.IGNORECASE)
+CONVENTIONAL_TITLE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?!?: \S")
+UNCHECKED = re.compile(r"^\s*[-*]\s+\[ \]\s+(?P<text>.+)$", re.MULTILINE)
+REASON_LINE = re.compile(r"(?im)^\s*(?:[-*]\s*)?(?:motivo|reason)\s*:\s*\S")
+RELEASE_TITLE = "chore(release):"
+ACCEPTANCE_SECTION = "critérios de aceite"
+
+
+def markdown_sections(body: str) -> dict[str, str]:
+    """``{título em minúsculas: conteúdo}`` das seções ``## Título`` do corpo."""
+    result: dict[str, str] = {}
+    current: str | None = None
+    lines: list[str] = []
+    for line in body.replace("\r\n", "\n").splitlines():
+        heading = SECTION_HEADING.match(line)
+        if heading:
+            if current is not None:
+                result[current] = "\n".join(lines).strip()
+            current, lines = heading.group("title").strip().lower(), []
+        elif current is not None:
+            lines.append(line)
+    if current is not None:
+        result[current] = "\n".join(lines).strip()
+    return result
+
+
+def _normalized(text: str) -> str:
+    return " ".join(HTML_COMMENT.sub("", text).split())
+
+
+def closing_issues(body: str, repository: str | None = None) -> list[int]:
+    numbers = []
+    for match in CLOSING_REFERENCE.finditer(body):
+        repo = match.group("repo")
+        if repo and repository and repo.lower() != repository.lower():
+            continue
+        numbers.append(int(match.group("number")))
+    return list(dict.fromkeys(numbers))
+
+
+@dataclass(frozen=True)
+class PullRequestView:
+    title: str
+    body: str
+    labels: tuple[str, ...] = ()
+    author: str = ""
+    head: str = ""
+
+
+def exemption(pull: PullRequestView, config: Config) -> str | None:
+    if pull.author and pull.author in config.pr_exempt_authors:
+        return f"PR de {pull.author}: isento (pull_request.exempt_authors)."
+    if pull.title.startswith(RELEASE_TITLE) and pull.head.startswith("release/"):
+        return "PR de release: isento."
+    return None
+
+
+def _labels_of(issue: Mapping[str, object]) -> set[str]:
+    raw = issue.get("labels")
+    return {str(label.get("name")) for label in raw if isinstance(label, dict)} if isinstance(raw, list) else set()
+
+
+def check_pull_request(
+    pull: PullRequestView, repository: str, fetch: IssueFetcher, config: Config = DEFAULT, template: str = ""
+) -> tuple[list[str], list[str]]:
+    """``(erros, avisos)`` do PR inteiro; erros impedem o merge, avisos só aparecem."""
+    errors = validate_pr(pull.body, repository, fetch, config)
+    warnings: list[str] = []
+    sections = markdown_sections(pull.body)
+    model = markdown_sections(template)
+    for name in config.pr_sections:
+        key = name.lower()
+        content = sections.get(key)
+        if content is None:
+            errors.append(f"Seção obrigatória `## {name}` ausente do corpo do PR.")
+        elif not _normalized(content) or (key in model and _normalized(content) == _normalized(model[key])):
+            errors.append(f"Seção `## {name}` vazia ou só com o texto do modelo.")
+    versioning = config.versioning
+    overrides = [label for label in pull.labels if label.startswith(versioning.override_prefix)]
+    if len(overrides) > 1:
+        errors.append(f"No máximo um label {versioning.override_prefix}*: {', '.join(overrides)}.")
+    if overrides and versioning.release_label not in pull.labels:
+        errors.append(f"{overrides[0]} só vale com o label `{versioning.release_label}`.")
+    if overrides and not REASON_LINE.search(pull.body):
+        errors.append(f"{overrides[0]} exige uma linha `Motivo: ...` no corpo do PR.")
+    title = CONVENTIONAL_TITLE.match(pull.title)
+    if config.pr_title_conventional and title is None:
+        errors.append("Título fora de Conventional Commits: use `<tipo>(<escopo>): <assunto>`.")
+    title_type = config.type_for_commit(title.group("type")) if title else None
+    for number in closing_issues(pull.body, repository):
+        issue = fetch(number)
+        if not issue or "pull_request" in issue:
+            continue
+        body = str(issue.get("body") or "")
+        issue_sections = markdown_sections(body)
+        missing = [name for name in config.issue_sections if name.lower() not in issue_sections]
+        if missing:
+            warnings.append(f"#{number} não tem as seções {', '.join(missing)}.")
+        pending = UNCHECKED.findall(issue_sections.get(ACCEPTANCE_SECTION, ""))
+        if pending:
+            message = f"#{number} tem {len(pending)} critério(s) de aceite não marcado(s)."
+            (errors if config.pr_pending_criteria == "error" else warnings).append(message)
+        labels = _labels_of(issue)
+        if (
+            title_type
+            and config.epic_label not in labels
+            and labels & set(config.type_names)
+            and title_type.name not in labels
+        ):
+            kinds = ", ".join(sorted(labels & set(config.type_names)))
+            warnings.append(f"O título é `{title.group('type')}` ({title_type.name}), mas #{number} é {kinds}.")
+    return errors, warnings
+
+
+def _pr_template(config: Config) -> str:
+    for path in (
+        config.root / ".github" / "pull_request_template.md",
+        Path(__file__).resolve().parents[1] / "assets" / "pull_request_template.md",
+    ):
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    return ""
+
+
+def check_pr(config: Config) -> int:
     repository = os.environ["GITHUB_REPOSITORY"]
-    errors = validate_pr(os.environ.get("PR_BODY", ""), repository, _gh_fetch(repository))
+    try:
+        labels = tuple(str(name) for name in json.loads(os.environ.get("PR_LABELS") or "[]"))
+    except json.JSONDecodeError:
+        labels = ()
+    pull = PullRequestView(
+        title=os.environ.get("PR_TITLE", ""),
+        body=os.environ.get("PR_BODY", ""),
+        labels=labels,
+        author=os.environ.get("PR_AUTHOR", ""),
+        head=os.environ.get("PR_HEAD", ""),
+    )
+    exempt = exemption(pull, config)
+    if exempt:
+        print(exempt)
+        return 0
+    errors, warnings = check_pull_request(pull, repository, _gh_fetch(repository), config, _pr_template(config))
+    for warning in warnings:
+        print(f"::warning title=Verificação do PR::{warning}")
     for error in errors:
-        print(f"::error title=Vínculo com issue::{error}")
+        print(f"::error title=Verificação do PR::{error}")
     if not errors:
-        print("PR vinculado a issue classificada.")
+        print("PR verificado: issue classificada, seções preenchidas e classificação de versão coerente.")
     return 1 if errors else 0
 
 
-def sync_labels() -> int:
-    for name, (color, description) in {**TYPE_LABELS, **EXTRA_LABELS}.items():
-        subprocess.run(
-            ["gh", "label", "create", name, "--color", color, "--description", description, "--force"], check=True
+# --- evidências no merge (#212) ------------------------------------------------------------------
+
+EVIDENCE_MARKER = "<!-- dev-workflow:evidence pr={number} -->"
+TRUSTED_PERMISSIONS = {"admin", "maintain", "write"}
+BOT = "github-actions[bot]"
+
+
+def _trusted_author(login: str, repository: str, gh: GhRunner) -> bool:
+    if login == BOT:
+        return True
+    completed = gh(["api", f"repos/{repository}/collaborators/{login}/permission"])
+    return completed.returncode == 0 and str(json.loads(completed.stdout).get("permission")) in TRUSTED_PERMISSIONS
+
+
+def evidence_comment(
+    pull: Mapping[str, object], commits: Sequence[Mapping[str, object]], issue_body: str, number: int, config: Config
+) -> str:
+    sections = markdown_sections(str(pull.get("body") or ""))
+    labels = {str(label.get("name")) for label in pull.get("labels", []) if isinstance(label, dict)}  # type: ignore[union-attr]
+    lines = [
+        EVIDENCE_MARKER.format(number=pull["number"]),
+        f"Fechada pelo merge de #{pull['number']} ({pull.get('title')}).",
+        "",
+        "**Commits**",
+    ]
+    for commit in commits:
+        message = str((commit.get("commit") or {}).get("message") or "").splitlines()  # type: ignore[union-attr]
+        lines.append(f"- {str(commit.get('sha'))[:12]} {message[0] if message else ''}")
+    for title in ("Testes executados", "Documentação"):
+        content = HTML_COMMENT.sub("", sections.get(title.lower(), "")).strip()
+        lines += ["", f"**{title}**", content or "- (não informado no PR)"]
+    pending = UNCHECKED.findall(markdown_sections(issue_body).get(ACCEPTANCE_SECTION, ""))
+    lines += ["", "**Critérios de aceite pendentes**"]
+    lines += [f"- [ ] {item}" for item in pending] or ["- nenhum"]
+    if config.versioning.enabled:
+        state = (
+            "publicada pelo workflow de release"
+            if config.versioning.release_label in labels
+            else "acumulada para a próxima versão"
         )
-        print(f"label {name} ok")
+        lines += ["", f"**Versão:** {state}."]
+    return "\n".join(lines) + "\n"
+
+
+def pr_merged(number: int, repository: str, config: Config, gh: GhRunner | None = None) -> int:
+    gh = gh or _run_gh
+    completed = gh(["api", f"repos/{repository}/pulls/{number}"])
+    if completed.returncode != 0:
+        print(f"pr-merged: #{number}: {completed.stderr.strip()}", file=sys.stderr)
+        return 1
+    pull = json.loads(completed.stdout)
+    if not pull.get("merged_at") and not pull.get("merged"):
+        print(f"#{number} não foi mesclado; nada a registrar.")
+        return 0
+    commits = json.loads(gh(["api", f"repos/{repository}/pulls/{number}/commits", "--paginate"]).stdout or "[]")
+    failed = False
+    marker = EVIDENCE_MARKER.format(number=number)
+    for issue in closing_issues(str(pull.get("body") or ""), repository):
+        view = gh(["api", f"repos/{repository}/issues/{issue}"])
+        if view.returncode != 0:
+            continue
+        data = json.loads(view.stdout)
+        if "pull_request" in data:
+            continue
+        existing = json.loads(gh(["api", f"repos/{repository}/issues/{issue}/comments", "--paginate"]).stdout or "[]")
+        if any(
+            marker in str(comment.get("body") or "")
+            and _trusted_author(str((comment.get("user") or {}).get("login") or ""), repository, gh)
+            for comment in existing
+        ):
+            print(f"#{issue}: evidências de #{number} já registradas.")
+            continue
+        body = evidence_comment(pull, commits, str(data.get("body") or ""), issue, config)
+        posted = gh(["api", "-X", "POST", f"repos/{repository}/issues/{issue}/comments", "-f", f"body={body}"])
+        if posted.returncode != 0:
+            failed = True
+            print(f"ERRO ao comentar #{issue}: {posted.stderr.strip()}")
+        else:
+            print(f"#{issue}: evidências de #{number} registradas.")
+    return 1 if failed else 0
+
+
+def sync_labels(config: Config, gh: Callable[[Sequence[str]], subprocess.CompletedProcess[str]] | None = None) -> int:
+    run = gh or _run_gh
+    failed = False
+    for label in (*config.types, *config.extra_labels):
+        completed = run(
+            ["label", "create", label.name, "--color", label.color, "--description", label.description, "--force"]
+        )
+        if completed.returncode != 0:
+            failed = True
+            print(f"ERRO label {label.name}: {completed.stderr.strip()}")
+        else:
+            print(f"label {label.name} ok")
+    return 1 if failed else 0
+
+
+# --- start -----------------------------------------------------------------------------------------
+
+SLUG_LENGTH = 40
+
+
+def slugify(title: str) -> str:
+    """``Corrigir o login (SSO)`` → ``corrigir-o-login-sso``: ASCII, minúsculas, no máximo 40 caracteres."""
+    ascii_title = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+    words = re.findall(r"[a-z0-9]+", ascii_title.lower())
+    slug = ""
+    for word in words:
+        candidate = f"{slug}-{word}" if slug else word
+        if len(candidate) > SLUG_LENGTH:
+            break
+        slug = candidate
+    return slug or "issue"
+
+
+def branch_for(number: int, title: str, labels: Iterable[str], config: Config = DEFAULT) -> str:
+    """``<tipo>/<N>-<slug>``: o tipo é o primeiro tipo de commit do label de tipo da issue."""
+    names = set(labels)
+    types = [item for item in config.types if item.name in names]
+    if len(types) != 1:
+        raise ConfigError(
+            f"#{number} precisa de exatamente um label de tipo ({', '.join(config.type_names)}) para criar a branch."
+        )
+    prefix = types[0].commit_types[0] if types[0].commit_types else types[0].name
+    return f"{prefix}/{number}-{slugify(title)}"
+
+
+def start(number: int, config: Config, *, gh: GhRunner | None = None, git: Callable[..., str] | None = None) -> int:
+    """Cria a branch da issue a partir de ``origin/<branch padrão>`` atualizada; recusa árvore suja."""
+    run_gh, run_git = gh or _run_gh, git or _git
+    completed = run_gh(["issue", "view", str(number), "--json", "number,title,labels,state"])
+    if completed.returncode != 0:
+        print(f"start: #{number}: {completed.stderr.strip()}", file=sys.stderr)
+        return 1
+    issue = json.loads(completed.stdout)
+    if issue.get("state") != "OPEN":
+        print(f"start: #{number} não está aberta.", file=sys.stderr)
+        return 1
+    labels = [str(label["name"]) for label in issue.get("labels", [])]
+    if config.epic_label in labels:
+        print(f"start: #{number} é um epic; comece pela issue filha.", file=sys.stderr)
+        return 1
+    try:
+        branch = branch_for(number, str(issue.get("title") or ""), labels, config)
+    except ConfigError as exc:
+        print(f"start: {exc}", file=sys.stderr)
+        return 1
+    if run_git("status", "--porcelain"):
+        print("start: a árvore de trabalho tem mudanças; faça commit ou guarde-as antes.", file=sys.stderr)
+        return 1
+    run_git("fetch", "origin", config.default_branch)
+    run_git("switch", "-c", branch, f"origin/{config.default_branch}")
+    print(branch)
     return 0
 
 
@@ -200,8 +489,10 @@ SECTION_HEADING = re.compile(r"^##\s+(?P<title>.+?)\s*$")
 CHECKBOX_ITEM = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(?P<rest>.*)$")
 ITEM_ISSUE = re.compile(rf"^{_ISSUE}\b")
 ANY_ISSUE = re.compile(_ISSUE)
-DEPENDS_ON = re.compile(r"\bdepende de\b", re.IGNORECASE)
-ITEMS_SECTION = "itens"
+
+
+def _depends_on(config: Config) -> re.Pattern[str]:
+    return re.compile(rf"\b{re.escape(config.depends_marker)}\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -248,15 +539,16 @@ def _same_repo(repo: str | None, repository: str) -> bool:
     return repo is None or repo.lower() == repository.lower()
 
 
-def parse_epic_items(body: str, repository: str) -> EpicPlan:
-    """Lê as linhas ``- [ ] #N título — depende de #M, #K`` da seção "Itens"."""
+def parse_epic_items(body: str, repository: str, config: Config = DEFAULT) -> EpicPlan:
+    """Lê as linhas ``- [ ] #N título — depende de #M, #K`` da seção de itens (``issue.items_section``)."""
+    items_section, depends_on = config.items_section.lower(), _depends_on(config)
     plan = EpicPlan()
     in_section = False
     seen: set[int] = set()
     for line in body.splitlines():
         heading = SECTION_HEADING.match(line)
         if heading:
-            in_section = heading.group("title").strip().lower() == ITEMS_SECTION
+            in_section = heading.group("title").strip().lower() == items_section
             continue
         if not in_section:
             continue
@@ -277,7 +569,7 @@ def parse_epic_items(body: str, repository: str) -> EpicPlan:
             continue
         seen.add(number)
         blocked_by: list[int] = []
-        depends = DEPENDS_ON.search(rest)
+        depends = depends_on.search(rest)
         if depends:
             for ref in ANY_ISSUE.finditer(rest[depends.end() :]):
                 if not _same_repo(ref.group("repo"), repository):
@@ -348,7 +640,9 @@ def plan_epic(
 CHECKBOX_PARTS = re.compile(r"^(?P<head>\s*[-*]\s+\[)(?P<mark>[ xX])(?P<tail>\]\s+)(?P<rest>.*)$")
 
 
-def reconcile_checklist(body: str, closed: Mapping[int, bool], repository: str) -> tuple[str, list[tuple[int, bool]]]:
+def reconcile_checklist(
+    body: str, closed: Mapping[int, bool], repository: str, config: Config = DEFAULT
+) -> tuple[str, list[tuple[int, bool]]]:
     """Marca ``[x]`` nos itens fechados da seção "Itens" e ``[ ]`` nos abertos.
 
     Só toca a caixa das linhas cujo número está em ``closed``; o resto do corpo, inclusive as
@@ -356,13 +650,14 @@ def reconcile_checklist(body: str, closed: Mapping[int, bool], repository: str) 
     """
     out: list[str] = []
     changes: list[tuple[int, bool]] = []
+    items_section = config.items_section.lower()
     in_section = False
     for line in body.splitlines(keepends=True):
         text = line.rstrip("\r\n")
         ending = line[len(text) :]
         heading = SECTION_HEADING.match(text)
         if heading:
-            in_section = heading.group("title").strip().lower() == ITEMS_SECTION
+            in_section = heading.group("title").strip().lower() == items_section
         parts = CHECKBOX_PARTS.match(text) if in_section else None
         issue = ITEM_ISSUE.match(parts.group("rest").strip()) if parts else None
         if parts and issue and _same_repo(issue.group("repo"), repository):
@@ -445,11 +740,14 @@ def fetch_links(numbers: Iterable[int], repository: str, gh: GhRunner = _run_gh)
     return result
 
 
-def _fetch_epics(selection: Sequence[int] | None, repository: str, gh: GhRunner) -> dict[int, tuple[str, list[str]]]:
-    """``{epic: (body, labels)}`` para os epics pedidos ou, sem seleção, todos com o label ``epic``."""
+def _fetch_epics(
+    selection: Sequence[int] | None, repository: str, gh: GhRunner, config: Config = DEFAULT
+) -> dict[int, tuple[str, list[str]]]:
+    """``{epic: (body, labels)}`` para os epics pedidos ou, sem seleção, todos com o label de epic."""
     fields = "number,body,labels"
     if selection is None:
-        listing = ["issue", "list", "--repo", repository, "--label", "epic", "--state", "all", "--limit", "500"]
+        listing = ["issue", "list", "--repo", repository, "--label", config.epic_label, "--state", "all"]
+        listing += ["--limit", "500"]
         completed = gh([*listing, "--json", fields])
         if completed.returncode != 0:
             raise RuntimeError(completed.stderr.strip())
@@ -488,7 +786,14 @@ CHECKLIST_ATTEMPTS = 5
 
 
 def sync_epic_checklist(
-    epic: int, body: str, repository: str, *, dry_run: bool, gh: GhRunner, links: Mapping[int, IssueLinks | None]
+    epic: int,
+    body: str,
+    repository: str,
+    *,
+    dry_run: bool,
+    gh: GhRunner,
+    links: Mapping[int, IssueLinks | None],
+    config: Config = DEFAULT,
 ) -> bool:
     """Reconcilia as caixas de um epic com o estado das issues. Devolve ``True`` se falhou.
 
@@ -496,47 +801,59 @@ def sync_epic_checklist(
     gravou um corpo antigo no meio-tempo, a última a escrever corrige o resultado.
     """
     for attempt in range(CHECKLIST_ATTEMPTS):
-        plan = parse_epic_items(body, repository)
+        plan = parse_epic_items(body, repository, config)
         closed = {item.number: state.closed for item in plan.items if (state := links.get(item.number)) is not None}
-        new_body, changes = reconcile_checklist(body, closed, repository)
+        new_body, changes = reconcile_checklist(body, closed, repository, config)
         if not changes:
             return False
         for number, checked in changes:
             verb = "marcar" if checked else "desmarcar"
-            print(f"  {'[dry-run] ' if dry_run else ''}{verb} #{number} na seção Itens")
+            print(f"  {'[dry-run] ' if dry_run else ''}{verb} #{number} na seção {config.items_section}")
         if dry_run:
             return False
         error = _write_body(epic, new_body, repository, gh)
         if error:
-            print(f"  ERRO ao atualizar a seção Itens de #{epic}: {error}")
+            print(f"  ERRO ao atualizar a seção {config.items_section} de #{epic}: {error}")
             return True
         if attempt + 1 < CHECKLIST_ATTEMPTS:
-            body = _fetch_epics([epic], repository, gh)[epic][0]
-            links = fetch_links([item.number for item in parse_epic_items(body, repository).items], repository, gh)
-    print(f"  ERRO: a seção Itens de #{epic} não estabilizou após {CHECKLIST_ATTEMPTS} tentativas")
+            body = _fetch_epics([epic], repository, gh, config)[epic][0]
+            numbers = [item.number for item in parse_epic_items(body, repository, config).items]
+            links = fetch_links(numbers, repository, gh)
+    print(f"  ERRO: a seção {config.items_section} de #{epic} não estabilizou após {CHECKLIST_ATTEMPTS} tentativas")
     return True
 
 
-def sync_checklist(selection: Sequence[int] | None, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
-    """Só as caixas da seção "Itens"; não cria vínculos nem falha por divergências de vínculo."""
-    epics = _fetch_epics(selection, repository, gh)
-    wanted = {item.number for body, _ in epics.values() for item in parse_epic_items(body, repository).items}
+def sync_checklist(
+    selection: Sequence[int] | None,
+    repository: str,
+    *,
+    dry_run: bool,
+    gh: GhRunner = _run_gh,
+    config: Config = DEFAULT,
+) -> int:
+    """Só as caixas da seção de itens; não cria vínculos nem falha por divergências de vínculo."""
+    epics = _fetch_epics(selection, repository, gh, config)
+    wanted = {item.number for body, _ in epics.values() for item in parse_epic_items(body, repository, config).items}
     links = fetch_links(wanted, repository, gh)
     failed = False
     for epic in sorted(epics):
         print(f"#{epic}:")
-        failed |= sync_epic_checklist(epic, epics[epic][0], repository, dry_run=dry_run, gh=gh, links=links)
+        failed |= sync_epic_checklist(
+            epic, epics[epic][0], repository, dry_run=dry_run, gh=gh, links=links, config=config
+        )
     return 1 if failed else 0
 
 
-def sync_parent_checklist(issue: int, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
+def sync_parent_checklist(
+    issue: int, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh, config: Config = DEFAULT
+) -> int:
     """Usado pelo workflow ao fechar ou reabrir ``issue``: reconcilia o epic pai nativo, se houver."""
     links = fetch_links([issue], repository, gh).get(issue)
     parent = links.parent if links else None
     if not isinstance(parent, int):
         print(f"#{issue} não é sub-issue de um epic deste repositório; nada a fazer.")
         return 0
-    return sync_checklist([parent], repository, dry_run=dry_run, gh=gh)
+    return sync_checklist([parent], repository, dry_run=dry_run, gh=gh, config=config)
 
 
 CLOSE_EPIC_DEPTH = 10  # epics dentro de epics; o limite só evita ciclo de parents
@@ -566,7 +883,9 @@ def epic_summary(children: Sequence[IssueLinks]) -> tuple[str, str]:
     return reason, comment
 
 
-def close_completed_parents(issue: int, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
+def close_completed_parents(
+    issue: int, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh, config: Config = DEFAULT
+) -> int:
     """Fecha o epic pai de ``issue`` quando todas as sub-issues nativas dele estão fechadas.
 
     Sobe a cadeia: um fechamento feito com o token do workflow não dispara outro evento
@@ -580,8 +899,8 @@ def close_completed_parents(issue: int, repository: str, *, dry_run: bool, gh: G
             print(f"#{current} não é sub-issue de um epic deste repositório; nada a fechar.")
             return 0
         open_, labels = _issue_state(parent, repository, gh)
-        if "epic" not in labels:
-            print(f"#{parent} não tem o label epic; não é fechado automaticamente.")
+        if config.epic_label not in labels:
+            print(f"#{parent} não tem o label {config.epic_label}; não é fechado automaticamente.")
             return 0
         if not open_:
             print(f"#{parent} já está fechado.")
@@ -613,16 +932,25 @@ def close_completed_parents(issue: int, repository: str, *, dry_run: bool, gh: G
             return 1
         print(f"#{parent} fechado como {reason}.")
         grandparent = epic.parent if epic else None
-        if isinstance(grandparent, int) and sync_checklist([grandparent], repository, dry_run=False, gh=gh):
+        if isinstance(grandparent, int) and sync_checklist(
+            [grandparent], repository, dry_run=False, gh=gh, config=config
+        ):
             return 1
         current = parent
     print(f"ERRO: a cadeia de epics acima de #{issue} passa de {CLOSE_EPIC_DEPTH} níveis.")
     return 1
 
 
-def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool, gh: GhRunner = _run_gh) -> int:
-    epics = _fetch_epics(selection, repository, gh)
-    plans = {epic: parse_epic_items(body, repository) for epic, (body, _) in epics.items()}
+def sync_epic(
+    selection: Sequence[int] | None,
+    repository: str,
+    *,
+    dry_run: bool,
+    gh: GhRunner = _run_gh,
+    config: Config = DEFAULT,
+) -> int:
+    epics = _fetch_epics(selection, repository, gh, config)
+    plans = {epic: parse_epic_items(body, repository, config) for epic, (body, _) in epics.items()}
     shared = shared_items(plans)
     wanted = set(epics)
     for plan in plans.values():
@@ -635,8 +963,8 @@ def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool
     for epic in sorted(epics):
         plan = plans[epic]
         operations, problems = plan_epic(epic, plan, links, skip=shared)
-        if "epic" not in epics[epic][1]:
-            problems.insert(0, f"#{epic} não tem o label epic")
+        if config.epic_label not in epics[epic][1]:
+            problems.insert(0, f"#{epic} não tem o label {config.epic_label}")
         problems.extend(
             f"#{number} está em mais de um epic ({', '.join(f'#{e}' for e in owners)}); vincule à mão"
             for number, owners in shared.items()
@@ -655,7 +983,7 @@ def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool
             else:
                 print(f"  ok {operation.describe()}")
         body = epics[epic][0]
-        failed |= sync_epic_checklist(epic, body, repository, dry_run=dry_run, gh=gh, links=links)
+        failed |= sync_epic_checklist(epic, body, repository, dry_run=dry_run, gh=gh, links=links, config=config)
         for problem in problems:
             print(f"  divergência: {problem}")
         failed = failed or bool(problems)
@@ -674,20 +1002,31 @@ SYNC_CHECKLIST_USAGE = "sync-checklist (N [N...] | --all | --parent-of N) [--dry
 CLOSE_EPIC_USAGE = "close-epic --parent-of N [--dry-run]"
 
 
-def _close_epic_command(args: Sequence[str]) -> int:
+def _config_or_exit(root: Path | None = None) -> Config | None:
+    try:
+        return load(root)
+    except ConfigError as exc:
+        print(f"configuração inválida: {exc}", file=sys.stderr)
+        return None
+
+
+def _close_epic_command(args: Sequence[str], loader: Callable[[], Config | None]) -> int:
     rest = [arg for arg in args if arg != "--dry-run"]
     if len(rest) != 2 or rest[0] != "--parent-of" or not rest[1].lstrip("#").isdigit():
         print(f"uso: github_issues.py {CLOSE_EPIC_USAGE}", file=sys.stderr)
         return 2
+    config = loader()
+    if config is None:
+        return 1
     try:
         repository = os.environ.get("GITHUB_REPOSITORY") or _current_repository()
-        return close_completed_parents(int(rest[1].lstrip("#")), repository, dry_run="--dry-run" in args)
+        return close_completed_parents(int(rest[1].lstrip("#")), repository, dry_run="--dry-run" in args, config=config)
     except RuntimeError as exc:
         print(f"close-epic: {exc}", file=sys.stderr)
         return 1
 
 
-def _sync_command(name: str, args: Sequence[str]) -> int:
+def _sync_command(name: str, args: Sequence[str], loader: Callable[[], Config | None]) -> int:
     usage = SYNC_EPIC_USAGE if name == "sync-epic" else SYNC_CHECKLIST_USAGE
     dry_run = "--dry-run" in args
     everything = "--all" in args
@@ -701,13 +1040,16 @@ def _sync_command(name: str, args: Sequence[str]) -> int:
         print(f"uso: github_issues.py {usage}", file=sys.stderr)
         return 2
     selection = None if everything else [int(n) for n in numbers]
+    config = loader()
+    if config is None:
+        return 1
     try:
         repository = os.environ.get("GITHUB_REPOSITORY") or _current_repository()
         if name == "sync-epic":
-            return sync_epic(selection, repository, dry_run=dry_run)
+            return sync_epic(selection, repository, dry_run=dry_run, config=config)
         if parent_of:
-            return sync_parent_checklist(int(numbers[0]), repository, dry_run=dry_run)
-        return sync_checklist(selection, repository, dry_run=dry_run)
+            return sync_parent_checklist(int(numbers[0]), repository, dry_run=dry_run, config=config)
+        return sync_checklist(selection, repository, dry_run=dry_run, config=config)
     except RuntimeError as exc:
         print(f"{name}: {exc}", file=sys.stderr)
         return 1
@@ -719,20 +1061,39 @@ def main(argv: Sequence[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["commit-msg"] and len(args) == 2:
-        return commit_msg(Path(args[1]))
-    if args == ["check-pr"]:
-        return check_pr()
-    if args == ["sync-labels"]:
-        return sync_labels()
-    if args[:1] in (["sync-epic"], ["sync-checklist"]):
-        return _sync_command(args[0], args[1:])
-    if args[:1] == ["close-epic"]:
-        return _close_epic_command(args[1:])
-    usage = (
-        f"commit-msg ARQUIVO | check-pr | sync-labels | {SYNC_EPIC_USAGE} | {SYNC_CHECKLIST_USAGE} | {CLOSE_EPIC_USAGE}"
-    )
-    print(f"uso: github_issues.py {usage}", file=sys.stderr)
-    return 2
+        return commit_msg(Path(args[1]))  # As regras de referência não dependem da configuração.
+    known = {"check-pr", "pr-merged", "sync-labels", "sync-epic", "sync-checklist", "close-epic", "start"}
+    if not args or args[0] not in known:
+        usage = (
+            f"commit-msg ARQUIVO | start N | check-pr | pr-merged | sync-labels | {SYNC_EPIC_USAGE} | "
+            f"{SYNC_CHECKLIST_USAGE} | {CLOSE_EPIC_USAGE}"
+        )
+        print(f"uso: github_issues.py {usage}", file=sys.stderr)
+        return 2
+    if args[0] in ("sync-epic", "sync-checklist"):
+        return _sync_command(args[0], args[1:], _config_or_exit)
+    if args[0] == "close-epic":
+        return _close_epic_command(args[1:], _config_or_exit)
+    if args[0] == "start" and (len(args) != 2 or not args[1].lstrip("#").isdigit()):
+        print("uso: github_issues.py start N", file=sys.stderr)
+        return 2
+    if args[0] in ("check-pr", "pr-merged", "sync-labels") and len(args) != 1:
+        print(f"uso: github_issues.py {args[0]}", file=sys.stderr)
+        return 2
+    config = _config_or_exit()
+    if config is None:
+        return 1
+    if args[0] == "check-pr":
+        return check_pr(config)
+    if args[0] == "pr-merged":
+        number = os.environ.get("PR_NUMBER", "")
+        if not number.isdigit():
+            print("pr-merged: PR_NUMBER ausente.", file=sys.stderr)
+            return 2
+        return pr_merged(int(number), os.environ.get("GITHUB_REPOSITORY") or _current_repository(), config)
+    if args[0] == "sync-labels":
+        return sync_labels(config)
+    return start(int(args[1].lstrip("#")), config)
 
 
 if __name__ == "__main__":

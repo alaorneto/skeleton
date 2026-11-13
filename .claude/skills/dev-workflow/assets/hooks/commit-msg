@@ -1,0 +1,15 @@
+#!/bin/sh
+# dev-workflow commit-msg: every commit references a GitHub issue (Refs #N), or the branch
+# <type>/<N>-<slug> adds it. Installed by bootstrap.py init; never bypass it with --no-verify.
+root=$(git rev-parse --show-toplevel) || exit 1
+script="$root/{{SKILL_DIR}}/scripts/github_issues.py"
+for python in python3 python; do
+  if command -v "$python" >/dev/null 2>&1 && "$python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+    exec "$python" "$script" commit-msg "$1"
+  fi
+done
+if command -v py >/dev/null 2>&1; then
+  exec py -3 "$script" commit-msg "$1"
+fi
+echo "dev-workflow commit-msg: Python 3.11+ is required to check the issue reference." >&2
+exit 1

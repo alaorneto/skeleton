@@ -1,0 +1,58 @@
+name: Verificação do PR
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-check:
+    name: Verificação do PR
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # Token só de leitura: este job pode rodar o código do PR, como qualquer CI.
+      - uses: actions/checkout@v7
+      - name: Conferir issue, seções, título e classificação de versão
+        # Título, corpo, autor, labels e branch entram por variável de ambiente, nunca interpolados no script.
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 {{SKILL_DIR}}/scripts/github_issues.py check-pr
+
+  version-preview:
+    name: Prévia da versão
+    # Escreve um comentário: só o código da branch base roda aqui, e PRs de forks não têm escrita.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+      - name: Calcular a versão que o merge publicaria
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          script="{{SKILL_DIR}}/scripts/release.py"
+          if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; sem prévia."; exit 0; fi
+          python3 "$script" preview --pr "$PR_NUMBER" --comment

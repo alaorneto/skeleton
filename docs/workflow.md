@@ -47,12 +47,12 @@ Uma seção sem conteúdo leva "Não se aplica — motivo". Ela não é removida
 
 O vínculo oficial entre um epic e suas filhas é o relacionamento nativo de **sub-issue** do GitHub, e as dependências entre issues são relações **"blocked by"** nativas. Assim, o epic mostra o progresso sozinho, a filha mostra o parent no painel lateral e o vínculo pode ser conferido pela API. O texto também continua no corpo das issues, como resumo para quem lê: a seção "Itens" do epic tem a lista ordenada `- [ ] #N título — depende de #M | independente`, e cada filha diz `Parte de #E`.
 
-`tools/workflow/github_issues.py sync-epic` reconcilia esse texto com o GitHub:
+`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` reconcilia esse texto com o GitHub:
 
 ```sh
-python3 tools/workflow/github_issues.py sync-epic 112 --dry-run   # mostra o que faria
-python3 tools/workflow/github_issues.py sync-epic 112             # cria os vínculos que faltam
-python3 tools/workflow/github_issues.py sync-epic --all           # todos os issues com o label epic
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic 112 --dry-run   # mostra o que faria
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic 112             # cria os vínculos que faltam
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic --all           # todos os issues com o label epic
 ```
 
 O comando:
@@ -66,8 +66,8 @@ O comando:
 O `sync-epic` também acerta as caixas da seção "Itens". No dia a dia, quem faz isso é o workflow [epic-checklist](../.github/workflows/epic-checklist.yml): quando uma issue fecha (por merge de PR com `Closes` ou à mão, como concluída ou dispensada), ele marca `[x]` no item dela no epic pai nativo, e quando ela é reaberta, volta a `[ ]`. Não marque as caixas à mão. Cada execução reconcilia o epic inteiro com o estado atual das filhas e relê o corpo depois de gravar, então filhas do mesmo epic fechadas ao mesmo tempo convergem. Quando o epic também é sub-issue (como o #112 do #95), o fechamento dele atualiza o epic de cima. Para reconciliar à mão, sem criar vínculos:
 
 ```sh
-python3 tools/workflow/github_issues.py sync-checklist 112 --dry-run
-python3 tools/workflow/github_issues.py sync-checklist --all
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-checklist 112 --dry-run
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-checklist --all
 ```
 
 Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fecha o epic (`close-epic`), com um comentário que lista cada filha e se foi concluída ou dispensada. O epic fecha como concluído se ao menos uma filha foi concluída, e como `not planned` se todas foram dispensadas. A fonte de verdade são as sub-issues nativas, que o GitHub usa no progresso, não a lista em "Itens". Nada é fechado quando:
@@ -79,39 +79,69 @@ Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fech
 Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`. Por isso, ao fechar um epic que também é sub-issue (como o #112 do #95), o mesmo run atualiza as caixas do epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic: ele pode ter sido fechado à mão por outro motivo, então reabra-o à mão se for o caso. A seção "Critérios de conclusão" do epic não é verificada; o comentário pede para reabrir o epic se algum critério faltar. Para conferir sem fechar:
 
 ```sh
-python3 tools/workflow/github_issues.py close-epic --parent-of 101 --dry-run
+python3 .claude/skills/dev-workflow/scripts/github_issues.py close-epic --parent-of 101 --dry-run
 ```
 
 O workflow só existe depois do merge na `main`, porque eventos de issue usam a versão do workflow da branch padrão.
 
 Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
 
+## Verificação do PR e fechamento
+
+O check "Verificação do PR" recusa o PR sem issue vinculada com exatamente um label de tipo, com uma seção obrigatória (`Issues`, `Resumo`, `Versão`, `Testes executados`, `Documentação`) vazia ou só com o texto do modelo, com título fora de Conventional Commits ou com um `semver:*` sem o label `release`, sem `Motivo: ...` ou repetido. Ele avisa, sem recusar, sobre critério de aceite não marcado na issue fechada, seção do modelo faltando na issue e tipo do título diferente do tipo da issue. PRs do Dependabot e o PR de release ficam isentos. Um segundo job comenta no PR, num comentário único e atualizado, a versão que o merge publicaria.
+
+Ao mesclar, o workflow "Evidências no merge" comenta em cada issue fechada pelo PR os commits, o PR, os testes executados, a documentação, os critérios pendentes e a situação da versão, uma única vez mesmo com reexecução. Mudança de escopo durante o trabalho atualiza o corpo da issue e é registrada com o modelo de comentário de mudança de escopo do skill.
+
+## Versão e release
+
+A versão do projeto segue o versionamento semântico e é decidida por ferramenta, nunca editada à mão ([referência](../.claude/skills/dev-workflow/references/versioning.md)). A fonte única é a última tag de versão alcançável; os arquivos declarados em `versioning.files` são projeções reescritas a cada release. Só o label `release` faz um merge publicar versão: PRs sem ele se acumulam e entram, todos, na análise do próximo que tiver o label. O nível é o maior entre os sinais (labels de tipo das issues, Conventional Commits, marcador de breaking, superfícies públicas, pisos de versão no código e a análise por agente registrada no PR), e um label `semver:*` com motivo sobrepõe o cálculo. Em 0.x, uma quebra sobe o minor, e 1.0.0 só sai por decisão explícita (`semver:major`).
+
+Neste repositório, a versão do projeto é a do core (`django-skeleton`): o agente de deployment (`deployment_agent/pyproject.toml`, inclusive o pino `django-skeleton==`) e as apps first-party (manifesto e faixa recomendada da agenda) seguem o mesmo número, todos declarados em `.github/dev-workflow.toml`. Os pisos de core (`SERVICE_API_CORE_MINIMUM`, `MANIFEST_V2_CORE_MINIMUM`, `FIELD_DIMENSIONS_CORE_MINIMUM`, a faixa do manifesto do exemplo e os `since=` dos serviços) são pisos de funcionalidade: não acompanham o bump, e `release.py check` só confere que nenhum é maior que a versão publicada. Um piso novo acima da versão corrente é sinal de que a próxima versão precisa alcançá-lo.
+
+O workflow de release roda depois do merge, nunca no PR, para dois PRs simultâneos não disputarem o mesmo número. Ele escreve a versão, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release e marca os PRs e issues incluídos (comentário e milestone). É idempotente: reexecutar depois de concluir não faz nada, e depois de uma falha parcial conclui o que faltou. Há modo direto e modo por PR de release, pré-release (`--prerelease rc`), branch de manutenção `maint/X.Y` e reversão documentada.
+
 ## Mecanismos
 
 | Camada | Arquivo | O que garante |
 |---|---|---|
 | Norma | `AGENTS.md` | Regras lidas por qualquer agente e pessoa |
-| Procedimento | `.claude/skills/issue-workflow/` | Passo a passo do agente e modelos de issue, PR e fechamento |
-| Hook do Claude Code | `.claude/settings.json`, `.claude/hooks/issue-workflow.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
-| Git | `.pre-commit-config.yaml`, `tools/workflow/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
-| Epics | `tools/workflow/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
+| Procedimento | `.claude/skills/dev-workflow/` | Skill portátil: passo a passo do agente, modelos de issue, PR e fechamento, scripts e modelos de workflow ([mecanismos](../.claude/skills/dev-workflow/references/mechanisms.md)) |
+| Configuração | `.github/dev-workflow.toml` | Labels de tipo, seções, branch padrão e regras de PR deste repositório; os scripts recusam chave inválida ([configuração](../.claude/skills/dev-workflow/references/configuration.md)) |
+| Hook do Claude Code | `.claude/settings.json`, `.claude/skills/dev-workflow/scripts/claude_hook.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
+| Git | `.pre-commit-config.yaml`, `.claude/skills/dev-workflow/scripts/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
+| Branch | `.claude/skills/dev-workflow/scripts/github_issues.py start N` | Cria `<tipo>/<N>-<slug>` a partir da issue e de `origin/main` |
+| Epics | `.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
 | Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
 | Fechamento do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py close-epic` | Ao fechar a última sub-issue aberta, fecha o epic com comentário-resumo e sobe para o epic de cima |
-| CI | `.github/workflows/issue-link.yml` | O PR precisa citar uma issue existente deste repositório com exatamente um label de tipo. PRs do Dependabot ficam isentos |
+| PR | `.github/workflows/pr-check.yml` | "Verificação do PR": issue classificada, seções do PR, título e classificação de versão; avisos de critérios pendentes. Um segundo job comenta a prévia da versão. PRs do Dependabot e o PR de release ficam isentos |
+| Merge | `.github/workflows/pr-merged.yml` | Comentário de evidências em cada issue fechada pelo PR, uma vez |
+| Release | `.github/workflows/release.yml`, `release.py run` | No push da `main` (ou de `maint/**`), versiona se o PR mesclado tem o label `release`: arquivos, `CHANGELOG.md`, tag, GitHub Release e marcação |
+| Análise de versão | `.github/workflows/semver-analysis.yml` | Opcional: com o segredo `ANTHROPIC_API_KEY`, um agente registra no PR rotulado `release` o nível que o diff exige |
+| Autoteste | `.github/workflows/dev-workflow-selftest.yml` | A suíte do skill em Linux, Windows e macOS e `release.py check` |
 | Locks do Dependabot | `.github/workflows/dependabot-locks.yml`, `tools/workflow/dependabot_locks.py` | Regenera com uv os locks dos PRs de pip do Dependabot e commita no branch do PR, com `Refs #140`. Ver [testes](testing.md#locks-dos-prs-do-dependabot) |
 | GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
 
-O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "PR vinculado a issue classificada" como check obrigatório na proteção da branch `main`.
+O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona `.github/dev-workflow.toml` ou o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "Verificação do PR" como check obrigatório na proteção da branch `main`.
+
+## Passos únicos do responsável
+
+A ferramenta não cria tag, release nem proteção de branch por conta própria. Uma vez:
+
+1. Tag de base: `py -3 .claude/skills/dev-workflow/scripts/release.py baseline 0.5.0` e `git push origin v0.5.0`. Sem ela, nada é versionado (`bootstrap.py doctor` mostra a pendência).
+2. Permissões do Actions: "Read and write permissions" para o `GITHUB_TOKEN` (o release grava commit, tag e release).
+3. Proteção da `main`: marque "Verificação do PR" como obrigatório. Se a `main` exigir PR para todo push, o commit de release é recusado: use `versioning.mode = "pr"` ou um token com bypass num segredo.
+4. Opcional: o segredo `ANTHROPIC_API_KEY`, para a análise de versão por agente.
 
 ## Preparação de um checkout
 
 ```sh
 uv tool install pre-commit
 pre-commit install            # instala os hooks pre-commit e commit-msg
-python3 tools/workflow/github_issues.py sync-labels   # Windows: py -3 tools/workflow/github_issues.py sync-labels
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-labels   # Windows: py -3 .claude/skills/dev-workflow/scripts/github_issues.py sync-labels
+python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor  # confere configuração, modelos, workflows, hook e labels
 ```
 
-`sync-labels` é idempotente e só precisa rodar de novo quando a lista de labels mudar. Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/hooks` aponta para o Python que o instalou, e o ambiente efêmero do `uvx` pode ser removido do cache. Os hooks do Claude Code exigem `node` no `PATH`.
+`sync-labels` é idempotente e só precisa rodar de novo quando a lista de labels de `.github/dev-workflow.toml` mudar. O skill tem testes próprios, em `unittest`, que viajam com ele: `py -3 -m unittest discover -s .claude/skills/dev-workflow/tests -t .claude/skills/dev-workflow`. Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/hooks` aponta para o Python que o instalou, e o ambiente efêmero do `uvx` pode ser removido do cache. Os hooks do Claude Code exigem `node` no `PATH`.
 
 ## Exceções
 
