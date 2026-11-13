@@ -214,6 +214,10 @@ Todas as organizações usam a mesma versão de código por deployment. Reinstal
 
 Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`; a agenda é a primeira). Elas seguem o mesmo ciclo de qualquer app, mas não chegam por `.skapp`: o operador as instala por nome com `SKELETON_BUNDLED_APPS`, e retirá-las preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
 
+### Produto, preço, assinatura e fatura
+
+Quando a plataforma é vendida como SaaS ([cobrança](billing.md)), a **conta de cobrança** é a organização. Um **produto** é o que se vende (plano base, app ou pacote de armazenamento) e um **preço** é uma oferta dele numa moeda e num ciclo; os termos de um preço nunca mudam, e quem já assinou mantém o preço antigo. A **assinatura** é o contrato recorrente da organização, e cada **item** dela é um preço contratado. A **fatura** é o valor devido num período, com número e valores imutáveis depois de emitida; o **pagamento** é uma tentativa de quitá-la. Disponível ≠ contratado: com a cobrança ligada, uma app paga só fica disponível para a organização que tem o direito a ela.
+
 ### Release, preparação e troca
 
 **Deployment** é a instalação operacional que atende usuários. Um **release** é um conjunto preparado de core, apps, ambiente e recursos. **Staging** é sua preparação em diretório ou imagem separado do conjunto ativo.

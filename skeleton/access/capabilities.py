@@ -34,6 +34,9 @@ IDENTITY_CONFIGURE = "identity.configure"
 INTEGRATIONS_MANAGE = "integrations.manage"
 # Operating process flows (#407): everything the administrator does in flows, nothing else.
 FLOWS_MANAGE = "flows.manage"
+# The organization's billing (#404): read the subscription and invoices; contract, pay and cancel.
+BILLING_VIEW = "billing.view"
+BILLING_MANAGE = "billing.manage"
 
 CAPABILITIES: frozenset[str] = frozenset(
     {
@@ -47,6 +50,8 @@ CAPABILITIES: frozenset[str] = frozenset(
         IDENTITY_CONFIGURE,
         INTEGRATIONS_MANAGE,
         FLOWS_MANAGE,
+        BILLING_VIEW,
+        BILLING_MANAGE,
     }
 )
 

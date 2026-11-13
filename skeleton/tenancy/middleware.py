@@ -60,7 +60,8 @@ class TenantContextMiddleware:
                     with tenant_context(
                         organization_id=organization_id, actor=user if user.is_authenticated else None, source=source
                     ):
-                        response = self._handle(request)
+                        # The membership is validated: a non-member still gets the 404 below.
+                        response = limited_access_response(request, organization_id, user) or self._handle(request)
                 else:
                     response = self._handle(request)
             except PermissionDenied:
@@ -103,3 +104,58 @@ class TenantContextMiddleware:
             # Revert the tenant savepoint inside its own context before leaving it (#237).
             transaction.set_rollback(True)
         return response
+
+
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def _segment(path):
+    """The first path segment after ``/o/<id>/`` or ``/api/v1/o/<id>/``."""
+    parts = path.split("/")
+    index = 5 if path.startswith("/api/v1/o/") else 3
+    return parts[index] if len(parts) > index else ""
+
+
+def limited_access_response(request, organization_id, user):
+    """The answer for an organization whose billing standing limits access, or ``None`` (#395).
+
+    Restricted: people read but do not write. Suspended: only the exempt routes (billing),
+    for who may settle the account. Both stay reachable for that person while limited.
+    """
+    from skeleton.common.entitlements import (
+        AccessLevel,
+        exempt_segments,
+        limited_code,
+        may_use_exempt_routes,
+        organization_access,
+        writes_allowed,
+    )
+
+    level = organization_access(organization_id)
+    request.skeleton_access_level = level
+    if writes_allowed(level):
+        return None
+    if _segment(request.path_info) in exempt_segments() and may_use_exempt_routes(organization_id, user):
+        return None
+    if level is AccessLevel.RESTRICTED and request.method in SAFE_METHODS:
+        return None
+    return _limited_response(request, limited_code(level))
+
+
+def _limited_response(request, code):
+    from django.shortcuts import render
+    from django.utils.translation import gettext
+
+    if code == "organization_suspended":
+        detail = gettext(
+            "O acesso a esta organização está suspenso por pendência de pagamento. "
+            "Quem administra a cobrança da organização pode regularizá-la."
+        )
+    else:
+        detail = gettext(
+            "Esta organização está em modo somente leitura por pendência de pagamento. "
+            "Quem administra a cobrança da organização pode regularizá-la."
+        )
+    if request.path.startswith("/api/"):
+        return JsonResponse({"code": code, "detail": detail}, status=403)
+    return render(request, "skeleton/tenancy/organization_access.html", {"detail": detail, "code": code}, status=403)

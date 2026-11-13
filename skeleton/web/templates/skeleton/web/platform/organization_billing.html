@@ -1,0 +1,38 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load billing i18n %}
+{% block page_title %}{% translate "Cobrança da organização" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow"><a href="{% url 'platform:organization' organization.pk %}">{{ organization.name }}</a></p><h1>{% translate "Cobrança da organização" %}</h1><p class="page-description">{% translate "Assinatura, faturas e pagamentos. Toda ação aqui exige um motivo, guardado com o registro que ela muda." %}</p></div></div>
+{% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível concluir" %}</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+
+<section class="mb-8" aria-labelledby="account-heading"><h2 id="account-heading" class="section-heading">{% translate "Conta" %}</h2>
+{% if account %}<p class="mb-3 flex flex-wrap items-center gap-1.5"><span class="badge badge-dot">{{ account.access_state }}</span><span class="badge">{{ account.currency }}</span>{% if account.access_override_until %}<span class="badge badge-success">{% translate "prorrogada até" %} {{ account.access_override_until|date:"SHORT_DATE_FORMAT" }}</span>{% endif %}{% if account.payment_method_label %}<span class="badge">{{ account.payment_method_label }}</span>{% endif %}</p>{% else %}<p class="text-body-subtle">{% translate "A organização ainda não tem conta de cobrança." %}</p>{% endif %}
+{% if subscription %}<p class="mb-3">{% translate "Assinatura" %}: {{ subscription.status }} · {% translate "período até" %} {{ subscription.current_period_end|date:"SHORT_DATE_FORMAT" }}</p>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Item" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>{% for item in items %}<tr><td>{{ item.price.product.name }}</td><td>{{ item.price.unit_amount|money:item.price.currency }}</td><td>{{ item.status }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+<section class="mb-8" aria-labelledby="invoices-heading"><h2 id="invoices-heading" class="section-heading">{% translate "Faturas" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Número" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Vencimento" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for invoice in invoices %}<tr><td><code>{{ invoice.number }}</code></td><td>{{ invoice.total|money:invoice.currency }}</td><td class="whitespace-nowrap!">{{ invoice.due_at|date:"SHORT_DATE_FORMAT" }}</td><td>{{ invoice.status }}{% if invoice.status_note %} · {{ invoice.status_note }}{% endif %}</td>
+<td>{% if invoice.status == "open" or invoice.status == "uncollectible" %}<form method="post" class="toolbar" action="{% url 'platform:organization-billing-action' organization.pk 'paid' %}">{% csrf_token %}<input type="hidden" name="invoice" value="{{ invoice.pk }}"><label class="sr-only" for="paid-{{ invoice.pk }}">{% translate "Motivo" %}</label><input id="paid-{{ invoice.pk }}" name="reason" required placeholder="{% translate 'Motivo' %}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Baixa manual" %}</button></form>{% endif %}{% if invoice.status == "open" %}<form method="post" class="toolbar mt-2" action="{% url 'platform:organization-billing-action' organization.pk 'void' %}">{% csrf_token %}<input type="hidden" name="invoice" value="{{ invoice.pk }}"><label class="sr-only" for="void-{{ invoice.pk }}">{% translate "Motivo" %}</label><input id="void-{{ invoice.pk }}" name="reason" required placeholder="{% translate 'Motivo' %}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Anular" %}</button></form>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhuma fatura." %}</td></tr>{% endfor %}
+</tbody></table></div></section>
+
+<section class="mb-8" aria-labelledby="payments-heading"><h2 id="payments-heading" class="section-heading">{% translate "Pagamentos" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Fatura" %}</th><th scope="col">{% translate "Método" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Nota" %}</th></tr></thead><tbody>
+{% for payment in payments %}<tr><td><code>{{ payment.invoice.number }}</code></td><td>{{ payment.method }}{% if payment.provider %} · {{ payment.provider }}{% endif %}</td><td>{{ payment.amount|money:payment.currency }}</td><td>{{ payment.status }}</td><td>{{ payment.note }}</td></tr>
+{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhum pagamento." %}</td></tr>{% endfor %}
+</tbody></table></div></section>
+
+<section class="mb-8" aria-labelledby="extend-heading"><h2 id="extend-heading" class="section-heading">{% translate "Prorrogação de acesso" %}</h2>
+<form method="post" class="record-form" action="{% url 'platform:organization-billing-action' organization.pk 'extend' %}">{% csrf_token %}
+<p><label for="extend-until">{% translate "Manter ativa até (AAAA-MM-DD; vazio encerra a prorrogação)" %}</label><input id="extend-until" name="until"></p>
+<p><label for="extend-reason">{% translate "Motivo" %}</label><input id="extend-reason" name="reason" required maxlength="500"></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar prorrogação" %}</button></div></form></section>
+
+<section class="mb-8" aria-labelledby="courtesy-heading"><h2 id="courtesy-heading" class="section-heading">{% translate "Cortesia" %}</h2>
+<form method="post" class="record-form" action="{% url 'platform:organization-billing-action' organization.pk 'courtesy' %}">{% csrf_token %}
+<p><label for="courtesy-price">{% translate "Preço concedido sem custo" %}</label><select id="courtesy-price" name="price">{% for price in prices %}<option value="{{ price.pk }}">{{ price.product.code }} · {{ price.unit_amount|money:price.currency }}</option>{% endfor %}</select></p>
+<p><label for="courtesy-reason">{% translate "Motivo" %}</label><input id="courtesy-reason" name="reason" required maxlength="500"></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Conceder cortesia" %}</button></div></form></section>
+{% endblock %}

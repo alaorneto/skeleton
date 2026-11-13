@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "skeleton.transfer.apps.TransferConfig",
     "skeleton.flows.apps.FlowsConfig",
     "skeleton.comments.apps.CommentsConfig",
+    "skeleton.billing.apps.BillingConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",
@@ -193,6 +194,24 @@ SKELETON_FLOWS_FORM_RETENTION_DAYS = env.int("SKELETON_FLOWS_FORM_RETENTION_DAYS
 SKELETON_FILES_SCANNER = env("SKELETON_FILES_SCANNER", default="none")
 SKELETON_FILES_CLAMAV_ADDRESS = env("SKELETON_FILES_CLAMAV_ADDRESS", default="")
 SKELETON_FILES_SCAN = SKELETON_FILES_SCANNER != "none"
+# Subscriptions and payments of the platform sold as SaaS (#394); off: every gate allows everything.
+SKELETON_BILLING_ENABLED = env.bool("SKELETON_BILLING_ENABLED", default=False)
+# Text before the year of invoice numbers ("ACME-" gives ACME-2026-000001).
+SKELETON_BILLING_INVOICE_PREFIX = env("SKELETON_BILLING_INVOICE_PREFIX", default="")
+# Currency of a new billing account, the days to pay an invoice and whether a trial needs a payment method (#396).
+SKELETON_BILLING_DEFAULT_CURRENCY = env("SKELETON_BILLING_DEFAULT_CURRENCY", default="BRL")
+SKELETON_BILLING_PAYMENT_TERMS_DAYS = env.int("SKELETON_BILLING_PAYMENT_TERMS_DAYS", default=7)
+# Daily storage snapshots kept for the overage and the usage report (#398).
+SKELETON_BILLING_USAGE_RETENTION_DAYS = env.int("SKELETON_BILLING_USAGE_RETENTION_DAYS", default=400)
+# Dunning (#399): days overdue until read only, suspended and canceled; collection retries after the due date.
+SKELETON_BILLING_GRACE_DAYS = env.int("SKELETON_BILLING_GRACE_DAYS", default=7)
+SKELETON_BILLING_SUSPEND_AFTER_DAYS = env.int("SKELETON_BILLING_SUSPEND_AFTER_DAYS", default=30)
+SKELETON_BILLING_CANCEL_AFTER_DAYS = env.int("SKELETON_BILLING_CANCEL_AFTER_DAYS", default=60)
+SKELETON_BILLING_RETRY_SCHEDULE_DAYS = env("SKELETON_BILLING_RETRY_SCHEDULE_DAYS", default="1,3,5")
+SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS = env.int("SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS", default=3)
+SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD = env.bool(
+    "SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD", default=False
+)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_HTTPONLY = True
@@ -283,6 +302,8 @@ MFA_ENCRYPTION_KEYS = env.list("MFA_ENCRYPTION_KEYS", default=[])
 IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS", default=[])
 # Separate keyring for integration secrets (webhook signing secrets, #63); never derived from SECRET_KEY.
 INTEGRATION_ENCRYPTION_KEYS = env.list("INTEGRATION_ENCRYPTION_KEYS", default=[])
+# Separate keyring for payment provider secrets (#394, #400); never derived from SECRET_KEY.
+BILLING_ENCRYPTION_KEYS = env.list("BILLING_ENCRYPTION_KEYS", default=[])
 MFA_ADAPTER = "skeleton.accounts.adapters.EncryptedMFAAdapter"
 MFA_SUPPORTED_TYPES = ["totp", "recovery_codes"]
 MFA_ALLOW_UNVERIFIED_EMAIL = False

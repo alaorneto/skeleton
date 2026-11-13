@@ -156,6 +156,29 @@ def _timezone(value: str) -> str:
     return value
 
 
+def _currency(value: str) -> str:
+    import re
+
+    if not re.fullmatch(r"[A-Z]{3}", value):
+        raise ValueError("Use um código de moeda ISO 4217, como BRL.")
+    return value
+
+
+def _day_list(value: str) -> str:
+    items = [item.strip() for item in _text(value).split(",") if item.strip()]
+    if not items or not all(item.isdigit() and 0 < int(item) <= 365 for item in items):
+        raise ValueError("Use dias de 1 a 365 separados por vírgula, como 1,3,5.")
+    return ",".join(str(int(item)) for item in items)
+
+
+def _invoice_prefix(value: str) -> str:
+    import re
+
+    if not re.fullmatch(r"[A-Za-z0-9-]{0,16}", value):
+        raise ValueError("Use até 16 letras, dígitos ou hífen.")
+    return value
+
+
 @dataclass(frozen=True)
 class SettingSpec:
     key: str
@@ -223,6 +246,14 @@ _SPECS = (
         _fernet_keys,
         True,
     ),
+    SettingSpec(
+        "billing_encryption_keys",
+        "BILLING_ENCRYPTION_KEYS",
+        "list",
+        "Chaves de cifra dos segredos dos provedores de pagamento",
+        _fernet_keys,
+        True,
+    ),
     SettingSpec("sso_provider_config_path", "SSO_PROVIDER_CONFIG_PATH", "path", "Arquivo de provedores SSO", _text),
     SettingSpec("public_signup", "SKELETON_PUBLIC_SIGNUP", "bool", "Cadastro público aberto", _bool),
     SettingSpec("require_admin_mfa", "SKELETON_REQUIRE_ADMIN_MFA", "bool", "MFA obrigatório para administração", _bool),
@@ -245,6 +276,73 @@ _SPECS = (
         "int",
         "Dias até esvaziar os formulários de fluxos encerrados (0 mantém)",
         _int(0),
+    ),
+    SettingSpec("billing_enabled", "SKELETON_BILLING_ENABLED", "bool", "Cobrança de assinaturas ligada", _bool),
+    SettingSpec(
+        "billing_invoice_prefix",
+        "SKELETON_BILLING_INVOICE_PREFIX",
+        "str",
+        "Prefixo dos números de fatura",
+        _invoice_prefix,
+    ),
+    SettingSpec(
+        "billing_default_currency",
+        "SKELETON_BILLING_DEFAULT_CURRENCY",
+        "str",
+        "Moeda das novas contas de cobrança",
+        _currency,
+    ),
+    SettingSpec(
+        "billing_payment_terms_days",
+        "SKELETON_BILLING_PAYMENT_TERMS_DAYS",
+        "int",
+        "Dias para pagar uma fatura de renovação",
+        _int(0),
+    ),
+    SettingSpec(
+        "billing_usage_retention_days",
+        "SKELETON_BILLING_USAGE_RETENTION_DAYS",
+        "int",
+        "Dias de histórico diário de armazenamento",
+        _int(31),
+    ),
+    SettingSpec(
+        "billing_grace_days", "SKELETON_BILLING_GRACE_DAYS", "int", "Dias de atraso até somente leitura", _int(0)
+    ),
+    SettingSpec(
+        "billing_suspend_after_days",
+        "SKELETON_BILLING_SUSPEND_AFTER_DAYS",
+        "int",
+        "Dias de atraso até a suspensão",
+        _int(0),
+    ),
+    SettingSpec(
+        "billing_cancel_after_days",
+        "SKELETON_BILLING_CANCEL_AFTER_DAYS",
+        "int",
+        "Dias de atraso até o cancelamento",
+        _int(1),
+    ),
+    SettingSpec(
+        "billing_retry_schedule_days",
+        "SKELETON_BILLING_RETRY_SCHEDULE_DAYS",
+        "str",
+        "Dias após o vencimento das novas tentativas de cobrança",
+        _day_list,
+    ),
+    SettingSpec(
+        "billing_pending_payment_hold_days",
+        "SKELETON_BILLING_PENDING_PAYMENT_HOLD_DAYS",
+        "int",
+        "Dias em que um pagamento pendente segura o bloqueio",
+        _int(0),
+    ),
+    SettingSpec(
+        "billing_trial_requires_payment_method",
+        "SKELETON_BILLING_TRIAL_REQUIRES_PAYMENT_METHOD",
+        "bool",
+        "Trial só com meio de pagamento cadastrado",
+        _bool,
     ),
     SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
     SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),

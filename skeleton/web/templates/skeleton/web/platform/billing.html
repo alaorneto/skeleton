@@ -1,0 +1,82 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load billing i18n %}
+{% block page_title %}{% translate "Cobrança" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Cobrança" %}</h1><p class="page-description">{% translate "Produtos, preços, vouchers e contas de provedor de pagamento. Os termos de um preço nunca mudam: para mudar o valor, crie outro preço e desative o antigo." %}</p></div></div>
+{% if error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível salvar" %}</h2><p class="mt-1">{{ error }}</p></div>{% endif %}
+
+<section class="mb-8" aria-labelledby="products-heading"><h2 id="products-heading" class="section-heading">{% translate "Produtos" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "App" %}</th></tr></thead><tbody>
+{% for product in products %}<tr><td><code>{{ product.code }}</code></td><td>{{ product.name }}</td><td>{{ product.kind }}</td><td>{{ product.app_label }}</td></tr>{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum produto." %}</td></tr>{% endfor %}
+</tbody></table></div>
+<form method="post" class="record-form mt-4" action="{% url 'platform:billing-product' %}">{% csrf_token %}
+<p><label for="product-code">{% translate "Código" %}</label><input id="product-code" name="code" required maxlength="64"></p>
+<p><label for="product-name">{% translate "Nome" %}</label><input id="product-name" name="name" required maxlength="200"></p>
+<p><label for="product-kind">{% translate "Tipo" %}</label><select id="product-kind" name="kind"><option value="base_plan">{% translate "Plano base" %}</option><option value="app">{% translate "App" %}</option><option value="storage_pack">{% translate "Pacote de armazenamento" %}</option></select></p>
+<p><label for="product-app">{% translate "App vendida (só para o tipo App)" %}</label><input id="product-app" name="app_label" maxlength="100"></p>
+<p><label><input type="checkbox" name="is_public" checked> {% translate "Visível para as organizações" %}</label></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar produto" %}</button></div></form></section>
+
+<section class="mb-8" aria-labelledby="prices-heading"><h2 id="prices-heading" class="section-heading">{% translate "Preços" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Produto" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Ciclo" %}</th><th scope="col">{% translate "Trial" %}</th><th scope="col">{% translate "Armazenamento" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+{% for price in prices %}<tr><td><code>{{ price.product.code }}</code></td><td>{{ price.unit_amount|money:price.currency }}</td><td>{{ price.interval_count }} × {{ price.interval }}</td><td>{{ price.trial_days }}</td><td>{{ price.included_storage_bytes|gigabytes }} GB · {{ price.storage_overage }}</td>
+<td><form method="post" class="toolbar" action="{% url 'platform:billing-price-flags' price.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ price.revision }}"><label><input type="checkbox" name="is_active"{% if price.is_active %} checked{% endif %}> {% translate "ativo" %}</label><label><input type="checkbox" name="is_default"{% if price.is_default %} checked{% endif %}> {% translate "padrão" %}</label><button type="submit" class="btn btn-secondary btn-sm">{% translate "Salvar" %}</button></form></td></tr>
+{% empty %}<tr><td colspan="6" class="empty-state">{% translate "Nenhum preço." %}</td></tr>{% endfor %}
+</tbody></table></div>
+<form method="post" class="record-form mt-4" action="{% url 'platform:billing-price' %}">{% csrf_token %}
+<p><label for="price-product">{% translate "Produto" %}</label><select id="price-product" name="product">{% for product in products %}<option value="{{ product.pk }}">{{ product.code }}</option>{% endfor %}</select></p>
+<p><label for="price-currency">{% translate "Moeda (ISO 4217)" %}</label><input id="price-currency" name="currency" value="BRL" maxlength="3" required></p>
+<p><label for="price-amount">{% translate "Valor (decimal, como 49.90)" %}</label><input id="price-amount" name="amount" required></p>
+<p><label for="price-interval">{% translate "Ciclo" %}</label><select id="price-interval" name="interval"><option value="month">{% translate "Mês" %}</option><option value="year">{% translate "Ano" %}</option></select></p>
+<p><label for="price-count">{% translate "Ciclos por período" %}</label><input id="price-count" name="interval_count" value="1"></p>
+<p><label for="price-trial">{% translate "Dias de trial" %}</label><input id="price-trial" name="trial_days" value="0"></p>
+<p><label for="price-storage">{% translate "Armazenamento incluído (GB)" %}</label><input id="price-storage" name="included_storage_gb" value="0"></p>
+<p><label for="price-apps">{% translate "Apps incluídas (JSON, só plano base)" %}</label><input id="price-apps" name="included_apps" placeholder='["notes"]'></p>
+<p><label for="price-limits">{% translate "Limites (JSON)" %}</label><input id="price-limits" name="limits" placeholder='{"members": 10}'></p>
+<p><label for="price-overage">{% translate "Acima da franquia" %}</label><select id="price-overage" name="storage_overage"><option value="block">{% translate "Bloquear" %}</option><option value="bill">{% translate "Cobrar o excedente" %}</option></select></p>
+<p><label for="price-unit-gb">{% translate "Bloco de excedente (GB)" %}</label><input id="price-unit-gb" name="overage_unit_gb"></p>
+<p><label for="price-unit-amount">{% translate "Valor do bloco (decimal)" %}</label><input id="price-unit-amount" name="overage_unit_amount"></p>
+<p><label for="price-cap">{% translate "Teto de armazenamento (GB, vazio é ilimitado)" %}</label><input id="price-cap" name="overage_hard_cap_gb"></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar preço" %}</button></div></form></section>
+
+<section class="mb-8" aria-labelledby="vouchers-heading"><h2 id="vouchers-heading" class="section-heading">{% translate "Vouchers" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Usos" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+{% for voucher in vouchers %}<tr><td><code>{{ voucher.code }}</code></td><td>{{ voucher.kind }} · {{ voucher.duration }}</td><td>{{ voucher.value }}{% if voucher.currency %} {{ voucher.currency }}{% endif %}</td><td>{{ voucher.redemption_count }}{% if voucher.max_redemptions %} / {{ voucher.max_redemptions }}{% endif %}</td>
+<td><form method="post" action="{% url 'platform:billing-voucher-toggle' voucher.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ voucher.revision }}">{% if voucher.is_active %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Desativar" %}</button>{% else %}<input type="hidden" name="active" value="on"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Ativar" %}</button>{% endif %}</form></td></tr>
+{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhum voucher." %}</td></tr>{% endfor %}
+</tbody></table></div>
+<form method="post" class="record-form mt-4" action="{% url 'platform:billing-voucher' %}">{% csrf_token %}
+<p><label for="voucher-code-new">{% translate "Código" %}</label><input id="voucher-code-new" name="code" required maxlength="40"></p>
+<p><label for="voucher-kind">{% translate "Tipo" %}</label><select id="voucher-kind" name="kind"><option value="percent">{% translate "Percentual" %}</option><option value="fixed">{% translate "Valor fixo" %}</option><option value="free_cycles">{% translate "Ciclos grátis" %}</option><option value="trial_extension">{% translate "Extensão do trial (dias)" %}</option></select></p>
+<p><label for="voucher-value">{% translate "Valor (%, decimal da moeda ou dias)" %}</label><input id="voucher-value" name="value"></p>
+<p><label for="voucher-currency">{% translate "Moeda (valor fixo)" %}</label><input id="voucher-currency" name="currency" maxlength="3"></p>
+<p><label for="voucher-duration">{% translate "Duração" %}</label><select id="voucher-duration" name="duration"><option value="once">{% translate "Uma renovação" %}</option><option value="repeating">{% translate "Algumas renovações" %}</option><option value="forever">{% translate "Sempre" %}</option></select></p>
+<p><label for="voucher-cycles">{% translate "Renovações cobertas" %}</label><input id="voucher-cycles" name="duration_cycles"></p>
+<p><label for="voucher-applies">{% translate "Produtos (códigos separados por vírgula; vazio é todos)" %}</label><input id="voucher-applies" name="applies_to"></p>
+<p><label for="voucher-max">{% translate "Máximo de usos" %}</label><input id="voucher-max" name="max_redemptions"></p>
+<p><label for="voucher-until">{% translate "Válido até (AAAA-MM-DD)" %}</label><input id="voucher-until" name="valid_until"></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar voucher" %}</button></div></form></section>
+
+<section class="mb-8" aria-labelledby="providers-heading"><h2 id="providers-heading" class="section-heading">{% translate "Contas de provedor" %}</h2>
+<p class="mb-3 text-body-subtle">{% translate "Os segredos nunca são exibidos; deixar o campo vazio mantém o atual. Salvar exige autenticação recente." %}</p>
+{% for account, webhook in accounts %}<form method="post" class="record-form mb-4" action="{% url 'platform:billing-provider' account.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ account.revision }}">
+<h3 class="text-base">{{ account.label }} · <code>{{ account.provider }}</code></h3>
+<p class="text-sm/6 text-body-subtle">{% translate "Webhook" %}: <code>{{ webhook }}</code></p>
+<p><label>{% translate "Nome" %} <input name="label" value="{{ account.label }}" required></label></p>
+<p><label>{% translate "Modo" %} <select name="mode"><option value="test"{% if account.mode == "test" %} selected{% endif %}>{% translate "Teste" %}</option><option value="live"{% if account.mode == "live" %} selected{% endif %}>{% translate "Produção" %}</option></select></label></p>
+<p><label>{% translate "Moedas (vazio é todas)" %} <input name="currencies" value="{{ account.currencies|join:',' }}"></label></p>
+<p><label>{% translate "Nova chave da API" %} <input type="password" name="api_key" autocomplete="new-password"></label></p>
+<p><label>{% translate "Novo segredo do webhook" %} <input type="password" name="webhook_secret" autocomplete="new-password"></label></p>
+<p><label><input type="checkbox" name="enabled"{% if account.enabled %} checked{% endif %}> {% translate "Habilitada" %}</label> <label><input type="checkbox" name="is_default"{% if account.is_default %} checked{% endif %}> {% translate "Padrão" %}</label></p>
+<div class="form-actions"><button type="submit" class="btn btn-secondary">{% translate "Salvar conta" %}</button></div></form>{% endfor %}
+<form method="post" class="record-form" action="{% url 'platform:billing-provider-create' %}">{% csrf_token %}
+<h3 class="text-base">{% translate "Nova conta de provedor" %}</h3>
+<p><label>{% translate "Provedor" %} <select name="provider">{% for provider in providers %}<option value="{{ provider.code }}">{{ provider.label }}</option>{% endfor %}</select></label></p>
+<p><label>{% translate "Nome" %} <input name="label" required></label></p>
+<p><label>{% translate "Modo" %} <select name="mode"><option value="test">{% translate "Teste" %}</option><option value="live">{% translate "Produção" %}</option></select></label></p>
+<p><label>{% translate "Moedas (vazio é todas)" %} <input name="currencies"></label></p>
+<p><label>{% translate "Chave da API" %} <input type="password" name="api_key" autocomplete="new-password" required></label></p>
+<p><label>{% translate "Segredo do webhook" %} <input type="password" name="webhook_secret" autocomplete="new-password" required></label></p>
+<p><label><input type="checkbox" name="enabled" checked> {% translate "Habilitada" %}</label> <label><input type="checkbox" name="is_default"> {% translate "Padrão" %}</label></p>
+<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar conta" %}</button></div></form></section>
+{% endblock %}
