@@ -423,6 +423,16 @@ Rodadas no Windows, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_po
 - `python -m mypy`: sem erros. `ruff check` e `ruff format --check`: limpos.
 - Não executado: `tests/sso` (exige o Keycloak local); o override de `MAILERS` ali só troca o nome da setting.
 
+## Sandbox no Coolify (#369)
+
+O commit original foi escrito em 2026-11-12 numa sessão separada, sobre uma `main` 136 commits mais antiga, e nunca virou PR. Ele foi reaplicado sobre a pilha atual e alinhado ao #309 (action fixada por SHA), ao #318 (âncora `x-hardened` e senha do Redis pelo ambiente) e ao #298 (`--timeout 120`). Rodadas no Windows, com Python 3.14.7, sem Docker.
+
+- `tests/unit`: 1263 passed, 96 skipped (POSIX).
+- `tests/unit/test_deploy_hardening.py`, `test_deployment_gunicorn_timeout.py`, `test_workflow_pins.py` e `test_workflow_files.py`: 16 passed. Os testes de endurecimento e do timeout passaram a ler também o `compose.sandbox.yaml`: `migrate`, `web`, `worker` e `scheduler` começam pela âncora, nenhum a sobrescreve, o comando do Redis não interpola a senha e o Gunicorn do sandbox usa o mesmo timeout.
+- `tests/unit/test_documentation_references.py` e `test_docs_app_snippets.py`: 8 passed.
+- Leitura textual do `compose.sandbox.yaml`: nenhum `ports:`; `MIGRATION_DATABASE_URL` só no `migrate`.
+- Não executado aqui: `docker compose -f compose.sandbox.yaml config` (sem Docker no Windows; o passo "Validar o compose do sandbox" do job de build roda no CI Linux), o primeiro start com volume novo e o deploy no Coolify (exigem a VPS e os secrets `COOLIFY_DEPLOY_URL` e `COOLIFY_TOKEN`).
+
 ## Apps por organização, perfis e ingresso (epic #35)
 
 Rodadas no Windows 11, com Python 3.14.7 e o PostgreSQL 16.2 local de `tools/dev_postgres.py`, usando a role `skeleton_runtime`, com `SKELETON_ENABLE_EXAMPLE_APP=true`.
