@@ -42,7 +42,7 @@ def _organization_names(rows):
     return dict(Organization.objects.filter(pk__in=ids).values_list("pk", "name"))
 
 
-def _page(request, *, status=200):
+def _page(request):
     form = JobFilterForm(request.GET or None)
     filters = form.cleaned_data if form.is_valid() else {}
     filters = {key: value for key, value in filters.items() if value}
@@ -61,7 +61,6 @@ def _page(request, *, status=200):
             "health": queue_health(),
             "dead_state": Job.State.DEAD,
         },
-        status=status,
     )
 
 

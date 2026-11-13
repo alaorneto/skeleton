@@ -62,25 +62,27 @@ class PlatformUserForm(forms.Form):
     expected_revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
 
 
-def _owners():
-    return User.objects.filter(is_active=True, account_type="human").order_by("email")
-
-
 class OrganizationCreateForm(forms.Form):
     name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
     slug = forms.SlugField(
         label="Identificador (slug)", max_length=100, help_text=gettext_lazy("Não pode ser alterado depois.")
     )
-    owner = forms.ModelChoiceField(
-        label=gettext_lazy("Administrador inicial"),
-        queryset=User.objects.none(),
-        help_text=gettext_lazy("Recebe o papel de administrador da organização."),
+    # An email, not a list of every identity of the installation (#311).
+    owner = forms.EmailField(
+        label=gettext_lazy("Email do administrador inicial"),
+        max_length=254,
+        help_text=gettext_lazy("Identidade ativa que recebe o papel de administrador da organização."),
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields["owner"].queryset = _owners()
-        self.fields["owner"].label_from_instance = lambda user: user.email
+    def clean_owner(self):
+        from skeleton.accounts.services import normalized_email
+
+        user = User.objects.filter(
+            email=normalized_email(self.cleaned_data["owner"]), is_active=True, account_type="human"
+        ).first()
+        if user is None:
+            raise forms.ValidationError(gettext_lazy("Não há identidade ativa com este email."))
+        return user
 
 
 class OrganizationForm(forms.Form):

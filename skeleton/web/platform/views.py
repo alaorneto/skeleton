@@ -826,14 +826,8 @@ def app_screen(request, app_label, screen_id):
     except KeyError:
         raise Http404 from None
     if screen.sensitive:
-        from .updates import recent_authentication
-
-        @recent_authentication_required(allow_get=True)
-        def sensitive_handler(request):
-            recent_authentication(request)
-            return handler(request)
-
-        return sensitive_handler(request)
+        # A sensitive screen needs a recent authentication on every method, GET included (#311).
+        return recent_authentication_required(handler)(request)
     return handler(request)
 
 

@@ -94,6 +94,8 @@ O privilégio público `EXECUTE` é revogado. A conexão runtime exige o plano d
 
 ### Designação de administrador pela plataforma
 
+Ao criar uma organização em `/platform/organizations/new/`, o administrador inicial é informado pelo email de uma identidade humana ativa; o formulário não lista as identidades da instalação (#311). Email desconhecido, de identidade inativa ou de conta de serviço é recusado no campo.
+
 Quando o administrador de uma organização sai ou fica indisponível, o administrador de plataforma designa outro em `/platform/organizations/<id>/` (card "Administradores"). O serviço é `skeleton.access.administration.designate_organization_admin(*, actor, organization, user, replace=None, expected_version=None)`:
 
 - roda em `system_context(reason="organization:designate-admin", organization_id=...)`, só dessa organização, e toma `organization_lock()` antes de qualquer vínculo (mesma ordem das demais mudanças administrativas);
