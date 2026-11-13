@@ -62,7 +62,12 @@ class Job(OperationalRecord):
                 name="sk_jobs_job_state",
             ),
         ]
-        indexes = [models.Index(fields=("state", "queue", "run_after"), name="sk_jobs_job_claim")]
+        indexes = [
+            models.Index(fields=("state", "queue", "run_after"), name="sk_jobs_job_claim"),
+            # Operations of the queue (#308): the list by creation and the retention by finish time.
+            models.Index(fields=("created_at",), name="sk_jobs_job_created"),
+            models.Index(fields=("finished_at",), condition=Q(finished_at__isnull=False), name="sk_jobs_job_finished"),
+        ]
 
     def __str__(self):
         return f"{self.job_type} {self.state}"

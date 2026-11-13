@@ -162,7 +162,7 @@ O motor de [fluxos](flows.md#execução) registra `flows.service` (etapa de serv
 
 ## Retenção
 
-O job periódico global `jobs.retention` roda a cada 6 horas e é o único caminho que apaga fisicamente linhas de `Job`:
+O job periódico global `jobs.retention` roda a cada 6 horas e é o único caminho que apaga fisicamente linhas de `Job`, em lotes de 1 000 chaves (nenhum `DELETE` percorre o acúmulo inteiro), com o índice parcial `sk_jobs_job_finished` em `finished_at`; a lista de `/platform/jobs/` usa `sk_jobs_job_created` (#308). A contagem por tipo e estado das métricas agrega a tabela inteira e não ganha índice próprio (o planejador escolhe a varredura sequencial); ela é reaproveitada por coleta (#275):
 
 | Estado | Apagado depois de `finished_at` além de |
 |---|---|

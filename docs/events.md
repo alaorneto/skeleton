@@ -103,7 +103,7 @@ O motor de [fluxos](flows.md#integrações) publica `flows.instance_started`, `f
 
 ## Retenção
 
-O job periódico `events.retention` (a cada 6 horas, por organização) apaga fisicamente os eventos com `occurred_at` além de `SKELETON_EVENT_RETENTION_DAYS` (30 por padrão). É o único caminho de exclusão de `DomainEvent`. O volume de jobs é proporcional a eventos × consumidores.
+O job periódico `events.retention` (a cada 6 horas, por organização) apaga fisicamente os eventos com `occurred_at` além de `SKELETON_EVENT_RETENTION_DAYS` (30 por padrão). A exclusão é feita em lotes de 1 000 eventos da organização da rodada (#308). É o único caminho de exclusão de `DomainEvent`. O volume de jobs é proporcional a eventos × consumidores.
 
 ## Testes
 
