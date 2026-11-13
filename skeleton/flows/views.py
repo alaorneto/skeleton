@@ -184,9 +184,44 @@ def task_detail(request, organization_id, sysid):
     return render(
         request,
         TEMPLATES + "task.html",
-        {"organization_id": organization_id, "detail": detail, "task": detail.task, "form": form},
+        {
+            "organization_id": organization_id,
+            "detail": detail,
+            "task": detail.task,
+            "form": form,
+            "subject_comments": _subject_comments(request, detail.subject_table, detail.subject_id),
+        },
         status=status,
     )
+
+
+def _subject_comments(request, subject_table, subject_id):
+    """The business record's comment panel (#421), only for who reads the record.
+
+    The authorization is the record's own (``readable_target``), as on the record page: who
+    only has the task, without reading the record, sees no panel; a table without
+    ``CommentPolicy`` shows none either.
+    """
+    from django.http import Http404
+
+    from skeleton.comments.services import readable_target
+    from skeleton.comments.views import panel_context
+    from skeleton.system.registry import get_spec
+
+    try:
+        spec = get_spec(subject_table)
+    except (KeyError, LookupError):
+        return None
+    if spec is None or getattr(spec, "comments", None) is None or not spec.expose_api:
+        return None
+    try:
+        record = readable_target(spec, subject_id, user=request.user)
+    except Http404:
+        return None
+    panel = panel_context(spec, record, user=request.user, next_url=request.path)
+    if panel is None:
+        return None
+    return {"comments": panel, "table_key": subject_table, "record": {"sysid": record.pk}}
 
 
 def _version(value):
@@ -378,6 +413,7 @@ def instance_detail(request, organization_id, sysid):
             "is_starter": instance.starter_id == request.user.pk,
             # Read through FlowService above: the instance is visible to the person (#419).
             "diagram": for_instance(instance.sysid),
+            "subject_comments": _subject_comments(request, instance.subject_table, instance.subject_id),
         },
     )
 

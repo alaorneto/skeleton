@@ -19,4 +19,5 @@
 {% for entry in history %}<tr><td>{{ entry.sequence }}</td><td class="whitespace-nowrap!">{{ entry.occurred_at }}</td><td><code>{{ entry.kind }}</code></td><td>{{ entry.step_label|default:"—" }}</td><td>{% if entry.actor_id %}<code class="uuid">{{ entry.actor_id }}</code>{% else %}{% translate "sistema" %}{% endif %}</td><td>{% for item in entry.detail %}<span class="badge">{{ item.name }}: {{ item.value }}</span> {% endfor %}{% if entry.comment %}<br><span class="text-body-subtle">{{ entry.comment }}</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="empty-state">{% translate "Sem histórico." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% if more_history %}<p class="mt-4 text-sm/6 text-body-subtle">{% translate "Há mais passos; a API devolve o histórico completo." %}</p>{% endif %}
+{% if subject_comments %}{% include 'skeleton/comments/panel.html' with comments=subject_comments.comments table_key=subject_comments.table_key record=subject_comments.record %}{% endif %}
 {% endblock %}

@@ -348,6 +348,7 @@ Os eventos do núcleo sobre a instância não vão para webhooks: a tabela não 
 - **API de serviços** (`skeleton.service_api.flows.FlowService`): o contrato principal. Veja o [catálogo do núcleo](service-api.md#flowservice).
 - **REST** em `/api/v1/o/<org>/flows/`: tarefas, instâncias, histórico e as ações, com `If-Match`, por sessão ou por token de API com `flows:read`/`flows:write` ([#410](https://github.com/alaorneto/skeleton/issues/410)). Veja [API](api.md#fluxos-de-processo).
 - **Páginas** em `/o/<org>/flows/`: caixa de tarefas, tarefa, instâncias e instância com histórico, sem JavaScript.
+- **Comentários do registro** nas telas da tarefa e da instância ([#421](https://github.com/alaorneto/skeleton/issues/421)): o painel de [comentários](comments.md) do registro de negócio, com menções, para quem lê o registro e só se a tabela aceitar comentários. Não há comentários próprios da instância; os de cada passo continuam no histórico.
 - **Diagrama** na página da instância ([#419](https://github.com/alaorneto/skeleton/issues/419)): o desenho da versão da instância, gerado no servidor em SVG, com as etapas em colunas pela distância desde o início, a etapa atual destacada e as concluídas marcadas; transições de volta aparecem tracejadas. Os rótulos saem escapados, não há script nem biblioteca externa (a CSP não muda) e uma lista das etapas acompanha o desenho para leitores de tela. Não mostra dados de formulário.
 - **Minhas tarefas** em `/flows/tasks/` e o contador **Tarefas** no cabeçalho ([#409](https://github.com/alaorneto/skeleton/issues/409)): as tarefas abertas atribuídas à pessoa em todas as organizações com vínculo ativo, por autodescoberta em `FlowTask.assignee`. Tarefas de fila ficam na caixa de cada organização, porque a fila depende dos grupos e papéis daquele tenant. A linha leva à tarefa na organização, onde a autorização é revalidada.
 - **Painel de operação** em `/o/<org>/flows/operations/` (e `GET /api/v1/o/<org>/flows/operations/`), só para quem administra fluxos ([#408](https://github.com/alaorneto/skeleton/issues/408)): conta e lista as instâncias com falha e as tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas, com filtro por fluxo e versão, e leva às ações que já existem (reatribuir, retomar, cancelar). Mostra identificadores, situações e datas, nunca valores de formulário, e faz o mesmo número de consultas qualquer que seja o volume (no máximo 50 itens por lista).
@@ -370,7 +371,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 
 | Item | Por que não agora |
 |---|---|
-| Comentários livres na instância | Serão os comentários de registros (#187) |
 | Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |
 
 ## Decisões confirmadas pelo responsável
