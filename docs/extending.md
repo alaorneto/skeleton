@@ -29,7 +29,7 @@ python manage.py skeleton_startapp project_tasks --app-id com.example.tasks --pu
 
 Ele cria `applications/<package>/` (por padrão o package é o label; mude com `--package-name`, e o diretório-pai com `--directory`) com:
 
-- `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos;
+- `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos (tuplas de nomes; uma lista é aceita e convertida, uma string solta ou um item que não é nome levanta `TypeError` na construção, #310). O check E008 exige declarar como sensível todo campo não relacional chamado `password`, `token`, `token_digest`, `secret`, `private_key` ou `recovery_codes`, os mesmos nomes que a auditoria redige;
 - `models.py`: um modelo `SecuredRecord` mínimo (`code` único entre registros vivos da organização e `title`);
 - `service_api.py`: `<Model>Service` (`ServiceAPI`) com `<model>_count`, `list_<model>_summaries` e `get_<model>`, DTO `<Model>Summary` e `app_label` da app;
 - `views.py`, `urls.py` e `api_urls.py`: uma página `tenant_page` e um sumário `TenantAPI`, ambos chamando o serviço, sem consultar o modelo;

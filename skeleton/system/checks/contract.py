@@ -5,6 +5,8 @@ from django.conf import settings
 from django.core.checks import Error, register
 from django.db import models
 
+from skeleton.common.migration_operations import SENSITIVE
+
 from ..app_registry import CORE_APP_LABELS, all_apps, dependency_problems, validate_documentation
 from ..presentation import validate_presentation
 from ..registry import all_specs
@@ -12,7 +14,14 @@ from ..registry import all_specs
 
 @register()
 def record_contract_checks(app_configs=None, **kwargs):
-    from skeleton.common.models import OperationalRecord, OrganizationRecord, SecuredRecord, SystemRecord
+    from skeleton.common.models import (
+        ACCESS_FIELD_NAMES,
+        SYSTEM_FIELD_NAMES,
+        OperationalRecord,
+        OrganizationRecord,
+        SecuredRecord,
+        SystemRecord,
+    )
 
     errors = []
     specs = {spec.model._meta.label_lower: spec for spec in all_specs()}
@@ -63,20 +72,7 @@ def record_contract_checks(app_configs=None, **kwargs):
             )
             continue
         concrete = {field.name for field in model._meta.concrete_fields}
-        system_fields = {
-            "sysid",
-            "organization",
-            "created_at",
-            "updated_at",
-            "created_by",
-            "updated_by",
-            "deleted_at",
-            "deleted_by",
-            "revision",
-            "owner",
-            "visibility",
-            "owning_group",
-        }
+        system_fields = {*SYSTEM_FIELD_NAMES, *ACCESS_FIELD_NAMES, "organization"}
         if (
             set(spec.read_fields) | set(spec.write_fields) | set(spec.sensitive_fields)
         ) - concrete or "__all__" in spec.read_fields + spec.write_fields:
@@ -133,8 +129,11 @@ def record_contract_checks(app_configs=None, **kwargs):
                         id="skeleton.E007",
                     )
                 )
-        for name in ("password", "token_digest", "secret", "private_key"):
-            if name in concrete and name not in spec.sensitive_fields:
+        # E008 follows the names the audit redacts (#310); a relation stores the target key, not a secret.
+        fields_by_name = {field.name: field for field in model._meta.concrete_fields}
+        for name in sorted(SENSITIVE):
+            field = fields_by_name.get(name)
+            if field is not None and not field.is_relation and name not in spec.sensitive_fields:
                 errors.append(
                     Error(
                         f"{model._meta.label}.{name}: missing sensitive declaration.",

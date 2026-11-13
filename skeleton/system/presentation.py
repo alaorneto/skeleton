@@ -3,6 +3,8 @@
 import re
 from dataclasses import asdict, dataclass
 
+from skeleton.common.models import SYSTEM_FIELD_NAMES
+
 MAX_ADMIN_ENTRIES = 100
 MAX_MODEL_UI = 200
 MAX_LAYOUT_FIELDS = 200
@@ -13,9 +15,7 @@ FIELD_DIMENSIONS_CORE_MINIMUM = "0.3.0"
 WIDGETS = frozenset(
     {"text", "textarea", "number", "checkbox", "select", "date", "datetime", "time", "uuid", "json", "reference"}
 )
-SYSTEM_READ_FIELDS = frozenset(
-    {"sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_at", "deleted_by", "revision"}
-)
+SYSTEM_READ_FIELDS = frozenset(SYSTEM_FIELD_NAMES)  # Single source in skeleton.common.models (#310).
 _IDENTIFIER = re.compile(r"[a-z][a-z0-9_]*\Z")
 
 

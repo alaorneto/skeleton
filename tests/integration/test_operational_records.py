@@ -208,3 +208,51 @@ def test_operational_update_does_not_reread_the_identity(pipeline, tenants):
         fresh.organization_id = uuid.uuid4()
         with pytest.raises(ImmutableRecord):
             fresh.save()
+
+
+@pytest.mark.parametrize(
+    "field,declared,expected",
+    [
+        ("text", False, True),
+        ("relation", False, False),
+        ("text", True, False),
+    ],
+)
+def test_e008_follows_audit_sensitive_names(monkeypatch, field, declared, expected):
+    """A secret named as the audit redacts it (token, recovery_codes...) must be declared; a relation needs not (#310)."""
+    from skeleton.system import registry
+    from skeleton.system.checks import record_contract_checks
+
+    with isolate_apps("skeleton.system.apps.SystemConfig") as isolated:
+        if field == "text":
+
+            class Secretive(OperationalRecord):
+                token = models.CharField(max_length=64)
+
+                class Meta(OperationalRecord.Meta):
+                    app_label = "sk_system"
+
+        else:
+
+            class Secretive(OperationalRecord):
+                token = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+
+                class Meta(OperationalRecord.Meta):
+                    app_label = "sk_system"
+
+        monkeypatch.setitem(
+            registry._registry,
+            Secretive._meta.label_lower,
+            registry.TableSpec(
+                model=Secretive,
+                description="x",
+                scope="global",
+                sensitive_fields=("token",) if declared else (),
+            ),
+        )
+        errors = [
+            error
+            for error in record_contract_checks(apps_registry=isolated)
+            if error.id == "skeleton.E008" and "Secretive" in error.msg
+        ]
+    assert bool(errors) is expected, errors

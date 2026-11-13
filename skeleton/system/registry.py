@@ -39,6 +39,18 @@ class TableSpec:
     # triggers, so the audit names the person only by sysid. Frozen with the infrastructure.
     personal_fields: tuple = ()
 
+    def __post_init__(self):
+        """Field lists are tuples of names: a bare string or a non-string item is refused at once (#310)."""
+        for name in ("read_fields", "write_fields", "sensitive_fields"):
+            value = getattr(self, name)
+            if isinstance(value, str) or not all(isinstance(item, str) for item in value):
+                raise TypeError(f"TableSpec.{name} must be a tuple of field names (got {value!r}).")
+            object.__setattr__(self, name, tuple(value))
+        if isinstance(self.sequence_fields, str):
+            raise TypeError("TableSpec.sequence_fields must be a tuple of (field, sequence key) pairs.")
+        # Items are validated by the sequence check, which reports them with the model's label.
+        object.__setattr__(self, "sequence_fields", tuple(self.sequence_fields))
+
 
 _registry = {}
 
