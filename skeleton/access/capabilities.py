@@ -32,6 +32,8 @@ ACCESS_MANAGE = "access.manage"
 IDENTITY_CONFIGURE = "identity.configure"
 # Service accounts and, later, their tokens and webhooks (#44); only the administrator holds it.
 INTEGRATIONS_MANAGE = "integrations.manage"
+# Operating process flows (#407): everything the administrator does in flows, nothing else.
+FLOWS_MANAGE = "flows.manage"
 
 CAPABILITIES: frozenset[str] = frozenset(
     {
@@ -44,6 +46,7 @@ CAPABILITIES: frozenset[str] = frozenset(
         ACCESS_MANAGE,
         IDENTITY_CONFIGURE,
         INTEGRATIONS_MANAGE,
+        FLOWS_MANAGE,
     }
 )
 
@@ -65,6 +68,7 @@ BUILTIN_ROLES: dict[str, BuiltinRole] = {
             frozenset({MEMBERS_VIEW, MEMBERS_MANAGE, INVITATIONS_MANAGE, ADMISSION_DECIDE}),
         ),
         BuiltinRole("app_manager", gettext_lazy("Gestor de apps"), frozenset({APPS_MANAGE})),
+        BuiltinRole("process_manager", gettext_lazy("Gestor de processos"), frozenset({FLOWS_MANAGE})),
         BuiltinRole("member", gettext_lazy("Membro"), frozenset()),
     )
 }

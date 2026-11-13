@@ -25,6 +25,7 @@ STEP_KINDS = (
     "service",
     "timer",
     "wait",
+    "subflow",
     "exclusive",
     "parallel",
     "inclusive",
@@ -76,6 +77,8 @@ class Field:
     minimum: str = ""
     maximum: str = ""
     help_text: str = ""
+    # Personal data of who submits it: removed from their submissions on erasure (#422).
+    personal: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "choices", tuple(self.choices))
@@ -138,6 +141,8 @@ class Sla:
     remind_before_seconds: tuple[int, ...] = ()
     on_overdue: str = "notify"
     escalate_to: tuple[Assignment, ...] = ()
+    # Count the SLA in the organization's business hours (#417); without a calendar, elapsed time.
+    business_hours: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "due_seconds", _seconds(self.due_seconds))
@@ -231,6 +236,12 @@ class Step:
     retry_seconds: int = 60
     delay_seconds: int = 0
     signal: str = ""
+    # A wait advanced by a domain event instead of a signal (#411); see ``wait``.
+    event: str = ""
+    correlate: str = ""
+    # A subflow (#412): the child flow and the version pinned for it.
+    flow: str = ""
+    flow_version: int = 0
     timeout_seconds: int = 0
     outcome: str = ""
     join: str = ""
@@ -311,8 +322,41 @@ def timer(key: str, *, delay_seconds: Any, label: str = "") -> Step:
     return Step(key, "timer", label, delay_seconds=_seconds(delay_seconds))
 
 
-def wait(key: str, *, signal: str, label: str = "", timeout_seconds: Any = 0, form: Form | None = None) -> Step:
-    return Step(key, "wait", label, signal=signal, timeout_seconds=_seconds(timeout_seconds), form=form)
+def wait(
+    key: str,
+    *,
+    signal: str = "",
+    event: str = "",
+    correlate: str = "",
+    label: str = "",
+    timeout_seconds: Any = 0,
+    form: Form | None = None,
+) -> Step:
+    """Wait for a ``signal`` sent by the app, or for a domain ``event`` of the app (#411).
+
+    An event wait advances when an event of that type is published about the instance's
+    subject record, or, with ``correlate=<payload field>``, when that field of the event holds
+    the subject's sysid. Exactly one of ``signal`` and ``event``; an event wait has no form.
+    """
+    return Step(
+        key,
+        "wait",
+        label,
+        signal=signal,
+        event=event,
+        correlate=correlate,
+        timeout_seconds=_seconds(timeout_seconds),
+        form=form,
+    )
+
+
+def subflow(key: str, *, flow: str, version: int, label: str = "") -> Step:
+    """Start the flow ``flow`` at the pinned ``version`` on the same record, and wait for its end (#412).
+
+    The transitions take the child's outcome (``on="approved"``); a failed child fails this step,
+    and cancelling or suspending this flow does the same to the child.
+    """
+    return Step(key, "subflow", label, flow=flow, flow_version=version)
 
 
 def exclusive(key: str, *, label: str = "") -> Step:
@@ -348,6 +392,11 @@ class Transition:
         return self.key or f"{self.source}>{self.target}" + (f":{self.on}" if self.on else "")
 
 
+# Step fields added after the first release, with the default that keeps them out of the
+# canonical form (and so out of the digest of every flow frozen before them).
+OPTIONAL_STEP_FIELDS = {"event": "", "correlate": "", "flow": "", "flow_version": 0}
+
+
 @dataclass(frozen=True)
 class FlowSpec:
     key: str
@@ -363,6 +412,8 @@ class FlowSpec:
     number_sequence: str = ""
     # ((moment, event type code), ...): app events about the subject record, which reach webhooks.
     subject_events: tuple[tuple[str, str], ...] = ()
+    # Days the form data of a closed instance is kept (#422); 0 uses SKELETON_FLOWS_FORM_RETENTION_DAYS.
+    retention_days: int = 0
     _index: dict[str, Any] = field(default_factory=dict, compare=False, repr=False, hash=False)
 
     def __post_init__(self) -> None:
@@ -420,6 +471,24 @@ class FlowSpec:
     def to_json(self) -> dict[str, Any]:
         raw = dataclasses.asdict(self)
         raw.pop("_index", None)
+        for step in raw["steps"]:
+            # Fields added after the first release stay out of the canonical form while empty,
+            # so the digest of every flow frozen before them does not change (#411).
+            for name, default in OPTIONAL_STEP_FIELDS.items():
+                if step.get(name) == default:
+                    step.pop(name)
+            if step.get("sla") and step["sla"].get("business_hours") is False:
+                step["sla"].pop("business_hours")  # Same rule for the SLA flag of #417.
+        # And for the retention and the personal flag of #422.
+        if raw.get("retention_days") == 0:
+            raw.pop("retention_days")
+        forms = [raw.get("start_form")]
+        forms += [step.get(name) for step in raw["steps"] for name in ("form", "outputs")]
+        forms += [item.get("form") for item in raw["transitions"]]
+        for form in forms:
+            for item in (form or {}).get("fields", ()):
+                if item.get("personal") is False:
+                    item.pop("personal")
         return json.loads(json.dumps(raw))
 
     def canonical(self) -> str:
@@ -443,6 +512,7 @@ class FlowSpec:
             starter_can_cancel=data.get("starter_can_cancel", True),
             number_sequence=data.get("number_sequence", ""),
             subject_events=tuple((moment, code) for moment, code in data.get("subject_events", ())),
+            retention_days=data.get("retention_days", 0),
         )
 
 
@@ -464,6 +534,7 @@ def _sla(data: Any) -> Sla | None:
         remind_before_seconds=tuple(data.get("remind_before_seconds", ())),
         on_overdue=data.get("on_overdue", "notify"),
         escalate_to=tuple(_assignment(item) for item in data.get("escalate_to", ())),
+        business_hours=data.get("business_hours", False),
     )
 
 

@@ -209,6 +209,9 @@ class _Scrape:
         else:
             yield from request_histogram().collect()
         yield from QueueCollector().collect()
+        from .flow_metrics import FlowCollector
+
+        yield from FlowCollector().collect()  # Process flows, read per organization (#420).
 
 
 def metrics_response(request: Any) -> HttpResponse:

@@ -22,7 +22,13 @@ from django.views.decorators.http import require_http_methods, require_POST, req
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.branding import open_logo, remove_logo, replace_logo
-from skeleton.tenancy.organization_settings import WRITE_FIELDS, current_settings, revision_of, update_settings
+from skeleton.tenancy.organization_settings import (
+    CALENDAR_FIELDS,
+    WRITE_FIELDS,
+    current_settings,
+    revision_of,
+    update_settings,
+)
 
 from .views import tenant_page
 
@@ -57,6 +63,20 @@ class OrganizationSettingsForm(forms.Form):
         ),
         widget=forms.TextInput(attrs={"placeholder": "#1d4ed8", "autocomplete": "off"}),
     )
+    business_hours = forms.CharField(
+        label=gettext_lazy("Expediente"),
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 5, "placeholder": "seg 09:00-12:00 13:00-18:00"}),
+        help_text=gettext_lazy(
+            "Uma linha por dia (seg, ter, qua, qui, sex, sab, dom) com os intervalos. Usado nos prazos em horas úteis."
+        ),
+    )
+    holidays = forms.CharField(
+        label=gettext_lazy("Feriados"),
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "2026-12-25"}),
+        help_text=gettext_lazy("Uma data por linha, no formato AAAA-MM-DD."),
+    )
     revision = forms.IntegerField(min_value=0, widget=forms.HiddenInput)
 
     def __init__(self, *args, **kwargs):
@@ -90,7 +110,11 @@ def _page(request, organization_id, form, *, status=200, logo_errors=()):
 
 
 def _form(request, record):
+    from skeleton.tenancy.business_hours import format_holidays, format_hours
+
     initial = {name: getattr(record, name, "") for name in WRITE_FIELDS}
+    initial["business_hours"] = format_hours(getattr(record, "business_hours", None))
+    initial["holidays"] = format_holidays(getattr(record, "holidays", None))
     return OrganizationSettingsForm(
         request.POST if request.method == "POST" else None, initial={**initial, "revision": revision_of(record)}
     )
@@ -107,7 +131,7 @@ def organization_settings(request, organization_id):
             form.add_error(None, gettext("Campo não permitido."))
             status = 400
         elif form.is_valid():
-            data = {name: form.cleaned_data[name] for name in WRITE_FIELDS}
+            data = {name: form.cleaned_data[name] for name in (*WRITE_FIELDS, *CALENDAR_FIELDS)}
             try:
                 with transaction.atomic():
                     update_settings(actor=request.user, data=data, expected_revision=form.cleaned_data["revision"])

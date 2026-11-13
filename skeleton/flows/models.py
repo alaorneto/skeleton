@@ -44,6 +44,61 @@ class FlowDefinition(OrganizationRecord):
         return f"{self.key} v{self.version}"
 
 
+class FlowDraft(OrganizationRecord):
+    """A flow authored as data in one organization (#414): a draft, then published versions.
+
+    The specification has the JSON shape of ``FlowSpec.to_json`` (without the version, set on
+    publication) and may reference only what the code registered: service handlers, conditions,
+    assignment rules and exposed tables of the owning app. Publishing writes an immutable
+    ``FlowDefinition`` for the next version; instances run from that row, never from the draft.
+    """
+
+    key = models.CharField(max_length=100)
+    label = models.CharField(max_length=200)
+    app_label = models.CharField(max_length=100)
+    specification = models.JSONField(default=dict)
+    published_version = models.PositiveIntegerField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("key",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "key"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_flows_draft_key",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.key
+
+
+class FlowAbsence(OrganizationRecord):
+    """A person away in an organization, with who takes their flow tasks meanwhile (#418).
+
+    While ``starts_at <= now < ends_at``, a task assigned to ``user`` goes to ``substitute``
+    (``delegated_from`` keeps the person). Removing it is a soft delete.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    substitute = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    immutable_fields = ("user_id",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(ends_at__gt=models.F("starts_at")), name="sk_flows_absence_period"),
+            models.CheckConstraint(condition=~Q(substitute=models.F("user")), name="sk_flows_absence_other_person"),
+        ]
+        indexes = [models.Index(fields=("organization", "user", "starts_at"), name="sk_flows_absence_user")]
+
+    def __str__(self):
+        return f"{self.user_id} -> {self.substitute_id}"
+
+
 class FlowInstance(OrganizationRecord):
     """One execution of a flow about one business record of the owning app."""
 
@@ -72,15 +127,21 @@ class FlowInstance(OrganizationRecord):
     run_count = models.PositiveIntegerField(default=0)
     activity_count = models.PositiveIntegerField(default=0)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # When the retention purge emptied the form data (#422); the skeleton of the instance stays.
+    form_purged_at = models.DateTimeField(null=True, blank=True)
+    # A subflow (#412): the instance that started this one and the step run waiting for it.
+    parent = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="children")
+    parent_run = models.ForeignKey("FlowStepRun", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    # ``definition`` and ``flow_version`` change only through the migration service (#413).
     immutable_fields = (
-        "definition_id",
         "flow_key",
-        "flow_version",
         "number",
         "subject_table",
         "subject_sysid",
         "starter_id",
         "idempotency_key",
+        "parent_id",
+        "parent_run_id",
     )
 
     class Meta(OrganizationRecord.Meta):
@@ -167,6 +228,8 @@ class FlowTask(OrganizationRecord):
         COMPLETED = "completed", gettext_lazy("Concluída")
         CANCELLED = "cancelled", gettext_lazy("Cancelada")
 
+    # A person reads their own tasks of every organization (#409), frozen in sk_flows 0003.
+    self_discovery_field = "assignee"
     instance = models.ForeignKey(FlowInstance, on_delete=models.PROTECT, related_name="tasks")
     step_run = models.ForeignKey(FlowStepRun, on_delete=models.PROTECT, related_name="tasks")
     step_key = models.CharField(max_length=64)
@@ -230,16 +293,8 @@ class FlowSubmission(OrganizationRecord):
     origin = models.CharField(max_length=16)
     values = models.JSONField(default=dict, blank=True)
     sensitive_values = models.JSONField(default=dict, blank=True)
-    immutable_fields = (
-        "instance_id",
-        "step_run_id",
-        "task_id",
-        "step_key",
-        "transition_key",
-        "origin",
-        "values",
-        "sensitive_values",
-    )
+    # The values change only through the retention purge and the erasure of the person (#422).
+    immutable_fields = ("instance_id", "step_run_id", "task_id", "step_key", "transition_key", "origin")
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [

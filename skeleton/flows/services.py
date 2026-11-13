@@ -40,10 +40,18 @@ def _system_call(actor: Any) -> bool:
 
 
 def published_spec(flow_key: Any) -> FlowSpec:
+    """The version new instances start from: the code declaration, or a data flow published by
+    the organization (#414)."""
     try:
         return get_flow(flow_key)
     except (KeyError, TypeError):
-        raise ValidationError({"flow_key": gettext("Fluxo não declarado.")}) from None
+        pass
+    from .definitions import published_data_spec
+
+    spec = published_data_spec(flow_key)
+    if spec is None:
+        raise ValidationError({"flow_key": gettext("Fluxo não declarado.")})
+    return spec
 
 
 def ensure_definition(spec: FlowSpec) -> FlowDefinition:
@@ -206,6 +214,45 @@ def send_signal(instance_id: Any, name: str, *, actor: Any, data: Any = None) ->
     return True
 
 
+def _event_matches(step: Any, instance: FlowInstance, envelope: Any) -> bool:
+    if step.correlate:
+        return str(envelope.data.get(step.correlate, "")) == str(instance.subject_sysid)
+    return envelope.table_key == instance.subject_table and envelope.record_sysid == instance.subject_sysid
+
+
+def deliver_event(instance_id: Any, envelope: Any) -> bool:
+    """Advance the waits of a running instance that this domain event correlates (#411).
+
+    Runs in the system context of the event's organization (the core consumer); ``False`` when
+    nothing was waiting, so a repeated delivery changes nothing.
+    """
+    instance = _locked(instance_id, None, system=True)
+    if instance.status != "running":
+        return False
+    execution = Execution(instance)
+    waiting = [
+        run
+        for run in execution.open_runs()
+        if run.kind == "wait"
+        and run.status == "active"
+        and execution.spec.step(run.step_key).event == envelope.event_type
+        and _event_matches(execution.spec.step(run.step_key), instance, envelope)
+    ]
+    if not waiting:
+        return False
+    try:
+        with transaction.atomic():
+            for run in waiting:
+                execution.log("event_received", run=run, detail={"event": envelope.event_type})
+                execution.complete(run, "received")
+            execution.finish()
+    except FlowFailure as failure:
+        raise FlowConflict(
+            "flow_failed", gettext("O fluxo não pôde avançar (%(code)s).") % {"code": failure.code}
+        ) from None
+    return True
+
+
 def _require_admin(actor: Any) -> None:
     if not policies.is_flow_admin(actor):
         raise PermissionDenied("Flow administration required.")
@@ -243,6 +290,9 @@ def suspend_instance(instance_id: Any, *, actor: Any, expected_revision: int, re
     execution.touch(status="suspended")
     execution.log("instance_suspended", comment=comment)
     execution.finish()
+    from .subflows import suspend_children
+
+    suspend_children(instance)  # Its running subflows pause with it (#412).
     return instance
 
 

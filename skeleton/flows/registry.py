@@ -42,6 +42,7 @@ from .spec import (
     parallel,
     service,
     start,
+    subflow,
     task,
     timer,
     truthy,
@@ -49,6 +50,7 @@ from .spec import (
 )
 
 __all__ = [
+    "register_flow_migration",
     "Assignees",
     "Assignment",
     "Expr",
@@ -87,6 +89,7 @@ __all__ = [
     "register_flow_handler",
     "service",
     "start",
+    "subflow",
     "task",
     "timer",
     "truthy",
@@ -147,6 +150,55 @@ _assignments: dict[str, Registered] = {}
 _duplicates: list[str] = []
 
 
+@dataclass(frozen=True)
+class FlowMigration:
+    """How the open steps of ``from_version`` map onto ``to_version`` of a flow (#413)."""
+
+    key: str
+    from_version: int
+    to_version: int
+    steps: Mapping[str, str]
+    owner_app: str
+
+
+_migrations: dict[tuple[str, int], FlowMigration] = {}
+
+
+def register_flow_migration(
+    key: str, *, from_version: int, to_version: int, steps: Mapping[str, str], owner_app: str
+) -> FlowMigration:
+    """Declare how instances of ``from_version`` move to ``to_version`` (the code's version)."""
+    migration = FlowMigration(key, from_version, to_version, MappingProxyType(dict(steps)), owner_app)
+    existing = _migrations.get((key, from_version))
+    if existing is not None and existing != migration:
+        _duplicates.append(f"migration {key} v{from_version}")
+        return existing
+    _migrations[(key, from_version)] = migration
+    return migration
+
+
+def get_migration(key: str, from_version: int) -> FlowMigration:
+    return _migrations[(key, from_version)]
+
+
+def _migration_problems() -> list[str]:
+    problems = []
+    for (key, from_version), migration in sorted(_migrations.items()):
+        where = f"migration {key} v{from_version}"
+        spec = _flows.get(key)
+        if spec is None:
+            problems.append(f"{where}: the flow is not declared")
+            continue
+        if migration.owner_app != spec.owner_app:
+            problems.append(f"{where}: must be declared by the flow's app")
+        if migration.to_version != spec.version or not 1 <= from_version < migration.to_version:
+            problems.append(f"{where}: must go from an older version to the declared one")
+        for target in sorted(set(migration.steps.values())):
+            if not spec.has_step(target):
+                problems.append(f"{where}: target step {target!r} is not in v{spec.version}")
+    return problems
+
+
 def register_flow(spec: FlowSpec) -> FlowSpec:
     """Declare the published version of a flow; a different spec under the same key is reported by E029."""
     existing = _flows.get(spec.key)
@@ -202,6 +254,17 @@ def get_assignment(name: str) -> Registered:
     return _assignments[name]
 
 
+def registered_names() -> dict[str, tuple[tuple[str, str], ...]]:
+    """(name, owner app) of every registered handler, condition and assignment rule, sorted.
+
+    What a flow authored as data may reference (#414, #415).
+    """
+    return {
+        kind: tuple((name, registry[name].owner_app) for name in sorted(registry))
+        for kind, registry in (("handlers", _handlers), ("conditions", _conditions), ("assignments", _assignments))
+    }
+
+
 def spec_problems(spec: FlowSpec) -> list[str]:
     """Structural and reference problems of one flow against the current registries."""
     from .validation import reference_problems, structural_problems
@@ -215,6 +278,31 @@ def spec_problems(spec: FlowSpec) -> list[str]:
     )
 
 
+def _subflow_cycles() -> list[str]:
+    """Flows declared in code that start each other in a loop (#412)."""
+    edges = {
+        spec.key: sorted({step.flow for step in spec.steps if step.kind == "subflow" and step.flow in _flows})
+        for spec in all_flows()
+    }
+    problems: list[str] = []
+    state: dict[str, int] = {}
+
+    def visit(key: str, path: list[str]) -> None:
+        state[key] = 1
+        for target in edges.get(key, ()):
+            if state.get(target) == 1:
+                cycle = path[path.index(target) :] + [target]
+                problems.append("subflow cycle: " + " -> ".join(cycle))
+            elif target not in state:
+                visit(target, [*path, target])
+        state[key] = 2
+
+    for key in sorted(edges):
+        if key not in state:
+            visit(key, [key])
+    return problems
+
+
 def flow_problems() -> list[str]:
     """Every problem the system check ``skeleton.E029`` reports."""
     problems = [f"{name}: duplicate registration" for name in sorted(set(_duplicates))]
@@ -225,6 +313,8 @@ def flow_problems() -> list[str]:
                 problems.append(f"{kind} {name}: not callable")
             if not entry.owner_app:
                 problems.append(f"{kind} {name}: owner_app is required")
+    problems.extend(_subflow_cycles())
+    problems.extend(_migration_problems())
     for spec in all_flows():
         if not spec.owner_app:
             problems.append(f"{spec.key}: owner_app is required")

@@ -5,6 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
@@ -20,7 +21,12 @@ class RevisionForm(forms.Form):
     revision = forms.IntegerField(min_value=1)
 
 
-def _detail(organization_id, table_key, sysid):
+def _detail(request, organization_id, table_key, sysid):
+    # The flow pages show the record's comments too (#421): back to them, never anywhere else.
+    target = request.POST.get("next", "")
+    inside = target.startswith(f"/o/{organization_id}/flows/") and "\\" not in target
+    if inside and url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
+        return redirect(target)
     return redirect("web:record", organization_id=organization_id, table_key=table_key, sysid=sysid)
 
 
@@ -28,7 +34,7 @@ def _error(request, detail, status):
     return render(request, "skeleton/web/error.html", {"detail": detail}, status=status)
 
 
-def panel_context(spec, record, *, user):
+def panel_context(spec, record, *, user, next_url=""):
     """Comment panel of the record page; None when the table did not opt in."""
     if getattr(spec, "comments", None) is None:
         return None
@@ -57,17 +63,17 @@ def panel_context(spec, record, *, user):
         )
     from .mentions import mentionable
 
-    return {"rows": items, "mentionable": mentionable(spec, record)}
+    return {"rows": items, "mentionable": mentionable(spec, record), "next": next_url}
 
 
 @tenant_page()
 @require_POST
 @transaction.atomic
 def add(request, organization_id, table_key, sysid):
-    if set(request.POST) - {"body", "csrfmiddlewaretoken"}:
+    if set(request.POST) - {"body", "next", "csrfmiddlewaretoken"}:
         return _error(request, gettext("Campo não permitido."), 400)
     services.add(exposed_spec(table_key), sysid, user=request.user, body=request.POST.get("body", ""))
-    return _detail(organization_id, table_key, sysid)
+    return _detail(request, organization_id, table_key, sysid)
 
 
 @tenant_page()
@@ -75,7 +81,7 @@ def add(request, organization_id, table_key, sysid):
 @transaction.atomic
 def edit(request, organization_id, table_key, sysid, comment_id):
     form = RevisionForm(request.POST)
-    if set(request.POST) - {"body", "revision", "csrfmiddlewaretoken"} or not form.is_valid():
+    if set(request.POST) - {"body", "revision", "next", "csrfmiddlewaretoken"} or not form.is_valid():
         return _error(request, gettext("Revisão inválida."), 400)
     try:
         services.edit(
@@ -88,12 +94,12 @@ def edit(request, organization_id, table_key, sysid, comment_id):
         )
     except ConcurrentUpdate:
         return _error(request, gettext("O comentário foi alterado. Atualize a página."), 409)
-    return _detail(organization_id, table_key, sysid)
+    return _detail(request, organization_id, table_key, sysid)
 
 
 def _lifecycle(request, organization_id, table_key, sysid, comment_id, operation):
     form = RevisionForm(request.POST)
-    if set(request.POST) - {"revision", "csrfmiddlewaretoken"} or not form.is_valid():
+    if set(request.POST) - {"revision", "next", "csrfmiddlewaretoken"} or not form.is_valid():
         return _error(request, gettext("Revisão inválida."), 400)
     try:
         operation(exposed_spec(table_key), sysid, comment_id, user=request.user, revision=form.cleaned_data["revision"])
@@ -101,7 +107,7 @@ def _lifecycle(request, organization_id, table_key, sysid, comment_id, operation
         return _error(request, gettext("O comentário foi alterado. Atualize a página."), 409)
     except PermissionDenied:
         raise
-    return _detail(organization_id, table_key, sysid)
+    return _detail(request, organization_id, table_key, sysid)
 
 
 @tenant_page()

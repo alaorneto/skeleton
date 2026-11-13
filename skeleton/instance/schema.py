@@ -239,6 +239,13 @@ _SPECS = (
         "Dias até expurgar o conteúdo de anexos excluídos",
         _int(1),
     ),
+    SettingSpec(
+        "flows_form_retention_days",
+        "SKELETON_FLOWS_FORM_RETENTION_DAYS",
+        "int",
+        "Dias até esvaziar os formulários de fluxos encerrados (0 mantém)",
+        _int(0),
+    ),
     SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
     SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),
     SettingSpec("event_retention_days", "SKELETON_EVENT_RETENTION_DAYS", "int", "Retenção de eventos", _int(1)),

@@ -18,6 +18,8 @@ from skeleton.tenancy.context import current_context
 
 # What the administrator writes; ``logo_key`` changes only through the logo upload (#168).
 WRITE_FIELDS = ("display_name", "default_language", "default_timezone", "brand_color")
+# The business calendar (#416), written as text and stored parsed.
+CALENDAR_FIELDS = ("business_hours", "holidays")
 
 
 def current_settings() -> Any:
@@ -31,11 +33,16 @@ def revision_of(settings: Any) -> int:
     return settings.revision if settings is not None else 0
 
 
-def _clean(data: dict[str, Any]) -> dict[str, str]:
-    unknown = set(data) - set(WRITE_FIELDS)
+def _clean(data: dict[str, Any]) -> dict[str, Any]:
+    unknown = set(data) - set(WRITE_FIELDS) - set(CALENDAR_FIELDS)
     if unknown:
         raise ValidationError({name: gettext("Campo não permitido.") for name in sorted(unknown)})
-    values = {}
+    values: dict[str, Any] = {}
+    if "business_hours" in data or "holidays" in data:
+        from .business_hours import parse_holidays, parse_hours
+
+        values["business_hours"] = parse_hours(data.get("business_hours", ""))
+        values["holidays"] = parse_holidays(data.get("holidays", ""))
     for name in WRITE_FIELDS:
         value = data.get(name, "")
         if not isinstance(value, str):

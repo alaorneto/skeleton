@@ -231,7 +231,8 @@ def test_other_organization_token_and_disabled_app(world):
     bearer = Client(HTTP_AUTHORIZATION=f"Bearer {issued.text}")
     for target in (url("api-tasks", world), url("api-instance", world, sysid=world.instance_id)):
         refused = bearer.get(target)
-        assert refused.status_code == 403 and refused.json()["code"] == "token_not_allowed"
+        # Since #410 tokens reach the flow routes, but only with flows:read (this one has a table scope only).
+        assert refused.status_code == 403 and refused.json()["code"] == "permission_denied"
 
     alice = login(world.alice)
     with actor_tenant(world.admin, world.a):
@@ -340,6 +341,8 @@ def test_every_flow_route_is_in_the_openapi_schema():
         operation = paths[base + path]["post"]
         assert not operation.get(UNDOCUMENTED), path
         assert {"412", "428"} <= set(operation["responses"]), path  # If-Match is required.
-        assert operation["security"] == [{"sessionAuth": []}], path  # Session only, no token.
+        assert operation["security"] == [{"bearerAuth": []}, {"sessionAuth": []}], (
+            path
+        )  # Token with flows:write (#410).
     detail = paths[base + "tasks/{sysid}/"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert {"task", "fields", "actions", "can_act"} <= set(detail["properties"])

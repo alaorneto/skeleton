@@ -302,11 +302,13 @@ def _readable_task(actor: Any, task_id: Any) -> Any:
 
 
 def _owned_flow(flow_key: str) -> None:
-    from skeleton.flows.registry import get_flow
+    from django.core.exceptions import ValidationError
+
+    from skeleton.flows.services import published_spec
 
     try:
-        spec = get_flow(flow_key)
-    except (KeyError, TypeError):
+        spec = published_spec(flow_key)  # Declared in code or published as data (#414).
+    except ValidationError:
         raise InvalidInput({"flow_key": [gettext("Fluxo não declarado.")]}) from None
     if calling_app_label() != spec.owner_app:
         raise Forbidden(gettext("A app só inicia e sinaliza os próprios fluxos."))

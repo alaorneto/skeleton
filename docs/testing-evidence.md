@@ -2,6 +2,37 @@
 
 Registro do que rodou em cada rodada, com os comandos da época. As rodadas anteriores a [#144](https://github.com/alaorneto/skeleton/issues/144) citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Nada aqui é procedimento: para verificar hoje, use [testes](testing.md).
 
+## Fluxos de processo: evoluções (epic #208)
+
+Rodada de 2026-11-13 na branch `feat/208-flows-evolutions`. Windows 11, Python 3.14, PostgreSQL 16 de `tools/dev_postgres.py` num cluster dedicado (6 workers), com as assertions como `skeleton_runtime`. Somente o que rodou.
+
+- **#407:** o papel builtin `process_manager` carrega só `flows.manage`; quem o recebe opera todas as instâncias e perde isso na revogação; a capacidade vale só na organização do vínculo (`test_flow_process_manager`).
+- **#408:** o painel conta e lista falhas, tarefas sem responsável, atrasadas e a vencer, filtra por fluxo e versão, recusa quem não administra, não vaza A/B nem valores de formulário e faz um número fixo de consultas (`test_flow_operations`).
+- **#409:** "Minhas tarefas" junta as tarefas atribuídas em todas as organizações com vínculo ativo, sem as de fila, sem as de vínculo inativo e com o contador do cabeçalho (`test_flow_global_tasks`).
+- **#410:** token com `flows:read` lê e com `flows:write` age; sem escopo, 403; token nunca administra (`test_flow_tokens`, `test_flow_http`).
+- **#411:** um evento da app sobre o registro avança a espera; com `correlate`, o campo do evento escolhe a instância; um evento de outra organização ou repetido não muda nada (`test_flow_event_waits`).
+- **#412:** o filho nasce na versão fixada, o fim dele leva o pai pela transição do resultado; falha e cancelamento do filho falham a etapa do pai; cancelar e suspender o pai chega ao filho; o check recusa ciclo e filho de outra app (`test_flow_subflows`).
+- **#413:** a prévia mostra o mapa; a migração move as instâncias em andamento com CAS e idempotência, registra no histórico e recusa mapa incompleto e quem não administra (`test_flow_migration`).
+- **#414/#415:** rascunho em dados, publicação com a validação do código, versões imutáveis, problemas mostrados no editor, A/B e default deny (`test_flow_drafts`).
+- **#416/#417:** calendário útil (parse, feriados, soma de horas úteis atravessando noite, fim de semana e feriado) e SLA/lembretes em horas úteis, com o fallback registrado sem calendário (`tests/unit/test_business_hours`, `test_business_calendar`, `test_flow_business_sla`).
+- **#418:** a tarefa de quem está ausente vai ao substituto no período; fora dele, ou se o substituto não lê o registro, fica com a pessoa e o histórico diz por quê; quem registra e quem remove, com CAS (`test_flow_absences`).
+- **#419:** colunas pela distância desde o início, etapa atual e concluídas marcadas, transições de volta tracejadas, rótulos escapados e sem script (`test_flow_diagram`).
+- **#420:** `/metrics` soma as organizações por `flow_key` (instâncias por estado, tarefas abertas e vencidas, etapas automáticas com falha), sem sysid, slug ou email em rótulo; uma falha de leitura dá `skeleton_flow_metrics_up 0` e mantém o resto (`test_flow_metrics`).
+- **#421:** quem lê o registro comenta pela tela da tarefa e volta a ela, com o texto escapado; o `next` fora dos fluxos da organização volta à página do registro; quem opera a instância sem ler o registro não vê o painel e recebe 404 ao comentar; sem `CommentPolicy` não há painel (`test_flow_comments`).
+- **#422:** o expurgo esvazia só instâncias encerradas além do prazo e mantém etapas, tarefas, datas e histórico; uma segunda execução não muda nada; instância em andamento e de outra organização ficam; o prazo segue a versão congelada e a configuração; a eliminação remove os campos `personal` dos envios da pessoa e da instância; a exportação traz `flow_submissions`; a auditoria não guarda nenhum valor de formulário (`test_flow_retention`, `tests/unit/test_flow_retention_rules`).
+
+| Execução observada | Resultado |
+|---|---|
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 6` | 2650 passed, 100 skipped (O_NOFOLLOW/fcntl só em Linux/macOS; pg_trgm ausente no cluster local), 54 subtests, 0 falhas, 17 min |
+| `uvx ruff@0.17.4 check .` e `format --check .` | ok |
+| `SKELETON_BUNDLED_APPS=calendar python -m mypy` | sem problemas |
+| `python manage.py check --fail-level WARNING`; `makemigrations --check --dry-run` | sem problemas; sem mudanças |
+| `cd frontend && npm run check` | ok |
+
+A primeira rodada completa achou quatro testes antigos que conflitavam com a mudança: a auditoria de `data`/`values`, agora redigidos, a imutabilidade de `FlowSubmission.values`, a mensagem da validação de campos e os códigos de dia do calendário na checagem de i18n. Também achou um conflito de nome entre os dois arquivos de teste de retenção. Todos foram ajustados no commit `1f2a158`, e a tabela registra a segunda rodada.
+
+Limites: nenhuma tela nova foi exercitada num navegador nesta rodada. As páginas foram provadas pelos testes HTTP (status, conteúdo, escape, CSRF), não por smoke manual.
+
 ## Rodada de qualidade: agente de deployment, CI e operação (epic #221)
 
 Rodada de 2026-11-13 na branch `fix/221-quality-agent-ops`, empilhada sobre a do epic #214. Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou. Os testes do agente de deployment exigem `fcntl` e são pulados no Windows: localmente rodaram com um emulador de desenvolvimento (um `fcntl` falso, `O_NOFOLLOW`/`O_DIRECTORY`, `UnixStreamServer` e bits de permissão de dono e, onde dito, caminhos `/bin/...` tratados como absolutos), só para comparar antes e depois de cada issue; o que depende de modo de arquivo POSIX, symlink, FIFO ou socket Unix tem a prova no CI Linux do PR, que passou inteiro nas rodadas de `ace9075` e `8ec2c8a`.

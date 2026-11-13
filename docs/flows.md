@@ -108,13 +108,16 @@ def ready(self):
 | Aprovação | `approval(key, assignees=..., policy=..., quorum=..., form=..., sla=...)` | Cria uma tarefa por vaga de aprovador | A política resolve para `approved` ou `rejected` |
 | Serviço | `service(key, handler=..., outputs=..., max_attempts=3)` | Roda um handler registrado pela app, num job | O handler devolve um resultado opcional |
 | Temporizador | `timer(key, delay_seconds=...)` | Espera um tempo | O job do temporizador dispara |
-| Espera | `wait(key, signal=..., timeout_seconds=..., form=...)` | Espera um sinal enviado pela app | `received` ou `timeout` |
+| Subfluxo | `subflow(key, flow="app.filho", version=N)` | Inicia o fluxo filho na versão fixada, sobre o mesmo registro, e espera o fim dele ([#412](https://github.com/alaorneto/skeleton/issues/412)) | o resultado (`outcome`) do filho |
+| Espera | `wait(key, signal=..., timeout_seconds=..., form=...)` ou `wait(key, event=..., correlate=...)` | Espera um sinal enviado pela app, ou um evento de domínio da app ([#411](https://github.com/alaorneto/skeleton/issues/411)) | `received` ou `timeout` |
 | Gateway exclusivo | `exclusive(key)` | Escolhe **uma** saída: a primeira condição verdadeira, na ordem declarada, ou a padrão | Imediato |
 | Bifurcação paralela | `parallel(key, join=...)` | Ativa **todas** as saídas | Imediato |
 | Bifurcação inclusiva | `inclusive(key, join=...)` | Ativa **todas as saídas cuja condição é verdadeira**; se nenhuma, a padrão | Imediato |
 | Junção | `join(key)` | Espera todos os ramos que a bifurcação correspondente ativou | Quando o último ramo chega |
 
-Subfluxos (uma etapa que inicia outro fluxo) ficam para o [ciclo 2](#o-que-fica-para-depois).
+**Espera por evento** ([#411](https://github.com/alaorneto/skeleton/issues/411)). `wait(key, event="app.tipo")` avança quando um evento de domínio daquele tipo é publicado sobre o registro de negócio da instância. Com `correlate="campo"`, avança quando esse campo declarado do evento traz o `sysid` do registro, para eventos de outra tabela. O tipo precisa ser da própria app e, sem `correlate`, sobre a tabela do registro; a espera por evento não tem formulário e aceita `timeout_seconds` como a de sinal. Quem entrega é o consumidor do núcleo `flows.event_waits`, que recebe só os eventos das apps, no contexto da organização do evento: um evento de outra organização nunca avança a instância, e uma entrega repetida encontra a espera já concluída e não faz nada. Os campos novos ficam fora da forma canônica enquanto vazios, então o digest dos fluxos já publicados não muda.
+
+**Subfluxos** ([#412](https://github.com/alaorneto/skeleton/issues/412)). A etapa `subflow` inicia o fluxo filho na versão fixada na própria spec (`version=N`), sobre o mesmo registro de negócio: publicar uma versão nova do filho não muda um pai em andamento. O filho nasce dentro do comando do pai (ordem de trava: pai, depois filho) e guarda `parent` e `parent_run`, imutáveis. O fim do filho chega ao pai por um job (`flows.subflow_finished`): concluído, a etapa segue pela transição do resultado do filho (`on="approved"`); com falha ou cancelado por fora, a etapa do pai falha. Cancelar o pai cancela o filho; suspender suspende, e retomar retoma. O check exige que o filho seja declarado em código pela mesma app, sobre a mesma tabela, uma transição por resultado e nenhum ciclo entre fluxos (`subflow cycle`). Um filho em dados e subfluxos de outra app ficam de fora.
 
 ### Transições
 
@@ -144,8 +147,14 @@ Handlers, condições e regras recebem um `FlowContext` somente leitura (organiz
 - **Allowlist:** um campo não declarado no formulário da etapa ou da transição é recusado, não ignorado.
 - **Validação no servidor:** obrigatório, tipo, tamanho, mínimo e máximo, escolha válida, pessoa da mesma organização.
 - **Sensíveis:** um campo `sensitive=True` é guardado numa coluna à parte (`sensitive_data` na instância, `sensitive_values` no envio), que a auditoria redige por inteiro. Ele não entra em eventos nem em notificações, e só é devolvido a quem pode agir numa tarefa da instância.
-- **Histórico:** cada envio é uma linha `FlowSubmission` imutável. A instância guarda os valores mais recentes de cada campo (`data`), que as condições leem.
-- Um mesmo nome de campo tem o mesmo tipo e a mesma sensibilidade em todos os formulários do fluxo; o check reprova a divergência.
+- **Histórico:** cada envio é uma linha `FlowSubmission`, imutável salvo pelos valores, que só a retenção e a eliminação da pessoa alteram. A instância guarda os valores mais recentes de cada campo (`data`), que as condições leem.
+- **Pessoais:** um campo `personal=True` é dado pessoal de quem o envia. Quando a pessoa é eliminada (#191), o campo sai dos envios dela e dos dados da instância que ainda guardam o valor enviado ([#422](https://github.com/alaorneto/skeleton/issues/422)).
+- **Auditoria:** os valores (`data` da instância, `values` do envio) são campos pessoais das tabelas e saem `[REDACTED]` nos eventos; a auditoria registra que mudaram, nunca o conteúdo.
+- Um mesmo nome de campo tem o mesmo tipo, a mesma sensibilidade e a mesma marca de pessoal em todos os formulários do fluxo; o check reprova a divergência.
+
+### Retenção dos dados de formulário
+
+`FlowSpec.retention_days` diz por quantos dias os valores de formulário de uma instância encerrada (concluída ou cancelada) ficam; 0 usa `SKELETON_FLOWS_FORM_RETENTION_DAYS`, cujo padrão 0 mantém os dados. O job diário `flows.purge_form_data`, por organização, esvazia `data` e `sensitive_data` da instância e `values` e `sensitive_values` de cada envio, e marca `form_purged_at`. Ficam as etapas, tarefas, decisões, datas, resultado e histórico. Instâncias em andamento, suspensas ou com falha não são tocadas, e rodar o job de novo não muda nada. O prazo é o da versão congelada da instância. Os dois campos ficam fora da forma canônica enquanto estão no padrão, então o digest das versões já publicadas não muda.
 
 O fluxo pode declarar `start_form`: os dados que a app informa ao iniciar a instância.
 
@@ -163,7 +172,7 @@ A definição vale para todas as organizações, então não pode citar o UUID d
 | `Assignment.role(..., expand=True)`, `Assignment.group(..., expand=True)` | Uma vaga para **cada** pessoa do papel ou do grupo, no momento da ativação |
 | `Assignment.rule("app.nome")` | O que a regra registrada pela app devolver (pessoas, grupos, papéis) |
 
-Uma tarefa de **fila** não tem responsável: qualquer candidato pode **assumir** (`claim`) e depois **liberar** (`release`). Se nada resolver (o papel não existe na organização, por exemplo), a tarefa nasce sem responsável e sem candidatos, o histórico registra `assignment_unresolved` e o administrador da organização a reatribui.
+Uma tarefa de **fila** não tem responsável: qualquer candidato pode **assumir** (`claim`) e depois **liberar** (`release`). Se nada resolver (o papel não existe na organização, por exemplo), a tarefa nasce sem responsável e sem candidatos, o histórico registra `assignment_unresolved` e quem administra fluxos a reatribui.
 
 ### Aprovações
 
@@ -178,17 +187,19 @@ Cada vaga de aprovador vira uma `FlowTask`, e a política decide sobre o conjunt
 
 Resolvida a etapa, as tarefas ainda abertas são canceladas. A decisão aceita comentário e os campos do formulário da etapa. A transição `on="rejected"` decide o que a rejeição significa: ir a um fim, ou **voltar** a uma etapa anterior.
 
-**Delegação e reatribuição.** O responsável passa a tarefa a outra pessoa com vínculo ativo (`reassign`) quando a etapa é `delegable`; o administrador da organização reatribui qualquer tarefa. A tarefa guarda quem delegou.
+**Delegação e reatribuição.** O responsável passa a tarefa a outra pessoa com vínculo ativo (`reassign`) quando a etapa é `delegable`; quem administra fluxos reatribui qualquer tarefa. A tarefa guarda quem delegou.
+
+**Substituição por ausência** ([#418](https://github.com/alaorneto/skeleton/issues/418)). A pessoa registra o próprio período de ausência e um substituto (`FlowAbsence`, REST `GET/POST /api/v1/o/<org>/flows/absences/` e `DELETE .../absences/<id>/` com `If-Match`); quem administra fluxos registra para qualquer um. Pessoa e substituto são membros humanos ativos e diferentes, e o período vai até um ano. Enquanto durar, uma tarefa atribuída à pessoa nasce com o substituto e `delegated_from` aponta para a pessoa (histórico `absence_delegated`). Se o substituto não lê o registro de negócio, a tarefa fica com a pessoa e o histórico registra `absence_substitute_refused`. Só as tarefas criadas no período mudam; as já abertas e as de fila ficam como estão.
 
 ### Prazos (SLA)
 
-`Sla(due_seconds, remind_before_seconds=(), on_overdue="notify", escalate_to=())`:
+`Sla(due_seconds, remind_before_seconds=(), on_overdue="notify", escalate_to=(), business_hours=False)`:
 
 - a tarefa nasce com `due_at`;
 - cada valor de `remind_before_seconds` agenda um lembrete (`flows.task_reminder`) ao responsável ou à fila;
 - vencido o prazo, `on_overdue` decide: `notify` avisa o responsável e o escalonamento (`escalate_to`); `reassign` passa a tarefa ao escalonamento; `expire` encerra a etapa com o resultado `expired` e segue a transição `on="expired"`.
 
-Os prazos correm em tempo corrido. Depois de uma suspensão, o job do vencimento é reagendado; lembretes que venceram durante a pausa não são reenviados. Horas úteis e substituição por ausência ficam para o ciclo 2.
+Os prazos correm em tempo corrido, ou em **horas úteis** com `business_hours=True` ([#417](https://github.com/alaorneto/skeleton/issues/417)): o vencimento soma `due_seconds` de expediente no [calendário da organização](data-model.md) (#416), e cada lembrete vem quando resta aquele tanto de expediente, contado desde a criação da tarefa. Sem calendário configurado, a tarefa cai para tempo corrido e o histórico registra `sla_elapsed_fallback` (um check estático não enxerga o calendário de cada organização). Mudar o calendário vale para as tarefas criadas depois. O campo fica fora da forma canônica enquanto falso, então o digest dos fluxos já publicados não muda. Depois de uma suspensão, o job do vencimento é reagendado; lembretes que venceram durante a pausa não são reenviados.
 
 ### Validação estrutural
 
@@ -215,16 +226,48 @@ A declaração em código é a versão **publicada**. Para que uma instância em
 3. `FlowDefinition` é imutável (guard no banco). Mudar o fluxo exige incrementar `version`: as instâncias novas usam a nova definição, e as antigas terminam na que tinham.
 4. Mudar a spec **sem** mudar a versão é erro de publicação: o digest do código difere do gravado e `start` falha fechado (`Conflict("definition_changed")`).
 
+### Migrar instâncias para uma versão nova
+
+Uma instância termina, por padrão, na versão em que começou. Para corrigir um fluxo publicado e levar as instâncias abertas junto ([#413](https://github.com/alaorneto/skeleton/issues/413)), a app declara em código como as etapas da versão antiga correspondem às da nova:
+
+```python
+from skeleton.flows.registry import register_flow_migration
+
+register_flow_migration(
+    "tasks.approval", from_version=1, to_version=2, steps={"fill": "draft", "review": "review"}, owner_app="tasks"
+)
+```
+
+- `to_version` é a versão declarada em código, e cada destino precisa existir nela (check `skeleton.E029`).
+- Quem administra fluxos vê a prévia (`GET /api/v1/o/<org>/flows/migrations/<chave>/<versão>/`): o destino de cada instância em andamento ou suspensa, sem gravar nada. Para aplicar, usa `POST` na mesma rota, que enfileira um job na organização.
+- Para cada etapa aberta: mapeada para a mesma chave, a etapa e as tarefas ficam como estão; mapeada para outra, a etapa é cancelada (com as tarefas) e a etapa de destino é ativada na versão nova, criando as tarefas de novo.
+- Uma instância com uma etapa aberta sem destino no mapa, ou dentro de um bloco paralelo, é pulada e aparece na prévia com o motivo (`unmapped:<etapa>`, `inside_block`).
+- Cada migração vai para o histórico (`instance_migrated`, com as versões e os movimentos). Desde `sk_flows.0005`, `definition` e `flow_version` da instância não são mais campos imutáveis do guard; só o serviço de migração os altera. Essa foi a troca para manter a identidade, o histórico e as tarefas que continuam: recriar a instância perderia os três.
+- Voltar para uma versão anterior e migrar sem mapa ficam de fora.
+
 Handlers, condições e regras de atribuição são resolvidos por nome no código atual. Uma versão antiga que cite um nome removido falha naquela etapa (a instância fica `failed`, com o motivo no histórico) em vez de executar outra coisa. Mantenha os nomes registrados enquanto houver instâncias antigas.
+
+### Fluxos definidos em dados
+
+Além dos fluxos declarados em código, a organização pode definir fluxos em dados ([#414](https://github.com/alaorneto/skeleton/issues/414), [#415](https://github.com/alaorneto/skeleton/issues/415)). Só quem administra fluxos lê, escreve e publica.
+
+- Um **rascunho** (`FlowDraft`, tabela `sk_flows_flowdraft`) guarda a forma JSON de `FlowSpec.to_json`, sem a versão. A chave segue `app_label.nome` e não pode ser a de um fluxo declarado em código.
+- O rascunho só referencia o que o código registrou: handlers de etapa automática, condições, regras de atribuição, tabelas expostas, sequências e tipos de evento da app dona. A validação é a mesma das declarações em código (`spec_problems`), e a app dona precisa estar ativa na organização. Nada do que é enviado é executado como código.
+- **Publicar** trava o rascunho, confere a revisão (CAS), valida e grava uma `FlowDefinition` imutável na próxima versão da chave. As instâncias novas partem dela; as antigas terminam na versão que tinham. Rascunho com problema não publica (400, com a lista).
+- Iniciar continua sendo da app dona: `FlowService().start(flow_key=...)` aceita a chave de um fluxo em dados publicado, com as mesmas regras de autorização.
+- Superfícies: REST `GET/POST /api/v1/o/<org>/flows/drafts/`, `GET/PATCH .../drafts/<id>/` (`If-Match`) e `POST .../drafts/<id>/publish/` (`If-Match`); página `/o/<org>/flows/drafts/`, com a lista e um rascunho novo a partir do JSON, e a página do rascunho com etapas, transições, problemas de validação, os nomes registrados pelas apps, salvar e publicar.
+- O editor edita a especificação em JSON, com as tabelas de etapas e transições e a validação ao lado. Widgets por etapa (formulário guiado) ficaram de fora: o JSON é o mesmo formato da REST e evita duas fontes de verdade.
 
 ## Modelo de dados
 
-Seis tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisão, exclusão lógica, auditoria por trigger, RLS tenant), nenhuma no gateway genérico:
+Oito tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisão, exclusão lógica, auditoria por trigger, RLS tenant), nenhuma no gateway genérico:
 
 | Modelo | Guarda | Campos imutáveis |
 |---|---|---|
 | `FlowDefinition` | `key`, `version`, `app_label`, `label`, `digest`, `specification` (JSON) | todos |
-| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at` | definição, chave, versão, número, registro de negócio, quem iniciou, chave de idempotência |
+| `FlowAbsence` | `user`, `substitute`, `starts_at`, `ends_at` | pessoa |
+| `FlowDraft` | `key`, `label`, `app_label`, `specification` (JSON, sem a versão), `published_version`, `published_at` | chave |
+| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at`, `parent`, `parent_run` | chave, número, registro de negócio, quem iniciou, chave de idempotência, pai e etapa do pai (definição e versão mudam só pela migração, #413) |
 | `FlowStepRun` | `instance`, `step_key`, `kind`, `status`, `sequence`, `scope`, `branch`, `via`, `outcome`, `state` (JSON), `due_at`, `finished_at` | instância, etapa, tipo, ordem, escopo, ramo, origem |
 | `FlowTask` | `instance`, `step_run`, `step_key`, `kind`, `status`, `slot`, `assignee`, `candidate_group`, `candidate_role`, `delegated_from`, `decision`, `action`, `comment`, `due_at`, `reminded_count`, `escalated_at`, `completed_by`, `completed_at` | instância, ativação, etapa, tipo, vaga |
 | `FlowSubmission` | `instance`, `step_run`, `task`, `step_key`, `transition_key`, `origin`, `values`, `sensitive_values` | todos |
@@ -270,11 +313,13 @@ Tudo é negado por padrão, e cada chamada revalida no servidor.
 | Operação | Quem pode |
 |---|---|
 | Iniciar (`start`), enviar sinal (`signal`) | O código da **app dona** do fluxo, para um ator com a ação `start_action` (padrão `update`) sobre o registro de negócio; em `system_context`, sem ator (jobs e consumidores de eventos da app) |
-| Ler a instância e o histórico | Quem lê o registro de negócio (`authorized_queryset`), quem iniciou, quem tem ou teve tarefa na instância, quem é candidato a uma tarefa aberta, e o administrador da organização |
+| Ler a instância e o histórico | Quem lê o registro de negócio (`authorized_queryset`), quem iniciou, quem tem ou teve tarefa na instância, quem é candidato a uma tarefa aberta, e quem administra fluxos |
 | Ler e agir numa tarefa | O responsável; para tarefa de fila, quem é do grupo ou tem o papel candidato **no momento da chamada**. Depois de encerrada, quem continua na fila segue lendo a tarefa, sem poder agir |
-| Reatribuir | O responsável (etapa `delegable`) ou o administrador da organização |
-| Cancelar | O administrador da organização, ou quem iniciou quando o fluxo permite (`starter_can_cancel`) |
-| Suspender, retomar, repetir | O administrador da organização |
+| Reatribuir | O responsável (etapa `delegable`) ou quem administra fluxos |
+| Cancelar | Quem administra fluxos, ou quem iniciou quando o fluxo permite (`starter_can_cancel`) |
+| Suspender, retomar, repetir | Quem administra fluxos |
+
+**Quem administra fluxos** é o administrador da organização e quem tem a capacidade `flows.manage`, carregada só pelo papel interno "Gestor de processos" (`process_manager`, [#407](https://github.com/alaorneto/skeleton/issues/407)). A capacidade vale só para fluxos: o gestor não administra membros, apps nem acessos, e perde o poder na requisição seguinte à revogação do papel. Organizações existentes recebem o papel pela reconciliação de papéis internos (`manage.py reconcile_builtin_roles`, também rodada na sincronização do deployment).
 
 - **App desativada bloqueia.** Com a app dona desativada ou indisponível na organização, toda operação sobre os fluxos dela responde `Unavailable` e as listas omitem as tarefas e instâncias dela.
 - **Inexistente e não autorizado respondem igual** (`NotFound`), inclusive para outra organização.
@@ -305,10 +350,18 @@ Os eventos do núcleo sobre a instância não vão para webhooks: a tabela não 
 ## Superfícies
 
 - **API de serviços** (`skeleton.service_api.flows.FlowService`): o contrato principal. Veja o [catálogo do núcleo](service-api.md#flowservice).
-- **REST** em `/api/v1/o/<org>/flows/`: tarefas, instâncias, histórico e as ações, com `If-Match`. Veja [API](api.md#fluxos-de-processo).
+- **REST** em `/api/v1/o/<org>/flows/`: tarefas, instâncias, histórico e as ações, com `If-Match`, por sessão ou por token de API com `flows:read`/`flows:write` ([#410](https://github.com/alaorneto/skeleton/issues/410)). Veja [API](api.md#fluxos-de-processo).
 - **Páginas** em `/o/<org>/flows/`: caixa de tarefas, tarefa, instâncias e instância com histórico, sem JavaScript.
+- **Comentários do registro** nas telas da tarefa e da instância ([#421](https://github.com/alaorneto/skeleton/issues/421)): o painel de [comentários](comments.md) do registro de negócio, com menções, para quem lê o registro e só se a tabela aceitar comentários. Não há comentários próprios da instância; os de cada passo continuam no histórico.
+- **Diagrama** na página da instância ([#419](https://github.com/alaorneto/skeleton/issues/419)): o desenho da versão da instância, gerado no servidor em SVG, com as etapas em colunas pela distância desde o início, a etapa atual destacada e as concluídas marcadas; transições de volta aparecem tracejadas. Os rótulos saem escapados, não há script nem biblioteca externa (a CSP não muda) e uma lista das etapas acompanha o desenho para leitores de tela. Não mostra dados de formulário.
+- **Minhas tarefas** em `/flows/tasks/` e o contador **Tarefas** no cabeçalho ([#409](https://github.com/alaorneto/skeleton/issues/409)): as tarefas abertas atribuídas à pessoa em todas as organizações com vínculo ativo, por autodescoberta em `FlowTask.assignee`. Tarefas de fila ficam na caixa de cada organização, porque a fila depende dos grupos e papéis daquele tenant. A linha leva à tarefa na organização, onde a autorização é revalidada.
+- **Painel de operação** em `/o/<org>/flows/operations/` (e `GET /api/v1/o/<org>/flows/operations/`), só para quem administra fluxos ([#408](https://github.com/alaorneto/skeleton/issues/408)): conta e lista as instâncias com falha e as tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas, com filtro por fluxo e versão, e leva às ações que já existem (reatribuir, retomar, cancelar). Mostra identificadores, situações e datas, nunca valores de formulário, e faz o mesmo número de consultas qualquer que seja o volume (no máximo 50 itens por lista).
 
 Iniciar uma instância não tem rota no núcleo: é uma operação de negócio da app dona, que chama `FlowService().start(...)` da sua própria view ou serviço.
+
+### Métricas
+
+Com `/metrics` ligado ([implantação](deployment.md)), a coleta expõe por chave de fluxo as instâncias por estado, as tarefas abertas e vencidas e as etapas automáticas com falha (#420). Nenhum rótulo traz organização, pessoa ou registro.
 
 ## O que entra na primeira entrega
 
@@ -316,33 +369,19 @@ O [exemplo Notes](../examples/notes/flows.py) declara o fluxo `example_notes.pub
 
 Tudo o que está descrito acima: declaração em código com validação estrutural; etapas de início, fim, tarefa, aprovação, serviço, temporizador e espera; gateways exclusivo, paralelo e inclusivo; formulários por etapa e por transição; aprovações `any`, `all`, `quorum` e `sequential`; delegação, devolução, comentários, prazos, lembretes e escalonamento; atribuição por pessoa, papel, grupo ou regra; caixa de tarefas; vínculo com o registro de negócio; histórico; cancelar, suspender, retomar e repetir; jobs, eventos, webhooks, notificações, auditoria e sequências; `FlowService`, REST e páginas; e o fluxo de exemplo no Notes.
 
-## O que fica para depois
+## Evoluções do epic #208
 
-Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issues/208), com o motivo:
-
-| Item | Por que não agora |
-|---|---|
-| Subfluxos | Exigem fixar a versão do fluxo filho e propagar cancelamento, suspensão e falha entre instâncias |
-| Definições em dados por organização, com editor | A tabela já é por organização; falta decidir quem publica e como validar na publicação. Fluxos em código cobrem o pedido e seguem o padrão dos outros subsistemas |
-| Caixa de tarefas entre organizações e contador no cabeçalho | Exige autodescoberta em `FlowTask` e leitura agregada |
-| Capacidade `flows.manage` e painel de operação | Mudar a lista de capacidades afeta papéis internos de todas as organizações; por ora só o administrador administra fluxos |
-| Espera por tipo de evento de domínio | O sinal explícito, enviado pelo consumidor de eventos da app, cobre o caso sem acoplar o motor ao outbox |
-| Token de API nas rotas de fluxos | Exige escopos próprios; a primeira entrega só aceita sessão |
-| SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |
-| Migrar instâncias para outra versão | Precisa de um mapa de etapas entre versões e de regras para tarefas abertas |
-| Diagrama do fluxo e métricas | Apresentação e operação, sem efeito no contrato |
-| Comentários livres na instância | Serão os comentários de registros (#187) |
-| Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |
+Os itens deixados para depois da primeira entrega foram entregues no epic [#208](https://github.com/alaorneto/skeleton/issues/208): o gestor de processos (#407), o painel de operação (#408), a caixa global (#409), os tokens (#410), as esperas por evento (#411), os subfluxos (#412), a migração de instâncias (#413), os fluxos em dados e o editor (#414, #415), o calendário útil e o SLA em horas úteis (#416, #417), as ausências (#418), o diagrama (#419), as métricas (#420), os comentários do registro (#421) e a retenção dos formulários (#422).
 
 ## Decisões confirmadas pelo responsável
 
 Confirmadas em 2026-11-12, como recomendado no desenho:
 
 1. **Nome** `skeleton/flows` / `sk_flows` / "fluxos", em vez de "workflow". Renomear depois de existir migration custa uma migração de dados.
-2. **Fluxos só em código** na primeira entrega (sem editor nem definição em dados).
+2. **Fluxos só em código** na primeira entrega; desde [#414](https://github.com/alaorneto/skeleton/issues/414) e [#415](https://github.com/alaorneto/skeleton/issues/415), também em dados, com rascunho, publicação e editor.
 3. **Registro de negócio obrigatório**: todo fluxo corre sobre um `SecuredRecord` exposto da app dona, e a leitura da instância deriva dele.
 4. **Uma instância ativa por fluxo e registro.**
-5. **Quem administra fluxos é o administrador da organização**; não há capacidade delegável ainda.
+5. **Quem administra fluxos é o administrador da organização**; desde [#407](https://github.com/alaorneto/skeleton/issues/407), também quem tem `flows.manage` (papel "Gestor de processos").
 6. **Um aprovador vê os dados de formulário da instância mesmo sem ler o registro de negócio.**
 7. **Nada é apagado**: sem retenção na primeira entrega.
 8. **A versão do core não muda neste epic**; os métodos novos declaram `since="0.6.0"`, e o piso de core do Notes sobe quando essa versão for cortada.

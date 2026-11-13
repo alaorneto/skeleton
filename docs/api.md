@@ -144,7 +144,7 @@ curl -i -X PATCH -b "sessionid=$SESSION; csrftoken=$CSRF" \
 
 ## Fluxos de processo
 
-Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Só sessão: um token de API recebe 403 `token_not_allowed`.
+Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows/`. As views só chamam o [`FlowService`](service-api.md#flowservice), que autoriza cada chamada. Desde [#410](https://github.com/alaorneto/skeleton/issues/410), tarefas e instâncias aceitam token de API (pessoal ou de conta de serviço) com os escopos `flows:read` (leituras) e `flows:write` (comandos em tarefas e instâncias); sem o escopo, 403. O escopo só abre a rota: a autorização continua a do `FlowService`, e ver uma instância pela leitura do registro de negócio também exige o escopo de leitura daquela tabela. Painel de operação e rascunhos continuam só sessão, porque um token nunca carrega capacidade, e por isso os comandos de administração (suspender, retomar, repetir) também são recusados a tokens.
 
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
@@ -154,6 +154,13 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 | `o/<org>/flows/tasks/<id>/reassign/` | POST | `{"to_user": "<uuid>", "comment": "..."}` |
 | `o/<org>/flows/tasks/<id>/complete/` | POST | `{"action": "<chave>", "data": {campo: valor}, "comment": "..."}` |
 | `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
+| `o/<org>/flows/operations/` | GET | Painel de operação (#408), só para quem administra fluxos (`flows.manage`); filtros `flow_key` e `version` |
+| `o/<org>/flows/migrations/<chave>/<versão>/` | GET, POST | Migração das instâncias de uma versão (#413): GET mostra a prévia (`moves` e `skipped` por instância); POST enfileira a aplicação e responde 202 com `job_id`; só quem administra fluxos |
+| `o/<org>/flows/absences/` | GET, POST | Ausências com substituto (#418): as próprias, ou todas para quem administra fluxos; POST `{"user", "substitute", "starts_at", "ends_at"}` |
+| `o/<org>/flows/absences/<id>/` | DELETE | Remove a ausência, com `If-Match` |
+| `o/<org>/flows/drafts/` | GET, POST | Fluxos em dados (#414): lista e cria rascunhos `{"specification": {...}}` (forma de `FlowSpec.to_json`, sem a versão); só quem administra fluxos |
+| `o/<org>/flows/drafts/<id>/` | GET, PATCH | Rascunho com `problems`; PATCH troca a especificação, com `If-Match` |
+| `o/<org>/flows/drafts/<id>/publish/` | POST | Publica a próxima versão, com `If-Match`; 400 com os problemas de validação |
 | `o/<org>/flows/instances/` | GET | Instâncias visíveis; filtros exatos `flow_key`, `subject_id`, `status` |
 | `o/<org>/flows/instances/<id>/` | GET | Instância com etapas ativas e dados não sensíveis; ETag com a revisão da instância |
 | `o/<org>/flows/instances/<id>/history/` | GET | Histórico ordenado |

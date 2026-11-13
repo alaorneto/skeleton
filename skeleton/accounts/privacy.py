@@ -3,8 +3,8 @@
 ``export_my_data`` reads only the person's own rows: the identity, the profile and the API
 token metadata in a request context of the person, then each organization of the person
 through ``for_each_organization`` (one read-only tenant context each, the membership checked):
-the membership, the notifications received and the metadata of the attachments the person
-uploaded. Never another person's data, never business records of the organization (their
+the membership, the notifications received, the metadata of the attachments the person
+uploaded and the flow forms the person sent (#422). Never another person's data, never business records of the organization (their
 controller is the organization), never secrets (token digests, storage keys).
 
 The export is built in the request and returned at once, as an attachment with ``no-store``:
@@ -73,6 +73,7 @@ def _identity(user: Any) -> dict[str, Any]:
 def _organization_part(user: Any):
     def collect(organization_id: Any) -> dict[str, Any]:
         from skeleton.files.models import Attachment
+        from skeleton.flows.retention import submissions_of
         from skeleton.notifications.models import NotificationRecipient
         from skeleton.tenancy.models import Membership
 
@@ -105,6 +106,7 @@ def _organization_part(user: Any):
             else {"created_at": membership.created_at, "is_active": membership.is_active},
             "notifications": notifications,
             "attachments_uploaded": attachments,
+            "flow_submissions": submissions_of(user.pk),
         }
 
     return collect

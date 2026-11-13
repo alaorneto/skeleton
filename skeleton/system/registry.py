@@ -378,6 +378,18 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_flows.flowdraft": (
+            gettext_lazy("Rascunhos de fluxo"),
+            gettext_lazy("Fluxo definido em dados pela organização, com a versão publicada (#414)."),
+            "organization",
+            (),
+        ),
+        "sk_flows.flowabsence": (
+            gettext_lazy("Ausências em fluxos"),
+            gettext_lazy("Período em que as tarefas de fluxo de uma pessoa vão para um substituto (#418)."),
+            "organization",
+            (),
+        ),
         "sk_flows.flowinstance": (
             gettext_lazy("Instâncias de fluxo"),
             gettext_lazy("Execução de um fluxo sobre um registro de negócio; dados sensíveis de formulário à parte."),
@@ -427,6 +439,9 @@ def register_core_specs():
     personal_fields = {
         "sk_accounts.user": ("email", "first_name", "last_name"),
         "sk_accounts.userprofile": ("display_name",),
+        # Form data may carry anyone's personal data: the audit never copies it (#422).
+        "sk_flows.flowinstance": ("data",),
+        "sk_flows.flowsubmission": ("values",),
     }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
     read_fields = {
