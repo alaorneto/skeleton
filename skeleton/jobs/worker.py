@@ -12,6 +12,8 @@ import os
 import random
 import socket
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -20,7 +22,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import connections, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -149,6 +151,43 @@ def _retry_delay(job_type, attempts: int) -> timedelta:
     return timedelta(seconds=min(base, 86400) * random.uniform(0.5, 1.5))  # noqa: S311 - jitter, not security
 
 
+class JobTimeout(Exception):
+    """The handler ran past its ``timeout_s``; the job follows the normal failure path (#297)."""
+
+    code = "timeout"
+
+
+@contextmanager
+def _deadline(seconds: int) -> Iterator[None]:
+    """Interrupt the handler after ``seconds`` (main thread only: signals cannot reach others)."""
+    import signal
+    import threading
+
+    usable = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    if not usable or seconds <= 0:
+        yield
+        return
+
+    def expire(signum: int, frame: Any) -> None:
+        raise JobTimeout()
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)  # Disarm before restoring the previous handler.
+        signal.signal(signal.SIGALRM, previous)
+
+
+def _set_lock_timeout(using: str, seconds: int) -> None:
+    """Lock waits of the job's transaction end with its deadline, not after it (#297)."""
+    from skeleton.common.db import bound_lock_waits
+
+    if connections[using].vendor == "postgresql":
+        bound_lock_waits(using=using, milliseconds=max(1, min(int(seconds) * 1000, 600_000)))
+
+
 def _run_handler(job: Job, job_type, worker_id: str, using: str) -> None:
     from skeleton.tenancy.context import system_context, tenant_context
 
@@ -163,12 +202,16 @@ def _run_handler(job: Job, job_type, worker_id: str, using: str) -> None:
         with tenant_context(
             organization_id=job.job_organization_id, actor=actor, source=f"job:{job.job_type}", using=using
         ):
-            job_type.handler(actor=actor, **payload)
+            _set_lock_timeout(using, job_type.timeout_s)
+            with _deadline(job_type.timeout_s):
+                job_type.handler(actor=actor, **payload)
             if not _finish(job, worker_id, Job.State.SUCCEEDED, using=using):
                 raise RuntimeError("Job lease was lost.")
         return
     with system_context(reason=f"job:{job.job_type}", organization_id=job.job_organization_id, using=using):
-        job_type.handler(**payload)
+        _set_lock_timeout(using, job_type.timeout_s)
+        with _deadline(job_type.timeout_s):
+            job_type.handler(**payload)
         if not _finish(job, worker_id, Job.State.SUCCEEDED, using=using):
             raise RuntimeError("Job lease was lost.")
 
@@ -223,6 +266,9 @@ def _execute(job: Job, worker_id: str, *, using: str) -> Outcome:
         _log("job.dead", job, level=logging.WARNING, reason_code="actor_unauthorized")
         return Outcome(job.pk, job.job_type, Job.State.DEAD, "PermissionDenied")
     except Exception as error:  # noqa: BLE001 - every failure is recorded, none escapes the worker
+        if isinstance(error, JobTimeout):
+            # A query cut in the middle may leave the connection unusable: record on a new one.
+            connections[using].close()
         # The handler transaction is already rolled back; record the failure in a new one.
         error_class = type(error).__name__[:200]
         code = str(getattr(error, "code", "") or "")[:100]

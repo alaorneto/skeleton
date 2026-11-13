@@ -119,6 +119,8 @@ DATABASES = {"default": _database} if _database else {}
 CACHES = {"default": env.cache("CACHE_URL", default="locmemcache://skeleton")}
 EMAIL_CONFIG = env.email("EMAIL_URL", default="consolemail://")
 vars().update(EMAIL_CONFIG)
+# Seconds an SMTP connection may block; the notification jobs never hang on a mute server (#297).
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=30)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="skeleton@localhost")
 AUTH_USER_MODEL = "sk_accounts.User"
 AUTHENTICATION_BACKENDS = ["skeleton.accounts.backends.SkeletonAuthenticationBackend"]

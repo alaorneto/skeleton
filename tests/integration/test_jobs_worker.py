@@ -1,6 +1,7 @@
 """Worker: lease, retry with backoff, dead-letter, contexts per job and drain (#38)."""
 
 import threading
+import time
 from datetime import timedelta
 
 import pytest
@@ -256,3 +257,62 @@ def test_failed_job_logs_a_sanitized_stack_without_payload(tenant, caplog):
     payload = json.loads(text)
     assert payload["error_stack"] and ":" in payload["error_stack"][0]
     assert "valor-secreto" not in text and "payload-value" not in text
+
+
+def slow_write(*, code, fail=False):
+    write_role(code=code)
+    time.sleep(5)
+
+
+def lock_timeout(*, code, fail=False):
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW lock_timeout")
+        seen_lock_timeouts.append(cursor.fetchone()[0])
+
+
+seen_lock_timeouts = []
+
+
+@pytest.mark.posix
+def test_handler_past_timeout_is_interrupted_and_retried(tenant):
+    """A handler past timeout_s is interrupted; nothing it wrote persists (#297)."""
+    _, organization = tenant
+    register_job_type(JobType("test.slow", slow_write, {"code": "str", "fail": "bool"}, timeout_s=1))
+    with system_context(reason="test:slow", organization_id=organization.pk):
+        receipt = enqueue("test.slow", organization_id=organization.pk, payload={"code": "slow", "fail": False})
+    make_due()
+    started = time.monotonic()
+    Worker(worker_id="slow").run(once=True)
+    assert time.monotonic() - started < 3
+    job = Job.all_objects.get(pk=receipt.id)
+    assert (job.state, job.last_error_class, job.last_error_code) == ("queued", "JobTimeout", "timeout")
+    assert "slow" not in role_codes(organization)
+
+
+@pytest.mark.posix
+def test_worker_keeps_working_after_a_timeout(tenant):
+    _, organization = tenant
+    register_job_type(JobType("test.slow", slow_write, {"code": "str", "fail": "bool"}, timeout_s=1))
+    with system_context(reason="test:slow-then-ok", organization_id=organization.pk):
+        enqueue("test.slow", organization_id=organization.pk, payload={"code": "slow2", "fail": False})
+    make_due()
+    Worker(worker_id="slow-ok").run(once=True)
+    queue(organization, "after-timeout")
+    make_due()
+    Job.all_objects.filter(job_type="test.slow").update(state=Job.State.CANCELLED)
+    outcomes = Worker(worker_id="slow-ok").run(once=True)
+    assert [outcome.state for outcome in outcomes] == ["succeeded"]
+    assert "after-timeout" in role_codes(organization)
+
+
+def test_job_transaction_has_a_lock_timeout(tenant):
+    _, organization = tenant
+    seen_lock_timeouts.clear()
+    register_job_type(JobType("test.lock", lock_timeout, {"code": "str", "fail": "bool"}, timeout_s=7))
+    with system_context(reason="test:lock-timeout", organization_id=organization.pk):
+        enqueue("test.lock", organization_id=organization.pk, payload={"code": "x", "fail": False})
+    make_due()
+    Worker(worker_id="lock").run(once=True)
+    assert seen_lock_timeouts == ["7s"]
