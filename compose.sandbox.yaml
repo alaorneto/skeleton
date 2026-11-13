@@ -98,7 +98,9 @@ services:
       <<: *app-environment
       # The setup exits the process when it completes; the restart policy brings it back.
       SKELETON_SETUP_RESTART: exit
-      SKELETON_SETUP_ALLOWED_HOSTS: ${SANDBOX_HOST:?Define the public host of the sandbox}
+      # localhost is the Host the healthcheck sends in setup mode (skeleton.api.healthcheck, #436);
+      # only the container itself reaches it, the proxy routes by SANDBOX_HOST.
+      SKELETON_SETUP_ALLOWED_HOSTS: ${SANDBOX_HOST:?Define the public host of the sandbox},localhost
       SKELETON_SETUP_SECURE_COOKIES: "true"
       SKELETON_REQUIRE_ADMIN_MFA: "true"
     volumes:
