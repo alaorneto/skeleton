@@ -20,12 +20,14 @@ def test_gunicorn_timeout_is_the_same_everywhere():
         found, commands = dockerfile_timeouts(path)
         assert len(found) == 1 and commands == 1, (path, found)
         values |= found
+    # The web unit is a file since #318; the documentation keeps the metrics example.
     documented = [
         line
-        for line in (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8").splitlines()
+        for path in (ROOT / "docs" / "deployment.md", ROOT / "deploy" / "systemd" / "skeleton-web.service")
+        for line in path.read_text(encoding="utf-8").splitlines()
         if re.search(r"\bgunicorn config\.wsgi:application\b", line)
     ]
-    assert documented
+    assert any(line.startswith("ExecStart=") for line in documented)
     for line in documented:
         found = re.findall(r"--timeout (\d+)", line)
         assert len(found) == 1, line

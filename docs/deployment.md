@@ -95,6 +95,8 @@ docker compose logs web         # o token de setup aparece aqui
 
 O healthcheck do `web` (`python -m skeleton.api.healthcheck`) consulta `/health/live/` na porta local sem iniciar o Django e escolhe o Host assim: `localhost` em modo setup; depois, `DJANGO_HEALTH_HOST` se estiver definido (ambiente, inclusive `.env.instance`, ou SQLite da instância), senão o primeiro host de `DJANGO_ALLOWED_HOSTS`. Definir `DJANGO_HEALTH_HOST` só é preciso quando o primeiro host da lista não serve para a sonda (por exemplo, um curinga `.example.org`); ele tem de estar na allowlist. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
 
+**Endurecimento (#318).** `web`, `worker`, `scheduler` e `migrator` herdam o bloco `x-hardened`: `read_only: true`, `cap_drop: ["ALL"]`, `security_opt: ["no-new-privileges:true"]` e um `tmpfs` em `/tmp` (512 MiB, para uploads de pacotes e anexos e o heartbeat do Gunicorn). Só o volume `instance` e o `/tmp` são graváveis: quem usa `SKELETON_FILES_ROOT` (anexos privados) ou `PROMETHEUS_MULTIPROC_DIR` monta esses diretórios como volumes; um projeto derivado que grava em outro caminho precisa montar um volume para ele. A senha do Redis chega pelo ambiente do container e não aparece no `command` renderizado (`docker compose config`); o servidor continua passando pelo `docker-entrypoint.sh` da imagem, que troca root pelo usuário `redis`. A app de exemplo entra na imagem por padrão; `docker build --build-arg INCLUDE_EXAMPLES=false .` deixa `examples/` só com o `__init__.py`.
+
 Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUST_PROXY=true somente se remover/substituir X-Forwarded-Proto recebido do cliente; não confie em cabeçalho público. Defina DJANGO_ALLOWED_HOSTS e DJANGO_CSRF_TRUSTED_ORIGINS com hosts/origens exatos. Essas chaves (e DJANGO_TRUST_PROXY, falso por padrão) são da configuração da instância: no setup, em `/platform/instance/` ou, como sobrescrita, no `.env.instance`; o `compose.yaml` não as define. Não abra CORS/domínios de cookies wildcard. Para SSO no container, monte JSON privado read-only e injete SSO_PROVIDER_CONFIG_PATH + referências env; Compose base não provisiona IdP de produção.
 
 Rate limiting de IP usa a topologia explícita `DJANGO_TRUSTED_PROXY_COUNT` (número de proxies confiáveis no X-Forwarded-For) **ou** `DJANGO_TRUSTED_CLIENT_IP_HEADER` (por exemplo X-Real-IP sobrescrito pelo proxy). Não configure ambos. Exigem DJANGO_TRUST_PROXY=true; defaults 0/sem header ignoram cabeçalhos forjados e usam REMOTE_ADDR. Bloqueie acesso direto ao backend quando confiar no proxy e remova/substitua cabeçalhos recebidos do cliente; confiar em TLS/proto não habilita automaticamente confiança em IP. Dois clientes atrás do proxy não devem compartilhar buckets de login/reset.
@@ -127,6 +129,8 @@ psql "$ADMIN_DSN"
 ```
 
 O bootstrap cria a extensão `pg_trgm` quando ela está disponível ([#181](https://github.com/alaorneto/skeleton/issues/181)). Ela é opcional e confiável a partir do PostgreSQL 13. Com ela, o picker tolera erro de digitação; sem ela, procura só por prefixo. A busca textual das listas não precisa de extensão: a função `skeleton.immutable_unaccent` vem da migration `sk_system.0008`. Numa instância que já existe, rode de novo o bloco do `pg_trgm` do bootstrap como operador e depois `manage.py migrate`. O índice do picker é criado no tipo que a extensão permite no momento da migration.
+
+**Limites de espera da role runtime (#318).** O bootstrap define, só para `skeleton_runtime`, `lock_timeout = '10s'` (um comando que espera um bloqueio por mais que isso falha com SQLSTATE `55P03`) e `idle_in_transaction_session_timeout = '60s'` (a sessão ociosa dentro de uma transação aberta é encerrada). Uma transação parada segurando, por exemplo, o bloqueio da organização deixa de bloquear sem prazo as demais mudanças daquela organização. `statement_timeout` não é definido, e `skeleton_owner` fica sem limites (migrations e restauração podem esperar). O erro chega ao Django como `OperationalError` e, numa request, vira 500 com rollback: nada fica gravado pela metade. Como o bootstrap só roda em banco novo, numa instalação existente o operador aplica, com a credencial administrativa, `ALTER ROLE skeleton_runtime SET lock_timeout = '10s';` e `ALTER ROLE skeleton_runtime SET idle_in_transaction_session_timeout = '60s';`, e reinicia web, worker e agendador (valem para conexões novas). Para desfazer: `ALTER ROLE skeleton_runtime RESET lock_timeout;` e o mesmo com o outro parâmetro.
 
 No psql interativo, use `\password skeleton_owner` e `\password skeleton_runtime`; nunca senha na CLI/log/SQL versionado. Roles existentes também precisam ter atributos revisados pelo operador.
 
@@ -547,41 +551,7 @@ O comando imprime só contagens (`due`, atraso do job vencido mais antigo, `dead
 
 A tela `/platform/jobs/` mostra a fila e os jobs esgotados; veja [jobs](jobs.md#operar-a-fila-platformjobs). A retenção dos jobs (`SKELETON_JOB_SUCCEEDED_RETENTION_DAYS`, padrão 7, e `SKELETON_JOB_DEAD_RETENTION_DAYS`, padrão 30) roda como job periódico global. Hooks aceitam substituições `{release}`, `{active}`, `{operation}` em argumentos, nunca comandos vindos do pacote.
 
-Exemplo de units provisionadas pelo operador (não pelos pacotes):
-
-```ini
-# skeleton-agent.service
-[Unit]
-After=network.target
-[Service]
-User=skeleton-agent
-Group=skeleton-web
-UMask=0077
-ExecStart=/opt/skeleton-agent/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
-Restart=on-failure
-KillSignal=SIGTERM
-KillMode=mixed
-TimeoutStopSec=1800
-[Install]
-WantedBy=multi-user.target
-```
-
-```ini
-# skeleton-web.service
-[Unit]
-After=network.target
-[Service]
-User=skeleton-web
-Group=skeleton-web
-WorkingDirectory=/srv/skeleton/current
-EnvironmentFile=/srv/skeleton/private/runtime.env
-Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
-KillSignal=SIGTERM
-TimeoutStopSec=1800
-[Install]
-WantedBy=multi-user.target
-```
+As units de exemplo, provisionadas pelo operador (não pelos pacotes), ficam em `deploy/systemd/`: `skeleton-web.service`, `skeleton-agent.service`, `skeleton-worker.service` e `skeleton-scheduler.service` (#318). Web, worker e agendador rodam com `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernelTunables`, `ProtectControlGroups` e `RestrictAddressFamilies`; com `ProtectSystem=strict` o sistema de arquivos inteiro é somente leitura, menos `ReadWritePaths`, que precisa listar exatamente o que o serviço grava (arquivos privados, SQLite e chave mestra da instância, `PROMETHEUS_MULTIPROC_DIR`; o `-` à frente ignora um caminho inexistente). A unit do agente tem só `ProtectHome`, `PrivateTmp` e `ProtectControlGroups`: os hooks chamam `sudo`, que não funciona com `NoNewPrivileges=yes` (e `PrivateDevices=`/`ProtectKernelTunables=` o implicam numa unit com `User=`), e o agente grava em `releases_root`, `storage_root` e no diretório do ponteiro ativo.
 
 Mantenha a unit do agente fora dos serviços reiniciados/drenados. A primeira adoção e a recuperação são **offline**: pare o daemon do agente antes de executá-las. Prepare/provisione DB e aplique `migrate`, `sync_table_catalog` e `check_skeleton_schema` do release base como nas seções anteriores; `initialize` não cria banco nem aplica migrations. Para um projeto sem apps locais/gerenciadas, salve `{"apps":[]}` como `/srv/skeleton/private/initial-inventory.json`:
 

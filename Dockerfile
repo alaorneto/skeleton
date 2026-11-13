@@ -25,7 +25,10 @@ COPY --from=core-builder /core-wheel /core-wheel
 RUN pip install --no-cache-dir --no-deps /core-wheel/*.whl && rm -rf /core-wheel
 COPY config ./config
 COPY applications ./applications
+# The example app is opt-in at runtime; --build-arg INCLUDE_EXAMPLES=false leaves it out (#318).
+ARG INCLUDE_EXAMPLES=true
 COPY examples ./examples
+RUN if [ "$INCLUDE_EXAMPLES" != "true" ]; then rm -rf ./examples && mkdir ./examples && touch ./examples/__init__.py; fi
 COPY manage.py ./
 COPY --from=project-assets /project-assets/templates ./templates
 RUN DJANGO_SETTINGS_MODULE=config.settings.build python manage.py collectstatic --noinput && useradd --uid 10001 --create-home skeleton && chown -R skeleton:skeleton /app/staticfiles
