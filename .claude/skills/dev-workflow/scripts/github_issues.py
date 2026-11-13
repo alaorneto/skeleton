@@ -8,8 +8,13 @@ padrão, ``git`` e ``gh``. Subcomandos:
 - ``commit-msg ARQUIVO``: hook ``commit-msg`` do pre-commit. Aceita mensagens que
   referenciam uma issue; senão acrescenta ``Refs: #N`` a partir da branch
   ``<tipo>/<N>-<slug>``; senão recusa o commit.
-- ``check-pr``: usado pelo CI. Lê ``PR_BODY`` e ``GITHUB_REPOSITORY`` e exige que
-  o PR referencie ao menos uma issue existente com exatamente um label de tipo.
+- ``check-pr``: usado pelo CI. Lê ``PR_TITLE``, ``PR_BODY``, ``PR_AUTHOR``, ``PR_LABELS`` (JSON),
+  ``PR_HEAD`` e ``GITHUB_REPOSITORY``. Erros: issue vinculada sem exatamente um label de tipo, seção
+  obrigatória do PR vazia ou só com o texto do modelo, ``semver:*`` sem ``release``, sem motivo ou
+  repetido, título fora de Conventional Commits. Avisos: critério de aceite não marcado, seção
+  faltando na issue, tipo do título diferente do tipo da issue.
+- ``pr-merged``: usado ao mesclar. Lê ``PR_NUMBER`` e comenta uma vez, em cada issue fechada pelo PR,
+  as evidências: commits, PR, testes executados, documentação, critérios pendentes e versão.
 - ``sync-labels``: cria/atualiza os labels da configuração com ``gh``.
 - ``sync-epic (N... | --all) [--dry-run]``: reconcilia a seção "Itens" de um epic
   com os sub-issues e as relações "blocked by" nativas do GitHub. É idempotente,
@@ -168,18 +173,240 @@ def _gh_fetch(repository: str) -> IssueFetcher:
     return fetch
 
 
+# --- verificação completa do PR (#212) --------------------------------------------------------
+
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+CLOSING_REFERENCE = re.compile(rf"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s+{_ISSUE}", re.IGNORECASE)
+CONVENTIONAL_TITLE = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?!?: \S")
+UNCHECKED = re.compile(r"^\s*[-*]\s+\[ \]\s+(?P<text>.+)$", re.MULTILINE)
+REASON_LINE = re.compile(r"(?im)^\s*(?:[-*]\s*)?(?:motivo|reason)\s*:\s*\S")
+RELEASE_TITLE = "chore(release):"
+ACCEPTANCE_SECTION = "critérios de aceite"
+
+
+def markdown_sections(body: str) -> dict[str, str]:
+    """``{título em minúsculas: conteúdo}`` das seções ``## Título`` do corpo."""
+    result: dict[str, str] = {}
+    current: str | None = None
+    lines: list[str] = []
+    for line in body.replace("\r\n", "\n").splitlines():
+        heading = SECTION_HEADING.match(line)
+        if heading:
+            if current is not None:
+                result[current] = "\n".join(lines).strip()
+            current, lines = heading.group("title").strip().lower(), []
+        elif current is not None:
+            lines.append(line)
+    if current is not None:
+        result[current] = "\n".join(lines).strip()
+    return result
+
+
+def _normalized(text: str) -> str:
+    return " ".join(HTML_COMMENT.sub("", text).split())
+
+
+def closing_issues(body: str, repository: str | None = None) -> list[int]:
+    numbers = []
+    for match in CLOSING_REFERENCE.finditer(body):
+        repo = match.group("repo")
+        if repo and repository and repo.lower() != repository.lower():
+            continue
+        numbers.append(int(match.group("number")))
+    return list(dict.fromkeys(numbers))
+
+
+@dataclass(frozen=True)
+class PullRequestView:
+    title: str
+    body: str
+    labels: tuple[str, ...] = ()
+    author: str = ""
+    head: str = ""
+
+
+def exemption(pull: PullRequestView, config: Config) -> str | None:
+    if pull.author and pull.author in config.pr_exempt_authors:
+        return f"PR de {pull.author}: isento (pull_request.exempt_authors)."
+    if pull.title.startswith(RELEASE_TITLE) and pull.head.startswith("release/"):
+        return "PR de release: isento."
+    return None
+
+
+def _labels_of(issue: Mapping[str, object]) -> set[str]:
+    raw = issue.get("labels")
+    return {str(label.get("name")) for label in raw if isinstance(label, dict)} if isinstance(raw, list) else set()
+
+
+def check_pull_request(
+    pull: PullRequestView, repository: str, fetch: IssueFetcher, config: Config = DEFAULT, template: str = ""
+) -> tuple[list[str], list[str]]:
+    """``(erros, avisos)`` do PR inteiro; erros impedem o merge, avisos só aparecem."""
+    errors = validate_pr(pull.body, repository, fetch, config)
+    warnings: list[str] = []
+    sections = markdown_sections(pull.body)
+    model = markdown_sections(template)
+    for name in config.pr_sections:
+        key = name.lower()
+        content = sections.get(key)
+        if content is None:
+            errors.append(f"Seção obrigatória `## {name}` ausente do corpo do PR.")
+        elif not _normalized(content) or (key in model and _normalized(content) == _normalized(model[key])):
+            errors.append(f"Seção `## {name}` vazia ou só com o texto do modelo.")
+    versioning = config.versioning
+    overrides = [label for label in pull.labels if label.startswith(versioning.override_prefix)]
+    if len(overrides) > 1:
+        errors.append(f"No máximo um label {versioning.override_prefix}*: {', '.join(overrides)}.")
+    if overrides and versioning.release_label not in pull.labels:
+        errors.append(f"{overrides[0]} só vale com o label `{versioning.release_label}`.")
+    if overrides and not REASON_LINE.search(pull.body):
+        errors.append(f"{overrides[0]} exige uma linha `Motivo: ...` no corpo do PR.")
+    title = CONVENTIONAL_TITLE.match(pull.title)
+    if config.pr_title_conventional and title is None:
+        errors.append("Título fora de Conventional Commits: use `<tipo>(<escopo>): <assunto>`.")
+    title_type = config.type_for_commit(title.group("type")) if title else None
+    for number in closing_issues(pull.body, repository):
+        issue = fetch(number)
+        if not issue or "pull_request" in issue:
+            continue
+        body = str(issue.get("body") or "")
+        issue_sections = markdown_sections(body)
+        missing = [name for name in config.issue_sections if name.lower() not in issue_sections]
+        if missing:
+            warnings.append(f"#{number} não tem as seções {', '.join(missing)}.")
+        pending = UNCHECKED.findall(issue_sections.get(ACCEPTANCE_SECTION, ""))
+        if pending:
+            message = f"#{number} tem {len(pending)} critério(s) de aceite não marcado(s)."
+            (errors if config.pr_pending_criteria == "error" else warnings).append(message)
+        labels = _labels_of(issue)
+        if (
+            title_type
+            and config.epic_label not in labels
+            and labels & set(config.type_names)
+            and title_type.name not in labels
+        ):
+            kinds = ", ".join(sorted(labels & set(config.type_names)))
+            warnings.append(f"O título é `{title.group('type')}` ({title_type.name}), mas #{number} é {kinds}.")
+    return errors, warnings
+
+
+def _pr_template(config: Config) -> str:
+    for path in (
+        config.root / ".github" / "pull_request_template.md",
+        Path(__file__).resolve().parents[1] / "assets" / "pull_request_template.md",
+    ):
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    return ""
+
+
 def check_pr(config: Config) -> int:
     repository = os.environ["GITHUB_REPOSITORY"]
-    author = os.environ.get("PR_AUTHOR", "")
-    if author and author in config.pr_exempt_authors:
-        print(f"PR de {author}: isento do vínculo com issue (pull_request.exempt_authors).")
+    try:
+        labels = tuple(str(name) for name in json.loads(os.environ.get("PR_LABELS") or "[]"))
+    except json.JSONDecodeError:
+        labels = ()
+    pull = PullRequestView(
+        title=os.environ.get("PR_TITLE", ""),
+        body=os.environ.get("PR_BODY", ""),
+        labels=labels,
+        author=os.environ.get("PR_AUTHOR", ""),
+        head=os.environ.get("PR_HEAD", ""),
+    )
+    exempt = exemption(pull, config)
+    if exempt:
+        print(exempt)
         return 0
-    errors = validate_pr(os.environ.get("PR_BODY", ""), repository, _gh_fetch(repository), config)
+    errors, warnings = check_pull_request(pull, repository, _gh_fetch(repository), config, _pr_template(config))
+    for warning in warnings:
+        print(f"::warning title=Verificação do PR::{warning}")
     for error in errors:
-        print(f"::error title=Vínculo com issue::{error}")
+        print(f"::error title=Verificação do PR::{error}")
     if not errors:
-        print("PR vinculado a issue classificada.")
+        print("PR verificado: issue classificada, seções preenchidas e classificação de versão coerente.")
     return 1 if errors else 0
+
+
+# --- evidências no merge (#212) ------------------------------------------------------------------
+
+EVIDENCE_MARKER = "<!-- dev-workflow:evidence pr={number} -->"
+TRUSTED_PERMISSIONS = {"admin", "maintain", "write"}
+BOT = "github-actions[bot]"
+
+
+def _trusted_author(login: str, repository: str, gh: GhRunner) -> bool:
+    if login == BOT:
+        return True
+    completed = gh(["api", f"repos/{repository}/collaborators/{login}/permission"])
+    return completed.returncode == 0 and str(json.loads(completed.stdout).get("permission")) in TRUSTED_PERMISSIONS
+
+
+def evidence_comment(
+    pull: Mapping[str, object], commits: Sequence[Mapping[str, object]], issue_body: str, number: int, config: Config
+) -> str:
+    sections = markdown_sections(str(pull.get("body") or ""))
+    labels = {str(label.get("name")) for label in pull.get("labels", []) if isinstance(label, dict)}  # type: ignore[union-attr]
+    lines = [
+        EVIDENCE_MARKER.format(number=pull["number"]),
+        f"Fechada pelo merge de #{pull['number']} ({pull.get('title')}).",
+        "",
+        "**Commits**",
+    ]
+    for commit in commits:
+        message = str((commit.get("commit") or {}).get("message") or "").splitlines()  # type: ignore[union-attr]
+        lines.append(f"- {str(commit.get('sha'))[:12]} {message[0] if message else ''}")
+    for title in ("Testes executados", "Documentação"):
+        content = HTML_COMMENT.sub("", sections.get(title.lower(), "")).strip()
+        lines += ["", f"**{title}**", content or "- (não informado no PR)"]
+    pending = UNCHECKED.findall(markdown_sections(issue_body).get(ACCEPTANCE_SECTION, ""))
+    lines += ["", "**Critérios de aceite pendentes**"]
+    lines += [f"- [ ] {item}" for item in pending] or ["- nenhum"]
+    if config.versioning.enabled:
+        state = (
+            "publicada pelo workflow de release"
+            if config.versioning.release_label in labels
+            else "acumulada para a próxima versão"
+        )
+        lines += ["", f"**Versão:** {state}."]
+    return "\n".join(lines) + "\n"
+
+
+def pr_merged(number: int, repository: str, config: Config, gh: GhRunner | None = None) -> int:
+    gh = gh or _run_gh
+    completed = gh(["api", f"repos/{repository}/pulls/{number}"])
+    if completed.returncode != 0:
+        print(f"pr-merged: #{number}: {completed.stderr.strip()}", file=sys.stderr)
+        return 1
+    pull = json.loads(completed.stdout)
+    if not pull.get("merged_at") and not pull.get("merged"):
+        print(f"#{number} não foi mesclado; nada a registrar.")
+        return 0
+    commits = json.loads(gh(["api", f"repos/{repository}/pulls/{number}/commits", "--paginate"]).stdout or "[]")
+    failed = False
+    marker = EVIDENCE_MARKER.format(number=number)
+    for issue in closing_issues(str(pull.get("body") or ""), repository):
+        view = gh(["api", f"repos/{repository}/issues/{issue}"])
+        if view.returncode != 0:
+            continue
+        data = json.loads(view.stdout)
+        if "pull_request" in data:
+            continue
+        existing = json.loads(gh(["api", f"repos/{repository}/issues/{issue}/comments", "--paginate"]).stdout or "[]")
+        if any(
+            marker in str(comment.get("body") or "")
+            and _trusted_author(str((comment.get("user") or {}).get("login") or ""), repository, gh)
+            for comment in existing
+        ):
+            print(f"#{issue}: evidências de #{number} já registradas.")
+            continue
+        body = evidence_comment(pull, commits, str(data.get("body") or ""), issue, config)
+        posted = gh(["api", "-X", "POST", f"repos/{repository}/issues/{issue}/comments", "-f", f"body={body}"])
+        if posted.returncode != 0:
+            failed = True
+            print(f"ERRO ao comentar #{issue}: {posted.stderr.strip()}")
+        else:
+            print(f"#{issue}: evidências de #{number} registradas.")
+    return 1 if failed else 0
 
 
 def sync_labels(config: Config, gh: Callable[[Sequence[str]], subprocess.CompletedProcess[str]] | None = None) -> int:
@@ -835,10 +1062,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args[:1] == ["commit-msg"] and len(args) == 2:
         return commit_msg(Path(args[1]))  # As regras de referência não dependem da configuração.
-    known = {"check-pr", "sync-labels", "sync-epic", "sync-checklist", "close-epic", "start"}
+    known = {"check-pr", "pr-merged", "sync-labels", "sync-epic", "sync-checklist", "close-epic", "start"}
     if not args or args[0] not in known:
         usage = (
-            f"commit-msg ARQUIVO | start N | check-pr | sync-labels | {SYNC_EPIC_USAGE} | "
+            f"commit-msg ARQUIVO | start N | check-pr | pr-merged | sync-labels | {SYNC_EPIC_USAGE} | "
             f"{SYNC_CHECKLIST_USAGE} | {CLOSE_EPIC_USAGE}"
         )
         print(f"uso: github_issues.py {usage}", file=sys.stderr)
@@ -850,7 +1077,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args[0] == "start" and (len(args) != 2 or not args[1].lstrip("#").isdigit()):
         print("uso: github_issues.py start N", file=sys.stderr)
         return 2
-    if args[0] in ("check-pr", "sync-labels") and len(args) != 1:
+    if args[0] in ("check-pr", "pr-merged", "sync-labels") and len(args) != 1:
         print(f"uso: github_issues.py {args[0]}", file=sys.stderr)
         return 2
     config = _config_or_exit()
@@ -858,6 +1085,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if args[0] == "check-pr":
         return check_pr(config)
+    if args[0] == "pr-merged":
+        number = os.environ.get("PR_NUMBER", "")
+        if not number.isdigit():
+            print("pr-merged: PR_NUMBER ausente.", file=sys.stderr)
+            return 2
+        return pr_merged(int(number), os.environ.get("GITHUB_REPOSITORY") or _current_repository(), config)
     if args[0] == "sync-labels":
         return sync_labels(config)
     return start(int(args[1].lstrip("#")), config)

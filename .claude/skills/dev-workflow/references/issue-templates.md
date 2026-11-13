@@ -139,6 +139,9 @@ Closes #<N>
 ## Resumo
 - <mudança 1>
 
+## Versão
+- <acumulado | release; com `semver:*`, uma linha `Motivo: ...`>
+
 ## Testes executados
 - `<comando>` — <resultado observado>
 <serviços indisponíveis: declare como bloqueio, não como aprovação>
@@ -170,3 +173,17 @@ Concluído e aprovado por <quem / "merge do PR #P">.
 
 **Follow-ups:** <#N | nenhum>
 ~~~
+
+## Comentário de mudança de escopo
+
+Use quando o trabalho de uma issue precisar mudar o que ela promete: atualize o corpo (escopo, critérios de aceite) e registre a mudança aqui, ou crie outra issue para o excedente.
+
+~~~markdown
+**Mudança de escopo**
+
+- O que muda: <o que entra ou sai do escopo>
+- Motivo: <o que se descobriu ou decidiu, com link>
+- Critérios de aceite atualizados no corpo: <sim | não se aplica>
+- Excedente: <#N criada para o que ficou de fora | nenhum>
+~~~
+

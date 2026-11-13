@@ -57,7 +57,8 @@ Antes da primeira edição de arquivo versionado:
 ## 5. Pull request
 
 - `gh pr create --base <branch padrão> --title "<tipo>(<escopo>): <assunto>" --body-file <arquivo>` com o modelo de PR (espelha `.github/pull_request_template.md`).
-- `Closes #N` para cada issue entregue por inteiro, `Refs #N` para entrega parcial. O hook do Claude recusa `gh pr create` sem referência, e o workflow de verificação do PR recusa PR sem issue válida e classificada.
+- `Closes #N` para cada issue entregue por inteiro, `Refs #N` para entrega parcial. O hook do Claude recusa `gh pr create` sem referência, e o workflow de verificação do PR recusa PR sem issue válida e classificada, com seção obrigatória vazia (`pull_request.sections`), com título fora de Conventional Commits ou com `semver:*` incoerente. Critérios de aceite não marcados aparecem como aviso: marque os verificados antes do merge.
+- No merge, o workflow `pr-merged` comenta as evidências em cada issue fechada; não repita esse comentário à mão.
 - Testes listados no PR: somente os executados de fato, com comando e resultado. Serviço indisponível é bloqueio, não aprovação.
 - Versão (com `versioning.enabled`): só o label `release` faz o merge publicar uma versão; PR sem ele fica acumulado para a próxima. Antes de pedir o label, confira com `py -3 SKILL/scripts/release.py plan --pr N` o nível e a próxima versão. `semver:patch|minor|major` sobrepõe o cálculo e exige `Motivo: ...` no corpo. Nunca edite a versão nos arquivos à mão: o workflow de release escreve, cria tag e GitHub Release ([versioning.md](references/versioning.md)).
 

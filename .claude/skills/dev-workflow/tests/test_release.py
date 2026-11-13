@@ -353,6 +353,29 @@ class ReleaseTest(unittest.TestCase):
         self.assertNotIn("v0.5.1", repo.tags())
         self.assertEqual(len(repo.gh.created_prs), 1)
 
+    def test_preview_says_accumulated_or_the_number_and_updates_one_comment(self):
+        self.repo.merge(2, "feat: a")
+        text = release.preview_text(self.repo.context, 2)
+        self.assertIn("fica acumulado; com ele, sairia **v0.6.0** (minor)", text)
+        self.repo.gh.pulls[2]["labels"] = [{"name": "release"}]
+        self.assertIn("o merge publica **v0.6.0**", release.preview_text(self.repo.context, 2))
+        comments = self.repo.gh.comments
+        self.assertEqual(release.upsert_preview(self.repo.context, 2, text), "created")
+        comments[2][0]["id"] = 77
+        patched = []
+        original = self.repo.gh.__call__
+
+        def gh(args):
+            if "PATCH" in args:
+                patched.append(args)
+                return subprocess.CompletedProcess(args, 0, "{}", "")
+            return original(args)
+
+        self.repo.context.gh = gh
+        self.assertEqual(release.upsert_preview(self.repo.context, 2, text), "updated")
+        self.assertTrue(patched and "issues/comments/77" in " ".join(patched[0]))
+        self.assertEqual(len(comments[2]), 1)
+
     def test_without_the_release_label_nothing_is_versioned(self):
         self.repo.merge(2, "feat: a")
         self.assertEqual(self.run_release(2), [])

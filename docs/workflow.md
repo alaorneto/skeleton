@@ -86,6 +86,12 @@ O workflow só existe depois do merge na `main`, porque eventos de issue usam a 
 
 Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh issue edit <N> --remove-parent` ou `--remove-blocked-by <M>`. Os issue types do GitHub (Epic, Task) não são usados, porque só existem em repositórios de organização.
 
+## Verificação do PR e fechamento
+
+O check "Verificação do PR" recusa o PR sem issue vinculada com exatamente um label de tipo, com uma seção obrigatória (`Issues`, `Resumo`, `Versão`, `Testes executados`, `Documentação`) vazia ou só com o texto do modelo, com título fora de Conventional Commits ou com um `semver:*` sem o label `release`, sem `Motivo: ...` ou repetido. Ele avisa, sem recusar, sobre critério de aceite não marcado na issue fechada, seção do modelo faltando na issue e tipo do título diferente do tipo da issue. PRs do Dependabot e o PR de release ficam isentos. Um segundo job comenta no PR, num comentário único e atualizado, a versão que o merge publicaria.
+
+Ao mesclar, o workflow "Evidências no merge" comenta em cada issue fechada pelo PR os commits, o PR, os testes executados, a documentação, os critérios pendentes e a situação da versão, uma única vez mesmo com reexecução. Mudança de escopo durante o trabalho atualiza o corpo da issue e é registrada com o modelo de comentário de mudança de escopo do skill.
+
 ## Versão e release
 
 A versão do projeto segue o versionamento semântico e é decidida por ferramenta, nunca editada à mão ([referência](../.claude/skills/dev-workflow/references/versioning.md)). A fonte única é a última tag de versão alcançável; os arquivos declarados em `versioning.files` são projeções reescritas a cada release. Só o label `release` faz um merge publicar versão: PRs sem ele se acumulam e entram, todos, na análise do próximo que tiver o label. O nível é o maior entre os sinais (labels de tipo das issues, Conventional Commits, marcador de breaking, superfícies públicas, pisos de versão no código e a análise por agente registrada no PR), e um label `semver:*` com motivo sobrepõe o cálculo. Em 0.x, uma quebra sobe o minor, e 1.0.0 só sai por decisão explícita (`semver:major`).

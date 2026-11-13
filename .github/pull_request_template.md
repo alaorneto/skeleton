@@ -5,6 +5,11 @@ Closes #
 ## Resumo
 -
 
+## Versão
+<!-- Com o label `release`, o merge publica uma versão; sem ele, este PR fica acumulado para a próxima.
+Um label `semver:patch|minor|major` sobrepõe o nível calculado e exige a linha "Motivo: ...". -->
+- <acumulado | release>
+
 ## Testes executados
 <!-- Somente o que rodou de fato, com comando e resultado. Serviço indisponível é bloqueio, não aprovação. -->
 - `comando` — resultado

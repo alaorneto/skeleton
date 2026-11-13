@@ -689,6 +689,24 @@ def preview_text(context: Context, number: int) -> str:
     return f"{PREVIEW_MARKER}\n### Versão\n\nAtual: {release.current}. {state}{override}\n\n{signals or '- sem sinais além do patch mínimo'}\n"
 
 
+def upsert_preview(context: Context, number: int, text: str) -> str:
+    """One preview comment per PR, updated in place; returns ``created`` or ``updated``."""
+    for comment in _comments(context, number):
+        author = str((comment.get("user") or {}).get("login") or "")  # type: ignore[union-attr]
+        if PREVIEW_MARKER in str(comment.get("body") or "") and author in context.config.versioning.analysis_authors:
+            context.run_gh(
+                "api",
+                "-X",
+                "PATCH",
+                f"repos/{context.repository}/issues/comments/{comment['id']}",
+                "-f",
+                f"body={text}",
+            )
+            return "updated"
+    context.run_gh("api", "-X", "POST", f"repos/{context.repository}/issues/{number}/comments", "-f", f"body={text}")
+    return "created"
+
+
 def _context(config: Config) -> Context:
     root = config.root
     repository = os.environ.get("GITHUB_REPOSITORY") or ""
@@ -729,6 +747,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub.add_argument("--reason", required=True)
     sub = commands.add_parser("preview")
     sub.add_argument("--pr", type=int, required=True)
+    sub.add_argument("--comment", action="store_true", help="cria ou atualiza o comentário único de prévia no PR")
     options = parser.parse_args(argv)
     try:
         config = load()
@@ -781,7 +800,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if options.command == "record-analysis":
             record_analysis(context, options.pr, options.level, options.reason)
             return 0
-        print(preview_text(context, options.pr))
+        text = preview_text(context, options.pr)
+        print(text)
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write(text)
+        if options.comment:
+            print(f"comentário de prévia {upsert_preview(context, options.pr, text)}")
         return 0
     except (ReleaseError, ConfigError, VersionError) as exc:
         print(f"release: {exc}", file=sys.stderr)
