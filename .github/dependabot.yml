@@ -28,3 +28,17 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # Também monitorados (#309): o CSS/JS do frontend (o flowbite.min.js vai no wheel), as imagens
+  # do Compose e a distribuição do agente.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /deployment_agent
+    schedule:
+      interval: weekly

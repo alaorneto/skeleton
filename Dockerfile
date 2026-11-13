@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM python:3.14-slim AS core-builder
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS core-builder
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1 && rm -rf /var/lib/apt/lists/*
@@ -15,7 +15,7 @@ RUN --mount=type=bind,target=/project-source \
     mkdir -p /project-assets/templates && \
     if [ -d /project-source/templates ]; then cp -a /project-source/templates/. /project-assets/templates/; fi
 
-FROM python:3.14-slim AS runtime
+FROM python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 SKELETON_PROJECT_ROOT=/app
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1 && rm -rf /var/lib/apt/lists/*

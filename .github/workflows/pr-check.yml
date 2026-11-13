@@ -23,7 +23,7 @@ jobs:
       # Código confiável: o validador e a configuração vêm da base, não do branch do PR, que
       # poderia alterá-los para se aprovar. Um PR que melhora o validador é conferido pela
       # versão antiga; a nova vale a partir do merge.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
@@ -52,7 +52,7 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
