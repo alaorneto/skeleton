@@ -1,11 +1,14 @@
 """Platform control plane. Privileged deployment work belongs to the agent."""
 
+import logging
 from copy import deepcopy
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
@@ -87,6 +90,20 @@ def confirm_operation(*, user, operation_id, revision):
     return operation
 
 
+SUBMISSION_STALE_AFTER = timedelta(minutes=2)  # Well above SUBMIT_TIMEOUT (#250).
+
+
+def submission_can_retry(row, *, now=None):
+    """Delivery failed, or it was approved and the delivery callback never reported back (#250)."""
+    if row.state == "submission_failed":
+        return True
+    return (
+        row.state == "approved"
+        and row.stage == "awaiting_agent"
+        and (now or timezone.now()) - row.updated_at >= SUBMISSION_STALE_AFTER
+    )
+
+
 def _schedule_submission(*, user, values):
     values = deepcopy(values)
     request_id = current_context().request_id
@@ -100,9 +117,22 @@ def _schedule_submission(*, user, values):
             with request_context(actor=user, request_id=request_id, source="deployment:submit"):
                 row = DeploymentOperation.objects.select_for_update().get(pk=values["operation_id"])
                 reconcile_operation(row, status)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - on_commit boundary: any failure must be recorded as submission_failed
+            from skeleton.common.logging import security_event
             from skeleton.tenancy.context import request_context
 
+            # Identifiers only (#250): never the plan, the result or the agent token.
+            security_event(
+                "deployment.submission_failed",
+                level=logging.ERROR,
+                request_id=request_id,
+                source="deployment:submit",
+                exc_info=True,
+                model_label="sk_system.deploymentoperation",
+                target_sysid=values["operation_id"],
+                error_class=type(exc).__name__,
+                outcome="submission_failed",
+            )
             with request_context(actor=user, request_id=request_id, source="deployment:submit"):
                 row = DeploymentOperation.objects.select_for_update().get(pk=values["operation_id"])
                 if row.state == "approved":
@@ -118,7 +148,7 @@ def retry_submission(*, user, operation_id, revision):
     """Explicit retry of delivery only; the agent UUID remains idempotent."""
     require_release_operator(user)
     row = DeploymentOperation.objects.select_for_update().get(pk=operation_id)
-    if row.revision != revision or row.state != "submission_failed":
+    if row.revision != revision or not submission_can_retry(row):
         raise ConcurrentUpdate("Deployment submission changed.")
     values = row.result.get("submission") if isinstance(row.result, dict) else None
     expected = {
