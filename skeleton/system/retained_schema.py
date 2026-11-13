@@ -104,11 +104,11 @@ def export_schema(app_label):
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Organization
 
-    from .checks import _frozen_operations
+    from .checks import frozen_operations
     from .registry import all_specs
 
     _identifier(app_label)
-    operations, _, _ = _frozen_operations()
+    operations, _, _ = frozen_operations()
     tables = []
     models = []
     for spec in all_specs():

@@ -39,7 +39,7 @@ def without_calendar_specs(monkeypatch):
     from skeleton.system.registry import all_specs
 
     installed = tuple(spec for spec in all_specs() if spec.model._meta.app_label != LABEL)
-    monkeypatch.setattr(checks, "all_specs", lambda: installed)
+    monkeypatch.setattr(checks.schema, "all_specs", lambda: installed)
     monkeypatch.setattr(synchronization, "all_specs", lambda: installed)
 
 

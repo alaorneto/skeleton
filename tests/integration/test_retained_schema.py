@@ -42,7 +42,7 @@ def test_retained_schema_checks_and_repairs_exact_guards_without_public_model(tm
     frozen_raw = json.dumps(export_inventory(), sort_keys=True).encode()
     frozen.write_bytes(frozen_raw)
     installed = tuple(spec for spec in all_specs() if spec.model._meta.app_label != "example_notes")
-    monkeypatch.setattr(checks, "all_specs", lambda: installed)
+    monkeypatch.setattr(checks.schema, "all_specs", lambda: installed)
     monkeypatch.setattr(synchronization, "all_specs", lambda: installed)
     with override_settings(
         SKELETON_RETAINED_SCHEMA_PATHS=[{"path": str(source), "sha256": hashlib.sha256(raw).hexdigest()}],
