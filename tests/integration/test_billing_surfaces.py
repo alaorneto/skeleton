@@ -111,6 +111,8 @@ def test_the_pages_and_routes(billing):
     page = reverse("billing-overview", kwargs={"organization_id": scenario.a.pk})
     response = admin.get(page)
     assert response.status_code == 200 and "Planos, apps e pacotes" in response.content.decode()
+    dashboard = admin.get(reverse("web:dashboard", kwargs={"organization_id": scenario.a.pk})).content.decode()
+    assert page in dashboard  # The sidebar links the billing area for the administrator.
     csrf = admin.cookies["csrftoken"].value
     contract = reverse("billing-action", kwargs={"organization_id": scenario.a.pk, "action": "contract"})
     refused = admin.post(contract, {"price": prices["plan"].pk, "csrfmiddlewaretoken": csrf}, follow=True)

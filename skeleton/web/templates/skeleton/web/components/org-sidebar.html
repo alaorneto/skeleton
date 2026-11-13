@@ -29,13 +29,14 @@ Links não concedem acesso: cada tela revalida a autorização no servidor.
       {% url 'flows:tasks' organization_id as flow_tasks_url %}<li><a class="sidebar-link" href="{{ flow_tasks_url }}"{% if '/flows/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="check" %}{% translate "Tarefas" %}</a></li>
       <li><a class="sidebar-link" href="{{ audit_url }}"{% if request.path == audit_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="clock" %}{% translate "Auditoria" %}</a></li>
     </ul>
-    {% if access_sections or admission_links or can_manage_applications or can_manage_organization %}
+    {% if access_sections or admission_links or can_manage_applications or can_manage_organization or can_view_billing %}
     <p class="sidebar-heading" id="sidebar-admin">{% translate "Administração" %}</p>
     <ul class="sidebar-list" aria-labelledby="sidebar-admin">
       {% for section in access_sections %}<li><a class="sidebar-link" href="{{ section.url }}"{% if section.current %} aria-current="page"{% endif %}>{% if section.id == "people" %}{% include "skeleton/web/components/icon.html" with name="users" %}{% elif section.id == "groups" %}{% include "skeleton/web/components/icon.html" with name="user-group" %}{% else %}{% include "skeleton/web/components/icon.html" with name="key" %}{% endif %}{{ section.label }}</a></li>{% endfor %}
       {% for link in admission_links %}<li><a class="sidebar-link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="users" %}{{ link.label }}</a></li>{% endfor %}
       {% if can_manage_organization %}<li><a class="sidebar-link" href="{{ settings_url }}"{% if request.path == settings_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="building" %}{% translate "Configurações" %}</a></li>{% endif %}
       {% if can_manage_applications %}<li><a class="sidebar-link" href="{{ applications_url }}"{% if '/apps/' in request.path and parameter_panel %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="settings" %}{% translate "Aplicativos" %}</a></li>{% endif %}
+      {% if can_view_billing %}{% url 'billing-overview' organization_id as billing_url %}<li><a class="sidebar-link" href="{{ billing_url }}"{% if '/billing/' in request.path %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Cobrança" %}</a></li>{% endif %}
     </ul>
     {% endif %}
   </nav>

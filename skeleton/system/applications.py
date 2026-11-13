@@ -338,11 +338,16 @@ def application_navigation(request):
     context = current_context()
     if context.organization_id is None or not getattr(request.user, "is_authenticated", False):
         return {}
-    from skeleton.access.capabilities import APPS_MANAGE, capabilities_for
+    from django.conf import settings
+
+    from skeleton.access.capabilities import APPS_MANAGE, BILLING_VIEW, capabilities_for
     from skeleton.access.policies import is_organization_admin
 
+    capabilities = capabilities_for(request.user)
     return {
         "application_navigation": navigation_for_user(request.user),
-        "can_manage_applications": APPS_MANAGE in capabilities_for(request.user),
+        "can_manage_applications": APPS_MANAGE in capabilities,
         "can_manage_organization": is_organization_admin(request.user),
+        # The billing area (#404), only when the platform is sold with billing on.
+        "can_view_billing": bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)) and BILLING_VIEW in capabilities,
     }
