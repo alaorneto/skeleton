@@ -428,6 +428,60 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_billing.product": (
+            gettext_lazy("Produtos de cobrança"),
+            gettext_lazy("O que a plataforma vende: plano base, app ou pacote de armazenamento."),
+            "global",
+            (),
+        ),
+        "sk_billing.price": (
+            gettext_lazy("Preços"),
+            gettext_lazy("Preço de um produto, com moeda, ciclo, trial e franquias; os termos nunca mudam."),
+            "global",
+            (),
+        ),
+        "sk_billing.invoicecounter": (
+            gettext_lazy("Numeração de faturas"),
+            gettext_lazy("Último número de fatura de cada ano, na plataforma inteira, sob lock."),
+            "global",
+            (),
+        ),
+        "sk_billing.billingaccount": (
+            gettext_lazy("Contas de cobrança"),
+            gettext_lazy("Quem paga pela organização e o estado de acesso dela; dados de contato redigidos."),
+            "organization",
+            (),
+        ),
+        "sk_billing.subscription": (
+            gettext_lazy("Assinaturas"),
+            gettext_lazy("Contrato recorrente da organização, com moeda, ciclo e período corrente."),
+            "organization",
+            (),
+        ),
+        "sk_billing.subscriptionitem": (
+            gettext_lazy("Itens de assinatura"),
+            gettext_lazy("Plano, app ou pacote de armazenamento de uma assinatura, com datas e situação."),
+            "organization",
+            (),
+        ),
+        "sk_billing.invoice": (
+            gettext_lazy("Faturas"),
+            gettext_lazy("Valor devido pela organização; número e valores imutáveis depois de emitida."),
+            "organization",
+            (),
+        ),
+        "sk_billing.invoiceline": (
+            gettext_lazy("Linhas de fatura"),
+            gettext_lazy("Item cobrado, proporcional, excedente ou desconto de uma fatura; nunca muda."),
+            "organization",
+            (),
+        ),
+        "sk_billing.payment": (
+            gettext_lazy("Pagamentos"),
+            gettext_lazy("Tentativa de pagamento de uma fatura por um provedor ou registrada pela plataforma."),
+            "organization",
+            (),
+        ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),
             gettext_lazy("Histórico transacional imutável de alterações, com dados sensíveis redigidos."),
@@ -442,6 +496,7 @@ def register_core_specs():
         # Form data may carry anyone's personal data: the audit never copies it (#422).
         "sk_flows.flowinstance": ("data",),
         "sk_flows.flowsubmission": ("values",),
+        "sk_billing.billingaccount": ("legal_name", "billing_email", "tax_id"),
     }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
     read_fields = {

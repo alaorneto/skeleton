@@ -156,6 +156,14 @@ def _timezone(value: str) -> str:
     return value
 
 
+def _invoice_prefix(value: str) -> str:
+    import re
+
+    if not re.fullmatch(r"[A-Za-z0-9-]{0,16}", value):
+        raise ValueError("Use até 16 letras, dígitos ou hífen.")
+    return value
+
+
 @dataclass(frozen=True)
 class SettingSpec:
     key: str
@@ -223,6 +231,14 @@ _SPECS = (
         _fernet_keys,
         True,
     ),
+    SettingSpec(
+        "billing_encryption_keys",
+        "BILLING_ENCRYPTION_KEYS",
+        "list",
+        "Chaves de cifra dos segredos dos provedores de pagamento",
+        _fernet_keys,
+        True,
+    ),
     SettingSpec("sso_provider_config_path", "SSO_PROVIDER_CONFIG_PATH", "path", "Arquivo de provedores SSO", _text),
     SettingSpec("public_signup", "SKELETON_PUBLIC_SIGNUP", "bool", "Cadastro público aberto", _bool),
     SettingSpec("require_admin_mfa", "SKELETON_REQUIRE_ADMIN_MFA", "bool", "MFA obrigatório para administração", _bool),
@@ -245,6 +261,14 @@ _SPECS = (
         "int",
         "Dias até esvaziar os formulários de fluxos encerrados (0 mantém)",
         _int(0),
+    ),
+    SettingSpec("billing_enabled", "SKELETON_BILLING_ENABLED", "bool", "Cobrança de assinaturas ligada", _bool),
+    SettingSpec(
+        "billing_invoice_prefix",
+        "SKELETON_BILLING_INVOICE_PREFIX",
+        "str",
+        "Prefixo dos números de fatura",
+        _invoice_prefix,
     ),
     SettingSpec("default_language", "SKELETON_DEFAULT_LANGUAGE", "str", "Idioma padrão da instância", _language),
     SettingSpec("default_timezone", "SKELETON_DEFAULT_TIMEZONE", "str", "Fuso horário padrão da instância", _timezone),
