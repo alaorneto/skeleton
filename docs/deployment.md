@@ -65,7 +65,7 @@ As chaves do catálogo (`skeleton/instance/schema.py`: `DJANGO_SECRET_KEY`, `DJA
 
 ### Primeira instalação pelo setup (#146)
 
-Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio).
+Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio). O entrypoint ASGI (`config/asgi.py`) não entra em modo setup: usa `config.settings.production` direto. O runtime suportado é WSGI/Gunicorn ([arquitetura](architecture.md)).
 
 1. **Token:** no primeiro start, o processo gera um token de uso único (24 h), grava só o SHA-256 no SQLite, imprime o token uma vez no log e o escreve em `setup-token` (0600, ao lado do SQLite). Token errado, reutilizado ou expirado é recusado (403), com limite de 5 tentativas por IP em 15 minutos (429), contadas por processo. O token certo é conferido antes do limite e entra mesmo depois de tentativas erradas do mesmo endereço (atrás de um proxy, todos os clientes compartilham um IP); cada recusa gera o evento de segurança `setup.token_rejected`, sem o token (#290). Um reinício sem token aberto gera outro.
 2. **Instância:** hosts, origens CSRF, proxy e origem pública. O setup gera `SECRET_KEY` e os keyrings MFA, de provedores e de integração, cifrados no SQLite e nunca exibidos.
@@ -82,16 +82,20 @@ Todas as telas são formulários comuns com CSRF, sem JavaScript. Em modo setup,
 
 Docker usa Python 3.14-slim, bibliotecas XML/xmlsec, usuário não-root e Gunicorn WSGI. O contexto de build exclui `var/` (SQLite e chave mestra da instância, PostgreSQL local), `.private/`, `.sso-fixtures/` e `*.sqlite3`, `*.pem` e `*.key` em qualquer profundidade, e nenhum estágio grava o contexto numa camada: o estágio `project-assets` lê `templates/` por bind mount, o que exige BuildKit (padrão desde o Docker 23; o builder legado falha no `RUN --mount`, #248). Collectstatic é parte do build; WhiteNoise segue SecurityMiddleware. Produção usa CompressedManifestStaticFilesStorage e STATIC_ROOT=staticfiles; dev usa runserver/staticfiles. Não inicie migrations em cada worker.
 
-Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente. O `web` (#148) recebe só variáveis de bootstrap: o SQLite da instância e a chave mestra ficam no volume nomeado privado `instance` (`/instance/instance.sqlite3`, `/instance/keys/master.key`), preservado ao recriar o container. Numa instalação nova, `docker compose up` sobe em modo setup (o token aparece em `docker compose logs web`). Depois do setup, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal. O healthcheck (`python -m skeleton.api.healthcheck`) descobre sozinho um Host aceito, nos dois modos. Sobrescritas pontuais da configuração vão no arquivo opcional `.env.instance` (`SKELETON_INSTANCE_ENV_FILE`), que vence o SQLite. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
+Compose fixa postgres:16.15, redis:8.8.3 e Keycloak 26.8.0 no perfil integrations. Postgres/Redis/Keycloak expõem somente loopback. Postgres admin e Redis exigem secrets de ambiente. O `web` (#148) recebe só variáveis de bootstrap: o SQLite da instância e a chave mestra ficam no volume nomeado privado `instance` (`/instance/instance.sqlite3`, `/instance/keys/master.key`), preservado ao recriar o container. O fluxo é um só:
+
+1. **Instalação nova:** com `POSTGRES_PASSWORD` e `REDIS_PASSWORD` no `.env` do Compose (privado, nunca versionado) e as roles e o schema provisionados (`deploy/postgres/bootstrap.sql`, ver [Provisionamento PostgreSQL](#provisionamento-postgresql); é pré-requisito do passo "Banco runtime" do setup), `docker compose up -d` sobe o `web` em modo setup, e o token aparece em `docker compose logs web`.
+2. **Setup:** grava hosts, origens CSRF, proxy, origem pública e banco no SQLite da instância e migra com a credencial owner informada na tela. Ao concluir, `SKELETON_SETUP_RESTART=exit` encerra o processo e `restart: unless-stopped` o traz de volta em modo normal.
+3. **Depois:** mudanças pontuais pela [administração da instância](#alterar-a-configuração-depois-do-setup-147) (`/platform/instance/`) ou no arquivo opcional `.env.instance` (outro caminho com `SKELETON_INSTANCE_ENV_FILE`), que o `compose.yaml` carrega com `env_file` opcional no `web` e no `worker` e que vence o SQLite.
 
 ```sh
-# .env privado contém todos os valores exigidos, nunca é versionado.
-docker compose up -d postgres redis
-# Após provisionar roles/schema e aplicar migrations/checks:
-docker compose up -d --build web
+docker compose up -d            # instalação nova: sobe em modo setup
+docker compose logs web         # o token de setup aparece aqui
 ```
 
-Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUST_PROXY=true somente se remover/substituir X-Forwarded-Proto recebido do cliente; não confie em cabeçalho público. Defina DJANGO_ALLOWED_HOSTS e DJANGO_CSRF_TRUSTED_ORIGINS com hosts/origens exatos. Compose encaminha essas opções explicitamente, com proxy trust false por padrão. Defina DJANGO_HEALTH_HOST como um host incluído na allowlist; o probe conecta a loopback e envia esse Host, sem wildcard. Não abra CORS/domínios de cookies wildcard. Para SSO no container, monte JSON privado read-only e injete SSO_PROVIDER_CONFIG_PATH + referências env; Compose base não provisiona IdP de produção.
+O healthcheck do `web` (`python -m skeleton.api.healthcheck`) consulta `/health/live/` na porta local sem iniciar o Django e escolhe o Host assim: `localhost` em modo setup; depois, `DJANGO_HEALTH_HOST` se estiver definido (ambiente, inclusive `.env.instance`, ou SQLite da instância), senão o primeiro host de `DJANGO_ALLOWED_HOSTS`. Definir `DJANGO_HEALTH_HOST` só é preciso quando o primeiro host da lista não serve para a sonda (por exemplo, um curinga `.example.org`); ele tem de estar na allowlist. O serviço `migrator` (perfil `migration`) continua opcional: o setup migra na primeira vez e o agente migra nas atualizações com a credencial owner dele, que nunca chega ao `web`. Para uma instalação existente configurada por variáveis, copie-as para `.env.instance` ou rode `manage.py instance import-env` dentro do container e remova-as do ambiente. URL do web usa hostname `postgres`/`redis` dentro da rede Compose; no host use 127.0.0.1.
+
+Configure proxy HTTPS em frente ao web. Se ele termina TLS, habilite DJANGO_TRUST_PROXY=true somente se remover/substituir X-Forwarded-Proto recebido do cliente; não confie em cabeçalho público. Defina DJANGO_ALLOWED_HOSTS e DJANGO_CSRF_TRUSTED_ORIGINS com hosts/origens exatos. Essas chaves (e DJANGO_TRUST_PROXY, falso por padrão) são da configuração da instância: no setup, em `/platform/instance/` ou, como sobrescrita, no `.env.instance`; o `compose.yaml` não as define. Não abra CORS/domínios de cookies wildcard. Para SSO no container, monte JSON privado read-only e injete SSO_PROVIDER_CONFIG_PATH + referências env; Compose base não provisiona IdP de produção.
 
 Rate limiting de IP usa a topologia explícita `DJANGO_TRUSTED_PROXY_COUNT` (número de proxies confiáveis no X-Forwarded-For) **ou** `DJANGO_TRUSTED_CLIENT_IP_HEADER` (por exemplo X-Real-IP sobrescrito pelo proxy). Não configure ambos. Exigem DJANGO_TRUST_PROXY=true; defaults 0/sem header ignoram cabeçalhos forjados e usam REMOTE_ADDR. Bloqueie acesso direto ao backend quando confiar no proxy e remova/substitua cabeçalhos recebidos do cliente; confiar em TLS/proto não habilita automaticamente confiança em IP. Dois clientes atrás do proxy não devem compartilhar buckets de login/reset.
 
@@ -286,21 +290,21 @@ Os entrypoints de `config/settings` importam `skeleton.conf.base` e aplicam os p
 
 ### Construir e publicar
 
-**Pré-requisitos:** versão definida em `pyproject.toml`, dependências fixadas, manifesto revisado e chave privada de um publicador aprovado. **Publisher** é quem assina o artefato; aprovação da chave é decisão do operador, não algo que o próprio pacote possa conceder. A assinatura demonstra procedência e integridade, não ausência de código malicioso.
+**Pré-requisitos:** versão definida em `pyproject.toml` (é ela o `<versão>` dos nomes de arquivo abaixo), dependências fixadas, manifesto revisado e chave privada de um publicador aprovado. **Publisher** é quem assina o artefato; aprovação da chave é decisão do operador, não algo que o próprio pacote possa conceder. A assinatura demonstra procedência e integridade, não ausência de código malicioso.
 
 ```sh
 # Ambiente de build com requirements-dev.txt atualizado e hashes:
 .venv/bin/python -m build --wheel --no-isolation
 .venv/bin/python manage.py build_core_package \
-  --wheel dist/django_skeleton-0.2.0-py3-none-any.whl \
+  --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   --manifest /caminho/privado/core-manifest.json \
   --private-key /caminho/privado/publisher.pem \
-  --output /caminho/privado/core-0.2.0.skapp
+  --output /caminho/privado/core-<versão>.skapp
 # Equivalente independente de settings/Django startup:
-skeleton-core build --wheel dist/django_skeleton-0.2.0-py3-none-any.whl \
+skeleton-core build --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   --manifest /caminho/privado/core-manifest.json \
   --private-key /caminho/privado/publisher.pem \
-  --output /caminho/privado/core-0.2.0.skapp
+  --output /caminho/privado/core-<versão>.skapp
 ```
 
 O manifesto core identifica o artefato e limita como instalá-lo:
@@ -364,7 +368,7 @@ Compose inclui `migrator` no profile `migration`, com a mesma imagem do web e ap
 
 ## Agente independente de deployment
 
-O executável é `skeleton-deployment-agent --config /caminho/agent.json <comando>`; no checkout, o equivalente é `.venv/bin/python -m deployment_agent --config /caminho/agent.json <comando>`. Ele **não** roda dentro do Gunicorn. Instale-o em virtualenv próprio, fora de `project_root`/`releases_root`, fixando a distribuição do agente e suas dependências. A partir dos artefatos previamente produzidos e aprovados:
+A versão do agente é a de `deployment_agent/pyproject.toml`, igual à do núcleo. O executável é `skeleton-deployment-agent --config /caminho/agent.json <comando>`; no checkout, o equivalente é `.venv/bin/python -m deployment_agent --config /caminho/agent.json <comando>`. Ele **não** roda dentro do Gunicorn. Instale-o em virtualenv próprio, fora de `project_root`/`releases_root`, fixando a distribuição do agente e suas dependências. A partir dos artefatos previamente produzidos e aprovados:
 
 ```sh
 python3.14 -m venv /opt/skeleton-agent/venv
