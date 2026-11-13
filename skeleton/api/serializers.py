@@ -1,80 +1,11 @@
-from django.apps import apps
-from django.core.exceptions import ValidationError
-from django.utils.translation import gettext
+"""Historical import path of the REST shapes; the code lives in ``skeleton.records`` and ``skeleton.audit``."""
 
-from skeleton.access.resources import DEDICATED, LINKS, dedicated_model  # noqa: E402, F401 - historical path
-from skeleton.web.services import assert_fields, coerce_fields, record_data
-
-DEDICATED_REQUIRED = {
-    "memberships": ("user",),
-    "roles": ("code", "name"),
-    "groups": ("code", "name"),
-    "invitations": ("email", "role"),
-}
-# Read-only fields rendered besides the writable ones.
-DEDICATED_EXTRA = {"roles": ("is_builtin",), "invitations": ("expires_at", "accepted_at", "accepted_by")}
-
-
-def dedicated_required(resource, model, fields):
-    """Fields a creation must send; links require every non-null field."""
-    return DEDICATED_REQUIRED.get(resource, tuple(name for name in fields if not model._meta.get_field(name).null))
-
-
-def dedicated_input(resource, data, *, user, creating=True):
-    model, fields = dedicated_model(resource)
-    if resource == "memberships" and not creating:
-        fields = ("is_active",)
-    assert_fields(data, fields)
-    if creating:
-        required = dedicated_required(resource, model, fields)
-        missing = [name for name in required if name not in data]
-        if missing:
-            raise ValidationError({name: gettext("Campo obrigatório.") for name in missing})
-    values = dict(data)
-    if resource == "memberships" and "user" in values:
-        # No global identity list: an administrator must select an existing UUID explicitly.
-        User = apps.get_model("sk_accounts", "User")
-        try:
-            values["user"] = User.objects.get(pk=values["user"], is_active=True)
-        except (User.DoesNotExist, ValidationError, ValueError, TypeError):
-            raise ValidationError({"user": gettext("Identidade indisponível.")}) from None
-        rest = {name: value for name, value in values.items() if name != "user"}
-        return {"user": values["user"], **coerce_fields(model, rest, user=user)}
-    return coerce_fields(model, values, user=user)
-
-
-def dedicated_data(resource, record):
-    _, fields = dedicated_model(resource)
-    extra = DEDICATED_EXTRA.get(resource, ())
-    data = record_data(record, (*fields, *extra))
-    if resource == "memberships":
-        data["account_type"] = record.user.account_type  # Service accounts are marked in the list (#44).
-    return data
-
-
-def audit_data(event):
-    """REST shape of one ``AuditLogEvent`` (``AuditLogService``).
-
-    Audit identities are deliberately historical, never dereferenced to private objects.
-    """
-    import json
-
-    data = {
-        name: getattr(event, name)
-        for name in (
-            "sysid",
-            "created_at",
-            "organization_id",
-            "table_name",
-            "model_label",
-            "record_sysid",
-            "record_revision",
-            "operation",
-            "actor_sysid",
-            "request_id",
-            "source",
-            "db_principal",
-        )
-    }
-    data["changes"] = json.loads(event.changes_json)
-    return data
+from skeleton.access.resources import DEDICATED, LINKS, dedicated_model  # noqa: F401
+from skeleton.audit.presentation import audit_data  # noqa: F401
+from skeleton.records.dedicated import (  # noqa: F401
+    DEDICATED_EXTRA,
+    DEDICATED_REQUIRED,
+    dedicated_data,
+    dedicated_input,
+    dedicated_required,
+)

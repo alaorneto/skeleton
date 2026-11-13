@@ -32,9 +32,7 @@ from skeleton.api.openapi import (
 )
 from skeleton.api.serializers import audit_data, dedicated_data, dedicated_input
 from skeleton.integrations.tokens.authentication import ApiTokenAuthentication
-from skeleton.service_api.dto import MAX_OFFSET
-from skeleton.tenancy.context import current_context
-from skeleton.web.services import (
+from skeleton.records.services import (
     change_record_access,
     create_record,
     delete_record,
@@ -47,6 +45,8 @@ from skeleton.web.services import (
     restore_record,
     update_record,
 )
+from skeleton.service_api.dto import MAX_OFFSET
+from skeleton.tenancy.context import current_context
 
 
 class SessionAPI(APIView):
@@ -450,7 +450,7 @@ class RecordsView(TenantAPI):
             if record is None:
                 raise Http404
             return etag(Response(record_data(record, spec.read_fields, user=request.user)), record.revision)
-        from skeleton.web.services import filter_records
+        from skeleton.records.services import filter_records
 
         try:
             queryset = filter_records(queryset, spec, request.query_params)
@@ -548,7 +548,7 @@ class ReferenceView(TenantAPI):
     openapi = TableRoutes("references")
 
     def get(self, request, organization_id, table_key, field_name):
-        from skeleton.web.references import reference_request
+        from skeleton.records.references import reference_request
 
         spec = exposed_spec(table_key)
         result, _, _ = reference_request(spec, field_name, user=request.user, params=request.query_params)

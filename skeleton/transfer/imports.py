@@ -57,8 +57,8 @@ def request_import(*, user: Any, table_key: str, upload: Any) -> Any:
 
     from skeleton.files.storage import StorageError, put_stream
     from skeleton.jobs.services import enqueue
+    from skeleton.records.services import record_queryset
     from skeleton.tenancy.context import current_context
-    from skeleton.web.services import record_queryset
 
     from .exports import exportable_spec, retention, transfer_key
     from .models import TransferJob
@@ -135,7 +135,7 @@ def _messages(error: ValidationError) -> list[tuple[str, str]]:
 
 def _apply_rows(*, user: Any, spec: Any, header: list[str], rows: Any, outcome: Outcome) -> None:
     from skeleton.common.exceptions import ConcurrentUpdate
-    from skeleton.web.services import create_record, record_queryset, update_record
+    from skeleton.records.services import create_record, record_queryset, update_record
 
     model = spec.model
     columns = importable_columns(spec)

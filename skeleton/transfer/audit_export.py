@@ -63,8 +63,8 @@ def request_audit_export(*, user: Any, params: Any) -> Any:
 
 def build_audit_csv(*, actor: Any, transfer: Any) -> tuple[bytes, int] | str:
     """The CSV bytes and row count, or an error code."""
-    from skeleton.api.serializers import audit_data
     from skeleton.audit.filters import parse_audit_filters
+    from skeleton.audit.presentation import audit_data
     from skeleton.service_api.audit import AuditLogService
 
     from .csvio import write_csv

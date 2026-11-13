@@ -51,7 +51,7 @@ def explicit_form(model, names, *, user, data=None, instance=None, revision=Fals
     fields = {name: _model_form_field(model._meta.get_field(name)) for name in names}
     initial = {}
     if instance is not None:
-        from skeleton.web.services import records_data
+        from skeleton.records.services import records_data
 
         projected = records_data([instance], names, user=user)[0]
         initial.update({name: projected.get(name) for name in names})
@@ -149,8 +149,8 @@ class RecordForm(forms.Form):
 
 
 def record_form(spec, *, user, data=None, instance=None, operation="edit"):
+    from skeleton.records.services import records_data
     from skeleton.system.presentation import get_model_ui
-    from skeleton.web.services import records_data
 
     layout = get_model_ui(spec.model._meta.label_lower).form
     declared = {item.name: item for section in layout.sections for item in section.fields}

@@ -22,8 +22,20 @@ from skeleton.access.capabilities import (
 from skeleton.access.policies import require_record_action
 from skeleton.access.resources import LINKS, create_resource, dedicated_model, delete_resource, update_resource
 from skeleton.accounts.mfa import mfa_required
-from skeleton.api.serializers import dedicated_input
 from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
+from skeleton.records.dedicated import dedicated_input
+from skeleton.records.services import (
+    ACCESS_FIELDS,
+    change_record_access,
+    create_record,
+    delete_record,
+    exposed_spec,
+    readable_specs,
+    record_queryset,
+    require_access_management,
+    restore_record,
+    update_record,
+)
 from skeleton.service_api import errors as service_errors
 from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
@@ -37,18 +49,6 @@ from skeleton.web.presentation import (
     list_context,
     list_fields,
     safe_record_label,
-)
-from skeleton.web.services import (
-    ACCESS_FIELDS,
-    change_record_access,
-    create_record,
-    delete_record,
-    exposed_spec,
-    readable_specs,
-    record_queryset,
-    require_access_management,
-    restore_record,
-    update_record,
 )
 
 
@@ -559,7 +559,7 @@ def records(request, organization_id, table_key, deleted=False):
     ).order_by("created_at", "sysid")
     if deleted:
         queryset = queryset.filter(deleted_at__isnull=False)
-    from skeleton.web.services import filter_records
+    from skeleton.records.services import filter_records
 
     queryset = filter_records(queryset, spec, request.GET, ignore_empty=True)
     filters = {name: value for name, value in request.GET.items() if value != ""}
@@ -780,7 +780,7 @@ def reference_picker(request, organization_id, table_key, field_name):
 
     from django.urls import reverse
 
-    from skeleton.web.references import reference_request
+    from skeleton.records.references import reference_request
 
     spec = exposed_spec(table_key)
     data, item, access = reference_request(spec, field_name, user=request.user, params=request.GET)

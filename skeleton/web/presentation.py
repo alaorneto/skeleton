@@ -10,11 +10,11 @@ from django.urls import reverse
 from django.utils import formats, timezone
 from django.utils.translation import gettext, gettext_lazy
 
+from skeleton.records.services import SYSTEM_FIELDS, records_data
 from skeleton.system.app_registry import get_app
 from skeleton.system.presentation import SYSTEM_READ_FIELDS, FieldUISpec, FormSectionSpec, get_model_ui
 from skeleton.tenancy.context import current_context
 from skeleton.web.forms import CHANGE_PREFIX
-from skeleton.web.services import SYSTEM_FIELDS, records_data
 
 UNAVAILABLE = gettext_lazy("Referência indisponível")
 
@@ -347,7 +347,7 @@ def audit_rows(events):
     The service already kept only the visible columns and redacted the sensitive ones; this
     only draws them. The template escapes every value.
     """
-    from skeleton.api.serializers import audit_data
+    from skeleton.audit.presentation import audit_data
 
     rows = []
     for event in events:

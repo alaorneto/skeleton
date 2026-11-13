@@ -9,7 +9,7 @@ from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
 from skeleton.common.exceptions import ConcurrentUpdate
-from skeleton.web.services import exposed_spec
+from skeleton.records.services import exposed_spec
 from skeleton.web.views import tenant_page
 
 from . import services

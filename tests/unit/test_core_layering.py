@@ -23,14 +23,7 @@ KNOWN_EXCEPTIONS = {
     ("skeleton/system/checks.py", "skeleton.service_api.contract"): "check E018 inspects the declared API",
     ("skeleton/system/checks.py", "skeleton.service_api.registry"): "check E018 inspects the declared API",
     ("skeleton/tenancy/aggregate.py", "skeleton.service_api.errors"): "skips organizations denied by a service",
-    ("skeleton/api/serializers.py", "skeleton.web.services"): "record gateway lives in web",
-    ("skeleton/api/views.py", "skeleton.web.services"): "record gateway lives in web",
-    ("skeleton/api/views.py", "skeleton.web.references"): "record gateway lives in web",
-    ("skeleton/web/presentation.py", "skeleton.api.serializers"): "audit projection lives in api",
     ("skeleton/web/urls.py", "skeleton.api.health"): "health probe lives in api",
-    ("skeleton/web/views.py", "skeleton.api.serializers"): "dedicated resources live in api",
-    ("skeleton/api/openapi.py", "skeleton.web.references"): "record gateway lives in web",
-    ("skeleton/api/openapi.py", "skeleton.web.services"): "record gateway lives in web",
     ("skeleton/comments/apps.py", "skeleton.web.timeline"): "timeline registry lives in web",
     ("skeleton/comments/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",
     ("skeleton/comments/timeline.py", "skeleton.web.timeline"): "timeline registry lives in web",
@@ -38,9 +31,6 @@ KNOWN_EXCEPTIONS = {
     ("skeleton/common/migration_operations.py", "skeleton.system.search"): "search index DDL lives in system",
     ("skeleton/files/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",
     ("skeleton/system/application_views.py", "skeleton.api.openapi"): "app views live in system",
-    ("skeleton/transfer/audit_export.py", "skeleton.api.serializers"): "audit projection lives in api",
-    ("skeleton/transfer/exports.py", "skeleton.web.services"): "record gateway lives in web",
-    ("skeleton/transfer/imports.py", "skeleton.web.services"): "record gateway lives in web",
 }
 
 
