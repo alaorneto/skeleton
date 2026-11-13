@@ -29,6 +29,7 @@ EXPECTED_FILES = {
     "manifest.json",
     "migrations/__init__.py",
     "tests/__init__.py",
+    "tests/conftest.py",
     "tests/test_service_api.py",
 }
 VALID = {"app_id": "com.example.tasks", "publisher": "example-publisher"}
@@ -76,6 +77,21 @@ def test_generates_complete_application(tmp_path):
     service_source = (root / "service_api.py").read_text(encoding="utf-8")
     assert "class TaskItemService(ServiceAPI):" in service_source
     assert "app_label = APP_LABEL" in service_source and 'APP_LABEL = "project_tasks"' in service_source
+    # The scenario tests of every generated method run on the distributed isolated database (#334).
+    tests_source = (root / "tests" / "test_service_api.py").read_text(encoding="utf-8")
+    for name in (
+        "test_authorized_member_reads_own_organization",
+        "test_default_deny_without_table_permission",
+        "test_private_record_of_someone_else_is_not_found",
+        "test_organizations_are_isolated",
+        "test_disabled_application_is_unavailable",
+        "test_actor_must_match_the_context",
+    ):
+        assert f"def {name}(scenario)" in tests_source
+    assert "TaskItemService().taskitem_count(actor=actor)" in tests_source
+    assert "from skeleton.testing.database import skeleton_db" in (root / "tests" / "conftest.py").read_text(
+        encoding="utf-8"
+    )
     views_source = (root / "views.py").read_text(encoding="utf-8")
     assert "TaskItemService().taskitem_count(actor=request.user)" in views_source
     assert "authorized_queryset" not in views_source and ".models import" not in views_source

@@ -128,6 +128,7 @@ def render_files(scaffold):
         "docs/service-api.md": "service-api.md-tpl",
         "migrations/__init__.py": "__init__.py-tpl",
         "tests/__init__.py": "__init__.py-tpl",
+        "tests/conftest.py": "conftest.py-tpl",
         "tests/test_service_api.py": "test_service_api.py-tpl",
     }
     files = {
@@ -175,6 +176,12 @@ def next_steps(scaffold):
             "Exponha em service_api.py (%(service_class)s) só o que outras apps precisam; rode assert_service_contract em tests/."
         )
         % {"service_class": scaffold.service_class},
+        gettext(
+            "Rode os testes da app: python -m pytest applications/%(package_name)s/tests com TEST_DATABASE_URL "
+            "(role skeleton_runtime), TEST_MIGRATION_DATABASE_URL (role skeleton_owner) e "
+            "SKELETON_TEST_ALLOW_SCHEMA_RESET=1, num banco *_skeleton_test."
+        )
+        % {"package_name": scaffold.package_name},
         f"python manage.py package doctor applications/{scaffold.package_name}",
         gettext(
             "Publique com: python manage.py package build --app-root applications/%(package_name)s --manifest applications/%(package_name)s/manifest.json --output <fora da app>.skapp --private-key <chave privada>"

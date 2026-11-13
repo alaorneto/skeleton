@@ -88,15 +88,21 @@ def test_scaffolded_app_migrates_passes_checks_and_doctor(project):
     report = json.loads(run("package", "doctor", "applications/tasks").stdout)
     assert report == {"ok": True, "app_id": "com.example.tasks", "problems": []}
 
-    # The generated service API passes E018/E019 with warnings as errors and its own contract test.
+    # The generated service API passes E018/E019 with warnings as errors, its contract test and the
+    # six scenario tests (#334), which recreate and migrate the schema per test with the distributed
+    # skeleton_db: migrations as the owner, assertions as the runtime role.
     checked = run("check", "--fail-level", "WARNING")
     assert "skeleton.E018" not in checked.stderr and "skeleton.E019" not in checked.stderr
+    assert "skeleton.W019" not in checked.stderr
+    from tools.integration_database import disposable_database_pair
+
+    pair = disposable_database_pair()
     contract = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "applications/tasks/tests"],
         cwd=target,
-        env=run.environment,
+        env={**run.environment, "TEST_DATABASE_URL": pair.runtime, "TEST_MIGRATION_DATABASE_URL": pair.owner},
         capture_output=True,
         text=True,
     )
     assert contract.returncode == 0, contract.stdout + contract.stderr
-    assert "1 passed" in contract.stdout
+    assert "7 passed" in contract.stdout

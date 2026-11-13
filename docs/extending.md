@@ -33,7 +33,8 @@ Ele cria `applications/<package>/` (por padrão o package é o label; mude com `
 - `models.py`: um modelo `SecuredRecord` mínimo (`code` único entre registros vivos da organização e `title`);
 - `service_api.py`: `<Model>Service` (`ServiceAPI`) com `<model>_count`, `list_<model>_summaries` e `get_<model>`, DTO `<Model>Summary` e `app_label` da app;
 - `views.py`, `urls.py` e `api_urls.py`: uma página `tenant_page` e um sumário `TenantAPI`, ambos chamando o serviço, sem consultar o modelo;
-- `tests/test_service_api.py`: o teste de contrato `assert_service_contract(<Model>Service)`;
+- `tests/test_service_api.py`: o teste de contrato `assert_service_contract(<Model>Service)` e os seis testes de cenário dos três métodos (caminho autorizado, default deny, registro privado como inexistente, A/B, app desativada e ator divergente, #334);
+- `tests/conftest.py`: a fixture `skeleton_db` distribuída no wheel (`skeleton.testing.database`), que recria e migra o schema a cada teste e roda as asserções na role runtime;
 - `templates/<app_label>/home.html`, `migrations/__init__.py`;
 - `docs/spec.md`, `docs/adr.md` e `docs/service-api.md` com as seções exigidas pela check E012 (texto inicial a substituir);
 - `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls`, `runtime.service_api` e uma entrada de navegação apontando para os módulos gerados. A compatibilidade começa em `>=0.4.0,<1.0.0` e `default_enabled` começa `false`: o campo é obsoleto e ignorado (#22), e `package doctor` avisa quando ele é `true`.
@@ -47,8 +48,9 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 5. `python manage.py sync_table_catalog`;
 6. `python manage.py check_skeleton_schema`;
 7. conferir que as migrations da app não criam view, função alcançável pelo runtime, privilégio por coluna nem trigger em tabela técnica no schema `skeleton` (o `check_skeleton_schema` reprova, #299); atualizar `migrations.leaves` no manifesto, revisar spec/ADR e escrever a API de serviços da app (`service_api.py` e `docs/service-api.md`, veja [API de serviços da app](#api-de-serviços-da-app));
-8. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
-9. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
+8. rodar os testes da app: `python -m pytest applications/<package>/tests` com `TEST_DATABASE_URL` (role `skeleton_runtime`), `TEST_MIGRATION_DATABASE_URL` (role `skeleton_owner`) e `SKELETON_TEST_ALLOW_SCHEMA_RESET=1`, num banco `*_skeleton_test` provisionado como em `deploy/postgres/bootstrap.sql` (mais `GRANT CREATE ON DATABASE <banco> TO skeleton_owner`, para o owner recriar o schema); veja [Isolamento da suíte](testing.md#isolamento-da-suíte);
+9. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
+10. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
 O código gerado é um começo, não uma app aprovada: revise allowlists e `sensitive_fields` a cada campo novo e escreva os testes de isolamento, autorização e concorrência do checklist do `AGENTS.md`.
 
