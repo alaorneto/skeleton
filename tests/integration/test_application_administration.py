@@ -614,3 +614,27 @@ def test_incompatible_configuration_does_not_affect_other_organization(actor, mo
     with tenant_context(organization_id=other.pk, actor=other_user, source="test:other-organization"):
         state = application_state("example_notes")
         assert state["configuration_valid"] is True and state["effective"] is True
+
+
+def test_configure_application_requires_role_under_lock(actor, monkeypatch):
+    """configure_application takes the organization lock itself, wherever it is called from (#253)."""
+    from skeleton.access import services as access_services
+
+    user, organization, _ = actor
+    real, calls = access_services.organization_lock, []
+
+    def spy(lock_user=None, **kwargs):
+        calls.append((lock_user, kwargs))
+        return real(lock_user, **kwargs)
+
+    monkeypatch.setattr(access_services, "organization_lock", spy)
+    with tenant_context(organization_id=organization.pk, actor=user, source="test:configure-lock"):
+        state = application_state("example_notes")
+        configure_application(
+            "example_notes",
+            user=user,
+            enabled=state["enabled"],
+            configuration=state["configuration"],
+            revision=state["revision"],
+        )
+    assert calls and calls[0][0] == user and calls[0][1].get("capability") == "apps.manage"

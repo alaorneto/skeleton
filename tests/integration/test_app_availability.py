@@ -189,3 +189,62 @@ def test_e017_rejects_system_record_with_organization_field():
 
         ids = {error.id for error in record_contract_checks(apps_registry=registry)}
     assert "skeleton.E017" in ids
+
+
+# --------------------------------------------------------------------------- custom screens of closed apps (#253)
+
+
+def _with_custom_screen(monkeypatch):
+    from dataclasses import replace
+
+    from skeleton.system import app_registry
+    from skeleton.system.presentation import AdminScreenSpec, AdminSectionSpec
+
+    manifest = app_registry.get_app(NOTES)
+    administration = replace(
+        manifest.administration,
+        sections=(*manifest.administration.sections, AdminSectionSpec("parameters", "Parameters")),
+        screens=(
+            *manifest.administration.screens,
+            AdminScreenSpec(
+                "custom",
+                "parameters",
+                "Custom parameters",
+                "organization",
+                "custom",
+                url_name="example_notes:parameters",
+                organization_admin_only=True,
+            ),
+        ),
+    )
+    custom = replace(manifest, administration=administration)
+    monkeypatch.setitem(app_registry._manifests, NOTES, custom)
+    return custom
+
+
+@pytest.mark.needs_example_app
+def test_custom_parameter_screen_is_closed_when_app_unavailable(setup, monkeypatch):
+    from skeleton.common.exceptions import ApplicationUnavailable
+    from skeleton.system.administration import resolve_application_screen
+
+    platform, _, member_b, org_b = setup
+    _with_custom_screen(monkeypatch)
+    with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:custom-closed"):
+        with pytest.raises(ApplicationUnavailable):
+            resolve_application_screen(NOTES, "custom", user=member_b, scope="organization")
+    as_platform(platform, lambda: availability.set_app_availability(NOTES, user=platform, mode="all", revision=0))
+    with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:custom-open"):
+        manifest, screen = resolve_application_screen(NOTES, "custom", user=member_b, scope="organization")
+    assert screen.id == "custom"
+
+
+@pytest.mark.needs_example_app
+def test_unavailable_app_lists_only_core_configuration_screen(setup, monkeypatch):
+    from skeleton.system.administration import screen_sections
+
+    _, _, member_b, org_b = setup
+    manifest = _with_custom_screen(monkeypatch)
+    with tenant_context(organization_id=org_b.pk, actor=member_b, source="test:custom-sections"):
+        sections = screen_sections(manifest, user=member_b, scope="organization")
+    screens = [screen["id"] for section in sections for screen in section["screens"]]
+    assert "configuration" in screens and "custom" not in screens

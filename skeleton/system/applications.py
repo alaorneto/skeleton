@@ -140,7 +140,7 @@ def require_application_enabled(app_label):
 @transaction.atomic
 def configure_application(app_label, *, user, enabled, configuration, revision):
     from skeleton.access.capabilities import APPS_MANAGE, require_capability
-    from skeleton.tenancy.models import Organization
+    from skeleton.access.services import organization_lock
 
     from .models import AppInstallation
 
@@ -151,69 +151,70 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
     if type(enabled) is not bool:
         raise ValidationError({"enabled": gettext("Use true or false.")})
     values = validate_configuration(manifest, configuration)
-    # Serialize even the first virtual revision=0 transition and dependency changes.
-    Organization.objects.select_for_update(no_key=True).get(pk=current_context().organization_id)
-    record = AppInstallation.objects.filter(app_label=app_label).first()
-    expected = record.revision if record else 0
-    if type(revision) is not int or revision != expected:
-        raise ConcurrentUpdate("Application configuration changed.")
-    if record is not None:
-        try:
-            validate_configuration(manifest, record.configuration)
-        except ValidationError:
-            # Nothing is written while the stored row is incompatible (#251): the app is closed
-            # until the operator's data migration fixes it.
+    # Serialize even the first virtual revision=0 transition and dependency changes. The lock
+    # re-validates the organization and the actor's capability once it is held (#253).
+    with organization_lock(user, capability=APPS_MANAGE):
+        record = AppInstallation.objects.filter(app_label=app_label).first()
+        expected = record.revision if record else 0
+        if type(revision) is not int or revision != expected:
+            raise ConcurrentUpdate("Application configuration changed.")
+        if record is not None:
+            try:
+                validate_configuration(manifest, record.configuration)
+            except ValidationError:
+                # Nothing is written while the stored row is incompatible (#251): the app is closed
+                # until the operator's data migration fixes it.
+                raise ValidationError(
+                    {
+                        "configuration": ValidationError(
+                            "Stored configuration is incompatible with the installed version; a data migration is required.",
+                            code="configuration_incompatible",
+                        )
+                    }
+                ) from None
+        from .availability import available_with_dependencies
+
+        forget_application_states()
+        if enabled and not available_with_dependencies(app_label):
+            # Disabling stays allowed so an organization can close an app the platform withdrew.
             raise ValidationError(
                 {
-                    "configuration": ValidationError(
-                        "Stored configuration is incompatible with the installed version; a data migration is required.",
-                        code="configuration_incompatible",
+                    "enabled": ValidationError(
+                        gettext("O aplicativo não está disponível para esta organização."), code="app_unavailable"
                     )
                 }
-            ) from None
-    from .availability import available_with_dependencies
-
-    forget_application_states()
-    if enabled and not available_with_dependencies(app_label):
-        # Disabling stays allowed so an organization can close an app the platform withdrew.
-        raise ValidationError(
-            {
-                "enabled": ValidationError(
-                    gettext("O aplicativo não está disponível para esta organização."), code="app_unavailable"
+            )
+        if enabled:
+            pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
+            if pending:
+                names = ", ".join(get_app(label).label for label in pending)
+                raise ValidationError(
+                    {"enabled": gettext("Ative antes os aplicativos exigidos: %(names)s.") % {"names": names}}
                 )
-            }
-        )
-    if enabled:
-        pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
-        if pending:
-            names = ", ".join(get_app(label).label for label in pending)
-            raise ValidationError(
-                {"enabled": gettext("Ative antes os aplicativos exigidos: %(names)s.") % {"names": names}}
-            )
-    else:
-        blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
-        if blocking:
-            names = ", ".join(get_app(label).label for label in blocking)
-            raise ValidationError(
-                {"enabled": gettext("Desative antes os aplicativos dependentes: %(names)s.") % {"names": names}}
-            )
-    from skeleton.events.core_events import application_changed
+        else:
+            blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
+            if blocking:
+                names = ", ".join(get_app(label).label for label in blocking)
+                raise ValidationError(
+                    {"enabled": gettext("Desative antes os aplicativos dependentes: %(names)s.") % {"names": names}}
+                )
+        from skeleton.events.core_events import application_changed
 
-    was_enabled = bool(record and record.enabled)
-    if record is None:
-        record = AppInstallation(
-            organization_id=current_context().organization_id,
-            app_label=app_label,
-            enabled=enabled,
-            configuration=values,
-        )
-        record.save()
-    else:
-        record.enabled = enabled
-        record.configuration = values
-        record.save(update_fields={"enabled", "configuration"})
-    application_changed(record, was_enabled=was_enabled)
-    return record
+        was_enabled = bool(record and record.enabled)
+        if record is None:
+            record = AppInstallation(
+                organization_id=current_context().organization_id,
+                app_label=app_label,
+                enabled=enabled,
+                configuration=values,
+            )
+            record.save()
+        else:
+            record.enabled = enabled
+            record.configuration = values
+            record.save(update_fields={"enabled", "configuration"})
+        application_changed(record, was_enabled=was_enabled)
+        return record
 
 
 def navigation_for_user(user):

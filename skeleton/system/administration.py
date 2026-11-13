@@ -46,6 +46,15 @@ def resolve_application_screen(app_label, screen_id, *, user, scope):
     else:
         # Tenant parameter screens (organization_admin_only in the manifest) need apps.manage (#24).
         require_capability(user, APPS_MANAGE)
+        if screen.kind == "custom":
+            from skeleton.common.exceptions import ApplicationUnavailable
+
+            from .availability import app_available
+
+            # App-owned code never runs for an organization the platform did not admit (#253); the
+            # core configuration screen stays reachable so the organization can disable the app.
+            if not app_available(app_label):
+                raise ApplicationUnavailable("Application is unavailable to this organization.")
     return manifest, screen
 
 
