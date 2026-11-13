@@ -156,6 +156,8 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 | `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
 | `o/<org>/flows/operations/` | GET | Painel de operação (#408), só para quem administra fluxos (`flows.manage`); filtros `flow_key` e `version` |
 | `o/<org>/flows/migrations/<chave>/<versão>/` | GET, POST | Migração das instâncias de uma versão (#413): GET mostra a prévia (`moves` e `skipped` por instância); POST enfileira a aplicação e responde 202 com `job_id`; só quem administra fluxos |
+| `o/<org>/flows/absences/` | GET, POST | Ausências com substituto (#418): as próprias, ou todas para quem administra fluxos; POST `{"user", "substitute", "starts_at", "ends_at"}` |
+| `o/<org>/flows/absences/<id>/` | DELETE | Remove a ausência, com `If-Match` |
 | `o/<org>/flows/drafts/` | GET, POST | Fluxos em dados (#414): lista e cria rascunhos `{"specification": {...}}` (forma de `FlowSpec.to_json`, sem a versão); só quem administra fluxos |
 | `o/<org>/flows/drafts/<id>/` | GET, PATCH | Rascunho com `problems`; PATCH troca a especificação, com `If-Match` |
 | `o/<org>/flows/drafts/<id>/publish/` | POST | Publica a próxima versão, com `If-Match`; 400 com os problemas de validação |

@@ -185,6 +185,8 @@ Resolvida a etapa, as tarefas ainda abertas são canceladas. A decisão aceita c
 
 **Delegação e reatribuição.** O responsável passa a tarefa a outra pessoa com vínculo ativo (`reassign`) quando a etapa é `delegable`; quem administra fluxos reatribui qualquer tarefa. A tarefa guarda quem delegou.
 
+**Substituição por ausência** ([#418](https://github.com/alaorneto/skeleton/issues/418)). A pessoa registra o próprio período de ausência e um substituto (`FlowAbsence`, REST `GET/POST /api/v1/o/<org>/flows/absences/` e `DELETE .../absences/<id>/` com `If-Match`); quem administra fluxos registra para qualquer um. Pessoa e substituto são membros humanos ativos e diferentes, e o período vai até um ano. Enquanto durar, uma tarefa atribuída à pessoa nasce com o substituto e `delegated_from` aponta para a pessoa (histórico `absence_delegated`). Se o substituto não lê o registro de negócio, a tarefa fica com a pessoa e o histórico registra `absence_substitute_refused`. Só as tarefas criadas no período mudam; as já abertas e as de fila ficam como estão.
+
 ### Prazos (SLA)
 
 `Sla(due_seconds, remind_before_seconds=(), on_overdue="notify", escalate_to=(), business_hours=False)`:
@@ -254,11 +256,12 @@ Além dos fluxos declarados em código, a organização pode definir fluxos em d
 
 ## Modelo de dados
 
-Sete tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisão, exclusão lógica, auditoria por trigger, RLS tenant), nenhuma no gateway genérico:
+Oito tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisão, exclusão lógica, auditoria por trigger, RLS tenant), nenhuma no gateway genérico:
 
 | Modelo | Guarda | Campos imutáveis |
 |---|---|---|
 | `FlowDefinition` | `key`, `version`, `app_label`, `label`, `digest`, `specification` (JSON) | todos |
+| `FlowAbsence` | `user`, `substitute`, `starts_at`, `ends_at` | pessoa |
 | `FlowDraft` | `key`, `label`, `app_label`, `specification` (JSON, sem a versão), `published_version`, `published_at` | chave |
 | `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at`, `parent`, `parent_run` | chave, número, registro de negócio, quem iniciou, chave de idempotência, pai e etapa do pai (definição e versão mudam só pela migração, #413) |
 | `FlowStepRun` | `instance`, `step_key`, `kind`, `status`, `sequence`, `scope`, `branch`, `via`, `outcome`, `state` (JSON), `due_at`, `finished_at` | instância, etapa, tipo, ordem, escopo, ramo, origem |
@@ -362,7 +365,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 
 | Item | Por que não agora |
 |---|---|
-| Substituição por ausência | Planejada em [#418](https://github.com/alaorneto/skeleton/issues/418) |
 | Diagrama do fluxo e métricas | Apresentação e operação, sem efeito no contrato |
 | Comentários livres na instância | Serão os comentários de registros (#187) |
 | Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |

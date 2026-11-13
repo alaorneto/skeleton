@@ -75,6 +75,30 @@ class FlowDraft(OrganizationRecord):
         return self.key
 
 
+class FlowAbsence(OrganizationRecord):
+    """A person away in an organization, with who takes their flow tasks meanwhile (#418).
+
+    While ``starts_at <= now < ends_at``, a task assigned to ``user`` goes to ``substitute``
+    (``delegated_from`` keeps the person). Removing it is a soft delete.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    substitute = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    immutable_fields = ("user_id",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(ends_at__gt=models.F("starts_at")), name="sk_flows_absence_period"),
+            models.CheckConstraint(condition=~Q(substitute=models.F("user")), name="sk_flows_absence_other_person"),
+        ]
+        indexes = [models.Index(fields=("organization", "user", "starts_at"), name="sk_flows_absence_user")]
+
+    def __str__(self):
+        return f"{self.user_id} -> {self.substitute_id}"
+
+
 class FlowInstance(OrganizationRecord):
     """One execution of a flow about one business record of the owning app."""
 

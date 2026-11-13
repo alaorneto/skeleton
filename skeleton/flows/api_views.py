@@ -452,6 +452,97 @@ class MigrationView(TenantAPI):
         return Response({"job_id": str(receipt.id)}, status=202)
 
 
+def _absence_schema() -> Schema:
+    return obj(
+        {
+            "sysid": UUID_SCHEMA,
+            "revision": INTEGER,
+            "user_id": UUID_SCHEMA,
+            "substitute_id": UUID_SCHEMA,
+            "starts_at": DATETIME,
+            "ends_at": DATETIME,
+        }
+    )
+
+
+def _absence_errors():
+    import contextlib
+
+    from django.core.exceptions import ValidationError
+    from django.http import Http404
+
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    from .models import FlowAbsence
+
+    @contextlib.contextmanager
+    def handler():
+        try:
+            yield
+        except FlowAbsence.DoesNotExist:
+            raise Http404 from None
+        except ConcurrentUpdate:
+            raise BoundaryError(
+                "revision_conflict", gettext("A ausência foi alterada por outra operação."), 412
+            ) from None
+        except ValidationError as error:
+            fields = error.message_dict if hasattr(error, "message_dict") else {"__all__": error.messages}
+            raise BoundaryError("invalid_request", gettext("Ausência inválida."), fields=fields) from None
+
+    return handler()
+
+
+class AbsencesView(TenantAPI):
+    """Absence substitution (#418): one's own absences, or all for who administers flows."""
+
+    openapi = {
+        "GET": Operation("Ausências visíveis ao ator", lambda: obj({"results": array(_absence_schema())})),
+        "POST": Operation(
+            "Registra uma ausência com substituto",
+            _absence_schema,
+            status=201,
+            request=obj(
+                {"user": UUID_SCHEMA, "substitute": UUID_SCHEMA, "starts_at": DATETIME, "ends_at": DATETIME},
+                required=("user", "substitute", "starts_at", "ends_at"),
+            ),
+            etag=True,
+        ),
+    }
+
+    def get(self, request, organization_id):
+        from .absences import absences
+
+        return Response({"results": [asdict(item) for item in absences(request.user)]})
+
+    @transaction.atomic
+    def post(self, request, organization_id):
+        from .absences import register_absence
+
+        data = _body(request, ("user", "substitute", "starts_at", "ends_at"))
+        with _absence_errors():
+            item = register_absence(
+                request.user,
+                user_id=data.get("user"),
+                substitute_id=data.get("substitute"),
+                starts_at=data.get("starts_at"),
+                ends_at=data.get("ends_at"),
+            )
+        return etag(Response(asdict(item), status=201), item.revision)
+
+
+class AbsenceView(TenantAPI):
+    openapi = {"DELETE": Operation("Remove a ausência", None, status=204, if_match=True)}
+
+    @transaction.atomic
+    def delete(self, request, organization_id, sysid):
+        from .absences import remove_absence
+
+        revision = parse_revision(request.headers.get("If-Match"))
+        with _absence_errors():
+            remove_absence(request.user, absence_id=sysid, expected_revision=revision)
+        return Response(status=204)
+
+
 class OperationsView(TenantAPI):
     """Operations panel (#408), for who administers flows."""
 

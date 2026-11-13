@@ -384,6 +384,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_flows.flowabsence": (
+            gettext_lazy("Ausências em fluxos"),
+            gettext_lazy("Período em que as tarefas de fluxo de uma pessoa vão para um substituto (#418)."),
+            "organization",
+            (),
+        ),
         "sk_flows.flowinstance": (
             gettext_lazy("Instâncias de fluxo"),
             gettext_lazy("Execução de um fluxo sobre um registro de negócio; dados sensíveis de formulário à parte."),

@@ -62,8 +62,11 @@ def _due_at(execution: Execution, run: FlowStepRun, step: Step, start: Any, *, s
 
 
 def _open_task(execution: Execution, run: FlowStepRun, step: Step, slot: Slot | None, index: int) -> FlowTask:
+    from .absences import substitute_for
     from .notifications import notify_task
 
+    # Someone away gets a substitute for the period (#418).
+    assignee, delegated_from = substitute_for(execution, run, slot.user if slot else None)
     task = FlowTask(
         organization_id=run.organization_id,
         instance=execution.instance,
@@ -71,7 +74,8 @@ def _open_task(execution: Execution, run: FlowStepRun, step: Step, slot: Slot | 
         step_key=step.key,
         kind=step.kind,
         slot=index,
-        assignee_id=slot.user if slot else None,
+        assignee_id=assignee,
+        delegated_from_id=delegated_from,
         candidate_group_id=slot.group if slot else None,
         candidate_role_id=slot.role if slot else None,
         due_at=_due_at(execution, run, step, execution.now) if step.sla else None,
