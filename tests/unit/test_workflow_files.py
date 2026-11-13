@@ -36,7 +36,7 @@ def test_pr_files_are_read_as_data_and_never_executed():
     assert "path: .pr-head" in head
     assert "ref: ${{ github.event.pull_request.head.sha }}" in head and "persist-credentials: false" in head
     runs = "\n".join(part.split("\n      - ", 1)[0] for part in job.split("run: |")[1:])
-    assert re.findall(r"python3 \S+", runs) == ['python3 "$script"', 'python3 "$script"']
+    assert set(re.findall(r"python3 \S+", runs)) == {'python3 "$script"'}
     assert "check --tree .pr-head" in runs
     assert 'script=".pr-head' not in runs and "cd .pr-head" not in runs
 

@@ -40,10 +40,16 @@ jobs:
           path: .pr-head
           persist-credentials: false
       - name: Issue, seções, sobreposição de versão e título
-        # Dados do evento entram por variável de ambiente, nunca interpolados no script.
+        # Dados do evento entram por variável de ambiente, nunca interpolados no script. O validador
+        # atual lê o PR pela API; os demais campos servem ao de versões anteriores que estiver na base.
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           script=".claude/skills/dev-workflow/scripts/github_issues.py"
           if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; a verificação vale a partir do merge que o adota."; exit 0; fi
@@ -53,6 +59,10 @@ jobs:
         run: |
           script=".claude/skills/dev-workflow/scripts/release.py"
           if [ ! -f "$script" ]; then exit 0; fi
+          if ! python3 "$script" check --help 2>/dev/null | grep -q -- "--tree"; then
+            echo "O skill da base não confere a árvore do PR; a conferência vale a partir do merge que o atualiza."
+            exit 0
+          fi
           python3 "$script" check --tree .pr-head
 
   version-preview:
@@ -80,4 +90,8 @@ jobs:
         run: |
           script=".claude/skills/dev-workflow/scripts/release.py"
           if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; sem prévia."; exit 0; fi
-          python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" --comment
+          if python3 "$script" preview --help 2>/dev/null | grep -q -- "--head-ref"; then
+            python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" --comment
+          else
+            python3 "$script" preview --pr "$PR_NUMBER" --comment # skill de versão anterior na base
+          fi
