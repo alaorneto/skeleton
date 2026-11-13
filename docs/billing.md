@@ -162,12 +162,22 @@ Não existe padrão aberto que abstraia assinaturas entre provedores, então o n
 | Processar o aviso | O job **consulta o pagamento no provedor** com a chave da plataforma: o corpo do webhook nunca é confiável. Só marca a fatura paga se o pagamento consultado nomeia esta fatura, na moeda dela, pelo valor ainda devido; senão registra `amount_mismatch` e não muda o ledger. |
 | Conciliação | `billing.reconcile` (a cada 30 minutos, por organização) consulta os pagamentos pendentes há mais de 15 minutos, para o webhook que se perdeu. |
 
+### Stripe
+
+`skeleton/billing/providers/stripe.py` (código `stripe`). Crie a conta de provedor com a chave secreta (`sk_test_…` em modo teste, `sk_live_…` em produção) e o segredo do endpoint (`whsec_…`). No painel da Stripe, cadastre o endpoint `https://<origem pública>/billing/webhooks/stripe/<sysid da conta>/` com os eventos `checkout.session.completed`, `payment_intent.succeeded` e `payment_intent.payment_failed`.
+
+- Checkout: Checkout Session `mode=payment`, um item com o valor devido, a referência em `client_reference_id` e nos metadados do PaymentIntent, e `setup_future_usage=off_session`: o cartão fica salvo para as próximas renovações. Os métodos (cartão, boleto, Pix) são os que a conta Stripe tiver ativos.
+- Cobrança automática: PaymentIntent `off_session=true, confirm=true` com o meio salvo. Recusa (402) ou exigência de autenticação (`requires_action`) contam como falha: a pessoa paga pelo checkout.
+- Consulta: `GET /v1/payment_intents/<id>` (uma referência `cs_` passa antes pela Checkout Session) e o meio de pagamento para marca e últimos dígitos. Estorno: `POST /v1/refunds`.
+- Webhook: `Stripe-Signature` com `t` e `v1`, HMAC-SHA256 de `"<t>.<corpo>"`, cinco minutos de tolerância; qualquer `v1` vale, o que cobre a rotação do segredo.
+- Todo POST leva `Idempotency-Key`, e `Stripe-Version` é fixo (`2024-06-20`), para uma atualização no painel não mudar as respostas.
+
 Para testes, `skeleton.testing.billing.use_fake_provider()` registra um provedor em memória, determinístico e sem rede, com a conta de provedor padrão. Com a cobrança ligada e sem `SKELETON_PUBLIC_URL` válido, o `check --deploy` avisa com `skeleton.W037`: o provedor não teria para onde mandar os webhooks nem para onde devolver a pessoa depois do checkout.
 
 ## Próximas etapas
 
 | Issue | Entrega |
 |---|---|
-| [#401](https://github.com/alaorneto/skeleton/issues/401), [#402](https://github.com/alaorneto/skeleton/issues/402), [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
+| [#402](https://github.com/alaorneto/skeleton/issues/402), [#403](https://github.com/alaorneto/skeleton/issues/403) | Adaptadores Stripe, Mercado Pago e Asaas |
 | [#404](https://github.com/alaorneto/skeleton/issues/404) | Páginas de cobrança da organização, API e `BillingService` |
 | [#405](https://github.com/alaorneto/skeleton/issues/405) | Administração da plataforma |
