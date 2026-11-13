@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue-workflow.mjs\" plan-accepted",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/scripts/claude_hook.mjs\" plan-accepted",
             "timeout": 10
           }
         ]
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/issue-workflow.mjs\" pre-shell",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/skills/dev-workflow/scripts/claude_hook.mjs\" pre-shell",
             "timeout": 10
           }
         ]

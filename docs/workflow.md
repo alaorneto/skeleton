@@ -47,12 +47,12 @@ Uma seção sem conteúdo leva "Não se aplica — motivo". Ela não é removida
 
 O vínculo oficial entre um epic e suas filhas é o relacionamento nativo de **sub-issue** do GitHub, e as dependências entre issues são relações **"blocked by"** nativas. Assim, o epic mostra o progresso sozinho, a filha mostra o parent no painel lateral e o vínculo pode ser conferido pela API. O texto também continua no corpo das issues, como resumo para quem lê: a seção "Itens" do epic tem a lista ordenada `- [ ] #N título — depende de #M | independente`, e cada filha diz `Parte de #E`.
 
-`tools/workflow/github_issues.py sync-epic` reconcilia esse texto com o GitHub:
+`.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` reconcilia esse texto com o GitHub:
 
 ```sh
-python3 tools/workflow/github_issues.py sync-epic 112 --dry-run   # mostra o que faria
-python3 tools/workflow/github_issues.py sync-epic 112             # cria os vínculos que faltam
-python3 tools/workflow/github_issues.py sync-epic --all           # todos os issues com o label epic
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic 112 --dry-run   # mostra o que faria
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic 112             # cria os vínculos que faltam
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-epic --all           # todos os issues com o label epic
 ```
 
 O comando:
@@ -66,8 +66,8 @@ O comando:
 O `sync-epic` também acerta as caixas da seção "Itens". No dia a dia, quem faz isso é o workflow [epic-checklist](../.github/workflows/epic-checklist.yml): quando uma issue fecha (por merge de PR com `Closes` ou à mão, como concluída ou dispensada), ele marca `[x]` no item dela no epic pai nativo, e quando ela é reaberta, volta a `[ ]`. Não marque as caixas à mão. Cada execução reconcilia o epic inteiro com o estado atual das filhas e relê o corpo depois de gravar, então filhas do mesmo epic fechadas ao mesmo tempo convergem. Quando o epic também é sub-issue (como o #112 do #95), o fechamento dele atualiza o epic de cima. Para reconciliar à mão, sem criar vínculos:
 
 ```sh
-python3 tools/workflow/github_issues.py sync-checklist 112 --dry-run
-python3 tools/workflow/github_issues.py sync-checklist --all
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-checklist 112 --dry-run
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-checklist --all
 ```
 
 Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fecha o epic (`close-epic`), com um comentário que lista cada filha e se foi concluída ou dispensada. O epic fecha como concluído se ao menos uma filha foi concluída, e como `not planned` se todas foram dispensadas. A fonte de verdade são as sub-issues nativas, que o GitHub usa no progresso, não a lista em "Itens". Nada é fechado quando:
@@ -79,7 +79,7 @@ Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fech
 Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`. Por isso, ao fechar um epic que também é sub-issue (como o #112 do #95), o mesmo run atualiza as caixas do epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic: ele pode ter sido fechado à mão por outro motivo, então reabra-o à mão se for o caso. A seção "Critérios de conclusão" do epic não é verificada; o comentário pede para reabrir o epic se algum critério faltar. Para conferir sem fechar:
 
 ```sh
-python3 tools/workflow/github_issues.py close-epic --parent-of 101 --dry-run
+python3 .claude/skills/dev-workflow/scripts/github_issues.py close-epic --parent-of 101 --dry-run
 ```
 
 O workflow só existe depois do merge na `main`, porque eventos de issue usam a versão do workflow da branch padrão.
@@ -91,27 +91,30 @@ Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh is
 | Camada | Arquivo | O que garante |
 |---|---|---|
 | Norma | `AGENTS.md` | Regras lidas por qualquer agente e pessoa |
-| Procedimento | `.claude/skills/issue-workflow/` | Passo a passo do agente e modelos de issue, PR e fechamento |
-| Hook do Claude Code | `.claude/settings.json`, `.claude/hooks/issue-workflow.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
-| Git | `.pre-commit-config.yaml`, `tools/workflow/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
-| Epics | `tools/workflow/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
+| Procedimento | `.claude/skills/dev-workflow/` | Skill portátil: passo a passo do agente, modelos de issue, PR e fechamento, scripts e modelos de workflow ([mecanismos](../.claude/skills/dev-workflow/references/mechanisms.md)) |
+| Configuração | `.github/dev-workflow.toml` | Labels de tipo, seções, branch padrão e regras de PR deste repositório; os scripts recusam chave inválida ([configuração](../.claude/skills/dev-workflow/references/configuration.md)) |
+| Hook do Claude Code | `.claude/settings.json`, `.claude/skills/dev-workflow/scripts/claude_hook.mjs` | Ao aceitar um plano, instrui o agente a criar as issues antes de editar. Bloqueia `git commit` sem o hook `commit-msg` instalado ou com `--no-verify`, e `gh pr create` sem `Closes`/`Refs #N` |
+| Git | `.pre-commit-config.yaml`, `.claude/skills/dev-workflow/scripts/github_issues.py commit-msg` | Recusa commit sem referência a issue. Na branch `<tipo>/<N>-<slug>`, acrescenta `Refs: #N` sozinho. Merges, reverts e fixups gerados pelo git passam |
+| Branch | `.claude/skills/dev-workflow/scripts/github_issues.py start N` | Cria `<tipo>/<N>-<slug>` a partir da issue e de `origin/main` |
+| Epics | `.claude/skills/dev-workflow/scripts/github_issues.py sync-epic` | Cria os sub-issues e os "blocked by" nativos a partir da seção "Itens" do epic e mostra as divergências |
 | Caixas do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py sync-checklist` | Ao fechar ou reabrir uma issue, marca ou desmarca o item dela na seção "Itens" do epic pai |
 | Fechamento do epic | `.github/workflows/epic-checklist.yml`, `github_issues.py close-epic` | Ao fechar a última sub-issue aberta, fecha o epic com comentário-resumo e sobe para o epic de cima |
 | CI | `.github/workflows/issue-link.yml` | O PR precisa citar uma issue existente deste repositório com exatamente um label de tipo. PRs do Dependabot ficam isentos |
 | Locks do Dependabot | `.github/workflows/dependabot-locks.yml`, `tools/workflow/dependabot_locks.py` | Regenera com uv os locks dos PRs de pip do Dependabot e commita no branch do PR, com `Refs #140`. Ver [testes](testing.md#locks-dos-prs-do-dependabot) |
 | GitHub | `.github/ISSUE_TEMPLATE/`, `.github/pull_request_template.md` | Formulários com as seções obrigatórias. Issue em branco desabilitada |
 
-O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "PR vinculado a issue classificada" como check obrigatório na proteção da branch `main`.
+O bloqueio de `git commit` por falta do hook `commit-msg` só vale nas branches cujo `HEAD` já versiona `.github/dev-workflow.toml` ou o hook `issue-reference` em `.pre-commit-config.yaml`. Branches anteriores à adoção não são bloqueadas. Os hooks do Claude Code são lembretes fortes, não uma barreira de segurança: eles analisam o texto do comando. As barreiras finais são o hook `commit-msg` e o check do PR. Para que o check impeça o merge, marque "PR vinculado a issue classificada" como check obrigatório na proteção da branch `main`.
 
 ## Preparação de um checkout
 
 ```sh
 uv tool install pre-commit
 pre-commit install            # instala os hooks pre-commit e commit-msg
-python3 tools/workflow/github_issues.py sync-labels   # Windows: py -3 tools/workflow/github_issues.py sync-labels
+python3 .claude/skills/dev-workflow/scripts/github_issues.py sync-labels   # Windows: py -3 .claude/skills/dev-workflow/scripts/github_issues.py sync-labels
+python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor  # confere configuração, modelos, workflows, hook e labels
 ```
 
-`sync-labels` é idempotente e só precisa rodar de novo quando a lista de labels mudar. Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/hooks` aponta para o Python que o instalou, e o ambiente efêmero do `uvx` pode ser removido do cache. Os hooks do Claude Code exigem `node` no `PATH`.
+`sync-labels` é idempotente e só precisa rodar de novo quando a lista de labels de `.github/dev-workflow.toml` mudar. O skill tem testes próprios, em `unittest`, que viajam com ele: `py -3 -m unittest discover -s .claude/skills/dev-workflow/tests -t .claude/skills/dev-workflow`. Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/hooks` aponta para o Python que o instalou, e o ambiente efêmero do `uvx` pode ser removido do cache. Os hooks do Claude Code exigem `node` no `PATH`.
 
 ## Exceções
 

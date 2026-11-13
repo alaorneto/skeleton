@@ -26,4 +26,4 @@ jobs:
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 tools/workflow/github_issues.py check-pr
+        run: python3 .claude/skills/dev-workflow/scripts/github_issues.py check-pr

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Hooks do Claude Code para o fluxo issue-first (docs/workflow.md).
+// Hooks do Claude Code do skill dev-workflow (fluxo issue-first; references/mechanisms.md).
 //   plan-accepted: PostToolUse de ExitPlanMode; só dispara quando o plano é aceito.
 //   pre-shell:     PreToolUse de Bash/PowerShell; guarda git commit e gh pr create.
 // Falhas internas nunca bloqueiam: o hook commit-msg e o CI são as barreiras finais.
@@ -39,12 +39,12 @@ function planAccepted() {
     hookSpecificOutput: {
       hookEventName: "PostToolUse",
       additionalContext:
-        "Plano aceito. Antes de qualquer edição de arquivo, invoque o skill `issue-workflow` " +
+        "Plano aceito. Antes de qualquer edição de arquivo, invoque o skill `dev-workflow` " +
         "(fase 2): crie no GitHub as issues da seção 'Itens do GitHub' do plano, cada uma com " +
         "exatamente um label de tipo, todas as seções do modelo (critérios de aceite, plano de " +
         "testes, documentação a atualizar, segurança, dependências, definição de pronto) e um " +
         "epic quando houver 2 ou mais itens, com as filhas como sub-issues nativos e as dependências " +
-        "como 'blocked by' (tools/workflow/github_issues.py sync-epic <E>). Mostre ao usuário a tabela " +
+        "como 'blocked by' (github_issues.py sync-epic <E>, no diretório do skill). Mostre ao usuário a tabela " +
         "com os links e só então " +
         "implemente, começando pela primeira issue, em branch <tipo>/<N>-<slug>.",
     },
@@ -65,14 +65,20 @@ function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
 }
 
-// O fluxo vale na branch cujo HEAD já versiona o hook issue-reference; branches
-// anteriores à adoção não são bloqueadas.
+// O fluxo vale na branch cujo HEAD já versiona a configuração do skill (ou o hook issue-reference
+// do pre-commit); branches anteriores à adoção não são bloqueadas.
 function workflowAdopted(cwd) {
-  try {
-    return git(cwd, "show", "HEAD:.pre-commit-config.yaml").includes("id: issue-reference");
-  } catch {
-    return false;
+  for (const [file, marker] of [
+    [".github/dev-workflow.toml", ""],
+    [".pre-commit-config.yaml", "id: issue-reference"],
+  ]) {
+    try {
+      if (git(cwd, "show", `HEAD:${file}`).includes(marker)) return true;
+    } catch {
+      // arquivo ausente nesta branch
+    }
   }
+  return false;
 }
 
 function commitMsgHookInstalled(cwd) {
@@ -94,14 +100,13 @@ function preShell(input) {
     if (/(?:^|\s)--no-verify\b/.test(options) || /(?:^|\s)-[a-zA-Z]*n[a-zA-Z]*(?=\s|$)/.test(options)) {
       deny(
         "Este projeto não aceita `git commit --no-verify`/`-n`: o hook commit-msg garante o vínculo " +
-          "com a issue (docs/workflow.md).",
+          "com a issue (skill dev-workflow).",
       );
     }
     if (workflowAdopted(cwd) && !commitMsgHookInstalled(cwd)) {
       deny(
-        "O hook commit-msg não está instalado neste checkout. Rode `uv tool install pre-commit` e " +
-          "`pre-commit install` (instala pre-commit e commit-msg) e repita o commit. Todo commit precisa de `Refs #N` " +
-          "(skill issue-workflow).",
+        "O hook commit-msg não está instalado neste checkout. Rode `bootstrap.py init` do skill dev-workflow " +
+          "(ou `pre-commit install`, se o projeto usa pre-commit) e repita o commit. Todo commit precisa de `Refs #N`.",
       );
     }
   }
@@ -117,7 +122,7 @@ function preShell(input) {
     if (!ISSUE_REF.test(body)) {
       deny(
         "O corpo do PR precisa referenciar a issue: `Closes #N` (entrega completa) ou `Refs #N` " +
-          "(parcial). Use o modelo de PR do skill issue-workflow.",
+          "(parcial). Use o modelo de PR do skill dev-workflow.",
       );
     }
   }

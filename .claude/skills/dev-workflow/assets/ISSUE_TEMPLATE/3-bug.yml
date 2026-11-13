@@ -1,0 +1,135 @@
+name: Bug
+description: "Comportamento incorreto, regressão ou falha de segurança existente."
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não inclua segredos, dados pessoais ou passos de exploração além do necessário.
+        Preencha todas as seções; use "Não se aplica — motivo" quando for o caso. Fluxo: skill dev-workflow.
+  - type: textarea
+    id: observado
+    attributes:
+      label: "Comportamento observado"
+      description: "O que acontece: mensagem, URL, status HTTP, log redigido."
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: "Comportamento esperado"
+      description: "O que deveria acontecer e onde isso está documentado."
+    validations:
+      required: true
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: "Passos para reproduzir"
+      description: "Passos mínimos."
+      placeholder: |
+        1. 
+    validations:
+      required: true
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: "Ambiente"
+      description: "Branch/commit, versões, configuração e sistema."
+    validations:
+      required: true
+  - type: textarea
+    id: causa
+    attributes:
+      label: "Causa provável"
+      description: "Diagnóstico, se conhecido."
+      placeholder: |
+        A investigar
+    validations:
+      required: false
+  - type: textarea
+    id: escopo
+    attributes:
+      label: "Escopo"
+      description: "O que entra e o que fica fora (e onde será tratado)."
+      placeholder: |
+        **Inclui**
+        - 
+        
+        **Fora do escopo**
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: abordagem
+    attributes:
+      label: "Abordagem técnica"
+      description: "Módulos/arquivos afetados, decisões, regras do projeto envolvidas."
+      placeholder: |
+        - Módulos e arquivos: 
+        - Decisões: 
+        - Regras do projeto envolvidas: 
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Critérios de aceite"
+      description: "Comportamentos observáveis e verificáveis, incluindo negativos."
+      placeholder: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: testes
+    attributes:
+      label: "Plano de testes"
+      description: "Inclua o teste de regressão que falha antes da correção."
+      placeholder: |
+        - [ ] Regressão: 
+        - [ ] Unitários/integração: 
+        
+        Comandos:
+    validations:
+      required: true
+  - type: textarea
+    id: documentacao
+    attributes:
+      label: "Documentação a atualizar"
+      description: "Arquivos de documentação afetados e onde fica a evidência dos testes."
+      placeholder: |
+        - [ ] docs/....md — 
+        - [ ] docs/testing.md — evidência
+    validations:
+      required: true
+  - type: textarea
+    id: seguranca
+    attributes:
+      label: "Segurança"
+      description: "Itens pertinentes do contrato, ou \"Sem impacto — motivo\"."
+      placeholder: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: riscos
+    attributes:
+      label: "Riscos e dependências"
+      description: "Epic e dependências valem pelo vínculo nativo: parent (sub-issue) e blocked by, no painel lateral ou com gh issue edit --parent/--add-blocked-by. Repita-os aqui em texto, com migrations, compatibilidade e rollback."
+      placeholder: |
+        - Parte de / depende de: 
+        - Migrations e rollback: 
+    validations:
+      required: false
+  - type: checkboxes
+    id: pronto
+    attributes:
+      label: "Definição de pronto"
+      description: "Conferida antes do fechamento."
+      options:
+        - label: "Critérios de aceite verificados"
+        - label: "Plano de testes executado e registrado (somente o que rodou)"
+        - label: "Documentação atualizada"
+        - label: "CI verde"
+        - label: "Commits com Refs #N e PR com Closes #N"
+        - label: "Aprovado pelo responsável"
