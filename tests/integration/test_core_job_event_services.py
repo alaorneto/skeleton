@@ -139,3 +139,12 @@ def test_type_without_owner_is_forbidden_for_everyone(scenario):
         ):
             with pytest.raises(Forbidden):
                 call()
+
+
+@pytest.mark.needs_example_app
+def test_publish_follows_table_app_activation(scenario):
+    """With the record's app disabled, publishing about it is refused, never accepted (#319)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="EV-OFF", title="T")
+    with scenario.application_disabled(scenario.a), acting_as(scenario.member, scenario.a) as actor:
+        with pytest.raises((NotFound, Forbidden)):
+            publish_as_notes(actor=actor, event_type="notes.closed", record_id=note.pk, data=(("code", "EV-OFF"),))

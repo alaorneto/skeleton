@@ -114,3 +114,12 @@ def test_history_walks_newest_first_with_keyset(scenario):
             if cursor is None:
                 break
     assert revisions == [3, 2, 1] and pages == 3
+
+
+@pytest.mark.needs_example_app
+def test_history_follows_table_app_activation(scenario):
+    """With the table's app disabled, the history answers NotFound, never events (#319)."""
+    note = scenario.create(scenario.a, owner=scenario.member, code="H-OFF", title="T")
+    with scenario.application_disabled(scenario.a), acting_as(scenario.member, scenario.a) as actor:
+        with pytest.raises(NotFound):
+            AuditService().history(actor=actor, table_key=TABLE, record_id=note.pk)
