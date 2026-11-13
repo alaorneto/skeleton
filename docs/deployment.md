@@ -234,6 +234,10 @@ scrape_configs:
 | `skeleton_jobs_due`, `skeleton_jobs_oldest_due_lag_seconds`, `skeleton_jobs_dead` | — | `queue_health()`, o mesmo de `check_jobs` e de `/platform/jobs/` |
 | `skeleton_job_workers` | `state` (`live`, `stale`) | Heartbeats dos workers |
 | `skeleton_queue_metrics_up` | — | 1 quando a coleta leu a fila; 0 quando o banco falhou (o resto da coleta continua) |
+| `skeleton_flow_instances` | `flow_key`, `status` | Instâncias de fluxo por fluxo e estado, somadas em todas as organizações (#420) |
+| `skeleton_flow_tasks_open`, `skeleton_flow_tasks_overdue` | `flow_key` | Tarefas de fluxo abertas e as abertas com prazo vencido |
+| `skeleton_flow_failed_service_steps` | `flow_key` | Etapas automáticas (de serviço) com falha, à espera de repetição ou cancelamento |
+| `skeleton_flow_metrics_up` | — | 1 quando a coleta leu as tabelas de fluxo; 0 quando falhou (o resto da coleta continua) |
 
 As métricas da fila são calculadas **na coleta** e cada processo reutiliza o resultado por `SKELETON_METRICS_QUEUE_TTL_S` segundos (padrão 15; uma falha de leitura nunca é guardada, #275), por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Cada coleta faz algumas consultas agregadas sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
 
@@ -246,6 +250,8 @@ gunicorn config.wsgi:application --workers 3 --timeout 120
 ```
 
 O check de deploy `skeleton.W034` avisa quando as métricas estão ligadas fora de `DEBUG` sem a variável, e `skeleton.E034` reprova uma variável que não aponta para um diretório gravável; com um processo só atendendo o site, silencie o aviso com `SILENCED_SYSTEM_CHECKS = ["skeleton.W034"]` (#275). Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
+
+As métricas de fluxo seguem o mesmo cache. As tabelas de fluxo são de tenant (RLS vale também no contexto de sistema), então a coleta abre um `system_context` por organização ativa, até 2.000, e soma os resultados; o único rótulo é a chave do fluxo, declarada em código. As falhas de etapas automáticas são lidas do banco, não contadas no worker.
 
 Fora do escopo: dashboards, alertas e métricas por organização.
 

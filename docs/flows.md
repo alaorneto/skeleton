@@ -354,6 +354,10 @@ Os eventos do núcleo sobre a instância não vão para webhooks: a tabela não 
 
 Iniciar uma instância não tem rota no núcleo: é uma operação de negócio da app dona, que chama `FlowService().start(...)` da sua própria view ou serviço.
 
+### Métricas
+
+Com `/metrics` ligado ([implantação](deployment.md)), a coleta expõe por chave de fluxo as instâncias por estado, as tarefas abertas e vencidas e as etapas automáticas com falha (#420). Nenhum rótulo traz organização, pessoa ou registro.
+
 ## O que entra na primeira entrega
 
 O [exemplo Notes](../examples/notes/flows.py) declara o fluxo `example_notes.publication`, com tarefa e formulário, gateway exclusivo, duas aprovações em paralelo, devolução e etapa de serviço; `tools/flow_fixtures.py` tem um fluxo de teste com todos os tipos de etapa.
@@ -366,7 +370,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 
 | Item | Por que não agora |
 |---|---|
-| Métricas Prometheus | Planejadas em [#420](https://github.com/alaorneto/skeleton/issues/420) |
 | Comentários livres na instância | Serão os comentários de registros (#187) |
 | Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |
 
