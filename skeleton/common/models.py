@@ -11,6 +11,9 @@ from django.utils.translation import gettext, gettext_lazy
 
 from .context import is_tenant_model
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
+
+# The field lists live in a Django-free module; re-exported here (#310).
+from .field_names import ACCESS_FIELD_NAMES, SYSTEM_FIELD_NAMES  # noqa: F401
 from .querysets import (
     InfrastructureManager,
     OperationalInfrastructureManager,
@@ -18,22 +21,6 @@ from .querysets import (
     RecordManager,
     context,
 )
-
-# The single source of the field lists every surface and check uses (#310).
-# Inherited by every own table (SystemRecord); never externally writable. The order is the order
-# of the projected columns.
-SYSTEM_FIELD_NAMES: tuple[str, ...] = (
-    "sysid",
-    "created_at",
-    "updated_at",
-    "created_by",
-    "updated_by",
-    "deleted_at",
-    "deleted_by",
-    "revision",
-)
-# Access control of SecuredRecord; changed only by authorized access management.
-ACCESS_FIELD_NAMES: tuple[str, ...] = ("owner", "visibility", "owning_group")
 
 if TYPE_CHECKING:
     from django.db.models.fetch_modes import FetchMode
