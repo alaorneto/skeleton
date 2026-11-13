@@ -32,7 +32,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `.../records/<sysid>/access/` | GET, PATCH | Manage_access + ownership/org admin; If-Match no PATCH |
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
-| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa |
+| `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa; com a configuração gravada incompatível com a versão instalada, o PUT responde 400 (`configuration_incompatible`) e nada é gravado (#251) |
 
 ### Recursos dos subsistemas
 

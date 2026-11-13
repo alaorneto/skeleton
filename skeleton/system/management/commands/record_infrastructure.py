@@ -14,7 +14,7 @@ from django.db.migrations.writer import MigrationWriter
 
 from skeleton.common.migration_operations import InstallRecordInfrastructure, build_infrastructure_specification
 from skeleton.system.app_registry import CORE_APP_LABELS
-from skeleton.system.checks import _frozen_operations
+from skeleton.system.checks import frozen_operations
 from skeleton.system.registry import all_specs
 
 AUDIT_DEPENDENCY = ("sk_audit", "0002_record_infrastructure")
@@ -42,7 +42,7 @@ def _differences(frozen, specification, model):
 def pending_infrastructure(app_label, frozen=None):
     """Return ``[(spec, specification, reasons)]`` for models whose frozen infrastructure is absent or stale."""
     if frozen is None:
-        frozen = _frozen_operations(from_migrations=True)[0]
+        frozen = frozen_operations(from_migrations=True)[0]
     pending = []
     for spec in all_specs():
         model = spec.model

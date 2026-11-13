@@ -4,11 +4,11 @@ import inspect
 
 import pytest
 
+from skeleton.api import applications as application_views
 from skeleton.api import views as api_views
 from skeleton.api.errors import service_error_response
 from skeleton.service_api.errors import Conflict, Forbidden, InvalidInput, NotFound, Unavailable
 from skeleton.service_api.identity import IdentityService
-from skeleton.system import application_views
 from skeleton.testing.service_api import acting_as, assert_service_contract, build_service_scenario
 from skeleton.web import views as web_views
 from skeleton.web.platform import views as platform_views

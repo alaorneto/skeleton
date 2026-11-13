@@ -1,0 +1,40 @@
+name: Análise de versão
+
+# Opcional: quando um PR recebe o label `release`, um agente lê o diff e registra no PR o nível
+# SemVer que a mudança exige (release.py record-analysis). A análise só eleva o nível, nunca reduz,
+# e só vale de autores com permissão de escrita ou do bot do Actions. Exige o segredo
+# ANTHROPIC_API_KEY; sem ele, a análise é pulada. PRs de forks não recebem segredos.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  analysis:
+    name: Análise de versão por agente
+    if: github.event.label.name == 'release' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Conferir o segredo
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "Sem ANTHROPIC_API_KEY: análise pulada."; fi
+      - if: steps.key.outputs.present == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Leia o diff deste PR contra a última tag de versão e decida o nível SemVer (patch, minor ou
+            major) que ele exige pela superfície pública do projeto. Registre a decisão com
+            `python3 .claude/skills/dev-workflow/scripts/release.py record-analysis --pr ${{ github.event.pull_request.number }} --level <nível> --reason "<motivo em uma frase>"`.
+            Não edite arquivos nem faça commits.

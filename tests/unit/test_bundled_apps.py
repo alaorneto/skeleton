@@ -146,3 +146,22 @@ def test_the_core_never_imports_contrib():
                 names = [arg.value for arg in node.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
             offenders += [f"{relative}: {name}" for name in names if name.startswith("skeleton.contrib")]
     assert offenders == []
+
+
+def test_bundled_app_ids_match_the_shipped_manifests():
+    """Each name maps to the app_id of its shipped manifest, read as JSON without importing it (#254)."""
+    from skeleton.conf.bundled import BUNDLED_APP_IDS, BUNDLED_APPS
+
+    assert set(BUNDLED_APP_IDS) == set(BUNDLED_APPS)
+    for name, app_id in BUNDLED_APP_IDS.items():
+        package = BUNDLED_APPS[name].split(".")[2]
+        manifest = json.loads((ROOT / "skeleton" / "contrib" / package / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["app_id"] == app_id
+
+
+def test_bundled_app_ids_refuse_unknown_names():
+    from skeleton.conf.bundled import bundled_app_ids
+
+    assert bundled_app_ids(["calendar", " calendar ", ""]) == ("org.skeleton.calendar",)
+    with pytest.raises(ImproperlyConfigured, match="'missing'"):
+        bundled_app_ids(["missing"])

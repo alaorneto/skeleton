@@ -133,6 +133,7 @@ import pytest
 from applications.tasks.models import Task
 from applications.tasks.service_api import TaskService
 from skeleton.service_api import Forbidden
+from skeleton.testing.applications import open_app
 from skeleton.testing.service_api import (
     assert_cas_conflict,
     assert_denied_as_not_found,
@@ -145,7 +146,8 @@ from skeleton.testing.service_api import (
 
 
 @pytest.fixture
-def scenario(skeleton_db):  # a fixture de banco isolado do projeto (PostgreSQL com a role runtime)
+def scenario(skeleton_db):  # skeleton.testing.database.skeleton_db no conftest.py (PostgreSQL, role runtime)
+    open_app(Task._meta.app_label)  # apps nascem indisponíveis (#22); skeleton.testing.applications
     return build_service_scenario(Task)
 
 

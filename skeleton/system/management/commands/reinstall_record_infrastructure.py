@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
 
 from skeleton.common.technical_operations import GrantTechnicalTablePrivileges
-from skeleton.system.checks import _frozen_operations
+from skeleton.system.checks import frozen_operations
 from skeleton.system.registry import all_specs
 from skeleton.system.retained_schema import load_retained_contracts
 from skeleton.system.synchronization import physical_tables
@@ -25,7 +25,7 @@ class Command(BaseCommand):
             if cursor.fetchone()[0] != "skeleton_owner":
                 raise CommandError("Infrastructure recovery requires the offline skeleton_owner role.")
         try:
-            operations, technical, lifecycle = _frozen_operations()
+            operations, technical, lifecycle = frozen_operations()
             retained, retained_operations = load_retained_contracts()
             operations.update(retained_operations)
             models = {spec.model._meta.label_lower: spec.model for spec in (*all_specs(), *retained)}

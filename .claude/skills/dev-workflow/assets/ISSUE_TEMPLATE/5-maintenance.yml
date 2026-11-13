@@ -1,0 +1,123 @@
+name: Manutenção
+description: "Refatoração, testes, CI, dependências ou ferramentas."
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Depois de criar, aplique exatamente um label de tipo: refactor, test, ci ou chore. O CI recusa PR que cite issue sem label de tipo.
+        Preencha todas as seções; use "Não se aplica — motivo" quando for o caso. Fluxo: skill dev-workflow.
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: "Tipo"
+      options:
+        - refactor — reestruturação sem mudança observável
+        - test — testes, fixtures ou evidência
+        - ci — pipeline e checks
+        - chore — dependências e ferramentas
+    validations:
+      required: true
+  - type: textarea
+    id: contexto
+    attributes:
+      label: "Contexto"
+      description: "Problema atual, quem é afetado e por quê agora. Link para plano ou discussão."
+    validations:
+      required: true
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: "Objetivo"
+      description: "Resultado esperado em 1–3 frases."
+    validations:
+      required: true
+  - type: textarea
+    id: escopo
+    attributes:
+      label: "Escopo"
+      description: "O que entra e o que fica fora (e onde será tratado)."
+      placeholder: |
+        **Inclui**
+        - 
+        
+        **Fora do escopo**
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: abordagem
+    attributes:
+      label: "Abordagem técnica"
+      description: "Módulos/arquivos afetados, decisões, regras do projeto envolvidas."
+      placeholder: |
+        - Módulos e arquivos: 
+        - Decisões: 
+        - Regras do projeto envolvidas: 
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Critérios de aceite"
+      description: "Comportamentos observáveis e verificáveis, incluindo negativos."
+      placeholder: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: testes
+    attributes:
+      label: "Plano de testes"
+      description: "Camadas, negativos de segurança e comandos. Use \"Não se aplica — motivo\" quando for o caso."
+      placeholder: |
+        - [ ] Unitários (tests/unit): 
+        - [ ] Integração: 
+        - [ ] Negativos de segurança: 
+        - [ ] Smoke manual/navegador: 
+        
+        Comandos:
+    validations:
+      required: true
+  - type: textarea
+    id: documentacao
+    attributes:
+      label: "Documentação a atualizar"
+      description: "Arquivos de documentação afetados e onde fica a evidência dos testes."
+      placeholder: |
+        - [ ] docs/....md — 
+        - [ ] docs/testing.md — evidência
+    validations:
+      required: true
+  - type: textarea
+    id: seguranca
+    attributes:
+      label: "Segurança"
+      description: "Itens pertinentes do contrato, ou \"Sem impacto — motivo\"."
+      placeholder: |
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: riscos
+    attributes:
+      label: "Riscos e dependências"
+      description: "Epic e dependências valem pelo vínculo nativo: parent (sub-issue) e blocked by, no painel lateral ou com gh issue edit --parent/--add-blocked-by. Repita-os aqui em texto, com migrations, compatibilidade e rollback."
+      placeholder: |
+        - Parte de / depende de: 
+        - Migrations e rollback: 
+    validations:
+      required: false
+  - type: checkboxes
+    id: pronto
+    attributes:
+      label: "Definição de pronto"
+      description: "Conferida antes do fechamento."
+      options:
+        - label: "Critérios de aceite verificados"
+        - label: "Plano de testes executado e registrado (somente o que rodou)"
+        - label: "Documentação atualizada"
+        - label: "CI verde"
+        - label: "Commits com Refs #N e PR com Closes #N"
+        - label: "Aprovado pelo responsável"

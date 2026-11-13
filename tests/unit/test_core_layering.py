@@ -16,12 +16,8 @@ UNRESTRICTED = {"web", "api", "setup", "conf", "contrib", "testing"}
 KNOWN_EXCEPTIONS = {
     ("skeleton/common/models.py", "skeleton.tenancy.models"): "owner membership check",
     ("skeleton/common/responses.py", "skeleton.files"): "private download response",
-    ("skeleton/system/application_views.py", "skeleton.api.errors"): "app views live in system",
-    ("skeleton/system/application_views.py", "skeleton.api.views"): "app views live in system",
-    ("skeleton/system/application_views.py", "skeleton.web.views"): "app views live in system",
-    ("skeleton/system/application_views.py", "skeleton.service_api.applications"): "app views live in system",
-    ("skeleton/system/checks.py", "skeleton.service_api.contract"): "check E018 inspects the declared API",
-    ("skeleton/system/checks.py", "skeleton.service_api.registry"): "check E018 inspects the declared API",
+    ("skeleton/system/checks/service_api.py", "skeleton.service_api.contract"): "check E018 inspects the declared API",
+    ("skeleton/system/checks/service_api.py", "skeleton.service_api.registry"): "check E018 inspects the declared API",
     ("skeleton/tenancy/aggregate.py", "skeleton.service_api.errors"): "skips organizations denied by a service",
     ("skeleton/web/urls.py", "skeleton.api.health"): "health probe lives in api",
     ("skeleton/comments/apps.py", "skeleton.web.timeline"): "timeline registry lives in web",
@@ -30,7 +26,6 @@ KNOWN_EXCEPTIONS = {
     ("skeleton/common/locale.py", "skeleton.tenancy.organization_settings"): "organization locale settings",
     ("skeleton/common/migration_operations.py", "skeleton.system.search"): "search index DDL lives in system",
     ("skeleton/files/services.py", "skeleton.api.openapi"): "OpenAPI DTO markers live in api",
-    ("skeleton/system/application_views.py", "skeleton.api.openapi"): "app views live in system",
 }
 
 

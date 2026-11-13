@@ -57,7 +57,7 @@ def fixture_app(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(tmp_path))
     write(tmp_path, "svc_fixtures/__init__.py", "")
     labels, configs = [], {}
-    real_apps = checks.apps
+    real_apps = checks.service_api.apps
 
     class Apps:
         def get_app_config(self, label):
@@ -68,7 +68,7 @@ def fixture_app(tmp_path, monkeypatch):
         def __getattr__(self, name):
             return getattr(real_apps, name)
 
-    monkeypatch.setattr(checks, "apps", Apps())
+    monkeypatch.setattr(checks.service_api, "apps", Apps())
 
     def make(label, *, files=None, docs=DOCS, service=True, dependencies=(), service_module=None):
         package = f"svc_fixtures.{label}"
@@ -249,3 +249,8 @@ def test_e012_reports_the_missing_document_name(monkeypatch, tmp_path):
     monkeypatch.setitem(app_registry._manifests, "example_notes", replace(manifest, documentation_root=str(tmp_path)))
     errors = [error for error in checks.record_contract_checks() if error.id == "skeleton.E012"]
     assert len(errors) == 1 and "spec.md" in errors[0].msg
+
+
+def test_repository_apps_have_no_boundary_warnings():
+    """The example (and the calendar when installed) follow the closed public lists (#300)."""
+    assert checks.import_boundary_checks() == []

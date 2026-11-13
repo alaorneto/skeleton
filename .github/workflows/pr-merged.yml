@@ -1,0 +1,30 @@
+name: Evidências no merge
+
+# Ao mesclar um PR, comenta em cada issue que ele fecha (Closes/Fixes/Resolves #N) os commits, o PR,
+# os testes executados, a documentação, os critérios ainda pendentes e a situação da versão. Um só
+# comentário por PR e issue, mesmo com reexecução (skill dev-workflow).
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  evidence:
+    name: Registrar evidências nas issues fechadas
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-24.04
+    steps:
+      # pull_request_target: só o código da branch base; nenhum código do PR roda com este token.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - name: Comentar as evidências
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 .claude/skills/dev-workflow/scripts/github_issues.py pr-merged

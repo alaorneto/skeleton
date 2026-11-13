@@ -9,7 +9,7 @@ Antes de operar, leia [apps, pacotes e deployment](concepts.md#apps-pacotes-e-de
 | Termo | Significado e uso seguro |
 |---|---|
 | Credencial | Identidade de conexão e seu segredo. Não é a identidade do usuário Django. Nunca a publique em logs, Git ou argumentos de comandos. |
-| DSN | Endereço de conexão, normalmente uma URL com banco, host e role; pode conter senha. `DATABASE_URL` é o DSN runtime; `MIGRATION_DATABASE_URL` é o DSN owner. |
+| DSN | Endereço de conexão, normalmente uma URL com banco, host e role; pode conter senha. `DATABASE_URL` é o DSN runtime; `MIGRATION_DATABASE_URL` é o DSN owner. As conexões runtime são persistentes por 60 s e verificadas antes do reuso (`CONN_HEALTH_CHECKS`), então um PostgreSQL reiniciado não derruba a requisição seguinte (#333). |
 | Schema | Espaço de nomes dentro do banco, aqui `skeleton`; não é outro banco. Contém tabelas, funções e infraestrutura de proteção. |
 | Runtime | Processo que atende usuários, com `skeleton_runtime`; lê/grava somente o permitido, não modifica schema. |
 | Owner | Role privilegiada `skeleton_owner`, usada offline para criar/alterar infraestrutura e recuperar dados. Não serve requests. |
@@ -317,7 +317,7 @@ O projeto derivado instala o wheel fixado em ambiente isolado e mantém um lock 
 
 ### Cutover de uma cópia do core
 
-Faça backup e ensaie em clone offline antes de qualquer cutover. Identifique um release base **assinado e conhecido**; não use o HEAD corrente como evidência de equivalência de um projeto histórico. O **trust store** (lista de chaves confiáveis) é um JSON privado `publisher-key-id -> caminho PEM público` aprovado pelo operador. Ele contém referências a chaves públicas, não a chave privada de assinatura; uma chave fornecida pelo pacote não estabelece confiança.
+Faça backup e ensaie em clone offline antes de qualquer cutover. Identifique um release base **assinado e conhecido**; não use o HEAD corrente como evidência de equivalência de um projeto histórico. O **trust store** (lista de chaves confiáveis) é um JSON privado `publisher-key-id -> caminho PEM público` aprovado pelo operador. Ele contém referências a chaves públicas, não a chave privada de assinatura; uma chave fornecida pelo pacote não estabelece confiança. Em todos os comandos (`package …`, `skeleton-core adopt|adoption-plan`, `adopt_core_distribution`) um caminho PEM relativo é resolvido a partir da pasta do próprio trust store, nunca do artefato nem do diretório corrente (#255). Os limites de artefato são: 4096 membros no artefato externo, 32768 membros em cada wheel e 65536 na soma das wheels de um artefato ou wheelhouse; um membro corrompido falha com `PackageError`. A verificação lê o arquivo com `O_NOFOLLOW` e por isso exige Linux ou macOS; em outro sistema ela recusa com uma mensagem clara, em vez de abrir sem a proteção.
 
 ```sh
 skeleton-core adoption-plan --project-root /srv/projeto \
@@ -475,6 +475,13 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 `check_skeleton_schema` aponta `bundled_divergence` quando a app sai de `SKELETON_BUNDLED_APPS` sem entrar em `SKELETON_BUNDLED_RETAINED` (as tabelas ficariam sem classificação), quando volta sem `sync_bundled_apps` ou quando está instalada sem registro (falta `migrate`). Um nome fora do mapa fixo, ou o mesmo nome nas duas listas, para o startup.
 
+**Apps gerenciadas que dependem de uma first-party** (#254). A dependência (`"org.skeleton.calendar": ">=0.5.0,<0.6.0"`) só é satisfeita quando a first-party está em `SKELETON_BUNDLED_APPS`, na versão do core. O agente lê `SKELETON_BUNDLED_APPS` do arquivo de ambiente runtime (ou do SQLite da instância) e recusa o plano com `dependency_unsatisfied` quando ela falta; um nome fora do mapa é `unknown_bundled_app`. A ordem segue a dependência:
+
+- **Instalar:** primeiro a first-party (nome em `SKELETON_BUNDLED_APPS`, reinício, `migrate`), depois o plano com a app que depende dela.
+- **Retirar:** primeiro a app dependente (plano de remoção), depois a first-party. Tirar a first-party com um dependente instalado faz o startup parar com `Invalid private deployment inventory` (falha fechada).
+- **Core novo com first-party nova:** o agente usa o mapa de first-party do `skeleton` instalado no ambiente dele. Num `core_update` que traz uma first-party nova, uma app do mesmo plano que dependa dela é recusada (`missing_dependency`); atualize o core e o agente primeiro e instale a app num segundo plano.
+- **Antes de empacotar:** `package doctor <app> --inventory inventory.json --bundled-app calendar` (repetível) resolve contra as first-party do alvo; um nome desconhecido é `bundled_app_unknown`.
+
 ### Supervisor e primeira adoção
 
 O JSON acima usa comandos fixos do supervisor. Autorize em sudoers **somente** as ações e a unit exatas, não shell genérico. O marker HTTP sozinho não bloqueia produtores externos: um worker ativo durante as migrations escreveria com o código antigo.
@@ -616,7 +623,7 @@ CONFIG=/srv/skeleton/private/agent.json
 
 `submit` apenas entrega uma solicitação assíncrona. **Sucesso final** exige `state=succeeded`, `stage=ready` e geração/core reais em `/health/release/`; exit code de envio ou estado `queued` não bastam.
 
-O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação.
+O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação. O reenvio aparece para uma entrega que falhou (`submission_failed`) e também para uma aprovação que ficou `approved`/`awaiting_agent` por mais de 2 minutos sem retorno do agente; uma aprovação recente não pode ser reenviada. A falha de entrega fica no log como `deployment.submission_failed`, só com o UUID da operação e a classe do erro. O web espera o agente no máximo 10 s nas leituras de estado (`inventory`, status da operação, ticket de acompanhamento) e 30 s na entrega do plano aprovado; upload, preview e catálogo usam o prazo do cliente. A página da operação consulta o agente sem travar a linha e só a trava para gravar o estado reconciliado (#250).
 
 Um plano/geração antigo é rejeitado para uma nova submissão. O preview prepara ambiente isolado e carrega o grafo Django real, mas não aplica migrations. Hashes e estado das migrations são novamente conferidos na execução e após drenar os escritores.
 

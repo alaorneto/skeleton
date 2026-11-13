@@ -35,7 +35,8 @@ def validate_specifier(value):
 
 
 def version_satisfies(version, specifier):
-    return Version(str(version)) in SpecifierSet(validate_specifier(specifier))
+    """Whether version is inside the range; pre-releases count, with any supported packaging (#256)."""
+    return bool(SpecifierSet(validate_specifier(specifier)).contains(Version(str(version)), prereleases=True))
 
 
 def core_version():

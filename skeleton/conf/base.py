@@ -111,6 +111,8 @@ def database_config(env, variable, *, conn_max_age=60):
     if config["ENGINE"] == "django.db.backends.postgresql":
         config.setdefault("OPTIONS", {})["options"] = "-c search_path=skeleton,public"
         config["CONN_MAX_AGE"] = conn_max_age
+        # A persistent connection may have been closed by the server: probe it before reuse (#333).
+        config["CONN_HEALTH_CHECKS"] = conn_max_age != 0
     return config
 
 
@@ -327,8 +329,10 @@ LOGGING = {
 SOCIALACCOUNT_FORMS = {"signup": "skeleton.accounts.forms.InvitationSocialSignupForm"}
 from skeleton.deployment import load_deployment_inventory
 
+# Read before the inventory: a managed app may depend on an installed first-party app (#254).
+SKELETON_BUNDLED_APPS = tuple(env.list("SKELETON_BUNDLED_APPS", default=[]))
 SKELETON_DEPLOYMENT_INVENTORY = env("SKELETON_DEPLOYMENT_INVENTORY", default=None)
-SKELETON_DEPLOYMENT_STATE = load_deployment_inventory(SKELETON_DEPLOYMENT_INVENTORY)
+SKELETON_DEPLOYMENT_STATE = load_deployment_inventory(SKELETON_DEPLOYMENT_INVENTORY, bundled_apps=SKELETON_BUNDLED_APPS)
 SKELETON_RETAINED_SCHEMA_PATHS = SKELETON_DEPLOYMENT_STATE.retained_schema_paths
 SKELETON_MIGRATION_ARCHIVES = SKELETON_DEPLOYMENT_STATE.migration_archives
 SKELETON_FROZEN_INFRASTRUCTURE = SKELETON_DEPLOYMENT_STATE.frozen_infrastructure
@@ -346,12 +350,12 @@ if SKELETON_PACKAGE_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured
 
     raise ImproperlyConfigured("SKELETON_PACKAGE_MAX_BYTES must be positive.")
-INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
 # First-party apps of the core wheel (#66): opt-in by name from the fixed map, never by import path.
+# They come before the managed apps: a managed app may depend on them, never the reverse (#254).
 from skeleton.conf.bundled import bundled_app_configs
 
-SKELETON_BUNDLED_APPS = tuple(env.list("SKELETON_BUNDLED_APPS", default=[]))
 INSTALLED_APPS += bundled_app_configs(SKELETON_BUNDLED_APPS)
+INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
 # Opted out after migrating (#67): the tables stay, checked against the snapshot in the wheel.
 from skeleton.conf.bundled import retained_snapshot_paths
 

@@ -4,7 +4,8 @@ An app may import from another app only the ``service_api`` module that app decl
 when the manifest lists that app in ``dependencies``. From the core it may import only the public
 surfaces of the specification. The analysis parses source with ``ast``; it never imports app code,
 so the system check (E019/W019) and ``package doctor`` share it. Dynamic imports (``importlib``,
-``__import__``) are outside its reach and remain a code-review concern.
+``__import__``), attribute access after ``import skeleton.x as m`` and ``import *`` are outside
+its reach and remain a code-review concern.
 """
 
 import ast
@@ -15,36 +16,36 @@ from pathlib import Path
 
 # Public core surfaces an app may import (docs/service-api.md, "Superfícies públicas do núcleo").
 PUBLIC_CORE_PACKAGES = ("skeleton.service_api", "skeleton.testing")
-PUBLIC_CORE_MODULES = frozenset(
-    {
-        "skeleton.common.models",
-        "skeleton.common.migration_operations",
-        "skeleton.system.app_registry",
-        "skeleton.system.registry",
-        "skeleton.system.record_operations",
-        "skeleton.access.policies",
-        "skeleton.tenancy.context",
-        "skeleton.web.views",
-        "skeleton.api.views",
-        # Operation and schema builders for the ``openapi`` attribute of an app's API views (#178).
-        "skeleton.api.openapi",
-        # Registration in AppConfig.ready() (#84): the documented way to declare types of an app.
-        "skeleton.jobs.registry",
-        "skeleton.jobs.periodic",
-        "skeleton.events.registry",
-        "skeleton.notifications.registry",
-        "skeleton.sequences.registry",
-        # Flow declarations (docs/flows.md): specification builders and register_flow*.
-        "skeleton.flows.registry",
-        "skeleton.integrations.tokens.scopes",
-        "skeleton.tenancy.aggregate",
-        # Transitional until ApplicationService (#105) exists.
-        "skeleton.system.applications",
-    }
-)
-SKIPPED_DIRECTORIES = frozenset(
-    {"__pycache__", ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", "build", "dist", ".venv", "node_modules"}
-)
+# The closed list of public names of each public core module (#300). None marks a module the
+# specification publishes as a set of builders (schema, flow steps): any public name of it.
+PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
+    "skeleton.common.models": frozenset({"SystemRecord", "OrganizationRecord", "SecuredRecord"}),
+    "skeleton.common.migration_operations": frozenset({"InstallRecordInfrastructure", "InstallSearchIndex"}),
+    "skeleton.system.app_registry": frozenset({"AppManifest", "register_app"}),
+    "skeleton.system.registry": frozenset({"TableSpec", "register"}),
+    "skeleton.system.record_operations": frozenset({"RecordOperations", "register_record_operations"}),
+    "skeleton.access.policies": frozenset({"authorized_queryset", "require_record_action", "has_table_permission"}),
+    "skeleton.tenancy.context": frozenset({"current_context"}),
+    "skeleton.web.views": frozenset({"tenant_page"}),
+    "skeleton.api.views": frozenset({"TenantAPI", "request_fields"}),
+    # Operation and schema builders for the ``openapi`` attribute of an app's API views (#178).
+    "skeleton.api.openapi": None,
+    # Registration in AppConfig.ready() (#84): the documented way to declare types of an app.
+    "skeleton.jobs.registry": frozenset({"JobType", "register_job_type"}),
+    "skeleton.jobs.periodic": frozenset({"register_periodic"}),
+    "skeleton.events.registry": frozenset({"EventType", "register_event_type", "register_consumer"}),
+    "skeleton.notifications.registry": frozenset({"NotificationType", "register_notification_type"}),
+    "skeleton.sequences.registry": frozenset({"SequenceSpec", "register_sequence"}),
+    # Flow declarations (docs/flows.md): specification builders and register_flow*.
+    "skeleton.flows.registry": None,
+    "skeleton.integrations.tokens.scopes": frozenset({"register_token_scope"}),
+    "skeleton.tenancy.aggregate": frozenset({"aggregate_route", "for_each_organization", "user_context"}),
+    # Transitional until ApplicationService (#105) replaces them.
+    "skeleton.system.applications": frozenset({"application_state", "require_application_enabled"}),
+}
+PUBLIC_CORE_MODULES = frozenset(PUBLIC_CORE_NAMES)
+# Every importable directory is analysed (#300): only caches and dot-directories are not.
+SKIPPED_DIRECTORIES = frozenset({"__pycache__"})
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 
 
@@ -119,6 +120,42 @@ def _is_public_core(module: str, candidate: str) -> bool:
     return False
 
 
+def core_model_lookups(tree: ast.AST) -> Iterator[tuple[int, str]]:
+    """(line, label) of every ``<anything>.get_model("sk_...", ...)`` call with a literal core label (#300)."""
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get_model"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and node.args[0].value.split(".")[0].startswith("sk_")
+        ):
+            yield node.lineno, node.args[0].value
+
+
+def _core_name_violation(module: str, candidate: str) -> tuple[str, str, Provider | None] | None:
+    """The name rules of a core import (#300): private names and names outside the closed list."""
+    name = candidate[len(module) + 1 :] if candidate.startswith(module + ".") else ""
+    if any(part.startswith("_") and not part.startswith("__") for part in candidate.split(".")):
+        return ("core_import", f"{candidate} is private to the core; private names are not a contract.", None)
+    if _is_public_core(module, candidate):
+        allowed = PUBLIC_CORE_NAMES.get(module)
+        if allowed is not None and name and name not in allowed:
+            return (
+                "core_import",
+                f"{name} is not a public name of {module}; apps may import only {sorted(allowed)}.",
+                None,
+            )
+        return None
+    return (
+        "core_import",
+        f"{module} is not a public core surface for apps; use skeleton.service_api or the listed surfaces.",
+        None,
+    )
+
+
 def classify_import(
     module: str,
     candidate: str,
@@ -137,14 +174,7 @@ def classify_import(
         module = candidate  # from applications import tasks / from examples import notes
     if any(_within(module, package) for package in own):
         return None
-    if _within(module, "skeleton"):
-        if _is_public_core(module, candidate):
-            return None
-        return (
-            "core_import",
-            f"{module} is not a public core surface for apps; use skeleton.service_api or the listed surfaces.",
-            None,
-        )
+    # Providers first (#300): a first-party app under skeleton.contrib follows the app rules.
     for provider in providers:
         if not any(_within(module, package) for package in provider.packages):
             continue
@@ -163,6 +193,18 @@ def classify_import(
             )
         return None
     parts = module.split(".")
+    if parts[:2] == ["skeleton", "contrib"] and len(parts) > 2:
+        # A first-party app this analysis does not know (package doctor): only its service_api.
+        package = ".".join(parts[:3])
+        if not any(_within(name, package + ".service_api") for name in (candidate, module)):
+            return (
+                "internal_import",
+                f"{module} is internal to {package}; import only its service_api.",
+                Provider(identity=package, packages=(package,), service_modules=(package + ".service_api",)),
+            )
+        return None
+    if _within(module, "skeleton"):
+        return _core_name_violation(module, candidate)
     if parts[0] == "applications" and len(parts) > 1:
         # An app this analysis does not know (package doctor without inventory): the conventional
         # applications.<package>.service_api is the only module it could publish.
@@ -227,6 +269,17 @@ def scan_application(
                 code, message, provider = result
                 violations.append(
                     Violation(code, display, line, imported, message, provider.identity if provider else None)
+                )
+        if "migrations" not in relative.parts:  # Historical models are mandatory in migrations.
+            for line, label in core_model_lookups(tree):
+                violations.append(
+                    Violation(
+                        "core_import",
+                        display,
+                        line,
+                        f"get_model({label!r})",
+                        "apps.get_model reaches a core model; use skeleton.service_api instead.",
+                    )
                 )
     return violations
 

@@ -11,6 +11,9 @@ from django.utils.translation import gettext, gettext_lazy
 
 from .context import is_tenant_model
 from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
+
+# The field lists live in a Django-free module; re-exported here (#310).
+from .field_names import ACCESS_FIELD_NAMES, SYSTEM_FIELD_NAMES  # noqa: F401
 from .querysets import (
     InfrastructureManager,
     OperationalInfrastructureManager,
