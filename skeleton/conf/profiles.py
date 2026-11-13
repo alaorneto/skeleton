@@ -179,6 +179,11 @@ def setup_settings(base):
     SESSION_COOKIE_SECURE = env.bool("SKELETON_SETUP_SECURE_COOKIES", default=not DEBUG)
     CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
     CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+    # Behind a TLS-terminating proxy the setup sees http:// and refuses the browser's https Origin;
+    # the instance's own trust_proxy is only stored by the setup itself. The operator states it
+    # explicitly, and only when the proxy replaces any X-Forwarded-Proto sent from outside (#442).
+    if env.bool("SKELETON_SETUP_TRUST_PROXY", default=env.bool("DJANGO_TRUST_PROXY", default=False)):
+        SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     MESSAGE_STORAGE = "django.contrib.messages.storage.cookie.CookieStorage"
     CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "setup"}}
     MIDDLEWARE = [

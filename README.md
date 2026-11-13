@@ -164,6 +164,7 @@ O runtime fixa Django 6.1.3, django-allauth 65.21.1, DRF 3.18.3, django-environ 
 | `SKELETON_BOOTSTRAP_PASSWORD` | Secret apenas para o comando de bootstrap |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Origens HTTPS explícitas quando necessário |
 | `DJANGO_TRUST_PROXY` | Apenas atrás de proxy que remova cabeçalhos forjados |
+| `SKELETON_SETUP_TRUST_PROXY` | Só no modo setup, atrás do mesmo tipo de proxy TLS ([setup](docs/deployment.md#primeira-instalação-pelo-setup-146)) |
 | `DJANGO_HEALTH_HOST` | Host permitido enviado pelo healthcheck Compose |
 | `DJANGO_TRUSTED_PROXY_COUNT`, `DJANGO_TRUSTED_CLIENT_IP_HEADER` | Topologia explícita de IP para rate limit; defaults não confiam em headers |
 | `SKELETON_JSON_MAX_BYTES` | Limite efetivo do JSON API em bytes; default 1048576 |
