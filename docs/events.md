@@ -81,8 +81,8 @@ Os serviços de lifecycle do núcleo publicam quatro tipos (`skeleton/events/cor
 |---|---|---|---|
 | `membership.created` | `sk_tenancy.membership` | `user` | O vínculo passou a ativo: criado, restaurado ou reativado por `provision_membership` (convite, designação, bootstrap), `create_membership`, `update_membership` ou pela criação de uma conta de serviço |
 | `membership.deactivated` | `sk_tenancy.membership` | `user` | Um vínculo ativo foi desativado (`update_membership`, `deactivate_service_account`), removido (`delete_membership`) ou deixado (`leave_organization`) |
-| `app.enabled` | `sk_system.appinstallation` | `app_label` | A organização ativou a app (`configure_application`, pela tela ou pelo `ApplicationAdministrationService`) |
-| `app.disabled` | `sk_system.appinstallation` | `app_label` | A organização desativou a app |
+| `app.enabled` | `sk_system.appinstallation` | `app_label` | A organização ativou a app (`configure_application`, pela tela ou pelo `ApplicationAdministrationService`, ou `manage.py set_app_availability --enable`, #282) |
+| `app.disabled` | `sk_system.appinstallation` | `app_label` | A organização desativou a app, ou a app foi retirada com os dados preservados (first-party em `SKELETON_BUNDLED_RETAINED` ou `schema_retained` no inventário do agente): um evento por organização em que ela estava ativa (#282) |
 
 - O payload só tem identificadores: `user` é o UUID da identidade, e `record_sysid` é o vínculo ou a ativação. O consumidor relê e reautoriza o resto. Os `TableSpec` dessas duas tabelas declaram só esses campos em `read_fields`.
 - Restaurar um vínculo já inativo não publica `membership.created`; remover um vínculo inativo não publica `membership.deactivated`.

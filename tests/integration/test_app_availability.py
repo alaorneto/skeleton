@@ -248,3 +248,21 @@ def test_unavailable_app_lists_only_core_configuration_screen(setup, monkeypatch
         sections = screen_sections(manifest, user=member_b, scope="organization")
     screens = [screen["id"] for section in sections for screen in section["screens"]]
     assert "configuration" in screens and "custom" not in screens
+
+
+@pytest.mark.needs_example_app
+def test_cli_refuses_enabling_app_with_closed_dependency(setup, monkeypatch):
+    """The command applies the activation rule of configure_application (#282)."""
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    from skeleton.system.models import AppInstallation
+
+    _, _, _, org_b = setup
+    monkeypatch.setattr(availability, "required_labels", lambda label: ("base_app",) if label == NOTES else ())
+    with pytest.raises(CommandError, match="cannot be enabled in availability-b"):
+        call_command("set_app_availability", NOTES, "--mode", "all", "--enable", "availability-b", stdout=StringIO())
+    with system_context(reason="test:cli-refused", organization_id=org_b.pk):
+        assert not AppInstallation.objects.filter(app_label=NOTES).exists()

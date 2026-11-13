@@ -221,3 +221,19 @@ def test_cli_opens_an_app_for_development_and_check_warns_while_closed(legacy):
 def test_apps_without_availability_lists_loaded_apps_only(legacy):
     with system_context(reason="test:closed-list"):
         assert {NOTES, QUIET} <= set(activation_upgrade.apps_without_availability())
+
+
+def _app_events(organization, code):
+    from skeleton.events.models import DomainEvent
+
+    with system_context(reason="test:app-events", organization_id=organization.pk):
+        return list(DomainEvent.objects.filter(event_type=code).values_list("data", flat=True))
+
+
+def test_cli_enable_publishes_app_enabled_once(legacy):
+    """Enabling from the command publishes app.enabled like the page does; repeating publishes nothing (#282)."""
+    _, org_a, org_b = legacy
+    for _ in range(2):
+        call_command("set_app_availability", NOTES, "--mode", "selected", "--enable", "upgrade-a", stdout=StringIO())
+    assert _app_events(org_a, "app.enabled") == [{"app_label": NOTES}]
+    assert _app_events(org_b, "app.enabled") == []

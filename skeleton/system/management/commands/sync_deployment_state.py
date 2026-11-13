@@ -48,9 +48,15 @@ class Command(BaseCommand):
             for organization_id in org_ids:
                 # A separate transaction per organization, including when runtime RLS is enabled.
                 with system_context(reason="deployment:deactivate", organization_id=organization_id, using=using):
-                    AppInstallation.all_objects.using(using).filter(
+                    from skeleton.events.core_events import application_changed
+
+                    # Row by row, so each organization that had the app on gets app.disabled (#282).
+                    for record in AppInstallation.all_objects.using(using).filter(
                         organization_id=organization_id, app_label__in=disabled, enabled=True
-                    ).update(enabled=False)
+                    ):
+                        record.enabled = False
+                        record.save(using=using, update_fields={"enabled"})
+                        application_changed(record, was_enabled=True)
         except (DeploymentUnavailable, ValueError, OSError, KeyError, TypeError) as exc:
             raise CommandError(f"Deployment reconciliation failed: {type(exc).__name__}") from None
         self.stdout.write(self.style.SUCCESS("Deployment inventory reconciled."))

@@ -137,6 +137,40 @@ def require_application_enabled(app_label):
             )
 
 
+def require_activation_allowed(app_label, *, enabled):
+    """Raise ValidationError unless the current organization may switch ``app_label`` to ``enabled`` (#282).
+
+    No actor authorization here: callers authorize first (configure_application) or run as
+    infrastructure under system_context (CLI). Reads the organization of the current context.
+    """
+    from .availability import available_with_dependencies
+
+    forget_application_states()
+    if enabled and not available_with_dependencies(app_label):
+        # Disabling stays allowed so an organization can close an app the platform withdrew.
+        raise ValidationError(
+            {
+                "enabled": ValidationError(
+                    gettext("O aplicativo não está disponível para esta organização."), code="app_unavailable"
+                )
+            }
+        )
+    if enabled:
+        pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
+        if pending:
+            names = ", ".join(get_app(label).label for label in pending)
+            raise ValidationError(
+                {"enabled": gettext("Ative antes os aplicativos exigidos: %(names)s.") % {"names": names}}
+            )
+    else:
+        blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
+        if blocking:
+            names = ", ".join(get_app(label).label for label in blocking)
+            raise ValidationError(
+                {"enabled": gettext("Desative antes os aplicativos dependentes: %(names)s.") % {"names": names}}
+            )
+
+
 @transaction.atomic
 def configure_application(app_label, *, user, enabled, configuration, revision):
     from skeleton.access.capabilities import APPS_MANAGE, require_capability
@@ -172,32 +206,7 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
                         )
                     }
                 ) from None
-        from .availability import available_with_dependencies
-
-        forget_application_states()
-        if enabled and not available_with_dependencies(app_label):
-            # Disabling stays allowed so an organization can close an app the platform withdrew.
-            raise ValidationError(
-                {
-                    "enabled": ValidationError(
-                        gettext("O aplicativo não está disponível para esta organização."), code="app_unavailable"
-                    )
-                }
-            )
-        if enabled:
-            pending = [label for label in required_labels(app_label) if not application_state(label)["enabled"]]
-            if pending:
-                names = ", ".join(get_app(label).label for label in pending)
-                raise ValidationError(
-                    {"enabled": gettext("Ative antes os aplicativos exigidos: %(names)s.") % {"names": names}}
-                )
-        else:
-            blocking = [label for label in dependent_labels(app_label) if application_state(label)["enabled"]]
-            if blocking:
-                names = ", ".join(get_app(label).label for label in blocking)
-                raise ValidationError(
-                    {"enabled": gettext("Desative antes os aplicativos dependentes: %(names)s.") % {"names": names}}
-                )
+        require_activation_allowed(app_label, enabled=enabled)
         from skeleton.events.core_events import application_changed
 
         was_enabled = bool(record and record.enabled)

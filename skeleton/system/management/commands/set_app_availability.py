@@ -5,10 +5,13 @@ without an ``AppInstallation`` they are disabled. This command opens an app on a
 development database or from an operator's shell; HTTP never reaches it.
 """
 
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from skeleton.events.core_events import application_changed
 from skeleton.system.app_registry import get_app, validate_configuration
+from skeleton.system.applications import require_activation_allowed
 from skeleton.tenancy.context import system_context
 
 REASON = "cli:app-availability"
@@ -22,7 +25,11 @@ class Command(BaseCommand):
         parser.add_argument("--mode", choices=("all", "selected"), required=True)
         parser.add_argument("--grant", action="append", default=[], metavar="SLUG", help="Admit an organization.")
         parser.add_argument(
-            "--enable", action="append", default=[], metavar="SLUG", help="Also activate the app in an organization."
+            "--enable",
+            action="append",
+            default=[],
+            metavar="SLUG",
+            help="Also activate the app in an organization (dependencies checked; stops at the first organization that cannot enable the app).",
         )
         parser.add_argument("--database", default="default")
 
@@ -68,16 +75,25 @@ class Command(BaseCommand):
                 system_context(reason=REASON, organization_id=organization.pk, using=using),
             ):
                 record = AppInstallation.objects.using(using).filter(app_label=label).first()
-                if record is None:
-                    AppInstallation(
-                        organization=organization,
-                        app_label=label,
-                        enabled=True,
-                        configuration=validate_configuration(manifest, {}),
-                    ).save(using=using)
-                elif not record.enabled:
-                    record.enabled = True
-                    record.save(using=using, update_fields={"enabled"})
+                was_enabled = bool(record and record.enabled)
+                if not was_enabled:
+                    # The same rule as configure_application, and the same event (#282).
+                    try:
+                        require_activation_allowed(label, enabled=True)
+                    except ValidationError as exc:
+                        raise CommandError(f"{label} cannot be enabled in {slug}: {'; '.join(exc.messages)}") from None
+                    if record is None:
+                        record = AppInstallation(
+                            organization=organization,
+                            app_label=label,
+                            enabled=True,
+                            configuration=validate_configuration(manifest, {}),
+                        )
+                        record.save(using=using)
+                    else:
+                        record.enabled = True
+                        record.save(using=using, update_fields={"enabled"})
+                    application_changed(record, was_enabled=False)
         self.stdout.write(
             self.style.SUCCESS(f"{label}: availability {options['mode']}; enabled in {len(options['enable'])}.")
         )

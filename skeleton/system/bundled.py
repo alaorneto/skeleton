@@ -89,9 +89,15 @@ def sync_bundled_components(*, using: str = "default") -> dict[str, list[str]]:
             break
         # One transaction per organization: retention turns activation off, never edits it.
         with system_context(reason="deployment:deactivate", organization_id=organization_id, using=using):
-            AppInstallation.all_objects.using(using).filter(
+            from skeleton.events.core_events import application_changed
+
+            # Row by row, so each organization that had the app on gets app.disabled (#282).
+            for record in AppInstallation.all_objects.using(using).filter(
                 organization_id=organization_id, app_label__in=report["retained"], enabled=True
-            ).update(enabled=False)
+            ):
+                record.enabled = False
+                record.save(using=using, update_fields={"enabled"})
+                application_changed(record, was_enabled=True)
     return report
 
 
