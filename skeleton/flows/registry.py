@@ -202,6 +202,17 @@ def get_assignment(name: str) -> Registered:
     return _assignments[name]
 
 
+def registered_names() -> dict[str, tuple[tuple[str, str], ...]]:
+    """(name, owner app) of every registered handler, condition and assignment rule, sorted.
+
+    What a flow authored as data may reference (#414, #415).
+    """
+    return {
+        kind: tuple((name, registry[name].owner_app) for name in sorted(registry))
+        for kind, registry in (("handlers", _handlers), ("conditions", _conditions), ("assignments", _assignments))
+    }
+
+
 def spec_problems(spec: FlowSpec) -> list[str]:
     """Structural and reference problems of one flow against the current registries."""
     from .validation import reference_problems, structural_problems

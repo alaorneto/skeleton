@@ -155,6 +155,9 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 | `o/<org>/flows/tasks/<id>/complete/` | POST | `{"action": "<chave>", "data": {campo: valor}, "comment": "..."}` |
 | `o/<org>/flows/tasks/<id>/decide/` | POST | `{"decision": "approved" \| "rejected", "data": {...}, "comment": "..."}` |
 | `o/<org>/flows/operations/` | GET | Painel de operação (#408), só para quem administra fluxos (`flows.manage`); filtros `flow_key` e `version` |
+| `o/<org>/flows/drafts/` | GET, POST | Fluxos em dados (#414): lista e cria rascunhos `{"specification": {...}}` (forma de `FlowSpec.to_json`, sem a versão); só quem administra fluxos |
+| `o/<org>/flows/drafts/<id>/` | GET, PATCH | Rascunho com `problems`; PATCH troca a especificação, com `If-Match` |
+| `o/<org>/flows/drafts/<id>/publish/` | POST | Publica a próxima versão, com `If-Match`; 400 com os problemas de validação |
 | `o/<org>/flows/instances/` | GET | Instâncias visíveis; filtros exatos `flow_key`, `subject_id`, `status` |
 | `o/<org>/flows/instances/<id>/` | GET | Instância com etapas ativas e dados não sensíveis; ETag com a revisão da instância |
 | `o/<org>/flows/instances/<id>/history/` | GET | Histórico ordenado |

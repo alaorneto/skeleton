@@ -378,6 +378,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_flows.flowdraft": (
+            gettext_lazy("Rascunhos de fluxo"),
+            gettext_lazy("Fluxo definido em dados pela organização, com a versão publicada (#414)."),
+            "organization",
+            (),
+        ),
         "sk_flows.flowinstance": (
             gettext_lazy("Instâncias de fluxo"),
             gettext_lazy("Execução de um fluxo sobre um registro de negócio; dados sensíveis de formulário à parte."),

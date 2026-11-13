@@ -9,6 +9,8 @@ urlpatterns = [
     path("o/<uuid:organization_id>/flows/tasks/", views.task_list, name="tasks"),
     path("o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/", views.task_detail, name="task"),
     path("o/<uuid:organization_id>/flows/operations/", views.operations, name="operations"),
+    path("o/<uuid:organization_id>/flows/drafts/", views.draft_list, name="drafts"),
+    path("o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/", views.draft_detail, name="draft"),
     path("o/<uuid:organization_id>/flows/instances/", views.instance_list, name="instances"),
     path("o/<uuid:organization_id>/flows/instances/<uuid:sysid>/", views.instance_detail, name="instance"),
     re_path(
@@ -30,6 +32,13 @@ urlpatterns = [
     ),
     path(
         "api/v1/o/<uuid:organization_id>/flows/operations/", api_views.OperationsView.as_view(), name="api-operations"
+    ),
+    path("api/v1/o/<uuid:organization_id>/flows/drafts/", api_views.DraftsView.as_view(), name="api-drafts"),
+    path("api/v1/o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/", api_views.DraftView.as_view(), name="api-draft"),
+    path(
+        "api/v1/o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/publish/",
+        api_views.DraftPublishView.as_view(),
+        name="api-draft-publish",
     ),
     path("api/v1/o/<uuid:organization_id>/flows/instances/", api_views.InstancesView.as_view(), name="api-instances"),
     path(

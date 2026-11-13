@@ -217,13 +217,25 @@ A declaração em código é a versão **publicada**. Para que uma instância em
 
 Handlers, condições e regras de atribuição são resolvidos por nome no código atual. Uma versão antiga que cite um nome removido falha naquela etapa (a instância fica `failed`, com o motivo no histórico) em vez de executar outra coisa. Mantenha os nomes registrados enquanto houver instâncias antigas.
 
+### Fluxos definidos em dados
+
+Além dos fluxos declarados em código, a organização pode definir fluxos em dados ([#414](https://github.com/alaorneto/skeleton/issues/414), [#415](https://github.com/alaorneto/skeleton/issues/415)). Só quem administra fluxos lê, escreve e publica.
+
+- Um **rascunho** (`FlowDraft`, tabela `sk_flows_flowdraft`) guarda a forma JSON de `FlowSpec.to_json`, sem a versão. A chave segue `app_label.nome` e não pode ser a de um fluxo declarado em código.
+- O rascunho só referencia o que o código registrou: handlers de etapa automática, condições, regras de atribuição, tabelas expostas, sequências e tipos de evento da app dona. A validação é a mesma das declarações em código (`spec_problems`), e a app dona precisa estar ativa na organização. Nada do que é enviado é executado como código.
+- **Publicar** trava o rascunho, confere a revisão (CAS), valida e grava uma `FlowDefinition` imutável na próxima versão da chave. As instâncias novas partem dela; as antigas terminam na versão que tinham. Rascunho com problema não publica (400, com a lista).
+- Iniciar continua sendo da app dona: `FlowService().start(flow_key=...)` aceita a chave de um fluxo em dados publicado, com as mesmas regras de autorização.
+- Superfícies: REST `GET/POST /api/v1/o/<org>/flows/drafts/`, `GET/PATCH .../drafts/<id>/` (`If-Match`) e `POST .../drafts/<id>/publish/` (`If-Match`); página `/o/<org>/flows/drafts/`, com a lista e um rascunho novo a partir do JSON, e a página do rascunho com etapas, transições, problemas de validação, os nomes registrados pelas apps, salvar e publicar.
+- O editor edita a especificação em JSON, com as tabelas de etapas e transições e a validação ao lado. Widgets por etapa (formulário guiado) ficaram de fora: o JSON é o mesmo formato da REST e evita duas fontes de verdade.
+
 ## Modelo de dados
 
-Seis tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisão, exclusão lógica, auditoria por trigger, RLS tenant), nenhuma no gateway genérico:
+Sete tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisão, exclusão lógica, auditoria por trigger, RLS tenant), nenhuma no gateway genérico:
 
 | Modelo | Guarda | Campos imutáveis |
 |---|---|---|
 | `FlowDefinition` | `key`, `version`, `app_label`, `label`, `digest`, `specification` (JSON) | todos |
+| `FlowDraft` | `key`, `label`, `app_label`, `specification` (JSON, sem a versão), `published_version`, `published_at` | chave |
 | `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at` | definição, chave, versão, número, registro de negócio, quem iniciou, chave de idempotência |
 | `FlowStepRun` | `instance`, `step_key`, `kind`, `status`, `sequence`, `scope`, `branch`, `via`, `outcome`, `state` (JSON), `due_at`, `finished_at` | instância, etapa, tipo, ordem, escopo, ramo, origem |
 | `FlowTask` | `instance`, `step_run`, `step_key`, `kind`, `status`, `slot`, `assignee`, `candidate_group`, `candidate_role`, `delegated_from`, `decision`, `action`, `comment`, `due_at`, `reminded_count`, `escalated_at`, `completed_by`, `completed_at` | instância, ativação, etapa, tipo, vaga |
@@ -326,7 +338,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 | Item | Por que não agora |
 |---|---|
 | Subfluxos | Exigem fixar a versão do fluxo filho e propagar cancelamento, suspensão e falha entre instâncias |
-| Definições em dados por organização, com editor | A tabela já é por organização; falta decidir quem publica e como validar na publicação. Fluxos em código cobrem o pedido e seguem o padrão dos outros subsistemas |
 | Caixa de tarefas entre organizações e contador no cabeçalho | Exige autodescoberta em `FlowTask` e leitura agregada |
 | Espera por tipo de evento de domínio | O sinal explícito, enviado pelo consumidor de eventos da app, cobre o caso sem acoplar o motor ao outbox |
 | Token de API nas rotas de fluxos | Exige escopos próprios; a primeira entrega só aceita sessão |
@@ -341,7 +352,7 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 Confirmadas em 2026-11-12, como recomendado no desenho:
 
 1. **Nome** `skeleton/flows` / `sk_flows` / "fluxos", em vez de "workflow". Renomear depois de existir migration custa uma migração de dados.
-2. **Fluxos só em código** na primeira entrega (sem editor nem definição em dados).
+2. **Fluxos só em código** na primeira entrega; desde [#414](https://github.com/alaorneto/skeleton/issues/414) e [#415](https://github.com/alaorneto/skeleton/issues/415), também em dados, com rascunho, publicação e editor.
 3. **Registro de negócio obrigatório**: todo fluxo corre sobre um `SecuredRecord` exposto da app dona, e a leitura da instância deriva dele.
 4. **Uma instância ativa por fluxo e registro.**
 5. **Quem administra fluxos é o administrador da organização**; desde [#407](https://github.com/alaorneto/skeleton/issues/407), também quem tem `flows.manage` (papel "Gestor de processos").

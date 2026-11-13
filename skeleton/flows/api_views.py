@@ -224,6 +224,149 @@ TASK_ACTION_OPERATIONS = {
 }
 
 
+def _draft_schema() -> Schema:
+    return obj(
+        {
+            "sysid": UUID_SCHEMA,
+            "revision": INTEGER,
+            "key": string(),
+            "label": string(),
+            "app_label": string(),
+            "specification": {**OBJECT, "description": "Forma JSON de FlowSpec, sem a versão."},
+            "published_version": nullable(INTEGER),
+            "published_at": nullable(DATETIME),
+            "problems": array(string()),
+        }
+    )
+
+
+_DRAFT_BODY = obj({"specification": {**OBJECT, "description": "Forma JSON de FlowSpec, sem a versão."}})
+
+
+def _draft_errors():
+    """Present the draft service errors as the core resources do."""
+    import contextlib
+
+    from django.core.exceptions import ValidationError
+    from django.http import Http404
+
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    from .models import FlowDraft
+
+    @contextlib.contextmanager
+    def handler():
+        try:
+            yield
+        except FlowDraft.DoesNotExist:
+            raise Http404 from None
+        except ConcurrentUpdate:
+            raise BoundaryError(
+                "revision_conflict", gettext("O rascunho foi alterado por outra operação."), 412
+            ) from None
+        except ValidationError as error:
+            messages = (
+                error.message_dict.get("specification", error.messages)
+                if hasattr(error, "message_dict")
+                else error.messages
+            )
+            raise BoundaryError(
+                "invalid_request", gettext("Rascunho inválido."), fields={"specification": list(messages)}
+            ) from None
+
+    return handler()
+
+
+class DraftsView(TenantAPI):
+    """Flows authored as data (#414): list and create drafts."""
+
+    openapi = {
+        "GET": Operation(
+            "Rascunhos de fluxo da organização",
+            lambda: obj({"results": array(_draft_schema())}),
+            capability=FLOWS_MANAGE,
+        ),
+        "POST": Operation(
+            "Cria um rascunho de fluxo",
+            _draft_schema,
+            status=201,
+            request=_DRAFT_BODY,
+            etag=True,
+            capability=FLOWS_MANAGE,
+        ),
+    }
+
+    def get(self, request, organization_id):
+        from .definitions import drafts
+
+        return Response({"results": [asdict(item) for item in drafts(request.user)]})
+
+    @transaction.atomic
+    def post(self, request, organization_id):
+        from .definitions import save_draft
+
+        data = _body(request, ("specification",))
+        with _draft_errors():
+            created = save_draft(request.user, specification=data.get("specification"))
+        return etag(Response(asdict(created), status=201), created.revision)
+
+
+class DraftView(TenantAPI):
+    openapi = {
+        "GET": Operation("Rascunho com os problemas de validação", _draft_schema, etag=True, capability=FLOWS_MANAGE),
+        "PATCH": Operation(
+            "Troca a especificação do rascunho",
+            _draft_schema,
+            request=_DRAFT_BODY,
+            etag=True,
+            if_match=True,
+            capability=FLOWS_MANAGE,
+        ),
+    }
+
+    def get(self, request, organization_id, sysid):
+        from .definitions import draft
+
+        with _draft_errors():
+            item = draft(request.user, sysid)
+        return etag(Response(asdict(item)), item.revision)
+
+    @transaction.atomic
+    def patch(self, request, organization_id, sysid):
+        from .definitions import save_draft
+
+        revision = parse_revision(request.headers.get("If-Match"))
+        data = _body(request, ("specification",))
+        with _draft_errors():
+            item = save_draft(
+                request.user, specification=data.get("specification"), draft_id=sysid, expected_revision=revision
+            )
+        return etag(Response(asdict(item)), item.revision)
+
+
+class DraftPublishView(TenantAPI):
+    openapi = {
+        "POST": Operation(
+            "Publica o rascunho como a próxima versão do fluxo",
+            _draft_schema,
+            etag=True,
+            if_match=True,
+            capability=FLOWS_MANAGE,
+            request_required=False,
+        )
+    }
+
+    @transaction.atomic
+    def post(self, request, organization_id, sysid):
+        from .definitions import publish_draft
+
+        revision = parse_revision(request.headers.get("If-Match"))
+        _body(request, ())
+        with _draft_errors():
+            item = publish_draft(request.user, draft_id=sysid, expected_revision=revision)
+        return etag(Response(asdict(item)), item.revision)
+
+
 class OperationsView(TenantAPI):
     """Operations panel (#408), for who administers flows."""
 

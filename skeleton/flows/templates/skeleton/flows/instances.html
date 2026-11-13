@@ -1,7 +1,7 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Processos · Skeleton" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Processos" %}</h1><p class="page-description">{% translate "Instâncias de fluxo que você pode ver: as dos registros que você lê, as que você iniciou e as em que você tem tarefas." %}</p></div>
-  <div class="toolbar"><a class="btn btn-secondary btn-sm" href="{% url 'flows:tasks' organization_id %}">{% translate "Tarefas" %}</a>{% if can_operate %} <a class="btn btn-secondary btn-sm" href="{% url 'flows:operations' organization_id %}">{% translate "Operação" %}</a>{% endif %}</div>
+  <div class="toolbar"><a class="btn btn-secondary btn-sm" href="{% url 'flows:tasks' organization_id %}">{% translate "Tarefas" %}</a>{% if can_operate %} <a class="btn btn-secondary btn-sm" href="{% url 'flows:operations' organization_id %}">{% translate "Operação" %}</a> <a class="btn btn-secondary btn-sm" href="{% url 'flows:drafts' organization_id %}">{% translate "Fluxos em dados" %}</a>{% endif %}</div>
 </div>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Processo" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Etapas ativas" %}</th><th scope="col">{% translate "Iniciado em" %}</th></tr></thead><tbody>
 {% for instance in page.items %}<tr>

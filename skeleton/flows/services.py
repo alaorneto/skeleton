@@ -40,10 +40,18 @@ def _system_call(actor: Any) -> bool:
 
 
 def published_spec(flow_key: Any) -> FlowSpec:
+    """The version new instances start from: the code declaration, or a data flow published by
+    the organization (#414)."""
     try:
         return get_flow(flow_key)
     except (KeyError, TypeError):
-        raise ValidationError({"flow_key": gettext("Fluxo não declarado.")}) from None
+        pass
+    from .definitions import published_data_spec
+
+    spec = published_data_spec(flow_key)
+    if spec is None:
+        raise ValidationError({"flow_key": gettext("Fluxo não declarado.")})
+    return spec
 
 
 def ensure_definition(spec: FlowSpec) -> FlowDefinition:

@@ -44,6 +44,37 @@ class FlowDefinition(OrganizationRecord):
         return f"{self.key} v{self.version}"
 
 
+class FlowDraft(OrganizationRecord):
+    """A flow authored as data in one organization (#414): a draft, then published versions.
+
+    The specification has the JSON shape of ``FlowSpec.to_json`` (without the version, set on
+    publication) and may reference only what the code registered: service handlers, conditions,
+    assignment rules and exposed tables of the owning app. Publishing writes an immutable
+    ``FlowDefinition`` for the next version; instances run from that row, never from the draft.
+    """
+
+    key = models.CharField(max_length=100)
+    label = models.CharField(max_length=200)
+    app_label = models.CharField(max_length=100)
+    specification = models.JSONField(default=dict)
+    published_version = models.PositiveIntegerField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("key",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "key"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_flows_draft_key",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.key
+
+
 class FlowInstance(OrganizationRecord):
     """One execution of a flow about one business record of the owning app."""
 

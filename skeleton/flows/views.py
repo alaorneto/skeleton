@@ -201,6 +201,135 @@ def operations(request, organization_id):
     )
 
 
+def _draft_steps(specification):
+    """Rows for the editor's tables; tolerant of a half-written specification."""
+    steps = specification.get("steps") if isinstance(specification, dict) else None
+    transitions = specification.get("transitions") if isinstance(specification, dict) else None
+    keep = lambda rows: [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []  # noqa: E731
+    return keep(steps), keep(transitions)
+
+
+def _draft_page(request, organization_id, *, item=None, text="", errors=(), status=200):
+    import json
+
+    from .registry import registered_names
+
+    specification = item.specification if item is not None else {}
+    steps, transitions = _draft_steps(specification)
+    return render(
+        request,
+        TEMPLATES + "draft.html",
+        {
+            "organization_id": organization_id,
+            "draft": item,
+            "text": text or (json.dumps(specification, indent=2, ensure_ascii=False) if item is not None else ""),
+            "errors": list(errors),
+            "steps": steps,
+            "transitions": transitions,
+            "registered": registered_names(),
+        },
+        status=status,
+    )
+
+
+def _parse_specification(text):
+    import json
+
+    try:
+        value = json.loads(text or "")
+    except ValueError as error:
+        return None, [gettext("JSON inválido: %(error)s") % {"error": error}]
+    return value, []
+
+
+def _draft_messages(error):
+    if hasattr(error, "message_dict"):
+        found = error.message_dict.get("specification")
+        if found:
+            return found
+    return error.messages
+
+
+@tenant_page()
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def draft_list(request, organization_id):
+    """Flows authored as data (#415): the drafts, and a new one from a pasted specification."""
+    from django.core.exceptions import ValidationError
+
+    from . import definitions
+
+    if request.method == "POST":
+        specification, errors = _parse_specification(request.POST.get("specification"))
+        if not errors:
+            try:
+                with transaction.atomic():  # A refused write rolls back to here; the page still renders.
+                    created = definitions.save_draft(request.user, specification=specification)
+            except ValidationError as error:
+                errors = _draft_messages(error)
+            else:
+                return redirect("flows:draft", organization_id=organization_id, sysid=created.sysid)
+        rows = definitions.drafts(request.user)
+        return render(
+            request,
+            TEMPLATES + "drafts.html",
+            {
+                "organization_id": organization_id,
+                "rows": rows,
+                "errors": errors,
+                "text": request.POST.get("specification", ""),
+            },
+            status=400,
+        )
+    rows = definitions.drafts(request.user)
+    return render(
+        request, TEMPLATES + "drafts.html", {"organization_id": organization_id, "rows": rows, "errors": [], "text": ""}
+    )
+
+
+@tenant_page()
+@require_http_methods(["GET", "POST"])
+@transaction.atomic
+def draft_detail(request, organization_id, sysid):
+    from django.core.exceptions import ValidationError
+    from django.http import Http404
+
+    from skeleton.common.exceptions import ConcurrentUpdate
+
+    from . import definitions
+    from .models import FlowDraft
+
+    try:
+        item = definitions.draft(request.user, sysid)
+    except FlowDraft.DoesNotExist:
+        raise Http404 from None
+    if request.method == "GET":
+        return _draft_page(request, organization_id, item=item)
+    revision = _revision(request)
+    text = request.POST.get("specification", "")
+    try:
+        if request.POST.get("intent") == "publish":
+            with transaction.atomic():  # A refused publication rolls back to here; the page still renders.
+                published = definitions.publish_draft(request.user, draft_id=sysid, expected_revision=revision)
+            messages.success(
+                request, gettext("Versão %(version)s publicada.") % {"version": published.published_version}
+            )
+            return redirect("flows:draft", organization_id=organization_id, sysid=sysid)
+        specification, errors = _parse_specification(text)
+        if errors:
+            return _draft_page(request, organization_id, item=item, text=text, errors=errors, status=400)
+        with transaction.atomic():
+            definitions.save_draft(
+                request.user, specification=specification, draft_id=sysid, expected_revision=revision
+            )
+    except ConcurrentUpdate:
+        return _draft_page(request, organization_id, item=item, text=text, errors=[STALE], status=409)
+    except ValidationError as error:
+        return _draft_page(request, organization_id, item=item, text=text, errors=_draft_messages(error), status=400)
+    messages.success(request, gettext("Rascunho salvo."))
+    return redirect("flows:draft", organization_id=organization_id, sysid=sysid)
+
+
 @tenant_page()
 def instance_list(request, organization_id):
     from .policies import is_flow_admin
