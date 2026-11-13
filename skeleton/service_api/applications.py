@@ -157,6 +157,8 @@ class ApplicationState:
     sysid: str | None
     # False when the stored configuration no longer fits the manifest (#251): the app stays closed.
     configuration_valid: bool = True
+    # Offered by the platform but not contracted by the organization (billing, #404).
+    contract_required: bool = False
 
 
 def _state(app_label: str) -> ApplicationState:
@@ -175,6 +177,7 @@ def _state(app_label: str) -> ApplicationState:
         revision=state["revision"],
         sysid=state["sysid"],
         configuration_valid=state["configuration_valid"],
+        contract_required=state["contract_required"],
     )
 
 
@@ -188,7 +191,7 @@ def _require_administrator(actor: Any) -> None:
 
 def _visible(state: ApplicationState) -> bool:
     """Available apps, and enabled ones the platform withdrew (the organization may still close them)."""
-    return state.available or state.enabled
+    return state.available or state.enabled or state.contract_required
 
 
 class ApplicationAdministrationService(ServiceAPI):

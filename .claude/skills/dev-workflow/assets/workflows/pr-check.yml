@@ -1,5 +1,13 @@
 name: Verificação do PR
 
+# Skill dev-workflow: issue vinculada e classificada, seções do modelo, sobreposição de versão,
+# título, arquivos de versão coerentes, e a prévia da versão que o merge publicaria (com o label
+# release) ou acumularia (sem ele).
+#
+# Código confiável: os dois jobs rodam o skill e a configuração da branch base, nunca os do PR, que
+# poderia alterá-los para se aprovar. Um PR que melhora o validador é conferido pela versão antiga;
+# a nova vale a partir do merge. Do PR só se leem dados: corpo, labels, commits e arquivos.
+
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
@@ -20,30 +28,46 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      # Código confiável: o validador e a configuração vêm da base, não do branch do PR, que
-      # poderia alterá-los para se aprovar. Um PR que melhora o validador é conferido pela
-      # versão antiga; a nova vale a partir do merge.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0 # tags: a versão corrente vem da última tag alcançável
           persist-credentials: false
-      - name: Conferir issue, seções, título e classificação de versão
-        # Título, corpo, autor, labels e branch entram por variável de ambiente, nunca interpolados no script.
+      # Os arquivos do PR, só como dados: nada desta pasta é executado.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .pr-head
+          persist-credentials: false
+      - name: Issue, seções, sobreposição de versão e título
+        # Dados do evento entram por variável de ambiente, nunca interpolados no script. O validador
+        # atual lê o PR pela API; os demais campos servem ao de versões anteriores que estiver na base.
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_HEAD: ${{ github.event.pull_request.head.ref }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          GH_TOKEN: ${{ github.token }}
         run: |
-          script="{{SKILL_DIR}}/scripts/github_issues.py"
+          script="__SKILL_DIR__/scripts/github_issues.py"
           if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; a verificação vale a partir do merge que o adota."; exit 0; fi
           python3 "$script" check-pr
+      - name: Arquivos de versão do PR coerentes com a versão corrente
+        if: always()
+        run: |
+          script="__SKILL_DIR__/scripts/release.py"
+          if [ ! -f "$script" ]; then exit 0; fi
+          if ! python3 "$script" check --help 2>/dev/null | grep -q -- "--tree"; then
+            echo "O skill da base não confere a árvore do PR; a conferência vale a partir do merge que o atualiza."
+            exit 0
+          fi
+          python3 "$script" check --tree .pr-head
 
   version-preview:
     name: Prévia da versão
-    # Escreve um comentário: só o código da branch base roda aqui, e PRs de forks não têm escrita.
+    # Escreve um comentário: só código da base roda aqui, e PRs de forks ficam fora (token de leitura).
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     continue-on-error: true
@@ -55,12 +79,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
+          fetch-depth: 0 # tags e a branch do PR, para ler os commits sem executá-los
+          persist-credentials: false
       - name: Calcular a versão que o merge publicaria
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          script="{{SKILL_DIR}}/scripts/release.py"
+          script="__SKILL_DIR__/scripts/release.py"
           if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; sem prévia."; exit 0; fi
-          python3 "$script" preview --pr "$PR_NUMBER" --comment
+          if python3 "$script" preview --help 2>/dev/null | grep -q -- "--head-ref"; then
+            python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" --comment
+          else
+            python3 "$script" preview --pr "$PR_NUMBER" --comment # skill de versão anterior na base
+          fi

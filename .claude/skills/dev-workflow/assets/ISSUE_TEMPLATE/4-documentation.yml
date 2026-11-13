@@ -45,7 +45,6 @@ body:
       placeholder: |
         - [ ] Confere com o código em: 
         - [ ] Links e âncoras válidos
-        - [ ] Nenhuma regra do projeto contradita
     validations:
       required: true
   - type: textarea
@@ -59,7 +58,7 @@ body:
     id: pronto
     attributes:
       label: "Definição de pronto"
-      description: "Conferida antes do fechamento."
+      description: "Conferida antes do fechamento (skill dev-workflow)."
       options:
         - label: "Critérios de aceite verificados"
         - label: "Plano de testes executado e registrado (somente o que rodou)"

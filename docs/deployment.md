@@ -190,7 +190,7 @@ O SMTP tem prazo padrão de 30 s por operação (`EMAIL_TIMEOUT`, em segundos, n
 
 Projetos derivados não podem misturar as settings antigas (`EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, `EMAIL_USE_SSL`, `EMAIL_TIMEOUT`, `EMAIL_SSL_KEYFILE`, `EMAIL_SSL_CERTFILE`, `EMAIL_FILE_PATH`) com `MAILERS`: o Django recusa a mistura. Para migrar um overlay, apague essas settings e use `EMAIL_URL`, ou redefina `MAILERS` inteiro. `DEFAULT_FROM_EMAIL`, `SERVER_EMAIL` e `EMAIL_SUBJECT_PREFIX` não mudam.
 
-Redis compartilhado é necessário a rate limits entre workers; configure autenticação e rede privada. O probe usa REDISCLI_AUTH com expansão de ambiente, não senha literal/argv. SMTP entrega após commit de mensagens já materializadas e pré-validadas. Falha real é registrada por classe/UUID sem segredo e não vira 500 enganoso após dados confirmados: API recebe `X-Email-Delivery: failed`, HTML recebe aviso, e permanece um caminho explícito de reenvio. Convite reenviado revoga o antigo por tombstone e emite UUID/token novos na mesma transação, com revisão obrigatória; convite consumido não pode ser reenviado. Não há retry/outbox nem promessa de entrega distribuída/transacional. Isso vale para emails com token (allauth e convites). Os emails de **notificação** são outra coisa: saem por job (`notifications.email`), com retentativa e estado em `NotificationDelivery`, e por isso exigem um worker (`manage.py run_worker`) e o agendador de jobs periódicos rodando; sem worker, ficam na fila. `SKELETON_DEFAULT_LANGUAGE` (padrão `pt-br`) e `SKELETON_DEFAULT_TIMEZONE` (padrão `UTC`) ficam no catálogo da instância e valem para quem não escolheu um idioma ou fuso no perfil, nem tem um padrão na organização ([#170](https://github.com/alaorneto/skeleton/issues/170)). A exportação CSV ([exportação e importação](data-transfer.md)) roda no worker e respeita `SKELETON_EXPORT_MAX_ROWS` (padrão 100.000), `SKELETON_IMPORT_MAX_ROWS` (padrão 10.000) e `SKELETON_TRANSFER_RETENTION_DAYS` (padrão 7), todos no catálogo da instância. Defina `SKELETON_PUBLIC_URL` (a origem pública, como `https://app.example.com`) para que os links desses emails sejam absolutos. Sem uma origem válida (esquema e host, sem caminho), o `check --deploy` avisa com `skeleton.W035` (#279). A mesma origem vale para os convites emitidos sem requisição (por um job ou comando): sem ela, o convite é recusado com um erro que cita `SKELETON_PUBLIC_URL` ([#169](https://github.com/alaorneto/skeleton/issues/169)). Veja [notificações](notifications.md#email-imediato). O **web push** é opcional: gere a chave VAPID com `manage.py generate_vapid_keys /caminho/privado/vapid.pem` (arquivo novo, 0600, fora do repositório e do diretório estático; o comando imprime a chave pública) e defina `WEBPUSH_VAPID_PRIVATE_KEY_FILE`, `WEBPUSH_VAPID_SUBJECT` (`mailto:` ou `https:`) e, se preciso, `WEBPUSH_ALLOWED_HOSTS`. As assinaturas exigem `INTEGRATION_ENCRYPTION_KEYS`. Trocar a chave VAPID invalida as assinaturas existentes, e cada pessoa precisa ativar o push de novo. Sem a chave, a seção de push não aparece e `/sw.js` responde 404.
+Redis compartilhado é necessário a rate limits entre workers; configure autenticação e rede privada. O probe usa REDISCLI_AUTH com expansão de ambiente, não senha literal/argv. SMTP entrega após commit de mensagens já materializadas e pré-validadas. Falha real é registrada por classe/UUID sem segredo e não vira 500 enganoso após dados confirmados: API recebe `X-Email-Delivery: failed`, HTML recebe aviso, e permanece um caminho explícito de reenvio. Convite reenviado revoga o antigo por tombstone e emite UUID/token novos na mesma transação, com revisão obrigatória; convite consumido não pode ser reenviado. Não há retry/outbox nem promessa de entrega distribuída/transacional. Isso vale para emails com token (allauth e convites). Os emails de **notificação** são outra coisa: saem por job (`notifications.email`), com retentativa e estado em `NotificationDelivery`, e por isso exigem um worker (`manage.py run_worker`) e o agendador de jobs periódicos rodando; sem worker, ficam na fila. `SKELETON_DEFAULT_LANGUAGE` (padrão `pt-br`) e `SKELETON_DEFAULT_TIMEZONE` (padrão `UTC`) ficam no catálogo da instância e valem para quem não escolheu um idioma ou fuso no perfil, nem tem um padrão na organização ([#170](https://github.com/alaorneto/skeleton/issues/170)). A exportação CSV ([exportação e importação](data-transfer.md)) roda no worker e respeita `SKELETON_EXPORT_MAX_ROWS` (padrão 100.000), `SKELETON_IMPORT_MAX_ROWS` (padrão 10.000) e `SKELETON_TRANSFER_RETENTION_DAYS` (padrão 7), todos no catálogo da instância. Defina `SKELETON_PUBLIC_URL` (a origem pública, como `https://app.example.com`) para que os links desses emails sejam absolutos. Sem uma origem válida (esquema e host, sem caminho), o `check --deploy` avisa com `skeleton.W035` (#279). A mesma origem vale para os convites emitidos sem requisição (por um job ou comando): sem ela, o convite é recusado com um erro que cita `SKELETON_PUBLIC_URL` ([#169](https://github.com/alaorneto/skeleton/issues/169)). Veja [notificações](notifications.md#email-imediato). Com a [cobrança](billing.md#provedores-de-pagamento) ligada, configure no painel de cada provedor o webhook `https://<origem pública>/billing/webhooks/<provedor>/<sysid da conta>/` (o endereço aparece na administração da plataforma), defina `BILLING_ENCRYPTION_KEYS` e mantenha o proxy encaminhando o corpo intacto: a assinatura é conferida sobre os bytes recebidos. Ainda com a cobrança ligada, os prazos de inadimplência (`SKELETON_BILLING_GRACE_DAYS`, `_SUSPEND_AFTER_DAYS`, `_CANCEL_AFTER_DAYS`, `_RETRY_SCHEDULE_DAYS` e `_PENDING_PAYMENT_HOLD_DAYS`) ficam no catálogo da instância, e o `billing.cycle` precisa do worker e do agendador. O **web push** é opcional: gere a chave VAPID com `manage.py generate_vapid_keys /caminho/privado/vapid.pem` (arquivo novo, 0600, fora do repositório e do diretório estático; o comando imprime a chave pública) e defina `WEBPUSH_VAPID_PRIVATE_KEY_FILE`, `WEBPUSH_VAPID_SUBJECT` (`mailto:` ou `https:`) e, se preciso, `WEBPUSH_ALLOWED_HOSTS`. As assinaturas exigem `INTEGRATION_ENCRYPTION_KEYS`. Trocar a chave VAPID invalida as assinaturas existentes, e cada pessoa precisa ativar o push de novo. Sem a chave, a seção de push não aparece e `/sw.js` responde 404.
 
 Os logs da aplicação e do Django usam `SecurityJSONFormatter`, com um evento de conclusão `http.request` após resultado transacional/callbacks e UUID gerado pelo servidor, sem URL/body/cookies. Outcomes distinguem success, validation_error, conflict, access_denied, not_found e server_error; falha de entrega preserva o status de persistência e registra reason_code. status_code do Django é mapeado para status; error_class e target_sysid são seguros, sem mensagem/traceback bruto. Registros com exceção trazem `error_stack`: até 25 posições `arquivo:linha:função`, da mais externa para a mais interna, sem mensagem, código-fonte ou variáveis locais. Um readiness com falha registra `health.probe_failed` com `reason_code` `database_unavailable` ou `cache_unavailable`; a resposta HTTP continua sendo só 503. O agente de deployment escreve no stderr uma linha JSON `agent.internal_error`, no mesmo formato, antes de responder `agent_internal_error`; a thread que executa ou recupera uma operação faz o mesmo para qualquer exceção que não seja um código conhecido (#244). O comando Gunicorn da imagem não habilita access log bruto. Proxy, ingress, APM e capturas de HTTP também precisam redigir caminhos/query de convite, reset e callbacks (as integrações do núcleo com Prometheus, OpenTelemetry e Sentry já não enviam caminhos, ver [Observabilidade](#observabilidade-87)); não acrescente `--access-logfile -` sem formatter seguro. O backend de email console é somente desenvolvimento e imprime links privados por definição.
 
@@ -234,6 +234,10 @@ scrape_configs:
 | `skeleton_jobs_due`, `skeleton_jobs_oldest_due_lag_seconds`, `skeleton_jobs_dead` | — | `queue_health()`, o mesmo de `check_jobs` e de `/platform/jobs/` |
 | `skeleton_job_workers` | `state` (`live`, `stale`) | Heartbeats dos workers |
 | `skeleton_queue_metrics_up` | — | 1 quando a coleta leu a fila; 0 quando o banco falhou (o resto da coleta continua) |
+| `skeleton_flow_instances` | `flow_key`, `status` | Instâncias de fluxo por fluxo e estado, somadas em todas as organizações (#420) |
+| `skeleton_flow_tasks_open`, `skeleton_flow_tasks_overdue` | `flow_key` | Tarefas de fluxo abertas e as abertas com prazo vencido |
+| `skeleton_flow_failed_service_steps` | `flow_key` | Etapas automáticas (de serviço) com falha, à espera de repetição ou cancelamento |
+| `skeleton_flow_metrics_up` | — | 1 quando a coleta leu as tabelas de fluxo; 0 quando falhou (o resto da coleta continua) |
 
 As métricas da fila são calculadas **na coleta** e cada processo reutiliza o resultado por `SKELETON_METRICS_QUEUE_TTL_S` segundos (padrão 15; uma falha de leitura nunca é guardada, #275), por consultas agregadas de leitura num `system_context` sem organização (as tabelas de jobs são globais). O worker não mantém contadores. Cada coleta faz algumas consultas agregadas sobre `Job` e `WorkerHeartbeat`; um intervalo de 15 a 60 s basta. Veja [jobs](jobs.md#métricas-da-fila).
 
@@ -246,6 +250,8 @@ gunicorn config.wsgi:application --workers 3 --timeout 120
 ```
 
 O check de deploy `skeleton.W034` avisa quando as métricas estão ligadas fora de `DEBUG` sem a variável, e `skeleton.E034` reprova uma variável que não aponta para um diretório gravável; com um processo só atendendo o site, silencie o aviso com `SILENCED_SYSTEM_CHECKS = ["skeleton.W034"]` (#275). Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
+
+As métricas de fluxo seguem o mesmo cache. As tabelas de fluxo são de tenant (RLS vale também no contexto de sistema), então a coleta abre um `system_context` por organização ativa, até 2.000, e soma os resultados; o único rótulo é a chave do fluxo, declarada em código. As falhas de etapas automáticas são lidas do banco, não contadas no worker.
 
 Fora do escopo: dashboards, alertas e métricas por organização.
 
@@ -300,6 +306,63 @@ Fora do escopo: performance monitoring do Sentry.
 ## Instalações antigas com SQLite
 
 Produção sempre exigiu PostgreSQL. Bancos SQLite de desenvolvimento deixam de ser suportados (#144) e não são migrados: recrie o ambiente local com `tools/dev_postgres.py start` e os comandos do README. O transporte de dados SQLite para PostgreSQL foi retirado deste guia.
+
+## Sandbox no Coolify (#369)
+
+Um ambiente de sandbox e testes numa VPS com [Coolify](https://coolify.io), atualizado a cada merge em `main`. Ele **não** é o caminho de produção: não há agente, então não há manutenção coordenada, backup antes da migration nem rollback. Use só dados de teste.
+
+O `compose.sandbox.yaml` da raiz difere do `compose.yaml` em quatro pontos:
+
+| Ponto | `compose.sandbox.yaml` |
+|---|---|
+| Portas | Nenhum serviço publica porta no host; o proxy do Coolify chega ao `web` na 8000 pela rede interna. |
+| PostgreSQL | Imagem `deploy/coolify/postgres.Dockerfile`: aplica `deploy/postgres/bootstrap.sql` e define as senhas de `skeleton_owner` e `skeleton_runtime` **só na criação do volume**. |
+| Migrations | O serviço `migrate` roda a cada deploy, com a credencial owner, `migrate` e `sync_table_catalog`, e sai. O `web` só sobe depois dele (`service_completed_successfully`). A URL owner existe só nesse serviço. |
+| Start do `web` | Com a instância configurada, roda `upgrade_app_activation` e `check_skeleton_schema` com a role runtime antes do Gunicorn, como o agente faz no `finish()`. Uma falha impede o `web` de subir. Sem configuração, sobe em modo setup. |
+
+No resto, ele segue o `compose.yaml`: os serviços de aplicação (`migrate`, `web`, `worker` e `scheduler`) usam a mesma âncora `x-hardened` (sem capabilities, sem ganho de privilégio e raiz somente leitura, [#318](https://github.com/alaorneto/skeleton/issues/318)), o Redis recebe a senha pelo ambiente do container e não pelo comando renderizado, e o Gunicorn usa o mesmo `--timeout 120` da imagem (#298).
+
+### Criar o recurso
+
+1. **DNS:** um registro A do host do sandbox (por exemplo `sandbox.example.com`) para o IP da VPS.
+2. **Projeto:** no Coolify, crie um projeto e um environment `sandbox`.
+3. **Recurso:** no environment, *+ New* → *Public Repository* (repositório privado: *Private Repository (with GitHub App)*), a URL do repositório e o branch. *Build Pack* `Docker Compose`, *Base Directory* `/` e *Docker Compose Location* `/compose.sandbox.yaml`.
+4. **Variáveis** (aba *Environment Variables*). Gere cada senha com `openssl rand -hex 32`, só letras e dígitos, porque elas entram em URLs sem codificação:
+
+   | Variável | Uso |
+   |---|---|
+   | `SANDBOX_HOST` | Host público, sem esquema: `sandbox.example.com` |
+   | `POSTGRES_PASSWORD` | Administrador do PostgreSQL; só o container do banco a recebe |
+   | `SKELETON_OWNER_DB_PASSWORD` | Role owner; só o `migrate` e o init do banco a recebem |
+   | `SKELETON_RUNTIME_DB_PASSWORD` | Role runtime; digitada no setup |
+   | `REDIS_PASSWORD` | `requirepass` do Redis |
+
+5. **Domínio:** na configuração do serviço `web`, informe `https://<SANDBOX_HOST>:8000`. O sufixo `:8000` é a porta do container, não uma porta pública; o Coolify emite o certificado e o Traefik termina o TLS.
+6. **Auto Deploy:** desligado. Quem dispara o deploy é o CI (abaixo).
+7. *Deploy*. Na primeira vez, o `migrate` cria o schema e o `web` sobe em modo setup.
+
+### Primeiro acesso
+
+O token de uso único aparece nos logs do serviço `web` no Coolify. Abra `https://<SANDBOX_HOST>/setup/` e preencha o [setup](#primeira-instalação-pelo-setup-146) com:
+
+- **Instância:** host `<SANDBOX_HOST>`, origem CSRF `https://<SANDBOX_HOST>` e confiança no proxy ligada (o Traefik substitui o `X-Forwarded-Proto` recebido de fora).
+- **Banco runtime:** `postgres://skeleton_runtime:<SKELETON_RUNTIME_DB_PASSWORD>@postgres:5432/skeleton`.
+- **Schema:** `postgres://skeleton_owner:<SKELETON_OWNER_DB_PASSWORD>@postgres:5432/skeleton`. O `migrate` já aplicou as migrations; o setup só confere.
+- **Cache:** `redis://:<REDIS_PASSWORD>@redis:6379/0`.
+- **Arquivos:** backend local em `/instance/files`, dentro do volume persistente `instance`.
+
+Na conclusão, o processo sai, a política de reinício o traz de volta em modo normal, e o `worker` e o `scheduler` passam a ficar saudáveis.
+
+### Deploy a cada merge em `main`
+
+O job `deploy-sandbox` do `.github/workflows/ci.yml` roda só num push para `main` e só depois do job `CI` verde, e chama a API de deploy do Coolify. Ele nunca roda em pull request. Sem os secrets, o job termina com um aviso, sem disparar nada; projetos derivados sem sandbox não precisam remover o job.
+
+1. **Coolify:** em *Settings*, habilite o acesso à API. Em *Keys & Tokens* → *API tokens*, crie um token com permissão de deploy. Na aba *Webhooks* do recurso, copie a URL de deploy, `https://<coolify>/api/v1/deploy?uuid=<uuid>&force=false`.
+2. **GitHub:** em *Settings* → *Environments*, crie `sandbox` (opcionalmente restrito ao branch `main`) com os secrets `COOLIFY_DEPLOY_URL` e `COOLIFY_TOKEN`.
+
+O deploy no Coolify é assíncrono: o job só confirma que o pedido foi aceito. O resultado aparece em *Deployments* no recurso.
+
+**Limites:** o init do PostgreSQL só roda com o volume vazio. Trocar uma senha depois exige `ALTER ROLE` no banco e a atualização da variável e da configuração da instância. Se uma migration falha, o `migrate` termina com erro e o `web` com o código novo não sobe. Confira os logs do `migrate` no Coolify. Migrations já aplicadas antes da falha continuam no banco, porque o sandbox não tem o backup do agente.
 
 ## Distribuição do core e adoção de projetos derivados
 

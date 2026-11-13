@@ -315,7 +315,7 @@ def test_jit_confirmation_does_not_readmit_who_left(skeleton_db, tmp_path, monke
 
 
 @pytest.mark.parametrize("protocol", ["oidc", "saml"])
-@pytest.mark.parametrize("role", ["organization_admin", "people_manager", "app_manager"])
+@pytest.mark.parametrize("role", ["organization_admin", "people_manager", "app_manager", "process_manager"])
 def test_default_role_with_capabilities_is_refused_at_load(tmp_path, monkeypatch, protocol, role):
     document = entry()
     document["protocol"] = protocol

@@ -1,0 +1,9 @@
+{% extends "skeleton/web/base.html" %}
+{% load i18n %}{% block title %}{% translate "Minhas tarefas" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Minhas tarefas" %}</h1><p class="page-description">{% translate "Tarefas abertas atribuídas a você em todas as organizações em que você tem vínculo. Tarefas de fila aparecem na caixa de cada organização." %}</p></div></div>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Etapa" %}</th><th scope="col">{% translate "Prazo" %}</th><th scope="col">{% translate "Criada em" %}</th></tr></thead><tbody>
+{% for row in rows %}<tr><td>{{ row.organization_name }}</td><td><a href="{% url 'flows:task' row.organization_id row.sysid %}">{{ row.step_key }}</a></td><td class="whitespace-nowrap!">{{ row.due_at|default:"—" }}</td><td class="whitespace-nowrap!">{{ row.created_at }}</td></tr>
+{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhuma tarefa aberta para você." %}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "skeleton/web/base.html" %}
+{% load i18n %}{% block title %}{% translate "Operação dos processos" %}{% endblock %}
+{% block content %}
+<div>
+  <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></li><li><span aria-current="page">{% translate "Operação" %}</span></li></ol></nav>
+  <div class="page-header"><div class="min-w-0"><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: instâncias com falha e tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas. Nenhum valor de formulário aparece aqui." %}</p></div></div>
+  <form method="get" class="mb-4 flex flex-wrap items-end gap-2" aria-label="{% translate "Filtros" %}">
+    <div class="field"><label for="ops-flow">{% translate "Fluxo" %}</label><select id="ops-flow" name="flow_key"><option value="">{% translate "Todos" %}</option>{% for key in panel.flow_keys %}<option value="{{ key }}"{% if key == flow_key %} selected{% endif %}>{{ key }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="ops-version">{% translate "Versão" %}</label><input id="ops-version" name="version" type="number" min="1" value="{{ flow_version }}"></div>
+    <button type="submit" class="btn btn-secondary">{% translate "Filtrar" %}</button>
+  </form>
+  <dl class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+    <div class="card"><dt class="text-sm text-body-subtle">{% translate "Instâncias com falha" %}</dt><dd class="text-2xl font-semibold text-heading" data-count="failed">{{ panel.counts.failed }}</dd></div>
+    <div class="card"><dt class="text-sm text-body-subtle">{% translate "Tarefas sem responsável" %}</dt><dd class="text-2xl font-semibold text-heading" data-count="unassigned">{{ panel.counts.unassigned }}</dd></div>
+    <div class="card"><dt class="text-sm text-body-subtle">{% translate "Tarefas atrasadas" %}</dt><dd class="text-2xl font-semibold text-heading" data-count="overdue">{{ panel.counts.overdue }}</dd></div>
+    <div class="card"><dt class="text-sm text-body-subtle">{% translate "A vencer em 24 horas" %}</dt><dd class="text-2xl font-semibold text-heading" data-count="due_soon">{{ panel.counts.due_soon }}</dd></div>
+  </dl>
+  <h2 class="section-heading">{% translate "Instâncias com falha" %}</h2>
+  <div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col">{% translate "Número" %}</th><th scope="col">{% translate "Atualizada em" %}</th></tr></thead><tbody>
+  {% for row in panel.failed %}<tr><td><a href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td>{{ row.number|default:"—" }}</td><td class="whitespace-nowrap!">{{ row.updated_at }}</td></tr>
+  {% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma instância com falha." %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas sem responsável") rows=panel.unassigned empty=_("Nenhuma tarefa sem responsável.") %}
+  {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas atrasadas") rows=panel.overdue empty=_("Nenhuma tarefa atrasada.") %}
+  {% include "skeleton/flows/operations_tasks.html" with heading=_("A vencer em 24 horas") rows=panel.due_soon empty=_("Nenhuma tarefa a vencer.") %}
+</div>
+{% endblock %}

@@ -1,35 +1,33 @@
-name: Autoteste do dev-workflow
+name: Autoteste do skill dev-workflow
 
-# A suíte do próprio skill (unittest, só biblioteca padrão) nos três sistemas, mais a coerência
-# dos arquivos de versão com a configuração deste repositório.
+# Roda a suíte do próprio skill (só biblioteca padrão e git) nos três sistemas, quando ele muda.
 
 on:
-  push:
-    branches: [main]
-    paths: ["{{SKILL_DIR}}/**", ".github/dev-workflow.toml", ".github/workflows/dev-workflow-selftest.yml"]
   pull_request:
-    paths: ["{{SKILL_DIR}}/**", ".github/dev-workflow.toml", ".github/workflows/dev-workflow-selftest.yml"]
+    paths: ["__SKILL_GLOB__", ".github/dev-workflow.toml"]
+  push:
+    branches: [__DEFAULT_BRANCH__]
+    paths: ["__SKILL_GLOB__", ".github/dev-workflow.toml"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: dev-workflow-selftest-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   selftest:
-    name: Skill dev-workflow (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Suíte do skill (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-2025, macos-15]
-        python: ["3.11", "3.14"]
+        os: [ubuntu-24.04, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.12"
       - name: Testes do skill
-        run: python -m unittest discover -s {{SKILL_DIR}}/tests -t {{SKILL_DIR}}
-      - name: Arquivos de versão coerentes
-        run: python {{SKILL_DIR}}/scripts/release.py check
+        run: python -m unittest discover -s __SKILL_DIR__/tests

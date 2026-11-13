@@ -6,8 +6,12 @@ app_name = "flows"
 INSTANCE_ACTIONS = "|".join(api_views.INSTANCE_ACTIONS)
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 urlpatterns = [
+    path("flows/tasks/", views.global_tasks, name="global-tasks"),
     path("o/<uuid:organization_id>/flows/tasks/", views.task_list, name="tasks"),
     path("o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/", views.task_detail, name="task"),
+    path("o/<uuid:organization_id>/flows/operations/", views.operations, name="operations"),
+    path("o/<uuid:organization_id>/flows/drafts/", views.draft_list, name="drafts"),
+    path("o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/", views.draft_detail, name="draft"),
     path("o/<uuid:organization_id>/flows/instances/", views.instance_list, name="instances"),
     path("o/<uuid:organization_id>/flows/instances/<uuid:sysid>/", views.instance_detail, name="instance"),
     re_path(
@@ -26,6 +30,27 @@ urlpatterns = [
             name="api-task-action",
         )
         for action, view in api_views.TASK_ACTION_VIEWS.items()
+    ),
+    path(
+        "api/v1/o/<uuid:organization_id>/flows/operations/", api_views.OperationsView.as_view(), name="api-operations"
+    ),
+    path("api/v1/o/<uuid:organization_id>/flows/absences/", api_views.AbsencesView.as_view(), name="api-absences"),
+    path(
+        "api/v1/o/<uuid:organization_id>/flows/absences/<uuid:sysid>/",
+        api_views.AbsenceView.as_view(),
+        name="api-absence",
+    ),
+    path("api/v1/o/<uuid:organization_id>/flows/drafts/", api_views.DraftsView.as_view(), name="api-drafts"),
+    path(
+        "api/v1/o/<uuid:organization_id>/flows/migrations/<str:flow_key>/<int:from_version>/",
+        api_views.MigrationView.as_view(),
+        name="api-migration",
+    ),
+    path("api/v1/o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/", api_views.DraftView.as_view(), name="api-draft"),
+    path(
+        "api/v1/o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/publish/",
+        api_views.DraftPublishView.as_view(),
+        name="api-draft-publish",
     ),
     path("api/v1/o/<uuid:organization_id>/flows/instances/", api_views.InstancesView.as_view(), name="api-instances"),
     path(

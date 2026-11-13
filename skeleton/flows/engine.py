@@ -95,6 +95,12 @@ class Execution:
         moments, self.moments = self.moments, []
         for moment in moments:
             publish_moment(self, moment)
+        if self.instance.parent_run_id is not None and any(
+            item in ("completed", "failed", "cancelled") for item in moments
+        ):
+            from .subflows import notify_parent
+
+            notify_parent(self.instance)  # A subflow ended: its parent learns it through a job (#412).
 
     def log(
         self,

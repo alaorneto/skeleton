@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: analyzes-accumulated-diff
+expected_outcome: |
+  semver-analysis.json existe, é aceito por `release.py record-analysis --dry-run`, cobre as duas mudanças
+  pendentes (#52 e #57) e classifica o #57 como major, porque fetch() ganhou um parâmetro obrigatório.
+  A resposta diz que a versão que sai é 2.0.0, e não a 1.4.3 que os sinais determinísticos davam.
+context:
+  scaffold_script: place-files.sh

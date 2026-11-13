@@ -1,0 +1,66 @@
+{% extends 'skeleton/web/base.html' %}
+{% load billing i18n %}
+{% block title %}{% translate "Cobrança · Skeleton" %}{% endblock %}
+{% block content %}
+<div class="max-w-5xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Organização" %}</p><h1>{% translate "Cobrança" %}</h1>
+<p class="page-description">{% translate "Plano, apps contratadas, armazenamento e faturas da organização. O acesso a uma app paga é liberado quando a fatura é paga." %}</p></div></div>
+
+{% if access.level == "past_due" %}<div class="message warning mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Há uma fatura em atraso. Pague para evitar o modo somente leitura." %}</div></div>
+{% elif access.level == "restricted" %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0">{% translate "A organização está em modo somente leitura por pendência de pagamento." %}</div></div>
+{% elif access.level == "suspended" %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0">{% translate "A organização está suspensa por pendência de pagamento. Pague as faturas em aberto para reativá-la." %}</div></div>{% endif %}
+
+<section aria-labelledby="subscription-heading" class="mb-8">
+  <h2 id="subscription-heading" class="section-heading">{% translate "Assinatura" %}</h2>
+  {% if subscription %}
+  <p class="mb-3 flex flex-wrap items-center gap-1.5"><span class="badge badge-dot">{{ subscription.status }}</span><span class="badge">{% translate "período até" %} {{ subscription.current_period_end|date:"SHORT_DATE_FORMAT" }}</span>{% if subscription.trial_end and subscription.status == "trialing" %}<span class="badge badge-success">{% translate "avaliação até" %} {{ subscription.trial_end|date:"SHORT_DATE_FORMAT" }}</span>{% endif %}{% if subscription.cancel_at_period_end %}<span class="badge badge-warning">{% translate "cancela no fim do período" %}</span>{% endif %}</p>
+  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Item" %}</th><th scope="col">{% translate "Quantidade" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Situação" %}</th>{% if can_manage %}<th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th>{% endif %}</tr></thead><tbody>
+  {% for item in subscription.items %}<tr><td>{{ item.product }}</td><td>{{ item.quantity }}</td><td>{{ item.unit_amount|money:subscription.currency }}</td><td>{{ item.status }}{% if item.ends_at %} · {% translate "termina em" %} {{ item.ends_at|date:"SHORT_DATE_FORMAT" }}{% endif %}</td>{% if can_manage %}<td>{% if item.kind != "base_plan" and not item.ends_at %}<form method="post" action="{% url 'billing-action' organization_id 'remove' %}">{% csrf_token %}<input type="hidden" name="item" value="{{ item.sysid }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Remover" %}</button></form>{% endif %}</td>{% endif %}</tr>{% endfor %}
+  </tbody></table></div>
+  {% if can_manage %}<div class="toolbar mt-3">{% if subscription.cancel_at_period_end %}<form method="post" action="{% url 'billing-action' organization_id 'resume' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Desfazer o cancelamento" %}</button></form>{% else %}<form method="post" action="{% url 'billing-action' organization_id 'cancel' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Cancelar a assinatura" %}</button></form>{% endif %}</div>{% endif %}
+  {% else %}<p class="text-body-subtle">{% translate "A organização ainda não tem assinatura." %}</p>{% endif %}
+</section>
+
+<section aria-labelledby="invoices-heading" class="mb-8">
+  <h2 id="invoices-heading" class="section-heading">{% translate "Faturas" %}</h2>
+  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Número" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Vencimento" %}</th><th scope="col">{% translate "Situação" %}</th>{% if can_manage %}<th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th>{% endif %}</tr></thead><tbody>
+  {% for invoice in invoices %}<tr><td><code>{{ invoice.number }}</code></td><td>{{ invoice.total|money:invoice.currency }}</td><td class="whitespace-nowrap!">{{ invoice.due_at|date:"SHORT_DATE_FORMAT" }}</td><td>{{ invoice.status }}</td>{% if can_manage %}<td>{% if invoice.status == "open" or invoice.status == "uncollectible" %}<form method="post" action="{% url 'billing-pay' organization_id invoice.sysid %}">{% csrf_token %}<button type="submit" class="btn btn-primary btn-sm">{% translate "Pagar" %}</button></form>{% endif %}</td>{% endif %}</tr>
+  {% empty %}<tr><td colspan="5" class="text-body-subtle">{% translate "Nenhuma fatura." %}</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<section aria-labelledby="storage-heading" class="mb-8">
+  <h2 id="storage-heading" class="section-heading">{% translate "Armazenamento" %}</h2>
+  <p class="mb-3">{% translate "Em uso" %}: {{ storage.used_bytes|gigabytes }} GB · {% translate "Cota" %}: {% if storage.quota_bytes is None %}{% translate "ilimitada" %}{% else %}{{ storage.quota_bytes|gigabytes }} GB{% endif %}{% if storage.overage == "bill" %} · {% translate "o excedente é cobrado na renovação" %}{% endif %}</p>
+  {% if usage_by_app %}<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "App" %}</th><th scope="col">GB</th></tr></thead><tbody>{% for app, used in usage_by_app %}<tr><td><code>{{ app }}</code></td><td>{{ used|gigabytes }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+{% if can_manage %}
+<section aria-labelledby="offers-heading" class="mb-8">
+  <h2 id="offers-heading" class="section-heading">{% translate "Planos, apps e pacotes" %}</h2>
+  <ul class="grid gap-3 sm:grid-cols-2">
+  {% for offer in offers %}<li class="card flex flex-col gap-3 p-5"><h3 class="text-base">{{ offer.product }}</h3><p class="text-sm/6 text-body">{{ offer.unit_amount|money:offer.currency }} / {% if offer.interval == "year" %}{% translate "ano" %}{% else %}{% translate "mês" %}{% endif %}{% if offer.trial_days %} · {% blocktranslate count days=offer.trial_days %}{{ days }} dia de avaliação{% plural %}{{ days }} dias de avaliação{% endblocktranslate %}{% endif %}</p>
+  <form method="post" action="{% url 'billing-action' organization_id 'contract' %}">{% csrf_token %}<input type="hidden" name="price" value="{{ offer.sysid }}"><label class="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" name="accept_terms" required> {% translate "Aceito os termos de uso" %}</label><button type="submit" class="btn btn-primary btn-sm">{% translate "Contratar" %}</button></form></li>
+  {% empty %}<li class="card empty-state sm:col-span-2">{% translate "Nenhuma oferta disponível." %}</li>{% endfor %}
+  </ul>
+</section>
+
+<section aria-labelledby="voucher-heading" class="mb-8">
+  <h2 id="voucher-heading" class="section-heading">{% translate "Voucher" %}</h2>
+  <form method="post" class="toolbar" action="{% url 'billing-action' organization_id 'voucher' %}">{% csrf_token %}<label class="sr-only" for="voucher-code">{% translate "Código do voucher" %}</label><input id="voucher-code" type="text" name="code" maxlength="40" required autocomplete="off"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Aplicar" %}</button></form>
+</section>
+
+<section aria-labelledby="account-heading" class="mb-8">
+  <h2 id="account-heading" class="section-heading">{% translate "Dados de cobrança" %}</h2>
+  {% if account.payment_method_label %}<p class="mb-3 text-body-subtle">{% translate "Meio de pagamento salvo" %}: {{ account.payment_method_label }}</p>{% endif %}
+  <form method="post" class="record-form" action="{% url 'billing-action' organization_id 'account' %}">{% csrf_token %}
+    <p><label for="billing-legal-name">{% translate "Razão social" %}</label><input id="billing-legal-name" type="text" name="legal_name" maxlength="200" value="{{ account.legal_name|default:'' }}"></p>
+    <p><label for="billing-email">{% translate "Email de cobrança" %}</label><input id="billing-email" type="email" name="billing_email" maxlength="254" value="{{ account.billing_email|default:'' }}"></p>
+    <p><label for="billing-tax-id">{% translate "CPF ou CNPJ" %}</label><input id="billing-tax-id" type="text" name="tax_id" maxlength="32" value="{{ account.tax_id|default:'' }}"></p>
+    <p><label for="billing-country">{% translate "País (código de duas letras)" %}</label><input id="billing-country" type="text" name="country" maxlength="2" value="{{ account.country|default:'' }}"></p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div>
+  </form>
+</section>
+{% endif %}
+</div>
+{% endblock %}

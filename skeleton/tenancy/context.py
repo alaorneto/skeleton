@@ -38,6 +38,8 @@ PLATFORM_ADMIN_REASONS = frozenset(
         "builtin-roles",
         "organization:designate-admin",
         "platform:organization-inspect",
+        # The platform acting on one organization's billing account (#405).
+        "platform:billing",
     }
 )
 # Admission by the person (#26, #27): opened by the admission services for one organization,

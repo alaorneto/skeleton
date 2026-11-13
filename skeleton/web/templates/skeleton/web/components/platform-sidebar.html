@@ -32,8 +32,13 @@
     </ul>
 {% if platform_admin %}    <p class="sidebar-heading" id="platform-operations">{% translate "Operação" %}</p>
     <ul class="sidebar-list" aria-labelledby="platform-operations">
+      <li><a class="sidebar-link" href="{% url 'platform:billing' %}"{% if platform_section == "billing" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Cobrança" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:jobs' %}"{% if platform_section == "jobs" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="server" %}{% translate "Jobs" %}</a></li>
       <li><a class="sidebar-link" href="{% url 'platform:privacy' %}"{% if platform_section == "privacy" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="shield" %}{% translate "Pedidos de eliminação" %}</a></li>
+    </ul>
+{% endif %}{% if not platform_admin and "billing.operate" in platform_capabilities %}    <p class="sidebar-heading" id="platform-billing">{% translate "Operação" %}</p>
+    <ul class="sidebar-list" aria-labelledby="platform-billing">
+      <li><a class="sidebar-link" href="{% url 'platform:billing' %}"{% if platform_section == "billing" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="key" %}{% translate "Cobrança" %}</a></li>
     </ul>
 {% endif %}  </nav>
 </div>

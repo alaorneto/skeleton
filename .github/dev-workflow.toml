@@ -1,132 +1,211 @@
-# Configuração do skill dev-workflow (references/configuration.md). Tudo que é específico do
-# projeto fica aqui; os scripts do skill recusam chave desconhecida ou valor inválido.
+# Configuração do fluxo de desenvolvimento (skill dev-workflow). Guia: docs/workflow.md.
+# Referência de todas as chaves: .claude/skills/dev-workflow/references/configuration.md
+# Confira com: python3 .claude/skills/dev-workflow/scripts/bootstrap.py doctor
+schema = 1
 
-[project]
+[repository]
 default_branch = "main"
-language = "pt"
+# Branches em que um push pode publicar versão. `release/*` são linhas de manutenção.
+release_branches = ["main", "release/*"]
 
-# Labels de tipo: cada issue tem exatamente um. `commit` lista os tipos de Conventional Commits
-# que correspondem ao label; `level` é o nível SemVer que uma mudança desse tipo implica.
+# --- Tipos de issue ----------------------------------------------------------------------------
+# Cada issue tem exatamente um destes labels. `prefixes` são os prefixos de commit e de branch;
+# `level` é o incremento de versão que o tipo pede; `section` é a seção do changelog.
+
 [types.bug]
 color = "d73a4a"
 description = "Comportamento incorreto, regressão ou falha de segurança existente"
-commit = ["fix"]
+prefixes = ["fix"]
 level = "patch"
+section = "fixes"
 
 [types.feature]
 color = "1d76db"
 description = "Nova funcionalidade"
-commit = ["feat"]
+prefixes = ["feat"]
 level = "minor"
+section = "features"
 
 [types.enhancement]
 color = "a2eeef"
 description = "Melhoria de funcionalidade existente"
-commit = ["perf"]
+prefixes = ["feat", "perf"]
 level = "minor"
+section = "improvements"
 
 [types.documentation]
 color = "0075ca"
 description = "Somente documentação"
-commit = ["docs"]
-level = "patch"
+prefixes = ["docs"]
+level = "none"
+section = "docs"
 
 [types.refactor]
 color = "fbca04"
 description = "Reestruturação sem mudança de comportamento"
-commit = ["refactor", "style"]
-level = "patch"
+prefixes = ["refactor"]
+level = "none"
+section = "maintenance"
 
 [types.test]
 color = "bfd4f2"
 description = "Somente testes, fixtures ou evidência de verificação"
-commit = ["test"]
-level = "patch"
+prefixes = ["test"]
+level = "none"
+section = "maintenance"
 
 [types.ci]
 color = "5319e7"
 description = "Pipeline e checks automáticos"
-commit = ["ci"]
-level = "patch"
+prefixes = ["ci"]
+level = "none"
+section = "maintenance"
 
 [types.chore]
 color = "c5def5"
 description = "Dependências, ferramentas e configuração de desenvolvimento"
-commit = ["chore", "build", "revert"]
-level = "patch"
+prefixes = ["chore", "build"]
+level = "none"
+section = "maintenance"
 
-# Labels adicionais. `epic` marca a issue de acompanhamento de um plano.
-[labels.security]
+[labels.extra.security]
 color = "b60205"
 description = "Impacto em isolamento, autorização, autenticação, auditoria ou segredos"
 
-[labels.epic]
-color = "3e4b9e"
-description = "Acompanhamento de um plano com várias issues"
+[issues.sections]
+default = [
+    "Contexto",
+    "Objetivo",
+    "Escopo",
+    "Abordagem técnica",
+    "Critérios de aceite",
+    "Plano de testes",
+    "Documentação a atualizar",
+    "Segurança e contrato do AGENTS.md",
+    "Riscos e dependências",
+    "Definição de pronto",
+]
+bug = [
+    "Comportamento observado",
+    "Comportamento esperado",
+    "Passos para reproduzir",
+    "Escopo",
+    "Abordagem técnica",
+    "Critérios de aceite",
+    "Plano de testes",
+    "Documentação a atualizar",
+    "Segurança e contrato do AGENTS.md",
+    "Riscos e dependências",
+    "Definição de pronto",
+]
+documentation = ["Contexto", "Objetivo", "Critérios de aceite", "Definição de pronto"]
 
-[labels.release]
-color = "0e8a16"
-description = "O merge deste PR gera uma versão nova"
-
-[labels.breaking-change]
-color = "b60205"
-description = "Quebra de compatibilidade da superfície pública"
-
-[labels."semver:major"]
-color = "5d1f1f"
-description = "Força versão major (informe o motivo no PR)"
-
-[labels."semver:minor"]
-color = "8a4b08"
-description = "Força versão minor (informe o motivo no PR)"
-
-[labels."semver:patch"]
-color = "c2e0c6"
-description = "Força versão patch (informe o motivo no PR)"
-
-[issue]
-epic_label = "epic"
-items_section = "Itens"
-depends_marker = "depende de"
-# Seções que toda issue tem, qualquer que seja o tipo; o check de PR avisa quando faltam.
-sections = ["Critérios de aceite", "Definição de pronto"]
-
-[pull_request]
-sections = ["Issues", "Resumo", "Versão", "Testes executados", "Documentação"]
+[pr]
+required_sections = [
+    "Issues",
+    "Resumo",
+    "Testes executados",
+    "Documentação",
+    "Segurança e contrato do AGENTS.md",
+    "Versão",
+]
 exempt_authors = ["dependabot[bot]"]
-conventional_title = true
-pending_criteria = "warning"
+
+[pr.severity]
+unchecked_criteria = "warning"
+issue_sections = "warning"
+type_mismatch = "warning"
+
+# --- Versão ------------------------------------------------------------------------------------
+# A versão do projeto é a versão do core (`django-skeleton`). O agente de deployment e as apps
+# first-party de skeleton/contrib andam no mesmo número. Veja docs/workflow.md#versão.
 
 [versioning]
-# A versão do projeto é a do core (django-skeleton); o agente de deployment e as apps first-party
-# seguem o mesmo número. Pisos de core (constantes *_CORE_MINIMUM, faixas de manifestos de terceiros,
-# since=) são pisos de funcionalidade: não acompanham o bump, e `release.py check` só confere que
-# nenhum é maior que a versão publicada (docs/workflow.md, "Versão e release").
 enabled = true
 tag_prefix = "v"
-changelog = "CHANGELOG.md"
-release_label = "release"
-breaking_label = "breaking-change"
-override_prefix = "semver:"
-mode = "direct"
-analysis_authors = ["github-actions[bot]"]
-files = [
-  { path = "pyproject.toml", regex = '^version = "(?P<version>[^"]+)"', replace = 'version = "{version}"' },
-  { path = "deployment_agent/pyproject.toml", regex = '^version = "(?P<version>[^"]+)"', replace = 'version = "{version}"' },
-  { path = "deployment_agent/pyproject.toml", regex = '"django-skeleton==(?P<version>[^"]+)"', replace = '"django-skeleton=={version}"' },
-  { path = "skeleton/contrib/calendar/manifest.json", regex = '^  "version": "(?P<version>[^"]+)"', replace = '  "version": "{version}"' },
-  { path = "skeleton/contrib/calendar/manifest.json", regex = '"skeleton": ">=(?P<version>[^,]+),<[^"]+"', replace = '"skeleton": ">={version},<{major}.{next_minor}.0"' },
-  { path = "skeleton/contrib/calendar/docs/service-api.md", regex = '"org\.skeleton\.calendar": ">=(?P<version>[^,]+),<[^"]+"', replace = '"org.skeleton.calendar": ">={version},<{major}.{next_minor}.0"' },
+# Vale só enquanto não existe tag de versão; depois a fonte é a última tag.
+initial_version = "0.5.0"
+# Em 0.x a quebra de compatibilidade sobe o minor; 1.0.0 só por sobreposição explícita.
+zero_major = "breaking-is-minor"
+require_analysis = false
+
+[[versioning.files]]
+path = "pyproject.toml"
+search = 'version = "{current_pep440}"'
+
+[[versioning.files]]
+path = "deployment_agent/pyproject.toml"
+search = 'version = "{current_pep440}"'
+
+# O agente fixa o core da mesma release.
+[[versioning.files]]
+path = "deployment_agent/pyproject.toml"
+search = '"django-skeleton=={current_pep440}"'
+
+# App first-party: mesma versão do core (o startup recusa manifesto com outro número) e faixa de
+# compatibilidade presa ao minor corrente.
+[[versioning.files]]
+path = "skeleton/contrib/calendar/manifest.json"
+search = '"version": "{current}"'
+
+[[versioning.files]]
+path = "skeleton/contrib/calendar/manifest.json"
+regex = '"skeleton": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
+replace = '"skeleton": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
+
+[[versioning.files]]
+path = "skeleton/contrib/calendar/docs/service-api.md"
+regex = '"org\.skeleton\.calendar": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
+replace = '"org.skeleton.calendar": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
+
+# Contratos que projetos derivados e apps consomem. Remover um arquivo pede major (minor em 0.x);
+# acrescentar ou alterar pede análise do diff.
+[[versioning.public_surfaces]]
+name = "API de serviços e kit de testes"
+globs = ["skeleton/service_api/**", "skeleton/testing/**", "skeleton/contrib/*/service_api.py"]
+
+[[versioning.public_surfaces]]
+name = "Bases de modelo, contexto e autorização"
+globs = [
+    "skeleton/common/models.py",
+    "skeleton/common/querysets.py",
+    "skeleton/tenancy/context.py",
+    "skeleton/access/policies.py",
+    "skeleton/access/services.py",
 ]
-floors = [
-  { path = "skeleton/system/packaging/limits.py", regex = 'SERVICE_API_CORE_MINIMUM = "(?P<version>[^"]+)"', replace = 'SERVICE_API_CORE_MINIMUM = "{version}"' },
-  { path = "skeleton/system/presentation/specs.py", regex = '_CORE_MINIMUM = "(?P<version>[^"]+)"', replace = '_CORE_MINIMUM = "{version}"' },
-  { path = "examples/notes/manifest.json", regex = '"skeleton": ">=(?P<version>[^,]+),', replace = '"skeleton": ">={version},' },
-]
-public_surfaces = [
-  "skeleton/service_api/*",
-  "skeleton/testing/*",
-  "skeleton/system/import_boundary.py",
-  "docs/service-api.md",
-  "docs/api.md",
-]
+
+[[versioning.public_surfaces]]
+name = "Manifesto, pacotes e catálogo de apps"
+globs = ["skeleton/system/packages.py", "skeleton/system/presentation.py", "skeleton/system/app_registry.py"]
+
+[[versioning.public_surfaces]]
+name = "API HTTP"
+globs = ["skeleton/api/**"]
+
+[[versioning.public_surfaces]]
+name = "Migrations do núcleo"
+globs = ["skeleton/*/migrations/**", "skeleton/contrib/*/migrations/**"]
+on_add = "review"
+on_modify = "major"
+
+# Pisos de funcionalidade: "disponível desde a versão X". Não acompanham o bump; a release só não
+# pode sair com número menor que o maior deles.
+[[versioning.floors]]
+globs = ["skeleton/**/*.py", "deployment_agent/*.py"]
+regex = '(?:_CORE_MINIMUM|_UPGRADE_CORE)\s*=\s*(?:Version\()?"(\d+\.\d+\.\d+)"'
+
+[[versioning.floors]]
+globs = ["skeleton/**/*.py"]
+regex = '\bsince="(\d+\.\d+\.\d+)"'
+
+[changelog]
+path = "CHANGELOG.md"
+hide = []
+
+[release]
+# "pull-request": o workflow abre um PR de release (branch release/next), e a tag e a GitHub Release
+# saem quando ele é mesclado. A `main` exige PR (ruleset do #249), então "direct" seria recusado.
+mode = "pull-request"
+commit_message = "chore(release): {tag}"
+mark = ["comment", "milestone"]
+dispatch_workflow = ""

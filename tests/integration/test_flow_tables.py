@@ -186,7 +186,9 @@ def test_every_change_is_audited_once_with_secrets_redacted(tenants, rows):
             "new": "[REDACTED]",
             "redacted": True,
         }
-        assert events_of(instance)[0].changes["data"]["new"] == {"audience": "public"}
+        # Form data is a personal field of its tables (#422): the audit never copies it.
+        assert events_of(instance)[0].changes["data"]["new"] == "[REDACTED]"
+        assert events_of(submission)[0].changes["values"]["new"] == "[REDACTED]"
         assert events_of(submission)[0].changes["sensitive_values"]["new"] == "[REDACTED]"
         assert events_of(task)[0].changes["comment"]["new"] == "[REDACTED]"
         assert events_of(activity)[0].changes["comment"]["new"] == "[REDACTED]"
@@ -245,7 +247,7 @@ def test_immutable_fields_are_guarded_in_python_and_in_the_database(tenants, row
         (instance, "flow_key", "other.flow"),
         (run, "step_key", "other"),
         (task, "slot", 7),
-        (submission, "values", {"audience": "internal"}),
+        (submission, "step_key", "other"),  # The values change only by retention or erasure (#422).
         (activity, "kind", "rewritten"),
     )
     with actor_tenant(tenants.admin, tenants.a):

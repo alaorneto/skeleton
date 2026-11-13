@@ -111,9 +111,12 @@ def assert_platform_admin_remains(admins: list[Any], target: Any, *, keeps_role:
 AUDIT_READ = "audit.read"
 INVENTORY_READ = "inventory.read"
 UPDATES_OPERATE = "updates.operate"
+BILLING_OPERATE = "billing.operate"
 PLATFORM_ROLES = {
     "auditor": frozenset({AUDIT_READ, INVENTORY_READ}),
     "operator": frozenset({UPDATES_OPERATE}),
+    # The billing catalog of the platform (#405): products, prices, vouchers and provider accounts.
+    "billing": frozenset({BILLING_OPERATE}),
 }
 PLATFORM_CAPABILITIES = frozenset().union(*PLATFORM_ROLES.values())
 

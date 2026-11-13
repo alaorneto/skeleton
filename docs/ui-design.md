@@ -49,7 +49,7 @@ Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
 
 ### Tipografia
 
-- **Inter Variable** (OFL 1.1), auto-hospedada em `static/skeleton/web/vendor/inter-5.2.8/` (subsets latin e latin-ext), `font-display: swap`, recursos `cv05`/`cv08` para distinguir l/I.
+- **Inter Variable** (OFL 1.1), auto-hospedada em `static/skeleton/web/vendor/inter-5.3.0/` (subsets latin e latin-ext), `font-display: swap`, recursos `cv05`/`cv08` para distinguir l/I.
 - Monoespaçada do sistema (`ui-monospace`, Cascadia Mono, SF Mono…) para UUID, digest e código.
 - Escala: H1 28/36 semibold (24/32 no celular), H2 18/28, H3 16/24, corpo 16/24, tabelas e metadados 14/20, rótulos de seção 12–14 em maiúsculas com tracking. Números tabulares nas tabelas.
 - Campos usam 16 px no celular (evita zoom do iOS) e 14 px a partir de 640 px.
@@ -130,7 +130,7 @@ frontend/
 skeleton/web/static/skeleton/web/
   site.css                          saída compilada e minificada (versionada)
   vendor/flowbite-4.0.2/            flowbite.min.js + LICENSE.md
-  vendor/inter-5.2.8/               woff2 + LICENSE
+  vendor/inter-5.3.0/               woff2 + LICENSE
   vendor/VENDOR.json                versões, licenças e SHA-256 dos arquivos vendorizados
 ```
 

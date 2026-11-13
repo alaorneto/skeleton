@@ -31,4 +31,5 @@
 </form></section>
 {% endif %}
 </div>
+{% if subject_comments %}{% include 'skeleton/comments/panel.html' with comments=subject_comments.comments table_key=subject_comments.table_key record=subject_comments.record %}{% endif %}
 {% endblock %}

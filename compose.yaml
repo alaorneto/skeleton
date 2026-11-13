@@ -9,7 +9,7 @@ x-hardened: &hardened
   security_opt: ["no-new-privileges:true"]
 services:
   postgres:
-    image: postgres:16.15
+    image: postgres:18.0
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-skeleton}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -22,7 +22,7 @@ services:
       timeout: 5s
       retries: 20
   redis:
-    image: redis:8.8.3
+    image: redis:8.10.3
     # The password comes from the container environment ($$ escapes Compose interpolation), so it is
     # not in the rendered command (#318); Redis replaces its process title, hiding the argument.
     # Through docker-entrypoint.sh, the server still drops from root to the redis user.
@@ -135,7 +135,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.0
+    image: quay.io/keycloak/keycloak:26.8.2-2
     profiles: ["integrations"]
     command: ["start-dev", "--import-realm"]
     environment:

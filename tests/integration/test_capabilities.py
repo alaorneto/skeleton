@@ -36,6 +36,7 @@ def test_registry_declares_capabilities_only_for_builtin_rows():
     assert BUILTIN_ROLES["organization_admin"].capabilities == CAPABILITIES
     assert BUILTIN_ROLES["member"].capabilities == frozenset()
     assert BUILTIN_ROLES["app_manager"].capabilities == {"apps.manage"}
+    assert BUILTIN_ROLES["process_manager"].capabilities == {"flows.manage"}
     assert {"members.view", "members.manage", "invitations.manage", "admission.decide"} == set(
         BUILTIN_ROLES["people_manager"].capabilities
     )
@@ -236,6 +237,7 @@ def test_reconciliation_creates_missing_builtins_once_and_reports_collisions(org
         ("member", True),
         ("organization_admin", True),
         ("people_manager", True),
+        ("process_manager", True),  # Builtin since #407: reconciled like the others.
     ]
 
 

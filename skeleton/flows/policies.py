@@ -43,10 +43,14 @@ def enabled_flow_apps() -> list[str]:
 
 
 def is_flow_admin(user: Any) -> bool:
-    """Who administers flows: the organization administrator (docs/flows.md, decision 5)."""
+    """Who administers flows: the organization administrator and, since #407, whoever holds
+    ``flows.manage`` (the builtin "Gestor de processos"), recomputed on every call."""
+    from skeleton.access.capabilities import FLOWS_MANAGE, has_capability
     from skeleton.access.policies import is_organization_admin
 
-    return user is not None and is_organization_admin(user)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    return is_organization_admin(user) or has_capability(user, FLOWS_MANAGE)
 
 
 def has_membership(user: Any) -> bool:
