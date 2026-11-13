@@ -105,7 +105,11 @@ Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/ho
 ## Passos únicos do responsável
 
 1. **Tag de base**, depois que este fluxo estiver na `main`: `python3 S/release.py baseline --push` cria `v0.5.0` na ponta da `main`. Ela declara que tudo até ali é a 0.5.0; a primeira release automática cobre o que vier depois.
-2. **Ruleset da `main`** (#249, acima). O modo de release configurado é `direct`, em que o workflow faz push do commit de release na `main`; com o ruleset exigindo PR, esse push é recusado. Escolha um: o segredo `RELEASE_TOKEN` com um token de quem está na lista de bypass do ruleset, ou `release.mode = "pull-request"` com "Allow GitHub Actions to create and approve pull requests" marcado (o PR de release aberto pelo token do Actions não dispara os checks obrigatórios; com `RELEASE_TOKEN` eles rodam).
+2. **Ruleset da `main`** (#249, acima). As versões saem por PR (`release.mode = "pull-request"`), compatível com o ruleset: depois do merge de um PR `release`, o workflow "Versão e release" escreve a versão, o `CHANGELOG.md` e os arquivos de versão na branch `release/next` e abre o PR `chore(release): vX.Y.Z`; a tag, a GitHub Release e os comentários saem quando esse PR é mesclado. Para isso, uma vez:
+   - marque "Allow GitHub Actions to create and approve pull requests" em Settings → Actions → General (`bootstrap.py doctor` mostra a pendência enquanto estiver desligado);
+   - um PR aberto pelo `GITHUB_TOKEN` não dispara os checks obrigatórios (`CI`, `Verificação do PR`). Crie o segredo `RELEASE_TOKEN` (fine-grained PAT ou GitHub App com `contents` e `pull-requests` de escrita) para que eles rodem; sem ele, feche e reabra o PR de release antes de mesclar.
+
+   O PR de release só muda arquivos de versão e o changelog e fica isento da verificação de issue. Pode ser mesclado com merge ou squash (o commit `chore(release): vX.Y.Z (#N)` é reconhecido); não edite o PR à mão: a cada push na `main`, o workflow recalcula a versão e refaz o mesmo PR.
 3. **Segredos opcionais**: `ANTHROPIC_API_KEY` ou `CLAUDE_CODE_OAUTH_TOKEN` ligam a análise de versão no CI; sem eles o agente a faz localmente ao abrir o PR `release`, e a release sai mesmo sem análise.
 
 ## Exceções

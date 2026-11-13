@@ -203,9 +203,9 @@ path = "CHANGELOG.md"
 hide = []
 
 [release]
-# "direct": o workflow commita na branch e publica. "pull-request": abre um PR de release, e a
-# publicação acontece quando ele é mesclado (para quando a `main` exigir PR).
-mode = "direct"
+# "pull-request": o workflow abre um PR de release (branch release/next), e a tag e a GitHub Release
+# saem quando ele é mesclado. A `main` exige PR (ruleset do #249), então "direct" seria recusado.
+mode = "pull-request"
 commit_message = "chore(release): {tag}"
 mark = ["comment", "milestone"]
 dispatch_workflow = ""
