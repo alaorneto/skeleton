@@ -52,7 +52,7 @@ class FieldDefinition(SystemRecord):
 
 class AppInstallation(OrganizationRecord):
     app_label = models.CharField(max_length=100)
-    enabled = models.BooleanField(default=True)
+    enabled = models.BooleanField(default=False)  # Closed by default (#283).
     configuration = models.JSONField(default=dict, blank=True)
     immutable_fields = ("app_label",)
 
@@ -145,7 +145,7 @@ class AppAvailability(SystemRecord):
         SELECTED = "selected", gettext_lazy("Organizações selecionadas")
 
     app_label = models.CharField(max_length=100, unique=True)
-    mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.ALL)
+    mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.SELECTED)
     # "" marks a row written before #22 that upgrade_app_activation has not processed yet;
     # "pending" is mid-upgrade and "done" is final. New code always writes "done".
     upgrade_state = models.CharField(max_length=24, blank=True, default="")
