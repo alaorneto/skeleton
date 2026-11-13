@@ -1,6 +1,7 @@
 """The package command line shared by manage.py package and python -m skeleton.system.packages."""
 
 from pathlib import Path
+from urllib.parse import urljoin
 
 from skeleton.versioning import core_version
 
@@ -125,8 +126,6 @@ def run_command(options):
         )
         return {key: str(value) for key, value in roots.items()}
     if operation == "index":
-        from urllib.parse import urljoin
-
         store = trust()
         entries = []
         for artifact in options["artifacts"]:

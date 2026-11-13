@@ -6,6 +6,7 @@ import re
 import zipfile
 from configparser import ConfigParser
 from configparser import Error as ConfigParserError
+from email.parser import BytesParser
 from pathlib import Path, PurePosixPath
 
 from packaging.markers import Marker, default_environment
@@ -101,8 +102,6 @@ def _wheel(data, dependency, *, core=False):
             metadata_paths = [p for p in files if p.endswith(".dist-info/METADATA")]
             if len(metadata_paths) != 1 or metadata_paths[0].split("/")[0].casefold() != dist_info.casefold():
                 _fail("Wheel metadata identity mismatch.")
-            from email.parser import BytesParser
-
             metadata = BytesParser().parsebytes(
                 _read_member(archive, files[metadata_paths[0]], limits.MAX_METADATA_BYTES)
             )

@@ -1,9 +1,11 @@
 """Canonical JSON and the small validators every manifest and catalogue check is built from."""
 
 import json
+import re
 import unicodedata
 from datetime import datetime
 
+from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 from skeleton.versioning import normalize_version, validate_specifier
@@ -56,6 +58,15 @@ def _path(value):
     return value
 
 
+# A dotted Python module path; prefixed by the package of the app that must own it.
+MODULE_PATH = r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*"
+
+
+def _owned_module(value, prefix):
+    """value is a dotted module inside prefix (``applications.<package>.``)."""
+    return isinstance(value, str) and re.fullmatch(re.escape(prefix) + MODULE_PATH, value) is not None
+
+
 def _version(value):
     try:
         return normalize_version(value)
@@ -84,8 +95,6 @@ def _compatibility(value):
 
 def _core_floor_at_least(specifier, minimum):
     """Whether a compatibility.skeleton range excludes every core older than minimum."""
-    from packaging.specifiers import SpecifierSet
-
     floor = Version(minimum)
     return any(
         item.operator in (">=", ">", "==", "~=") and Version(item.version.removesuffix(".*")) >= floor

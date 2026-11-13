@@ -6,6 +6,7 @@ import zipfile
 from base64 import b64decode, b64encode
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import archive as artifacts
 from . import limits
@@ -83,7 +84,6 @@ def _catalog(value):
             _fail("Catalog version must be normalized.")
         _compatibility(entry["compatibility"])
         _string(entry["artifact"], 2048)
-        from urllib.parse import urlsplit
 
         url = urlsplit(entry["artifact"])
         if url.scheme:
