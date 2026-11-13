@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -35,7 +35,7 @@ def ensure_personal_calendar(user: Any) -> Calendar:
     if existing is not None:
         return existing
     calendar = Calendar(
-        organization_id=current_context().organization_id,
+        organization_id=current_context().organization_id,  # type: ignore[misc]  # Set: tenant context.
         owner_id=user.pk,
         visibility=Calendar.Visibility.PRIVATE,
         kind=Calendar.Kind.PERSONAL,
@@ -58,14 +58,14 @@ def ensure_personal_calendar(user: Any) -> Calendar:
 # --------------------------------------------------------------------------- generic gateway operations
 
 
-def create_calendar_record(record: Calendar, *, user: Any, values: dict) -> None:
+def create_calendar_record(record: Calendar, *, user: Any, values: dict[str, Any]) -> None:
     """Calendars created through the table gateway are shared calendars of the organization."""
     record.kind = Calendar.Kind.SHARED
     record.is_default = False
     record.save()
 
 
-def update_calendar_record(record: Calendar, *, user: Any, values: dict) -> None:
+def update_calendar_record(record: Calendar, *, user: Any, values: dict[str, Any]) -> None:
     for name, value in values.items():
         setattr(record, name, value)
     record.save(update_fields=set(values))
@@ -114,7 +114,7 @@ EVENT_FIELDS = (
 COPIED_FIELDS = EVENT_FIELDS[:-3]  # Without rrule, rdates and exdates; tzid once (#345).
 
 
-def _event_values(data: dict) -> dict:
+def _event_values(data: dict[str, Any]) -> dict[str, Any]:
     unknown = set(data) - set(EVENT_FIELDS)
     if unknown:
         raise ValidationError({"__all__": gettext("Campos não aceitos: %(value1)s.") % {"value1": sorted(unknown)}})
@@ -126,7 +126,7 @@ def _event_values(data: dict) -> dict:
     return values
 
 
-def create_event(*, actor: Any, calendar_id: Any, data: dict, uid: str | None = None) -> Any:
+def create_event(*, actor: Any, calendar_id: Any, data: dict[str, Any], uid: str | None = None) -> Any:
     """Create an event in a calendar the actor may update; the actor is the organizer."""
     from .models import Event
     from .policies import require_writable_calendar
@@ -136,12 +136,14 @@ def create_event(*, actor: Any, calendar_id: Any, data: dict, uid: str | None = 
     values.setdefault("tzid", calendar.timezone)
     if uid is not None:
         values["uid"] = uid
-    event = Event(organization_id=current_context().organization_id, calendar=calendar, organizer_id=actor.pk, **values)
+    event = Event(  # type: ignore[misc]  # The organization is set: this runs in a tenant context.
+        organization_id=current_context().organization_id, calendar=calendar, organizer_id=actor.pk, **values
+    )
     event.save()
     return event
 
 
-def update_event(*, actor: Any, event_id: Any, data: dict, expected_revision: int) -> Any:
+def update_event(*, actor: Any, event_id: Any, data: dict[str, Any], expected_revision: int) -> Any:
     """Change an event with CAS; every change bumps the iCalendar ``sequence``."""
     from skeleton.service_api import Conflict
 
@@ -228,7 +230,7 @@ def _occurrence(master: Any, recurrence_id: Any) -> Any:
     return recurrence_id
 
 
-def _exdate_instants(master: Any) -> list:
+def _exdate_instants(master: Any) -> list[datetime | None]:
     """The instant of each stored EXDATE, ``None`` for an invalid one (kept aligned with the list)."""
     from .recurrence import _instants
 
@@ -248,7 +250,7 @@ def _copy(master: Any, **changes: Any) -> Any:
     )
 
 
-def _shifted(master: Any, recurrence_id: Any) -> dict:
+def _shifted(master: Any, recurrence_id: Any) -> dict[str, Any]:
     """Start/end fields of the occurrence that starts at ``recurrence_id`` (same duration)."""
     if master.all_day:
         days = master.end_date - master.start_date
@@ -257,7 +259,7 @@ def _shifted(master: Any, recurrence_id: Any) -> dict:
 
 
 def edit_occurrence(
-    *, actor: Any, event_id: Any, recurrence_id: Any, mode: str, data: dict, expected_revision: int
+    *, actor: Any, event_id: Any, recurrence_id: Any, mode: str, data: dict[str, Any], expected_revision: int
 ) -> Any:
     """Change one occurrence, this and the following ones, or the whole series."""
     from .models import Event

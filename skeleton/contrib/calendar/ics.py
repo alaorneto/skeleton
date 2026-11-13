@@ -93,7 +93,7 @@ def calendar_components(reader: Any, events: Any, *, busy_only: bool = False) ->
     masters = list(
         events.filter(series__isnull=True).select_related("calendar").order_by("starts_at", "start_date", "sysid")
     )
-    overrides: dict = {}
+    overrides: dict[Any, list[Any]] = {}
     if masters:
         for row in Event.objects.filter(series_id__in=[master.pk for master in masters]).select_related("calendar"):
             overrides.setdefault(row.series_id, []).append(row)

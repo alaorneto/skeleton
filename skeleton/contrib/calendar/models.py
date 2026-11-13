@@ -9,7 +9,7 @@ from django.utils.translation import gettext, gettext_lazy
 from skeleton.common.models import OrganizationRecord, SecuredRecord
 
 
-def validate_timezone(value):
+def validate_timezone(value: str) -> None:
     try:
         ZoneInfo(value)
     except (ZoneInfoNotFoundError, ValueError):
@@ -61,7 +61,7 @@ class Calendar(SecuredRecord):
         ]
         ordering = ("name", "sysid")
 
-    def clean(self):
+    def clean(self) -> None:
         super().clean()
         if self.kind == self.Kind.PERSONAL:
             if self.visibility != self.Visibility.PRIVATE:
@@ -72,11 +72,11 @@ class Calendar(SecuredRecord):
             if not self._state.adding and loaded.get("owner_id") not in (None, self.owner_id):
                 raise ValidationError({"owner": gettext("Um calendário pessoal não muda de dono.")})
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
-def new_uid():
+def new_uid() -> str:
     import uuid
 
     return f"{uuid.uuid4()}@skeleton"
@@ -180,7 +180,7 @@ class Event(OrganizationRecord):
         ]
         ordering = ("starts_at", "start_date", "sysid")
 
-    def clean(self):
+    def clean(self) -> None:
         super().clean()
         try:
             validate_timezone(self.tzid)
@@ -199,9 +199,11 @@ class Event(OrganizationRecord):
         from .recurrence import YEARS, _instant
 
         if self.all_day:
-            years, field_name = (self.start_date.year, self.end_date.year), "start_date"
+            # Not None: the all_day branch above raised otherwise.
+            years, field_name = (self.start_date.year, self.end_date.year), "start_date"  # type: ignore[union-attr]
         else:
-            years, field_name = (self.starts_at.year, self.ends_at.year), "starts_at"
+            # Not None: the timed branch above raised otherwise.
+            years, field_name = (self.starts_at.year, self.ends_at.year), "starts_at"  # type: ignore[union-attr]
         if not all(YEARS[0] <= year <= YEARS[1] for year in years):
             raise ValidationError({field_name: gettext("Data fora do intervalo aceito.")})
         if self.rrule:
@@ -237,7 +239,7 @@ class Event(OrganizationRecord):
                 end = max([end, *ends]) if end is not None else end
             self.recurrence_end = end
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.title
 
 
@@ -272,7 +274,7 @@ class EventAttendee(OrganizationRecord):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.event_id} {self.membership_id}"
 
 
@@ -303,5 +305,5 @@ class EventReminder(OrganizationRecord):
             ),
         ]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.event_id} -{self.minutes_before}min"

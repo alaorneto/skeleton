@@ -1,6 +1,10 @@
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from django.utils.translation import gettext_lazy
+
+if TYPE_CHECKING:
+    from django_stubs_ext import StrOrPromise
 
 
 @dataclass(frozen=True)
@@ -21,8 +25,8 @@ class CommentPolicy:
 @dataclass(frozen=True)
 class TableSpec:
     model: type
-    description: str
-    label: str | None = None
+    description: "StrOrPromise"  # Translated lazily.
+    label: "StrOrPromise | None" = None
     scope: str = "organization"
     read_fields: tuple = ()
     write_fields: tuple = ()

@@ -9,14 +9,16 @@ same masking.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext, gettext_lazy
@@ -26,6 +28,9 @@ from skeleton.service_api import Conflict, Forbidden, InvalidInput, NotFound
 from skeleton.web.views import tenant_page
 
 from .service_api import CalendarService
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 VIEWS = ("month", "week", "day", "list")
 PRESETS = {
@@ -37,7 +42,7 @@ PRESETS = {
 }
 
 
-def _zone(user) -> ZoneInfo:
+def _zone(user: Any) -> ZoneInfo:
     from skeleton.service_api.identity import IdentityService
 
     try:
@@ -46,7 +51,7 @@ def _zone(user) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def _bad_request(request, organization_id, detail):
+def _bad_request(request: HttpRequest, organization_id: UUID, detail: str) -> HttpResponse:
     return render(
         request,
         "skeleton_calendar/bad_request.html",
@@ -78,7 +83,7 @@ def _step(view: str, day: date, direction: int) -> date:
 
 
 @tenant_page()
-def home(request, organization_id):
+def home(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     view = request.GET.get("view", "week")
     if view not in VIEWS:
         return _bad_request(request, organization_id, gettext("Visão desconhecida: use month, week, day ou list."))
@@ -103,7 +108,7 @@ def home(request, organization_id):
         raise Http404 from None
     except InvalidInput:
         return _bad_request(request, organization_id, gettext("Há eventos demais neste período; use uma visão menor."))
-    days = {first + timedelta(days=index): [] for index in range((last - first).days)}
+    days: dict[date, list[Any]] = {first + timedelta(days=index): [] for index in range((last - first).days)}
     for occurrence in occurrences:
         local = occurrence.starts_at.date() if occurrence.all_day else occurrence.starts_at.astimezone(zone).date()
         if local in days:
@@ -162,17 +167,19 @@ class EventForm(forms.Form):
         label=gettext_lazy("Quantas vezes"), min_value=1, max_value=1000, initial=10, required=False
     )
 
-    def __init__(self, *args, calendars=(), **kwargs):
+    def __init__(self, *args: Any, calendars: Iterable[Any] = (), **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["calendar"].choices = [(str(item.sysid), item.name) for item in calendars]
+        self.fields["calendar"].choices = [  # type: ignore[attr-defined]  # The calendar field is a ChoiceField.
+            (str(item.sysid), item.name) for item in calendars
+        ]
 
-    def clean(self):
-        data = super().clean()
+    def clean(self) -> dict[str, Any]:
+        data: dict[str, Any] = super().clean()  # type: ignore[assignment]  # Form.clean returns cleaned_data.
         if not data.get("all_day") and (not data.get("start") or not data.get("end")):
             raise forms.ValidationError(gettext("Informe início e fim, ou marque dia inteiro."))
         return data
 
-    def event_data(self, zone: ZoneInfo) -> dict:
+    def event_data(self, zone: ZoneInfo) -> dict[str, Any]:
         data = self.cleaned_data
         values = {
             "title": data["title"],
@@ -195,7 +202,7 @@ class EventForm(forms.Form):
 FIELD_OF = {"starts_at": "start", "ends_at": "end", "start_date": "day", "end_date": "day", "rrule": "repeat"}
 
 
-def _apply_error(form, error):
+def _apply_error(form: forms.Form, error: Exception) -> None:
     """Each message next to its field: InvalidInput carries ``errors``, ValidationError ``message_dict``."""
     if isinstance(error, InvalidInput):
         details = dict(error.errors)
@@ -214,7 +221,7 @@ def _apply_error(form, error):
 @require_http_methods(["GET", "POST"])
 @tenant_page()
 @transaction.atomic
-def event_new(request, organization_id):
+def event_new(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     service = CalendarService()
     try:
         calendars = [item for item in service.my_calendars(actor=request.user) if item.writable]  # #344
@@ -252,7 +259,7 @@ def event_new(request, organization_id):
 @require_POST
 @tenant_page()
 @transaction.atomic
-def event_cancel(request, organization_id, sysid):
+def event_cancel(request: HttpRequest, organization_id: UUID, sysid: UUID) -> HttpResponse:
     try:
         revision = int(request.POST.get("revision", ""))
         CalendarService().cancel_event(actor=request.user, event_id=sysid, expected_revision=revision)
@@ -268,7 +275,7 @@ def event_cancel(request, organization_id, sysid):
 @require_POST
 @tenant_page()
 @transaction.atomic
-def member_access(request, organization_id):
+def member_access(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     from .services import grant_member_access
 
     try:
@@ -283,7 +290,7 @@ def member_access(request, organization_id):
 
 
 @tenant_page()
-def calendar_ics(request, organization_id, sysid):
+def calendar_ics(request: HttpRequest, organization_id: UUID, sysid: UUID) -> HttpResponse:
     """Download one calendar as .ics (session), masked like the pages."""
     from django.http import HttpResponse
 

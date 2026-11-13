@@ -146,6 +146,20 @@ files = [
     "tools/workflow",
     "tools/dev_postgres.py",
     "deployment_agent",
+    # #348: authorization, identity, API tokens, webhooks and the first-party calendar.
+    "skeleton/accounts/platform.py",
+    "skeleton/access/capabilities.py",
+    "skeleton/integrations/webhooks/delivery.py",
+    "skeleton/integrations/webhooks/services.py",
+    "skeleton/integrations/webhooks/log.py",
+    "skeleton/integrations/tokens/scopes.py",
+    "skeleton/integrations/tokens/services.py",
+    "skeleton/integrations/tokens/activity.py",
+    "skeleton/integrations/tokens/middleware.py",
+    "skeleton/access/services.py",
+    "skeleton/accounts/services.py",
+    "skeleton/accounts/adapters.py",
+    "skeleton/contrib/calendar",
 ]
 # The deployment agent is POSIX only (fcntl, O_DIRECTORY): checking for Linux everywhere makes a
 # local run on Windows see what the typecheck job sees (#347).
@@ -177,6 +191,19 @@ module = [
     "dependabot_locks",
     "dev_postgres",
     "deployment_agent.*",
+    "skeleton.accounts.platform",
+    "skeleton.access.capabilities",
+    "skeleton.integrations.webhooks.delivery",
+    "skeleton.integrations.webhooks.services",
+    "skeleton.integrations.webhooks.log",
+    "skeleton.integrations.tokens.scopes",
+    "skeleton.integrations.tokens.services",
+    "skeleton.integrations.tokens.activity",
+    "skeleton.integrations.tokens.middleware",
+    "skeleton.access.services",
+    "skeleton.accounts.services",
+    "skeleton.accounts.adapters",
+    "skeleton.contrib.calendar.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
@@ -187,6 +214,11 @@ disallow_any_generics = true
 [[tool.mypy.overrides]]
 module = ["deployment_agent.probe"]
 disable_error_code = ["import-untyped"]
+
+# django-allauth publishes no stubs: its objects are Any (#348).
+[[tool.mypy.overrides]]
+module = ["allauth.*", "dateutil.*"]
+ignore_missing_imports = true
 
 [tool.django-stubs]
 django_settings_module = "config.settings.test"

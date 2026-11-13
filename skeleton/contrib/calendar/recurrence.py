@@ -24,7 +24,7 @@ import itertools
 import logging
 import re
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
@@ -265,7 +265,9 @@ def series_end(event: Any) -> datetime | None:
     return max([end, *[moment + _duration(event) for moment in extra]])
 
 
-def expand(event: Any, start: datetime, end: datetime, *, overrides=None, limit: int = MAX_OCCURRENCES) -> Expansion:
+def expand(
+    event: Any, start: datetime, end: datetime, *, overrides: Iterable[Any] | None = None, limit: int = MAX_OCCURRENCES
+) -> Expansion:
     """Occurrences of ``event`` that overlap ``[start, end)``, overrides applied."""
     if end <= start or end - start > timedelta(days=MAX_WINDOW_DAYS):
         raise ValidationError(

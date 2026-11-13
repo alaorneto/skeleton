@@ -282,7 +282,7 @@ def _set_enabled(app_label: str, admin: Any, *, enabled: bool) -> None:
 
 def build_service_scenario(model: Any, *, slug: str = "service-contract") -> ServiceScenario:
     """Create identities, organizations A/B, grants and enable the app of model in both."""
-    from allauth.account.models import EmailAddress  # type: ignore[import-untyped]
+    from allauth.account.models import EmailAddress
 
     from skeleton.access.models import Action, Role, TablePermission
     from skeleton.access.services import provision_membership

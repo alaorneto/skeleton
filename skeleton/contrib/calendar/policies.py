@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q, QuerySet
@@ -21,20 +21,25 @@ from skeleton.access.policies import authorized_queryset
 
 from .models import Calendar, Event
 
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from .models import EventAttendee
+
 TABLE_KEY = "skeleton_calendar.calendar"
 
 BUSY_TITLE = gettext_lazy("Ocupado")
 
 
-def readable_calendars(user: Any) -> QuerySet:
+def readable_calendars(user: Any) -> QuerySet[Calendar]:
     return authorized_queryset(Calendar, user=user, action="read")
 
 
-def writable_calendars(user: Any) -> QuerySet:
+def writable_calendars(user: Any) -> QuerySet[Calendar]:
     return authorized_queryset(Calendar, user=user, action="update")
 
 
-def attendee_event_ids(user: Any) -> QuerySet | None:
+def attendee_event_ids(user: Any) -> QuerySet[EventAttendee, dict[str, Any]] | None:
     """Events the user is invited to (#72), with an active membership; overrides follow their master."""
     from .models import EventAttendee
 
@@ -43,7 +48,7 @@ def attendee_event_ids(user: Any) -> QuerySet | None:
     ).values("event_id")
 
 
-def readable_events(user: Any) -> QuerySet:
+def readable_events(user: Any) -> QuerySet[Event]:
     """Events the user may see (as themselves or as "Ocupado"), in the current organization."""
     condition = Q(calendar__in=readable_calendars(user).values("pk"))
     invited = attendee_event_ids(user)
@@ -82,8 +87,8 @@ def require_writable_event(user: Any, event_id: Any) -> Event:
 class ActorView:
     """What decides masking for one actor, loaded once per call and never kept beyond it (#291)."""
 
-    delegated_calendar_ids: frozenset
-    invited_event_ids: frozenset
+    delegated_calendar_ids: frozenset[UUID]
+    invited_event_ids: frozenset[UUID]
 
 
 def actor_view(user: Any, *, calendar_ids: Any, event_ids: Any) -> ActorView:
@@ -92,7 +97,7 @@ def actor_view(user: Any, *, calendar_ids: Any, event_ids: Any) -> ActorView:
     from skeleton.service_api.access import AccessService
 
     calendars = tuple(dict.fromkeys(calendar_ids))
-    delegated: set = set()
+    delegated: set[UUID] = set()
     try:
         for first in range(0, len(calendars), 500):  # The service answers up to 500 identifiers.
             delegated.update(
@@ -104,7 +109,7 @@ def actor_view(user: Any, *, calendar_ids: Any, event_ids: Any) -> ActorView:
         delegated = set()
     events = list(dict.fromkeys(event_ids))
     invited_rows = attendee_event_ids(user)
-    invited: frozenset = frozenset()
+    invited: frozenset[UUID] = frozenset()
     if invited_rows is not None and events:
         invited = frozenset(invited_rows.filter(event_id__in=events).values_list("event_id", flat=True))
     return ActorView(frozenset(delegated), invited)

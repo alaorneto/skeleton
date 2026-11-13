@@ -9,7 +9,9 @@ the next request. Writing always happens inside one organization: "Novo evento" 
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from typing import TYPE_CHECKING, Any
 
+from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 
@@ -18,11 +20,15 @@ from skeleton.tenancy.aggregate import aggregate_route, for_each_organization, u
 from .service_api import CalendarService
 from .views import _zone
 
+if TYPE_CHECKING:
+    from uuid import UUID
+
 APP_LABEL = "skeleton_calendar"
 
 
 @aggregate_route
-def my_agenda(request):
+# Any: aggregate_route admits only an authenticated person, and the middleware sets request_id.
+def my_agenda(request: Any) -> HttpResponse:
     with user_context(request, source="http:calendar-mine-zone"):  # The profile zone needs the person's context.
         zone = _zone(request.user)
     try:
@@ -32,7 +38,7 @@ def my_agenda(request):
     start = datetime.combine(day, time(), tzinfo=zone)
     end = start + timedelta(days=14)
 
-    def read(organization_id):
+    def read(organization_id: UUID) -> Any:
         from skeleton.service_api import InvalidInput
 
         try:
