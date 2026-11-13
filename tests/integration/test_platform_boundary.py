@@ -537,6 +537,9 @@ def test_update_mutations_still_require_recent_authentication(platform_actor):
         assert response["Location"].startswith(reverse("account_reauthenticate")), name
     response = client.post(operation, {"csrfmiddlewaretoken": token})
     assert response.status_code in (302, 404)  # Missing operation: 404 before or after the reauthentication.
+    preview = reverse("platform:updates-preview", args=[uuid4()])
+    response = client.post(preview, {"csrfmiddlewaretoken": token})
+    assert response.status_code == 302 and response["Location"].startswith(reverse("account_reauthenticate"))
     for url in gets:
         assert client.get(url).status_code in (200, 503), url
 

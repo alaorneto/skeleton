@@ -674,3 +674,147 @@ def test_sync_deployment_state_skips_organizations_without_retained_apps(tmp_pat
     monkeypatch.setattr(command, "system_context", spy)
     call_command("sync_deployment_state", inventory=inventory_path)
     assert "deployment:deactivate" not in reasons and "deployment:reconcile" in reasons
+
+
+# Asynchronous preview (#298): the plan is prepared by the agent; the web follows it read-only.
+PLAN_ID = "4b0a3c5e-9d1f-4c2a-8e7b-1f2a3b4c5d6e"
+
+
+def ready_plan(action="install"):
+    plan = {"id": PLAN_ID, "action": action, "generation": 3, "components": [], "files": [], "migrations": []}
+    plan["digest"] = "e" * 64
+    return plan
+
+
+def preview_agent(monkeypatch, *states, calls=None):
+    """An agent double whose plan(...) answers the given states in order (the last one repeats)."""
+    from skeleton.system import releases
+
+    answers = list(states)
+    calls = [] if calls is None else calls
+
+    def preview(action, artifacts=None, app_ids=None):
+        calls.append(("preview", action, artifacts, app_ids))
+        return {"id": PLAN_ID, "state": "preparing"}
+
+    def plan(plan_id):
+        calls.append(("plan", plan_id))
+        state = answers.pop(0) if len(answers) > 1 else answers[0]
+        status = {"id": PLAN_ID, "state": state, "created_at": "2026-11-13T00:00:00+00:00"}
+        status["request"] = {"action": "install", "artifacts": ["c" * 64], "app_ids": []}
+        if state == "ready":
+            status["plan"] = ready_plan()
+        if state == "failed":
+            status["error"] = "dependency_unsatisfied"
+            suggestion = {"source_id": "main", "component_id": "org.test.base", "version": "1.2.0", "digest": "b" * 64}
+            status["details"] = [
+                {
+                    "code": "missing_dependency",
+                    "component": "org.test.consumer",
+                    "dependency": "org.test.base",
+                    "required": ">=1.0",
+                    "suggestions": [suggestion],
+                }
+            ]
+        return status
+
+    monkeypatch.setattr(releases, "agent_client", lambda: SimpleNamespace(preview=preview, plan=plan))
+    return calls
+
+
+def platform_login():
+    user = actor(platform=True)
+    client = Client()
+    assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
+    return user, client
+
+
+def audit_count():
+    from skeleton.audit.models import AuditEvent
+
+    with system_context(reason="test:audit-count"):
+        return AuditEvent.objects.count()
+
+
+def test_plan_form_redirects_to_preview_page_without_creating_operation(monkeypatch):
+    calls = preview_agent(monkeypatch, "preparing")
+    _, client = platform_login()
+    response = client.post("/platform/updates/plan/", {"action": "install", "artifacts": "c" * 64})
+    assert response.status_code == 302
+    assert response["Location"] == f"/platform/updates/plan/{PLAN_ID}/"
+    assert calls == [("preview", "install", ["c" * 64], [])]
+    assert not DeploymentOperation.objects.exists()
+
+
+def test_preview_page_get_is_read_only_while_preparing(monkeypatch):
+    preview_agent(monkeypatch, "preparing")
+    _, client = platform_login()
+    before = audit_count()
+    response = client.get(f"/platform/updates/plan/{PLAN_ID}/")
+    assert response.status_code == 200
+    page = response.content.decode()
+    assert '<meta http-equiv="refresh" content="3">' in page and "Preparando a prévia" in page
+    assert not DeploymentOperation.objects.exists() and audit_count() == before
+
+
+def test_preview_page_shows_ready_plan_without_writing(monkeypatch):
+    preview_agent(monkeypatch, "ready")
+    _, client = platform_login()
+    before = audit_count()
+    page = client.get(f"/platform/updates/plan/{PLAN_ID}/").content.decode()
+    assert "http-equiv" not in page and "Continuar" in page and "e" * 64 in page
+    assert not DeploymentOperation.objects.exists() and audit_count() == before
+
+
+def test_preview_page_shows_failure_details(monkeypatch):
+    preview_agent(monkeypatch, "failed")
+    _, client = platform_login()
+    response = client.get(f"/platform/updates/plan/{PLAN_ID}/")
+    assert response.status_code == 409
+    page = response.content.decode()
+    assert "org.test.consumer exige org.test.base &gt;=1.0" in page and "Adicionar ao plano" in page
+    assert f'name="artifacts" value="{"c" * 64}"' in page
+    assert not DeploymentOperation.objects.exists()
+
+
+def test_continue_creates_single_operation_and_redirects(monkeypatch):
+    preview_agent(monkeypatch, "ready")
+    _, client = platform_login()
+    first = client.post(f"/platform/updates/plan/{PLAN_ID}/")
+    second = client.post(f"/platform/updates/plan/{PLAN_ID}/")
+    row = DeploymentOperation.objects.get()
+    assert first["Location"] == second["Location"] == f"/platform/updates/operations/{row.pk}/"
+    assert (row.operation, row.expected_generation, row.plan_digest, row.state) == ("install", 3, "e" * 64, "preview")
+    assert row.plan == ready_plan()
+
+
+def test_continue_refuses_plan_that_is_not_ready(monkeypatch):
+    preview_agent(monkeypatch, "preparing")
+    _, client = platform_login()
+    response = client.post(f"/platform/updates/plan/{PLAN_ID}/")
+    assert response.status_code == 302 and response["Location"] == f"/platform/updates/plan/{PLAN_ID}/"
+    assert not DeploymentOperation.objects.exists()
+
+
+def test_preview_page_requires_platform_administrator(monkeypatch):
+    from skeleton.system import releases
+
+    monkeypatch.setattr(releases, "agent_client", lambda: pytest.fail("A refused page contacted the agent."))
+    user = actor()
+    client = Client()
+    assert client.post("/accounts/login/", {"login": user.email, "password": PASSWORD}).status_code == 302
+    assert client.get(f"/platform/updates/plan/{PLAN_ID}/").status_code == 403
+    assert client.post(f"/platform/updates/plan/{PLAN_ID}/").status_code == 403
+    assert not DeploymentOperation.objects.exists()
+
+
+def test_old_agent_answering_with_whole_plan_is_refused(monkeypatch):
+    from skeleton.system import releases
+    from skeleton.system.releases import DeploymentUnavailable, request_preview
+
+    monkeypatch.setattr(releases, "agent_client", lambda: SimpleNamespace(preview=lambda *a, **k: ready_plan()))
+    user = actor(platform=True)
+    with request_context(actor=user, request_id=None, source="test:deployment"):
+        with pytest.raises(DeploymentUnavailable, match="older than this core"):
+            request_preview(user=user, action="install", artifacts=["c" * 64])
+    assert not DeploymentOperation.objects.exists()

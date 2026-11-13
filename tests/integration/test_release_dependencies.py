@@ -13,6 +13,7 @@ pytestmark = pytest.mark.usefixtures("skeleton_db")
 PASSWORD = "Release-dependency-password!31"
 BASE_DIGEST = "b" * 64
 CONSUMER_DIGEST = "c" * 64
+PLAN_ID = "4b0a3c5e-9d1f-4c2a-8e7b-1f2a3b4c5d6e"
 
 
 def platform_client():
@@ -79,7 +80,7 @@ def test_add_dependency_fetches_and_previews_the_combined_plan(monkeypatch, upgr
 
     def preview(action, artifacts=None, app_ids=None):
         calls.append(("preview", action, artifacts))
-        return {"id": "plan", "action": action, "generation": 3, "digest": "d" * 64}
+        return {"id": PLAN_ID, "state": "preparing"}  # Prepared by the agent in a thread (#298).
 
     agent = SimpleNamespace(fetch_release=fetch_release, preview=preview)
     monkeypatch.setattr(release_admin, "agent_client", lambda: agent)
@@ -96,11 +97,12 @@ def test_add_dependency_fetches_and_previews_the_combined_plan(monkeypatch, upgr
         },
     )
     assert response.status_code == 302
+    assert response["Location"] == f"/platform/updates/plan/{PLAN_ID}/"
     assert calls == [
         ("fetch", "org.test.base", "1.2.0", "main"),
         ("preview", expected, [CONSUMER_DIGEST, BASE_DIGEST]),
     ]
-    assert DeploymentOperation.objects.get().operation == expected
+    assert not DeploymentOperation.objects.exists()  # Created only by Continue, once the plan is ready.
 
 
 def test_add_dependency_rejects_an_uninstall_plan(monkeypatch):

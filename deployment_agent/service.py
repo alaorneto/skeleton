@@ -273,13 +273,35 @@ class DeploymentService:
             self._write_active(source, inventory, snapshot)
             return inventory
 
-    def ensure_available(self):
+    def ensure_available(self, *, ignore_plan=None):
         if Path(self.config["maintenance_marker"]).exists() or any(
             state in ("queued", "running", "interrupted") for state in self.store.operation_states().values()
         ):
             raise AgentError("recovery_or_operation_pending", 409)
+        # One preparation at a time (#298); prepare() ignores its own record.
+        if any(
+            record.get("state") == "preparing" and plan_id != ignore_plan for plan_id, record, _ in self.store.plans()
+        ):
+            raise AgentError("recovery_or_operation_pending", 409)
 
-    def preview(self, action, artifacts=None, app_ids=None):
+    def plan_status(self, plan_id):
+        """Public view of a plan record: never the inventory, owned files or previous_* (#298)."""
+        record = self.store.get("plans", identifier(plan_id))
+        state = record.get("state", "ready")  # Records written before #298 are ready plans.
+        result = {"id": plan_id, "state": state, "created_at": record.get("created_at")}
+        if isinstance(record.get("request"), dict):
+            result["request"] = {key: record["request"].get(key) for key in ("action", "artifacts", "app_ids")}
+        if state == "ready":
+            result["plan"] = record["plan"]
+            result["created_at"] = result["created_at"] or record["plan"].get("created_at")
+        elif state == "failed":
+            result["error"] = record.get("error")
+            result["details"] = record.get("details")
+        return result
+
+    @staticmethod
+    def _preview_request(action, artifacts, app_ids):
+        """Shape of a preview request: action, artifact digests and app ids (no state read)."""
         artifacts = artifacts or []
         app_ids = app_ids or []
         if (
@@ -299,45 +321,98 @@ class DeploymentService:
             raise AgentError("duplicate_or_invalid_components")
         if action == "uninstall" and (not app_ids or artifacts) or action != "uninstall" and (not artifacts or app_ids):
             raise AgentError("invalid_action_targets")
+        return artifacts, app_ids
+
+    def _check_preview(self, action, artifacts, app_ids, *, ignore_plan=None):
+        """Checks that need the journal and the active release; the caller holds deployment_lock.
+
+        Dependency problems leave here with their details, synchronously in preview (#298).
+        """
+        self.ensure_available(ignore_plan=ignore_plan)
+        state = self.state()
+        source = self.backend.active()
+        if str(source) != state["release"]:
+            raise AgentError("active_pointer_conflict", 409)
+        check_drift(source, state["owned_files"])
+        self.backend.preflight(source)  # The operation would fail after maintenance otherwise (#246).
+        inventory = state["inventory"]
+        old_apps = {entry["manifest"]["app_id"]: entry for entry in inventory["apps"]}
+        kinds = []
+        manifests = []
+        for value in artifacts:
+            manifest = verified(self.store, self.config, value).manifest
+            manifests.append(manifest)
+            kind = manifest["kind"]
+            component = manifest.get("app_id", "django-skeleton")
+            kinds.append(component)
+            existing = old_apps.get(component)
+            if action == "install" and kind == "app" and existing:
+                raise AgentError("already_installed_or_wrong_action", 409)
+            if action == "reinstall" and (not existing or existing["state"] != "schema_retained"):
+                raise AgentError("not_retained", 409)
+            if action in ("update", "core_update") and existing and existing["state"] == "schema_retained":
+                raise AgentError("explicit_reinstall_required", 409)
+        if len(kinds) != len(set(kinds)) or action == "core_update" and "django-skeleton" not in kinds:
+            raise AgentError("duplicate_component_or_missing_core")
+        # An update may bring new dependencies along, but must update something installed.
+        if action == "update" and not any(component in old_apps for component in kinds):
+            raise AgentError("not_installed_use_install", 409)
+        # Resolve the resulting component set before any copy, extraction or lock work.
+        check_plan_dependencies(
+            self.config, self.backend, inventory, manifests, app_ids, suggest=self.catalogue_suggestions
+        )
+        return state, source, inventory
+
+    def preview(self, action, artifacts=None, app_ids=None):
+        """Validate quickly, record the plan as ``preparing`` and build it in a thread (#298).
+
+        The web request no longer waits for the release copy, pip, checks and image build:
+        it receives ``{id, state}`` and follows ``GET /plans/<id>``.
+        """
+        artifacts, app_ids = self._preview_request(action, artifacts, app_ids)
         with deployment_lock(self.store.root):
-            self.ensure_available()
-            state = self.state()
-            source = self.backend.active()
-            if str(source) != state["release"]:
-                raise AgentError("active_pointer_conflict", 409)
-            check_drift(source, state["owned_files"])
-            self.backend.preflight(source)  # The operation would fail after maintenance otherwise (#246).
-            inventory = state["inventory"]
-            old_apps = {entry["manifest"]["app_id"]: entry for entry in inventory["apps"]}
-            kinds = []
-            manifests = []
-            for value in artifacts:
-                manifest = verified(self.store, self.config, value).manifest
-                manifests.append(manifest)
-                kind = manifest["kind"]
-                component = manifest.get("app_id", "django-skeleton")
-                kinds.append(component)
-                existing = old_apps.get(component)
-                if action == "install" and kind == "app" and existing:
-                    raise AgentError("already_installed_or_wrong_action", 409)
-                if action == "reinstall" and (not existing or existing["state"] != "schema_retained"):
-                    raise AgentError("not_retained", 409)
-                if action in ("update", "core_update") and existing and existing["state"] == "schema_retained":
-                    raise AgentError("explicit_reinstall_required", 409)
-            if len(kinds) != len(set(kinds)) or action == "core_update" and "django-skeleton" not in kinds:
-                raise AgentError("duplicate_component_or_missing_core")
-            # An update may bring new dependencies along, but must update something installed.
-            if action == "update" and not any(component in old_apps for component in kinds):
-                raise AgentError("not_installed_use_install", 409)
-            # Resolve the resulting component set before any copy, extraction or lock work.
-            check_plan_dependencies(
-                self.config, self.backend, inventory, manifests, app_ids, suggest=self.catalogue_suggestions
-            )
-            self.backend.manage(source, ["check_skeleton_schema"], "runtime", code="current_schema_invalid")
-            required = self.config.get("minimum_free_bytes", 512 * 1024 * 1024)
-            if shutil.disk_usage(self.config["releases_root"]).free < required:
-                raise AgentError("insufficient_disk_space", 409)
+            state, _, _ = self._check_preview(action, artifacts, app_ids)
             plan_id = str(uuid4())
+            self.store.put(
+                "plans",
+                plan_id,
+                {
+                    "state": "preparing",
+                    "request": {"action": action, "artifacts": artifacts, "app_ids": app_ids},
+                    "generation": state["inventory"]["generation"],
+                    "created_at": now(),
+                    "error": None,
+                    "details": None,
+                },
+            )
+        # The lock is released before the thread starts; prepare() takes it again and rechecks.
+        self.worker = threading.Thread(target=self.prepare, args=(plan_id,), daemon=False, name=f"preview-{plan_id}")
+        self.worker.start()
+        return {"id": plan_id, "state": "preparing"}
+
+    def prepare(self, plan_id):
+        """Build the release and the plan of a ``preparing`` record; ``ready`` or ``failed`` at the end."""
+        with deployment_lock(self.store.root, blocking=True):
+            try:
+                request_record = self.store.get("plans", plan_id)
+            except AgentError:
+                return None
+            if request_record.get("state", "ready") != "preparing":
+                return None
+            request_record = {key: request_record.get(key) for key in ("request", "generation", "created_at")}
+            action = request_record["request"]["action"]
+            artifacts, app_ids = request_record["request"]["artifacts"], request_record["request"]["app_ids"]
+            try:
+                # The lock was released between preview() and here: everything is checked again.
+                state, source, inventory = self._check_preview(action, artifacts, app_ids, ignore_plan=plan_id)
+                if inventory["generation"] != request_record["generation"]:
+                    raise AgentError("generation_changed", 409)
+                self.backend.manage(source, ["check_skeleton_schema"], "runtime", code="current_schema_invalid")
+                required = self.config.get("minimum_free_bytes", 512 * 1024 * 1024)
+                if shutil.disk_usage(self.config["releases_root"]).free < required:
+                    raise AgentError("insufficient_disk_space", 409)
+            except Exception as error:
+                return self._preparation_failed(plan_id, request_record, error)
             release = Path(self.config["releases_root"]) / f"{inventory['generation'] + 1}-{plan_id}"
             try:
                 target = create_release(self.config, self.store, self.backend, inventory, artifacts, app_ids, release)
@@ -424,6 +499,8 @@ class DeploymentService:
                     "plans",
                     plan_id,
                     {
+                        **request_record,
+                        "state": "ready",
                         "plan": plan,
                         "inventory": target,
                         "owned_files": owned,
@@ -435,11 +512,27 @@ class DeploymentService:
                 )
                 freeze(release)
                 return plan
-            except Exception:
+            except Exception as error:
                 if release.exists():
                     # Preparation has not touched live state; retain no unsigned/partial executable release.
                     remove_release(release)
-                raise
+                return self._preparation_failed(plan_id, request_record, error)
+
+    def _preparation_failed(self, plan_id, request_record, error):
+        """Record the error code (AgentError) or the class name; the message never leaves the agent."""
+        if not isinstance(error, AgentError):
+            log_internal_error(error)
+        details = getattr(error, "details", None)
+        self.store.put(
+            "plans",
+            plan_id,
+            {
+                **request_record,
+                "state": "failed",
+                "error": getattr(error, "code", None) or type(error).__name__,
+                "details": details if details else None,
+            },
+        )
 
     def submit(self, plan_id, plan_digest, generation, operation_id, actor_id, request_id):
         operation_id = identifier(operation_id)
@@ -471,8 +564,10 @@ class DeploymentService:
                 if operation["binding"] != binding:
                     raise AgentError("idempotency_conflict", 409)
                 return self.public_operation(operation)
-            self.ensure_available()
             record = self.store.get("plans", plan_id)
+            if record.get("state", "ready") != "ready":
+                raise AgentError("plan_not_ready", 409)
+            self.ensure_available()
             plan = record["plan"]
             if (
                 plan["digest"] != plan_digest
@@ -704,6 +799,15 @@ class DeploymentService:
                 ):
                     self.stage(operation, "interrupted", state="interrupted", error="agent_interrupted")
                     self.maintain(operation)
+            for plan_id, record, _ in self.store.plans():
+                if record.get("state") != "preparing":
+                    continue
+                # Preparation never touches the active release: no maintenance marker (#298).
+                root = Path(self.config["releases_root"])
+                for release in root.glob(f"*-{plan_id}") if root.is_dir() else ():
+                    if release.is_dir() and not release.is_symlink():
+                        remove_release(release)
+                self.store.put("plans", plan_id, {**record, "state": "failed", "error": "agent_interrupted"})
             state_path = self.store.root / "active.json"
             if state_path.exists():
                 state = load_json(state_path)

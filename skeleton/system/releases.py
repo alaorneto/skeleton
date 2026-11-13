@@ -44,13 +44,62 @@ def agent_client():
     return AgentClient(socket, token)
 
 
-def create_preview(*, user, action, artifacts=(), app_ids=()):
+PLAN_STATES = {"preparing", "ready", "failed"}
+
+
+def _plan_id(value):
+    try:
+        return str(UUID(str(value)))
+    except (TypeError, ValueError):
+        raise DeploymentUnavailable("Invalid agent preview response.") from None
+
+
+def request_preview(*, user, action, artifacts=(), app_ids=()):
+    """Ask the agent to prepare a plan (#298) and return its id; nothing is written to the database.
+
+    Dependency problems still arrive synchronously, as AgentError with details.
+    """
     require_release_operator(user)
     if action not in {"install", "update", "uninstall", "reinstall", "core_update"}:
         raise ValidationError("Unsupported deployment operation.")
-    plan = agent_client().preview(action, artifacts=list(artifacts), app_ids=list(app_ids))
-    if plan.get("action") != action or not isinstance(plan.get("generation"), int):
+    summary = agent_client().preview(action, artifacts=list(artifacts), app_ids=list(app_ids))
+    if "state" not in summary:
+        # An agent from before #298 answers with the whole plan: never guess.
+        raise DeploymentUnavailable("Deployment agent is older than this core.")
+    if summary["state"] not in PLAN_STATES:
         raise DeploymentUnavailable("Invalid agent preview response.")
+    return _plan_id(summary.get("id"))
+
+
+def preview_status(*, user, plan_id):
+    """``{id, state, ...}`` of a plan in the agent; read only."""
+    require_release_operator(user)
+    status = agent_client().plan(_plan_id(plan_id))
+    if status.get("state") not in PLAN_STATES or status.get("id") != str(plan_id):
+        raise DeploymentUnavailable("Invalid agent plan response.")
+    return status
+
+
+def record_preview(*, user, plan_id):
+    """Mirror a ready plan as a DeploymentOperation in ``preview``; the same plan yields one row."""
+    status = preview_status(user=user, plan_id=plan_id)
+    if status["state"] != "ready":
+        raise DeploymentUnavailable("The deployment plan is not ready.")
+    plan = status.get("plan")
+    if (
+        not isinstance(plan, dict)
+        or plan.get("id") != str(plan_id)
+        or not isinstance(plan.get("generation"), int)
+        or not isinstance(plan.get("digest"), str)
+        or len(plan["digest"]) != 64
+    ):
+        raise DeploymentUnavailable("Invalid agent preview response.")
+    action = plan.get("action")
+    if action not in {"install", "update", "uninstall", "reinstall", "core_update"}:
+        raise DeploymentUnavailable("Invalid agent preview response.")
+    existing = DeploymentOperation.objects.filter(plan_digest=plan["digest"]).first()
+    if existing is not None:
+        return existing
     operation = DeploymentOperation(
         operation=action,
         expected_generation=plan["generation"],

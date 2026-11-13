@@ -3,6 +3,7 @@
 import argparse
 import json
 import sys
+import time
 
 from .config import Config
 from .server import StatusTickets, serve
@@ -94,6 +95,15 @@ def main():
                 result = client.upload(options.artifact)
             elif options.command == "preview":
                 result = client.preview(options.action, artifacts=options.artifact, app_ids=options.app_id)
+                # The plan is prepared in the agent (#298): follow it until it is ready or failed.
+                while result.get("state") == "preparing":
+                    time.sleep(2)
+                    result = client.plan(result["id"])
+                if result.get("state") == "failed":
+                    failure = {"error": result.get("error"), "details": result.get("details")}
+                    print(json.dumps(failure), file=sys.stderr)
+                    return 1
+                result = result.get("plan", result)
             elif options.command == "submit":
                 result = client.submit(
                     options.plan_id,

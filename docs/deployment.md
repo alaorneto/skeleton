@@ -219,7 +219,7 @@ As métricas da fila são calculadas **na coleta** e cada processo reutiliza o r
 ```sh
 export PROMETHEUS_MULTIPROC_DIR=/run/skeleton-metrics
 rm -rf "$PROMETHEUS_MULTIPROC_DIR" && install -d -m 0700 -o skeleton "$PROMETHEUS_MULTIPROC_DIR"
-gunicorn config.wsgi:application --workers 3
+gunicorn config.wsgi:application --workers 3 --timeout 120
 ```
 
 O check de deploy `skeleton.W034` avisa quando as métricas estão ligadas fora de `DEBUG` sem a variável, e `skeleton.E034` reprova uma variável que não aponta para um diretório gravável; com um processo só atendendo o site, silencie o aviso com `SILENCED_SYSTEM_CHECKS = ["skeleton.W034"]` (#275). Com a variável, a coleta lê os arquivos de todos os processos (`MultiProcessCollector`) e as métricas da fila continuam vindo do banco. Só há histogramas por processo, sem gauges, então não é preciso o hook `child_exit`. Sem a variável, cada scrape vê apenas o processo que o atendeu. Em systemd, use `RuntimeDirectory=skeleton-metrics`, que o recria vazio a cada início. O worker de jobs não expõe métricas.
@@ -572,7 +572,7 @@ Group=skeleton-web
 WorkingDirectory=/srv/skeleton/current
 EnvironmentFile=/srv/skeleton/private/runtime.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3
+ExecStart=/srv/skeleton/current/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120
 KillSignal=SIGTERM
 TimeoutStopSec=1800
 [Install]
@@ -632,9 +632,15 @@ CONFIG=/srv/skeleton/private/agent.json
 
 `submit` apenas entrega uma solicitação assíncrona. **Sucesso final** exige `state=succeeded`, `stage=ready` e geração/core reais em `/health/release/`; exit code de envio ou estado `queued` não bastam.
 
-O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação. O reenvio aparece para uma entrega que falhou (`submission_failed`) e também para uma aprovação que ficou `approved`/`awaiting_agent` por mais de 2 minutos sem retorno do agente; uma aprovação recente não pode ser reenviada. A falha de entrega fica no log como `deployment.submission_failed`, só com o UUID da operação e a classe do erro. O web espera o agente no máximo 10 s nas leituras de estado (`inventory`, status da operação, ticket de acompanhamento) e 30 s na entrega do plano aprovado; upload, preview e catálogo usam o prazo do cliente. A página da operação consulta o agente sem travar a linha e só a trava para gravar o estado reconciliado (#250).
+O vínculo aprovado reúne `plan_id`, `plan_digest`, `generation`, `operation_id`, `actor_id` e `request_id`. Reenviar exatamente esse vínculo retorna a mesma operação; trocar valores conflita. Se a confirmação de recebimento se perder, consulte o status da operação. Um reenvio explícito deve conservar os seis valores originais, sem novo preview, nova aprovação ou substituição pela geração atual. Na interface, o reenvio mantém o `request_id` lógico da aprovação; a nova request HTTP tem seu próprio identificador na auditoria. Sem vínculo original durável, consulte status/journal e falhe fechado: não invente outra aprovação. O reenvio aparece para uma entrega que falhou (`submission_failed`) e também para uma aprovação que ficou `approved`/`awaiting_agent` por mais de 2 minutos sem retorno do agente; uma aprovação recente não pode ser reenviada. A falha de entrega fica no log como `deployment.submission_failed`, só com o UUID da operação e a classe do erro. O web espera o agente no máximo 10 s nas leituras de estado (`inventory`, status da operação, ticket de acompanhamento) e 30 s na entrega do plano aprovado; upload, preview e catálogo usam o prazo do cliente, e a consulta do plano em preparação usa os mesmos 10 s das leituras. A página da operação consulta o agente sem travar a linha e só a trava para gravar o estado reconciliado (#250).
 
 Um plano/geração antigo é rejeitado para uma nova submissão. O preview prepara ambiente isolado e carrega o grafo Django real, mas não aplica migrations. Hashes e estado das migrations são novamente conferidos na execução e após drenar os escritores.
+
+**A prévia é assíncrona (#298).** `POST /preview` faz só as conferências rápidas (formato, alvos, journal, ponteiro ativo, deriva dos arquivos, preflight, regras por ação e dependências) e responde em poucos segundos com `{"id": "<uuid>", "state": "preparing"}`. A cópia do projeto, a extração dos pacotes, o virtualenv, o `pip install`, os checks, o `collectstatic` e, no Compose, a imagem rodam numa thread do agente, que toma o lock de novo e repete as conferências antes de começar. `GET /plans/<uuid>` responde `preparing`, `ready` (com o plano) ou `failed` (com `error` e, nos problemas de dependência, `details`); nunca devolve inventário, hashes dos arquivos nem o release anterior. Os erros de dependência continuam síncronos: `POST /preview` responde 409 `dependency_unsatisfied` com `details`, e a tela de sugestões é a mesma. Enquanto um plano está `preparing`, outra prévia, `submit` e `prune` recebem 409 `recovery_or_operation_pending`; `submit` de um plano `preparing` ou `failed` recebe 409 `plan_not_ready`. Uma preparação que falha remove o release parcial. Se o agente reiniciar no meio dela, o plano vira `failed` com `agent_interrupted` e o release parcial é apagado, sem marcador de manutenção: a preparação não toca o release ativo. Planos gravados antes desta versão, sem `state`, valem como prontos.
+
+No admin, "Visualizar impacto" leva a uma página de acompanhamento que se atualiza sozinha (`<meta http-equiv="refresh">`, sem JavaScript) e só lê o estado; quando o plano fica pronto, "Continuar" (POST, com autenticação recente) cria o `DeploymentOperation` e abre a tela da operação. Reenviar "Continuar" para o mesmo plano reabre a mesma operação. A CLI `preview` consulta o plano a cada 2 s e imprime o plano final; uma falha sai no stderr com código 1.
+
+**Compatibilidade:** atualize o agente junto com o núcleo. Um núcleo novo com agente antigo recusa a prévia com "Deployment agent is older than this core."; um núcleo antigo com agente novo trata `{id, state}` como resposta inválida e mostra o erro, sem efeito colateral.
 
 ```sh
 "$AGENT" --config "$CONFIG" preview update --artifact "$NEW_APP_DIGEST"
@@ -677,7 +683,8 @@ API equivalente pelo socket (todas as chamadas exigem `Authorization: Bearer <to
 | GET `/inventory` | nenhum |
 | GET `/operations/<uuid>` | nenhum; inclui status_url quando habilitado |
 | POST `/uploads` | bytes `.skapp`, `application/octet-stream` |
-| POST `/preview` | `{"action":"install","artifacts":["<sha256>"],"app_ids":[]}` |
+| POST `/preview` | `{"action":"install","artifacts":["<sha256>"],"app_ids":[]}`; responde `{"id":"<uuid>","state":"preparing"}` |
+| GET `/plans/<uuid>` | nenhum; `state` `preparing`, `ready` (com `plan`) ou `failed` (com `error`/`details`) |
 | POST `/submit` | `{"plan_id":"<uuid>","plan_digest":"<sha256>","generation":0,"operation_id":"<uuid>","actor_id":"<uuid>","request_id":"<uuid>"}` |
 | POST `/status-ticket` | `{"operation_id":"<uuid>"}`; permite emitir link antes de submit |
 | POST `/catalog/check` | `{}` |

@@ -146,6 +146,8 @@ class ControlHandler(QuietHandler):
                 return service.inventory()
             if path.path.startswith("/operations/"):
                 return self.operation(identifier(path.path.removeprefix("/operations/")))
+            if path.path.startswith("/plans/"):
+                return service.plan_status(identifier(path.path.removeprefix("/plans/")))
         elif self.command == "POST":
             if path.path == "/uploads":
                 return service.upload(self.body(upload=True))
