@@ -188,3 +188,16 @@ def test_build_rejects_manifest_leaves_that_differ_from_migration_files(tmp_path
     ):
         build_package(root, tmp_path / "manifest.json", tmp_path / "out.skapp", tmp_path / "unused.pem")
     assert not (tmp_path / "out.skapp").exists()
+
+
+def test_catalog_candidates_include_prereleases_in_range():
+    from skeleton.system.dependencies import catalog_candidates
+
+    entries = [{"component_id": "org.test.base", "version": "1.2.0rc1", "compatibility": {"core": ">=0.1"}}]
+    assert catalog_candidates(entries, "org.test.base", ">=1.0", {"core": "0.3.0"}) == entries
+
+
+def test_app_prerelease_satisfies_dependent_range():
+    base, consumer = app("base", "1.2.0-rc.1"), app("consumer", base=">=1.0.0,<2.0.0")
+    resolution = resolve_dependencies([consumer, base], **TARGET)
+    assert resolution.ok, codes(resolution)

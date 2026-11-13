@@ -78,7 +78,7 @@ Modelos elegíveis sem `model_ui` recebem defaults sem Form/template próprios. 
 
 ### Dependências entre apps
 
-`dependencies` mapeia o app ID de cada app exigida para uma faixa de versão, como `{"com.example.customers": ">=1.2,<2.0"}`. `conflicts` usa o mesmo formato para versões que não podem coexistir. O core não entra em `dependencies`: a faixa do núcleo é `compatibility.skeleton`, e o manifesto que tentar declarar `django-skeleton` como dependência é recusado. Não há dependências opcionais; uma integração que só funciona com outra app presente precisa declará-la.
+`dependencies` mapeia o app ID de cada app exigida para uma faixa de versão, como `{"com.example.customers": ">=1.2,<2.0"}`. `conflicts` usa o mesmo formato para versões que não podem coexistir. Uma pré-release dentro da faixa a satisfaz (`1.2.0-rc.1` atende `>=1.0.0,<2.0.0`), com qualquer versão suportada de `packaging`; pela regra do PEP 440, a pré-release do próprio limite fica fora (`1.0.0rc1` não atende `<1.0.0` nem `>=1.0.0`) (#256). O core não entra em `dependencies`: a faixa do núcleo é `compatibility.skeleton`, e o manifesto que tentar declarar `django-skeleton` como dependência é recusado. Não há dependências opcionais; uma integração que só funciona com outra app presente precisa declará-la.
 
 O mesmo resolvedor (`skeleton.system.dependencies.resolve_dependencies`) roda em quatro momentos e relata todos os problemas de uma vez, cada um com um código estável:
 

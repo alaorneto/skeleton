@@ -256,14 +256,12 @@ def catalog_candidates(
 
     target maps skeleton/python/django to the versions the release would run with.
     """
-    from packaging.specifiers import SpecifierSet
-
     matches = [
         entry
         for entry in entries
         if entry["component_id"] == dependency
-        and Version(entry["version"]) in SpecifierSet(required)
-        and all(Version(version) in SpecifierSet(entry["compatibility"][key]) for key, version in target.items())
+        and version_satisfies(entry["version"], required)  # Pre-releases count (#256).
+        and all(version_satisfies(version, entry["compatibility"][key]) for key, version in target.items())
     ]
     matches.sort(key=lambda entry: Version(entry["version"]), reverse=True)
     return matches[:limit]
