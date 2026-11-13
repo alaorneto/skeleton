@@ -8,9 +8,9 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 2. `docs/data-model.md`, `docs/access-control.md`, `docs/audit-soft-delete.md`.
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
-5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md` e `docs/sequences.md` antes de usar ou alterar o subsistema correspondente.
-6. `docs/authentication-sso.md` para identidade; `docs/api.md` para endpoints.
-7. `docs/testing.md` e `docs/deployment.md` antes de verificar/operar.
+5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md`, `docs/sequences.md`, `docs/flows.md`, `docs/comments.md`, `docs/data-transfer.md` e `docs/billing.md` antes de usar ou alterar o subsistema correspondente.
+6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas.
+7. `docs/testing.md`, `docs/checks.md` e `docs/deployment.md` antes de verificar/operar.
 8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
 
 ## Rastreabilidade: plano, issue, commit, versão e fechamento
@@ -40,7 +40,7 @@ Próprio deste repositório (detalhes em [docs/workflow.md](docs/workflow.md)):
 - `skeleton/accounts`: identidade global e integração allauth; não reimplemente OAuth, OIDC, SAML, MFA ou password reset.
 - `skeleton/tenancy`: organização, vínculo, convite e contexto transacional.
 - `skeleton/access`: papéis/grupos, concessões e serviços/policies.
-- `skeleton/system`: registro de specs, catálogo e checks; metadados não executam DDL.
+- `skeleton/system`: registro de specs, catálogo e checks ([docs/checks.md](docs/checks.md)); metadados não executam DDL. Também guarda as apps (registro, dependências, disponibilidade dada pela plataforma e ativação pela organização), os pacotes `.skapp` em `skeleton/system/packaging/` (manifesto, assinatura, build, doctor; `skeleton.system.packages` é a fachada estável), a análise estática da fronteira de importação (`import_boundary.py`, E019/W019: lê o código com `ast` e nunca importa código de app), o `skeleton_startapp` (`app_scaffold.py`: valida o manifesto antes de gravar, nunca sobrescreve uma app nem edita settings) e o cliente do agente de deployment (`deployment_client.py`: só o socket Unix de controle; nenhum comando de deployment nem credencial owner no processo web).
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
 - `skeleton/jobs`: fila de jobs no banco, com tipos registrados em código; enqueue na transação do negócio; payload só com identificadores, nunca dado de negócio.
 - `skeleton/events`: eventos de domínio publicados explicitamente pelo serviço, na mesma transação da escrita; só campos declarados e não sensíveis; a auditoria continua a fonte de verdade.
@@ -57,13 +57,29 @@ Próprio deste repositório (detalhes em [docs/workflow.md](docs/workflow.md)):
 - `skeleton/setup`: setup do primeiro acesso, sem banco; a credencial owner vive só na requisição que migra.
 - `skeleton/observability`: métricas, tracing e relato de erros, todos opt-in; nenhum rótulo ou atributo carrega `sysid` de organização ou de pessoa, slug, email, token ou segredo, e os eventos de erro só levam os campos estruturados permitidos aos logs.
 - `skeleton/conf`: defaults, profiles e URLs distribuídos com o núcleo; não importa negócio nem configurações do derivado (só referencia `config.*` por nome, em settings).
-- `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor.
+- `skeleton/web`, `skeleton/api`: superfícies; autorização é revalidada no servidor. As duas compartilham `skeleton.records` e os serviços e não importam uma à outra (a única exceção é a sonda de saúde).
+  - `skeleton/web`: páginas HTML renderizadas no servidor (templates, formulários, navegação, painel de apps e roteamento das URLs que as apps declaram em `skeleton/web/app_routing.py`; [docs/ui-design.md](docs/ui-design.md)). Sem script inline nem CDN; o CSS e os assets vendorizados em `skeleton/web/static/` são gerados por `frontend/`, nunca editados à mão.
+  - `skeleton/api`: REST em `/api/v1/` ([docs/api.md](docs/api.md)) e o esquema OpenAPI gerado do código a cada requisição (`skeleton/api/openapi.py`), sem documento mantido à mão; `sensitive_fields` nunca aparecem no esquema. Também a sonda de saúde do container (`skeleton/api/healthcheck.py`, sem iniciar o Django) e a leitura dos proxies confiáveis.
 - `skeleton/service_api`: API de serviços pública do núcleo para apps; base, DTOs, erros, introspecção do contrato e registro das APIs declaradas, e os serviços do núcleo (identidade, organização, acesso, apps, auditoria, notificações, jobs, eventos, arquivos, sequências, tokens de feed e fluxos de processo; epics #113 e #209).
 - `skeleton/testing`: kit de testes para projetos derivados (contrato da API de serviços, cenários A/B); só em testes.
 - `skeleton/web/platform`: administração da plataforma (`/platform/`) em views explícitas sobre os serviços de lifecycle. O Django admin não tem site nem rotas (só `SimpleAdminConfig` para migrations históricas): não registre modelos nele nem crie editores genéricos de registros globais. Apps não podem capturar as raízes `platform/` e `admin/`.
-- `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado. `deployment_agent`: processo operacional separado que prepara e troca releases; a credencial owner e os comandos privilegiados nunca pertencem ao processo web.
+- Módulos de topo do pacote `skeleton`, usáveis sem o Django configurado: `skeleton/versioning.py` (versões, faixas e compatibilidade de releases), `skeleton/deployment.py` (leitura, no import dos settings, do inventário privado gerado pelo agente; sem ORM e sem carregar código em execução) e `skeleton/distribution.py` (publicação offline do core e adoção explícita de uma cópia de código-fonte, sempre contra uma base verificada criptograficamente, nunca contra o `HEAD`).
+- `config`: settings, URLs e deploy; `applications`: negócio do projeto derivado.
+- `deployment_agent`: processo operacional separado que prepara e troca releases ([docs/deployment.md](docs/deployment.md)); a credencial owner e os comandos privilegiados nunca pertencem ao processo web, que só fala com ele pelo socket de controle. Fica fora do wheel do núcleo e segue a mesma versão dele.
 - `examples/notes`: exemplo didático opt-in, não dependência do núcleo.
 - `skeleton/contrib`: apps first-party distribuídas no wheel do núcleo (manifest `kind: "bundled_app"`, label `skeleton_*`, versão igual à do core). Entram em `INSTALLED_APPS` só por nome em `SKELETON_BUNDLED_APPS`, contra o mapa fixo de `skeleton/conf/bundled.py` (nunca import path do ambiente), e seguem as regras de qualquer app: API de serviços, disponibilidade e ativação fechadas. O resto do núcleo nunca importa `skeleton.contrib`; apps de terceiros não usam o prefixo `skeleton_` nem `runtime.user_urls`.
+
+Fora do wheel do núcleo (`pyproject.toml` só empacota `skeleton`):
+
+- `tests/`: a suíte. `tests/unit` roda sem banco; os testes com banco rodam em PostgreSQL com a role runtime, nunca com o owner para provar RLS ([docs/testing.md](docs/testing.md)). `tests/contrib` exige a app first-party ligada e `tests/sso` só é coletada com `SSO_FIXTURE_ENV_PATH`.
+- `tools/`: scripts de desenvolvimento e de CI (`tools/dev_postgres.py`, fixtures, smoke, fatias da suíte, checagem de i18n, locks do Dependabot). Não são importados pelo núcleo nem distribuídos; as fixtures criam dados pelos serviços públicos de provisionamento.
+- `deploy/`: units systemd, `deploy/postgres/bootstrap.sql` (roles, schema e privilégios da role runtime), a configuração do Coolify e a imagem do agente; é a referência versionada que [docs/deployment.md](docs/deployment.md) cita para provisionar e operar.
+- `frontend/`: fontes e build reprodutível do CSS (Tailwind + Flowbite) e dos assets vendorizados. O resultado é versionado em `skeleton/web/static/`, e o job "CSS compilado e assets vendorizados" do CI recusa saída desatualizada.
+- `docs/`: documentação. `tests/unit/test_documentation_references.py` confere links, âncoras, caminhos citados, comandos documentados, o catálogo de serviços do núcleo, a ordem de leitura e que todo pacote do núcleo aparece nestas fronteiras e em `docs/architecture.md`; `tests/unit/test_check_reference.py` confere que `docs/checks.md` lista todo check.
+- `.claude/skills/`: procedimentos para agentes: `dev-workflow` (issues, branches, PR e versão, com os scripts em `.claude/skills/dev-workflow/scripts/`) e `service-api`.
+- `.github/`: workflows, modelos de issue e PR e `.github/dev-workflow.toml`. O ruleset da `main` (configuração do repositório, não arquivo) deve exigir os checks `CI` (agregador de `.github/workflows/ci.yml`) e `Verificação do PR`; a versão é escrita só pelo workflow de release ([docs/workflow.md](docs/workflow.md)).
+
+Direção das dependências entre pacotes do núcleo ([docs/architecture.md](docs/architecture.md#direção-das-dependências-entre-pacotes)), conferida por `tests/unit/test_core_layering.py`: (R1) `skeleton/common` não importa outro pacote `skeleton.*`; (R2) `accounts`, `tenancy`, `access`, `system` e `audit` não importam `web`, `api`, `service_api` nem `contrib`; (R3) `web` e `api` não importam uma à outra; (R4) `service_api` não importa `web` nem `api`; (R5) nos demais subsistemas, só arquivos de `views`/`urls` importam as superfícies (`setup`, `conf`, `contrib` e `testing` ficam livres). As violações históricas estão em `KNOWN_EXCEPTIONS`, cada uma com motivo; não acrescente exceção nova: a lista só diminui.
 
 **Não adicione regras de negócio em `skeleton`. Não renomeie os app labels do núcleo.** Adicione apps a `PROJECT_APPS` em `config/settings/project.py` e URLs a `config/urls_project.py`. O núcleo não importa `applications` ou `examples`.
 
