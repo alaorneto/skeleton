@@ -15,11 +15,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import UUID
 
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils.translation import gettext
 
-from skeleton.accounts.platform import is_platform_admin
+from skeleton.accounts.platform import require_platform_context
 from skeleton.common.exceptions import ConcurrentUpdate, MissingTenantContext
 from skeleton.tenancy.context import current_context
 
@@ -64,9 +64,7 @@ def available_with_dependencies(app_label: str, *, organization_id: UUID | None 
 
 
 def _require_platform(user) -> None:
-    context = current_context()
-    if not is_platform_admin(user) or not context.platform_admin or context.organization_id is not None:
-        raise PermissionDenied("Platform administration required.")
+    require_platform_context(user)  # Administrator, MFA, request actor, global context (#285).
 
 
 def _changed() -> None:

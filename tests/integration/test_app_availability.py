@@ -266,3 +266,22 @@ def test_cli_refuses_enabling_app_with_closed_dependency(setup, monkeypatch):
         call_command("set_app_availability", NOTES, "--mode", "all", "--enable", "availability-b", stdout=StringIO())
     with system_context(reason="test:cli-refused", organization_id=org_b.pk):
         assert not AppInstallation.objects.filter(app_label=NOTES).exists()
+
+
+@pytest.mark.needs_example_app
+def test_availability_services_require_mfa_when_enforced(setup, settings):
+    """The availability services use the platform guard, MFA included (#285)."""
+    from skeleton.system.models import AppAvailability, AppOrganizationGrant
+
+    platform, org_a, _, _ = setup
+    settings.SKELETON_REQUIRE_ADMIN_MFA = True
+    for call in (
+        lambda: availability.set_app_availability(NOTES, user=platform, mode="selected", revision=0),
+        lambda: availability.grant_app(NOTES, user=platform, organization_id=org_a.pk),
+        lambda: availability.revoke_app(NOTES, user=platform, organization_id=org_a.pk),
+    ):
+        with pytest.raises(PermissionDenied):
+            as_platform(platform, call)
+    with system_context(reason="test:availability-mfa"):
+        assert not AppAvailability.objects.filter(app_label=NOTES).exists()
+        assert not AppOrganizationGrant.objects.exists()

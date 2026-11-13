@@ -44,6 +44,31 @@ def require_platform_admin(user: Any) -> None:
         raise PermissionDenied("Platform administration required.")
 
 
+def require_platform_context(
+    user: Any, *, capability: str | None = None, message: str = "Platform administration required."
+) -> None:
+    """Guard of global platform services (#285): the administrator, with MFA, acting as the request actor.
+
+    ``user`` must be the authenticated actor of the current context, outside any organization;
+    the administrator needs the context's ``platform_admin`` flag, which a token never sets. With
+    ``capability``, a limited platform role holding it (#34) also passes.
+    """
+    from skeleton.accounts.mfa import mfa_required
+    from skeleton.tenancy.context import current_context
+
+    context = current_context()
+    allowed = is_platform_admin(user) and context.platform_admin
+    if not allowed and capability is not None:
+        allowed = has_platform_capability(user, capability)
+    if (
+        not allowed
+        or context.actor != getattr(user, "pk", None)
+        or context.organization_id is not None
+        or mfa_required(user)  # Last: the only condition that reads the database.
+    ):
+        raise PermissionDenied(message)
+
+
 def platform_admin_context(request: Any) -> dict[str, Any]:
     """Template context processor: ``platform_admin`` and the lazy ``platform_capabilities`` (#34)."""
     from django.utils.functional import SimpleLazyObject

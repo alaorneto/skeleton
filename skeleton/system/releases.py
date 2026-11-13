@@ -4,10 +4,9 @@ from copy import deepcopy
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from skeleton.accounts.mfa import mfa_required
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
 
@@ -19,22 +18,17 @@ class DeploymentUnavailable(RuntimeError):
 
 
 def require_platform(user):
-    from skeleton.accounts.platform import is_platform_admin
+    from skeleton.accounts.platform import require_platform_context
 
-    if not is_platform_admin(user) or mfa_required(user):
-        raise PermissionDenied("Platform administration required.")
-    if current_context().organization_id is not None:
-        raise PermissionDenied("Deployment operations are global.")
+    require_platform_context(user)
 
 
 def require_release_operator(user):
     """Release operations (#34): the platform administrator or the release operator."""
-    from skeleton.accounts.platform import UPDATES_OPERATE, has_platform_capability, is_platform_admin
+    from skeleton.accounts.platform import UPDATES_OPERATE, require_platform_context
 
-    if not (is_platform_admin(user) or has_platform_capability(user, UPDATES_OPERATE)) or mfa_required(user):
-        raise PermissionDenied("Release operation required.")
-    if current_context().organization_id is not None:
-        raise PermissionDenied("Deployment operations are global.")
+    # The same guard as every platform service (#285), with the release operator's capability.
+    require_platform_context(user, capability=UPDATES_OPERATE, message="Release operation required.")
 
 
 def agent_client():

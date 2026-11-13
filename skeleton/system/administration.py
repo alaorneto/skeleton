@@ -40,9 +40,9 @@ def resolve_application_screen(app_label, screen_id, *, user, scope):
     if screen is None or screen.scope != scope:
         raise Http404
     if scope == "platform":
-        from .releases import require_platform
+        from skeleton.accounts.platform import require_platform_context
 
-        require_platform(user)
+        require_platform_context(user)
     else:
         # Tenant parameter screens (organization_admin_only in the manifest) need apps.manage (#24).
         require_capability(user, APPS_MANAGE)

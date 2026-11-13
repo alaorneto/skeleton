@@ -491,3 +491,29 @@ def test_invalid_journal_rolls_back_inventory_and_preserves_operation(tmp_path):
         assert persisted.state == "approved"
         assert persisted.revision == row.revision
         assert not ComponentInstallation.objects.filter(component_id="pending-component").exists()
+
+
+def test_release_services_reject_actor_different_from_context(monkeypatch):
+    """A platform administrator passed as ``user`` while another identity is the actor is refused (#285)."""
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.system import releases
+
+    user = actor(platform=True)
+    other, _ = bootstrap_identity(
+        email="other-guard@example.test", organization="other-guard", name="Other guard", password=PASSWORD
+    )
+    with system_context(reason="test:platform"):
+        other.is_staff = True
+        other.is_superuser = True
+        other.save(update_fields={"is_staff", "is_superuser"})
+    with request_context(actor=user, request_id=uuid4(), source="test:deployment"):
+        row = DeploymentOperation(
+            operation="update", expected_generation=4, plan_digest="a" * 64, plan={"id": str(uuid4()), "generation": 4}
+        )
+        row.save()
+    monkeypatch.setattr(releases, "agent_client", lambda: pytest.fail("A refused call contacted the agent."))
+    with request_context(actor=user, request_id=uuid4(), source="test:deployment"):
+        with pytest.raises(PermissionDenied):
+            releases.confirm_operation(user=other, operation_id=row.pk, revision=row.revision)
+        assert DeploymentOperation.objects.get(pk=row.pk).state == "preview"
