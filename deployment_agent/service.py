@@ -7,6 +7,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
+from threading import Lock
 from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
@@ -66,6 +67,8 @@ class DeploymentService:
         Path(config["maintenance_marker"]).parent.mkdir(parents=True, exist_ok=True, mode=0o755)
         self.backend = backend_for(config, self.store)
         self.worker = None
+        self._drift = None
+        self._drift_lock = Lock()
 
     def state(self):
         path = self.store.root / "active.json"
@@ -73,18 +76,47 @@ class DeploymentService:
             raise AgentError("deployment_not_initialized", 409)
         return load_json(path)
 
+    def _write_active(self, release, inventory, owned_files):
+        """The active release changed: record it and drop the inventory's drift cache (#281)."""
+        atomic_json(
+            self.store.root / "active.json",
+            {"release": str(release), "inventory": inventory, "owned_files": owned_files},
+        )
+        self._drift = None
+
+    def drift_status(self, state, *, max_age):
+        """``(error code or None, checked_at)`` for inventory(); informative only (#281).
+
+        A recent result for the same release is reused, so opening the updates page does not hash
+        the whole release each time. preview, execute, finish, recover and reconcile_interrupted
+        keep calling check_drift themselves, never this cache.
+        """
+        if str(self.backend.active()) != state["release"]:
+            return "active_pointer_conflict", now()
+        if not hasattr(self, "_drift_lock"):  # Services built without __init__ (tests).
+            self._drift, self._drift_lock = None, Lock()
+        with self._drift_lock:
+            cached = self._drift
+            if max_age and cached and cached[0] == state["release"] and time.monotonic() - cached[1] < max_age:
+                return cached[3], cached[2]
+            try:
+                check_drift(state["release"], state["owned_files"])
+                error = None
+            except AgentError as exc:
+                error = exc.code
+            self._drift = (state["release"], time.monotonic(), now(), error)
+            return error, self._drift[2]
+
     def inventory(self):
         state = self.state()
         result = json.loads(canonical(state["inventory"]))
-        result["operations"] = [self.public_operation(row, include_plan=False) for row in self.store.operations()[:50]]
+        rows = self.store.operations(limit=50)
+        result["operations"] = [self.public_operation(row, include_plan=False) for row in rows]
         result["maintenance"] = Path(self.config["maintenance_marker"]).exists()
-        try:
-            if str(self.backend.active()) != state["release"]:
-                result["error"] = "active_pointer_conflict"
-            else:
-                check_drift(state["release"], state["owned_files"])
-        except AgentError as error:
-            result["error"] = error.code
+        error, checked_at = self.drift_status(state, max_age=self.config.get("drift_check_interval", 300))
+        if error:
+            result["error"] = error
+        result["drift_checked_at"] = checked_at
         return result
 
     def upload(self, data):
@@ -238,15 +270,12 @@ class DeploymentService:
             }
             atomic_json(source / "inventory.json", inventory, 0o644)
             snapshot = owned_snapshot(source)
-            atomic_json(
-                self.store.root / "active.json",
-                {"release": str(source), "inventory": inventory, "owned_files": snapshot},
-            )
+            self._write_active(source, inventory, snapshot)
             return inventory
 
     def ensure_available(self):
         if Path(self.config["maintenance_marker"]).exists() or any(
-            row["state"] in ("queued", "running", "interrupted") for row in self.store.operations()
+            state in ("queued", "running", "interrupted") for state in self.store.operation_states().values()
         ):
             raise AgentError("recovery_or_operation_pending", 409)
 
@@ -616,10 +645,7 @@ class DeploymentService:
             "migration",
             code="state_sync_failed",
         )
-        atomic_json(
-            self.store.root / "active.json",
-            {"release": str(release), "inventory": record["inventory"], "owned_files": record["owned_files"]},
-        )
+        self._write_active(release, record["inventory"], record["owned_files"])
         self.stage(operation, "committed", state="succeeded")
         self.backend.manage(
             release,
@@ -865,10 +891,7 @@ class DeploymentService:
                         self.backend.cutover(previous)
                         self.backend.start(previous, operation["id"])
                         self.health(previous_inventory)
-                        atomic_json(
-                            self.store.root / "active.json",
-                            {"release": str(previous), "inventory": previous_inventory, "owned_files": previous_owned},
-                        )
+                        self._write_active(previous, previous_inventory, previous_owned)
                         self.stage(
                             operation,
                             "restored" if action == "restore" else "aborted",

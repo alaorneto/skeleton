@@ -338,6 +338,8 @@ O comando Django `adopt_core_distribution` só produz o plano por padrão; o cor
 
 ### Inventário, manutenção e confirmação
 
+**Custo do `/inventory`** (#281). A conferência de drift que a página de atualizações mostra é informativa: o agente guarda o resultado em memória por `drift_check_interval` segundos (padrão 300; `0` refaz o hash a cada chamada) e devolve `drift_checked_at`, o instante da conferência usada. O cache cai quando o release ativo muda (adoção, fim de operação, recuperação), e um ponteiro ativo divergente nunca é guardado. Prévia, execução, `finish`, recuperação e a partida do daemon continuam conferindo o release inteiro, sem cache. A lista traz as 50 operações escritas mais recentemente, em ordem de criação, e só esses arquivos do journal são lidos; uma operação antiga recuperada hoje aparece nela. A recusa por operação pendente lê um índice derivado (`operations-index.json`), que se reconstrói sozinho quando um arquivo do journal muda.
+
 Estes três registros respondem a perguntas distintas:
 
 | Registro | Pergunta respondida | Limite |

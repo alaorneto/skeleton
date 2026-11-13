@@ -95,6 +95,9 @@ def _validate_optional(values):
         or not all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in sources)
     ):
         raise AgentError("invalid_catalogue_sources")
+    interval = values.get("drift_check_interval")
+    if interval is not None and (isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 0):
+        raise AgentError("invalid_numeric_setting")  # Seconds; 0 turns the inventory cache off (#281).
     for key in NUMERIC_SETTINGS:
         if key in values:
             value = values[key]

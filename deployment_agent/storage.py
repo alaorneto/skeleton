@@ -174,9 +174,33 @@ class Store:
             result.append((path.stem, load_json(path), path.stat().st_mtime))
         return result
 
-    def operations(self):
-        return sorted(
-            (load_json(path) for path in (self.root / "operations").glob("*.json")),
-            key=lambda row: row["created_at"],
-            reverse=True,
-        )
+    def operations(self, limit=None):
+        """Operations newest first; with limit, only the most recently written files are parsed (#281)."""
+        paths = list((self.root / "operations").glob("*.json"))
+        if limit is not None:
+            paths = sorted(paths, key=lambda path: path.stat().st_mtime_ns, reverse=True)[:limit]
+        return sorted((load_json(path) for path in paths), key=lambda row: row["created_at"], reverse=True)
+
+    def operation_states(self):
+        """``{operation_id: state}`` of every operation, from an index kept beside the journal.
+
+        The index is derived: each entry records the file's mtime_ns, and any file whose mtime
+        changed (or that the index lacks) is read again, so a lost concurrent update never hides a
+        pending operation. Security decisions other than ensure_available keep reading the files.
+        """
+        index_path = self.root / "operations-index.json"
+        try:
+            index = load_json(index_path)
+        except (OSError, ValueError, AgentError):
+            index = {}
+        result, fresh, changed = {}, {}, False
+        for path in (self.root / "operations").glob("*.json"):
+            stamp = path.stat().st_mtime_ns
+            entry = index.get(path.stem) if isinstance(index, dict) else None
+            if not isinstance(entry, list) or len(entry) != 2 or entry[1] != stamp:
+                entry, changed = [load_json(path)["state"], stamp], True
+            fresh[path.stem] = entry
+            result[path.stem] = entry[0]
+        if changed or set(fresh) != set(index if isinstance(index, dict) else {}):
+            atomic_json(index_path, fresh)
+        return result
