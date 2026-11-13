@@ -20,7 +20,8 @@ plano aceito ─► issues (+ epic) ─► branch <tipo>/<N>-<slug> ─► commi
 
 1. O PR é aberto com `Closes #N` e sem o label `release`.
 2. **"Verificação do PR"** roda a cada push, edição e troca de label: issue existe e tem um tipo; seções do modelo preenchidas; sobreposição de versão (`semver:*`) só com `release` e com motivo; título em Conventional Commits; arquivos de versão coerentes. Avisa (sem reprovar) sobre critérios de aceite não marcados, seções faltando na issue e tipo do título diferente do tipo da issue.
-3. O mesmo workflow comenta a **prévia**: "este PR não publica versão; fica acumulado com K mudanças; se a versão saísse depois deste merge, seria vX (nível)". É um comentário único, atualizado no lugar.
+   O check roda o skill e a configuração **da branch base**, nunca os do PR: um PR que alterasse o validador poderia se aprovar. Do PR só se leem dados (corpo, labels, commits e, numa pasta à parte, os arquivos de versão). Um PR que melhora o validador é conferido pela versão anterior; a nova vale a partir do merge. Enquanto a base não tem o skill, o check passa avisando.
+3. O mesmo workflow comenta a **prévia**: "este PR não publica versão; fica acumulado com K mudanças; se a versão saísse depois deste merge, seria vX (nível)". É um comentário único, atualizado no lugar. Como escreve no PR, esse job só roda em PR do próprio repositório (fork recebe token de leitura) e também usa só o código da base.
 4. Merge.
 5. **"Evidências do PR mesclado"** comenta em cada issue citada: commits, testes e documentação declarados no PR, critérios de aceite pendentes, e que a entrega aguarda a próxima versão. O GitHub fecha as issues com `Closes`; a caixa no epic é marcada.
 6. **"Versão e release"** roda no push, vê que nenhum PR `release` entrou desde a última tag e termina com "Nada a versionar: K mudanças acumuladas". Nenhum arquivo muda.
@@ -53,7 +54,7 @@ No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atuali
 | Configuração | `.github/dev-workflow.toml` | Tudo que é do projeto: tipos, seções, arquivos de versão, superfícies, modo de release |
 | Hook do git | `commit-msg` (pre-commit ou `bootstrap.py install-hook`) | Commit sem referência a issue é recusado; `Refs: #N` sai do nome da branch |
 | Hook do Claude Code | `assets/claude/dev-workflow-hook.mjs` | Lembra de criar as issues ao aceitar um plano; recusa `--no-verify` e PR sem referência. Lembrete forte, não barreira |
-| Check do PR | `pr-check.yml` → `github_issues.py check-pr`, `release.py check`, `release.py preview` | Vínculo, seções, sobreposição de versão, título, coerência dos arquivos de versão, prévia |
+| Check do PR | `pr-check.yml` → `github_issues.py check-pr`, `release.py check --tree`, `release.py preview`, todos da branch base | Vínculo, seções, sobreposição de versão, título, coerência dos arquivos de versão, prévia |
 | Evidências | `pr-merged.yml` → `github_issues.py pr-merged` | Comentário de evidências nas issues |
 | Release | `release.yml` → `release.py run` | Versão, arquivos, changelog, tag, GitHub Release, marcações |
 | Análise | `semver-analysis.yml` (opcional) ou o agente local | Nível proposto a partir do diff acumulado |
@@ -75,6 +76,10 @@ No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atuali
 **Idempotência por estado, não por memória.** Cada execução deriva tudo de tags, do commit de release e do GitHub: tag sem release → cria a release; commit de release sem tag → cria a tag naquele commit; nada pendente → não faz nada. Cada marcação confere antes se já existe. Não há arquivo de estado nem "último PR processado".
 
 **O maior nível vence; a análise só eleva.** Um modelo de linguagem reduzindo um nível que um humano declarou (o label de tipo) é o erro caro. Reduzir é sobreposição do dono, com motivo registrado.
+
+**O check confia na base, não no PR.** Alternativa: rodar o validador do próprio PR, como qualquer CI de testes. Descartada porque o check é a barreira do processo, não um teste do código: se o PR pode trocar o validador, ele se aprova. O custo é que uma melhoria do validador só vale depois do merge dela. O mesmo vale para a prévia e para a análise por agente, que leem o diff do PR sem executar nada dele.
+
+**Leitura incompleta não autoriza ação.** O GitHub devolve até 100 sub-issues ou bloqueios por página. Se a lista vier truncada, `sync-epic`, `sync-checklist` e `close-epic` param com erro em vez de fechar um epic ou criar vínculos com base em dados parciais.
 
 **Sinais determinísticos primeiro, agente como reforço.** A release nunca depende de um serviço externo estar disponível. Quando a análise falta, as notas dizem; quando o projeto exige (`require_analysis`), a release espera.
 

@@ -30,23 +30,26 @@ jobs:
     env:
       HAS_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: env.HAS_KEY == 'true'
+        # Scripts e configuração da base; os commits do PR são só lidos (a branch vem com fetch-depth 0).
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Montar o plano determinístico
         if: env.HAS_KEY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: >
           python3 __SKILL_DIR__/scripts/release.py plan --format json
-          --pr "$PR_NUMBER" --base-ref "origin/$BASE_REF" --head-ref "$HEAD_SHA" > semver-plan.json
+          --pr "$PR_NUMBER" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" > semver-plan.json
       - name: Analisar com o Claude Code
         if: env.HAS_KEY == 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

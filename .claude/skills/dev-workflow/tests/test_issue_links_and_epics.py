@@ -481,5 +481,82 @@ def test_close_epic_command_usage():
     assert main(["close-epic", "--all"]) == 2
 
 
+# --- listas truncadas: falha fechado ------------------------------------------------------------
+
+
+def test_link_fields_request_page_info():
+    from devflow.epics import _LINK_FIELDS
+
+    assert "subIssues(first: 100) { pageInfo { hasNextPage }" in _LINK_FIELDS
+    assert "blockedBy(first: 100) { pageInfo { hasNextPage }" in _LINK_FIELDS
+
+
+def test_parse_links_accepts_response_without_page_info():
+    node = _issue(5, sub_issues=(6,), blocked_by=(4,))
+    assert "pageInfo" not in node["subIssues"]
+    assert parse_links(node, REPO).sub_issues == (6,)
+    node["subIssues"]["pageInfo"] = {"hasNextPage": False}
+    node["blockedBy"]["pageInfo"] = {}
+    assert parse_links(node, REPO).blocked_by == (4,)
+
+
+def test_parse_links_fails_closed_when_sub_issues_or_blockers_are_truncated():
+    for field in ("subIssues", "blockedBy"):
+        node = _issue(5, sub_issues=(6,), blocked_by=(4,))
+        node[field]["pageInfo"] = {"hasNextPage": True}
+        try:
+            parse_links(node, REPO)
+        except RuntimeError as exc:
+            assert "#5 tem mais de 100 sub-issues ou bloqueios" in str(exc), exc
+        else:
+            raise AssertionError(f"{field} truncado foi aceito")
+
+
+def test_close_epic_does_not_close_when_children_are_truncated():
+    issues = _epic_family()
+    issues[1]["subIssues"]["pageInfo"] = {"hasNextPage": True}
+    gh = FakeGh({1: SMALL_EPIC}, issues, labels={1: ["epic"]})
+    try:
+        close_completed_parents(3, REPO, dry_run=False, gh=gh)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("close-epic agiu sobre lista truncada")
+    assert gh.closes == [] and gh.bodies == []
+
+
+def test_sync_epic_does_not_write_when_links_are_truncated():
+    issues = {1: _issue(1), 2: _issue(2), 3: _issue(3)}
+    issues[1]["subIssues"]["pageInfo"] = {"hasNextPage": True}
+    gh = FakeGh({1: SMALL_EPIC}, issues)
+    try:
+        sync_epic(None, REPO, dry_run=False, gh=gh)
+    except RuntimeError as exc:
+        assert "#1 tem mais de 100" in str(exc)
+    else:
+        raise AssertionError("sync-epic agiu sobre lista truncada")
+    assert gh.writes == []
+
+
+def test_epic_commands_exit_nonzero_on_truncation():
+    from unittest import mock
+
+    from devflow import epics
+
+    def truncated(*args, **kwargs):
+        raise RuntimeError("#1 tem mais de 100 sub-issues ou bloqueios")
+
+    for command, target in (
+        (["close-epic", "--parent-of", "3"], "close_completed_parents"),
+        (["sync-epic", "1"], "sync_epic"),
+        (["sync-checklist", "1"], "sync_checklist"),
+    ):
+        with (
+            mock.patch.object(epics, target, truncated),
+            mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": REPO}),
+        ):
+            assert main(command) == 1, command
+
+
 def load_tests(loader, tests, pattern):
     return function_suite(globals())

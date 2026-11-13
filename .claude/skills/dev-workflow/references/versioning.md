@@ -167,7 +167,7 @@ Só o número estava errado e a tag ainda não foi criada (a execução falhou a
 |---|---|
 | `release.py status` / `plan [--format json] [--pr N]` | Mudanças pendentes, sinais e próxima versão; `--pr` inclui um PR aberto como se estivesse mesclado |
 | `release.py next [--level L]` | Só o número: o que o acumulado pede, ou o que um nível daria |
-| `release.py check` | Os arquivos de versão declarados estão coerentes com a versão corrente? |
+| `release.py check [--tree DIR]` | Os arquivos de versão declarados estão coerentes com a versão corrente? `--tree` lê os arquivos de outra árvore (o checkout do PR) com a configuração desta |
 | `release.py preview --pr N --base-ref R --head-ref H [--comment]` | A prévia que o CI comenta no PR |
 | `release.py record-analysis --pr N --file F` | Grava a análise por agente no PR |
 | `release.py run [--force] [--level L --reason "..."] [--prerelease canal] [--dry-run]` | Publica o que estiver pendente; reexecutar é seguro |

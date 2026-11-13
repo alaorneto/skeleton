@@ -51,7 +51,7 @@ jobs:
       version: ${{ steps.run.outputs.version }}
       tag: ${{ steps.run.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # A ponta atual da branch, não o SHA do evento: uma execução anterior pode ter publicado.
           ref: ${{ github.ref_name }}

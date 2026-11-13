@@ -14,7 +14,7 @@ from unittest import mock
 import support  # noqa: F401  (põe scripts/ no sys.path antes de importar devflow)
 from devflow.config import load
 from devflow.release import Session, run
-from support import PR_BODY, Sandbox, SandboxCase
+from support import BASE_FILES, PR_BODY, Sandbox, SandboxCase
 
 FIX = [("fix: handle the empty list", None)]
 FEAT = [("feat: add the export command", None)]
@@ -576,6 +576,30 @@ class SurroundingsTest(SandboxCase):
         comments = _bodies(box.state(), 11)
         self.assertEqual(len(comments), 1)
         self.assertIn("não publica versão", comments[0])
+
+    def test_check_reads_the_pr_tree_with_the_base_configuration(self):
+        box = self.box
+        tree = box.base / "pr-head"
+        for name, content in {**BASE_FILES, "package.json": '{\n  "version": "9.9.9"\n}\n'}.items():
+            (tree / name).parent.mkdir(parents=True, exist_ok=True)
+            (tree / name).write_bytes(content.encode("utf-8"))
+        refused = box.run("release.py", "check", "--tree", str(tree))
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("package.json", refused.stdout)
+        (tree / "package.json").write_bytes(BASE_FILES["package.json"].encode("utf-8"))
+        self.assertIn(
+            "coerentes com a versão 1.2.0", self.assertRan(box.run("release.py", "check", "--tree", str(tree)))
+        )
+        self.assertEqual(box.run("release.py", "check", "--tree", str(box.base / "missing")).returncode, 1)
+
+    def test_the_preview_before_the_base_tag_explains_and_succeeds(self):
+        box = Sandbox(tag=None)
+        self.addCleanup(box.close)
+        branch = box.open_pr(11, "feat: add the export command", FEAT, labels=["release"])
+        args = ("release.py", "preview", "--pr", "11", "--base-ref", "main", "--head-ref", branch, "--comment")
+        out = self.assertRan(box.run(*args))
+        self.assertIn("a prévia começa depois de `release.py baseline`", out)
+        self.assertEqual(_bodies(box.state(), 11), [])
 
     def test_without_github_the_history_alone_still_gives_a_plan(self):
         box = self.box

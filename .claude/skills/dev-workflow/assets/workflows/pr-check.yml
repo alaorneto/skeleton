@@ -1,7 +1,12 @@
 name: Verificação do PR
 
 # Skill dev-workflow: issue vinculada e classificada, seções do modelo, sobreposição de versão,
-# título, e a prévia da versão que o merge publicaria (com o label release) ou acumularia (sem ele).
+# título, arquivos de versão coerentes, e a prévia da versão que o merge publicaria (com o label
+# release) ou acumularia (sem ele).
+#
+# Código confiável: os dois jobs rodam o skill e a configuração da branch base, nunca os do PR, que
+# poderia alterá-los para se aprovar. Um PR que melhora o validador é conferido pela versão antiga;
+# a nova vale a partir do merge. Do PR só se leem dados: corpo, labels, commits e arquivos.
 
 on:
   pull_request:
@@ -9,8 +14,6 @@ on:
 
 permissions:
   contents: read
-  issues: read
-  pull-requests: write # só para o comentário de prévia; PR de fork recebe token de leitura
 
 concurrency:
   group: pr-check-${{ github.event.pull_request.number }}
@@ -20,27 +23,61 @@ jobs:
   pr-check:
     name: Verificação do PR
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0 # tags: a versão corrente vem da última tag alcançável
+          persist-credentials: false
+      # Os arquivos do PR, só como dados: nada desta pasta é executado.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .pr-head
+          persist-credentials: false
       - name: Issue, seções, sobreposição de versão e título
         # Dados do evento entram por variável de ambiente, nunca interpolados no script.
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: python3 __SKILL_DIR__/scripts/github_issues.py check-pr
-      - name: Arquivos de versão coerentes com a versão corrente
+        run: |
+          script="__SKILL_DIR__/scripts/github_issues.py"
+          if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; a verificação vale a partir do merge que o adota."; exit 0; fi
+          python3 "$script" check-pr
+      - name: Arquivos de versão do PR coerentes com a versão corrente
         if: always()
-        run: python3 __SKILL_DIR__/scripts/release.py check
-      - name: Prévia de versão
-        if: always()
-        continue-on-error: true
+        run: |
+          script="__SKILL_DIR__/scripts/release.py"
+          if [ ! -f "$script" ]; then exit 0; fi
+          python3 "$script" check --tree .pr-head
+
+  version-preview:
+    name: Prévia da versão
+    # Escreve um comentário: só código da base roda aqui, e PRs de forks ficam fora (token de leitura).
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0 # tags e a branch do PR, para ler os commits sem executá-los
+          persist-credentials: false
+      - name: Calcular a versão que o merge publicaria
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: >
-          python3 __SKILL_DIR__/scripts/release.py preview
-          --pr "$PR_NUMBER" --base-ref "origin/$BASE_REF" --head-ref "$HEAD_SHA" --comment
+        run: |
+          script="__SKILL_DIR__/scripts/release.py"
+          if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; sem prévia."; exit 0; fi
+          python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" --comment

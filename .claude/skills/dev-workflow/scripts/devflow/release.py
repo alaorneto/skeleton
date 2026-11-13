@@ -60,7 +60,7 @@ class ReleaseError(RuntimeError):
 
 
 def tokens(current: Version, new: Version) -> dict[str, str]:
-    values: dict[str, str] = {"date": datetime.date.today().isoformat()}
+    values: dict[str, str] = {"date": datetime.datetime.now(datetime.UTC).date().isoformat()}
     for name, version in (("current", current), ("new", new)):
         values[name] = str(version)
         values[f"{name}_pep440"] = version.pep440()
@@ -102,11 +102,17 @@ def rewrite(text: str, entry: dict[str, Any], current: Version, new: Version) ->
     return pattern.sub(lambda _match: replacement, text)
 
 
-def apply_version_files(cfg: Config, current: Version, new: Version, *, write: bool = True) -> list[str]:
-    """Escreve ``new`` em todos os arquivos declarados. Devolve os caminhos que mudaram."""
+def apply_version_files(
+    cfg: Config, current: Version, new: Version, *, write: bool = True, root: Path | None = None
+) -> list[str]:
+    """Escreve ``new`` em todos os arquivos declarados. Devolve os caminhos que mudaram.
+
+    ``root`` lê os arquivos de outra árvore (o checkout do PR) com a configuração desta.
+    """
+    base = root or cfg.root
     contents: dict[str, tuple[str, str]] = {}
     for entry in cfg.versioning["files"]:
-        path = cfg.root / entry["path"]
+        path = base / entry["path"]
         if entry["path"] not in contents:
             try:
                 original = path.read_bytes().decode("utf-8")
@@ -118,14 +124,14 @@ def apply_version_files(cfg: Config, current: Version, new: Version, *, write: b
     changed = [name for name, (original, text) in contents.items() if original != text]
     if write:
         for name in changed:
-            (cfg.root / name).write_bytes(contents[name][1].encode("utf-8"))
+            (base / name).write_bytes(contents[name][1].encode("utf-8"))
     return changed
 
 
-def check_version_files(cfg: Config, current: Version) -> list[str]:
+def check_version_files(cfg: Config, current: Version, *, root: Path | None = None) -> list[str]:
     """Divergências entre os arquivos e a versão corrente: reescrever para ela não pode mudar nada."""
     try:
-        drifted = apply_version_files(cfg, current, current, write=False)
+        drifted = apply_version_files(cfg, current, current, write=False, root=root)
     except ReleaseError as exc:
         return [str(exc)]
     return [f"{name}: o conteúdo não corresponde à versão {current}." for name in drifted]
@@ -136,7 +142,7 @@ def check_version_files(cfg: Config, current: Version) -> list[str]:
 
 def changelog_heading(plan: Plan, cfg: Config, links: Links) -> str:
     version, tag = str(plan.version), plan.tag(cfg)
-    date = datetime.date.today().isoformat()
+    date = datetime.datetime.now(datetime.UTC).date().isoformat()
     if links.web and plan.base_tag:
         return f"## [{version}]({links.web}/compare/{plan.base_tag}...{tag}) — {date}"
     if links.web:
@@ -498,6 +504,11 @@ def report(plan: Plan, cfg: Config, links: Links, *, pr: int | None = None) -> s
 
 def preview(session: Session, args: argparse.Namespace) -> int:
     cfg = session.cfg
+    if session.repo.latest(args.base_ref, final_only=False) is None:
+        # Antes da tag de base não há versão de referência: não é erro do PR, e o histórico inteiro
+        # não é o que o PR publicaria.
+        print("Sem tag de versão alcançável: a prévia começa depois de `release.py baseline`.")
+        return 0
     plan = build_plan(cfg, session.repo, session.github, head=args.base_ref, pending=(args.pr, args.head_ref))
     text = report(plan, cfg, session.links, pr=args.pr)
     print(text)
@@ -596,7 +607,10 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--head-ref", default="HEAD", help="com --pr: a ponta do PR")
     command = sub.add_parser("next")
     command.add_argument("--level", choices=LEVELS[1:])
-    sub.add_parser("check")
+    command = sub.add_parser("check")
+    command.add_argument(
+        "--tree", default="", help="confere os arquivos de outra árvore (checkout do PR), com a configuração desta"
+    )
     command = sub.add_parser("bump")
     command.add_argument("--to", required=True)
     command.add_argument("--dry-run", action="store_true")
@@ -656,7 +670,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "check":
             latest = session.repo.latest("HEAD", final_only=False)
             current = latest[1] if latest else Version.parse(str(cfg.versioning["initial_version"]))
-            problems = check_version_files(cfg, current)
+            tree = Path(args.tree).resolve() if args.tree else None
+            if tree is not None and not tree.is_dir():
+                print(f"ERRO: --tree {args.tree} não é um diretório.")
+                return 1
+            problems = check_version_files(cfg, current, root=tree)
             for problem in problems:
                 print(f"ERRO: {problem}")
             if not problems:
