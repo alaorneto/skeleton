@@ -75,6 +75,7 @@ Quando a última sub-issue nativa aberta de um epic fecha, o mesmo workflow fech
 - ainda há filha aberta, ou o epic não tem sub-issues;
 - o pai não tem o label `epic` ou já está fechado;
 - alguma sub-issue é de outro repositório, que o token do workflow não consegue verificar; feche à mão.
+- o epic tem mais de 100 sub-issues ou bloqueios: a leitura viria incompleta, então `close-epic`, `sync-epic` e `sync-checklist` falham com erro (#331); feche à mão.
 
 Um fechamento feito com o token do workflow não dispara outro evento `issues: closed`. Por isso, ao fechar um epic que também é sub-issue (como o #112 do #95), o mesmo run atualiza as caixas do epic de cima e verifica se ele também pode fechar. Reabrir uma filha não reabre o epic: ele pode ter sido fechado à mão por outro motivo, então reabra-o à mão se for o caso. A seção "Critérios de conclusão" do epic não é verificada; o comentário pede para reabrir o epic se algum critério faltar. Para conferir sem fechar:
 
@@ -88,7 +89,7 @@ Nenhum dos dois comandos remove vínculos. Para desfazer um vínculo, use `gh is
 
 ## Verificação do PR e fechamento
 
-O check "Verificação do PR" recusa o PR sem issue vinculada com exatamente um label de tipo, com uma seção obrigatória (`Issues`, `Resumo`, `Versão`, `Testes executados`, `Documentação`) vazia ou só com o texto do modelo, com título fora de Conventional Commits ou com um `semver:*` sem o label `release`, sem `Motivo: ...` ou repetido. Ele avisa, sem recusar, sobre critério de aceite não marcado na issue fechada, seção do modelo faltando na issue e tipo do título diferente do tipo da issue. PRs do Dependabot e o PR de release ficam isentos. Um segundo job comenta no PR, num comentário único e atualizado, a versão que o merge publicaria.
+O check "Verificação do PR" recusa o PR sem issue vinculada com exatamente um label de tipo, com uma seção obrigatória (`Issues`, `Resumo`, `Versão`, `Testes executados`, `Documentação`) vazia ou só com o texto do modelo, com título fora de Conventional Commits ou com um `semver:*` sem o label `release`, sem `Motivo: ...` ou repetido. Ele avisa, sem recusar, sobre critério de aceite não marcado na issue fechada, seção do modelo faltando na issue e tipo do título diferente do tipo da issue. PRs do Dependabot e o PR de release ficam isentos. O check roda o script e a configuração da branch base, não os do PR: um PR que altera o validador é conferido pela versão anterior, e a nova vale depois do merge (#331). Um segundo job comenta no PR, num comentário único e atualizado, a versão que o merge publicaria.
 
 **Checks obrigatórios da `main` (#249).** A proteção da `main` é um ruleset do repositório (Settings → Rules → Rulesets), não um arquivo: exigir pull request, exigir os checks `CI` e `Verificação do PR` e bloquear force-push e exclusão. `CI` é o job agregador de `.github/workflows/ci.yml`: ele só passa quando lint, assets, locks, testes, cobertura, typecheck, `check --deploy` e build passaram, então o nome continua estável se a matriz de testes mudar. Os alertas e as atualizações de segurança do Dependabot e o relato privado de vulnerabilidades também são configuração do repositório; o canal de relato está em [SECURITY.md](../SECURITY.md). Para conferir o que está aplicado, com acesso de leitura:
 

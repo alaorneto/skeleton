@@ -462,6 +462,86 @@ class GithubIssuesTest(unittest.TestCase):
         links = parse_links(_issue(7, closed=True, reason="NOT_PLANNED", title="Dispensada"), REPO)
         assert (links.closed, links.title, links.state_reason) == (True, "Dispensada", "NOT_PLANNED")
 
+    # --- listas truncadas (#331) -----------------------------------------------------------------
+
+    def test_link_fields_request_page_info(self):
+        from github_issues import _LINK_FIELDS
+
+        assert "subIssues(first: 100) { pageInfo { hasNextPage }" in _LINK_FIELDS
+        assert "blockedBy(first: 100) { pageInfo { hasNextPage }" in _LINK_FIELDS
+
+    def test_parse_links_accepts_response_without_page_info(self):
+        node = _issue(5, sub_issues=(6,), blocked_by=(4,))
+        assert "pageInfo" not in node["subIssues"]
+        assert parse_links(node, REPO) == IssueLinks(5, sub_issues=(6,), blocked_by=(4,), title="Issue 5")
+        node["subIssues"]["pageInfo"] = {"hasNextPage": False}
+        node["blockedBy"]["pageInfo"] = {}
+        assert parse_links(node, REPO).sub_issues == (6,)
+
+    def test_parse_links_fails_closed_when_sub_issues_are_truncated(self):
+        node = _issue(5, sub_issues=(6,))
+        node["subIssues"]["pageInfo"] = {"hasNextPage": True}
+        with self.assertRaisesRegex(RuntimeError, "#5 tem mais de 100 sub-issues ou bloqueios"):
+            parse_links(node, REPO)
+
+    def test_parse_links_fails_closed_when_blocked_by_is_truncated(self):
+        node = _issue(5, blocked_by=(4,))
+        node["blockedBy"]["pageInfo"] = {"hasNextPage": True}
+        with self.assertRaisesRegex(RuntimeError, "leitura está incompleta"):
+            parse_links(node, REPO)
+
+    def test_close_epic_does_not_close_when_children_are_truncated(self):
+        self.capture()
+        issues = _epic_family()
+        issues[1]["subIssues"]["pageInfo"] = {"hasNextPage": True}
+        gh = FakeGh({1: SMALL_EPIC}, issues, labels={1: ["epic"]})
+        with self.assertRaises(RuntimeError):
+            close_completed_parents(3, REPO, dry_run=False, gh=gh)
+        assert gh.closes == [] and gh.bodies == []
+
+    def test_close_epic_command_exits_nonzero_on_truncation(self):
+        from unittest import mock
+
+        import github_issues
+
+        def truncated(*args, **kwargs):
+            raise RuntimeError("#1 tem mais de 100 sub-issues ou bloqueios")
+
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(github_issues, "close_completed_parents", truncated),
+            mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": REPO}),
+            mock.patch("sys.stderr", stderr),
+        ):
+            assert main(["close-epic", "--parent-of", "3"]) == 1
+        assert "close-epic: #1 tem mais de 100 sub-issues" in stderr.getvalue()
+
+    def test_sync_epic_reports_truncation_and_exits_nonzero(self):
+        self.capture()
+        issues = {1: _issue(1), 2: _issue(2), 3: _issue(3)}
+        issues[1]["subIssues"]["pageInfo"] = {"hasNextPage": True}
+        gh = FakeGh({1: SMALL_EPIC}, issues)
+        with self.assertRaisesRegex(RuntimeError, "#1 tem mais de 100"):
+            sync_epic(None, REPO, dry_run=False, gh=gh)
+        assert gh.writes == []
+
+        from unittest import mock
+
+        import github_issues
+
+        def truncated(*args, **kwargs):
+            raise RuntimeError("#1 tem mais de 100 sub-issues ou bloqueios")
+
+        for name, target in (("sync-epic", "sync_epic"), ("sync-checklist", "sync_checklist")):
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(github_issues, target, truncated),
+                mock.patch.dict("os.environ", {"GITHUB_REPOSITORY": REPO}),
+                mock.patch("sys.stderr", stderr),
+            ):
+                assert main([name, "--all"]) == 1
+            assert f"{name}: #1 tem mais de 100" in stderr.getvalue()
+
     def test_close_epic_command_usage(self):
         assert main(["close-epic"]) == 2
         assert main(["close-epic", "12"]) == 2
