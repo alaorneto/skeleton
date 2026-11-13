@@ -14,7 +14,7 @@ A API imita a de `django.tasks` (`JobType.enqueue(...)` devolve um recibo com `i
 
 ## Tabela `sk_jobs.Job`
 
-`Job` é uma [tabela operacional](data-model.md#tabelas-operacionais-adr) **global**: o worker reivindica jobs de várias organizações sem GUC especial. Campos: `job_type`, `queue`, `job_organization` (FK PROTECT nula, nunca `organization`), `actor_id`, `payload`, `state` (`queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled`), `attempts`, `max_attempts`, `run_after`, `locked_by`, `locked_until`, `last_error_class`, `last_error_code`, `idempotency_key` e `finished_at`.
+`Job` é uma [tabela operacional](data-model.md#tabelas-operacionais-adr) **global**: o worker reivindica jobs de várias organizações sem GUC especial. Campos: `job_type`, `queue`, `job_organization` (FK PROTECT nula, nunca `organization`), `actor_id`, `payload`, `state` (`queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled`; `failed` é reservado: uma falha volta a `queued` ou termina `dead`, e nenhum caminho atual grava `failed`), `attempts`, `max_attempts`, `run_after`, `locked_by`, `locked_until`, `last_error_class`, `last_error_code`, `idempotency_key` e `finished_at`.
 
 - Tipo, organização, ator, payload e chave de idempotência são imutáveis (guard no banco).
 - No PostgreSQL, o guard de INSERT recusa um job de outra organização quando a GUC tenant está definida (`cross-tenant insert`, SQLSTATE 42501).
@@ -109,7 +109,8 @@ from skeleton.jobs.periodic import register_periodic
 
 register_periodic("tasks.digest", "tasks.send_digest", daily_at=time(6, 0))  # por organização, 06:00 UTC
 register_periodic("files.reconcile", "files.reconcile_quota", every=timedelta(hours=1), per_organization=True)
-register_periodic("events.retention", "events.purge", every=timedelta(hours=6), per_organization=False)
+register_periodic("events.retention", "events.retention", every=timedelta(hours=6))  # por organização (padrão)
+register_periodic("jobs.retention", "jobs.retention", every=timedelta(hours=6), per_organization=False)
 ```
 
 `python manage.py run_scheduler [--once] [--interval 30]` enfileira, a cada verificação, a **janela atual** de cada declaração:
@@ -163,7 +164,7 @@ O job periódico global `jobs.retention` roda a cada 6 horas e é o único camin
 | Estado | Apagado depois de `finished_at` além de |
 |---|---|
 | `succeeded`, `cancelled` | `SKELETON_JOB_SUCCEEDED_RETENTION_DAYS` (padrão 7) |
-| `dead`, `failed` | `SKELETON_JOB_DEAD_RETENTION_DAYS` (padrão 30) |
+| `dead`, `failed` (estado reservado, que nenhum caminho atual grava) | `SKELETON_JOB_DEAD_RETENTION_DAYS` (padrão 30) |
 | `queued`, `running` | nunca, qualquer que seja a idade |
 
 Heartbeats de workers `stopped` há mais que a janela dos esgotados também são apagados. As duas chaves estão no catálogo da instância e podem ser editadas em `/platform/instance/`.

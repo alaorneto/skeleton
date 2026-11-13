@@ -137,6 +137,8 @@ class PreferenceAPI(SessionAPI):
         expected = parse_revision(request.headers.get("If-Match"))
         try:
             preferences.clear_preference(request.user, type_code=type_code, channel=channel, expected_revision=expected)
+        except preferences.PreferenceNotFound:
+            raise Http404 from None
         except ConcurrentUpdate:
             raise BoundaryError(
                 "revision_conflict", gettext("A preferência foi alterada por outra operação."), 412

@@ -16,6 +16,7 @@ class Job(OperationalRecord):
         QUEUED = "queued", gettext_lazy("Na fila")
         RUNNING = "running", gettext_lazy("Executando")
         SUCCEEDED = "succeeded", gettext_lazy("Concluído")
+        # Reserved: no code path sets it today (a failure goes back to "queued" or ends "dead").
         FAILED = "failed", gettext_lazy("Falhou")
         DEAD = "dead", gettext_lazy("Esgotado")
         CANCELLED = "cancelled", gettext_lazy("Cancelado")
