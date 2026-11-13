@@ -390,6 +390,68 @@ class DraftPublishView(TenantAPI):
         return etag(Response(asdict(item)), item.revision)
 
 
+def _migration_errors():
+    import contextlib
+
+    from django.core.exceptions import ValidationError
+
+    @contextlib.contextmanager
+    def handler():
+        try:
+            yield
+        except ValidationError as error:
+            raise BoundaryError("invalid_request", " ".join(error.messages)) from None
+
+    return handler()
+
+
+def _migration_item_schema() -> Schema:
+    return obj(
+        {
+            "instance_id": UUID_SCHEMA,
+            "number": string(),
+            "status": string(),
+            "moves": array(array(string())),
+            "skipped": string(description="Vazio quando a instância migra; senão o motivo."),
+        }
+    )
+
+
+class MigrationView(TenantAPI):
+    """Move running instances to the declared new version (#413): preview, then apply by job."""
+
+    openapi = {
+        "GET": Operation(
+            "Prévia da migração das instâncias de uma versão",
+            lambda: obj({"results": array(_migration_item_schema())}),
+            capability=FLOWS_MANAGE,
+        ),
+        "POST": Operation(
+            "Migra as instâncias da versão, por job",
+            lambda: obj({"job_id": UUID_SCHEMA}),
+            status=202,
+            capability=FLOWS_MANAGE,
+            request_required=False,
+        ),
+    }
+
+    def get(self, request, organization_id, flow_key, from_version):
+        from .migration import preview
+
+        with _migration_errors():
+            items = preview(request.user, flow_key=flow_key, from_version=from_version)
+        return Response({"results": [asdict(item) for item in items]})
+
+    @transaction.atomic
+    def post(self, request, organization_id, flow_key, from_version):
+        from .migration import request_migration
+
+        _body(request, ())
+        with _migration_errors():
+            receipt = request_migration(request.user, flow_key=flow_key, from_version=from_version)
+        return Response({"job_id": str(receipt.id)}, status=202)
+
+
 class OperationsView(TenantAPI):
     """Operations panel (#408), for who administers flows."""
 

@@ -106,10 +106,9 @@ class FlowInstance(OrganizationRecord):
     # A subflow (#412): the instance that started this one and the step run waiting for it.
     parent = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="children")
     parent_run = models.ForeignKey("FlowStepRun", on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    # ``definition`` and ``flow_version`` change only through the migration service (#413).
     immutable_fields = (
-        "definition_id",
         "flow_key",
-        "flow_version",
         "number",
         "subject_table",
         "subject_sysid",

@@ -28,5 +28,8 @@ class FlowsConfig(AppConfig):
         from .subflows import register_subflows
 
         register_subflows()
+        from .migration import register_migration_job
+
+        register_migration_job()
         register_human_steps()
         register_flow_notification_types()

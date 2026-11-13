@@ -220,6 +220,25 @@ A declaração em código é a versão **publicada**. Para que uma instância em
 3. `FlowDefinition` é imutável (guard no banco). Mudar o fluxo exige incrementar `version`: as instâncias novas usam a nova definição, e as antigas terminam na que tinham.
 4. Mudar a spec **sem** mudar a versão é erro de publicação: o digest do código difere do gravado e `start` falha fechado (`Conflict("definition_changed")`).
 
+### Migrar instâncias para uma versão nova
+
+Uma instância termina, por padrão, na versão em que começou. Para corrigir um fluxo publicado e levar as instâncias abertas junto ([#413](https://github.com/alaorneto/skeleton/issues/413)), a app declara em código como as etapas da versão antiga correspondem às da nova:
+
+```python
+from skeleton.flows.registry import register_flow_migration
+
+register_flow_migration(
+    "tasks.approval", from_version=1, to_version=2, steps={"fill": "draft", "review": "review"}, owner_app="tasks"
+)
+```
+
+- `to_version` é a versão declarada em código, e cada destino precisa existir nela (check `skeleton.E029`).
+- Quem administra fluxos vê a prévia (`GET /api/v1/o/<org>/flows/migrations/<chave>/<versão>/`): o destino de cada instância em andamento ou suspensa, sem gravar nada. Para aplicar, usa `POST` na mesma rota, que enfileira um job na organização.
+- Para cada etapa aberta: mapeada para a mesma chave, a etapa e as tarefas ficam como estão; mapeada para outra, a etapa é cancelada (com as tarefas) e a etapa de destino é ativada na versão nova, criando as tarefas de novo.
+- Uma instância com uma etapa aberta sem destino no mapa, ou dentro de um bloco paralelo, é pulada e aparece na prévia com o motivo (`unmapped:<etapa>`, `inside_block`).
+- Cada migração vai para o histórico (`instance_migrated`, com as versões e os movimentos). Desde `sk_flows.0005`, `definition` e `flow_version` da instância não são mais campos imutáveis do guard; só o serviço de migração os altera. Essa foi a troca para manter a identidade, o histórico e as tarefas que continuam: recriar a instância perderia os três.
+- Voltar para uma versão anterior e migrar sem mapa ficam de fora.
+
 Handlers, condições e regras de atribuição são resolvidos por nome no código atual. Uma versão antiga que cite um nome removido falha naquela etapa (a instância fica `failed`, com o motivo no histórico) em vez de executar outra coisa. Mantenha os nomes registrados enquanto houver instâncias antigas.
 
 ### Fluxos definidos em dados
@@ -241,7 +260,7 @@ Sete tabelas, todas `OrganizationRecord` (UUID, organização imutável, revisã
 |---|---|---|
 | `FlowDefinition` | `key`, `version`, `app_label`, `label`, `digest`, `specification` (JSON) | todos |
 | `FlowDraft` | `key`, `label`, `app_label`, `specification` (JSON, sem a versão), `published_version`, `published_at` | chave |
-| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at`, `parent`, `parent_run` | definição, chave, versão, número, registro de negócio, quem iniciou, chave de idempotência, pai e etapa do pai |
+| `FlowInstance` | `definition`, `flow_key`, `flow_version`, `number`, `subject_table`, `subject_sysid`, `status`, `outcome`, `starter`, `data`, `sensitive_data`, `idempotency_key`, `run_count`, `activity_count`, `finished_at`, `parent`, `parent_run` | chave, número, registro de negócio, quem iniciou, chave de idempotência, pai e etapa do pai (definição e versão mudam só pela migração, #413) |
 | `FlowStepRun` | `instance`, `step_key`, `kind`, `status`, `sequence`, `scope`, `branch`, `via`, `outcome`, `state` (JSON), `due_at`, `finished_at` | instância, etapa, tipo, ordem, escopo, ramo, origem |
 | `FlowTask` | `instance`, `step_run`, `step_key`, `kind`, `status`, `slot`, `assignee`, `candidate_group`, `candidate_role`, `delegated_from`, `decision`, `action`, `comment`, `due_at`, `reminded_count`, `escalated_at`, `completed_by`, `completed_at` | instância, ativação, etapa, tipo, vaga |
 | `FlowSubmission` | `instance`, `step_run`, `task`, `step_key`, `transition_key`, `origin`, `values`, `sensitive_values` | todos |
@@ -344,7 +363,6 @@ Avaliado e deixado para o epic [#208](https://github.com/alaorneto/skeleton/issu
 | Item | Por que não agora |
 |---|---|
 | SLA em horas úteis e substituição por ausência | Dependem de um calendário da organização que ainda não existe |
-| Migrar instâncias para outra versão | Precisa de um mapa de etapas entre versões e de regras para tarefas abertas |
 | Diagrama do fluxo e métricas | Apresentação e operação, sem efeito no contrato |
 | Comentários livres na instância | Serão os comentários de registros (#187) |
 | Retenção e anonimização dos dados de formulário | Faz parte do epic de LGPD (#88) |

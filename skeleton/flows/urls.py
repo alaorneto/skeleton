@@ -35,6 +35,11 @@ urlpatterns = [
         "api/v1/o/<uuid:organization_id>/flows/operations/", api_views.OperationsView.as_view(), name="api-operations"
     ),
     path("api/v1/o/<uuid:organization_id>/flows/drafts/", api_views.DraftsView.as_view(), name="api-drafts"),
+    path(
+        "api/v1/o/<uuid:organization_id>/flows/migrations/<str:flow_key>/<int:from_version>/",
+        api_views.MigrationView.as_view(),
+        name="api-migration",
+    ),
     path("api/v1/o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/", api_views.DraftView.as_view(), name="api-draft"),
     path(
         "api/v1/o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/publish/",

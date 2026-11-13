@@ -50,6 +50,7 @@ from .spec import (
 )
 
 __all__ = [
+    "register_flow_migration",
     "Assignees",
     "Assignment",
     "Expr",
@@ -147,6 +148,55 @@ _handlers: dict[str, Registered] = {}
 _conditions: dict[str, Registered] = {}
 _assignments: dict[str, Registered] = {}
 _duplicates: list[str] = []
+
+
+@dataclass(frozen=True)
+class FlowMigration:
+    """How the open steps of ``from_version`` map onto ``to_version`` of a flow (#413)."""
+
+    key: str
+    from_version: int
+    to_version: int
+    steps: Mapping[str, str]
+    owner_app: str
+
+
+_migrations: dict[tuple[str, int], FlowMigration] = {}
+
+
+def register_flow_migration(
+    key: str, *, from_version: int, to_version: int, steps: Mapping[str, str], owner_app: str
+) -> FlowMigration:
+    """Declare how instances of ``from_version`` move to ``to_version`` (the code's version)."""
+    migration = FlowMigration(key, from_version, to_version, MappingProxyType(dict(steps)), owner_app)
+    existing = _migrations.get((key, from_version))
+    if existing is not None and existing != migration:
+        _duplicates.append(f"migration {key} v{from_version}")
+        return existing
+    _migrations[(key, from_version)] = migration
+    return migration
+
+
+def get_migration(key: str, from_version: int) -> FlowMigration:
+    return _migrations[(key, from_version)]
+
+
+def _migration_problems() -> list[str]:
+    problems = []
+    for (key, from_version), migration in sorted(_migrations.items()):
+        where = f"migration {key} v{from_version}"
+        spec = _flows.get(key)
+        if spec is None:
+            problems.append(f"{where}: the flow is not declared")
+            continue
+        if migration.owner_app != spec.owner_app:
+            problems.append(f"{where}: must be declared by the flow's app")
+        if migration.to_version != spec.version or not 1 <= from_version < migration.to_version:
+            problems.append(f"{where}: must go from an older version to the declared one")
+        for target in sorted(set(migration.steps.values())):
+            if not spec.has_step(target):
+                problems.append(f"{where}: target step {target!r} is not in v{spec.version}")
+    return problems
 
 
 def register_flow(spec: FlowSpec) -> FlowSpec:
@@ -264,6 +314,7 @@ def flow_problems() -> list[str]:
             if not entry.owner_app:
                 problems.append(f"{kind} {name}: owner_app is required")
     problems.extend(_subflow_cycles())
+    problems.extend(_migration_problems())
     for spec in all_flows():
         if not spec.owner_app:
             problems.append(f"{spec.key}: owner_app is required")
