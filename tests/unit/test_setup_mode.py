@@ -61,9 +61,11 @@ def test_setup_mode_follows_the_required_keys(tmp_path, monkeypatch):
     monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
     for name, value in base.items():
         monkeypatch.setenv(name, value)
-    for name in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "DATABASE_URL", "SKELETON_SETUP"):
+    # SKELETON_SETUP_TARGET too: choosing the setup records it, and monkeypatch removes it afterwards.
+    for name in ("DJANGO_SECRET_KEY", "DJANGO_ALLOWED_HOSTS", "DATABASE_URL", "SKELETON_SETUP", mode.SETUP_TARGET_ENV):
         monkeypatch.delenv(name, raising=False)
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == mode.SETUP_SETTINGS
+    assert os.environ[mode.SETUP_TARGET_ENV] == "config.settings.production"
     monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "config.settings.test")
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == "config.settings.test"
 

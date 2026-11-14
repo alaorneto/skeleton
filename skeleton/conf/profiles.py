@@ -163,6 +163,13 @@ def setup_settings(base):
     BASE_DIR = base["BASE_DIR"]
     DEBUG = env.bool("DJANGO_DEBUG", default=False)
     SKELETON_SETUP_MODE = True
+    # The profile the setup replaces (set by select_settings_module). Every target but the
+    # runserver's development profile, or an unknown one, gets the production rules: shared Redis
+    # cache and SMTP email, which production_settings refuses to start without (#457).
+    from skeleton.setup.mode import DEVELOPMENT_SETTINGS, SETUP_TARGET_ENV
+
+    SKELETON_SETUP_TARGET = env(SETUP_TARGET_ENV, default="")
+    SKELETON_SETUP_PRODUCTION = SKELETON_SETUP_TARGET != DEVELOPMENT_SETTINGS
     store, key_path = open_store(BASE_DIR)
     crypto.load_key(key_path, create=True)
     SECRET_KEY = hmac.new(key_path.read_bytes().strip(), b"skeleton-setup-session", hashlib.sha256).hexdigest()
