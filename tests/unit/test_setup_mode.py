@@ -62,6 +62,30 @@ def test_setup_mode_follows_the_required_keys(tmp_path, monkeypatch):
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == "config.settings.test"
 
 
+def test_a_restart_in_the_middle_of_the_setup_stays_in_setup_mode(tmp_path):
+    """The first steps store every required key; only the completion leaves setup mode (#453)."""
+    database = tmp_path / "instance" / "i.sqlite3"
+    base = {"SKELETON_INSTANCE_DB": str(database), "SKELETON_INSTANCE_KEY_FILE": str(tmp_path / "k")}
+    configured = {
+        **base,
+        "DJANGO_SECRET_KEY": "x" * 50,
+        "DJANGO_ALLOWED_HOSTS": "app.example.test",
+        "DATABASE_URL": "postgres://u:p@db/x",
+    }
+    assert not mode.setup_required(tmp_path, configured)
+    assert not database.exists()  # Reading the state never creates the instance store.
+    store = InstanceStore(database)
+    tokens.issue_token(store, stream=io.StringIO())
+    # A token alone (an instance configured by variables or the CLI after it started empty) is not a setup.
+    assert not mode.setup_required(tmp_path, configured)
+    store.put_setup_state("step:instance", "done")
+    store.put_setup_state("step:database", "done")
+    assert mode.setup_required(tmp_path, configured)
+    assert not mode.setup_required(tmp_path, {**configured, "SKELETON_SETUP": "off"})
+    store.put_setup_state("status", mode.COMPLETED)
+    assert not mode.setup_required(tmp_path, configured)
+
+
 @pytest.mark.parametrize(
     "dsn", ["sqlite:///db.sqlite3", "mysql://u:p@h/db", "postgres://host-only", "postgres:///nodb", 42]
 )

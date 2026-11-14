@@ -15,8 +15,10 @@ def project_root() -> Path:
 
 
 def setup_required(base_dir: Path | None = None, environment: Mapping[str, str] | None = None) -> bool:
-    """True while a key required by the setup has no value in the environment or the store.
+    """True while a key required by the setup is missing, or while a started setup is not completed.
 
+    The first steps already store every required key, so a restart before the completion has to
+    come back to the setup, not to settings that still lack cache, email and the rest (#453).
     ``SKELETON_SETUP=off`` disables the switch (CI, tools, instances configured elsewhere).
     """
     from skeleton.instance.resolve import missing_for_setup
@@ -24,7 +26,23 @@ def setup_required(base_dir: Path | None = None, environment: Mapping[str, str] 
     environment = os.environ if environment is None else environment
     if environment.get("SKELETON_SETUP", "").lower() in {"off", "0", "false"}:
         return False
-    return bool(missing_for_setup(base_dir or project_root(), environment))
+    base_dir = base_dir or project_root()
+    return bool(missing_for_setup(base_dir, environment)) or setup_in_progress(base_dir, environment)
+
+
+def setup_in_progress(base_dir: Path, environment: Mapping[str, str]) -> bool:
+    """A setup that recorded a step and has not completed; a token alone does not count.
+
+    An instance that started empty (and so issued a token) and was then configured by variables
+    or ``manage.py instance`` never recorded a step, and keeps leaving setup mode. Reading the
+    state never creates the instance store.
+    """
+    from skeleton.instance.resolve import instance_paths
+    from skeleton.instance.store import InstanceStore
+
+    database, _ = instance_paths(base_dir, environment)
+    state = InstanceStore(database).setup_state()
+    return state.get("status") != COMPLETED and any(key.startswith("step:") for key in state)
 
 
 def select_settings_module(default: str, *, base_dir: Path | None = None) -> str:
