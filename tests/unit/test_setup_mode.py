@@ -3,12 +3,18 @@
 import io
 import os
 import signal
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
+from skeleton.instance.schema import BY_ENV
 from skeleton.instance.store import InstanceStore
 from skeleton.setup import database, mode, tokens
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture
@@ -60,6 +66,37 @@ def test_setup_mode_follows_the_required_keys(tmp_path, monkeypatch):
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == mode.SETUP_SETTINGS
     monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "config.settings.test")
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == "config.settings.test"
+
+
+def test_the_wsgi_entrypoint_issues_and_prints_the_token_in_a_fresh_process(tmp_path):
+    """Gunicorn imports ``config.wsgi`` before the apps exist; issuing the token must not translate (#455)."""
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in BY_ENV and not name.startswith(("DJANGO_", "SKELETON_", "TEST_"))
+    }
+    database = tmp_path / "instance" / "instance.sqlite3"
+    environment.update(
+        {"SKELETON_INSTANCE_DB": str(database), "SKELETON_INSTANCE_KEY_FILE": str(tmp_path / "keys" / "master.key")}
+    )
+
+    def start():
+        return subprocess.run(
+            [sys.executable, "-c", "import config.wsgi"],
+            cwd=ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    first = start()
+    assert first.returncode == 0, first.stderr
+    token = tokens.token_file(InstanceStore(database)).read_text().strip()
+    assert f"Token de primeiro acesso (uso único, vale 24 h): {token}" in first.stderr
+    second = start()  # The token is still open: no other token, nothing printed.
+    assert second.returncode == 0, second.stderr
+    assert "Token de primeiro acesso" not in second.stderr
 
 
 def test_a_restart_in_the_middle_of_the_setup_stays_in_setup_mode(tmp_path):
