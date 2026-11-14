@@ -13,7 +13,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from django.utils.translation import gettext
+from django.utils.translation import gettext_noop
 
 TOKEN_LIFETIME = timedelta(hours=24)
 TOKEN_BYTES = 24
@@ -42,8 +42,11 @@ def issue_token(store, *, now: datetime | None = None, stream=None) -> str | Non
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         handle.write(token + "\n")
+    # Issued while the settings are imported, before the apps registry exists: gettext would raise
+    # AppRegistryNotReady and kill the worker. The core ships pt-BR msgids only, so the text is the
+    # same; gettext_noop keeps it marked for extraction (#455).
     print(  # noqa: T201 - the one place the operator learns the token
-        gettext(
+        gettext_noop(
             "[skeleton setup] Token de primeiro acesso (uso único, vale 24 h): %(token)s\n[skeleton setup] Também gravado em %(path)s (0600). Abra /setup/ e informe o token."
         )
         % {"token": token, "path": path},
