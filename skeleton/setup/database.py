@@ -133,37 +133,32 @@ def validate_owner(owner_dsn: str, runtime: Role) -> Role:
 
 @contextmanager
 def django_alias(alias: str, dsn: str) -> Iterator[str]:
-    """A temporary ``DATABASES`` alias for one request; removed (and closed) afterwards."""
-    from django.db import connections
-    from django.db.utils import ConnectionHandler
+    """The ``default`` connection of this thread on ``dsn`` for one request, then the original back.
 
+    Setup mode runs with ``DATABASES = {}``, so ``default`` is Django's dummy backend. Code that
+    reads through it without a ``using`` (the unique checks of ``full_clean`` when the catalog is
+    synced, the identity bootstrap) needs a real connection there, and the catalog rows are keyed
+    by the alias the plain ``migrate`` uses. So the whole step runs on ``default``: this thread's
+    connection object is swapped and restored, never the shared ``DATABASES`` entry (#451).
+    """
+    from django.db import connections
+    from django.db.utils import ConnectionHandler, load_backend
+
+    if alias != "default":
+        raise ValueError("The setup steps run on the default alias.")
     config = parse(dsn)
     config.setdefault("OPTIONS", {})["options"] = f"-c search_path={SCHEMA},public"
     config["ATOMIC_REQUESTS"] = False
     config["CONN_MAX_AGE"] = 0
     normalized = ConnectionHandler({"default": config}).settings["default"]
-    if alias == "default":
-        # Code that reads through the default connection (identity bootstrap) needs the runtime
-        # role there; setup mode has only the dummy alias, which comes back afterwards.
-        original = connections.databases.get("default")
-        connections["default"].close()
-        connections.databases["default"] = normalized
-        connections["default"].settings_dict = normalized
-        try:
-            yield alias
-        finally:
-            connections["default"].close()
-            connections.databases["default"] = original
-            connections["default"].settings_dict = original
-        return
-    connections.databases[alias] = normalized
+    original = connections["default"]
+    original.close()
+    connections["default"] = load_backend(normalized["ENGINE"]).DatabaseWrapper(normalized, "default")
     try:
         yield alias
     finally:
-        if alias in connections:
-            connections[alias].close()
-            del connections[alias]
-        connections.databases.pop(alias, None)
+        connections["default"].close()
+        connections["default"] = original
 
 
 def migrate_schema(owner_dsn: str) -> list[str]:
@@ -175,7 +170,8 @@ def migrate_schema(owner_dsn: str) -> list[str]:
     from skeleton.system.checks import check_deployed_schema
     from skeleton.system.synchronization import sync_table_catalog
 
-    with django_alias("setup_owner", owner_dsn) as alias:
+    # The owner credential lives only on this thread's default connection, and only for this call.
+    with django_alias("default", owner_dsn) as alias:
         call_command("migrate", database=alias, interactive=False, verbosity=0, stdout=StringIO())
         sync_table_catalog(using=alias)
         return check_deployed_schema(using=alias)

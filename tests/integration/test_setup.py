@@ -210,6 +210,72 @@ def _ready_for(store, *steps):
         store.put_setup_state(f"step:{step}", "done")
 
 
+@pytest.fixture
+def dummy_default():
+    """The default connection as a real setup-mode process has it: Django's dummy backend.
+
+    Setup mode runs with ``DATABASES = {}``; the test settings keep a real default, which hid
+    every read the owner and identity steps made through it (#451).
+    """
+    from django.db import connections
+    from django.db.utils import ConnectionHandler, load_backend
+
+    dummy = ConnectionHandler({}).settings["default"]
+    original = connections["default"]
+    original.close()
+    connections["default"] = load_backend(dummy["ENGINE"]).DatabaseWrapper(dummy, "default")
+    try:
+        yield
+    finally:
+        connections["default"] = original
+
+
+def _current_user():
+    from django.db import connections
+
+    with connections["default"].cursor() as cursor:
+        cursor.execute("SELECT current_user")
+        return cursor.fetchone()[0]
+
+
+def test_owner_and_identity_steps_work_without_a_real_default(dummy_default):
+    """The schema step migrates and syncs the catalog through ``default``, then gives it back (#451)."""
+    from django.core.exceptions import ImproperlyConfigured
+    from django.db import connections
+
+    from skeleton.setup import database
+    from skeleton.system.models import TableDefinition
+
+    owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
+    runtime = os.environ["TEST_DATABASE_URL"]
+    shared = dict(connections.databases["default"])
+    assert database.migrate_schema(owner) == []
+    with pytest.raises(ImproperlyConfigured):
+        connections["default"].cursor()
+    with database.django_alias("default", owner):
+        # One catalog, under the alias every other migrate writes: no rows for a setup alias.
+        assert not TableDefinition.all_objects.exclude(database_alias="default").exists()
+    with database.django_alias("default", runtime):
+        assert _current_user() == database.parse(runtime)["USER"]
+    with pytest.raises(ImproperlyConfigured):
+        connections["default"].cursor()
+    # Only this thread's connection object was swapped, never the shared DATABASES entry.
+    assert connections.databases["default"] == shared
+
+
+def test_default_connection_comes_back_when_the_step_fails(dummy_default):
+    from django.core.exceptions import ImproperlyConfigured
+    from django.db import connections
+
+    from skeleton.setup import database
+
+    with pytest.raises(RuntimeError), database.django_alias("default", os.environ["TEST_MIGRATION_DATABASE_URL"]):
+        assert _current_user() == database.parse(os.environ["TEST_MIGRATION_DATABASE_URL"])["USER"]
+        raise RuntimeError("step failed")
+    with pytest.raises(ImproperlyConfigured):
+        connections["default"].cursor()
+
+
 def test_failed_migration_is_logged_without_credentials(setup_mode, caplog, monkeypatch):
     from skeleton.setup import database
 
