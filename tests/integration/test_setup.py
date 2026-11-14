@@ -43,6 +43,9 @@ def setup_mode(tmp_path, monkeypatch, settings):
     }
     overrides["SESSION_COOKIE_SECURE"] = False
     overrides["CSRF_COOKIE_SECURE"] = False
+    # The flow sends the test email to the locmem outbox and keeps the local cache, as the
+    # runserver's development target allows; the production rules are in test_setup_forms (#457).
+    overrides["SKELETON_SETUP_PRODUCTION"] = False
     with override_settings(**overrides):
         yield InstanceStore(tmp_path / "instance" / "instance.sqlite3")
 

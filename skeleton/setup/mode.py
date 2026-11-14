@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 
 SETUP_SETTINGS = "config.settings.setup"
+SETUP_TARGET_ENV = "SKELETON_SETUP_TARGET"
+DEVELOPMENT_SETTINGS = "config.settings.development"
 COMPLETED = "completed"
 
 
@@ -55,7 +57,12 @@ def select_settings_module(default: str, *, base_dir: Path | None = None) -> str
     explicit = os.environ.get("DJANGO_SETTINGS_MODULE")
     if explicit and explicit != default:
         return explicit
-    return SETUP_SETTINGS if setup_required(base_dir) else default
+    if not setup_required(base_dir):
+        return default
+    # The profile the instance starts with once the setup completes: the setup applies its rules
+    # (production refuses a local cache and non-SMTP email) instead of completing into a crash (#457).
+    os.environ[SETUP_TARGET_ENV] = default
+    return SETUP_SETTINGS
 
 
 def setup_completed(store) -> bool:

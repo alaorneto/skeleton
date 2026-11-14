@@ -59,6 +59,16 @@ class SchemaForm(forms.Form):
     )
 
 
+REDIS_CACHE = "django.core.cache.backends.redis.RedisCache"
+
+
+def production_target() -> bool:
+    """Whether the instance starts with production rules after the setup (#457); unknown is yes."""
+    from django.conf import settings
+
+    return getattr(settings, "SKELETON_SETUP_PRODUCTION", True)
+
+
 class EmailForm(forms.Form):
     email_url = forms.CharField(
         label=gettext_lazy("Servidor de email"),
@@ -69,6 +79,26 @@ class EmailForm(forms.Form):
     default_from_email = forms.EmailField(label=gettext_lazy("Remetente padrão"))
     test_recipient = forms.EmailField(label=gettext_lazy("Enviar email de teste para"))
 
+    def clean_email_url(self):
+        # Messages never echo the value: the URL carries the SMTP password. Other parser refusals
+        # (unknown scheme or parameter) stay with the view, which reports names only.
+        value = self.cleaned_data["email_url"]
+        if not production_target():
+            return value
+        from django.core.exceptions import ImproperlyConfigured
+
+        from skeleton.conf.mailers import SMTP, mailer_from_url
+
+        try:
+            backend = mailer_from_url(value).get("BACKEND")
+        except (ImproperlyConfigured, ValueError):
+            return value
+        if backend != SMTP:
+            raise forms.ValidationError(
+                gettext("Em produção o email precisa de um servidor SMTP: smtp+tls://, smtp+ssl:// ou smtp://.")
+            )
+        return value
+
 
 class StorageForm(forms.Form):
     cache_url = forms.CharField(
@@ -76,7 +106,10 @@ class StorageForm(forms.Form):
         max_length=500,
         required=False,
         widget=forms.PasswordInput(render_value=False),
-        help_text=gettext_lazy("redis://redis:6379/0. Vazio mantém o cache local (só desenvolvimento)."),
+        help_text=gettext_lazy(
+            "redis://:senha@redis:6379/0. Obrigatório em produção; vazio mantém o cache local, só no runserver de"
+            " desenvolvimento."
+        ),
     )
     files_backend = forms.ChoiceField(
         label=gettext_lazy("Armazenamento de anexos"), choices=(("local", gettext_lazy("Local")), ("s3", "S3"))
@@ -85,6 +118,27 @@ class StorageForm(forms.Form):
     files_s3_bucket = forms.CharField(label="Bucket S3", max_length=200, required=False)
     files_s3_region = forms.CharField(label=gettext_lazy("Região S3"), max_length=100, required=False)
     files_s3_endpoint = forms.CharField(label="Endpoint S3", max_length=500, required=False)
+
+    def clean_cache_url(self):
+        # Messages never echo the value: the URL carries the Redis password.
+        value = self.cleaned_data["cache_url"]
+        if not value:
+            if production_target():
+                raise forms.ValidationError(
+                    gettext("Em produção o cache precisa de um Redis compartilhado: redis://:senha@redis:6379/0.")
+                )
+            return value
+        try:
+            import environ  # type: ignore[import-untyped]
+
+            backend = environ.Env.cache_url_config(value).get("BACKEND")
+        except Exception:  # noqa: BLE001 - any parser failure is the same refusal, without the value
+            raise forms.ValidationError(gettext("URL de cache inválida.")) from None
+        if production_target() and backend != REDIS_CACHE:
+            raise forms.ValidationError(
+                gettext("Em produção o cache precisa de um Redis compartilhado: redis://:senha@redis:6379/0.")
+            )
+        return value
 
     def clean(self):
         data = super().clean()
