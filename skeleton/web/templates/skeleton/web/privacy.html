@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n %}
-{% block title %}{% translate "Privacidade" %} · Skeleton{% endblock %}
+{% block title %}{% translate "Privacidade" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Perfil" %}</p><h1>{% translate "Seus dados" %}</h1><p class="page-description">{% if site_mode %}{% translate "Baixe uma cópia de tudo o que o sistema guarda sobre a sua conta: identidade, perfil, tokens de API, vínculos, notificações recebidas e anexos que você enviou." %}{% else %}{% translate "Baixe uma cópia do que o sistema guarda sobre você: identidade, perfil, tokens de API e, em cada organização, o vínculo, as notificações recebidas e os anexos que você enviou." %}{% endif %}</p></div></div>

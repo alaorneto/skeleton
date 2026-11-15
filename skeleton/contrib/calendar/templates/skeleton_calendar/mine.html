@@ -1,4 +1,4 @@
-{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Minha agenda · Skeleton" %}{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Minha agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Agenda" %}</p><h1>{% translate "Minha agenda" %}</h1><p class="page-description">{% translate "Próximos 14 dias em todas as suas organizações, no fuso" %} {{ zone }}. {% translate "Cada organização mostra só o que você pode ler nela." %}</p></div>

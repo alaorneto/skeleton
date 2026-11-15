@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load i18n %}{% block title %}{% translate "Apps da organização · Skeleton" %}{% endblock %}
+{% load i18n %}{% block title %}{% translate "Apps da organização" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Organização" %}</p><h1>{% translate "Apps da organização" %}</h1>
 <p class="page-description">{% translate "A ativação não instala software nem altera o schema. Desativar preserva os registros e a auditoria. Só aparecem as apps que a plataforma disponibilizou para esta organização; instalação, atualização e disponibilidade pertencem à administração da plataforma." %}</p></div></div>

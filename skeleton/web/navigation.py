@@ -75,7 +75,12 @@ def _access_navigation(organization_id: Any, resource: str | None, capabilities:
 
 def organization_shell(request: HttpRequest) -> dict[str, Any]:
     site = getattr(request, "organization_site", None)  # Set by OrganizationSiteMiddleware (#482).
-    shell: dict[str, Any] = {"site_mode": site is not None, "site": site}
+    shell: dict[str, Any] = {
+        "site_mode": site is not None,
+        "site": site,
+        # The suffix of every page title (#484): the organization on its own address, else the product.
+        "site_name": site.name if site is not None else "Skeleton",
+    }
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
         return shell

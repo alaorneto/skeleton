@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Tarefas · Skeleton" %}{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Tarefas" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Tarefas" %}</h1><p class="page-description">{% translate "Tarefas e aprovações dos processos desta organização. Cada ação é revalidada no servidor." %}</p></div>
   <div class="toolbar">{% for key, label in scopes.items %}{% if key == scope %}<span class="badge badge-brand">{{ label }}</span>{% else %}<a class="btn btn-secondary btn-sm" href="?scope={{ key }}">{{ label }}</a>{% endif %}{% endfor %}<a class="btn btn-secondary btn-sm" href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></div>

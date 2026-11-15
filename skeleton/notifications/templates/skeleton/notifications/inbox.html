@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ title }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ title }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% if site_mode %}{{ site.name }}{% elif scope == "global" %}{% translate "Todas as organizações" %}{% else %}{% translate "Organização" %}{% endif %}</p><h1>{{ title }}</h1><p class="page-description">{% if site_mode %}{% translate "Abrir uma notificação revalida o seu acesso ao conteúdo." %}{% else %}{% translate "Avisos das organizações em que você tem vínculo ativo. Abrir uma notificação revalida o seu acesso ao conteúdo." %}{% endif %}</p></div>
   <div class="toolbar">

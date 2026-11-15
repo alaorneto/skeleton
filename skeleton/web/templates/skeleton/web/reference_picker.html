@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}
 {% load static i18n %}
-{% block title %}{{ title }} · Skeleton{% endblock %}
+{% block title %}{{ title }} · {{ site_name }}{% endblock %}
 {% block content %}
 <header class="page-header"><div class="min-w-0"><h1>{{ title }}</h1><p class="page-description">{% translate "Selecione um registro legível. Sem JavaScript, copie o UUID e cole no campo do formulário aberto; voltar não salva suas alterações." %}</p></div><div class="toolbar"><a class="btn btn-secondary" href="{{ back_url }}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar ao formulário" %}</a></div></header>
 <p class="mb-3 text-sm text-body-subtle">{{ count }} {% translate "referência" %}{{ count|pluralize:",s" }} {% translate "disponível" %}{{ count|pluralize:",is" }}.</p>

@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% if endpoint %}{{ endpoint.name }}{% else %}{% translate "Novo webhook" %}{% endif %} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% if endpoint %}{{ endpoint.name }}{% else %}{% translate "Novo webhook" %}{% endif %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header">
