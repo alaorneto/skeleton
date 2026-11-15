@@ -141,7 +141,7 @@ npm run build                # gera site.css e copia os assets vendorizados
 npm run check                # falha se static/ estiver desatualizado em relação às fontes
 ```
 
-Rode `npm run build` sempre que alterar `frontend/src/` **ou templates**: o Tailwind só gera as classes que encontra em `skeleton/web/templates`, `skeleton/web/static/skeleton/web/*.js`, `skeleton/system/app_template/*.html-tpl` e `examples/notes/templates`. Versione o resultado junto com a mudança.
+Rode `npm run build` sempre que alterar `frontend/src/` **ou templates**: o Tailwind só gera as classes que encontra nos templates de todos os pacotes do núcleo (`skeleton/**/templates`, conferido por `tests/unit/test_css_sources.py`), em `skeleton/contrib`, `skeleton/web/static/skeleton/web/*.js`, `skeleton/system/app_template/*.html-tpl` e `examples/notes/templates`. Versione o resultado junto com a mudança.
 
 Templates de apps derivadas em `applications/` não são varridos, porque o CSS faz parte do wheel do núcleo. Nesses templates use as classes de componente da tabela acima e utilitários que o núcleo já usa; um utilitário Tailwind inédito não existirá no `site.css`. Estilo próprio de uma app vai num arquivo estático da própria app, carregado pelo bloco `extrahead`, usando as variáveis `--color-*` dos tokens.
 
