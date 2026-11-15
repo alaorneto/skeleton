@@ -1,0 +1,173 @@
+# Signed release assets (#496): the core package, the release package, the agent wheel and the
+# accumulated index of every GitHub release, plus a monthly renewal of the index validity.
+# Dispatched by release.yml (release.dispatch_workflow) with the inputs version and tag; never by
+# pull_request, so code from a pull request never reaches the signing key.
+name: Artefatos de release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão publicada"
+        required: true
+        type: string
+      tag:
+        description: "Tag da release"
+        required: true
+        type: string
+  schedule:
+    - cron: "17 6 1 * *" # renovação mensal da validade do índice
+
+permissions: {}
+
+concurrency:
+  group: release-artifacts
+  cancel-in-progress: false
+
+env:
+  SYSTEM_PACKAGES: libxml2 libxmlsec1 libxmlsec1-openssl xmlsec1
+
+jobs:
+  publish:
+    name: Publicar os artefatos assinados
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write # anexar os assets à release
+    env:
+      VERSION: ${{ inputs.version }}
+      TAG: ${{ inputs.tag }}
+      RELEASE_PUBLISHER: ${{ vars.RELEASE_PUBLISHER }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - name: Conferir a configuração do publicador
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ] || [ -z "$RELEASE_PUBLISHER" ]; then
+            echo "::error::Configure no ambiente 'release' o segredo RELEASE_SIGNING_KEY (chave Ed25519 de 'package keygen') e a variável RELEASE_PUBLISHER (docs/deployment.md, Publicação automática)."
+            exit 1
+          fi
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+      - name: Instalar as ferramentas de build
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Gravar a chave de assinatura
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+      - name: Índice anterior
+        id: previous
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous"
+          for tag in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 50 --json tagName --jq '.[].tagName'); do
+            if [ "$tag" = "$TAG" ]; then
+              continue
+            fi
+            if gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern skeleton-index.json --dir "$RUNNER_TEMP/previous" 2>/dev/null; then
+              echo "index=$RUNNER_TEMP/previous/skeleton-index.json" >> "$GITHUB_OUTPUT"
+              echo "Índice anterior: $tag"
+              break
+            fi
+          done
+      - name: Construir, assinar e verificar
+        env:
+          PREVIOUS_INDEX: ${{ steps.previous.outputs.index }}
+        run: |
+          previous=()
+          if [ -n "$PREVIOUS_INDEX" ]; then
+            previous=(--previous-index "$PREVIOUS_INDEX")
+          fi
+          python tools/release_artifacts.py build --version "$VERSION" --tag "$TAG" \
+            --publisher "$RELEASE_PUBLISHER" --private-key "$RUNNER_TEMP/release.key" \
+            --out "$RUNNER_TEMP/out" --verify-install "${previous[@]}"
+      - name: Anexar à release
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$RUNNER_TEMP"/out/*.skapp "$RUNNER_TEMP"/out/*.whl \
+            "$RUNNER_TEMP/out/skeleton-index.json" "$RUNNER_TEMP/out/SHA256SUMS"
+      - name: Índice também na release mais recente
+        # Um hotfix numa linha antiga não é a release "latest": o agente lê o índice de releases/latest.
+        run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          if [ -n "$latest" ] && [ "$latest" != "$TAG" ]; then
+            gh release upload "$latest" --repo "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/out/skeleton-index.json"
+          fi
+      - name: Apagar a chave
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.key"
+
+  refresh:
+    name: Renovar a validade do índice
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write # substituir o índice da release mais recente
+    env:
+      RELEASE_PUBLISHER: ${{ vars.RELEASE_PUBLISHER }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Conferir a configuração do publicador
+        id: configured
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ] || [ -z "$RELEASE_PUBLISHER" ]; then
+            echo "Sem RELEASE_SIGNING_KEY/RELEASE_PUBLISHER: este repositório não publica artefatos; nada a renovar." >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.configured.outputs.ready == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        if: steps.configured.outputs.ready == 'true'
+        with:
+          python-version: "3.14"
+      - name: Índice da release mais recente
+        id: latest
+        if: steps.configured.outputs.ready == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous"
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -n "$latest" ] && gh release download "$latest" --repo "$GITHUB_REPOSITORY" --pattern skeleton-index.json --dir "$RUNNER_TEMP/previous"; then
+            echo "tag=$latest" >> "$GITHUB_OUTPUT"
+          else
+            echo "A release mais recente não tem skeleton-index.json; nada a renovar." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Instalar as dependências
+        if: steps.latest.outputs.tag != ''
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends $SYSTEM_PACKAGES
+          python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Gravar a chave de assinatura
+        if: steps.latest.outputs.tag != ''
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+      - name: Renovar e enviar
+        if: steps.latest.outputs.tag != ''
+        env:
+          LATEST: ${{ steps.latest.outputs.tag }}
+        run: |
+          python tools/release_artifacts.py refresh-index --publisher "$RELEASE_PUBLISHER" \
+            --private-key "$RUNNER_TEMP/release.key" \
+            --previous-index "$RUNNER_TEMP/previous/skeleton-index.json" --out "$RUNNER_TEMP/out"
+          gh release upload "$LATEST" --repo "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/out/skeleton-index.json"
+      - name: Apagar a chave
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.key"

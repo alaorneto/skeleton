@@ -291,6 +291,14 @@ jobs:
           /tmp/agent-venv/bin/python -m pip install --no-deps dist/*.whl dist-agent/*.whl
           /tmp/agent-venv/bin/python -m pip check
           /tmp/agent-venv/bin/skeleton-deployment-agent --help
+      - name: Ensaio dos artefatos de release
+        # #496: o mesmo build do workflow de artefatos, com chave efêmera (nenhum segredo em PR).
+        # Baixa os wheels do lock com --require-hashes e instala tudo sem rede num venv de verificação.
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          python tools/release_artifacts.py build --ephemeral-key --version "$version" --tag "v$version"             --core-wheel "dist/django_skeleton-$version-py3-none-any.whl"             --agent-wheel "dist-agent/skeleton_deployment_agent-$version-py3-none-any.whl"             --verify-install --out "$RUNNER_TEMP/release-rehearsal"
+          python -m skeleton.system.packages validate "$RUNNER_TEMP"/release-rehearsal/*.release.skapp             --trust-store "$RUNNER_TEMP/release-rehearsal/trust.json"
+          python -m skeleton.system.packages validate-index "$RUNNER_TEMP/release-rehearsal/skeleton-index.json"             --trust-store "$RUNNER_TEMP/release-rehearsal/trust.json"
       - name: Auditar dependências travadas
         # pip-audit isolado: nada é instalado no ambiente em que o lock foi instalado.
         run: |

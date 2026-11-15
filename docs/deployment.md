@@ -448,6 +448,47 @@ O manifesto (JSON canônico, contador próprio `release_format: 1`, que não é 
 
 `release-build` só produz o arquivo se a mesma chave assinou o core ("Release and core must be signed by the same publisher key."), nunca sobrescreve o destino e gera arquivos byte a byte iguais para as mesmas entradas. `inspect` e `validate` reconhecem os dois tipos de arquivo; sem trust store, `inspect` diz `"trusted": false`. Como nos demais pacotes, a assinatura prova procedência, não ausência de código malicioso.
 
+#### Publicação automática nos releases do GitHub
+
+Cada GitHub Release recebe, sem intervenção, os artefatos assinados (#496). Depois de publicar a versão, o workflow "Versão e release" dispara `.github/workflows/release-artifacts.yml` (`release.dispatch_workflow` em `.github/dev-workflow.toml`, com os inputs `version` e `tag`), que constrói os wheels a partir da tag, baixa os wheels das dependências do lock e anexa:
+
+| Asset | O que é |
+|---|---|
+| `django-skeleton-<versão>.skapp` | Pacote do core (pacote de componente). Não entra no índice. |
+| `skeleton-<versão>.release.skapp` | [Pacote de release](#pacote-de-release): a entrada do core no índice. |
+| `skeleton_deployment_agent-<versão>-py3-none-any.whl` | Wheel do agente, para a instalação manual. |
+| `skeleton-index.json` | Índice assinado e acumulado, com validade; `artifact` é `<tag>/<asset>`, por exemplo `v0.6.0/skeleton-0.6.0.release.skapp`. |
+| `SHA256SUMS` | SHA-256 de cada asset (conveniência; a confiança vem das assinaturas). |
+
+O índice novo acumula o do release anterior (`package index --previous`) e, quando a release "latest" do GitHub é outra (um hotfix numa linha antiga), o índice também é enviado para ela, porque o agente lê o índice de `releases/latest`. No dia 1 de cada mês o mesmo workflow renova a validade do índice da release "latest" (mesmas entradas, geração e validade novas). A receita `deploy/release/recipe.json` declara o nome, o piso do primeiro release automatizado (`earliest_source`), a validade do índice em dias (`index_validity_days`) e os alvos: para cada um, o ambiente (quatro chaves), o lock (`requirements.txt` para o alvo oficial `cp314-manylinux_2_28_x86_64`) e as opções do `pip download` (o pip não expande `manylinux_2_28` para as marcas mais antigas, então a receita lista cada plataforma). Um alvo novo é uma entrada nova com o próprio lock; uma dependência sem wheel para o alvo faz a publicação falhar, e nunca se publica sdist.
+
+`tools/release_artifacts.py` é o que o workflow roda, e roda igual localmente:
+
+```sh
+# Ensaio, com chave efêmera e trust.json gerado na saída (o job build do CI faz isso a cada PR):
+.venv/bin/python tools/release_artifacts.py build --ephemeral-key --version <versão> --tag v<versão> \
+  --core-wheel dist/django_skeleton-<versão>-py3-none-any.whl \
+  --agent-wheel dist-agent/skeleton_deployment_agent-<versão>-py3-none-any.whl \
+  --verify-install --out /tmp/release-rehearsal
+# Publicação, com a chave do publicador:
+.venv/bin/python tools/release_artifacts.py build --version <versão> --tag v<versão> \
+  --publisher <publisher> --private-key /caminho/privado/release.key --out /tmp/release \
+  [--previous-index skeleton-index.json] --verify-install
+.venv/bin/python tools/release_artifacts.py refresh-index --publisher <publisher> \
+  --private-key /caminho/privado/release.key --previous-index skeleton-index.json --out /tmp/index
+```
+
+`build` confere que a tag nomeia a versão e que os wheels têm essa versão (senão falha, sem publicar nada), gera o manifesto do core pela política de linhas com as versões do índice anterior, monta o pacote do core, o pacote de release e o índice, e verifica tudo com a chave pública derivada; um pacote de release acima de 128 MiB (o limite padrão de upload do agente e da tela) é recusado. Com `--verify-install`, num interpretador que casa com um alvo da receita, instala sem rede num virtualenv temporário o lock do alvo, o wheel do core e o do agente, e roda `pip check` e `skeleton-deployment-agent --help`: um pin do agente (`deployment_agent/pyproject.toml`) que diverge do lock falha a publicação, e não a instalação de alguém. Nenhuma saída imprime a chave.
+
+**Configuração do repositório (passo do dono, uma vez).** Crie o ambiente `release` em Settings → Environments, de preferência restrito a tags `v*`, com:
+
+- o segredo `RELEASE_SIGNING_KEY`: a chave privada Ed25519 gerada por `python -m skeleton.system.packages keygen --private-key release.key --public-key release.pub.pem` (o conteúdo PEM inteiro);
+- a variável `RELEASE_PUBLISHER`: o id do publicador (por exemplo `skeleton`), o mesmo que os operadores usam em `approved_publishers`.
+
+Publique a chave pública (`release.pub.pem`) no guia de atualização, para os operadores a aprovarem. Sem o segredo, o job de publicação falha dizendo o que configurar e a renovação mensal termina com sucesso, sem publicar. A chave existe só como segredo do ambiente: o workflow a grava num arquivo temporário com `umask 077` e o apaga no fim, mesmo quando um passo falha; o workflow roda só por `workflow_dispatch` e `schedule`, nunca em `pull_request`, e tem `permissions: {}` no topo, `contents: write` só nos jobs que publicam.
+
+**Num fork.** Gere a sua própria chave, configure o ambiente `release` com o seu `RELEASE_PUBLISHER` (um id diferente do publicador oficial) e divulgue a sua chave pública. As instalações que seguem o fork aprovam essa chave em `approved_publishers`; a chave do repositório original não assina os releases do fork. **Rotação:** se a chave for perdida ou vazar, gere outra, publique com outro id de publicador e peça aos operadores que troquem a entrada em `approved_publishers`. O agendamento mensal é desligado pelo GitHub em repositórios sem atividade por 60 dias: a validade de 120 dias dá margem, mas confira que o workflow continua rodando.
+
 O projeto derivado instala o wheel fixado em ambiente isolado e mantém um lock final com hashes para core, apps e dependências. O Dockerfile do template constrói esse wheel em stage separado, instala dependências dos locks com `--require-hashes`, instala o wheel já produzido sem resolver dependências e copia apenas os arquivos de projeto para o runtime. Não sobra uma cópia `skeleton/` em `/app` ocultando a distribuição instalada. A imagem do agente para releases gerenciados usa o lock final offline e wheels aprovados do release.
 
 ### Cutover de uma cópia do core

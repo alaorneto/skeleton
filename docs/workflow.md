@@ -73,6 +73,10 @@ As superfícies públicas declaradas em `[[versioning.public_surfaces]]` são a 
 
 Ressalva para pré-releases: a faixa `>=0.6.0,<0.7.0` da agenda não aceita o core `0.6.0rc1`. Antes da primeira pré-release, ajuste a entrada da faixa em `[[versioning.files]]`.
 
+### Artefatos de cada release (#496)
+
+Depois de publicar a versão, o workflow "Versão e release" dispara `release-artifacts.yml` (`release.dispatch_workflow = "release-artifacts.yml"`; o `release.yml` já tem `actions: write` para isso). Ele anexa à GitHub Release o pacote do core, o pacote de release, o wheel do agente, o índice `skeleton-index.json` e `SHA256SUMS`, assinados com o segredo `RELEASE_SIGNING_KEY` do ambiente `release` ([deployment.md](deployment.md#publicação-automática-nos-releases-do-github)). No dia 1 de cada mês, o mesmo workflow renova a validade do índice da release mais recente. Se ele falhar, rode-o de novo (Actions → "Artefatos de release" → Run workflow, com a versão e a tag): o build é determinístico e o envio usa `--clobber`, então repetir substitui os assets sem efeito colateral. Para desligar a publicação, esvazie `release.dispatch_workflow`.
+
 ## O skill neste repositório
 
 A cópia em `.claude/skills/dev-workflow/` vem do repositório próprio do skill; `python3 S/bootstrap.py version` diz qual versão está instalada. Para atualizar, numa issue `chore`, rode o `update` **a partir da versão nova** e revise o diff ([installation.md](../.claude/skills/dev-workflow/references/installation.md#atualizar-o-skill)):
