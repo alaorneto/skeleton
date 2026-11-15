@@ -424,6 +424,8 @@ class OrganizationSettings(OrganizationRecord):
     # The business calendar (#416): weekday -> [["09:00", "18:00"], ...] and ISO holiday dates.
     business_hours = models.JSONField(default=dict, blank=True)
     holidays = models.JSONField(default=list, blank=True)
+    # The organization's own address <slug>.<base domain> (#480); off until the administrator turns it on.
+    site_enabled = models.BooleanField(default=False)
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
@@ -455,3 +457,32 @@ class OrganizationSettings(OrganizationRecord):
 
     def __str__(self):
         return self.display_name or str(self.organization_id)
+
+
+class OrganizationSite(SystemRecord):
+    """Global index of organizations that turned their own address on (#480); read before any tenant exists.
+
+    Written only by ``skeleton.tenancy.site.sync_site``, in the transaction (and under the lock)
+    that changes ``OrganizationSettings``. Holds only what the administrator agreed to publish,
+    and only while ``enabled``: turning the address off empties the brand. One row per
+    organization, never deleted. Not named ``organization``: a global row that points to one
+    organization (E017).
+    """
+
+    site_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    enabled = models.BooleanField(default=False)
+    display_name = models.CharField(max_length=200, blank=True, default="")
+    brand_color = models.CharField(max_length=7, blank=True, default="")
+    logo_key = models.CharField(max_length=300, blank=True, default="")
+    default_language = models.CharField(max_length=16, blank=True, default="")
+    immutable_fields = ("site_organization_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("site_organization",), name="sk_tenancy_site_one_per_org", violation_error_code="unique"
+            ),
+        ]
+
+    def __str__(self):
+        return str(self.site_organization_id)

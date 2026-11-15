@@ -8,7 +8,9 @@ model is imported at module level (the settings import this module's neighbours)
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from django.conf import settings
 from django.http.request import split_domain_port
@@ -98,3 +100,79 @@ def organization_origin(slug: str) -> str | None:
     if not base or slug_problem(slug) is not None:
         return None
     return _origin_for(f"{slug}.{base}")
+
+
+@dataclass(frozen=True)
+class Site:
+    """The organization as seen through its own host: only what the administrator published (#480)."""
+
+    organization_id: UUID
+    slug: str
+    name: str  # display name of the index; Organization.name when empty
+    brand_color: str
+    logo_key: str
+    default_language: str
+
+
+BRAND_FIELDS = ("display_name", "brand_color", "logo_key", "default_language")
+
+
+def sync_site(organization: Any, settings_record: Any) -> None:
+    """Mirror the published brand into ``OrganizationSite``; call inside the settings transaction and lock.
+
+    Turning the address on creates (or refreshes) the row; turning it off keeps the row with
+    ``enabled=False`` and an empty brand. Nothing is written when nothing changed.
+    """
+    from .models import OrganizationSite
+
+    row = OrganizationSite.objects.select_for_update().filter(site_organization=organization).first()
+    if settings_record is not None and settings_record.site_enabled:
+        values = {"enabled": True, **{name: getattr(settings_record, name) for name in BRAND_FIELDS}}
+    else:
+        values = {"enabled": False, **dict.fromkeys(BRAND_FIELDS, "")}
+        if row is None:
+            return
+    if row is None:
+        OrganizationSite(site_organization=organization, **values).save()
+        return
+    changed = {name for name, value in values.items() if getattr(row, name) != value}
+    for name in changed:
+        setattr(row, name, values[name])
+    if changed:
+        row.save(update_fields=changed)
+
+
+def _live_sites():
+    from .models import OrganizationSite
+
+    return OrganizationSite.objects.filter(
+        enabled=True, site_organization__is_active=True, site_organization__deleted_at__isnull=True
+    ).select_related("site_organization")
+
+
+def _as_site(row: Any) -> Site | None:
+    if row is None:
+        return None
+    organization = row.site_organization
+    return Site(
+        organization_id=organization.pk,
+        slug=organization.slug,
+        name=row.display_name or organization.name,
+        brand_color=row.brand_color,
+        logo_key=row.logo_key,
+        default_language=row.default_language,
+    )
+
+
+def find_site(label: str) -> Site | None:
+    """The enabled site of an active organization by its slug; ``label`` comes lowercased from ``classify_host``."""
+    if not label:
+        return None
+    return _as_site(_live_sites().filter(site_organization__slug=label).first())
+
+
+def site_of(organization_id: Any) -> Site | None:
+    """The enabled site of an active organization by its id, or ``None``."""
+    if organization_id is None:
+        return None
+    return _as_site(_live_sites().filter(site_organization_id=organization_id).first())

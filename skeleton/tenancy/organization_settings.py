@@ -20,6 +20,8 @@ from skeleton.tenancy.context import current_context
 WRITE_FIELDS = ("display_name", "default_language", "default_timezone", "brand_color")
 # The business calendar (#416), written as text and stored parsed.
 CALENDAR_FIELDS = ("business_hours", "holidays")
+# The organization's own address (#480): changed only when present, so other writers keep it.
+SITE_FIELDS = ("site_enabled",)
 
 
 def current_settings() -> Any:
@@ -34,7 +36,7 @@ def revision_of(settings: Any) -> int:
 
 
 def _clean(data: dict[str, Any]) -> dict[str, Any]:
-    unknown = set(data) - set(WRITE_FIELDS) - set(CALENDAR_FIELDS)
+    unknown = set(data) - set(WRITE_FIELDS) - set(CALENDAR_FIELDS) - set(SITE_FIELDS)
     if unknown:
         raise ValidationError({name: gettext("Campo não permitido.") for name in sorted(unknown)})
     values: dict[str, Any] = {}
@@ -48,6 +50,10 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(value, str):
             raise ValidationError({name: gettext("Use um texto.")})
         values[name] = value.strip()
+    if "site_enabled" in data:
+        if not isinstance(data["site_enabled"], bool):
+            raise ValidationError({"site_enabled": gettext("Use verdadeiro ou falso.")})
+        values["site_enabled"] = data["site_enabled"]
     values["brand_color"] = values["brand_color"].lower()
     from .branding import validate_brand_color
 
@@ -55,11 +61,33 @@ def _clean(data: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
+def site_refusal(organization: Any) -> str | None:
+    """Why this organization cannot have its own address (#480), or ``None`` when it can."""
+    from skeleton.common.hostnames import slug_problem
+
+    from .site import base_domain
+
+    if not base_domain():
+        return gettext(
+            "Esta organização não pode ter endereço próprio: esta instalação não oferece endereço próprio "
+            "para organizações."
+        )
+    if slug_problem(organization.slug) is not None:
+        return gettext(
+            "Esta organização não pode ter endereço próprio: o identificador dela não pode ser usado como endereço."
+        )
+    return None
+
+
 def update_settings(*, actor: Any, data: dict[str, Any], expected_revision: int) -> Any:
-    """Replace the writable settings with CAS; return the saved row (unchanged values write nothing)."""
+    """Replace the writable settings with CAS; return the saved row (unchanged values write nothing).
+
+    The organization site index (``OrganizationSite``) follows in the same transaction and lock.
+    """
     from skeleton.access.services import organization_lock
 
     from .models import OrganizationSettings
+    from .site import sync_site
 
     if type(expected_revision) is not int:
         raise ValidationError({"revision": gettext("Informe a revisão.")})
@@ -68,13 +96,19 @@ def update_settings(*, actor: Any, data: dict[str, Any], expected_revision: int)
         record = OrganizationSettings.objects.select_for_update().filter(organization=organization).first()
         if revision_of(record) != expected_revision:
             raise ConcurrentUpdate("Organization settings changed.")
+        if values.get("site_enabled") and not (record is not None and record.site_enabled):
+            refusal = site_refusal(organization)
+            if refusal:
+                raise ValidationError({"site_enabled": refusal})
         if record is None:
             record = OrganizationSettings(organization=organization, **values)
             record.save()
+            sync_site(organization, record)
             return record
         changed = {name for name, value in values.items() if getattr(record, name) != value}
         for name in changed:
             setattr(record, name, values[name])
         if changed:
             record.save(update_fields=changed)
+            sync_site(organization, record)
         return record

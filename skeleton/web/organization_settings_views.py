@@ -85,19 +85,48 @@ class OrganizationSettingsForm(forms.Form):
         self.fields["default_timezone"].choices = _timezone_choices()
 
 
-def _apply_error(form: OrganizationSettingsForm, error: ValidationError) -> None:
+class SiteAddressForm(forms.Form):
+    """The organization's own address (#480), shown only when the instance and the slug allow it."""
+
+    site_enabled = forms.BooleanField(label=gettext_lazy("Ativar endereço próprio"), required=False)
+
+
+def _site_address(organization_id):
+    """``(origin, refusal)``: the address when available, else why the section offers no checkbox."""
+    from skeleton.tenancy.models import Organization
+    from skeleton.tenancy.organization_settings import site_refusal
+    from skeleton.tenancy.site import base_domain, organization_origin
+
+    if not base_domain():
+        return None, gettext("Esta instalação não oferece endereço próprio para organizações.")
+    organization = Organization.objects.get(pk=organization_id)
+    if site_refusal(organization):
+        return None, gettext("O identificador desta organização não pode ser usado como endereço.")
+    return organization_origin(organization.slug), ""
+
+
+def _apply_error(form: OrganizationSettingsForm, error: ValidationError, site_form=None) -> None:
     for field, problems in error.message_dict.items():
-        form.add_error(field if field in form.fields else None, problems)
+        if site_form is not None and field in site_form.fields:
+            site_form.add_error(field, problems)
+        else:
+            form.add_error(field if field in form.fields else None, problems)
 
 
-def _page(request, organization_id, form, *, status=200, logo_errors=()):
+def _page(request, organization_id, form, *, status=200, logo_errors=(), site_form=None):
     record = current_settings()
     dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
+    origin, site_refused = _site_address(organization_id)
+    if site_form is None:
+        site_form = SiteAddressForm(initial={"site_enabled": bool(record is not None and record.site_enabled)})
     return render(
         request,
         "skeleton/web/organization_settings.html",
         {
             "form": form,
+            "site_form": site_form if origin else None,
+            "site_origin": origin,
+            "site_refused": site_refused,
             "organization_id": organization_id,
             "revision": revision_of(record),
             "has_logo": bool(record is not None and record.logo_key),
@@ -124,14 +153,25 @@ def _form(request, record):
 @never_cache
 @require_http_methods(["GET", "POST"])
 def organization_settings(request, organization_id):
-    form = _form(request, current_settings())
+    record = current_settings()
+    form = _form(request, record)
+    origin, _refused = _site_address(organization_id)
+    site_form = None
+    if request.method == "POST" and origin:
+        site_form = SiteAddressForm(request.POST)
     status = 200
     if request.method == "POST":
-        if set(request.POST) - (set(form.fields) | {"csrfmiddlewaretoken"}):
+        allowed = set(form.fields) | set(SiteAddressForm.base_fields) | {"csrfmiddlewaretoken"}
+        if set(request.POST) - allowed:
             form.add_error(None, gettext("Campo não permitido."))
             status = 400
-        elif form.is_valid():
+        elif form.is_valid() and (site_form is None or site_form.is_valid()):
             data = {name: form.cleaned_data[name] for name in (*WRITE_FIELDS, *CALENDAR_FIELDS)}
+            if site_form is not None:
+                # Only offered when the address is available; otherwise the stored choice is kept.
+                data["site_enabled"] = site_form.cleaned_data["site_enabled"]
+            elif "site_enabled" in request.POST:
+                data["site_enabled"] = True  # The service refuses it with the reason.
             try:
                 with transaction.atomic():
                     update_settings(actor=request.user, data=data, expected_revision=form.cleaned_data["revision"])
@@ -139,14 +179,14 @@ def organization_settings(request, organization_id):
                 form.add_error(None, gettext("As configurações mudaram. Atualize a página antes de tentar novamente."))
                 status = 409
             except ValidationError as exc:
-                _apply_error(form, exc)
+                _apply_error(form, exc, site_form)
                 status = 400
             else:
                 messages.success(request, gettext("Configurações salvas."))
                 return redirect("web:organization-settings", organization_id=organization_id)
         else:
             status = 400
-    return _page(request, organization_id, form, status=status)
+    return _page(request, organization_id, form, status=status, site_form=site_form)
 
 
 @tenant_page(admin=True)

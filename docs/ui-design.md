@@ -31,7 +31,7 @@ Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `
 
 ### Marca por organização
 
-O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor primária e um logo ([#168](https://github.com/alaorneto/skeleton/issues/168)). Nas telas da organização, o nome e o logo substituem "Skeleton" no cabeçalho. A cor substitui só os tokens `--color-brand`, `--color-brand-strong`, `--color-fg-brand` e `--color-fg-brand-strong`, por um `<style>` no `base.html`.
+O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor primária e um logo ([#168](https://github.com/alaorneto/skeleton/issues/168)). A mesma página tem a seção "Endereço próprio" ([#480](https://github.com/alaorneto/skeleton/issues/480)), no mesmo formulário e com o mesmo botão de salvar: com o domínio base configurado e um slug que serve como rótulo DNS, mostra o endereço, o aviso do que fica público e a caixa "Ativar endereço próprio"; senão, só o motivo. Nas telas da organização, o nome e o logo substituem "Skeleton" no cabeçalho. A cor substitui só os tokens `--color-brand`, `--color-brand-strong`, `--color-fg-brand` e `--color-fg-brand-strong`, por um `<style>` no `base.html`.
 
 - **Contraste:**
   - A cor precisa de contraste WCAG AA (4,5:1) com o branco, porque os botões levam texto branco sobre ela e os links a usam sobre o fundo claro.

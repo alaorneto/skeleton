@@ -2,6 +2,10 @@
 
 O núcleo atende os direitos da pessoa sobre os dados que ele mesmo guarda: a identidade global, o perfil, os tokens e, em cada organização, o vínculo, as notificações e os anexos enviados. Os registros de negócio pertencem a cada organização, que é a controladora deles, e ficam fora daqui.
 
+## Endereço próprio da organização
+
+Ligar o endereço próprio (`/o/<org>/settings/`, seção "Endereço próprio", [#480](https://github.com/alaorneto/skeleton/issues/480)) torna públicos, para qualquer pessoa que abra `<slug>.<domínio base>`, mesmo sem login: o nome de exibição, a cor da marca, o logo, o ícone e o idioma padrão da organização. A tela avisa disso antes da ativação. Esses valores são copiados para o índice global `OrganizationSite`, que guarda só eles e só enquanto o endereço está ligado; desligar esvazia a cópia. Nenhum dado pessoal nem dado de negócio vai para o índice.
+
 ## Exportação dos próprios dados
 
 Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://github.com/alaorneto/skeleton/issues/190)). O arquivo traz:

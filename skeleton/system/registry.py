@@ -164,6 +164,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_tenancy.organizationsite": (
+            "Endereços de organizações",
+            "Índice global das organizações com endereço próprio ligado e da marca que o administrador publicou.",
+            "global",
+            ("logo_key",),
+        ),
         "sk_tenancy.identityprovideradmission": (
             "Admissão por provedor de identidade",
             "Regras da organização para o seu provedor: JIT, aprovação, papel padrão e domínios permitidos.",

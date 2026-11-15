@@ -15,6 +15,16 @@
 {% include 'skeleton/web/components/form-errors.html' %}
 {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
 {% crud_form_fields form %}
+<section aria-labelledby="site-heading" class="mt-8">
+  <h2 id="site-heading" class="section-heading">{% translate "Endereço próprio" %}</h2>
+  {% if site_form %}
+  <p class="mb-2">{% translate "Endereço:" %} <code>{{ site_origin }}</code></p>
+  <div class="alert alert-warning mb-4" role="note">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Ao ativar, o nome de exibição, a cor, o logo e o ícone desta organização ficam visíveis para qualquer pessoa que abra esse endereço, mesmo sem login." %}</div></div>
+  {% crud_form_fields site_form %}
+  {% else %}
+  <p class="text-body-subtle">{{ site_refused }}</p>
+  {% endif %}
+</section>
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button><a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a></div>
 </form>
 <section aria-labelledby="logo-heading" class="mt-8">

@@ -188,6 +188,9 @@ def replace_logo(*, actor: Any, upload: IO[bytes], expected_revision: int) -> An
         except BaseException:
             delete(key)
             raise
+        from .site import sync_site
+
+        sync_site(organization, record)  # The public site index follows the logo (#480).
         _delete_after_commit(previous)
         return record
 
@@ -204,6 +207,9 @@ def remove_logo(*, actor: Any, expected_revision: int) -> Any:
         previous = record.logo_key
         record.logo_key = ""
         record.save(update_fields={"logo_key"})
+        from .site import sync_site
+
+        sync_site(organization, record)
         _delete_after_commit(previous)
         return record
 
