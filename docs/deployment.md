@@ -391,6 +391,26 @@ skeleton-core build --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
   --output /caminho/privado/core-<versão>.skapp
 ```
 
+**Manifesto gerado (#494).** Em vez de escrever o manifesto à mão, gere-o do wheel: `skeleton-core manifest` lê a versão, o `Requires-Python` e o pin exato do Django do `METADATA` do wheel (sem executá-lo) e calcula `from_versions` pela política de linhas. A faixa do Django é a da linha do pin (`Django==6.1.3` vira `>=6.1,<6.2`); um wheel sem pin exato é recusado ("Core wheel must pin Django to derive compatibility."). As dependências não entram no manifesto do core: viajam por alvo no [pacote de release](#pacote-de-release). O arquivo de saída nunca é sobrescrito.
+
+```sh
+skeleton-core manifest --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
+  --publisher <publisher> --output /caminho/privado/core-manifest.json \
+  --known-version 0.6.0 --known-version 0.6.3 --earliest-source 0.5.0 \
+  [--release-notes-file notas.md] [--build "<procedência>"]
+```
+
+**Política de versões de origem.** Um release aceita ser instalado sobre a própria linha e sobre a linha imediatamente anterior: `from_versions` (e `compatibility.skeleton`, que é a mesma faixa) vai do `.0` da linha anterior já publicada até a própria versão. `--known-version` lista as versões já publicadas; `--earliest-source` é o piso usado só quando nenhuma linha anterior é conhecida (o primeiro release automatizado). Quem instala confere de novo: o agente recusa pular uma linha (`version_jump_forbidden`).
+
+| Versão | Versões conhecidas | `--earliest-source` | `from_versions` |
+|---|---|---|---|
+| 0.6.0 | — | 0.5.0 | `>=0.5.0,<=0.6.0` |
+| 0.6.3 | 0.6.0, 0.6.1 | 0.5.0 | `>=0.5.0,<=0.6.3` |
+| 0.7.0 | 0.6.0, 0.6.3 | 0.5.0 | `>=0.6.0,<=0.7.0` |
+| 1.0.0 | 0.6.3, 0.7.2 | — | `>=0.7.0,<=1.0.0` |
+| 1.0.1 | 0.7.2, 1.0.0 | — | `>=0.7.0,<=1.0.1` |
+| 0.6.0 | — | — | `>=0.6.0,<=0.6.0` (só a própria versão) |
+
 O manifesto core identifica o artefato e limita como instalá-lo:
 
 - Use `manifest_version=2`, `kind="core"` e `component_id="django-skeleton"`, com nome, descrição, versão e publisher. Formato 1 continua aceito para verificação de artefatos existentes, sem reescrever sua assinatura.

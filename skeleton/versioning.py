@@ -54,6 +54,29 @@ def adjacent_release_line(current, target):
     return target_major == current_major + 1 and target_minor == 0
 
 
+def upgrade_sources(version, known_versions=(), *, earliest=None):
+    """Installed versions a release accepts: its own line and the line right before it (#494).
+
+    ``known_versions`` are the versions already published; ``earliest`` is used only when no
+    earlier line is known (the first automated release). Returns ``>=<floor>,<=<version>``.
+    """
+    version = normalize_version(version)
+    line = release_line(version)
+    earlier = {
+        release_line(value)
+        for value in (normalize_version(known) for known in known_versions)
+        if Version(value) < Version(version)
+    }
+    previous = max((item for item in earlier if item < line), default=None)
+    if previous is not None:
+        floor = f"{previous[0]}.{previous[1]}.0"
+    elif earliest is not None:
+        floor = normalize_version(earliest)
+    else:
+        floor = version
+    return f">={floor},<={version}"
+
+
 def core_version():
     """Installed distribution metadata is authoritative; checkout is explicitly source."""
     try:

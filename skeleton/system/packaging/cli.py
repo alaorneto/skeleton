@@ -6,14 +6,15 @@ from urllib.parse import urljoin
 from skeleton.versioning import core_version
 
 from . import archive as artifacts
+from . import limits
 from .archive import extract_package, inspect_package
 from .build import build_package, sign_package
-from .catalog import build_catalog, catalog_entry, validate_catalog
+from .catalog import build_catalog, catalog_entry, release_catalog_entry, validate_catalog
 from .doctor import doctor
 from .errors import _fail
 from .manifest import load_manifest
 from .primitives import _json, _object, canonical_json
-from .release import build_release, inspect_release, package_kind
+from .release import build_release, inspect_release, package_kind, validate_release
 from .signing import initialize_keys, load_trust_store
 from .template import default_service_class, manifest_template
 
@@ -63,12 +64,15 @@ def configure_parser(parser):
     extract.add_argument("--destination")
     extract.add_argument("--wheels-destination")
     index = commands.add_parser("index", help="Build a signed expiring release index from trusted artifacts.")
-    index.add_argument("artifacts", nargs="+")
+    index.add_argument("artifacts", nargs="*")
     for name in ("output", "private-key", "trust-store", "publisher", "expires-at"):
         index.add_argument("--" + name, required=True)
     index.add_argument("--generation", type=int, required=True)
     index.add_argument("--channel", default="stable")
     index.add_argument("--artifact-base", default="")
+    index.add_argument(
+        "--previous", help="Previous signed index whose entries are kept (may be expired); its generation must grow."
+    )
     validate_index = commands.add_parser("validate-index")
     validate_index.add_argument("path")
     validate_index.add_argument("--trust-store", required=True)
@@ -193,14 +197,51 @@ def _run_extract(options):
     return {key: str(value) for key, value in roots.items()}
 
 
+def _previous_entries(path, store, *, publisher, generation):
+    """Entries of the previous index, verified (expiry aside) and older than the new generation."""
+    path = Path(path)
+    if path.stat().st_size > limits.MAX_METADATA_BYTES:
+        _fail("Catalog size limit exceeded.")
+    envelope = _json(path.read_bytes())
+    entries = envelope.get("catalog", {}).get("entries") if isinstance(envelope, dict) else None
+    if not isinstance(entries, list) or not isinstance(envelope.get("catalog"), dict):
+        _fail("Previous index is not a release catalog.")
+    channels = {entry.get("channel") for entry in entries if isinstance(entry, dict)}
+    body = validate_catalog(envelope, store, allow_expired=True, channels=tuple(channels))
+    if body["publisher"] != publisher:
+        _fail("Previous index belongs to another publisher.")
+    if generation <= body["generation"]:
+        _fail("Index generation must be greater than the previous index generation.")
+    return body["entries"]
+
+
 def _run_index(options):
     store = _trust(options)
+    previous = options.get("previous")
+    if not options["artifacts"] and not previous:
+        _fail("At least one artifact is required without --previous.")
     entries = []
+    if previous:
+        entries = _previous_entries(previous, store, publisher=options["publisher"], generation=options["generation"])
     for artifact in options["artifacts"]:
-        package = artifacts.validate_package(artifact, store)
         base = options["artifact_base"]
         reference = urljoin(base.rstrip("/") + "/", Path(artifact).name) if base else Path(artifact).name
-        entries.append(catalog_entry(package, artifact=reference, channel=options["channel"]))
+        if package_kind(artifact) == "release":
+            entry = release_catalog_entry(
+                validate_release(artifact, store), artifact=reference, channel=options["channel"]
+            )
+        else:
+            entry = catalog_entry(
+                artifacts.validate_package(artifact, store), artifact=reference, channel=options["channel"]
+            )
+        identity = (entry["component_id"], entry["version"], entry["channel"])
+        positions = [
+            i for i, old in enumerate(entries) if (old["component_id"], old["version"], old["channel"]) == identity
+        ]
+        if positions:
+            entries[positions[0]] = entry  # The new artifact replaces the entry of the same identity.
+        else:
+            entries.append(entry)
     path = build_catalog(
         entries,
         options["output"],
@@ -209,7 +250,7 @@ def _run_index(options):
         generation=options["generation"],
         expires_at=options["expires_at"],
     )
-    return {"index": str(path), "entries": len(entries)}
+    return {"index": str(path), "entries": len(entries), "generation": options["generation"]}
 
 
 def _run_validate_index(options):

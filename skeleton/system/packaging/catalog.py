@@ -26,6 +26,7 @@ from .primitives import (
     _version,
     canonical_json,
 )
+from .release import VerifiedRelease, validate_release
 from .signing import _private_key, _trusted_key, _verify
 from .zipio import _read_member
 
@@ -152,7 +153,10 @@ def build_catalog(entries, output_path, private_key_path, *, publisher, generati
     return output
 
 
-def validate_catalog(path_or_dict, trust_store, *, minimum_generation=0, channels=("stable",), now=None):
+def validate_catalog(
+    path_or_dict, trust_store, *, minimum_generation=0, channels=("stable",), now=None, allow_expired=False
+):
+    """Verified catalogue body; ``allow_expired`` only for republishing it (#494), never to install."""
     if isinstance(path_or_dict, dict):
         envelope = path_or_dict
     else:
@@ -163,7 +167,7 @@ def validate_catalog(path_or_dict, trust_store, *, minimum_generation=0, channel
     _object(envelope, ("catalog", "signature"), ("catalog", "signature"))
     catalog = _catalog(envelope["catalog"])
     _verify(_trusted_key(catalog["publisher"], trust_store), envelope["signature"], canonical_json(catalog))
-    if _timestamp(catalog["expires_at"]) <= (now or datetime.now(UTC)):
+    if not allow_expired and _timestamp(catalog["expires_at"]) <= (now or datetime.now(UTC)):
         _fail("Release catalog is expired.")
     if catalog["generation"] < minimum_generation:
         _fail("Release catalog generation rollback.")
@@ -193,4 +197,36 @@ def catalog_entry(package, *, artifact, channel="stable", notes=""):
         "migrations": m["migrations"],
         "dependencies": m["dependencies"],
         "conflicts": m.get("conflicts", {}),
+    }
+
+
+def release_catalog_entry(release, *, artifact, channel="stable", notes=""):
+    """Catalogue entry of the core for a verified release package (#494).
+
+    For whoever reads the index, the release package is the core of that version: the identity
+    and signature are the release package's, the contract (compatibility, migrations,
+    dependencies) is the embedded core's.
+    """
+    if not isinstance(release, VerifiedRelease) or release._public_key is None:
+        _fail("Catalog requires trusted verified packages.")
+    fresh = validate_release(release.path, {release.manifest["publisher"]: release._public_key})
+    if fresh.digest != release.digest or fresh.manifest != release.manifest:
+        _fail("Catalog artifact changed after verification.")
+    with zipfile.ZipFile(io.BytesIO(fresh._snapshot)) as archive:
+        signature = _read_member(archive, archive.getinfo("manifest.sig"), limits.MAX_METADATA_BYTES).decode("ascii")
+    m, core = fresh.manifest, fresh.core_manifest
+    return {
+        "component_id": "django-skeleton",
+        "kind": "core",
+        "version": m["version"],
+        "channel": channel,
+        "compatibility": core["compatibility"],
+        "artifact": artifact,
+        "digest": fresh.digest,
+        "signature": signature,
+        "publisher": m["publisher"],
+        "notes": notes or m.get("release_notes", ""),
+        "migrations": core["migrations"],
+        "dependencies": core["dependencies"],
+        "conflicts": core.get("conflicts", {}),
     }

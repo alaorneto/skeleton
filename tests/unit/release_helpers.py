@@ -194,3 +194,51 @@ def manifest_of(path):
 
 def inventory_item(name, data, role):
     return {"path": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(), "role": role}
+
+
+def app_package(directory, private, *, publisher=PUBLISHER, app_id="org.test.demo", version="0.1.0"):
+    """A minimal signed app package built like the packaging tests build theirs."""
+    from skeleton.system.packages import build_package, manifest_template
+
+    root = Path(directory) / "app-source"
+    (root / "docs").mkdir(parents=True)
+    (root / "__init__.py").write_text("")
+    (root / "apps.py").write_text(
+        "from django.apps import AppConfig\nclass DemoConfig(AppConfig):\n"
+        '    name = __package__\n    label = "project_demo"\n'
+    )
+    (root / "service_api.py").write_text("class DemoService:\n    pass\n")
+    (root / "docs/spec.md").write_text("## Contract\nOwn directory only.\n## Acceptance\nSigned.\n")
+    (root / "docs/adr.md").write_text("## Context\nX.\n## Decision\nSigned.\n## Consequences\nPrivileged.\n")
+    (root / "docs/service-api.md").write_text(
+        "## Serviços\nDemoService.\n## DTOs\nNenhum.\n## Histórico de versões\n0.1.0.\n", encoding="utf-8"
+    )
+    manifest = manifest_template(
+        app_id=app_id,
+        app_label="project_demo",
+        package_name="package_demo",
+        publisher=publisher,
+        version=version,
+        app_config_class="DemoConfig",
+        service_classes=["DemoService"],
+    )
+    manifest_path = Path(directory) / "app-manifest.json"
+    manifest_path.write_bytes(canonical_json(manifest))
+    return build_package(root, manifest_path, Path(directory) / f"demo-{version}.skapp", private)
+
+
+def signed_index(path, entries, private, *, publisher=PUBLISHER, generation=1, expires_at):
+    """A signed index written directly, so that an already expired one can exist."""
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    catalog = {
+        "catalog_version": 2,
+        "publisher": publisher,
+        "generation": generation,
+        "expires_at": expires_at,
+        "entries": entries,
+    }
+    key = load_pem_private_key(Path(private).read_bytes(), password=None)
+    signature = b64encode(key.sign(canonical_json(catalog))).decode("ascii")
+    Path(path).write_bytes(canonical_json({"catalog": catalog, "signature": signature}))
+    return Path(path)

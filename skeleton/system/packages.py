@@ -53,7 +53,7 @@ from .packaging.release import (
     validate_release, validate_release_manifest,
 )
 from .packaging.catalog import (
-    _catalog, build_catalog, validate_catalog, catalog_entry,
+    _catalog, build_catalog, validate_catalog, catalog_entry, release_catalog_entry,
 )
 from .packaging.doctor import (
     _doctor_dependencies, _doctor_import_boundary, doctor, validate_dependency_graph,
@@ -76,7 +76,7 @@ __all__ = [
     "build_artifact", "build_catalog", "build_package", "build_release", "canonical_json", "catalog_entry",
     "check_migration_leaves", "configure_parser", "default_service_class", "doctor", "extract_package",
     "initialize_keys", "inspect_package", "inspect_release", "load_manifest", "load_trust_store", "main",
-    "manifest_template", "match_release_target", "package_kind", "read_release_member", "required_documents",
+    "manifest_template", "match_release_target", "package_kind", "read_release_member", "release_catalog_entry", "required_documents",
     "run_command", "sign_package", "static_migration_leaves", "validate_catalog", "validate_dependency_graph",
     "validate_manifest", "validate_package", "validate_release", "validate_release_manifest", "validate_wheel_set",
 ]
