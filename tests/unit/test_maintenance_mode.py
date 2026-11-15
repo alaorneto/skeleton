@@ -373,3 +373,53 @@ def test_middleware_order_check_requires_the_guard_after_authentication(settings
     middleware = [item for item in settings.MIDDLEWARE if item != guard]
     settings.MIDDLEWARE = [*middleware[: middleware.index(auth)], guard, *middleware[middleware.index(auth) :]]
     assert e009()
+
+
+# --- Jobs (#448) ------------------------------------------------------------------------------
+
+
+def test_jobs_pause_on_the_marker_or_on_the_mode_that_asks_for_it(tmp_path, store_file):
+    from skeleton.jobs.worker import maintenance_paused
+
+    store = InstanceStore(store_file)
+    marker = tmp_path / "maintenance"
+    future = datetime.now(UTC) + timedelta(hours=1)
+    with override_settings(SKELETON_MAINTENANCE_MARKER=str(marker)):
+        cases = []
+        for deploying in (False, True):
+            for mode in ("off", "pause", "keep", "expired"):
+                marker.touch() if deploying else marker.unlink(missing_ok=True)
+                if mode == "off":
+                    leave(store, source="t")
+                else:
+                    enter(store, message="", ends_at=future, pause_jobs=mode != "keep", source="t")
+                    if mode == "expired":
+                        with closing(sqlite3.connect(store_file)) as connection:
+                            past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+                            connection.execute("UPDATE maintenance SET ends_at = ?", (past,))
+                            connection.commit()
+                maintenance.reader_for(store_file)._cached = None
+                cases.append(((deploying, mode), maintenance_paused()))
+    expected = {(False, "off"): False, (False, "pause"): True, (False, "keep"): False, (False, "expired"): False}
+    expected |= {(True, mode): True for mode in ("off", "pause", "keep", "expired")}
+    assert dict(cases) == expected
+
+
+def test_jobs_fail_closed_when_the_instance_store_cannot_be_read(store_file):
+    from skeleton.jobs.worker import maintenance_paused
+
+    store_file.parent.mkdir(parents=True)
+    store_file.write_bytes(b"not a sqlite database at all" * 10)
+    maintenance._readers.pop(str(store_file), None)
+    assert maintenance_paused()
+    maintenance._readers.pop(str(store_file), None)
+
+
+def test_queue_health_does_not_report_lag_while_paused():
+    from skeleton.jobs.operations import QueueHealth
+
+    health = QueueHealth(due=3, oldest_due_lag_s=900.0, dead=2, live_workers=0, stale_workers=1)
+    assert health.problems(max_lag_s=1, max_dead=None, require_worker=False) == ["queue_lag 900s > 1s"]
+    assert health.problems(max_lag_s=1, max_dead=None, require_worker=False, paused=True) == []
+    paused = health.problems(max_lag_s=1, max_dead=0, require_worker=True, paused=True)
+    assert paused == ["dead_jobs 2 > 0", "no_live_worker"]  # Only the lag is expected during a pause.
