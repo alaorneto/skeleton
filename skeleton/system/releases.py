@@ -130,6 +130,8 @@ def update_notice():
     """Summary of pending updates for the platform banner, or None (#501). Never raises."""
     from django.core.cache import cache
 
+    if not getattr(settings, "SKELETON_AGENT_SOCKET", None):
+        return _informative_notice(cache)
     try:
         cached = cache.get(NOTICE_CACHE_KEY)
     except Exception:  # noqa: BLE001 - a cache outage means no notice, never a broken page
@@ -143,6 +145,24 @@ def update_notice():
     with contextlib.suppress(Exception):  # A cache outage only drops the hint.
         cache.set(NOTICE_CACHE_KEY, notice, ttl)
     return notice if notice.get("mode") else None
+
+
+def _informative_notice(cache):
+    """Without agent (#502): the cached result of the system.update_check job, only informative."""
+    from .jobs import GITHUB_NOTICE_KEY
+
+    try:
+        cached = cache.get(GITHUB_NOTICE_KEY)
+    except Exception:  # noqa: BLE001 - no notice, never a broken page
+        return None
+    if not isinstance(cached, dict) or cached.get("newer") is not True:
+        return None
+    return {
+        "mode": "informative",
+        "core": cached.get("latest"),
+        "url": cached.get("url"),
+        "checked_at": cached.get("checked_at"),
+    }
 
 
 def invalidate_update_notice():

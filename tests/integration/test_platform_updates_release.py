@@ -665,3 +665,33 @@ def test_no_banner_and_no_agent_call_without_the_capability(admin, monkeypatch, 
     admin_client = support.login(admin, password=PASSWORD, csrf=False)
     admin_client.get("/me/")  # Outside /platform/: never the agent.
     assert double.calls == []
+
+
+def test_informative_banner_without_agent(admin, settings, notice_cache):
+    from skeleton.system.jobs import GITHUB_NOTICE_KEY
+
+    settings.SKELETON_AGENT_SOCKET = None
+    notice_cache.set(
+        GITHUB_NOTICE_KEY,
+        {
+            "latest": "0.7.1",
+            "newer": True,
+            "url": "https://github.com/acme/skeleton/releases/tag/v0.7.1",
+            "checked_at": "x",
+        },
+    )
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    for name in ("platform:overview", "platform:updates"):
+        body = client.get(reverse(name)).content.decode()
+        assert "Há uma versão nova do Skeleton (0.7.1)." in body, name
+        assert 'href="https://github.com/acme/skeleton/releases/tag/v0.7.1" rel="noopener noreferrer"' in body
+        assert "Ver o passo a passo" not in body
+    with system_context(reason="test:informative-auditor"):
+        auditor = create_identity(email="informative-auditor@example.test", password=PASSWORD)
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=auditor, email=auditor.email, verified=True, primary=True)
+    with request_context(actor=admin, request_id=uuid4(), source="test:informative"):
+        grant_platform_role(actor=admin, user=auditor, role="auditor")
+    other = support.login(auditor, password=PASSWORD, csrf=False)
+    assert "versão nova do Skeleton" not in other.get(reverse("platform:audit")).content.decode()
