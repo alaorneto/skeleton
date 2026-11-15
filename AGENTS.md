@@ -8,7 +8,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 2. `docs/data-model.md`, `docs/access-control.md`, `docs/audit-soft-delete.md`.
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
-5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md`, `docs/sequences.md`, `docs/flows.md`, `docs/comments.md`, `docs/data-transfer.md` e `docs/billing.md` antes de usar ou alterar o subsistema correspondente.
+5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md`, `docs/sequences.md`, `docs/flows.md`, `docs/comments.md`, `docs/data-transfer.md`, `docs/billing.md` e `docs/organization-sites.md` antes de usar ou alterar o subsistema correspondente.
 6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas.
 7. `docs/testing.md`, `docs/checks.md`, `docs/deployment.md`, `docs/maintenance.md` e `docs/updates.md` antes de verificar/operar.
 8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
@@ -36,9 +36,9 @@ Próprio deste repositório (detalhes em [docs/workflow.md](docs/workflow.md)):
 
 ## Fronteiras de código
 
-- `skeleton/common`: bases abstratas, querysets, erros, logging e operação de migrations.
+- `skeleton/common`: bases abstratas, querysets, erros, logging e operação de migrations; `hostnames.py` guarda as regras puras de rótulo DNS e os nomes reservados dos endereços de organização.
 - `skeleton/accounts`: identidade global e integração allauth; não reimplemente OAuth, OIDC, SAML, MFA ou password reset.
-- `skeleton/tenancy`: organização, vínculo, convite e contexto transacional.
+- `skeleton/tenancy`: organização, vínculo, convite e contexto transacional; endereços de organização em `site.py` (domínio base, classificação do host) e `routing.py` (conversor `org`: rota web de organização começa com `ORG`, nunca com o texto `o/<uuid:organization_id>/`) `site_middleware.py` (cookie de sessão compartilhado e host de organização) e `site_domains.py` (domínios próprios comprovados por DNS e o cache dos hosts permitidos dinâmicos); o host restringe, nunca concede ([docs/organization-sites.md](docs/organization-sites.md)).
 - `skeleton/access`: papéis/grupos, concessões e serviços/policies.
 - `skeleton/system`: registro de specs, catálogo e checks ([docs/checks.md](docs/checks.md)); metadados não executam DDL. Também guarda as apps (registro, dependências, disponibilidade dada pela plataforma e ativação pela organização), os pacotes `.skapp` em `skeleton/system/packaging/` (manifesto, assinatura, build, doctor e o pacote de release de `packaging/release.py`, que embrulha o core com o lock, os wheels de cada alvo e o agente; `skeleton.system.packages` é a fachada estável), a análise estática da fronteira de importação (`import_boundary.py`, E019/W019: lê o código com `ast` e nunca importa código de app), o `skeleton_startapp` (`app_scaffold.py`: valida o manifesto antes de gravar, nunca sobrescreve uma app nem edita settings) e o cliente do agente de deployment (`deployment_client.py`: só o socket Unix de controle; nenhum comando de deployment nem credencial owner no processo web). O job `system.update_check` (`skeleton/system/jobs.py`) avisa de versão nova em instalações sem agente: opt-in, só por `outbound_http`, para o host fixo da API do GitHub, e só informativo.
 - `skeleton/audit`: eventos e infraestrutura de auditoria.
@@ -109,7 +109,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 
 ## Contexto, autorização e concorrência
 
-Use `request_context`, `tenant_context` e `system_context` de `skeleton.tenancy.context`. Em jobs, materialize IDs e abra uma transação independente por organização. `system_context(reason=...)` é infraestrutura/CLI, nunca escolhido por body/header, e não concede BYPASSRLS. `on_commit` não herda consulta tenant: passe valores prontos ou abra novo contexto.
+Use `request_context`, `tenant_context` e `system_context` de `skeleton.tenancy.context`. Em jobs, materialize IDs e abra uma transação independente por organização. `system_context(reason=...)` é infraestrutura/CLI, nunca escolhido por body/header, e não concede BYPASSRLS. `on_commit` não herda consulta tenant: passe valores prontos ou abra novo contexto. O escopo de site (`skeleton.tenancy.routing.site_scope`) vem só do host validado por `ALLOWED_HOSTS`, nunca de header, body ou query, e nunca abre `system_context`.
 
 Para negócio use `authorized_queryset(model, user=..., action=...)` e `require_record_action(record, user=..., action=...)`; admin de tenant usa serviços de `skeleton.access.services`. Não use `_base_manager`, `all_objects`, raw SQL, relações reversas não filtradas ou permissões Django globais como atalho em endpoints. `with_deleted()` remove só o filtro de tombstone, nunca tenant/autorização. Seleção de FK/picker tem de ser legível para o ator e da mesma organização.
 

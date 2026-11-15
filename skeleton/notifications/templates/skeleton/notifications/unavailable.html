@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ title }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ title }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Notificações" %}</p><h1>{{ title }}</h1><p class="page-description">{% translate "O conteúdo desta notificação não está disponível para você. Ele pode ter sido removido ou o seu acesso mudou." %}</p></div></div>
 <p><a class="btn btn-secondary" href="{% url 'notifications:organization' organization_id %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar às notificações" %}</a></p>

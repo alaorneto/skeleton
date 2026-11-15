@@ -1,4 +1,4 @@
-{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Novo evento · Agenda · Skeleton" %}{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Novo evento · Agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header"><div class="min-w-0"><nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'skeleton_calendar:home' organization_id %}">{% translate "Agenda" %}</a></li><li><span aria-current="page">{% translate "Novo evento" %}</span></li></ol></nav><h1>{% translate "Novo evento" %}</h1></div></div>

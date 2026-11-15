@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load skeleton_format %}{% block page_title %}Domínios verificados{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}Domínios verificados{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">Identidade</p><h1>Domínios verificados</h1><p class="page-description">Posse global de cada domínio de email verificado por DNS. Revogar resolve uma disputa: a organização deixa de admitir por esse domínio até verificá-lo de novo.</p></div>
@@ -9,5 +9,12 @@
 {% for claim in rows %}<tr><td><span class="cell-primary">{{ claim.domain }}</span></td><td><a href="{% url 'platform:organization' claim.claiming_organization_id %}">{{ claim.claiming_organization.name }}</a></td><td class="col-date">{{ claim.created_at|moment }}</td>
 <td class="col-actions"><form method="post" action="{% url 'platform:domain-revoke' claim.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ claim.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">Revogar<span class="sr-only"> {{ claim.domain }}</span></button></form></td></tr>
 {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message="Nenhum domínio verificado." icon="globe" %}{% endfor %}
+</tbody></table></div>
+<h2 class="section-heading mt-8">{% translate "Domínios próprios de organizações" %}</h2>
+<p class="mb-4 text-sm text-body-subtle">{% translate "Domínios comprovados por DNS que atendem o endereço próprio de uma organização. Revogar faz o domínio deixar de atender." %}</p>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Domínio" %}</th><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Desde" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for claim in site_rows %}<tr><td>{{ claim.domain }}</td><td><a href="{% url 'platform:organization' claim.claiming_organization_id %}">{{ claim.claiming_organization.name }}</a></td><td class="whitespace-nowrap!">{{ claim.created_at|moment }}</td>
+<td class="text-right"><form method="post" action="{% url 'platform:site-domain-revoke' claim.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ claim.revision }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Revogar" %}<span class="sr-only"> {{ claim.domain }}</span></button></form></td></tr>
+{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum domínio próprio comprovado." %}</td></tr>{% endfor %}
 </tbody></table></div>
 {% endblock %}

@@ -1,6 +1,6 @@
 {% extends 'skeleton/web/base.html' %}
 {% load crud_forms i18n skeleton_format %}
-{% block title %}{{ title }} · Skeleton{% endblock %}
+{% block title %}{{ title }} · {{ site_name }}{% endblock %}
 {% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">

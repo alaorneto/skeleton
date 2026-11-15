@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n skeleton_format %}{% block title %}{% translate "Operação dos processos" %} · Skeleton{% endblock %}
+{% load i18n skeleton_format %}{% block title %}{% translate "Operação dos processos" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div>
   <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: instâncias com falha e tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas. Nenhum valor de formulário aparece aqui." %}</p></div></div>

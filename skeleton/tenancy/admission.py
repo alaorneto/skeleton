@@ -187,7 +187,7 @@ def directory(user: Any) -> tuple[DirectoryEntry, ...]:
         return ()
     from .context import memberships_for_user
 
-    mine = {item["organization_id"] for item in memberships_for_user(user)}
+    mine = {item["organization_id"] for item in memberships_for_user(user, all_organizations=True)}
     # An organization the person already asked to join is followed in "Minhas solicitações".
     mine |= set(
         own_rows(_models().JoinRequest, user)
@@ -409,7 +409,11 @@ def _notify_decision(record: Any, organization: Any, *, request=None) -> None:
     approved = record.status == _models().JoinRequest.Status.APPROVED
     path = reverse("web:dashboard", kwargs={"organization_id": organization.pk}) if approved else reverse("web:home")
     origin = getattr(settings, "SKELETON_PUBLIC_ORIGIN", "")
-    url = request.build_absolute_uri(path) if request is not None else (origin.rstrip("/") + path if origin else "")
+    from .site import organization_url
+
+    url = (organization_url(organization.pk, path) if approved else None) or (
+        request.build_absolute_uri(path) if request is not None else (origin.rstrip("/") + path if origin else "")
+    )
     text = (
         f"Seu pedido para entrar em {name} foi aprovado."
         if approved

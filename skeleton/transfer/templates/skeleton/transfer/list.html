@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}
-{% block title %}{% translate "Exportações e importações" %} · Skeleton{% endblock %}
+{% block title %}{% translate "Exportações e importações" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Arquivos" %}</p><h1>{% translate "Exportações e importações" %}</h1><p class="page-description">{% translate "Só você vê e baixa os arquivos que pediu. Eles são apagados depois do prazo de retenção." %}</p></div></div>
 <div class="table-scroll"><table><thead><tr><th scope="col" class="col-date">{% translate "Pedido em" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Tabela" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-num">{% translate "Linhas" %}</th><th scope="col" class="col-date">{% translate "Disponível até" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>

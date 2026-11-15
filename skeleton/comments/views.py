@@ -23,8 +23,10 @@ class RevisionForm(forms.Form):
 
 def _detail(request, organization_id, table_key, sysid):
     # The flow pages show the record's comments too (#421): back to them, never anywhere else.
+    from skeleton.tenancy.routing import organization_prefix
+
     target = request.POST.get("next", "")
-    inside = target.startswith(f"/o/{organization_id}/flows/") and "\\" not in target
+    inside = target.startswith(organization_prefix(organization_id) + "flows/") and "\\" not in target
     if inside and url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
         return redirect(target)
     return redirect("web:record", organization_id=organization_id, table_key=table_key, sysid=sysid)

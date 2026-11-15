@@ -156,6 +156,30 @@ O exemplo acima ilustra o contexto, não concede permissão HTTP nem `BYPASSRLS`
 
 Na plataforma, o papel limitado **Operador de cobrança** (`billing`, capacidade `billing.operate`) opera o catálogo da cobrança, mas não a conta de uma organização. As capacidades `billing.view` e `billing.manage` (só do administrador da organização) controlam a [área de cobrança](billing.md#superfícies). Com a [cobrança](billing.md#ganchos-de-direito) ligada, a situação de pagamento da organização é mais um limite, aplicado depois da validação do vínculo e antes de qualquer autorização de registro: uma app paga sem direito fica indisponível como uma app retirada pela plataforma, uma organização `restricted` fica só leitura para pessoas e uma `suspended` só deixa passar as rotas de cobrança para quem pode regularizá-la. Quem não é membro continua recebendo 404, sem saber o estado. O estado vem da política registrada no servidor, nunca de body ou header, e não concede nada: ele só fecha.
 
+### Host de organização
+
+Num endereço `<slug>.<domínio base>` ([#482](https://github.com/alaorneto/skeleton/issues/482)) o host **restringe, nunca concede**: vínculo, RLS e autorização são os do domínio principal, e quem não é membro continua sem acesso. O escopo de site vem só de `request.get_host()` já validado por `ALLOWED_HOSTS`, nunca de header, body ou query; `X-Forwarded-Host` só vale pela configuração de proxy confiável existente (`DJANGO_TRUST_PROXY`). No host de uma organização, qualquer caminho de outra organização (`/o/<outra>/…`, `/api/v1/o/<outra>/…`) responde 404, mesmo para quem é membro das duas, e nenhum `system_context` é aberto por causa do host.
+
+Rotas globais alcançáveis no host de organização (lista de permissão em `skeleton/tenancy/site_middleware.py`; o resto é o mesmo 404 neutro):
+
+| Rota | Decisão | Por quê |
+|---|---|---|
+| `/accounts/…` (login, logout, cadastro, senha, MFA, SSO) | permitida | identidade |
+| `/profile/…`, `/me/…` | permitida | páginas da própria pessoa |
+| `/api/v1/…` (exceto `/api/v1/o/<outra>/…`) | permitida | mesma API; só a organização do host |
+| `/site/…`, `/favicon.ico`, `/sw.js`, `/health/…`, `STATIC_URL` | permitida | marca pública, push e sondas |
+| `/invite/<uuid do site>/…`, `/join/<uuid do site>/…` | permitida | convite e entrada na própria organização |
+| `/`, `/notifications/`, `/flows/tasks/` | viram a rota da organização | a rota da organização vence |
+| `/platform/…`, `/admin/…`, `/join/` (diretório), `/join/domain/…`, `/join/requests/…`, `/billing/webhooks/…`, `/invite/<outra>/…` | recusada | plataforma ou várias organizações |
+
+No host de uma organização, as listagens de vínculos são **estreitadas** para a organização do host (#483): `memberships_for_user` (seletor, contadores, caixa de entrada e tarefas globais, `OrganizationService.my_organizations`, `GET /api/v1/organizations/`) e `for_each_organization` (Minha agenda, feed do calendário, OpenAPI agregado). Estreitar é **apresentação**, nunca autorização: nenhuma decisão de acesso depende do escopo de site. Ciclo de vida, segurança e privacidade da conta passam `all_organizations=True` e veem todas as organizações em qualquer host: a exportação dos dados pessoais, as sugestões e o diretório de admissão; as consultas diretas de `Membership` de último administrador, revogação, `auth_version` e eliminação não usam essas funções e não mudam. Uma pessoa autenticada sem vínculo recebe, no host da organização, a página "Você não tem acesso" (status 404), igual para qualquer caminho e com só o nome público da organização; na API continua o JSON 404.
+
+Depois do login, um `next` absoluto só é seguido quando aponta para o endereço de uma organização com endereço ativo, no mesmo esquema e porta da URL pública, e a requisição está num host que compartilha a sessão ([login no endereço da organização](authentication-sso.md#login-no-endereço-da-organização)); qualquer outro host abaixo do domínio base cai no destino padrão.
+
+**Domínios próprios (#488).** Só o administrador da organização cadastra, verifica e remove um domínio próprio, sob o lock da organização. A posse (`SiteDomainClaim`) é global e única por domínio, porque é ela que autoriza um host externo a representar uma organização; é escrita só na transação de verificação, depois da consulta DNS (feita fora de lock), e um domínio já comprovado por outra organização falha com a mesma resposta neutra, sem dizer quem o tem. A plataforma lista e revoga posses em `/platform/domains/`. Domínio igual ao domínio base ou abaixo dele, host da instalação, IP, `localhost` e curingas são recusados no cadastro. Só um domínio com posse viva, de organização ativa, entra nos hosts permitidos (`SiteAllowedHosts`, #489), e a parte dinâmica nunca tem curinga nem padrão com ponto inicial; um host da plataforma listado explicitamente continua plataforma mesmo que alguém o cadastre.
+
+Um projeto derivado libera uma rota global própria acrescentando o prefixo a `SKELETON_ORGANIZATION_SITE_EXTRA_PREFIXES` (lista, padrão vazia), como `["/relatorios/"]`; só faça isso para rotas da própria pessoa, nunca para rotas que leiam várias organizações.
+
 ### Leitura agregada entre organizações
 
 Uma requisição comum seleciona um tenant só. Para mostrar os itens de uma pessoa em todas as organizações dela (a visão "Minha agenda", o feed da agenda), o núcleo oferece `skeleton.tenancy.aggregate.for_each_organization(user, fn, *, source, app_label=None, limit=50)` (#74):

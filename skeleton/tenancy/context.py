@@ -338,14 +338,22 @@ def own_rows(model: Any, user: Any, *, using: str = "default") -> Any:
     return rows
 
 
-def memberships_for_user(user: Any, *, using: str = "default") -> list[dict[str, Any]]:
+def memberships_for_user(user: Any, *, using: str = "default", all_organizations: bool = False) -> list[dict[str, Any]]:
+    """The person's active memberships; on an organization host only that organization's (#483).
+
+    Narrowing is presentation, never authorization: account lifecycle, security and privacy pass
+    ``all_organizations=True`` so that they always see every organization.
+    """
     from skeleton.tenancy.models import Membership
 
     if not getattr(user, "is_authenticated", False):
         return []
     from django.db.models import F
 
-    return list(
+    from .routing import site_organization_id
+
+    site = None if all_organizations else site_organization_id()
+    rows = list(
         own_rows(Membership, user, using=using)
         .filter(
             is_active=True,
@@ -360,3 +368,6 @@ def memberships_for_user(user: Any, *, using: str = "default") -> list[dict[str,
             organization_slug=F("organization__slug"),
         )
     )
+    if site is not None:
+        rows = [row for row in rows if row["organization_id"] == site]
+    return rows

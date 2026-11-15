@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{% translate "Webhooks · Skeleton" %}{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{% translate "Webhooks" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header mb-4! sm:mb-5!">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Integrações" %}</p><h1>{% translate "Webhooks" %}</h1><p class="page-description">{% translate "URLs HTTPS que recebem eventos desta organização, assinados com um segredo próprio. Cada entrega age como a conta de serviço escolhida." %}</p></div>

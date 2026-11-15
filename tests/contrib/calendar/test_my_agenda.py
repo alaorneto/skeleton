@@ -156,3 +156,23 @@ def test_times_are_shown_in_the_profile_time_zone(agenda, login):
     html = login(agenda.alice).get(URL + f"?date={DAY.isoformat()}").content.decode()
     row = html.split("Meio-dia UTC")[0].rsplit("<tr>", 1)[1]
     assert "09:00" in row and "12:00" not in row
+
+
+def test_on_the_organization_host_only_that_organization_appears(agenda, settings):
+    """On <slug>.<base domain> the agenda is narrowed to the host's organization (#483)."""
+    from django.test import Client
+
+    from skeleton.tenancy.organization_settings import update_settings
+    from tests.contrib.calendar.conftest import PASSWORD
+    from tests.site_support import BLANK, site_client, site_settings
+
+    site_settings(settings)
+    with actor_tenant(agenda.admin, agenda.a):
+        update_settings(actor=agenda.admin, data={**BLANK, "site_enabled": True}, expected_revision=0)
+    grant_b(agenda)
+    plan(agenda, agenda.a, agenda.alice, "Reunião em A")
+    plan(agenda, agenda.b, agenda.alice, "Reunião em B")
+    client = site_client(agenda.alice, f"{agenda.a.slug}.example.test", PASSWORD)
+    html = client.get(URL).content.decode()
+    assert "Reunião em A" in html and "Reunião em B" not in html
+    assert isinstance(client, Client)

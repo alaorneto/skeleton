@@ -547,10 +547,10 @@ class AdminForm(forms.Form):
     )
     organization_slug = forms.SlugField(
         label=gettext_lazy("Identificador da organização"),
-        max_length=80,
+        max_length=63,
         help_text=gettext_lazy(
-            "Apelido técnico, usado em integrações: só letras minúsculas, números e hífen, sem espaços nem acentos."
-            " Exemplo: prefeitura-exemplo."
+            "Apelido técnico, usado no endereço da organização e em integrações: de 1 a 63 caracteres, só letras"
+            " minúsculas, números e hífen, sem espaços nem acentos. Exemplo: prefeitura-exemplo."
         ),
     )
 
@@ -560,6 +560,21 @@ class AdminForm(forms.Form):
         super().__init__(*args, **kwargs)
         # The real rules of the configured validators (length, common passwords...), as escaped HTML.
         self.fields["password1"].help_text = password_validators_help_text_html()
+
+    def clean_organization_slug(self):
+        from skeleton.common.hostnames import slug_problem
+
+        value = self.cleaned_data["organization_slug"]
+        problem = slug_problem(value)
+        if problem == "format":
+            raise forms.ValidationError(
+                gettext(
+                    "Use de 1 a 63 caracteres: letras minúsculas, números e hífen, sem começar nem terminar com hífen."
+                )
+            )
+        if problem == "reserved":
+            raise forms.ValidationError(gettext("Este identificador é reservado. Escolha outro."))
+        return value
 
     def clean(self):
         data = super().clean()

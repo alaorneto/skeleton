@@ -63,6 +63,27 @@ As chaves do catálogo (`skeleton/instance/schema.py`: `DJANGO_SECRET_KEY`, `DJA
 - **Rotação da chave mestra (#342):** o arquivo guarda uma chave por linha, a atual primeiro (um arquivo de uma linha é o formato original e continua válido). `manage.py instance rotate-key` grava uma chave nova à frente das antigas (troca atômica do arquivo, 0600) e só então recifra todos os segredos do SQLite numa transação, registrando `("*", "rotate-key", "cli:rotate-key")` no `change_log`, sem valores. Se a recifra falhar, o arquivo fica com as duas chaves e tudo continua legível; rode de novo. Depois, faça backup do novo arquivo de chave, reinicie a instância (os processos leram os segredos na partida) e rode `manage.py instance rotate-key --drop-old`, que remove as chaves antigas e recusa enquanto algum segredo ainda depender delas. Backups antigos do SQLite exigem o arquivo de chave da mesma época. O `check --deploy` avisa com `skeleton.W036`, em POSIX, quando o SQLite ou a chave mestra são legíveis pelo grupo ou por outros usuários (`chmod 600`).
 - **Validação na gravação:** os keyrings (`MFA_ENCRYPTION_KEYS`, `IDENTITY_PROVIDER_ENCRYPTION_KEYS`, `INTEGRATION_ENCRYPTION_KEYS`) só aceitam chaves Fernet, e `secret_key` exige 50 ou mais caracteres com 5 ou mais diferentes (o critério do `security.W009`). A recusa vale para `manage.py instance set`, `import-env`, o setup e `/platform/instance/`, e a mensagem nunca repete o valor. Valores antigos já gravados continuam lidos; só uma nova gravação é validada (#323).
 
+### Endereços de organização (#477)
+
+O guia completo, com DNS, TLS, proxy, roteiro de verificação e limites, é [endereços de organização](organization-sites.md).
+
+- `SKELETON_ORGANIZATION_BASE_DOMAIN` (catálogo da instância, padrão vazio): domínio base dos endereços `<slug>.<domínio base>` das organizações, como `skeleton.com`. Vazio, o recurso fica desligado e toda organização continua só em `/o/<uuid>/`. O valor é só o domínio (sem esquema, caminho, porta ou curinga) e exige `SKELETON_PUBLIC_URL`, de onde vêm o esquema e a porta dos endereços; o check `skeleton.E038` reprova os dois erros.
+- **Domínio base dedicado:** todo host abaixo dele recebe o cookie de sessão, compartilhado entre o domínio principal e os endereços das organizações ([sessão entre hosts](authentication-sso.md#sessão-entre-o-domínio-principal-e-os-endereços-de-organização)). Não delegue subdomínios dele a terceiros nem hospede outra aplicação ali. Configurar o domínio base troca o nome do cookie de sessão para `skeleton_session`: todos entram de novo uma vez. Use um `SKELETON_PUBLIC_URL` dentro do domínio base (`https://app.skeleton.com`), senão a sessão não é compartilhada (`skeleton.W039`).
+- `SKELETON_ORGANIZATION_CUSTOM_DOMAINS` (catálogo da instância, booleano, padrão desligado; só vale com o domínio base): permite que o administrador de uma organização cadastre até 3 domínios próprios em `/o/<org>/settings/domains/` e os comprove com o TXT `_skeleton-site.<domínio>` ([#488](https://github.com/alaorneto/skeleton/issues/488)). A reverificação periódica é a de `manage.py verify_domains --recheck` ([reverificação de domínios](#reverificação-de-domínios)): três falhas seguidas marcam o domínio como falho e removem a posse.
+- Com o domínio base, `.<domínio base>` entra sozinho no fim de `ALLOWED_HOSTS` (nos settings de produção também): não o acrescente em `DJANGO_ALLOWED_HOSTS`. A primeira entrada continua sendo o host de saúde padrão.
+- Ligado o endereço de uma organização, os emails **novos** (notificações, convites, links de ingresso, aprovação de pedido) levam links para `<slug>.<domínio base>`; desligá-lo faz os novos voltarem ao domínio principal, e os links já enviados para o endereço desligado passam a responder 404 ([notificações](notifications.md#email-imediato)).
+
+#### Domínios próprios (#489)
+
+Com `SKELETON_ORGANIZATION_CUSTOM_DOMAINS` ligado (e o domínio base configurado), um domínio próprio comprovado (#488) de organização com endereço ativo atende exatamente como `<slug>.<domínio base>`: URLs limpas, marca e os mesmos bloqueios. `ALLOWED_HOSTS` vira `SiteAllowedHosts` (`skeleton/tenancy/site.py`), uma lista cujos hosts estáticos continuam os de `DJANGO_ALLOWED_HOSTS` e à qual a validação do Django acrescenta, ao percorrê-la, os domínios com posse viva (`SiteDomainClaim`). Nunca entra curinga nem padrão com ponto inicial, e `"*"` continua recusado em produção.
+
+- **Atraso:** os domínios ficam num cache por processo de 30 s (`custom_hosts`): comprovar ou revogar um domínio leva até 30 s para valer em cada processo.
+- **Banco fora do ar:** os hosts estáticos continuam aceitos; os domínios próprios só enquanto houver um valor bom de menos de 5 minutos, depois nenhum (falha fechada), sem erro 500 na validação do host. Um host aceito pelo cache mas que deixou de ser reconhecido na classificação recebe o 404 neutro, nunca a plataforma.
+- **Sessão:** no domínio próprio o cookie de sessão é só daquele host; o login é local e OIDC/SAML não são oferecidos ([login no endereço da organização](authentication-sso.md#login-no-endereço-da-organização)).
+- **HSTS:** a resposta num domínio próprio leva `Strict-Transport-Security: max-age=<SECURE_HSTS_SECONDS>` sem `includeSubDomains` nem `preload`, para não forçar HTTPS nos outros subdomínios do cliente; no domínio base o cabeçalho continua o de sempre.
+- **Proxy e TLS:** o proxy repassa o cabeçalho `Host` original e emite um certificado por domínio próprio; a aplicação não emite certificado. Para emissão sob demanda, o proxy pergunta `GET http://<DJANGO_HEALTH_HOST>/health/site-host/?domain=<host>`: 200 (corpo vazio) para um endereço de organização ativo, por slug ou por domínio próprio comprovado; 404 para todo o resto. A rota só responde no host de saúde, fica fora do redirecionamento HTTPS (`SECURE_REDIRECT_EXEMPT`) e só diz sim ou não. Sem emissão automática, o domínio comprova, mas o navegador mostra erro de certificado até o operador emitir.
+- **Links:** emails de uma organização com domínio próprio comprovado usam esse domínio (o mais antigo, se houver mais de um).
+
 ### Primeira instalação pelo setup (#146)
 
 Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Eles também continuam em modo setup enquanto um setup começado não for concluído: os passos "Instância" e "Banco runtime" já gravam as três chaves, e um reinício antes da conclusão volta ao setup no passo em que parou, em vez de subir com settings de produção ainda sem cache, email e o resto (#453). Conta como começado o setup que registrou algum passo; um token emitido sozinho não conta. Quem começar o setup pela tela e decidir configurar a instância de outro jeito sai com `SKELETON_SETUP=off`. Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio). O entrypoint ASGI (`config/asgi.py`) não entra em modo setup: usa `config.settings.production` direto. O runtime suportado é WSGI/Gunicorn ([arquitetura](architecture.md)).
@@ -244,7 +265,7 @@ scrape_configs:
 
 | Métrica | Rótulos | Origem |
 |---|---|---|
-| `skeleton_http_request_duration_seconds` (histograma) | `method`, `route`, `status` | Cada request, medido pelo middleware. `route` é o **padrão** resolvido (`o/<uuid:organization_id>/`), nunca o caminho; sem rota, `unresolved`; os probes usam `health/live/` e `health/ready/` |
+| `skeleton_http_request_duration_seconds` (histograma) | `method`, `route`, `status` | Cada request, medido pelo middleware. `route` é o **padrão** resolvido (`<org:organization_id>tables/<str:table_key>/`: desde #479 as rotas web de organização usam o conversor `org`, antes `o/<uuid:organization_id>/…`), nunca o caminho; sem rota, `unresolved`; os probes usam `health/live/` e `health/ready/` |
 | `skeleton_jobs` | `job_type`, `state` | Jobs por tipo registrado e estado; tipo não registrado entra como `other` |
 | `skeleton_delivery_jobs` | `channel` (`webhook`, `email`, `push`), `state` | Jobs de entrega de webhook e de notificação |
 | `skeleton_jobs_due`, `skeleton_jobs_oldest_due_lag_seconds`, `skeleton_jobs_dead` | — | `queue_health()`, o mesmo de `check_jobs` e de `/platform/jobs/` |
@@ -288,7 +309,7 @@ Essas variáveis são lidas pelo SDK direto do ambiente, por isso não fazem par
 
 O que vira span:
 
-- **Request:** um span `SERVER` por request, com nome `<método> <padrão de rota>` (`GET o/<uuid:organization_id>/`), método, rota, status e `skeleton.request_id`, o mesmo UUID do cabeçalho `X-Request-ID` e do log `http.request`. O contexto W3C (`traceparent`) de entrada é respeitado.
+- **Request:** um span `SERVER` por request, com nome `<método> <padrão de rota>` (`GET <org:organization_id>`), método, rota, status e `skeleton.request_id`, o mesmo UUID do cabeçalho `X-Request-ID` e do log `http.request`. O contexto W3C (`traceparent`) de entrada é respeitado.
 - **Job:** um span `CONSUMER` `job <code>` por execução no worker, com `skeleton.job_id`, `skeleton.job_type`, `skeleton.job_queue`, `skeleton.job_attempt`, `skeleton.job_state` e, na falha, `error.type` (a classe). Cada execução tem `skeleton.request_id` próprio, que também vai nos logs do job.
 - **SQL:** um span `CLIENT` por statement, filho do request ou do job, com `db.system`, `db.name`, a operação (`SELECT`, `INSERT`...) e o `skeleton.request_id` de quem o executou.
 
@@ -746,7 +767,7 @@ WantedBy=timers.target
 
 ### Reverificação de domínios
 
-Organizações que admitem por domínio de email verificado (#28) dependem do registro TXT continuar publicado. Agende `manage.py verify_domains --recheck` uma vez por dia com cron ou um systemd timer, com o mesmo ambiente do `web`. O comando consulta o DNS fora das transações (3 s por domínio) e imprime só contagens; três falhas seguidas suspendem a admissão por aquele domínio ([autenticação](authentication-sso.md#domínio-de-email-verificado)).
+Organizações que admitem por domínio de email verificado (#28), e as que servem o endereço próprio num domínio comprovado (#488), dependem do registro TXT continuar publicado; o mesmo comando reverifica os dois. Agende `manage.py verify_domains --recheck` uma vez por dia com cron ou um systemd timer, com o mesmo ambiente do `web`. O comando consulta o DNS fora das transações (3 s por domínio) e imprime só contagens; três falhas seguidas suspendem a admissão por aquele domínio ([autenticação](authentication-sso.md#domínio-de-email-verificado)).
 
 ### Worker de jobs e agendador
 

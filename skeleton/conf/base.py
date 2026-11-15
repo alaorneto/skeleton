@@ -65,7 +65,10 @@ MIDDLEWARE = [
     "skeleton.api.health.HealthProbeMiddleware",
     "skeleton.deployment.MaintenanceMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    # <slug>.<base domain>: binds the site scope, rewrites clean URLs and refuses the rest (#482).
+    "skeleton.tenancy.site_middleware.OrganizationSiteMiddleware",
+    # Session cookie shared by the hosts under SKELETON_ORGANIZATION_BASE_DOMAIN (#481).
+    "skeleton.tenancy.site_middleware.SiteSessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -273,6 +276,16 @@ SKELETON_JOB_SUCCEEDED_RETENTION_DAYS = env.int("SKELETON_JOB_SUCCEEDED_RETENTIO
 SKELETON_JOB_DEAD_RETENTION_DAYS = env.int("SKELETON_JOB_DEAD_RETENTION_DAYS", default=30)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
+# Organization addresses (#477): <slug>.<base domain>; empty keeps every organization under /o/<uuid>/.
+SKELETON_ORGANIZATION_BASE_DOMAIN = env("SKELETON_ORGANIZATION_BASE_DOMAIN", default="").strip().strip(".").lower()
+# Shared across the base domain: a new name, so a host-only cookie left in the browser never competes (#481).
+SESSION_COOKIE_NAME = "skeleton_session" if SKELETON_ORGANIZATION_BASE_DOMAIN else "sessionid"
+if SKELETON_ORGANIZATION_BASE_DOMAIN and "." + SKELETON_ORGANIZATION_BASE_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, "." + SKELETON_ORGANIZATION_BASE_DOMAIN]  # Last: the first is the health host.
+# Custom domains of organizations, proven by DNS (#488, #489); only with the base domain.
+SKELETON_ORGANIZATION_CUSTOM_DOMAINS = env.bool("SKELETON_ORGANIZATION_CUSTOM_DOMAINS", default=False)
+# Global route prefixes a derived project opens on organization hosts (#482), such as ["/reports/"].
+SKELETON_ORGANIZATION_SITE_EXTRA_PREFIXES = []
 
 # Observability (#87): each piece stays off until its setting is present and its extra installed.
 # Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.

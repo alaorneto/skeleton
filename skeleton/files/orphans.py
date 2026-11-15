@@ -49,6 +49,8 @@ def orphan_keys(organization_id: Any, *, now: Any = None) -> list[str]:
         )
     # The current logo of the organization (#168); replaced logos are deleted after commit.
     referenced |= set(OrganizationSettings.objects.filter(logo_key__in=keys).values_list("logo_key", flat=True))
+    # The current icon (#485), the same rule as the logo.
+    referenced |= set(OrganizationSettings.objects.filter(icon_key__in=keys).values_list("icon_key", flat=True))
     # CSV files of exports and imports (#182) leave only with their transfer's retention.
     from skeleton.transfer.models import TransferJob
 

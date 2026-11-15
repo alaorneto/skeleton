@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load i18n %}{% block title %}{{ application.label }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{{ application.label }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0">
 <nav aria-label="{% translate "Localização" %}" class="breadcrumbs"><ol><li><a href="{% url 'application-list' organization_id %}">{% translate "Apps" %}</a></li><li><span aria-current="page">{{ application.label }}</span></li></ol></nav>

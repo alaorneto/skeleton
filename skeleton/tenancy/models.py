@@ -421,9 +421,13 @@ class OrganizationSettings(OrganizationRecord):
     default_timezone = models.CharField(max_length=64, blank=True, default="")
     brand_color = models.CharField(max_length=7, blank=True, default="")
     logo_key = models.CharField(max_length=300, blank=True, default="")
+    # The square PNG icon (#485): favicon and shortcut icon; private key like the logo, redacted in audit.
+    icon_key = models.CharField(max_length=300, blank=True, default="")
     # The business calendar (#416): weekday -> [["09:00", "18:00"], ...] and ISO holiday dates.
     business_hours = models.JSONField(default=dict, blank=True)
     holidays = models.JSONField(default=list, blank=True)
+    # The organization's own address <slug>.<base domain> (#480); off until the administrator turns it on.
+    site_enabled = models.BooleanField(default=False)
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
@@ -455,3 +459,102 @@ class OrganizationSettings(OrganizationRecord):
 
     def __str__(self):
         return self.display_name or str(self.organization_id)
+
+
+class OrganizationSite(SystemRecord):
+    """Global index of organizations that turned their own address on (#480); read before any tenant exists.
+
+    Written only by ``skeleton.tenancy.site.sync_site``, in the transaction (and under the lock)
+    that changes ``OrganizationSettings``. Holds only what the administrator agreed to publish,
+    and only while ``enabled``: turning the address off empties the brand. One row per
+    organization, never deleted. Not named ``organization``: a global row that points to one
+    organization (E017).
+    """
+
+    site_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    enabled = models.BooleanField(default=False)
+    display_name = models.CharField(max_length=200, blank=True, default="")
+    brand_color = models.CharField(max_length=7, blank=True, default="")
+    logo_key = models.CharField(max_length=300, blank=True, default="")
+    default_language = models.CharField(max_length=16, blank=True, default="")
+    icon_key = models.CharField(max_length=300, blank=True, default="")
+    immutable_fields = ("site_organization_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("site_organization",), name="sk_tenancy_site_one_per_org", violation_error_code="unique"
+            ),
+        ]
+
+    def __str__(self):
+        return str(self.site_organization_id)
+
+
+class SiteDomain(OrganizationRecord):
+    """A custom domain the organization proves it controls, to serve its own address (#488).
+
+    ``challenge`` is public by definition: it is published in ``_skeleton-site.<domain>``. A
+    separate table and challenge from ``VerifiedDomain``: proving an email domain never
+    authorizes a host, and the other way round. Only a ``verified`` domain with a live
+    ``SiteDomainClaim`` is served (#489); three failed rechecks in a row mark it ``failed``.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Aguardando verificação"
+        VERIFIED = "verified", "Verificado"
+        FAILED = "failed", "Falhou"
+
+    domain = models.CharField(max_length=253)
+    challenge = models.CharField(max_length=80)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveSmallIntegerField(default=0)
+    last_error_code = models.CharField(max_length=40, blank=True, default="")
+    immutable_fields = ("domain", "challenge")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "domain"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_tenancy_sitedomain_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=("pending", "verified", "failed")), name="sk_tenancy_sitedomain_choices"
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="verified") | Q(verified_at__isnull=False),
+                name="sk_tenancy_sitedomain_verified_at",
+            ),
+        ]
+
+    def __str__(self):
+        return self.domain
+
+
+class SiteDomainClaim(SystemRecord):
+    """Global ownership index of a verified custom domain (#488), read by the host validation (#489).
+
+    Written only by the verification, in the ``SiteDomain`` transaction; one live claim per
+    domain. Not named ``organization`` (E017).
+    """
+
+    domain = models.CharField(max_length=253)
+    claiming_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    immutable_fields = ("domain", "claiming_organization_id")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("domain",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_tenancy_sitedomainclaim_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.domain

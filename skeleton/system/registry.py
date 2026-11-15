@@ -132,7 +132,7 @@ def register_core_specs():
             gettext_lazy("Configurações da organização"),
             gettext_lazy("Nome de exibição, idioma e fuso padrão e marca da organização, editados pelo administrador."),
             "organization",
-            ("logo_key",),
+            ("logo_key", "icon_key"),
         ),
         "sk_tenancy.organizationadmissionpolicy": (
             "Política de admissão",
@@ -161,6 +161,24 @@ def register_core_specs():
         "sk_tenancy.domainclaim": (
             "Posse de domínios",
             "Índice global de qual organização verificou cada domínio, lido antes de haver tenant.",
+            "global",
+            (),
+        ),
+        "sk_tenancy.organizationsite": (
+            "Endereços de organizações",
+            "Índice global das organizações com endereço próprio ligado e da marca que o administrador publicou.",
+            "global",
+            ("logo_key", "icon_key"),
+        ),
+        "sk_tenancy.sitedomain": (
+            "Domínios próprios",
+            "Domínios que a organização prova controlar por DNS para servir o seu endereço próprio.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.sitedomainclaim": (
+            "Posse de domínios próprios",
+            "Índice global de qual organização comprovou cada domínio próprio, lido pela validação do host.",
             "global",
             (),
         ),

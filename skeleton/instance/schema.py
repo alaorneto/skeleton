@@ -104,6 +104,24 @@ def _origin(value: str) -> str:
     return value.strip().rstrip("/")
 
 
+_DNS_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"  # The rule of skeleton.common.hostnames.LABEL (#478).
+
+
+def _base_domain(value: str) -> str:
+    """The base domain of the organization addresses (``skeleton.com``); empty turns them off (#478)."""
+    import re
+
+    cleaned = _text(value).strip().rstrip(".").lower()
+    if not cleaned:
+        return ""
+    message = "Informe só o domínio, como skeleton.com."
+    if any(mark in cleaned for mark in ("://", "/", ":", "*", "@", " ")):
+        raise ValueError(message)
+    if len(cleaned) > 253 or not all(re.fullmatch(_DNS_LABEL, label) for label in cleaned.split(".")):
+        raise ValueError(message)
+    return cleaned
+
+
 def _subject(value: str) -> str:
     value = _required_text(value).strip()
     if not (value.startswith("mailto:") or value.startswith("https://")):
@@ -230,6 +248,20 @@ _SPECS = (
     SettingSpec("email_url", "EMAIL_URL", "url", "Servidor de email", _url("email_url_config"), True),
     SettingSpec("default_from_email", "DEFAULT_FROM_EMAIL", "str", "Remetente padrão dos emails", _required_text),
     SettingSpec("public_url", "SKELETON_PUBLIC_URL", "url", "Origem pública dos links de notificação", _origin),
+    SettingSpec(
+        "organization_base_domain",
+        "SKELETON_ORGANIZATION_BASE_DOMAIN",
+        "str",
+        "Domínio base dos endereços das organizações",
+        _base_domain,
+    ),
+    SettingSpec(
+        "organization_custom_domains",
+        "SKELETON_ORGANIZATION_CUSTOM_DOMAINS",
+        "bool",
+        "Domínios próprios de organizações",
+        _bool,
+    ),
     SettingSpec(
         "webpush_vapid_private_key_file",
         "WEBPUSH_VAPID_PRIVATE_KEY_FILE",

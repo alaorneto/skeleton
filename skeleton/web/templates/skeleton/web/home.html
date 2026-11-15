@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Organizações · Skeleton" %}{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{% translate "Organizações" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><h1>{% translate "Minhas organizações" %}</h1><p class="page-description">{% translate "Escolha uma organização para consultar registros e administrar o acesso." %}</p></div></div>
 {% comment %}Join paths (#25). Each block renders only with content: the pending invitation comes from this

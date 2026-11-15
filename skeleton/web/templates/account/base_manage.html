@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n %}{% block title %}{% block head_title %}{% translate "Minha conta" %}{% endblock %} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{% block head_title %}{% translate "Minha conta" %}{% endblock %} · {{ site_name }}{% endblock %}
 {% block main %}
 {% url 'web:profile' as profile_url %}{% url 'notifications:preferences' as notifications_url %}{% url 'account_email' as email_url %}{% url 'account_change_password' as password_url %}{% url 'mfa_index' as mfa_url %}{% url 'integrations:personal-tokens' as tokens_url %}
 <main id="conteudo" tabindex="-1" class="app-main mx-auto w-full max-w-7xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8 lg:px-8">

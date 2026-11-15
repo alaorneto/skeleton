@@ -72,7 +72,7 @@ def test_rd06_restore_user_persists_version_with_one_cas():
 
 def test_sbr02_platform_deactivation_preserves_form_changes_and_revokes_sessions():
     admin, _ = bootstrap_identity(
-        email="platform-owner@example.test", organization="platform", name="Platform", password=PASSWORD
+        email="platform-owner@example.test", organization="platform-org", name="Platform", password=PASSWORD
     )
     user = identity("offboarding@example.test")
     old_session = login(user)
@@ -95,7 +95,7 @@ def test_sbr02_platform_deactivation_preserves_form_changes_and_revokes_sessions
 
 def test_sbr02_platform_stale_form_conflicts_without_losing_newer_changes():
     admin, _ = bootstrap_identity(
-        email="platform-owner@example.test", organization="platform", name="Platform", password=PASSWORD
+        email="platform-owner@example.test", organization="platform-org", name="Platform", password=PASSWORD
     )
     user = identity("stale-offboarding@example.test")
     revision = user.revision

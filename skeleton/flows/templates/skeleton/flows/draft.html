@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n %}{% block title %}{{ draft.key }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{{ draft.key }} · {{ site_name }}{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:drafts' organization_id %}">{% translate "Fluxos em dados" %}</a></li><li><span aria-current="page">{{ draft.key }}</span></li></ol></nav>
 <div class="page-header"><div class="min-w-0"><h1>{{ draft.label|default:draft.key }}</h1><p class="page-description"><code>{{ draft.key }}</code> · {% translate "Versão publicada:" %} {{ draft.published_version|default:"—" }}</p></div></div>

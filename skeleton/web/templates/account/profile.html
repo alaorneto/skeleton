@@ -4,7 +4,7 @@
 {% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
 {% block content %}
 <h1>{% translate "Perfil" %}</h1>
-<p class="mt-2 text-sm/6 text-body">{% translate "Nome e preferências usados em todas as organizações." %}</p>
+<p class="mt-2 text-sm/6 text-body">{% if site_mode %}{% translate "Nome e preferências da sua conta." %}{% else %}{% translate "Nome e preferências usados em todas as organizações." %}{% endif %}</p>
 <form method="post" class="record-form account-form mt-6" data-record-form>
 {% csrf_token %}
 {% include 'skeleton/web/components/form-errors.html' %}

@@ -91,9 +91,9 @@ def test_request_and_sql_spans_share_the_request_id(spans, identity):
     servers = [span for span in finished if span.kind is SpanKind.SERVER]
     assert len(servers) == 1
     server = servers[0]
-    assert server.name == "GET o/<uuid:organization_id>/"
+    assert server.name == "GET <org:organization_id>"
     assert server.attributes["skeleton.request_id"] == request_id
-    assert server.attributes["http.route"] == "o/<uuid:organization_id>/"
+    assert server.attributes["http.route"] == "<org:organization_id>"
     sql = [span for span in finished if "db.system" in span.attributes or "db.system.name" in span.attributes]
     assert sql, "the request runs SQL"
     for span in sql:

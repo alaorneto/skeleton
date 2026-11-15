@@ -55,7 +55,13 @@ class TenantContextMiddleware:
                 if match and request.path_info.startswith(("/o/", "/api/v1/o/"))
                 else None
             )
+            from .routing import site_organization_id
+
+            site = site_organization_id()
             try:
+                if site is not None and organization_id is not None and str(organization_id) != str(site):
+                    # Defense in depth (#482): the host middleware already refused another organization.
+                    raise PermissionDenied
                 if organization_id and user.is_authenticated:
                     with tenant_context(
                         organization_id=organization_id, actor=user if user.is_authenticated else None, source=source
@@ -68,11 +74,12 @@ class TenantContextMiddleware:
                 if organization_id:
                     from django.http import HttpResponseNotFound
 
-                    response = (
-                        JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
-                        if request.path.startswith("/api/")
-                        else HttpResponseNotFound("Not found.")
-                    )
+                    if request.path.startswith("/api/"):
+                        response = JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
+                    elif site is not None and user.is_authenticated:
+                        response = site_no_access_response(request, site)
+                    else:
+                        response = HttpResponseNotFound("Not found.")
                 else:
                     raise
             request._skeleton_log_context = getattr(request, "_skeleton_log_context", current_context())
@@ -104,6 +111,25 @@ class TenantContextMiddleware:
             # Revert the tenant savepoint inside its own context before leaving it (#237).
             transaction.set_rollback(True)
         return response
+
+
+def site_no_access_response(request, organization_id):
+    """The organization host for a signed-in person without membership (#483): the same page for any path.
+
+    It never says whether the requested record exists, and shows only the public site name.
+    """
+    from django.shortcuts import render
+
+    from .admission import JoinUnavailable, accepting
+
+    try:
+        accepting(organization_id)
+    except JoinUnavailable:
+        accepts = False
+    else:
+        accepts = True
+    context = {"accepts_requests": accepts, "organization_id": organization_id}
+    return render(request, "skeleton/tenancy/site_no_access.html", context, status=404)
 
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})

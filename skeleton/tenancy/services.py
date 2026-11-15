@@ -7,6 +7,25 @@ from django.utils.translation import gettext
 from skeleton.common.exceptions import ConcurrentUpdate
 
 
+def slug_messages():
+    """The refusal of a slug that cannot be a host label (#478), shared by the service and the forms."""
+    return {
+        "format": gettext(
+            "Use de 1 a 63 caracteres: letras minúsculas, números e hífen, sem começar nem terminar com hífen."
+        ),
+        "reserved": gettext("Este identificador é reservado. Escolha outro."),
+    }
+
+
+def validate_new_slug(slug):
+    """Raise ``ValidationError({"slug": ...})`` when a new organization's slug is not a usable DNS label."""
+    from skeleton.common.hostnames import slug_problem
+
+    problem = slug_problem(slug)
+    if problem is not None:
+        raise ValidationError({"slug": slug_messages()[problem]})
+
+
 def update_organization(organization, *, actor, data, expected_revision, using="default"):
     """Platform-side organization edit with CAS; the slug is immutable."""
     from skeleton.accounts.platform import require_platform_actor
@@ -37,6 +56,8 @@ def create_organization(*, owner, slug, name, using="default"):
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Organization
 
+    # New organizations only: older slugs outside the rule keep working under /o/<uuid>/.
+    validate_new_slug(slug)
     with transaction.atomic(using=using):
         with system_context(reason="organization:create", using=using):
             if not owner.is_active or owner.deleted_at:

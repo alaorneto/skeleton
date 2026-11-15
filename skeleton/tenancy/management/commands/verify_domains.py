@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 class Command(BaseCommand):
     help = (
-        "Re-resolve the TXT challenge of every verified email domain (#28). DNS runs outside the "
+        "Re-resolve the TXT challenge of every verified email domain (#28) and custom domain (#488). DNS runs outside the "
         "transactions, one transaction per organization; three failures in a row mark the domain "
         "failed and drop its claim. Schedule it with cron or a systemd timer."
     )
@@ -13,8 +13,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from skeleton.tenancy.domains import recheck
+        from skeleton.tenancy.site_domains import recheck_site_domains
 
         if not options["recheck"]:
             raise CommandError("Use --recheck.")
-        report = recheck()
+        report = recheck_site_domains(report=recheck())
         self.stdout.write(f"checked={report.checked} failures={report.failures} revoked={report.revoked}")

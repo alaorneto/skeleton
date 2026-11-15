@@ -1,5 +1,7 @@
 from django.urls import path
 
+from skeleton.tenancy.routing import ORG
+
 from . import preference_views, push_views, views
 
 app_name = "notifications"
@@ -23,11 +25,11 @@ urlpatterns = [
         name="api-preference",
     ),
     path("notifications/", views.global_inbox, name="global"),
-    path("o/<uuid:organization_id>/notifications/", views.organization_inbox, name="organization"),
-    path("o/<uuid:organization_id>/notifications/read-all/", views.read_all, name="read-all"),
-    path("o/<uuid:organization_id>/notifications/<uuid:sysid>/open/", views.open_notification, name="open"),
+    path(f"{ORG}notifications/", views.organization_inbox, name="organization"),
+    path(f"{ORG}notifications/read-all/", views.read_all, name="read-all"),
+    path(f"{ORG}notifications/<uuid:sysid>/open/", views.open_notification, name="open"),
     path(
-        "o/<uuid:organization_id>/notifications/<uuid:sysid>/<str:action>/",
+        f"{ORG}notifications/<uuid:sysid>/<str:action>/",
         views.change,
         name="change",
     ),

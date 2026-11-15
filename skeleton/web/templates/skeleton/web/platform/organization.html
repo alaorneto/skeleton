@@ -23,6 +23,7 @@
     <h2 id="organization-meta" class="mb-4">{% translate "Registro" %}</h2>
     <dl class="meta-list sm:grid-cols-1!">
       <div><dt>{% translate "Identificador" %}</dt><dd><code class="uuid">{{ subject.slug }}</code></dd></div>
+      {% if site_address is not None %}<div><dt>{% translate "Endereço" %}</dt><dd>{% if site_address %}<code class="uuid">{{ site_address }}</code>{% else %}{% translate "Indisponível: o identificador não pode ser usado como endereço." %}{% endif %}</dd></div>{% endif %}
       <div><dt>{% translate "UUID" %}</dt><dd><code class="uuid">{{ subject.pk }}</code></dd></div>
       <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at|moment }}</dd></div>
       <div><dt>{% translate "Revisão" %}</dt><dd>{{ subject.revision }}</dd></div>

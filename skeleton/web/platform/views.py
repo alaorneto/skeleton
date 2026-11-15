@@ -421,9 +421,22 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
             "storage": storage,
             "quota_form": quota_form or _quota_form(organization),
             "identity_providers": organization_providers(organization),
+            "site_address": _site_address(organization),
         },
         status=status,
     )
+
+
+def _site_address(organization):
+    """The organization's own host for the "Endereço" row (#478): ``None`` hides it, ``""`` is unavailable."""
+    from urllib.parse import urlsplit
+
+    from skeleton.tenancy.site import base_domain, organization_origin
+
+    if not base_domain():
+        return None
+    origin = organization_origin(organization.slug)
+    return urlsplit(origin).netloc if origin else ""
 
 
 @platform_page
@@ -886,11 +899,12 @@ def organization_storage(request, sysid):
 
 def _domains_page(request, *, status=200, error=None):
     from skeleton.tenancy.domains import claims
+    from skeleton.tenancy.site_domains import site_claims
 
     return render(
         request,
         "skeleton/web/platform/domains.html",
-        {"platform_section": "domains", "rows": list(claims()), "error": error},
+        {"platform_section": "domains", "rows": list(claims()), "site_rows": list(site_claims()), "error": error},
         status=status,
     )
 
@@ -921,4 +935,27 @@ def domain_revoke(request, sysid):
     except ConcurrentUpdate:
         return _domains_page(request, status=409, error="A posse mudou. Atualize a página.")
     messages.success(request, f"Posse de {claim.domain} revogada.")
+    return redirect("platform:domains")
+
+
+@platform_page
+@require_http_methods(["POST"])
+@recent_authentication_required
+@transaction.atomic
+def site_domain_revoke(request, sysid):
+    """Drop the claim of a custom domain (#488): the organization's address stops answering on it."""
+    from skeleton.tenancy.site_domains import DomainUnavailable, revoke_site_claim
+
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = None
+    try:
+        with transaction.atomic():
+            claim = revoke_site_claim(actor=request.user, claim_id=sysid, expected_revision=revision)
+    except DomainUnavailable:
+        raise Http404 from None
+    except ConcurrentUpdate:
+        return _domains_page(request, status=409, error=gettext("A posse mudou. Atualize a página."))
+    messages.success(request, gettext("Posse de %(domain)s revogada.") % {"domain": claim.domain})
     return redirect("platform:domains")

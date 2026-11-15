@@ -74,9 +74,29 @@ def _access_navigation(organization_id: Any, resource: str | None, capabilities:
 
 
 def organization_shell(request: HttpRequest) -> dict[str, Any]:
+    site = getattr(request, "organization_site", None)  # Set by OrganizationSiteMiddleware (#482).
+    shell: dict[str, Any] = {
+        "site_mode": site is not None,
+        "organization_site": site,  # Not "site": allauth views pass their own "site" (RequestSite).
+        # The suffix of every page title (#484): the organization on its own address, else the product.
+        "site_name": site.name if site is not None else "Skeleton",
+        # The favicon (#485): the site's public icon on its host; inside /o/<org>/ the members' icon.
+        "organization_icon_url": reverse("web:site-icon") + f"?v={site.icon_key[-12:]}"
+        if site is not None and site.icon_key
+        else "",
+    }
+    if site is not None and current_context().organization_id is None:
+        # Before login or outside the tenant context: the brand the administrator published (#484).
+        shell["organization_brand"] = _site_brand(site)
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
-        return {}
+        return shell
+    shell.update(_signed_in_shell(request, user, site))
+    return shell
+
+
+def _signed_in_shell(request: HttpRequest, user: Any, site: Any) -> dict[str, Any]:
+    # On an organization host the memberships (and so the counters) are only that organization's (#483).
     memberships = memberships_for_user(user)
     from skeleton.flows.inbox import open_task_count
     from skeleton.notifications.inbox import counter_label, unread_count
@@ -105,7 +125,13 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     capabilities = capabilities_for(user)
     values.update(_access_navigation(organization_id, resource, capabilities))
     values["admission_links"] = _admission_links(organization_id, capabilities, request.path)
-    values["organization_brand"] = _brand(organization_id)
+    values["organization_brand"] = _brand(organization_id, site)
+    if site is None:
+        icon = values["organization_brand"].get("icon_key", "")
+        if icon:
+            values["organization_icon_url"] = (
+                reverse("web:organization-icon", kwargs={"organization_id": organization_id}) + f"?v={icon[-12:]}"
+            )
     return values
 
 
@@ -125,7 +151,7 @@ def _admission_links(organization_id: Any, capabilities: frozenset[str], path: s
     return links
 
 
-def _brand(organization_id: Any) -> dict[str, Any]:
+def _brand(organization_id: Any, site: Any = None) -> dict[str, Any]:
     """Presentation of the current organization's brand (#168); CSS only from validated hex."""
     from skeleton.tenancy.branding import palette
     from skeleton.tenancy.organization_settings import current_settings
@@ -134,10 +160,33 @@ def _brand(organization_id: Any) -> dict[str, Any]:
     if record is None:
         return {}
     tokens = palette(record.brand_color)
+    logo_url = ""
+    if record.logo_key:
+        if site is not None and site.organization_id == organization_id and site.logo_key == record.logo_key:
+            logo_url = _site_logo_url(site)  # One public, cacheable URL on the organization's own host (#484).
+        else:
+            logo_url = reverse("web:organization-logo", kwargs={"organization_id": organization_id})
     return {
         "display_name": record.display_name,
         "css": tokens.css() if tokens else "",
-        "logo_url": reverse("web:organization-logo", kwargs={"organization_id": organization_id})
-        if record.logo_key
-        else "",
+        "color": tokens.brand if tokens else "",
+        "logo_url": logo_url,
+        "icon_key": record.icon_key,
+    }
+
+
+def _site_logo_url(site: Any) -> str:
+    return reverse("web:site-logo") + f"?v={site.logo_key[-12:]}"
+
+
+def _site_brand(site: Any) -> dict[str, Any]:
+    """The published brand of the organization host, read from the site index (no tenant context needed)."""
+    from skeleton.tenancy.branding import palette
+
+    tokens = palette(site.brand_color)
+    return {
+        "display_name": site.name,
+        "css": tokens.css() if tokens else "",
+        "color": tokens.brand if tokens else "",
+        "logo_url": _site_logo_url(site) if site.logo_key else "",
     }

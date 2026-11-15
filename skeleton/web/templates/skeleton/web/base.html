@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{% block title %}Skeleton{% endblock %}</title>
+{% if organization_brand.color %}<meta name="theme-color" content="{{ organization_brand.color }}">{% endif %}
+<title>{% block title %}{{ site_name }}{% endblock %}</title>
 <link rel="preload" href="{% static 'skeleton/web/vendor/inter-5.3.0/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
 {% block extrahead %}{% endblock %}
+{% if organization_icon_url %}<link rel="icon" type="image/png" href="{{ organization_icon_url }}"><link rel="apple-touch-icon" href="{{ organization_icon_url }}">{% else %}<link rel="icon" type="image/svg+xml" href="{% static 'skeleton/web/favicon.svg' %}">{% endif %}
+{% if site_mode %}<link rel="manifest" href="{% url 'web:site-manifest' %}">{% endif %}
 <link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
 {% if organization_brand.css %}<style nonce="{{ csp_nonce }}">{{ organization_brand.css|safe }}</style>{% endif %}
 <script src="{% static 'skeleton/web/vendor/flowbite-4.0.2/flowbite.min.js' %}" defer></script>
@@ -18,7 +21,7 @@
   <div class="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 noscript:h-auto noscript:flex-wrap noscript:py-3 sm:px-6 lg:px-8">
     <a class="brand flex shrink-0 items-center gap-2.5 rounded-base text-heading no-underline" href="{{ home_url }}">
       {% if organization_brand.logo_url %}<img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ organization_brand.logo_url }}" alt="">{% else %}<span class="grid size-8 place-items-center rounded-base bg-brand text-white shadow-xs">{% include "skeleton/web/components/icon.html" with name="logo" class="size-5" stroke="1.8" %}</span>{% endif %}
-      <span class="text-base font-semibold tracking-tight">{{ organization_brand.display_name|default:"Skeleton" }}</span>
+      <span class="text-base font-semibold tracking-tight">{% firstof organization_brand.display_name site_name "Skeleton" %}</span>
     </a>
     {% if user.is_authenticated %}
     <button type="button" class="group btn btn-secondary ms-auto px-2.5 md:hidden noscript:hidden" data-collapse-toggle="primary-nav" aria-controls="primary-nav" aria-expanded="false">
@@ -47,8 +50,8 @@
 {% endblock %}
 <footer class="app-footer mt-auto border-t border-default">
   <div class="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-6 text-xs text-body-subtle sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-    <p>{% translate "Identidade, organizações e registros protegidos." %}</p>
-    <p class="font-medium">Skeleton</p>
+    {% if site_mode %}<p class="font-medium">{{ organization_site.name }}</p>{% else %}<p>{% translate "Identidade, organizações e registros protegidos." %}</p>
+    <p class="font-medium">Skeleton</p>{% endif %}
   </div>
 </footer>
 {% block extrabody %}{% endblock %}

@@ -97,10 +97,10 @@ def dns_txt(name: str) -> list[str]:
     return [b"".join(record.strings).decode("utf-8", "replace") for record in answer]
 
 
-def _check(domain: str, challenge: str, resolver: Resolver | None) -> str:
-    """``""`` when the challenge is published; an error code otherwise. Never inside a lock."""
+def _check(domain: str, challenge: str, resolver: Resolver | None, prefix: str = CHALLENGE_PREFIX) -> str:
+    """``""`` when the challenge is published at ``prefix + domain``; an error code otherwise. Never inside a lock."""
     try:
-        records = list((resolver or dns_txt)(CHALLENGE_PREFIX + domain))
+        records = list((resolver or dns_txt)(prefix + domain))
     except LookupError as error:
         return str(error.args[0]) if error.args else "dns_error"
     return "" if challenge in (record.strip() for record in records) else "challenge_missing"
@@ -251,7 +251,7 @@ def suggestions(user: Any) -> tuple[DomainSuggestion, ...]:
     }
     if not domains_of_user:
         return ()
-    mine = {item["organization_id"] for item in memberships_for_user(user)}
+    mine = {item["organization_id"] for item in memberships_for_user(user, all_organizations=True)}
     models = _models()
     accepting = set(
         models.OrganizationDirectoryEntry.objects.filter(accepts_domain=True).values_list(

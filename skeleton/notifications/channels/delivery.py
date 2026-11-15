@@ -132,14 +132,27 @@ def target_readable(notification: Any, user: Any) -> bool:
     return True
 
 
-def absolute(path: str) -> str:
-    """Links in emails and pushes; ``SKELETON_PUBLIC_URL`` makes them absolute."""
+def absolute(path: str, *, organization_id: Any = None) -> str:
+    """Links in emails and pushes; ``SKELETON_PUBLIC_URL`` makes them absolute.
+
+    With ``organization_id`` and an enabled organization address, the link goes to that address
+    in its clean form (#487); the site index is read once per organization and unit of work.
+    """
+    if organization_id is not None:
+        from skeleton.tenancy.site import organization_url
+
+        url = organization_url(organization_id, path)
+        if url is not None:
+            return url
     base = (getattr(settings, "SKELETON_PUBLIC_URL", "") or "").rstrip("/")
     return f"{base}{path}"
 
 
 def preferences_url() -> str:
-    return absolute(reverse("notifications:preferences"))
+    """The preferences page, on the address of the organization whose job sends the email."""
+    from skeleton.tenancy.context import current_context
+
+    return absolute(reverse("notifications:preferences"), organization_id=current_context().organization_id)
 
 
 def open_url(notification: Any, user_id: Any) -> str:
@@ -147,7 +160,11 @@ def open_url(notification: Any, user_id: Any) -> str:
 
     row = NotificationRecipient.objects.filter(notification_id=notification.pk, user_id=user_id).first()
     if row is None:
-        return absolute(reverse("notifications:organization", kwargs={"organization_id": notification.organization_id}))
+        return absolute(
+            reverse("notifications:organization", kwargs={"organization_id": notification.organization_id}),
+            organization_id=notification.organization_id,
+        )
     return absolute(
-        reverse("notifications:open", kwargs={"organization_id": notification.organization_id, "sysid": row.pk})
+        reverse("notifications:open", kwargs={"organization_id": notification.organization_id, "sysid": row.pk}),
+        organization_id=notification.organization_id,
     )

@@ -163,7 +163,29 @@ class AccountAdapter(DefaultAccountAdapter):
 
         set_local_password(user, password)
 
+    def is_safe_url(self, url: str) -> bool:
+        """Also an organization address (#486), but only that: never another host under the base domain.
+
+        allauth accepts any host of ``ALLOWED_HOSTS``, and ``.<base domain>`` is there (#482):
+        a URL on an organization host is safe only when ``is_site_url`` says so and the current
+        request is on a host that shares the session.
+        """
+        from urllib.parse import urlsplit
+
+        from allauth.core import context as allauth_context
+
+        from skeleton.tenancy.site import classify_host, is_site_url, shares_session
+
+        if not url:
+            return False
+        netloc = urlsplit(url).netloc
+        if netloc and classify_host(netloc.rpartition("@")[2]).kind != "platform":
+            return shares_session(allauth_context.request.get_host()) and is_site_url(url)
+        return bool(super().is_safe_url(url))
+
     def send_mail(self, template_prefix: str, email: str, context: dict[str, Any]) -> None:
+        from types import SimpleNamespace
+
         from allauth.core import context as allauth_context
         from django.contrib.sites.shortcuts import get_current_site
 
@@ -175,8 +197,13 @@ class AccountAdapter(DefaultAccountAdapter):
         base: dict[str, Any] = {"email": email}
         if request is not None:
             base |= {"request": request, "current_site": get_current_site(request)}
+        context = base | context
+        site = getattr(request, "organization_site", None)
+        if site is not None:
+            # Account emails sent from an organization address greet with its public name (#486).
+            context["current_site"] = SimpleNamespace(name=site.name, domain=request.get_host())
         # Render now; the commit callback holds only materialized email, never lazy tenant ORM.
-        message = self.render_mail(template_prefix, email, base | context)
+        message = self.render_mail(template_prefix, email, context)
         schedule_mail(message, request=request)
 
 

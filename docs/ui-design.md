@@ -31,7 +31,7 @@ Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `
 
 ### Marca por organização
 
-O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor primária e um logo ([#168](https://github.com/alaorneto/skeleton/issues/168)). Nas telas da organização, o nome e o logo substituem "Skeleton" no cabeçalho. A cor substitui só os tokens `--color-brand`, `--color-brand-strong`, `--color-fg-brand` e `--color-fg-brand-strong`, por um `<style>` no `base.html`.
+O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor primária e um logo ([#168](https://github.com/alaorneto/skeleton/issues/168)). A mesma página tem a seção "Endereço próprio" ([#480](https://github.com/alaorneto/skeleton/issues/480)), no mesmo formulário e com o mesmo botão de salvar: com o domínio base configurado e um slug que serve como rótulo DNS, mostra o endereço, o aviso do que fica público e a caixa "Ativar endereço próprio"; senão, só o motivo. Nas telas da organização, o nome e o logo substituem "Skeleton" no cabeçalho. A cor substitui só os tokens `--color-brand`, `--color-brand-strong`, `--color-fg-brand` e `--color-fg-brand-strong`, por um `<style>` no `base.html`.
 
 - **Contraste:**
   - A cor precisa de contraste WCAG AA (4,5:1) com o branco, porque os botões levam texto branco sobre ela e os links a usam sobre o fundo claro.
@@ -89,6 +89,7 @@ A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu
 | Minha conta | menu da conta | Perfil, Email, Senha, Autenticação em dois fatores |
 
 - O seletor lista os vínculos ativos do usuário (`memberships_for_user`); ele só cria links, e cada tela revalida a autorização.
+- **Endereço da organização (#483).** O processador `organization_shell` põe em todo contexto, inclusive anônimo, `site_mode` (verdadeiro no host `<slug>.<domínio base>`) e `organization_site` (o `Site` do índice; não se chama `site` porque as views do allauth já põem um `site` no contexto: `organization_id`, `slug`, `name`, `brand_color`, `logo_key`, `default_language`). Em modo de site o cabeçalho não tem o seletor de organização, "Todas as organizações" nem "Plataforma" (nem para administrador da plataforma); "Notificações" e "Tarefas" levam às listas da organização e os contadores contam só ela; o rodapé mostra só o nome da organização. Textos alcançáveis por membro comum que falam de "organizações" ou da plataforma têm a alternativa `{% if site_mode %}`. Páginas de administração que citam a plataforma por necessidade (cobrança, disponibilidade de apps) ficam como estão.
 - A administração de acesso é agrupada por tarefa em `skeleton/web/navigation.py` (`ACCESS_SECTIONS`): **Pessoas** (membros, convites, papéis de membros), **Grupos** (grupos, membros de grupos, papéis de grupos) e **Papéis e permissões** (papéis, permissões de tabelas, concessões de registros). Cada seção é um item do menu lateral e seus recursos viram abas na lista.
 - Telas de parâmetros de apps (`parameter_panel`) não mostram atalhos para rotas de negócio, conforme o [contrato de administração](application-admin-ui-plan.md).
 - No celular, o menu principal e o menu da organização são painéis recolhíveis (Flowbite collapse); sem JavaScript, ficam abertos.
@@ -174,6 +175,15 @@ A página de detalhe mostra uma **linha do tempo** que junta a auditoria e os an
 - **Anexos:** seguem a autorização do alvo.
 
 Novas fontes entram com `skeleton.web.timeline.register_timeline_source`, e cada uma devolve só o que já mostraria sozinha.
+
+### Título e marca no endereço da organização
+
+O título de toda página termina com `· {{ site_name }}` (`<tela> · {{ site_name }}`), nunca com o literal "Skeleton" ([#484](https://github.com/alaorneto/skeleton/issues/484)). `site_name` vem do processador `organization_shell`: o nome público da organização no host `<slug>.<domínio base>` e "Skeleton" em qualquer outro host. No host da organização a marca aparece também nas páginas anônimas (login, cadastro, senha, MFA, "sem vínculo"): sem contexto de tenant, `organization_brand` vem do índice `OrganizationSite` (nome, paleta e `/site/logo/`), sem ler `OrganizationSettings`; dentro do tenant vem das configurações, como antes, mas o logo usa a URL pública `/site/logo/?v=…`. O leiaute de entrada (`account/base_entrance.html`) mostra o logo ou o nome no cartão, o rodapé mostra só o nome e `<meta name="theme-color">` leva a cor da marca. Não há template de 404/500 próprio: as respostas de erro do Django continuam em texto puro, sem marca.
+
+### Favicon, ícone da organização e manifesto
+
+O favicon padrão do núcleo (`frontend/src/favicon.svg`, na cor de marca padrão) é copiado pelo build (`frontend/scripts/build.mjs`) para `skeleton/web/static/skeleton/web/favicon.svg`, e `npm run check` recusa uma cópia divergente; nada é editado à mão em `static/`. `base.html` (e por ele o leiaute de entrada e a plataforma) e o leiaute do setup têm `<link rel="icon">`. O administrador envia em `/o/<org>/settings/` um ícone PNG quadrado de exatamente 512 × 512 pixels, até 256 KB, provado pelo conteúdo (assinatura e cabeçalho `IHDR`, sem biblioteca de imagem; [#485](https://github.com/alaorneto/skeleton/issues/485)). `organization_icon_url`, do processador `organization_shell`, aponta para `/site/icon/?v=…` no host da organização e para `/o/<org>/settings/icon/?v=…` (só membros) nas páginas da organização no domínio principal; vazio, vale o favicon padrão. Trocar o ícone muda o `?v=`. No host da organização há ainda `<link rel="manifest">` para `/site/manifest.webmanifest` (nome, nome curto de 12 caracteres, cor e ícone, todos já públicos).
+
 ### Texto nos templates
 
 Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skeleton/issues/172)). Isso vale para o conteúdo entre tags, como em `{% translate "Salvar" %}`, e para os atributos visíveis (`alt`, `title`, `placeholder`, `aria-label`). Nos argumentos de tags, use `_("…")`, como em `{% include "…" with label=_("Abrir") %}`. As msgids ficam em pt-BR e o template carrega `{% load i18n %}`. Em frases com variável, prefira `{% blocktranslate trimmed %}` com nomes simples, usando `with` para os atributos. Dados (nomes, emails, valores) nunca entram no gettext.

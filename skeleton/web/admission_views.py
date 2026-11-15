@@ -24,6 +24,7 @@ from skeleton.access.capabilities import ADMISSION_CONFIGURE, ADMISSION_DECIDE, 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy import admission
 from skeleton.tenancy.context import current_context
+from skeleton.tenancy.site import shareable_url
 from skeleton.web.errors import error_response
 
 from .views import tenant_page
@@ -246,7 +247,9 @@ def admission_policy(request, organization_id):
         {
             "form": form,
             "organization_id": organization_id,
-            "join_url": request.build_absolute_uri(reverse("web:join-organization", args=[organization_id])),
+            "join_url": shareable_url(
+                request, organization_id, reverse("web:join-organization", args=[organization_id])
+            ),
             "breadcrumbs": [{"label": "Início", "url": dashboard}, {"label": "Admissão"}],
         },
         status=status,
@@ -433,8 +436,8 @@ def join_links(request, organization_id):
         for field, problems in exc.message_dict.items():
             form.add_error(field if field in form.fields else None, problems)
         return _links_page(request, organization_id, form, status=400)
-    url = request.build_absolute_uri(
-        reverse("web:join-link", kwargs={"organization_id": organization_id, "token": token})
+    url = shareable_url(
+        request, organization_id, reverse("web:join-link", kwargs={"organization_id": organization_id, "token": token})
     )
     # The token is shown in this response only; the page is never cached.
     return _links_page(request, organization_id, JoinLinkForm(), status=201, created={"label": link.label, "url": url})

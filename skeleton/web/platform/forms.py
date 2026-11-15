@@ -65,7 +65,7 @@ class PlatformUserForm(forms.Form):
 class OrganizationCreateForm(forms.Form):
     name = forms.CharField(label=gettext_lazy("Nome"), max_length=200)
     slug = forms.SlugField(
-        label="Identificador (slug)", max_length=100, help_text=gettext_lazy("Não pode ser alterado depois.")
+        label="Identificador (slug)", max_length=63, help_text=gettext_lazy("Não pode ser alterado depois.")
     )
     # An email, not a list of every identity of the installation (#311).
     owner = forms.EmailField(
@@ -73,6 +73,16 @@ class OrganizationCreateForm(forms.Form):
         max_length=254,
         help_text=gettext_lazy("Identidade ativa que recebe o papel de administrador da organização."),
     )
+
+    def clean_slug(self):
+        from skeleton.common.hostnames import slug_problem
+        from skeleton.tenancy.services import slug_messages
+
+        value = self.cleaned_data["slug"]
+        problem = slug_problem(value)
+        if problem is not None:
+            raise forms.ValidationError(slug_messages()[problem])
+        return value
 
     def clean_owner(self):
         from skeleton.accounts.services import normalized_email

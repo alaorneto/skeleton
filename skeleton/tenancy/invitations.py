@@ -124,13 +124,12 @@ def issue_invitation(*, user, email, role, request=None):
         )
         invitation.save()
         path = reverse("invitation", kwargs={"organization_id": organization_id, "token": token})
-        if request is not None:
-            url = request.build_absolute_uri(path)
-        else:
-            origin = getattr(settings, "SKELETON_PUBLIC_URL", "")
-            if not origin:
-                raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_URL.")
-            url = origin.rstrip("/") + path
+        from .site import shareable_url
+
+        # The organization's own address when enabled (#487), else the request host or the public URL.
+        url = shareable_url(request, organization_id, path)
+        if url is None:
+            raise ValidationError("Invitation email requires a request or SKELETON_PUBLIC_URL.")
         message = _invitation_message(organization, invitation.email, url)
         from skeleton.common.mail import schedule_mail
 

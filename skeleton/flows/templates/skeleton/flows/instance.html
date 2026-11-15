@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{{ instance.label }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{{ instance.label }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></li><li><span aria-current="page">{{ instance.label }}{% if instance.number %} {{ instance.number }}{% endif %}</span></li></ol></nav>

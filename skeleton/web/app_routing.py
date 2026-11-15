@@ -12,6 +12,7 @@ from skeleton.system.administration import guard_application_screen
 from skeleton.system.app_registry import all_apps, get_app
 from skeleton.system.applications import require_application_enabled
 from skeleton.tenancy.context import current_context
+from skeleton.tenancy.routing import ORG
 
 
 def _administrative_mfa_missing(user):
@@ -198,7 +199,7 @@ def application_urlpatterns():
             guarded = guard_application_urls(patterns, manifest)
             result.append(
                 path(
-                    f"o/<uuid:organization_id>/apps/{manifest.app_label}/",
+                    f"{ORG}apps/{manifest.app_label}/",
                     include((guarded, app_name), namespace=namespace),
                 )
             )

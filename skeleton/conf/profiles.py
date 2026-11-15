@@ -6,6 +6,10 @@ def development_settings(base):
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
     DEBUG = True
+    if base["SKELETON_ORGANIZATION_CUSTOM_DOMAINS"] and base["SKELETON_ORGANIZATION_BASE_DOMAIN"]:
+        from skeleton.tenancy.site import SiteAllowedHosts
+
+        ALLOWED_HOSTS = SiteAllowedHosts(base["ALLOWED_HOSTS"])  # Manual tests of custom domains (#489).
     from skeleton.accounts.providers import load_provider_config
 
     SKELETON_PROVIDER_CONFIGURATION = load_provider_config(env("SSO_PROVIDER_CONFIG_PATH", default=None), debug=DEBUG)
@@ -22,6 +26,9 @@ def production_settings(base):
 
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
+    organization_base = base["SKELETON_ORGANIZATION_BASE_DOMAIN"]
+    if organization_base and "." + organization_base not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS = [*ALLOWED_HOSTS, "." + organization_base]  # Organization addresses (#482).
     from skeleton.conf.base import database_config
 
     database = database_config(env, "DATABASE_URL")
@@ -44,7 +51,7 @@ def production_settings(base):
     IDENTITY_PROVIDER_ENCRYPTION_KEYS = env.list("IDENTITY_PROVIDER_ENCRYPTION_KEYS", default=[])
     SKELETON_REQUIRE_ADMIN_MFA = env.bool("SKELETON_REQUIRE_ADMIN_MFA", default=True)
     SECURE_SSL_REDIRECT = True
-    SECURE_REDIRECT_EXEMPT = [r"^health/(live|ready|release)/$"]
+    SECURE_REDIRECT_EXEMPT = [r"^health/(live|ready|release|site-host)/$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SECURE_HSTS_SECONDS = 31536000
@@ -58,6 +65,11 @@ def production_settings(base):
     SKELETON_HEALTH_HOST = env("DJANGO_HEALTH_HOST", default=ALLOWED_HOSTS[0].lstrip("."))
     if not validate_host(SKELETON_HEALTH_HOST, ALLOWED_HOSTS):
         raise ImproperlyConfigured("Health Host must be an explicitly allowed host.")
+    if base["SKELETON_ORGANIZATION_CUSTOM_DOMAINS"] and base["SKELETON_ORGANIZATION_BASE_DOMAIN"]:
+        from skeleton.tenancy.site import SiteAllowedHosts
+
+        # Verified custom domains of organizations join at validation time (#489); never a wildcard.
+        ALLOWED_HOSTS = SiteAllowedHosts(ALLOWED_HOSTS)
     from skeleton.conf.base import private_files_storage
 
     STORAGES = {

@@ -157,13 +157,17 @@ def digest_message(delivery: Any, user: Any) -> Any | None:
                 "count": row.count,
                 "updated_at": row.updated_at,
                 "open_url": absolute(
-                    reverse("notifications:open", kwargs={"organization_id": row.organization_id, "sysid": row.pk})
+                    reverse("notifications:open", kwargs={"organization_id": row.organization_id, "sysid": row.pk}),
+                    organization_id=row.organization_id,
                 ),
             }
         )
     if not entries:
         return None
-    inbox = absolute(reverse("notifications:organization", kwargs={"organization_id": delivery.organization_id}))
+    inbox = absolute(
+        reverse("notifications:organization", kwargs={"organization_id": delivery.organization_id}),
+        organization_id=delivery.organization_id,
+    )
     return build_message(
         user,
         type_code="digest",

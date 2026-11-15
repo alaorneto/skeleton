@@ -1,4 +1,4 @@
-{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Agenda · Skeleton" %}{% endblock %}
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Agenda" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Agenda" %}</h1><p class="page-description">{% translate "Horários no fuso" %} {{ zone }}. {% translate "Eventos privados de outras pessoas aparecem só como Ocupado." %}</p></div>
