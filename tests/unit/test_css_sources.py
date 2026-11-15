@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import posixpath
 import re
-from fnmatch import fnmatch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,10 +25,18 @@ def _source_patterns() -> list[str]:
     return patterns
 
 
+def _glob(pattern: str) -> re.Pattern[str]:
+    """Tailwind's glob: ``**/`` is zero or more directories, ``*`` stays inside one."""
+    regex = ""
+    for part in re.split(r"(\*\*/|\*|\?)", pattern):
+        regex += {"**/": "(?:.*/)?", "*": "[^/]*", "?": "[^/]"}.get(part, re.escape(part))
+    return re.compile(regex + "$")
+
+
 def _is_scanned(path: str, patterns: list[str]) -> bool:
     for pattern in patterns:
         if any(char in pattern for char in "*?["):
-            if fnmatch(path, pattern):
+            if _glob(pattern).match(path):
                 return True
         elif path == pattern or path.startswith(pattern + "/"):
             return True
