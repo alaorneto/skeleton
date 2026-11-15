@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}
+{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}
 {% block title %}{% translate "Domínios próprios" %} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -12,7 +12,7 @@
 {% for item in rows %}<tr>
 <td>{{ item.domain }}</td>
 <td>{% if item.status == "verified" %}<span class="badge badge-success badge-dot">{% translate "Verificado" %}</span>{% elif item.status == "failed" %}<span class="badge badge-warning badge-dot">{% translate "Falhou" %}</span>{% else %}<span class="badge badge-dot">{% translate "Aguardando" %}</span>{% endif %}{% if item.last_error_code %}<br><span class="text-sm text-body-subtle">{{ item.last_error_code }}</span>{% endif %}</td>
-<td class="whitespace-nowrap!">{{ item.last_checked_at|default:"—" }}</td>
+<td class="whitespace-nowrap!">{{ item.last_checked_at|moment }}</td>
 <td class="text-right"><form method="post" action="{% url 'web:site-domain-action' organization_id item.pk %}" class="inline-flex gap-2">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
 <button type="submit" name="action" value="verify" class="btn btn-primary btn-sm">{% translate "Verificar agora" %}<span class="sr-only"> {{ item.domain }}</span></button>
 <button type="submit" name="action" value="revoke" class="btn btn-secondary btn-sm">{% translate "Remover" %}<span class="sr-only"> {{ item.domain }}</span></button></form></td>

@@ -13,7 +13,7 @@
 <h2 class="section-heading mt-8">{% translate "Domínios próprios de organizações" %}</h2>
 <p class="mb-4 text-sm text-body-subtle">{% translate "Domínios comprovados por DNS que atendem o endereço próprio de uma organização. Revogar faz o domínio deixar de atender." %}</p>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Domínio" %}</th><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Desde" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
-{% for claim in site_rows %}<tr><td>{{ claim.domain }}</td><td><a href="{% url 'platform:organization' claim.claiming_organization_id %}">{{ claim.claiming_organization.name }}</a></td><td class="whitespace-nowrap!">{{ claim.created_at }}</td>
+{% for claim in site_rows %}<tr><td>{{ claim.domain }}</td><td><a href="{% url 'platform:organization' claim.claiming_organization_id %}">{{ claim.claiming_organization.name }}</a></td><td class="whitespace-nowrap!">{{ claim.created_at|moment }}</td>
 <td class="text-right"><form method="post" action="{% url 'platform:site-domain-revoke' claim.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ claim.revision }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Revogar" %}<span class="sr-only"> {{ claim.domain }}</span></button></form></td></tr>
 {% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum domínio próprio comprovado." %}</td></tr>{% endfor %}
 </tbody></table></div>
