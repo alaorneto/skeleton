@@ -1,0 +1,6 @@
+{% load i18n %}<ul class="mt-3 list-disc space-y-1 ps-5 text-sm/6">
+<li>{% translate "Docker Compose:" %} <code>docker compose restart web worker scheduler</code></li>
+<li>{% translate "systemd:" %} <code>sudo systemctl restart &lt;nome-do-serviço&gt;</code></li>
+<li>{% translate "runserver: pare com Ctrl+C e rode" %} <code>python manage.py runserver</code> {% translate "de novo" %}</li>
+</ul>
+<p class="mt-4 text-sm/6">{% translate "Depois, entre com o e-mail e a senha do administrador que você criou." %}</p>

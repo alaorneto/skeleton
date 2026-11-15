@@ -1,11 +1,11 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% load i18n %}{% block step_title %}{% translate "Novas versões" %}{% endblock %}
+{% load i18n skeleton_format %}{% block step_title %}{% translate "Novas versões" %}{% endblock %}
 {% block step %}
 <section class="card" aria-labelledby="available-check">
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
     <div class="min-w-0">
       <h2 id="available-check">{% translate "Consultar fontes de releases" %}</h2>
-      <p class="mt-1 text-sm/6 text-body">{% translate "Última consulta:" %} {{ checked_at|default:_("nunca consultado") }}. {% translate "Nada é baixado sem a sua escolha; cada passo é preparado e confirmado depois de você ver o plano." %}</p>
+      <p class="mt-1 text-sm/6 text-body">{% translate "Última consulta:" %} {{ checked_at|default:_("nunca consultado")|moment }}. {% translate "Nada é baixado sem a sua escolha; cada passo é preparado e confirmado depois de você ver o plano." %}</p>
     </div>
     <form method="post" action="{% url 'platform:updates-available' %}">{% csrf_token %}<button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Verificar agora" %}</button></form>
   </div>

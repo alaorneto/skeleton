@@ -234,7 +234,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 
 | Serviço | Módulo | Métodos | Issue |
 |---|---|---|---|
-| `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102) |
+| `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `people`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102), [#475](https://github.com/alaorneto/skeleton/issues/475) |
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
@@ -255,6 +255,9 @@ from skeleton.service_api.identity import IdentityService
 
 me = IdentityService().me(actor=request.user)  # UserProfileInfo
 person = IdentityService().get_person(actor=request.user, user_id=assignee_id)  # PersonSummary
+names = IdentityService().people(
+    actor=request.user, user_ids=(author_id, assignee_id)
+)  # tuple[PersonSummary, ...]: só os membros ativos da organização atual, até 200 ids, uma consulta (desde 0.6.0)
 IdentityService().update_my_preferences(actor=request.user, expected_revision=me.revision, timezone="America/Sao_Paulo")
 ```
 
@@ -262,6 +265,7 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 |---|---|---|
 | `me(*, actor) -> UserProfileInfo` | o próprio ator; com ou sem organização no contexto | `Forbidden` (ator divergente) |
 | `get_person(*, actor, user_id) -> PersonSummary` | vínculo ativo do ator; `email` só com a capacidade `members.view` | `NotFound` se a pessoa não tiver vínculo ativo na organização atual, mesmo que exista |
+| `people(*, actor, user_ids) -> tuple[PersonSummary, ...]` | vínculo ativo do ator; `email` só com `members.view`; quem não tem vínculo ativo na organização atual simplesmente não aparece | `InvalidInput` (mais de 200 ids, id inválido) |
 | `update_my_preferences(*, actor, expected_revision, language=None, timezone=None) -> UserProfileInfo` | só o próprio ator | `InvalidInput` (idioma/fuso inválido, nada a alterar); `Conflict("stale_revision")` |
 | `update_my_profile(*, actor, expected_user_revision, expected_revision, changes) -> UserProfileInfo` | só o próprio ator; `changes` com `first_name`, `last_name`, `display_name`, `timezone`, `language` | `InvalidInput` (campo não permitido ou valor inválido); `Conflict("stale_revision")` em qualquer das duas revisões |
 

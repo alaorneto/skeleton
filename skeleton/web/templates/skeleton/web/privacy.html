@@ -1,4 +1,4 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}
+{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}
 {% block title %}{% translate "Privacidade" %} · Skeleton{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
@@ -12,7 +12,7 @@
   <h2 id="erasure-title">{% translate "Eliminar minha identidade" %}</h2>
   <p class="mt-2 text-sm/6 text-body">{% translate "Depois da aprovação de um administrador da plataforma, seu email e seus nomes são substituídos, os logins, sessões e tokens deixam de funcionar e suas notificações e preferências são apagadas. Os registros das organizações continuam, ligados a uma identidade anônima. Não há como desfazer." %}</p>
   {% if erasure %}
-  <p class="mt-4 text-sm/6"><strong>{% translate "Situação:" %}</strong> {{ erasure.get_status_display }} · {{ erasure.created_at }}</p>
+  <p class="mt-4 text-sm/6"><strong>{% translate "Situação:" %}</strong> {{ erasure.get_status_display }} · {{ erasure.created_at|moment }}</p>
   {% if erasure.status == "pending" %}
   <form method="post" action="{% url 'web:privacy-erasure' %}" class="mt-3">{% csrf_token %}<input type="hidden" name="intent" value="withdraw"><input type="hidden" name="request" value="{{ erasure.sysid }}"><input type="hidden" name="revision" value="{{ erasure.revision }}"><button type="submit" class="btn btn-secondary">{% translate "Retirar o pedido" %}</button></form>
   {% endif %}

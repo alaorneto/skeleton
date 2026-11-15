@@ -27,9 +27,15 @@ def token_file(store) -> Path:
     return store.path.with_name("setup-token")
 
 
-def issue_token(store, *, now: datetime | None = None, stream=None) -> str | None:
-    """Issue a token unless an unused, unexpired one exists; returns the new plaintext."""
+def issue_token(store, *, now: datetime | None = None, stream=None, force: bool = False) -> str | None:
+    """Issue a token unless an unused, unexpired one exists; returns the new plaintext.
+
+    ``force`` revokes the open tokens first (``manage.py instance setup-token``, #466): there is
+    never more than one valid token.
+    """
     now = now or datetime.now(UTC)
+    if force:
+        store.revoke_setup_tokens(now=now)
     if store.has_open_setup_token(now=now):
         return None
     token = secrets.token_urlsafe(TOKEN_BYTES)

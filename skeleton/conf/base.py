@@ -149,6 +149,8 @@ LANGUAGES = [("pt-br", "Português")]
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
+# Short numeric dates in pt-BR (DD/MM/AAAA HH:mm); a derived project may prepend its own module (#468).
+FORMAT_MODULE_PATH = ["skeleton.conf.formats"]
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 

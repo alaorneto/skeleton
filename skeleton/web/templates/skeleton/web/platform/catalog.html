@@ -6,8 +6,8 @@
 </div>
 {% include "skeleton/web/platform/search.html" with placeholder=_("Buscar por tabela, rótulo ou modelo") %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tabela" %}</th><th scope="col">{% translate "Modelo" %}</th><th scope="col">{% translate "Origem / escopo" %}</th><th scope="col">{% translate "Auditoria" %}</th><th scope="col">{% translate "Disponível" %}</th></tr></thead><tbody>
-{% for row in rows %}<tr><td><a href="{% url 'platform:catalog-table' row.pk %}">{{ row.label }}</a><br><span class="uuid">{{ row.database_alias }} / {{ row.schema_name }} / {{ row.db_table }}</span></td><td>{{ row.model_label|default_if_none:'—' }}</td><td>{{ row.origin }} / {{ row.scope }}</td><td>{{ row.audit_mode }}</td><td>{% if row.available %}<span class="badge badge-success badge-dot">{% translate "Sim" %}</span>{% else %}<span class="badge badge-warning badge-dot">{% translate "Não" %}</span>{% endif %}</td></tr>
-{% empty %}<tr><td colspan="5" class="empty-state">{% translate "Nenhuma tabela catalogada." %}</td></tr>{% endfor %}
+{% for row in rows %}<tr><td><a class="cell-primary" href="{% url 'platform:catalog-table' row.pk %}">{{ row.label }}</a><span class="cell-secondary"><span class="uuid">{{ row.database_alias }} / {{ row.schema_name }} / {{ row.db_table }}</span></span></td><td>{{ row.model_label|default_if_none:'—' }}</td><td>{{ row.origin }} / {{ row.scope }}</td><td>{{ row.audit_mode }}</td><td>{% if row.available %}<span class="badge badge-success badge-dot">{% translate "Sim" %}</span>{% else %}<span class="badge badge-warning badge-dot">{% translate "Não" %}</span>{% endif %}</td></tr>
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma tabela catalogada.") %}{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

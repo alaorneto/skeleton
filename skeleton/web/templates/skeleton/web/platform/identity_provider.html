@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% block page_title %}{{ row.name }}{% endblock %}
+{% load skeleton_format %}{% block page_title %}{{ row.name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header">
@@ -33,7 +33,7 @@
       <div><dt>Client ID</dt><dd class="break-all">{{ row.client_id }}</dd></div>
       {% if row.sp_entity_id %}<div><dt>Entity ID do SP</dt><dd class="break-all">{{ row.sp_entity_id }}</dd></div>{% endif %}
       <div><dt>Segredo</dt><dd>{% if row.secret or row.private_key %}Guardado (cifrado){% else %}—{% endif %}</dd></div>
-      <div><dt>Último teste</dt><dd>{{ row.last_check_code|default:"Nunca testado" }}{% if row.last_check_at %} · {{ row.last_check_at }}{% endif %}</dd></div>
+      <div><dt>Último teste</dt><dd>{{ row.last_check_code|default:"Nunca testado" }}{% if row.last_check_at %} · {{ row.last_check_at|moment }}{% endif %}</dd></div>
     </dl>
     <p class="mt-4 text-sm/6 text-body-subtle">A identidade não muda: para outro issuer, entity ID ou client ID, cadastre outro provedor e migre os subjects.</p>
   </section>

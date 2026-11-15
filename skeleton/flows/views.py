@@ -28,12 +28,58 @@ STALE = gettext_lazy("Os dados mudaram desde que a página foi aberta. Confira o
 
 
 def _cursor_page(request, fetch):
+    from urllib.parse import urlencode
+
     cursor = request.GET.get("cursor") or None
     page = fetch(cursor)
-    return {"items": page.items, "next_cursor": page.next_cursor}
+    next_url = None
+    if page.next_cursor:
+        # Keeps the other parameters (the task scope) and replaces only the cursor (#476).
+        params = {name: value for name, value in request.GET.items() if name != "cursor"}
+        next_url = "?" + urlencode({**params, "cursor": page.next_cursor})
+    return {"items": page.items, "next_cursor": page.next_cursor, "next_url": next_url}
 
 
-def _django_field(info):
+PEOPLE_LIMIT = 200
+DATETIME_INPUT = "%Y-%m-%dT%H:%M"
+
+
+def _people(actor):
+    """Active members as (sysid, name) for a person field, or ``None`` past the limit or on a refusal.
+
+    Presentation only (#474): the flow service still validates the chosen person.
+    """
+    from skeleton.service_api.errors import ServiceError
+    from skeleton.service_api.organizations import OrganizationService
+
+    people, cursor = [], None
+    try:
+        while True:
+            page = OrganizationService().members(actor=actor, cursor=cursor, page_size=100)
+            people += [(str(person.sysid), person.display_name) for person in page.items]
+            if len(people) > PEOPLE_LIMIT:
+                return None
+            cursor = page.next_cursor
+            if not cursor:
+                return people
+    except ServiceError:
+        return None
+
+
+def _local_datetime(value):
+    """The stored ISO text as a naive datetime in the current time zone, for datetime-local."""
+    from datetime import datetime
+
+    from django.utils import timezone
+
+    try:
+        moment = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return timezone.localtime(moment).replace(tzinfo=None) if timezone.is_aware(moment) else moment
+
+
+def _django_field(info, people=None):
     label, help_text = info.label, info.help_text
     if info.type == "bool":
         return forms.BooleanField(label=label, required=False, help_text=help_text)
@@ -44,37 +90,72 @@ def _django_field(info):
         return forms.CharField(
             label=label, required=False, widget=forms.Textarea(attrs={"rows": 4}), help_text=help_text
         )
+    if info.type == "datetime":
+        # A date and time picker in the person's time zone; the service still receives ISO 8601.
+        return forms.DateTimeField(
+            label=label,
+            required=False,
+            help_text=help_text or gettext("Data e hora no seu fuso horário."),
+            widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format=DATETIME_INPUT),
+            input_formats=[DATETIME_INPUT, DATETIME_INPUT + ":%S"],
+        )
+    if info.type == "user":
+        if people is not None:
+            choices = [("", gettext("— escolha —")), *people]
+            if info.value and str(info.value) not in {value for value, _ in people}:
+                choices.append((str(info.value), gettext("Pessoa indisponível")))
+            return forms.ChoiceField(
+                label=label,
+                required=False,
+                choices=choices,
+                help_text=help_text or gettext("Escolha uma pessoa da organização."),
+            )
+        return forms.CharField(
+            label=label,
+            required=False,
+            help_text=help_text
+            or gettext("Cole o identificador da pessoa. Você o encontra em Administração › Pessoas."),
+        )
     widgets = {"date": forms.DateInput(attrs={"type": "date"}), "int": forms.NumberInput()}
-    if info.type == "datetime" and not help_text:
-        help_text = gettext("Data e hora com fuso, no formato ISO 8601 (2026-12-31T18:00:00-03:00).")
-    if info.type == "user" and not help_text:
-        help_text = gettext("Identificador (UUID) de uma pessoa com vínculo ativo.")
     return forms.CharField(label=label, required=False, widget=widgets.get(info.type), help_text=help_text)
 
 
 class TaskForm(forms.Form):
     """Presentation only: the declared fields as inputs; the service validates everything."""
 
-    def __init__(self, *args, infos=(), **kwargs):
+    def __init__(self, *args, infos=(), actor=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.infos = {info.name: info for info in infos}
+        # One members lookup per form, however many person fields it has.
+        self._people = _people(actor) if actor is not None and any(i.type == "user" for i in infos) else None
         for info in infos:
-            self.fields[info.name] = _django_field(info)
-            self.fields[info.name].label = info.label + (" *" if info.required else "")
+            field = self.fields[info.name] = _django_field(info, self._people)
+            if info.required:
+                # The service validates; the page marks the field (components/form-field.html).
+                field.widget.attrs["data-required"] = "1"
             if info.value is not None:
-                self.fields[info.name].initial = info.value
+                field.initial = _local_datetime(info.value) if info.type == "datetime" else info.value
         self.fields["comment"] = forms.CharField(
             label=gettext("Comentário"), required=False, widget=forms.Textarea(attrs={"rows": 3}), max_length=4000
         )
 
     def service_data(self):
         """Raw values of the declared fields that were submitted, for the service to validate."""
+        from datetime import datetime
+
+        from django.utils import timezone
+
         values = []
         for name, info in self.infos.items():
             if info.type == "bool":
                 values.append((name, bool(self.cleaned_data.get(name))))
             elif name in self.data:
-                values.append((name, self.cleaned_data.get(name) or None))
+                value = self.cleaned_data.get(name) or None
+                if isinstance(value, datetime):
+                    if timezone.is_naive(value):
+                        value = timezone.make_aware(value, timezone.get_current_timezone())
+                    value = value.isoformat()
+                values.append((name, value))
         return tuple(values)
 
     def apply(self, error):
@@ -109,11 +190,34 @@ def task_list(request, organization_id):
     if scope not in SCOPES:
         scope = "mine"
     page = _cursor_page(request, lambda cursor: FlowService().tasks(actor=request.user, scope=scope, cursor=cursor))
+    # One selector for the scope: links with a single current option (#472).
+    scope_options = [{"label": label, "url": "?scope=" + key, "current": key == scope} for key, label in SCOPES.items()]
     return render(
         request,
         TEMPLATES + "tasks.html",
-        {"organization_id": organization_id, "scope": scope, "scopes": SCOPES, "page": page},
+        {
+            "organization_id": organization_id,
+            "scope": scope,
+            "scopes": SCOPES,
+            "scope_options": scope_options,
+            "page": page,
+            **_section(request, "tasks"),
+        },
     )
+
+
+def _people_labels(request, user_ids):
+    """Names of the people of a page, one lookup (#475); unknown ids stay identifiers."""
+    from skeleton.web.people import people_labels
+
+    return people_labels(user_ids, actor=request.user)
+
+
+def _section(request, name):
+    """The flow tabs: the current screen and whether the operator tabs show (the instances rule)."""
+    from .policies import is_flow_admin
+
+    return {"flow_section": name, "can_operate": is_flow_admin(request.user)}
 
 
 def _action_fields(detail, action_key):
@@ -131,7 +235,7 @@ def task_detail(request, organization_id, sysid):
     detail = service.task(actor=request.user, task_id=sysid)
     extra = {field.name: field for action in detail.actions for field in action.fields}
     infos = [*detail.fields, *(field for name, field in extra.items() if name not in {f.name for f in detail.fields})]
-    form = TaskForm(request.POST or None, infos=infos if detail.can_act else ())
+    form = TaskForm(request.POST or None, infos=infos if detail.can_act else (), actor=request.user)
     status = 200
     if request.method == "POST":
         operation = request.POST.get("operation", "")
@@ -188,6 +292,7 @@ def task_detail(request, organization_id, sysid):
             "organization_id": organization_id,
             "detail": detail,
             "task": detail.task,
+            "people": _people_labels(request, (detail.task.assignee_id,)),
             "form": form,
             "subject_comments": _subject_comments(request, detail.subject_table, detail.subject_id),
         },
@@ -246,8 +351,12 @@ def operations(request, organization_id):
         {
             "organization_id": organization_id,
             "panel": panel,
+            "people": _people_labels(
+                request, (row.assignee_id for rows in (panel.unassigned, panel.overdue, panel.due_soon) for row in rows)
+            ),
             "flow_key": flow_key,
             "flow_version": flow_version or "",
+            **_section(request, "operations"),
         },
     )
 
@@ -329,13 +438,19 @@ def draft_list(request, organization_id):
                 "rows": rows,
                 "errors": errors,
                 "text": request.POST.get("specification", ""),
+                **_section(request, "drafts"),
             },
             status=400,
         )
     rows = definitions.drafts(request.user)
-    return render(
-        request, TEMPLATES + "drafts.html", {"organization_id": organization_id, "rows": rows, "errors": [], "text": ""}
-    )
+    context = {
+        "organization_id": organization_id,
+        "rows": rows,
+        "errors": [],
+        "text": "",
+        **_section(request, "drafts"),
+    }
+    return render(request, TEMPLATES + "drafts.html", context)
 
 
 @tenant_page()
@@ -383,13 +498,12 @@ def draft_detail(request, organization_id, sysid):
 
 @tenant_page()
 def instance_list(request, organization_id):
-    from .policies import is_flow_admin
 
     page = _cursor_page(request, lambda cursor: FlowService().instances(actor=request.user, cursor=cursor))
     return render(
         request,
         TEMPLATES + "instances.html",
-        {"organization_id": organization_id, "page": page, "can_operate": is_flow_admin(request.user)},
+        {"organization_id": organization_id, "page": page, **_section(request, "instances")},
     )
 
 
@@ -408,6 +522,7 @@ def instance_detail(request, organization_id, sysid):
             "organization_id": organization_id,
             "instance": instance,
             "history": history.items,
+            "people": _people_labels(request, (entry.actor_id for entry in history.items)),
             "more_history": history.next_cursor is not None,
             "is_admin": is_flow_admin(request.user),
             "is_starter": instance.starter_id == request.user.pk,

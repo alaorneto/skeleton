@@ -266,10 +266,15 @@ def bootstrap_identity(
                 from skeleton.accounts.platform import is_platform_admin
 
                 if not is_platform_admin(user):
-                    raise ValidationError("Existing bootstrap identity is inactive or not a platform administrator.")
+                    raise ValidationError(
+                        gettext(
+                            "Esta conta já existe e não é administradora da plataforma (ou está inativa). Use outro"
+                            " e-mail."
+                        )
+                    )
             else:
                 if not password:
-                    raise ValidationError("A bootstrap password is required for a new identity.")
+                    raise ValidationError(gettext("Informe uma senha para a nova conta."))
                 user = create_identity(email=email, password=password, using=using)
                 user.is_staff = user.is_superuser = True
                 user.save(using=using, update_fields=["is_staff", "is_superuser"])
@@ -279,7 +284,12 @@ def bootstrap_identity(
             ensure_profile(user, using=using)
             org = Organization.all_objects.using(using).filter(slug=organization).first()
             if org and (org.deleted_at or not org.is_active):
-                raise ValidationError("Existing bootstrap organization is inactive or deleted.")
+                raise ValidationError(
+                    gettext(
+                        "Já existe uma organização com este identificador, mas ela está inativa ou excluída. Use outro"
+                        " identificador."
+                    )
+                )
     if org is None:
         org = create_organization(owner=user, slug=organization, name=name, using=using)
     else:

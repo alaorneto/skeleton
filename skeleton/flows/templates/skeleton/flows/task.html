@@ -1,11 +1,11 @@
-{% extends 'skeleton/web/base.html' %}{% load i18n %}{% block title %}{{ task.step_label }} · Skeleton{% endblock %}
+{% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{{ task.step_label }} · Skeleton{% endblock %}
 {% block content %}
 <div class="max-w-3xl">
 <div class="page-header"><div class="min-w-0">
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:tasks' organization_id %}">{% translate "Tarefas" %}</a></li><li><span aria-current="page">{{ task.step_label }}</span></li></ol></nav>
   <h1>{{ task.step_label }}</h1>
   <p class="page-description"><a href="{% url 'flows:instance' organization_id task.instance_id %}">{{ task.flow_label }}{% if task.number %} {{ task.number }}{% endif %}</a></p>
-  <p class="mt-2">{% if task.status == "open" %}{% if task.assignee_id %}<span class="badge badge-warning">{% translate "Aberta" %}</span>{% else %}<span class="badge">{% translate "Na fila" %}</span>{% endif %}{% elif task.status == "completed" %}<span class="badge badge-success">{% translate "Concluída" %}</span>{% else %}<span class="badge">{% translate "Cancelada" %}</span>{% endif %}{% if task.decision %} <span class="badge">{{ task.decision }}</span>{% endif %}{% if task.due_at %} <span class="badge">{% translate "prazo:" %} {{ task.due_at }}</span>{% endif %}{% if detail.instance_status != "running" %} <span class="badge">{% translate "processo:" %} {{ detail.instance_status }}</span>{% endif %}</p>
+  <p class="mt-2">{% if task.status == "open" %}{% if task.assignee_id %}{{ "assigned"|status_badge:"tasks" }}{% else %}{{ "queued"|status_badge:"tasks" }}{% endif %}{% else %}{{ task.status|status_badge:"tasks" }}{% endif %}{% if task.assignee_id %} <span class="text-sm text-body">{% translate "responsável:" %} {{ task.assignee_id|person:people }}</span>{% endif %}{% if task.decision %} <span class="badge">{{ task.decision }}</span>{% endif %}{% if task.due_at %} <span class="badge">{% translate "prazo:" %} {{ task.due_at|moment }}</span>{% endif %}{% if detail.instance_status != "running" %} <span class="badge">{% translate "processo:" %}</span> {{ detail.instance_status|status_badge:"flows" }}{% endif %}</p>
 </div></div>
 {% if detail.data %}<section class="card" aria-labelledby="flow-data"><h2 id="flow-data" class="mb-4">{% translate "Dados do processo" %}</h2><dl class="meta-list">{% for item in detail.data %}<div><dt>{{ item.name }}</dt><dd>{{ item.value|default_if_none:"—" }}</dd></div>{% endfor %}</dl></section>{% endif %}
 {% if detail.can_claim or detail.can_release %}<section class="card mt-5"><div class="form-actions">

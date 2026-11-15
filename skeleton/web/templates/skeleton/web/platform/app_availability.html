@@ -1,4 +1,4 @@
-{% extends "skeleton/web/platform/base.html" %}
+{% extends "skeleton/web/platform/base.html" %}{% load skeleton_format %}
 {% block page_title %}Disponibilidade · {{ application.label }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -39,17 +39,16 @@
     <h2 id="availability-grants">Organizações concedidas</h2>
     <p class="mt-1 text-sm/6 text-body-subtle">Revogar só fecha o portão: a ativação e os parâmetros que a organização escolheu ficam preservados e voltam se a concessão for refeita.</p>
     {% if revoke_error %}<p class="errorlist nonfield mt-4" role="alert">{{ revoke_error }}</p>{% endif %}
-    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Organização</th><th scope="col">Identificador</th><th scope="col">Situação</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead><tbody>
+    <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Organização</th><th scope="col">Situação</th><th scope="col" class="col-actions"><span class="sr-only">Ações</span></th></tr></thead><tbody>
     {% for grant in availability.grants %}<tr>
-      <td><a href="{% url 'platform:organization' grant.organization_id %}">{{ grant.name }}</a></td>
-      <td><code class="uuid">{{ grant.slug }}</code></td>
-      <td>{% if grant.is_active %}<span class="badge badge-success badge-dot">Ativa</span>{% else %}<span class="badge badge-dot">Inativa</span>{% endif %}</td>
-      <td class="text-right">{% if grant.blocked_by %}<span class="text-sm text-body-subtle">Bloqueada por {{ grant.blocked_by|join:", " }}</span>{% else %}
-        <form method="post" action="{% url 'platform:app-revoke' application.app_label %}">
+      <td><a class="cell-primary" href="{% url 'platform:organization' grant.organization_id %}">{{ grant.name }}</a><span class="cell-secondary"><code class="uuid">{{ grant.slug }}</code></span></td>
+      <td>{% if grant.is_active %}{{ "active"|status_badge:"Ativa" }}{% else %}{{ "inactive"|status_badge:"Inativa" }}{% endif %}</td>
+      <td class="col-actions">{% if grant.blocked_by %}<span class="text-sm text-body-subtle">Bloqueada por {{ grant.blocked_by|join:", " }}</span>{% else %}
+        <form method="post" action="{% url 'platform:app-revoke' application.app_label %}" class="row-actions">
           {% csrf_token %}<input type="hidden" name="organization" value="{{ grant.organization_id }}"><input type="hidden" name="expected_revision" value="{{ grant.revision }}">
-          <button type="submit" class="btn btn-secondary">Revogar<span class="sr-only"> {{ grant.name }}</span></button>
+          <button type="submit" class="btn btn-danger-outline btn-sm">Revogar<span class="sr-only"> {{ grant.name }}</span></button>
         </form>{% endif %}</td>
-    </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhuma organização concedida.</td></tr>{% endfor %}
+    </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message="Nenhuma organização concedida." icon="building" %}{% endfor %}
     </tbody></table></div>
     <form method="post" action="{% url 'platform:app-grant' application.app_label %}" class="mt-5">
       {% csrf_token %}

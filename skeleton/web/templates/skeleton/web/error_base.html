@@ -1,0 +1,25 @@
+{% load static i18n %}<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title>{% block title %}{% endblock %} · Skeleton</title>
+<link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
+</head>
+<body>
+{% comment %}Standalone: no {% templatetag openblock %} url {% templatetag closeblock %} and no context variable, so it renders for 500 and in setup mode (#473).{% endcomment %}
+<header class="app-header">
+  <div class="mx-auto flex h-16 max-w-7xl items-center gap-2.5 px-4 sm:px-6 lg:px-8">
+    <a class="flex items-center gap-2.5 rounded-base text-heading no-underline" href="/"><span class="grid size-8 place-items-center rounded-base bg-brand text-white shadow-xs">{% include "skeleton/web/components/icon.html" with name="logo" class="size-5" stroke="1.8" %}</span><span class="text-base font-semibold tracking-tight">Skeleton</span></a>
+  </div>
+</header>
+<main id="conteudo" class="mx-auto w-full max-w-xl px-4 py-12 sm:py-16">
+<div class="card text-center">
+  <span class="mx-auto mb-5 grid size-12 place-items-center rounded-full bg-danger-soft text-fg-danger ring-1 ring-danger-subtle">{% block icon %}{% include "skeleton/web/components/icon.html" with name="error" class="size-6" %}{% endblock %}</span>
+  <h1>{% block heading %}{% endblock %}</h1>
+  <p class="mt-2 text-body">{% block message %}{% endblock %}</p>
+  <p class="mt-6 flex flex-wrap justify-center gap-3">{% block actions %}<a class="btn btn-secondary" href="/">{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Ir para o início" %}</a>{% endblock %}</p>
+</div>
+</main>
+</body>
+</html>

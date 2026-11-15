@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Visão geral" %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Visão geral" %}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0">
@@ -26,7 +26,7 @@
     <h2 id="overview-operations" class="mb-3">{% translate "Operações recentes" %}</h2>
     {% if operations %}
     <ul class="divide-y divide-default-subtle">
-      {% for operation in operations %}<li class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"><a href="{% url 'platform:updates-operation' operation.sysid %}">{{ operation.get_operation_display }}</a><span class="flex items-center gap-2"><span class="badge">{{ operation.state }}</span><span class="text-body-subtle">{{ operation.created_at }}</span></span></li>{% endfor %}
+      {% for operation in operations %}<li class="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm"><a href="{% url 'platform:updates-operation' operation.sysid %}">{{ operation.get_operation_display }}</a><span class="flex items-center gap-2"><span class="badge">{{ operation.state }}</span><span class="text-body-subtle">{{ operation.created_at|moment }}</span></span></li>{% endfor %}
     </ul>
     {% else %}<p class="text-sm text-body-subtle">{% translate "Nenhuma operação de versão registrada." %}</p>{% endif %}
   </section>

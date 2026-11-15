@@ -32,7 +32,7 @@
   </tbody></table></div>
 </section>
 <div class="mt-8 flex flex-wrap gap-3">
-  <a class="button" href="{% url 'platform:updates-available' %}">{% translate "Procurar novas versões" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
+  <a class="btn btn-primary" href="{% url 'platform:updates-available' %}">{% translate "Procurar novas versões" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a>
   <a class="btn btn-secondary" href="{% url 'platform:updates-upload' %}">{% include "skeleton/web/components/icon.html" with name="archive" %}{% translate "Enviar pacote" %}</a>
 </div>
 {% endblock %}

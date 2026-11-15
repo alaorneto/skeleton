@@ -143,7 +143,7 @@ def test_clear_button_only_for_optional_keys(store, platform, monkeypatch, setti
     write_setting(settings.BASE_DIR, "allowed_hosts", "instance.example.test", source="test")
     write_setting(settings.BASE_DIR, "default_from_email", "ops@example.test", source="test")
     html = client.get(reverse("platform:instance")).content.decode()
-    rows = {row.split("</span>", 1)[0]: row for row in html.split('<span class="font-medium text-heading">')[1:]}
+    rows = {row.split("</span>", 1)[0]: row for row in html.split('<span class="cell-primary">')[1:]}
     assert 'value="clear"' not in rows["allowed_hosts"]
     assert 'value="clear"' in rows["default_from_email"] and 'value="clear"' in rows["email_url"]
     assert html.count('value="clear"') == 2  # The two optional keys stored: email_url and default_from_email.

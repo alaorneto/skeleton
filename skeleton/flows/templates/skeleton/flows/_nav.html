@@ -1,0 +1,6 @@
+{% load i18n %}<nav class="link-tabs" aria-label="{% translate "Fluxos de processo" %}">
+<a href="{% url 'flows:tasks' organization_id %}"{% if flow_section == "tasks" %} aria-current="page"{% endif %}>{% translate "Tarefas" %}</a>
+<a href="{% url 'flows:instances' organization_id %}"{% if flow_section == "instances" %} aria-current="page"{% endif %}>{% translate "Processos" %}</a>
+{% if can_operate %}<a href="{% url 'flows:operations' organization_id %}"{% if flow_section == "operations" %} aria-current="page"{% endif %}>{% translate "Operação" %}</a>
+<a href="{% url 'flows:drafts' organization_id %}"{% if flow_section == "drafts" %} aria-current="page"{% endif %}>{% translate "Fluxos em dados" %}</a>{% endif %}
+</nav>

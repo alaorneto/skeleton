@@ -9,7 +9,7 @@
 <form method="post">
   {% csrf_token %}
   {% include "skeleton/web/components/form-errors.html" %}
-  {% include "skeleton/web/components/form-fields.html" %}
+  {% include "skeleton/web/components/form-fields.html" with hide_marks=True %}
   <button type="submit" class="btn btn-primary mt-6 w-full">Entrar</button>
 </form>
 <p class="mt-6 text-sm/6"><a href="{% url 'account_login' %}">Voltar para as outras formas de entrar</a></p>

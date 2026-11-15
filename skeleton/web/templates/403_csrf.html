@@ -1,0 +1,5 @@
+{% extends "skeleton/web/error_base.html" %}{% load i18n %}{% block title %}{% translate "A página expirou" %}{% endblock %}
+{% block heading %}{% translate "A página expirou" %}{% endblock %}
+{% block message %}{% translate "Por segurança, o formulário perdeu a validade: a sua sessão terminou ou a página ficou aberta por muito tempo. Volte à página anterior, recarregue e envie de novo." %}{% endblock %}
+{% block icon %}{% include "skeleton/web/components/icon.html" with name="clock" class="size-6" %}{% endblock %}
+{% block actions %}{{ block.super }}<a class="btn btn-primary" href="/accounts/login/">{% include "skeleton/web/components/icon.html" with name="login" %}{% translate "Entrar novamente" %}</a>{% endblock %}

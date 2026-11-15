@@ -2,13 +2,15 @@
 
 from django import forms
 from django.conf import settings
+from django.contrib import messages
 from django.db import transaction
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.records.services import exposed_spec
+from skeleton.web.errors import error_response
 from skeleton.web.views import tenant_page
 
 from . import services
@@ -22,6 +24,23 @@ def _detail(organization_id, table_key, sysid):
     return redirect("web:record", organization_id=organization_id, table_key=table_key, sysid=sysid)
 
 
+def _too_large():
+    from django.template.defaultfilters import filesizeformat
+
+    return gettext("O arquivo excede o limite de %(size)s.") % {
+        "size": filesizeformat(settings.SKELETON_UPLOAD_MAX_BYTES)
+    }
+
+
+def _refused(request, back, message):
+    """A refused upload goes back to the record with the reason, keeping its context (#473).
+
+    The table policy was checked before; the record page revalidates the access as usual.
+    """
+    messages.error(request, message)
+    return back
+
+
 @tenant_page()
 @require_POST
 @transaction.atomic
@@ -32,30 +51,20 @@ def upload(request, organization_id, table_key, sysid):
         length = int(request.META.get("CONTENT_LENGTH") or 0)
     except ValueError:
         length = 0
+    back = _detail(organization_id, table_key, sysid)
     if length > settings.SKELETON_UPLOAD_MAX_BYTES + 64 * 1024:
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("O arquivo excede o limite permitido.")}, status=413
-        )
+        return _refused(request, back, _too_large())
     uploaded = request.FILES.get("file")
     if getattr(request, "skeleton_upload_exceeded", False):  # Stopped by BoundedUploadHandler (#242).
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("O arquivo excede o limite permitido.")}, status=413
-        )
+        return _refused(request, back, _too_large())
     if uploaded is None or set(request.FILES) != {"file"} or set(request.POST) - {"csrfmiddlewaretoken"}:
-        return render(request, "skeleton/web/error.html", {"detail": gettext("Selecione um arquivo.")}, status=400)
+        return _refused(request, back, gettext("Selecione um arquivo."))
     try:
         services.upload(spec, sysid, user=request.user, stream=uploaded, filename=uploaded.name, size=uploaded.size)
     except services.UploadTooLarge:
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("O arquivo excede o limite permitido.")}, status=413
-        )
+        return _refused(request, back, _too_large())
     except services.QuotaExceeded:
-        return render(
-            request,
-            "skeleton/web/error.html",
-            {"detail": gettext("A cota de armazenamento da organização foi atingida.")},
-            status=409,
-        )
+        return _refused(request, back, gettext("A cota de armazenamento da organização foi atingida."))
     return _detail(organization_id, table_key, sysid)
 
 
@@ -65,18 +74,13 @@ def upload(request, organization_id, table_key, sysid):
 def remove(request, organization_id, table_key, sysid, attachment_id):
     form = RevisionForm(request.POST)
     if set(request.POST) - {"revision", "csrfmiddlewaretoken"} or not form.is_valid():
-        return render(request, "skeleton/web/error.html", {"detail": gettext("Revisão inválida.")}, status=400)
+        return error_response(request, gettext("Revisão inválida."), status=400)
     try:
         services.remove(
             exposed_spec(table_key), sysid, attachment_id, user=request.user, revision=form.cleaned_data["revision"]
         )
     except ConcurrentUpdate:
-        return render(
-            request,
-            "skeleton/web/error.html",
-            {"detail": gettext("O anexo foi alterado. Atualize a página.")},
-            status=409,
-        )
+        return error_response(request, gettext("O anexo foi alterado. Atualize a página."), status=409)
     return _detail(organization_id, table_key, sysid)
 
 

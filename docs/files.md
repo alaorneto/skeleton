@@ -48,7 +48,7 @@ Sem antivírus configurado, o anexo nasce `available`; com ele, nasce `pending` 
 | Superfície | Rota |
 |---|---|
 | API | `GET/POST /api/v1/o/<org>/tables/<table_key>/records/<sysid>/attachments/` (multipart, campo `file`), `DELETE .../attachments/<id>/`, `POST .../attachments/<id>/restore/` |
-| HTML | Painel "Anexos" no detalhe do registro, com envio (`multipart/form-data`) e remoção por formulário |
+| HTML | Painel "Anexos" no detalhe do registro, com envio (`multipart/form-data`) e remoção por formulário. Um envio sem arquivo, acima do limite ou além da cota volta ao registro com a mensagem ("Selecione um arquivo.", "O arquivo excede o limite de 10 MB.", cota atingida), sem página de erro; a política da tabela é conferida antes (#473) |
 
 ## Download
 
