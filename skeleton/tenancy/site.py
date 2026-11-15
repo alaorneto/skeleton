@@ -176,3 +176,10 @@ def site_of(organization_id: Any) -> Site | None:
     if organization_id is None:
         return None
     return _as_site(_live_sites().filter(site_organization_id=organization_id).first())
+
+
+def shares_session(host: str) -> bool:
+    """True when ``host`` (with or without port) is the base domain or one of its subdomains (#481)."""
+    base = base_domain()
+    name = _hostname(host or "")
+    return bool(base) and bool(name) and (name == base or name.endswith("." + base))

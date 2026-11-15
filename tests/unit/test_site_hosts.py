@@ -61,3 +61,16 @@ def test_organization_origin(sites):
     sites.SKELETON_PUBLIC_URL = "https://app.example.test"
     sites.SKELETON_ORGANIZATION_BASE_DOMAIN = ""
     assert organization_origin("acme") is None
+
+
+def test_shares_session(sites):
+    from skeleton.tenancy.site import shares_session
+
+    assert shares_session("example.test")
+    assert shares_session("acme.example.test:8000")
+    assert shares_session("APP.example.test")
+    assert not shares_session("xexample.test")
+    assert not shares_session("portal.cliente.test")
+    assert not shares_session("")
+    sites.SKELETON_ORGANIZATION_BASE_DOMAIN = ""
+    assert not shares_session("acme.example.test")

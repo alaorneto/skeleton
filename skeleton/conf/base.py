@@ -65,7 +65,8 @@ MIDDLEWARE = [
     "skeleton.api.health.HealthProbeMiddleware",
     "skeleton.deployment.MaintenanceMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
+    # Session cookie shared by the hosts under SKELETON_ORGANIZATION_BASE_DOMAIN (#481).
+    "skeleton.tenancy.site_middleware.SiteSessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -270,6 +271,8 @@ SKELETON_JOB_DEAD_RETENTION_DAYS = env.int("SKELETON_JOB_DEAD_RETENTION_DAYS", d
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
 # Organization addresses (#477): <slug>.<base domain>; empty keeps every organization under /o/<uuid>/.
 SKELETON_ORGANIZATION_BASE_DOMAIN = env("SKELETON_ORGANIZATION_BASE_DOMAIN", default="").strip().strip(".").lower()
+# Shared across the base domain: a new name, so a host-only cookie left in the browser never competes (#481).
+SESSION_COOKIE_NAME = "skeleton_session" if SKELETON_ORGANIZATION_BASE_DOMAIN else "sessionid"
 
 # Observability (#87): each piece stays off until its setting is present and its extra installed.
 # Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.

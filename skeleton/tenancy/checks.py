@@ -33,3 +33,35 @@ def base_domain_problems():
 @register(Tags.security)
 def organization_site_checks(app_configs=None, **kwargs):
     return [Error(problem, id="skeleton.E038") for problem in base_domain_problems()]
+
+
+def session_problems():
+    """skeleton.E039 / W039: the core decides the session cookie domain per request (#481)."""
+    from .site import base_domain, shares_session
+
+    if not base_domain():
+        return [], []
+    errors, warnings = [], []
+    configured = [name for name in ("SESSION_COOKIE_DOMAIN", "CSRF_COOKIE_DOMAIN") if getattr(settings, name, None)]
+    if configured:
+        errors.append(
+            f"{' and '.join(configured)} set with SKELETON_ORGANIZATION_BASE_DOMAIN: the core decides the "
+            "session cookie domain per request and never shares the CSRF cookie. Remove the setting."
+        )
+    public = urlsplit(str(getattr(settings, "SKELETON_PUBLIC_URL", "") or "").strip()).hostname
+    if public and not shares_session(public):
+        warnings.append(
+            "The host of SKELETON_PUBLIC_URL is outside SKELETON_ORGANIZATION_BASE_DOMAIN: the session is not "
+            "shared between the main domain and the organization addresses, and single sign-on is not offered there."
+        )
+    return errors, warnings
+
+
+@register(Tags.security)
+def organization_session_checks(app_configs=None, **kwargs):
+    from django.core.checks import Warning as CheckWarning
+
+    errors, warnings = session_problems()
+    return [Error(problem, id="skeleton.E039") for problem in errors] + [
+        CheckWarning(problem, id="skeleton.W039") for problem in warnings
+    ]
