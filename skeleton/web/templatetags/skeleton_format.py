@@ -188,3 +188,24 @@ def any_required(form) -> bool:
     return any(
         _required(bound.field) and getattr(bound.field.widget, "input_type", "") != "checkbox" for bound in fields
     )
+
+
+@register.filter
+def person(user_id, people):
+    """``{{ row.actor_sysid|person:people }}``: the member's name, or "Pessoa indisponível" (#475).
+
+    ``people`` comes from ``skeleton.web.people.people_labels`` (one lookup per page) and only
+    holds active members of the current organization.
+    """
+    if not user_id:
+        return _("Sistema")
+    key = str(user_id)
+    name = (people or {}).get(key)
+    if name:
+        return format_html('<span title="{}">{}</span>', key, name)
+    return format_html(
+        '<span class="text-body-subtle">{}</span> <code class="uuid" title="{}">{}</code>',
+        _("Pessoa indisponível"),
+        key,
+        key[:8],
+    )

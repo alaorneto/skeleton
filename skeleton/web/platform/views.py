@@ -624,6 +624,8 @@ def audit(request):
         {
             "platform_section": "audit",
             "rows": rows,
+            # Global audit: the actor stays the full identifier, never a tenant's name (#475).
+            "show_actor_uuid": True,
             "filters": request.GET,
             "operations": operation_choices(),
         },

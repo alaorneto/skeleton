@@ -1,7 +1,7 @@
 {% load i18n skeleton_format %}<section aria-labelledby="timeline-heading" class="mt-8">
   <h2 id="timeline-heading" class="section-heading">{% translate "Linha do tempo" %}</h2>
   {% if timeline %}<ol class="space-y-3">{% for item in timeline %}<li class="card p-3!" data-timeline-kind="{{ item.kind }}">
-    <p class="text-sm text-body-subtle">{{ item.at|moment }}{% if item.extra.revision %} · {% blocktranslate trimmed with revision=item.extra.revision %}revisão {{ revision }}{% endblocktranslate %}{% endif %}</p>
+    <p class="text-sm text-body-subtle">{{ item.at|moment }}{% if item.extra.revision %} · {% blocktranslate trimmed with revision=item.extra.revision %}revisão {{ revision }}{% endblocktranslate %}{% endif %}{% if item.actor_id %} · {{ item.actor_id|person:timeline_people }}{% endif %}</p>
     <p class="font-medium text-heading">{{ item.title }}</p>
     {% if item.detail %}<p class="text-sm text-body">{{ item.detail }}</p>{% endif %}
   </li>{% endfor %}</ol>{% else %}<p class="empty-state">{% translate "Nada para mostrar." %}</p>{% endif %}

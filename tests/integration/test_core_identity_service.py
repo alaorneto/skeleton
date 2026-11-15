@@ -1,6 +1,7 @@
 """IdentityService of the core service API (#102)."""
 
 import dataclasses
+import uuid
 
 import pytest
 from django.test import override_settings
@@ -61,6 +62,36 @@ def test_get_person_is_limited_to_active_members_and_email_needs_members_view(sc
     with request_context(actor=scenario.member, request_id=None, source="test:identity-no-tenant"):
         with pytest.raises(ContextRequired):
             service.get_person(actor=scenario.member, user_id=scenario.denied.pk)
+
+
+@pytest.mark.needs_example_app
+def test_people_resolves_only_active_members_of_the_current_organization(scenario):
+    """A/B: a person of organization B never gets a name in A, even when the id is known (#475)."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    service = IdentityService()
+    with acting_as(scenario.member, scenario.a) as actor:
+        ids = (scenario.denied.pk, scenario.admin_b.pk, scenario.outsider.pk, scenario.denied.pk)
+        with CaptureQueriesContext(connection) as queries:
+            people = service.people(actor=actor, user_ids=ids)
+        assert [(person.sysid, person.email) for person in people] == [(scenario.denied.pk, None)]
+        # One lookup for the whole batch, whatever the number of ids.
+        assert sum('"user_id" IN (' in query["sql"] for query in queries.captured_queries) == 1
+        assert service.people(actor=actor, user_ids=()) == ()
+        with pytest.raises(InvalidInput):
+            service.people(actor=actor, user_ids=tuple(uuid.uuid4() for _ in range(201)))
+        with pytest.raises(InvalidInput):
+            service.people(actor=actor, user_ids=("not-a-uuid",))
+    with acting_as(scenario.admin_a, scenario.a) as admin:
+        [person] = service.people(actor=admin, user_ids=(scenario.denied.pk,))
+        assert person.email == scenario.denied.email
+    with request_context(actor=scenario.member, request_id=None, source="test:identity-people-no-tenant"):
+        with pytest.raises(ContextRequired):
+            service.people(actor=scenario.member, user_ids=(scenario.denied.pk,))
+    assert_rejects_other_actor(
+        scenario.caller(lambda actor: service.people(actor=scenario.denied, user_ids=(scenario.member.pk,)))
+    )
 
 
 @pytest.mark.needs_example_app

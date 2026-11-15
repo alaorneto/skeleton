@@ -44,6 +44,7 @@ from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
 from skeleton.web.errors import error_response
 from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
+from skeleton.web.people import people_labels
 from skeleton.web.presentation import (
     audit_rows,
     detail_sections,
@@ -552,6 +553,8 @@ def audit(request, organization_id):
             "filters": request.GET,
             "operations": operation_choices(),
             "related_events": related,
+            # Actors by name, one lookup for the page (#475).
+            "people": people_labels((row.get("actor_sysid") for row in rows.object_list), actor=request.user),
             # The filtered audit as CSV, for the administrator (#186).
             "can_export_audit": is_organization_admin(request.user),
         },
@@ -632,6 +635,7 @@ def record_detail(request, organization_id, table_key, sysid):
     from skeleton.files.views import panel_context
     from skeleton.web.timeline import timeline_for
 
+    timeline = timeline_for(request.user, spec, item)
     return render(
         request,
         "skeleton/web/detail.html",
@@ -639,7 +643,8 @@ def record_detail(request, organization_id, table_key, sysid):
             "attachments": panel_context(spec, item, user=request.user),
             "comments": comments_panel(spec, item, user=request.user),
             # Audit and attachments of the record, each filtered for the reader (#185).
-            "timeline": timeline_for(request.user, spec, item),
+            "timeline": timeline,
+            "timeline_people": people_labels((entry.actor_id for entry in timeline), actor=request.user),
             "record": {"sysid": item.sysid},
             "title": safe_record_label(item, spec),
             "actions": actions,

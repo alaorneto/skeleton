@@ -63,9 +63,12 @@ def panel_context(spec, record, *, user, next_url=""):
                 "can_restore": (mine or moderator) and row.deleted_at is not None,
             }
         )
+    from skeleton.web.people import people_labels
+
     from .mentions import mentionable
 
-    return {"rows": items, "mentionable": mentionable(spec, record), "next": next_url}
+    people = people_labels((item["author_id"] for item in items), actor=user)  # One lookup (#475).
+    return {"rows": items, "mentionable": mentionable(spec, record), "next": next_url, "people": people}
 
 
 @tenant_page()

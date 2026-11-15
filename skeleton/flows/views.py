@@ -199,6 +199,13 @@ def task_list(request, organization_id):
     )
 
 
+def _people_labels(request, user_ids):
+    """Names of the people of a page, one lookup (#475); unknown ids stay identifiers."""
+    from skeleton.web.people import people_labels
+
+    return people_labels(user_ids, actor=request.user)
+
+
 def _section(request, name):
     """The flow tabs: the current screen and whether the operator tabs show (the instances rule)."""
     from .policies import is_flow_admin
@@ -278,6 +285,7 @@ def task_detail(request, organization_id, sysid):
             "organization_id": organization_id,
             "detail": detail,
             "task": detail.task,
+            "people": _people_labels(request, (detail.task.assignee_id,)),
             "form": form,
             "subject_comments": _subject_comments(request, detail.subject_table, detail.subject_id),
         },
@@ -336,6 +344,9 @@ def operations(request, organization_id):
         {
             "organization_id": organization_id,
             "panel": panel,
+            "people": _people_labels(
+                request, (row.assignee_id for rows in (panel.unassigned, panel.overdue, panel.due_soon) for row in rows)
+            ),
             "flow_key": flow_key,
             "flow_version": flow_version or "",
             **_section(request, "operations"),
@@ -504,6 +515,7 @@ def instance_detail(request, organization_id, sysid):
             "organization_id": organization_id,
             "instance": instance,
             "history": history.items,
+            "people": _people_labels(request, (entry.actor_id for entry in history.items)),
             "more_history": history.next_cursor is not None,
             "is_admin": is_flow_admin(request.user),
             "is_starter": instance.starter_id == request.user.pk,

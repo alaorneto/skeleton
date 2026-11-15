@@ -14,6 +14,8 @@ from .base import ServiceAPI, service_method
 from .dto import as_uuid
 from .errors import InvalidInput, NotFound
 
+PEOPLE_LIMIT = 200
+
 
 def _user(actor: AbstractBaseUser | None) -> Any:
     """The actor as the core policies type it (the concrete User model)."""
@@ -142,6 +144,43 @@ class IdentityService(ServiceAPI):
             display_name=_display_name(person, getattr(person, "profile", None)),
             email=person.email if has_capability(_user(actor), MEMBERS_VIEW) else None,
             kind=_kind(person),
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def people(self, *, actor: AbstractBaseUser, user_ids: tuple[UUID, ...]) -> tuple[PersonSummary, ...]:
+        """Return the active members of the current organization among ``user_ids``.
+
+        Autorização: vínculo ativo do ator; o email só aparece com a capacidade ``members.view``.
+        Erros: InvalidInput para mais de 200 identificadores ou identificador inválido.
+        Efeitos: nenhum. Quem não tem vínculo ativo na organização atual não aparece, sem
+        distinguir "não existe" de "é de outra organização"; uma consulta só.
+        """
+        from skeleton.access.capabilities import MEMBERS_VIEW, has_capability
+        from skeleton.access.policies import active_membership
+        from skeleton.tenancy.models import Membership
+
+        active_membership(_user(actor))
+        identifiers = list(dict.fromkeys(as_uuid(item, field="user_ids") for item in user_ids))
+        if len(identifiers) > PEOPLE_LIMIT:
+            raise InvalidInput(
+                {"user_ids": [gettext("Informe no máximo %(limit)s pessoas.") % {"limit": PEOPLE_LIMIT}]}
+            )
+        if not identifiers:
+            return ()
+        memberships = Membership.objects.filter(
+            user_id__in=identifiers, is_active=True, user__is_active=True, user__deleted_at__isnull=True
+        ).select_related("user", "user__profile")
+        show_email = has_capability(_user(actor), MEMBERS_VIEW)
+        found = {membership.user_id: membership.user for membership in memberships}
+        return tuple(
+            PersonSummary(
+                sysid=person.pk,
+                display_name=_display_name(person, getattr(person, "profile", None)),
+                email=person.email if show_email else None,
+                kind=_kind(person),
+            )
+            for identifier in identifiers
+            if (person := found.get(identifier)) is not None
         )
 
     @service_method(read_only=False, since="0.5.0", tenant=False)

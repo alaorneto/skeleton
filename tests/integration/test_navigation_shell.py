@@ -102,3 +102,32 @@ def test_forms_mark_required_and_optional_fields_once():
         assert html.count("Campos com * são obrigatórios.") == 1, path
     login = Client().get("/accounts/login/").content.decode()
     assert "Campos com * são obrigatórios." not in login and "(opcional)" not in login
+
+
+def test_audit_shows_the_actor_by_name_and_the_platform_keeps_the_identifier():
+    """One name lookup for the page; the global audit keeps the full UUID (#475)."""
+    client, actor, organization = logged_client("nav-audit")
+    created = client.post(
+        reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "groups"}),
+        {"code": "audit-group", "name": "Grupo auditado", "description": ""},
+    )
+    assert created.status_code == 302
+    html = client.get(reverse("web:audit", kwargs={"organization_id": organization.pk})).content.decode()
+    assert f'<span title="{actor.pk}">nav-audit</span>' in html
+    assert actor.email not in html.split("<tbody>", 1)[1]  # The account menu shows it; the table never.
+    platform = client.get("/platform/audit/").content.decode()
+    assert f'<code class="uuid">{actor.pk}</code>' in platform
+
+
+def test_person_filter_names_members_and_hides_the_rest():
+    import uuid
+
+    from skeleton.web.templatetags.skeleton_format import person
+
+    known, gone = uuid.uuid4(), uuid.uuid4()
+    people = {str(known): "Ana"}
+    assert str(person(None, people)) == "Sistema"
+    assert str(person(known, people)) == f'<span title="{known}">Ana</span>'
+    unavailable = str(person(gone, people))
+    assert "Pessoa indisponível" in unavailable and f">{str(gone)[:8]}</code>" in unavailable
+    assert str(person(known, {str(known): "<b>x</b>"})).endswith(">&lt;b&gt;x&lt;/b&gt;</span>")
