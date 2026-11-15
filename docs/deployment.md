@@ -234,7 +234,7 @@ scrape_configs:
 
 | Métrica | Rótulos | Origem |
 |---|---|---|
-| `skeleton_http_request_duration_seconds` (histograma) | `method`, `route`, `status` | Cada request, medido pelo middleware. `route` é o **padrão** resolvido (`o/<uuid:organization_id>/`), nunca o caminho; sem rota, `unresolved`; os probes usam `health/live/` e `health/ready/` |
+| `skeleton_http_request_duration_seconds` (histograma) | `method`, `route`, `status` | Cada request, medido pelo middleware. `route` é o **padrão** resolvido (`<org:organization_id>tables/<str:table_key>/`: desde #479 as rotas web de organização usam o conversor `org`, antes `o/<uuid:organization_id>/…`), nunca o caminho; sem rota, `unresolved`; os probes usam `health/live/` e `health/ready/` |
 | `skeleton_jobs` | `job_type`, `state` | Jobs por tipo registrado e estado; tipo não registrado entra como `other` |
 | `skeleton_delivery_jobs` | `channel` (`webhook`, `email`, `push`), `state` | Jobs de entrega de webhook e de notificação |
 | `skeleton_jobs_due`, `skeleton_jobs_oldest_due_lag_seconds`, `skeleton_jobs_dead` | — | `queue_health()`, o mesmo de `check_jobs` e de `/platform/jobs/` |
@@ -278,7 +278,7 @@ Essas variáveis são lidas pelo SDK direto do ambiente, por isso não fazem par
 
 O que vira span:
 
-- **Request:** um span `SERVER` por request, com nome `<método> <padrão de rota>` (`GET o/<uuid:organization_id>/`), método, rota, status e `skeleton.request_id`, o mesmo UUID do cabeçalho `X-Request-ID` e do log `http.request`. O contexto W3C (`traceparent`) de entrada é respeitado.
+- **Request:** um span `SERVER` por request, com nome `<método> <padrão de rota>` (`GET <org:organization_id>`), método, rota, status e `skeleton.request_id`, o mesmo UUID do cabeçalho `X-Request-ID` e do log `http.request`. O contexto W3C (`traceparent`) de entrada é respeitado.
 - **Job:** um span `CONSUMER` `job <code>` por execução no worker, com `skeleton.job_id`, `skeleton.job_type`, `skeleton.job_queue`, `skeleton.job_attempt`, `skeleton.job_state` e, na falha, `error.type` (a classe). Cada execução tem `skeleton.request_id` próprio, que também vai nos logs do job.
 - **SQL:** um span `CLIENT` por statement, filho do request ou do job, com `db.system`, `db.name`, a operação (`SELECT`, `INSERT`...) e o `skeleton.request_id` de quem o executou.
 

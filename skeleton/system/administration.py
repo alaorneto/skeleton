@@ -119,7 +119,9 @@ def tenant_screen_url(manifest, screen, organization_id):
     if not screen.url_name or screen.url_name.split(":", 1)[0] != manifest.app_label:
         raise Http404
     url = reverse(screen.url_name, kwargs={"organization_id": organization_id})
-    prefix = f"/o/{organization_id}/apps/{manifest.app_label}/"
+    from skeleton.tenancy.routing import organization_prefix
+
+    prefix = organization_prefix(organization_id) + f"apps/{manifest.app_label}/"
     if not url.startswith(prefix) or url.startswith("//") or resolve(url).view_name != screen.url_name:
         raise Http404
     return url

@@ -137,11 +137,11 @@ def test_request_metrics_label_routes_not_values(enabled, identity):
 
     found = samples(scrape())
     routes = {dict(labels).get("route") for name, labels in found if name.startswith("skeleton_http_request")}
-    assert {"o/<uuid:organization_id>/", "o/<uuid:organization_id>/catalog/", "unresolved", "health/live/"} <= routes
+    assert {"<org:organization_id>", "<org:organization_id>catalog/", "unresolved", "health/live/"} <= routes
     count = found[
         (
             "skeleton_http_request_duration_seconds_count",
-            (("method", "GET"), ("route", "o/<uuid:organization_id>/catalog/"), ("status", "404")),
+            (("method", "GET"), ("route", "<org:organization_id>catalog/"), ("status", "404")),
         )
     ]
     assert count >= 1

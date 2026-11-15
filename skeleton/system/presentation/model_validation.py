@@ -170,6 +170,8 @@ def _validate_application_routes(manifest):
     from django.core.exceptions import ValidationError
     from django.urls import include, path
 
+    from skeleton.tenancy.routing import ORG
+
     routes = None
     if manifest.urls:
         module, app_name, namespace = include(manifest.urls)
@@ -180,7 +182,7 @@ def _validate_application_routes(manifest):
         _validate_owned_routes(patterns, apps.get_app_config(manifest.app_label).name)
         routes = (
             path(
-                "o/<uuid:organization_id>/apps/" + manifest.app_label + "/",
+                ORG + "apps/" + manifest.app_label + "/",
                 include((patterns, app_name), namespace=manifest.app_label),
             ),
         )

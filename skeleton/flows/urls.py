@@ -1,24 +1,34 @@
-from django.urls import path, re_path
+from django.urls import path, register_converter
+
+from skeleton.tenancy.routing import ORG
 
 from . import api_views, views
 
+
+class InstanceActionConverter:
+    """Only the instance actions of the API (#479: was a ``re_path`` group); any other text is a 404."""
+
+    regex = "|".join(api_views.INSTANCE_ACTIONS)
+
+    def to_python(self, value):
+        return value
+
+    def to_url(self, value):
+        return value
+
+
+register_converter(InstanceActionConverter, "flowaction")
 app_name = "flows"
-INSTANCE_ACTIONS = "|".join(api_views.INSTANCE_ACTIONS)
-UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 urlpatterns = [
     path("flows/tasks/", views.global_tasks, name="global-tasks"),
-    path("o/<uuid:organization_id>/flows/tasks/", views.task_list, name="tasks"),
-    path("o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/", views.task_detail, name="task"),
-    path("o/<uuid:organization_id>/flows/operations/", views.operations, name="operations"),
-    path("o/<uuid:organization_id>/flows/drafts/", views.draft_list, name="drafts"),
-    path("o/<uuid:organization_id>/flows/drafts/<uuid:sysid>/", views.draft_detail, name="draft"),
-    path("o/<uuid:organization_id>/flows/instances/", views.instance_list, name="instances"),
-    path("o/<uuid:organization_id>/flows/instances/<uuid:sysid>/", views.instance_detail, name="instance"),
-    re_path(
-        rf"^o/(?P<organization_id>{UUID})/flows/instances/(?P<sysid>{UUID})/(?P<action>{INSTANCE_ACTIONS})/$",
-        views.instance_action,
-        name="instance-action",
-    ),
+    path(f"{ORG}flows/tasks/", views.task_list, name="tasks"),
+    path(f"{ORG}flows/tasks/<uuid:sysid>/", views.task_detail, name="task"),
+    path(f"{ORG}flows/operations/", views.operations, name="operations"),
+    path(f"{ORG}flows/drafts/", views.draft_list, name="drafts"),
+    path(f"{ORG}flows/drafts/<uuid:sysid>/", views.draft_detail, name="draft"),
+    path(f"{ORG}flows/instances/", views.instance_list, name="instances"),
+    path(f"{ORG}flows/instances/<uuid:sysid>/", views.instance_detail, name="instance"),
+    path(f"{ORG}flows/instances/<uuid:sysid>/<flowaction:action>/", views.instance_action, name="instance-action"),
     path("api/v1/o/<uuid:organization_id>/flows/tasks/", api_views.TasksView.as_view(), name="api-tasks"),
     path("api/v1/o/<uuid:organization_id>/flows/tasks/<uuid:sysid>/", api_views.TaskView.as_view(), name="api-task"),
     # One literal route per action, so each one is documented in the OpenAPI schema (#178).
