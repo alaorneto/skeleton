@@ -751,6 +751,16 @@ Para uma dependência faltante ou fora da faixa, a prévia sugere releases compa
 
 O inventário grava as apps em ordem de dependência e registra em `runtime` as versões de Python e Django do alvo. `check-updates` usa essas versões, e não as do processo do agente, para marcar releases como `incompatible`.
 
+**Uma linha por vez (#493).** O agente recusa atualizar o core pulando uma linha minor, qualquer que seja o `from_versions` que o publicador declarou: de `0.5.2`, a prévia de um `core_update` para `0.7.0` falha com 409 `version_jump_forbidden`, mesmo que o pacote aceite `>=0.1.0`. A regra é do lado de quem instala, vem depois de `unsupported_core_upgrade` e `downgrade_forbidden` e vale só para o core; apps seguem só o `from_versions` delas. Correções podem ser puladas: de `0.5.2` para `0.6.4` passa direto; de `0.9.x` o próximo passo é `1.0.x`. A chave `allow_version_jumps: true` do arquivo do agente desliga a regra numa emergência (padrão `false`; um valor que não seja booleano recusa a configuração com `invalid_boolean_setting`); ela não existe na tela nem numa requisição.
+
+**Caminho de atualização.** `check-updates` (POST `/catalog/check`) devolve, além de `sources` e `releases`, a chave `paths`: para o core e para cada app instalada que não seja `project-local`, `{component_id, kind, installed, latest, steps, blocked}`. `steps` é a sequência de versões a aplicar, um passo (prévia, confirmação, manutenção, backup, migrations e cutover) por vez: em cada ponto o agente escolhe a maior versão compatível que aceita a versão alcançada (e, no core, que está na mesma linha ou na seguinte). `blocked` diz por que o caminho não chega a `latest`: `missing_intermediate_release` (falta um release de uma linha intermediária) ou `incompatible_runtime` (nenhuma versão mais nova serve ao runtime). Para o resultado sem consultar a rede, `update-status` (GET `/updates/status`) lê a última consulta (`checked_at` e `sources`, `null` e `[]` antes da primeira) e recalcula `releases` e `paths` contra o inventário atual, a partir dos índices já verificados no cache, que são verificados de novo a cada leitura: um cache adulterado ou vencido não oferece nada e não derruba as outras fontes.
+
+Na listagem, uma entrada do **core** é comparada só com o core instalado (`compatibility.skeleton`) e com o Python do runtime: o release do core traz o próprio Django, então a faixa `compatibility.django` dele não é comparada com o Django instalado hoje. A prévia continua conferindo tudo contra o runtime alvo. As entradas de apps seguem comparando as três faixas.
+
+```sh
+"$AGENT" --config "$CONFIG" update-status
+```
+
 Retirada não usa `migrate zero`: preserva schema, AppInstallation/configuração, ACLs/auditoria e o pacote assinado. As migrations históricas são copiadas byte-exact para archives sem modelos/rotas/hooks; apenas migrator carrega os labels. Preview rejeita imports de negócio retirado, histórico alterado e qualquer migration histórica retida ainda não aplicada. Reinstalação confere identidade/histórico/schema e deixa reativação organizacional explícita. Downgrade é recusado.
 
 Atualização/reinstalação não transforma configuração de tenants: mudança incompatível de `runtime.configuration_fields` é bloqueada com `configuration_upgrade_requires_review`; `runtime.default_enabled` é ignorado desde o core 0.5.0. Publique um release com contrato compatível ou realize primeiro procedimento de evolução versionada revisado; o agente não substitui configuração persistida por defaults novos nem ativa organizações silenciosamente.
@@ -769,6 +779,7 @@ API equivalente pelo socket (todas as chamadas exigem `Authorization: Bearer <to
 | POST `/submit` | `{"plan_id":"<uuid>","plan_digest":"<sha256>","generation":0,"operation_id":"<uuid>","actor_id":"<uuid>","request_id":"<uuid>"}` |
 | POST `/status-ticket` | `{"operation_id":"<uuid>"}`; permite emitir link antes de submit |
 | POST `/catalog/check` | `{}` |
+| GET `/updates/status` | nenhum; última consulta e `paths` recalculado, sem rede |
 | POST `/catalog/fetch` | `{"component_id":"notes","version":"1.1.0","source_id":"platform-stable"}` |
 
 Não existe API HTTP de `initialize` ou `recover`. Para curl, provisione arquivo privado `control-header` com a linha `Authorization: Bearer ...` (0600), evitando token em argv/history:

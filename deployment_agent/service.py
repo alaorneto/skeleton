@@ -242,5 +242,8 @@ class DeploymentService:
     def check_updates(self) -> JSON:
         return catalogue.check_updates(self)
 
+    def update_status(self) -> JSON:
+        return catalogue.update_status(self)
+
     def fetch_release(self, component_id: str, version: str, source_id: str) -> JSON:
         return catalogue.fetch_release(self, component_id, version, source_id)

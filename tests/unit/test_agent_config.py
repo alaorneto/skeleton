@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("fcntl", reason="O agente de deployment exige fcntl (Linux ou macOS).")
 
-from deployment_agent.config import Config, read_environment  # noqa: E402
+from deployment_agent.config import Config, _validate_optional, read_environment  # noqa: E402
 from deployment_agent.storage import AgentError, private_file  # noqa: E402
 from tests.unit.agent_helpers import (  # noqa: E402
     OWNER_DSN,
@@ -238,3 +238,16 @@ def test_read_environment_does_not_expand_variables(tmp_path, monkeypatch):
 def test_read_environment_refuses_loose_file(tmp_path):
     with pytest.raises(AgentError, match="insecure_private_file"):
         read_environment(write_private(tmp_path / "file.env", "A=1\n", 0o644))
+
+
+@pytest.mark.parametrize("value", ["sim", 1, None, "true"])
+def test_allow_version_jumps_must_be_a_boolean(tmp_path, value):
+    assert refused("invalid_boolean_setting", tmp_path, allow_version_jumps=value)
+
+
+def test_allow_version_jumps_boolean_loads(tmp_path):
+    assert load_config(tmp_path, allow_version_jumps=True).get("allow_version_jumps") is True
+    for value in (True, False):
+        _validate_optional({"allow_version_jumps": value})
+    with pytest.raises(AgentError, match="invalid_boolean_setting"):
+        _validate_optional({"allow_version_jumps": "sim"})

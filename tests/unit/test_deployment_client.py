@@ -67,3 +67,17 @@ def test_instance_timeout_caps_status_timeout(opened):
     client.submit(OPERATION, "a" * 64, 1, OPERATION, OPERATION, OPERATION)
     client.preview("install")
     assert deadlines == [5, 5, 5]
+
+
+def test_update_status_is_a_short_get(opened, monkeypatch):
+    _, socket, token = opened
+    client = AgentClient(socket, token)
+    calls = []
+
+    def request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        return {}
+
+    monkeypatch.setattr(client, "_request", request)
+    client.update_status()
+    assert calls == [("GET", "/updates/status", {"timeout": deployment_client.STATUS_TIMEOUT})]

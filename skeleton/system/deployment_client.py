@@ -172,6 +172,10 @@ class AgentClient:
     def check_updates(self):
         return self._request("POST", "/catalog/check")
 
+    def update_status(self):
+        """Last check of the sources and the update paths, recalculated; the agent stays offline (#493)."""
+        return self._request("GET", "/updates/status", timeout=STATUS_TIMEOUT)
+
     def fetch_release(self, component_id, version, source_id):
         return self._request(
             "POST", "/catalog/fetch", {"component_id": component_id, "version": version, "source_id": source_id}

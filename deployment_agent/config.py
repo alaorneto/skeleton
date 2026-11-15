@@ -98,6 +98,8 @@ def _validate_optional(values: JSON) -> None:
         or not all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in sources)
     ):
         raise AgentError("invalid_catalogue_sources")
+    if "allow_version_jumps" in values and not isinstance(values["allow_version_jumps"], bool):
+        raise AgentError("invalid_boolean_setting")  # Emergency switch for skipping core lines (#493).
     interval = values.get("drift_check_interval")
     if interval is not None and (isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 0):
         raise AgentError("invalid_numeric_setting")  # Seconds; 0 turns the inventory cache off (#281).

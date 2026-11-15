@@ -41,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--actor-id", required=True)
     submit.add_argument("--request-id", required=True)
     commands.add_parser("check-updates")
+    commands.add_parser("update-status", help="Last check of the sources and the update paths, without network")
     fetch = commands.add_parser("fetch-release")
     fetch.add_argument("component_id")
     fetch.add_argument("version")
@@ -98,6 +99,7 @@ ONLINE = {
         options.request_id,
     ),
     "check-updates": lambda client, options: client.check_updates(),
+    "update-status": lambda client, options: client.update_status(),
     "fetch-release": lambda client, options: client.fetch_release(
         options.component_id, options.version, options.source_id
     ),

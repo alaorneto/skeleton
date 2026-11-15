@@ -39,6 +39,21 @@ def version_satisfies(version, specifier):
     return bool(SpecifierSet(validate_specifier(specifier)).contains(Version(str(version)), prereleases=True))
 
 
+def release_line(version):
+    """``(major, minor)`` of a component version: the line it belongs to (#493)."""
+    parsed = Version(normalize_version(version))
+    return parsed.major, parsed.minor
+
+
+def adjacent_release_line(current, target):
+    """True when ``target`` is in the line of ``current``, in the next minor of the same major,
+    or in the first line (``X+1.0``) of the next major: an update never skips a line (#493)."""
+    (current_major, current_minor), (target_major, target_minor) = release_line(current), release_line(target)
+    if target_major == current_major:
+        return 0 <= target_minor - current_minor <= 1
+    return target_major == current_major + 1 and target_minor == 0
+
+
 def core_version():
     """Installed distribution metadata is authoritative; checkout is explicitly source."""
     try:

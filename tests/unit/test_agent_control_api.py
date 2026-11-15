@@ -216,3 +216,12 @@ def test_error_response_carries_only_code_and_details(agent):
 
     agent.server.service.preview = plain
     assert send(agent, json_request("/preview", body)) == (409, {"error": "deployment_busy"})
+
+
+def test_update_status_route_is_an_authenticated_get(agent):
+    agent.server.service.update_status = lambda: agent.calls.append("update_status") or {"paths": []}
+    assert send(agent, http_request("GET", "/updates/status")) == (200, {"paths": []})
+    assert agent.calls == ["update_status"]
+    assert send(agent, http_request("GET", "/updates/status", token=None)) == (401, {"error": "unauthorized"})
+    assert send(agent, http_request("GET", "/updates/status?refresh=1")) == (400, {"error": "invalid_control_path"})
+    assert agent.calls == ["update_status"]

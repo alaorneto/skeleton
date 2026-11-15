@@ -23,6 +23,7 @@ from skeleton.system.packages import (
     validate_package,
     validate_wheel_set,
 )
+from skeleton.versioning import adjacent_release_line
 
 from .config import installed_bundled_app_ids
 from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
@@ -407,7 +408,9 @@ def _apply_artifacts(
         package = verified(store, config, artifact)
         manifest = package.manifest
         if manifest["kind"] == "core":
-            core = _core_from_package(manifest, core, artifact)
+            core = _core_from_package(
+                manifest, core, artifact, allow_jumps=bool(config.get("allow_version_jumps", False))
+            )
             changed.add("django-skeleton")
             continue
         app_id = manifest["app_id"]
@@ -416,11 +419,14 @@ def _apply_artifacts(
     return core, changed
 
 
-def _core_from_package(manifest: JSON, core: JSON, artifact: str) -> JSON:
+def _core_from_package(manifest: JSON, core: JSON, artifact: str, *, allow_jumps: bool = False) -> JSON:
     if core.get("version") and not _supports_source(manifest, core["version"]):
         raise AgentError("unsupported_core_upgrade", 409)
     if core.get("version") and Version(manifest["version"]) < Version(core["version"]):
         raise AgentError("downgrade_forbidden", 409)
+    # One minor line at a time, whatever range the publisher declared (#493); patches may be skipped.
+    if core.get("version") and not allow_jumps and not adjacent_release_line(core["version"], manifest["version"]):
+        raise AgentError("version_jump_forbidden", 409)
     return {
         "manifest": manifest,
         "version": manifest["version"],

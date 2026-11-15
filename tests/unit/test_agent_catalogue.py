@@ -228,3 +228,163 @@ def test_unverifiable_catalogue_marks_source_unavailable_and_keeps_other_sources
     assert [(row["source_id"], row["component_id"], row["state"]) for row in result["releases"]] == [
         ("good", "org.example.notes", "available")
     ]
+
+
+def core_entry(version, *, from_versions=None, django=">=6.1,<6.2", **values):
+    return entry(
+        component_id="django-skeleton",
+        version=version,
+        compatibility={"skeleton": ">=0.1", "python": ">=3", "django": django},
+        migrations={"leaves": [], "from_versions": from_versions or ">=0.5.0"},
+        artifact=f"skeleton-release-{version}.skapp",
+        **values,
+    )
+
+
+@pytest.fixture
+def expiring(monkeypatch):
+    """Like ``catalogue``, plus envelopes that verify only while ``state.now_valid`` (an expiry)."""
+    state = SimpleNamespace(now_valid=True)
+
+    def validate_catalog(envelope, publishers, *, minimum_generation, channels):
+        if not envelope.get("signed") or (envelope.get("expires_soon") and not state.now_valid):
+            raise PackageError("Release catalog is expired.")
+        return envelope["body"]
+
+    monkeypatch.setattr(catalogue_module, "validate_catalog", validate_catalog)
+    return state
+
+
+def core_path(installed="0.6.0", latest=None, steps=(), blocked=None):
+    return {
+        "component_id": "django-skeleton",
+        "kind": "core",
+        "installed": installed,
+        "latest": latest,
+        "steps": list(steps),
+        "blocked": blocked,
+    }
+
+
+def test_refresh_then_evaluate_and_check_updates_adds_paths(service, tmp_path, expiring, network):
+    releases = body(core_entry("0.6.3"), core_entry("0.7.2", from_versions=">=0.6.3"))
+    folder = write_catalogue(tmp_path, "core", {"signed": True, "body": releases})
+    service.config["catalogue_sources"] = [{"id": "official", "path": str(folder / "index.json")}]
+    refreshed = catalogue_module.refresh_sources(service)
+    assert set(refreshed) == {"checked_at", "sources"}
+    assert refreshed["sources"] == [{"id": "official", "state": "available", "error_code": None}]
+    result = service.check_updates()
+    assert set(result) == {"checked_at", "sources", "releases", "paths"}
+    assert [(row["version"], row["state"]) for row in result["releases"]] == [
+        ("0.6.3", "available"),
+        ("0.7.2", "available"),
+    ]
+    steps = [{"version": "0.6.3", "source_id": "official"}, {"version": "0.7.2", "source_id": "official"}]
+    assert result["paths"] == [core_path(latest="0.7.2", steps=steps)]
+    assert catalogue_module.evaluate(service) == {"releases": result["releases"], "paths": result["paths"]}
+    assert network.requests == []
+
+
+def test_update_status_never_reaches_the_network_and_follows_the_inventory(service, expiring, network):
+    assert service.update_status() == {"checked_at": None, "sources": [], "releases": [], "paths": [core_path()]}
+    network.responses[CATALOG_URL] = json.dumps({"signed": True, "body": body(core_entry("0.6.3"))}).encode()
+    service.config["catalogue_sources"] = [{"id": "remote", "url": CATALOG_URL}]
+    checked = service.check_updates()
+    assert len(network.requests) == 1
+    status = service.update_status()
+    assert status["checked_at"] == checked["checked_at"] and status["sources"] == checked["sources"]
+    assert status["paths"][0]["steps"] == [{"version": "0.6.3", "source_id": "remote"}]
+    state = service.state()
+    state["inventory"]["core"]["version"] = "0.6.3"
+    catalogue_module.atomic_json(service.store.root / "active.json", state)
+    assert service.update_status()["paths"] == [core_path(installed="0.6.3")]
+    assert len(network.requests) == 1
+
+
+def test_update_status_without_deployment_is_empty(tmp_path, expiring):
+    service = bare_service(tmp_path)
+    (service.store.root / "active.json").unlink()
+    assert service.update_status() == {"checked_at": None, "sources": [], "releases": [], "paths": []}
+
+
+def test_core_entry_ignores_the_installed_django_but_app_entry_does_not(service, tmp_path, expiring):
+    newer_django = {"skeleton": ">=0.1", "python": ">=3", "django": ">=7.0,<7.1"}
+    envelope = {
+        "signed": True,
+        "body": body(
+            core_entry("0.7.0", django=">=7.0,<7.1", from_versions=">=0.6.0"), entry(compatibility=newer_django)
+        ),
+    }
+    folder = write_catalogue(tmp_path, "mixed", envelope)
+    service.config["catalogue_sources"] = [{"id": "local", "path": str(folder / "index.json")}]
+    result = service.check_updates()
+    assert [(row["component_id"], row["state"]) for row in result["releases"]] == [
+        ("django-skeleton", "available"),
+        ("org.example.notes", "incompatible"),
+    ]
+
+
+def test_expired_cache_offers_nothing_and_keeps_other_sources(service, tmp_path, expiring):
+    soon = write_catalogue(tmp_path, "soon", {"signed": True, "expires_soon": True, "body": body(core_entry("0.6.3"))})
+    other = write_catalogue(tmp_path, "other", {"signed": True, "body": body(core_entry("0.6.5"))})
+    service.config["catalogue_sources"] = [
+        {"id": "soon", "path": str(soon / "index.json")},
+        {"id": "other", "path": str(other / "index.json")},
+    ]
+    service.check_updates()
+    expiring.now_valid = False
+    status = service.update_status()
+    assert [row["source_id"] for row in status["releases"]] == ["other"]
+    assert status["paths"][0]["steps"] == [{"version": "0.6.5", "source_id": "other"}]
+
+
+def test_tampered_cache_is_verified_again(service, tmp_path, expiring):
+    folder = write_catalogue(tmp_path, "c", {"signed": True, "body": body(core_entry("0.6.3"))})
+    service.config["catalogue_sources"] = [{"id": "local", "path": str(folder / "index.json")}]
+    service.check_updates()
+    cache = catalogue_module.catalogue_cache(service, "local")
+    saved = json.loads(cache.read_text())
+    saved["envelope"]["signed"] = False
+    cache.write_text(json.dumps(saved))
+    assert service.update_status()["releases"] == []
+
+
+def test_malformed_from_versions_is_listed_but_never_a_step(service, tmp_path, expiring):
+    bad = core_entry("0.6.3")
+    bad["migrations"]["from_versions"] = "not a range"
+    folder = write_catalogue(tmp_path, "c", {"signed": True, "body": body(bad, core_entry("0.6.2"))})
+    service.config["catalogue_sources"] = [{"id": "local", "path": str(folder / "index.json")}]
+    result = service.check_updates()
+    assert [row["version"] for row in result["releases"]] == ["0.6.3", "0.6.2"]
+    assert result["paths"][0]["steps"] == [{"version": "0.6.2", "source_id": "local"}]
+
+
+def test_app_paths_cover_installed_managed_apps(tmp_path, expiring):
+    inventory = {
+        "generation": 1,
+        "core": {"version": "0.6.0"},
+        "apps": [
+            {"manifest": {"app_id": "org.example.notes", "version": "1.0.0"}, "state": "installed"},
+            {"manifest": {"app_id": "org.example.local", "version": "1.0.0"}, "state": "project-local"},
+        ],
+    }
+    service = bare_service(tmp_path, inventory=inventory)
+    newer = entry(version="1.4.0", migrations={"leaves": [], "from_versions": ">=1.0.0"})
+    folder = write_catalogue(tmp_path, "apps", {"signed": True, "body": body(newer)})
+    service.config["catalogue_sources"] = [{"id": "apps", "path": str(folder / "index.json")}]
+    paths = service.check_updates()["paths"]
+    assert [(row["component_id"], row["kind"]) for row in paths] == [
+        ("django-skeleton", "core"),
+        ("org.example.notes", "app"),
+    ]
+    assert paths[1]["steps"] == [{"version": "1.4.0", "source_id": "apps"}]
+
+
+def test_same_version_from_two_sources_keeps_the_first(service, tmp_path, expiring):
+    first = write_catalogue(tmp_path, "first", {"signed": True, "body": body(core_entry("0.6.3"))})
+    second = write_catalogue(tmp_path, "second", {"signed": True, "body": body(core_entry("0.6.3"))})
+    service.config["catalogue_sources"] = [
+        {"id": "first", "path": str(first / "index.json")},
+        {"id": "second", "path": str(second / "index.json")},
+    ]
+    assert service.check_updates()["paths"][0]["steps"] == [{"version": "0.6.3", "source_id": "first"}]

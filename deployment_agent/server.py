@@ -169,6 +169,8 @@ class ControlHandler(QuietHandler):
             return self.operation(identifier(path.removeprefix("/operations/")))
         if path.startswith("/plans/"):
             return self.server.service.plan_status(identifier(path.removeprefix("/plans/")))
+        if path == "/updates/status":
+            return self.server.service.update_status()
         raise AgentError("not_found", 404)
 
     def _status_ticket(self, body: JSON) -> JSON:
