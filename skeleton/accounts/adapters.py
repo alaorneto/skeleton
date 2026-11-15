@@ -164,13 +164,20 @@ class AccountAdapter(DefaultAccountAdapter):
         set_local_password(user, password)
 
     def send_mail(self, template_prefix: str, email: str, context: dict[str, Any]) -> None:
-        # Render now; the commit callback holds only materialized email, never lazy tenant ORM.
-        message = self.render_mail(template_prefix, email, context)
         from allauth.core import context as allauth_context
+        from django.contrib.sites.shortcuts import get_current_site
 
         from skeleton.common.mail import schedule_mail
 
-        schedule_mail(message, request=allauth_context.request)
+        request = allauth_context.request
+        # The base context of allauth's own send_mail (#508): without it the templates greet
+        # "Hello from !". The caller's keys still win.
+        base: dict[str, Any] = {"email": email}
+        if request is not None:
+            base |= {"request": request, "current_site": get_current_site(request)}
+        # Render now; the commit callback holds only materialized email, never lazy tenant ORM.
+        message = self.render_mail(template_prefix, email, base | context)
+        schedule_mail(message, request=request)
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
