@@ -49,7 +49,7 @@
 {% endblock %}
 <footer class="app-footer mt-auto border-t border-default">
   <div class="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-6 text-xs text-body-subtle sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-    {% if site_mode %}<p class="font-medium">{{ site.name }}</p>{% else %}<p>{% translate "Identidade, organizações e registros protegidos." %}</p>
+    {% if site_mode %}<p class="font-medium">{{ organization_site.name }}</p>{% else %}<p>{% translate "Identidade, organizações e registros protegidos." %}</p>
     <p class="font-medium">Skeleton</p>{% endif %}
   </div>
 </footer>

@@ -1,0 +1,17 @@
+{% extends "socialaccount/base_entrance.html" %}
+{% load i18n sites %}
+{% block head_title %}{% translate "Entrar" %}{% endblock %}
+{% block content %}
+{% site_for_next as next_site %}
+{% if process == "connect" %}
+<h1>{% blocktranslate with provider=provider.name %}Conectar {{ provider }}{% endblocktranslate %}</h1>
+<p class="mt-1.5 text-sm/6 text-body">{% blocktranslate with provider=provider.name %}Você vai conectar uma conta de {{ provider }}.{% endblocktranslate %}</p>
+{% elif next_site %}
+<h1>{% blocktranslate with name=next_site.name provider=provider.name %}Continuar para {{ name }} com {{ provider }}{% endblocktranslate %}</h1>
+<p class="mt-1.5 text-sm/6 text-body">{% blocktranslate with provider=provider.name %}Você vai entrar com a sua conta de {{ provider }} e voltar ao endereço da organização.{% endblocktranslate %}</p>
+{% else %}
+<h1>{% blocktranslate with provider=provider.name %}Entrar com {{ provider }}{% endblocktranslate %}</h1>
+<p class="mt-1.5 text-sm/6 text-body">{% blocktranslate with provider=provider.name %}Você vai entrar com a sua conta de {{ provider }}.{% endblocktranslate %}</p>
+{% endif %}
+<form method="post" class="mt-6">{% csrf_token %}<button type="submit" class="btn btn-primary w-full">{% translate "Continuar" %}</button></form>
+{% endblock %}

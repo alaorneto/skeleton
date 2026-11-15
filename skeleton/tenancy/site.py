@@ -185,3 +185,29 @@ def shares_session(host: str) -> bool:
     base = base_domain()
     name = _hostname(host or "")
     return bool(base) and bool(name) and (name == base or name.endswith("." + base))
+
+
+def is_site_url(url: str) -> bool:
+    """True only for an absolute URL on the address of an organization whose site is enabled (#486).
+
+    Same scheme and port as ``SKELETON_PUBLIC_URL``, no credentials, no backslash or control
+    character, a single label under the base domain and an enabled site. Custom domains are
+    never accepted here.
+    """
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    if not isinstance(url, str) or not url or "\\" in url or any(ord(char) < 32 or ord(char) == 127 for char in url):
+        return False
+    parts = urlsplit(url)
+    public = _public_parts()
+    if not parts.netloc or "@" in parts.netloc or parts.scheme != public.scheme or not public.scheme:
+        return False
+    try:
+        if parts.port != public.port:
+            return False
+    except ValueError:
+        return False
+    kind = classify_host(parts.netloc)
+    if kind.kind != "organization" or not kind.label or find_site(kind.label) is None:
+        return False
+    return url_has_allowed_host_and_scheme(url, allowed_hosts={parts.netloc}, require_https=parts.scheme == "https")

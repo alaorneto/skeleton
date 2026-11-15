@@ -77,7 +77,7 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     site = getattr(request, "organization_site", None)  # Set by OrganizationSiteMiddleware (#482).
     shell: dict[str, Any] = {
         "site_mode": site is not None,
-        "site": site,
+        "organization_site": site,  # Not "site": allauth views pass their own "site" (RequestSite).
         # The suffix of every page title (#484): the organization on its own address, else the product.
         "site_name": site.name if site is not None else "Skeleton",
         # The favicon (#485): the site's public icon on its host; inside /o/<org>/ the members' icon.

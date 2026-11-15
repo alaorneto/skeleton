@@ -406,6 +406,16 @@ def admission_for(binding):
     )
 
 
+def provider_organization_id(provider_id):
+    """The organization a provider is bound to (#486), or ``None`` for a general provider."""
+    binding = configured_providers().get(provider_id)
+    if binding is None or not binding.organization_slug:
+        return None
+    from skeleton.tenancy.models import Organization
+
+    return Organization.objects.filter(slug=binding.organization_slug).values_list("pk", flat=True).first()
+
+
 def binding_for_sociallogin(sociallogin):
     provider = sociallogin.account.get_provider()
     identifier = getattr(provider, "sub_id", None) or provider.id

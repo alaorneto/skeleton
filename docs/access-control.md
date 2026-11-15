@@ -174,6 +174,8 @@ Rotas globais alcançáveis no host de organização (lista de permissão em `sk
 
 No host de uma organização, as listagens de vínculos são **estreitadas** para a organização do host (#483): `memberships_for_user` (seletor, contadores, caixa de entrada e tarefas globais, `OrganizationService.my_organizations`, `GET /api/v1/organizations/`) e `for_each_organization` (Minha agenda, feed do calendário, OpenAPI agregado). Estreitar é **apresentação**, nunca autorização: nenhuma decisão de acesso depende do escopo de site. Ciclo de vida, segurança e privacidade da conta passam `all_organizations=True` e veem todas as organizações em qualquer host: a exportação dos dados pessoais, as sugestões e o diretório de admissão; as consultas diretas de `Membership` de último administrador, revogação, `auth_version` e eliminação não usam essas funções e não mudam. Uma pessoa autenticada sem vínculo recebe, no host da organização, a página "Você não tem acesso" (status 404), igual para qualquer caminho e com só o nome público da organização; na API continua o JSON 404.
 
+Depois do login, um `next` absoluto só é seguido quando aponta para o endereço de uma organização com endereço ativo, no mesmo esquema e porta da URL pública, e a requisição está num host que compartilha a sessão ([login no endereço da organização](authentication-sso.md#login-no-endereço-da-organização)); qualquer outro host abaixo do domínio base cai no destino padrão.
+
 Um projeto derivado libera uma rota global própria acrescentando o prefixo a `SKELETON_ORGANIZATION_SITE_EXTRA_PREFIXES` (lista, padrão vazia), como `["/relatorios/"]`; só faça isso para rotas da própria pessoa, nunca para rotas que leiam várias organizações.
 
 ### Leitura agregada entre organizações

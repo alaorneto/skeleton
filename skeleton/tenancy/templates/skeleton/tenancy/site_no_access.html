@@ -1,7 +1,7 @@
 {% extends "account/base_entrance.html" %}{% load i18n %}{% block head_title %}{% translate "Você não tem acesso" %}{% endblock %}
 {% block content %}
 <h1 class="text-xl">{% translate "Você não tem acesso" %}</h1>
-<p class="mt-2 text-body">{% blocktranslate with email=user.email name=site.name %}A conta {{ email }} não tem vínculo com {{ name }}.{% endblocktranslate %}</p>
+<p class="mt-2 text-body">{% blocktranslate with email=user.email name=organization_site.name %}A conta {{ email }} não tem vínculo com {{ name }}.{% endblocktranslate %}</p>
 <div class="mt-6 flex flex-wrap gap-3">
   {% if accepts_requests %}<a class="btn btn-primary" href="{% url 'web:join-organization' organization_id %}">{% translate "Pedir acesso" %}</a>{% endif %}
   <form method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button class="btn btn-secondary" type="submit">{% include "skeleton/web/components/icon.html" with name="logout" %}{% translate "Sair" %}</button></form>
