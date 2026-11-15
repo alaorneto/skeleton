@@ -109,9 +109,12 @@ class QueueHealth:
     live_workers: int
     stale_workers: int
 
-    def problems(self, *, max_lag_s: float, max_dead: int | None, require_worker: bool) -> list[str]:
+    def problems(
+        self, *, max_lag_s: float, max_dead: int | None, require_worker: bool, paused: bool = False
+    ) -> list[str]:
+        """What is wrong with the queue; a paused queue (maintenance, #448) is late on purpose, not lagging."""
         found = []
-        if self.oldest_due_lag_s > max_lag_s:
+        if not paused and self.oldest_due_lag_s > max_lag_s:
             found.append(f"queue_lag {int(self.oldest_due_lag_s)}s > {int(max_lag_s)}s")
         if max_dead is not None and self.dead > max_dead:
             found.append(f"dead_jobs {self.dead} > {max_dead}")
