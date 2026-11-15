@@ -1,0 +1,34 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% translate "Manutenção" %}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Manutenção" %}</h1>
+<p class="page-description">{% translate "Fecha o site e a API com uma mensagem, sem deploy e sem reinício. Login, MFA e esta página continuam abertos só para administradores da plataforma. A manutenção do deploy é outra, controlada pelo agente." %}</p></div></div>
+{% if unreadable %}<div class="message error mb-5" role="alert">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0">{% translate "O estado de manutenção não pôde ser lido do SQLite da instância. Confira o servidor; a CLI `manage.py maintenance status` mostra o estado." %}</div></div>{% endif %}
+<section class="card mb-6" aria-labelledby="maintenance-state">
+  <h2 id="maintenance-state" class="mb-3">{% translate "Estado atual" %}</h2>
+  <dl class="meta-list">
+    <div><dt>{% translate "Manutenção administrativa" %}</dt><dd>{% if active %}<span class="badge badge-warning">{% translate "ativa" %}</span>{% elif expired %}<span class="badge">{% translate "encerrada pelo término agendado" %}</span>{% else %}<span class="badge">{% translate "inativa" %}</span>{% endif %}</dd></div>
+    {% if active or expired %}
+    <div><dt>{% translate "Origem" %}</dt><dd><code>{{ state.source }}</code></dd></div>
+    <div><dt>{% translate "Início" %}</dt><dd>{% if state.started_at %}<time datetime="{{ state.started_at|date:'c' }}">{{ state.started_at|date:"d/m/Y H:i T" }}</time>{% else %}—{% endif %}</dd></div>
+    <div><dt>{% translate "Previsão de término" %}</dt><dd>{% if state.ends_at %}<time datetime="{{ state.ends_at|date:'c' }}">{{ state.ends_at|date:"d/m/Y H:i T" }}</time>{% else %}{% translate "sem horário (saída manual)" %}{% endif %}</dd></div>
+    <div><dt>{% translate "Jobs" %}</dt><dd>{% if state.pause_jobs %}{% translate "pausados" %}{% else %}{% translate "processando" %}{% endif %}</dd></div>
+    <div class="sm:col-span-2"><dt>{% translate "Mensagem" %}</dt><dd class="whitespace-pre-line">{{ state.message|default:_("(texto padrão)") }}</dd></div>
+    {% endif %}
+  </dl>
+  {% if active or expired %}<form method="post" action="{% url 'platform:maintenance-exit' %}" class="mt-4">{% csrf_token %}<button type="submit" class="btn btn-primary">{% translate "Encerrar a manutenção" %}</button></form>{% endif %}
+</section>
+<section aria-labelledby="maintenance-enter">
+  <h2 id="maintenance-enter" class="mb-3">{% if active %}{% translate "Alterar a manutenção em curso" %}{% else %}{% translate "Entrar em manutenção" %}{% endif %}</h2>
+  <form method="post" action="{% url 'platform:maintenance-enter' %}" class="card">
+    {% csrf_token %}
+    {% include "skeleton/web/components/form-errors.html" %}
+    {% include "skeleton/web/components/form-fields.html" %}
+    <p class="text-sm/6 text-body-subtle">{% blocktranslate %}O término agendado usa o fuso {{ time_zone }}.{% endblocktranslate %}</p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% if active %}{% translate "Salvar" %}{% else %}{% translate "Entrar em manutenção" %}{% endif %}</button></div>
+  </form>
+</section>
+<p class="mt-4 text-sm/6 text-body-subtle">{% translate "Entrar e sair exigem autenticação recente e ficam registrados (quem, quando e de onde, nunca a mensagem). Pelo servidor, com ou sem banco: manage.py maintenance status|on|off." %}</p>
+</div>
+{% endblock %}

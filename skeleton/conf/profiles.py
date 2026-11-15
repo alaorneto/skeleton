@@ -120,12 +120,15 @@ def test_settings(base):
     MAILERS = {"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}}
     SKELETON_METRICS_QUEUE_TTL_S = 0  # The suite always reads the queue.
     import atexit
+    import os
     import shutil
     import tempfile
 
     files_root = tempfile.mkdtemp(prefix="skeleton-files-")
     # One directory per process importing these settings (pytest, manage.py, mypy): removed on exit (#333).
     atexit.register(shutil.rmtree, files_root, ignore_errors=True)
+    # Never the developer's own instance SQLite (#446): tests that need the mode point here explicitly.
+    SKELETON_MAINTENANCE_STORE = os.path.join(files_root, "maintenance-instance.sqlite3")
     STORAGES = {
         **base["STORAGES"],
         "skeleton_files": {

@@ -35,6 +35,7 @@ METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 UNRESOLVED_ROUTE = "unresolved"
 # Fixed label of a request refused by an organization host (#482): never the host, slug or sysid.
 SITE_REFUSED_ROUTE = "organization-site-refused"
+MAINTENANCE_ROUTE = "maintenance"
 # Probes answer before URL resolution; they keep a fixed label of their own.
 PROBE_ROUTES = {"/health/live/": "health/live/", "/health/ready/": "health/ready/"}
 OTHER_JOB_TYPE = "other"
@@ -77,6 +78,8 @@ def route_label(request: Any) -> str:
         return PROBE_ROUTES[request.path_info]
     if getattr(request, "skeleton_site_refused", False):
         return SITE_REFUSED_ROUTE
+    if getattr(request, "skeleton_maintenance_response", False):
+        return MAINTENANCE_ROUTE  # Both maintenance modes (#446): one label, never the path.
     match = getattr(request, "resolver_match", None)
     if match is None:
         # A middleware (tenant, maintenance) answered before URL resolution: resolve the pattern here.

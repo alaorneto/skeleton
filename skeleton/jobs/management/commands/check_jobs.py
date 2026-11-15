@@ -3,6 +3,7 @@
 from django.core.management.base import BaseCommand, CommandError
 
 from skeleton.jobs.operations import queue_health
+from skeleton.jobs.worker import maintenance_paused
 
 
 class Command(BaseCommand):
@@ -16,10 +17,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, max_lag, max_dead, heartbeat, require_worker, **options):
         health = queue_health(heartbeat_s=heartbeat)
+        # During a maintenance that pauses the jobs the queue waits on purpose (#448): no queue_lag.
+        paused = maintenance_paused()
         self.stdout.write(
             f"due={health.due} lag={int(health.oldest_due_lag_s)}s dead={health.dead} "
-            f"workers={health.live_workers} stale_workers={health.stale_workers}"
+            f"workers={health.live_workers} stale_workers={health.stale_workers}" + (" paused=1" if paused else "")
         )
-        problems = health.problems(max_lag_s=max_lag, max_dead=max_dead, require_worker=require_worker)
+        problems = health.problems(max_lag_s=max_lag, max_dead=max_dead, require_worker=require_worker, paused=paused)
         if problems:
             raise CommandError("; ".join(problems))

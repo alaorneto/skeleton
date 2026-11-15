@@ -102,6 +102,11 @@ def test_maintenance_stops_all_application_requests_before_session_or_db(tmp_pat
         response = middleware(RequestFactory().post("/platform/updates/plan/"))
         assert response.status_code == 503
         assert response["Cache-Control"] == "no-store"
+        assert response["Retry-After"] == "60"
+        assert response["Content-Type"].startswith("text/html")  # The shared maintenance answer (#446).
+        response = middleware(RequestFactory().get("/api/v1/me/"))
+        assert response.status_code == 503
+        assert json.loads(response.content)["code"] == "maintenance"
         assert called == []
         response = middleware(RequestFactory().get("/health/release/"))
         assert response.status_code == 200
