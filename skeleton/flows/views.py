@@ -109,11 +109,27 @@ def task_list(request, organization_id):
     if scope not in SCOPES:
         scope = "mine"
     page = _cursor_page(request, lambda cursor: FlowService().tasks(actor=request.user, scope=scope, cursor=cursor))
+    # One selector for the scope: links with a single current option (#472).
+    scope_options = [{"label": label, "url": "?scope=" + key, "current": key == scope} for key, label in SCOPES.items()]
     return render(
         request,
         TEMPLATES + "tasks.html",
-        {"organization_id": organization_id, "scope": scope, "scopes": SCOPES, "page": page},
+        {
+            "organization_id": organization_id,
+            "scope": scope,
+            "scopes": SCOPES,
+            "scope_options": scope_options,
+            "page": page,
+            **_section(request, "tasks"),
+        },
     )
+
+
+def _section(request, name):
+    """The flow tabs: the current screen and whether the operator tabs show (the instances rule)."""
+    from .policies import is_flow_admin
+
+    return {"flow_section": name, "can_operate": is_flow_admin(request.user)}
 
 
 def _action_fields(detail, action_key):
@@ -248,6 +264,7 @@ def operations(request, organization_id):
             "panel": panel,
             "flow_key": flow_key,
             "flow_version": flow_version or "",
+            **_section(request, "operations"),
         },
     )
 
@@ -329,13 +346,19 @@ def draft_list(request, organization_id):
                 "rows": rows,
                 "errors": errors,
                 "text": request.POST.get("specification", ""),
+                **_section(request, "drafts"),
             },
             status=400,
         )
     rows = definitions.drafts(request.user)
-    return render(
-        request, TEMPLATES + "drafts.html", {"organization_id": organization_id, "rows": rows, "errors": [], "text": ""}
-    )
+    context = {
+        "organization_id": organization_id,
+        "rows": rows,
+        "errors": [],
+        "text": "",
+        **_section(request, "drafts"),
+    }
+    return render(request, TEMPLATES + "drafts.html", context)
 
 
 @tenant_page()
@@ -383,13 +406,12 @@ def draft_detail(request, organization_id, sysid):
 
 @tenant_page()
 def instance_list(request, organization_id):
-    from .policies import is_flow_admin
 
     page = _cursor_page(request, lambda cursor: FlowService().instances(actor=request.user, cursor=cursor))
     return render(
         request,
         TEMPLATES + "instances.html",
-        {"organization_id": organization_id, "page": page, "can_operate": is_flow_admin(request.user)},
+        {"organization_id": organization_id, "page": page, **_section(request, "instances")},
     )
 
 

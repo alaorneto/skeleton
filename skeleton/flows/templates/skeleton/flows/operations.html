@@ -2,8 +2,8 @@
 {% load i18n skeleton_format %}{% block title %}{% translate "Operação dos processos" %}{% endblock %}
 {% block content %}
 <div>
-  <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></li><li><span aria-current="page">{% translate "Operação" %}</span></li></ol></nav>
-  <div class="page-header"><div class="min-w-0"><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: instâncias com falha e tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas. Nenhum valor de formulário aparece aqui." %}</p></div></div>
+  <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Operação dos processos" %}</h1><p class="page-description">{% translate "O que precisa de ação: instâncias com falha e tarefas abertas sem responsável, atrasadas ou a vencer em 24 horas. Nenhum valor de formulário aparece aqui." %}</p></div></div>
+  {% include "skeleton/flows/_nav.html" %}
   <form method="get" class="mb-4 flex flex-wrap items-end gap-2" aria-label="{% translate "Filtros" %}">
     <div class="field"><label for="ops-flow">{% translate "Fluxo" %}</label><select id="ops-flow" name="flow_key"><option value="">{% translate "Todos" %}</option>{% for key in panel.flow_keys %}<option value="{{ key }}"{% if key == flow_key %} selected{% endif %}>{{ key }}</option>{% endfor %}</select></div>
     <div class="field"><label for="ops-version">{% translate "Versão" %}</label><input id="ops-version" name="version" type="number" min="1" value="{{ flow_version }}"></div>

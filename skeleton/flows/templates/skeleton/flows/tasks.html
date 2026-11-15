@@ -1,8 +1,9 @@
 {% extends 'skeleton/web/base.html' %}{% load i18n skeleton_format %}{% block title %}{% translate "Tarefas · Skeleton" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Tarefas" %}</h1><p class="page-description">{% translate "Tarefas e aprovações dos processos desta organização. Cada ação é revalidada no servidor." %}</p></div>
-  <div class="toolbar">{% for key, label in scopes.items %}{% if key == scope %}<span class="badge badge-brand">{{ label }}</span>{% else %}<a class="btn btn-secondary btn-sm" href="?scope={{ key }}">{{ label }}</a>{% endif %}{% endfor %}<a class="btn btn-secondary btn-sm" href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></div>
+  <div class="toolbar">{% include "skeleton/web/components/segmented.html" with options=scope_options label=_("Quais tarefas mostrar") %}</div>
 </div>
+{% include "skeleton/flows/_nav.html" %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tarefa" %}</th><th scope="col">{% translate "Processo" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-date">{% translate "Prazo" %}</th><th scope="col" class="col-date">{% translate "Criada em" %}</th></tr></thead><tbody>
 {% for task in page.items %}<tr>
   <td><a class="cell-primary" href="{% url 'flows:task' organization_id task.sysid %}">{{ task.step_label }}</a>{% if task.kind == "approval" %} <span class="badge">{% translate "aprovação" %}</span>{% endif %}</td>

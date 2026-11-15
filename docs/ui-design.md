@@ -88,6 +88,7 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). `empty-state` para listas vazias. |
 | `pagination` | Componente `skeleton/web/pagination.html` (resumo "Mostrando X–Y de N" e Anterior/Próxima). |
 | `breadcrumbs`, `toolbar`, `filter-panel`, `record-tabs` | Navegação, ações, filtros e abas. |
+| `link-tabs`, `segmented` | `link-tabs`: abas entre telas irmãs (links com `aria-current="page"`). `segmented` (`components/segmented.html`, com `options` = `[{label, url, current}]` e `label`): alternância de um filtro na mesma tela, uma opção com `aria-current`. Nunca um `badge` como opção ativa ao lado de botões do mesmo grupo (#472). |
 | `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |
 | `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-danger`, `badge-neutral`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados; estado de um registro sempre pelo filtro `status_badge`. |
 | `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. |

@@ -268,6 +268,17 @@
     @apply border-brand text-fg-brand;
   }
 
+  /* Alternância de um filtro dentro da mesma tela (links, uma opção ativa; #472). */
+  .segmented {
+    @apply inline-flex max-w-full overflow-x-auto rounded-base border border-default-medium bg-neutral-primary-soft p-0.5 shadow-xs;
+  }
+  .segmented a {
+    @apply rounded-[calc(var(--radius-base)-2px)] px-3 py-1.5 text-sm/5 font-medium whitespace-nowrap text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading;
+  }
+  .segmented a[aria-current] {
+    @apply bg-brand-softer font-semibold text-fg-brand;
+  }
+
   /* Página. Todo cabeçalho de tela segue o mesmo ritmo:
    * [breadcrumb|eyebrow] → h1 → descrição → 32px (24px no celular) até o conteúdo. */
   .page-header {
