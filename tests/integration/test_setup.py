@@ -434,3 +434,72 @@ def test_overview_lists_what_to_have_and_leads_to_the_next_pending_step(setup_mo
         '<a class="btn btn-primary" href="/setup/finish/">Revisar e concluir</a>'
         in client.get("/setup/").content.decode()
     )
+
+
+def _fields(url, prefix):
+    from urllib.parse import unquote, urlsplit
+
+    parts = urlsplit(url)
+    if prefix == "owner_":
+        return {"owner_user": unquote(parts.username), "owner_password": unquote(parts.password or "")}
+    return {
+        "db_host": parts.hostname,
+        "db_port": str(parts.port or 5432),
+        "db_name": parts.path.lstrip("/"),
+        "db_user": unquote(parts.username),
+        "db_password": unquote(parts.password or ""),
+    }
+
+
+def test_database_and_schema_steps_take_separate_fields(setup_mode, caplog, monkeypatch):
+    from skeleton.setup import database
+
+    runtime = os.environ["TEST_DATABASE_URL"]
+    owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
+    monkeypatch.setattr(database, "migrate_schema", lambda dsn: [])
+    client = enter(setup_mode)
+    html = client.get("/setup/database/").content.decode()
+    assert html.count('type="password"') == 2  # The role password and the advanced URL, in <details>.
+    assert "Avançado: informar a URL completa" in html
+    for name in ("db_host", "db_port", "db_name", "db_user"):
+        assert f'name="{name}"' in html and f'type="password" name="{name}"' not in html
+    with caplog.at_level(logging.DEBUG):
+        saved = post(client, "/setup/database/", _fields(runtime, "db_"))
+        assert saved.status_code == 302, saved.content.decode()[-2000:]
+        page = client.get("/setup/schema/").content.decode()
+        fields = _fields(runtime, "db_")
+        assert f"<code>{fields['db_host']}:{fields['db_port']}</code>" in page and fields["db_name"] in page
+        same = post(client, "/setup/schema/", _fields(runtime, "owner_"))
+        assert same.status_code == 400
+        assert "owner_user" in same.context["form"].errors and "role de aplicação" in same.content.decode()
+        assert post(client, "/setup/schema/", _fields(owner, "owner_")).status_code == 302
+    for secret in (_fields(runtime, "db_")["db_password"], _fields(owner, "owner_")["owner_password"]):
+        assert secret not in caplog.text
+    assert database.parse(_stored_url(setup_mode))["USER"] == _fields(runtime, "db_")["db_user"]
+
+
+def _stored_url(store):
+    from skeleton.setup.views import _stored
+
+    return _stored("database_url")
+
+
+def test_database_step_shows_where_the_connection_failed(setup_mode, caplog, subtests):
+    runtime = _fields(os.environ["TEST_DATABASE_URL"], "db_")
+    client = enter(setup_mode)
+    for changes, field, text in (
+        ({"db_host": "no-such-host.invalid"}, "db_host", "não foi encontrado"),
+        ({"db_user": "no_such_role_464"}, "db_password", "recusou o usuário ou a senha"),
+        ({"db_name": "no_such_database_464"}, "db_name", "O banco informado não existe"),
+    ):
+        with subtests.test(field=field), caplog.at_level(logging.DEBUG):
+            response = post(client, "/setup/database/", {**runtime, **changes})
+            html = response.content.decode()
+            assert response.status_code == 400 and field in response.context["form"].errors
+            assert text in str(response.context["form"].errors[field])
+            assert runtime["db_password"] not in html and runtime["db_password"] not in caplog.text
+            assert "FATAL" not in html and "FATAL" not in caplog.text
+            # The typed user stays in its own input, never in a message.
+            if "db_user" in changes:
+                assert changes["db_user"] not in str(response.context["form"].errors) + caplog.text
+    assert "database_url" not in setup_mode.settings()

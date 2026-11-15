@@ -67,8 +67,9 @@ STEPS = (
         gettext_lazy("Banco de dados"),
         gettext_lazy("Conexão com o PostgreSQL usada no dia a dia."),
         gettext_lazy(
-            "Informe a URL da role runtime, a role que o sistema usa no dia a dia. Ela não pode ser superusuário,"
-            " ter BYPASSRLS nem ser dona do schema skeleton."
+            "Informe como o sistema se conecta ao PostgreSQL no dia a dia. Use a role de aplicação"
+            " (skeleton_runtime): ela não pode ser superusuário nem dona das tabelas. O banco precisa ter sido"
+            " preparado antes com deploy/postgres/bootstrap.sql."
         ),
     ),
     Step(
@@ -76,8 +77,10 @@ STEPS = (
         gettext_lazy("Tabelas do banco"),
         gettext_lazy("Cria as tabelas, com a credencial dona do schema."),
         gettext_lazy(
-            "A credencial de migração (dona do schema skeleton) é usada só nesta requisição para rodar migrate,"
-            " sync_table_catalog e o check do schema. Ela não é gravada, não vai para o log nem para a sessão."
+            "Agora o setup cria as tabelas. Para isso ele precisa, só nesta tela, da role dona do schema"
+            " (skeleton_owner). A senha é usada nesta requisição e não é gravada, não vai para o log nem para a"
+            " sessão. Pode levar alguns minutos: não feche nem recarregue a página. Se a página expirar, é seguro"
+            " enviar de novo."
         ),
     ),
     Step(
@@ -290,16 +293,27 @@ def instance(request):
     return _step(request, "instance", form, status=400 if request.method == "POST" else 200)
 
 
+def _check_error(form, error, *, prefix: str = "db_") -> None:
+    """A refusal next to the field it is about; the whole form when the field is not on this form."""
+    field = error.field
+    if field and prefix != "db_" and field.startswith("db_"):
+        field = prefix + field[3:]
+    form.add_error(field if field in form.fields else None, str(error))
+
+
 @setup_page
 @require_http_methods(["GET", "POST"])
 def database_step(request):
     form = forms.DatabaseForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
+        dsn = form.cleaned_data["dsn"]
         try:
-            role = database.validate_runtime(form.cleaned_data["database_url"])
-            write_setting(settings.BASE_DIR, "database_url", form.cleaned_data["database_url"], source="setup")
-        except (database.DatabaseCheckError, ValueError) as error:
-            form.add_error("database_url", str(error))
+            role = database.validate_runtime(dsn)
+            write_setting(settings.BASE_DIR, "database_url", dsn, source="setup")
+        except database.DatabaseCheckError as error:
+            _check_error(form, error)
+        except ValueError as error:
+            form.add_error(None, str(error))
         else:
             store, _ = _store()
             store.put_setup_state("database_role", role.name)
@@ -307,6 +321,14 @@ def database_step(request):
             _saved(request, "database")
             return redirect("setup:schema")
     return _step(request, "database", form, status=400 if request.method == "POST" else 200)
+
+
+def _runtime_role(dsn: str):
+    """The stored runtime role; its refusals belong to the previous step, not to the owner fields."""
+    try:
+        return database.validate_runtime(dsn)
+    except database.DatabaseCheckError as error:
+        raise database.DatabaseCheckError(str(error), code=error.code) from None
 
 
 @setup_page
@@ -317,13 +339,25 @@ def schema(request):
         return redirect("setup:database")
     form = forms.SchemaForm(request.POST or None)
     problems = []
+    try:
+        runtime = database.parse(runtime_dsn)
+    except database.DatabaseCheckError:
+        runtime = {}
+    target = {"name": runtime.get("NAME", ""), "host": runtime.get("HOST", ""), "port": runtime.get("PORT") or 5432}
     if request.method == "POST" and form.is_valid():
-        owner_dsn = form.cleaned_data.pop("owner_url")
+        owner_password = form.cleaned_data.pop("owner_password", "")
+        owner_dsn = form.cleaned_data.pop("owner_url") or database.build_dsn(
+            host=target["host"],
+            port=target["port"],
+            name=target["name"],
+            user=form.cleaned_data["owner_user"],
+            password=owner_password,
+        )
         try:
-            database.validate_owner(owner_dsn, database.validate_runtime(runtime_dsn))
+            database.validate_owner(owner_dsn, _runtime_role(runtime_dsn))
             problems = database.migrate_schema(owner_dsn)
         except database.DatabaseCheckError as error:
-            form.add_error("owner_url", str(error))
+            _check_error(form, error, prefix="owner_")
         except Exception as error:  # noqa: BLE001 - shown without detail; the DSN never reaches a message
             # The log keeps the traceback for the operator; no form value is passed to it (#290).
             logger.error("setup.step_failed step=%s error_class=%s", "schema", type(error).__name__, exc_info=True)
@@ -333,13 +367,14 @@ def schema(request):
                 % {"__name__": type(error).__name__},
             )
         finally:
-            del owner_dsn  # Kept only in this request's memory; never stored, logged or in the session.
+            # Kept only in this request's memory; never stored, logged or in the session.
+            del owner_dsn, owner_password
         if not form.errors and not problems:
             _mark("schema")
             _saved(request, "schema")
             return redirect("setup:email")
     status = 400 if request.method == "POST" else 200
-    return _step(request, "schema", form, problems=problems, status=status)
+    return _step(request, "schema", form, problems=problems, target=target, status=status)
 
 
 def _email_connection(url: str):

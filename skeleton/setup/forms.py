@@ -57,24 +57,142 @@ class InstanceForm(forms.Form):
             del self.fields["public_url"]
 
 
+FILL_IN = gettext_lazy("Informe este campo.")
+
+
 class DatabaseForm(forms.Form):
-    database_url = forms.CharField(
-        label=gettext_lazy("URL da role runtime"),
-        max_length=500,
-        widget=forms.PasswordInput(render_value=False),
+    """Runtime role of the database by separate fields; the full URL only under "Avançado" (#464)."""
+
+    advanced_fields = ("database_url",)
+
+    db_host = forms.CharField(
+        label=gettext_lazy("Servidor (host)"),
+        max_length=255,
+        required=False,
         help_text=gettext_lazy(
-            "postgres://skeleton_runtime:senha@host:5432/banco. Sem superuser, sem BYPASSRLS, sem ser dona do schema."
+            "Nome ou IP do servidor PostgreSQL, como este processo o enxerga. No Docker Compose deste projeto:"
+            " postgres. Na mesma máquina, fora do Docker: 127.0.0.1."
         ),
     )
+    db_port = forms.IntegerField(
+        label=gettext_lazy("Porta"),
+        min_value=1,
+        max_value=65535,
+        initial=5432,
+        required=False,
+        help_text=gettext_lazy("O padrão do PostgreSQL é 5432."),
+    )
+    db_name = forms.CharField(
+        label=gettext_lazy("Nome do banco"),
+        max_length=63,
+        required=False,
+        help_text=gettext_lazy(
+            "O banco criado para o sistema. Ele precisa existir e ter sido preparado com deploy/postgres/bootstrap.sql."
+        ),
+    )
+    db_user = forms.CharField(
+        label=gettext_lazy("Usuário (role de aplicação)"),
+        max_length=63,
+        required=False,
+        initial="skeleton_runtime",
+        help_text=gettext_lazy(
+            "A role que o sistema usa no dia a dia. O bootstrap cria skeleton_runtime. Não pode ser superusuário"
+            " nem dona do schema."
+        ),
+    )
+    db_password = forms.CharField(
+        label=gettext_lazy("Senha dessa role"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy("A senha definida com \\password skeleton_runtime. Pode conter qualquer caractere."),
+    )
+    database_url = forms.CharField(
+        label=gettext_lazy("URL completa (avançado)"),
+        max_length=500,
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text=gettext_lazy(
+            "Só se precisar de parâmetros extras (por exemplo sslmode). Quando preenchida, os campos acima são"
+            " ignorados. Formato: postgres://usuário:senha@host:5432/banco, com a senha em percent-encoding."
+        ),
+    )
+    # Marked as required on the page: they are, unless the advanced URL is used; the HTML
+    # attribute stays off so the browser does not block a submission with the URL.
+    separate_required = ("db_host", "db_port", "db_name", "db_user", "db_password")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.separate_required:
+            self.fields[name].marked_required = True
+
+    def clean(self):
+        from .database import DEFAULT_PORT, build_dsn
+
+        data = super().clean()
+        if data.get("database_url"):
+            data["dsn"] = data["database_url"]
+            return data
+        missing = [name for name in self.separate_required if name != "db_port" and not data.get(name)]
+        for name in missing:
+            if name not in self.errors:
+                self.add_error(name, FILL_IN)
+        if not missing and not self.errors:
+            data["dsn"] = build_dsn(
+                host=data["db_host"],
+                port=data.get("db_port") or DEFAULT_PORT,
+                name=data["db_name"],
+                user=data["db_user"],
+                password=data["db_password"],
+            )
+        return data
 
 
 class SchemaForm(forms.Form):
-    owner_url = forms.CharField(
-        label=gettext_lazy("URL da role de migração (dona do schema)"),
-        max_length=500,
-        widget=forms.PasswordInput(render_value=False),
-        help_text=gettext_lazy("Usada só nesta requisição para migrar; nunca é gravada."),
+    """The schema owner, only user and password: host, port and database come from the runtime step."""
+
+    advanced_fields = ("owner_url",)
+    separate_required = ("owner_user", "owner_password")
+
+    owner_user = forms.CharField(
+        label=gettext_lazy("Usuário dono do schema"),
+        max_length=63,
+        required=False,
+        initial="skeleton_owner",
+        help_text=gettext_lazy("A role que cria e altera as tabelas. O bootstrap cria skeleton_owner."),
     )
+    owner_password = forms.CharField(
+        label=gettext_lazy("Senha dessa role"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy("Usada só agora, para criar as tabelas. Não é gravada em lugar nenhum."),
+    )
+    owner_url = forms.CharField(
+        label=gettext_lazy("URL completa (avançado)"),
+        max_length=500,
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text=gettext_lazy(
+            "Só se precisar de parâmetros extras. Quando preenchida, os campos acima são ignorados. Precisa apontar"
+            " para o mesmo banco da etapa anterior. Usada só nesta requisição; nunca é gravada."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.separate_required:
+            self.fields[name].marked_required = True
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("owner_url"):
+            for name in self.separate_required:
+                if not data.get(name) and name not in self.errors:
+                    self.add_error(name, FILL_IN)
+        return data
 
 
 REDIS_CACHE = "django.core.cache.backends.redis.RedisCache"
