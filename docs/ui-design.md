@@ -91,7 +91,7 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `link-tabs`, `segmented` | `link-tabs`: abas entre telas irmãs (links com `aria-current="page"`). `segmented` (`components/segmented.html`, com `options` = `[{label, url, current}]` e `label`): alternância de um filtro na mesma tela, uma opção com `aria-current`. Nunca um `badge` como opção ativa ao lado de botões do mesmo grupo (#472). |
 | `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |
 | `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-danger`, `badge-neutral`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados; estado de um registro sempre pelo filtro `status_badge`. |
-| `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. |
+| `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. Todo campo obrigatório (Django `required`, `marked_required` ou o atributo `data-required` no widget) leva `*` e os demais "(opcional)"; checkbox não leva marca; acima dos campos aparece uma vez "Campos com * são obrigatórios.". `hide_marks=True` no `include` desliga as marcas (login, LDAP, token do setup). O renderer de registros (`skeleton_crud/field.html`) segue a mesma regra, sem "(opcional)" nos campos com a caixa "alterar este campo" (#474). |
 | `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
 | `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
 
@@ -162,6 +162,7 @@ Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skel
 - Sem scripts inline e sem CDN: o JS do Flowbite é servido de `static/skeleton/web/vendor/flowbite-4.0.2/`.
 - Sem JavaScript tudo funciona: o menu móvel e o menu da conta ficam abertos via `@media (scripting: none)` (variante `noscript:`); as abas do registro voltam a ser seções empilhadas.
 - Abas mantêm ARIA e teclado (ArrowLeft/ArrowRight/Home/End) em `site.js`.
+- Envio duplo: `site.js` ignora um segundo envio do mesmo formulário POST até a página mudar e marca os botões com `aria-disabled` (nunca `disabled`, que perderia o `name`/`value` do botão clicado); voltar pelo navegador (`pageshow`) reabilita. Um formulário que responde com arquivo na mesma página usa `data-allow-resubmit` (#474).
 - Até 600 px o renderer usa uma coluna e não há rolagem horizontal da página; acima disso vale a grade de 12 colunas (`field-span-1..12`), gerada fora do scanner porque vem do manifesto.
 
 ## Django admin

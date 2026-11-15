@@ -165,3 +165,36 @@ for (const section of document.querySelectorAll("[data-push-optin]")) {
 for (const swatch of document.querySelectorAll("[data-swatch]")) {
   swatch.style.background = swatch.dataset.swatch;
 }
+
+// Double-submit guard (#474): a second submit of the same POST form is ignored until the page
+// changes. Buttons are marked aria-disabled, never disabled: a disabled button would not send its
+// name/value (forms with several actions). A form that answers with a file on the same page opts
+// out with data-allow-resubmit.
+for (const form of document.querySelectorAll("form")) {
+  if ((form.getAttribute("method") || "get").toLowerCase() !== "post") continue;
+  if (form.hasAttribute("data-allow-resubmit")) continue;
+  form.addEventListener("submit", event => {
+    if (event.defaultPrevented) return;
+    if (form.dataset.submitted === "1") {
+      event.preventDefault();
+      return;
+    }
+    form.dataset.submitted = "1";
+    // Disable after the browser has collected the form data, or the clicked button's value is lost.
+    setTimeout(() => {
+      for (const button of form.querySelectorAll("button[type=submit], input[type=submit]")) {
+        button.setAttribute("aria-disabled", "true");
+        button.classList.add("is-submitting");
+      }
+    }, 0);
+  });
+}
+window.addEventListener("pageshow", () => {
+  for (const form of document.querySelectorAll("form[data-submitted]")) {
+    delete form.dataset.submitted;
+    for (const button of form.querySelectorAll("[aria-disabled=true].is-submitting")) {
+      button.removeAttribute("aria-disabled");
+      button.classList.remove("is-submitting");
+    }
+  }
+});

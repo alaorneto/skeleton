@@ -165,3 +165,26 @@ def status_badge(code, label=None):
     if label is not None and domain is None:
         text = label
     return format_html('<span class="badge badge-{} badge-dot">{}</span>', tone, text)
+
+
+def _required(field) -> bool:
+    """A form field counts as required when Django requires it or the page marks it (#474)."""
+    attrs = getattr(getattr(field, "widget", None), "attrs", {}) or {}
+    return bool(
+        getattr(field, "required", False) or getattr(field, "marked_required", False) or "data-required" in attrs
+    )
+
+
+@register.filter
+def is_required(bound_field) -> bool:
+    """``{% if field|is_required %}``: the * mark of components/form-field.html."""
+    return _required(getattr(bound_field, "field", None))
+
+
+@register.filter
+def any_required(form) -> bool:
+    """Whether a form shows "Campos com * são obrigatórios." above its fields."""
+    fields = getattr(form, "visible_fields", lambda: [])()
+    return any(
+        _required(bound.field) and getattr(bound.field.widget, "input_type", "") != "checkbox" for bound in fields
+    )

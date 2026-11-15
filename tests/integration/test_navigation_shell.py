@@ -88,3 +88,17 @@ def test_access_lists_show_one_column_per_field_without_uuid_or_revision_columns
     assert len(row["cells"]) == len(fields)
     assert f'<span class="cell-secondary"><code class="uuid">{row["sysid"]}</code></span>' in html
     assert 'class="btn btn-danger-outline btn-sm"' in html
+
+
+def test_forms_mark_required_and_optional_fields_once():
+    """Every simple form shows * on required fields, "(opcional)" on the others and the legend once (#474)."""
+    client, _, organization = logged_client("nav-marks")
+    for path in (
+        reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "invitations"}),
+        reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "groups"}),
+    ):
+        html = client.get(path).content.decode()
+        assert '<span class="required" aria-hidden="true"> *</span>' in html, path
+        assert html.count("Campos com * são obrigatórios.") == 1, path
+    login = Client().get("/accounts/login/").content.decode()
+    assert "Campos com * são obrigatórios." not in login and "(opcional)" not in login

@@ -4,7 +4,7 @@
 {% if error %}<div class="error-summary mt-4" role="alert"><h2>{{ error }}</h2></div>{% endif %}
 <form method="post" class="mt-6 record-form">
 {% csrf_token %}
-{% include "skeleton/web/components/form-fields.html" %}
+{% include "skeleton/web/components/form-fields.html" with hide_marks=True %}
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Entrar no setup" %}</button></div>
 </form>
 <section class="mt-8" aria-labelledby="token-where">
