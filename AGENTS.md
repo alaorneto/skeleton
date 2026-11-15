@@ -36,9 +36,9 @@ Próprio deste repositório (detalhes em [docs/workflow.md](docs/workflow.md)):
 
 ## Fronteiras de código
 
-- `skeleton/common`: bases abstratas, querysets, erros, logging e operação de migrations.
+- `skeleton/common`: bases abstratas, querysets, erros, logging e operação de migrations; `hostnames.py` guarda as regras puras de rótulo DNS e os nomes reservados dos endereços de organização.
 - `skeleton/accounts`: identidade global e integração allauth; não reimplemente OAuth, OIDC, SAML, MFA ou password reset.
-- `skeleton/tenancy`: organização, vínculo, convite e contexto transacional.
+- `skeleton/tenancy`: organização, vínculo, convite e contexto transacional; endereços de organização em `site.py` (domínio base, classificação do host).
 - `skeleton/access`: papéis/grupos, concessões e serviços/policies.
 - `skeleton/system`: registro de specs, catálogo e checks ([docs/checks.md](docs/checks.md)); metadados não executam DDL. Também guarda as apps (registro, dependências, disponibilidade dada pela plataforma e ativação pela organização), os pacotes `.skapp` em `skeleton/system/packaging/` (manifesto, assinatura, build, doctor; `skeleton.system.packages` é a fachada estável), a análise estática da fronteira de importação (`import_boundary.py`, E019/W019: lê o código com `ast` e nunca importa código de app), o `skeleton_startapp` (`app_scaffold.py`: valida o manifesto antes de gravar, nunca sobrescreve uma app nem edita settings) e o cliente do agente de deployment (`deployment_client.py`: só o socket Unix de controle; nenhum comando de deployment nem credencial owner no processo web).
 - `skeleton/audit`: eventos e infraestrutura de auditoria.

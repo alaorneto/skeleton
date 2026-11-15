@@ -268,6 +268,8 @@ SKELETON_JOB_SUCCEEDED_RETENTION_DAYS = env.int("SKELETON_JOB_SUCCEEDED_RETENTIO
 SKELETON_JOB_DEAD_RETENTION_DAYS = env.int("SKELETON_JOB_DEAD_RETENTION_DAYS", default=30)
 # Origin of links in notification emails and pushes (https://app.example.com); jobs have no request.
 SKELETON_PUBLIC_URL = env("SKELETON_PUBLIC_URL", default="")
+# Organization addresses (#477): <slug>.<base domain>; empty keeps every organization under /o/<uuid>/.
+SKELETON_ORGANIZATION_BASE_DOMAIN = env("SKELETON_ORGANIZATION_BASE_DOMAIN", default="").strip().strip(".").lower()
 
 # Observability (#87): each piece stays off until its setting is present and its extra installed.
 # Bearer token of /metrics (extra [metrics], #175); without it the endpoint does not exist.

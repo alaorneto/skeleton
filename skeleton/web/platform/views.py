@@ -420,9 +420,22 @@ def _organization_page(request, organization, *, form=None, admin_form=None, quo
             "storage": storage,
             "quota_form": quota_form or _quota_form(organization),
             "identity_providers": organization_providers(organization),
+            "site_address": _site_address(organization),
         },
         status=status,
     )
+
+
+def _site_address(organization):
+    """The organization's own host for the "Endereço" row (#478): ``None`` hides it, ``""`` is unavailable."""
+    from urllib.parse import urlsplit
+
+    from skeleton.tenancy.site import base_domain, organization_origin
+
+    if not base_domain():
+        return None
+    origin = organization_origin(organization.slug)
+    return urlsplit(origin).netloc if origin else ""
 
 
 @platform_page

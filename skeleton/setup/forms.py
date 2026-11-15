@@ -154,7 +154,22 @@ class AdminForm(forms.Form):
     password1 = forms.CharField(label=gettext_lazy("Senha"), widget=forms.PasswordInput(render_value=False))
     password2 = forms.CharField(label=gettext_lazy("Confirme a senha"), widget=forms.PasswordInput(render_value=False))
     organization_name = forms.CharField(label=gettext_lazy("Nome da primeira organização"), max_length=200)
-    organization_slug = forms.SlugField(label=gettext_lazy("Identificador da organização"), max_length=80)
+    organization_slug = forms.SlugField(label=gettext_lazy("Identificador da organização"), max_length=63)
+
+    def clean_organization_slug(self):
+        from skeleton.common.hostnames import slug_problem
+
+        value = self.cleaned_data["organization_slug"]
+        problem = slug_problem(value)
+        if problem == "format":
+            raise forms.ValidationError(
+                gettext(
+                    "Use de 1 a 63 caracteres: letras minúsculas, números e hífen, sem começar nem terminar com hífen."
+                )
+            )
+        if problem == "reserved":
+            raise forms.ValidationError(gettext("Este identificador é reservado. Escolha outro."))
+        return value
 
     def clean(self):
         data = super().clean()

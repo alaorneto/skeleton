@@ -87,10 +87,10 @@ def test_profile_rejects_flags_and_checks_both_revisions(identity):
 
 
 def test_bootstrap_idempotency(skeleton_db):
-    first, org = bootstrap_identity(email="admin@example.test", organization="test", name="Test", password=PASSWORD)
+    first, org = bootstrap_identity(email="admin@example.test", organization="test-org", name="Test", password=PASSWORD)
     encoded = first.password
     second, same_org = bootstrap_identity(
-        email="admin@example.test", organization="test", name="Ignored", password="NeverReplacePassword!23"
+        email="admin@example.test", organization="test-org", name="Ignored", password="NeverReplacePassword!23"
     )
     assert first.pk == second.pk and org.pk == same_org.pk
     assert second.password == encoded and same_org.name == "Test"

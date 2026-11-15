@@ -484,3 +484,15 @@ def test_permission_check_is_silent_outside_posix(instance, monkeypatch):
 
     monkeypatch.setattr(checks.os, "name", "nt")
     assert checks.permission_problems() == []
+
+
+def test_organization_base_domain_is_a_bare_domain():
+    """The base domain of the organization addresses (#478): normalized, empty allowed, anything else refused."""
+    spec = CATALOG["organization_base_domain"]
+    assert spec.env == "SKELETON_ORGANIZATION_BASE_DOMAIN"
+    assert spec.clean("") == ""
+    assert spec.clean("  Skeleton.COM. ") == "skeleton.com"
+    assert spec.clean("apps.example.com.br") == "apps.example.com.br"
+    for refused in ("https://x.com", "x.com/", "*.x.com", "x.com:8000", "a@x.com", "a b.com", "-x.com", "x..com"):
+        with pytest.raises(ValueError, match="Informe só o domínio"):
+            spec.clean(refused)
