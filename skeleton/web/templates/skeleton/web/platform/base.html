@@ -3,3 +3,4 @@
 {% block shell_class %}{% translate "with-sidebar" %}{% endblock %}
 {% block sidebar %}{% include "skeleton/web/components/platform-sidebar.html" %}{% endblock %}
 {% block main_class %}{% translate "max-lg:pt-0" %}{% endblock %}
+{% block page_nav %}{% if request.skeleton_maintenance %}<div class="message warning mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Manutenção ativa: o site e a API respondem 503 para todos, menos administradores da plataforma." %} <a href="{% url 'platform:maintenance' %}">{% translate "Encerrar" %}</a></div></div>{% endif %}{% endblock %}

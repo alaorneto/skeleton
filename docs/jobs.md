@@ -95,7 +95,7 @@ python manage.py run_worker [--once] [--queues default,mail] [--max-jobs N] [--w
 | App dona (`owner_app`) desativada ou indisponível na organização | O job é pulado antes do handler e fica `cancelled` (`application_disabled`); tipos do núcleo (sem dono ou com dono que não é app registrada) não passam por essa checagem (#337) |
 | Organização suspensa por inadimplência | Job de app (dono que é app registrada) é pulado e fica `cancelled` (`organization_suspended`); os jobs do núcleo continuam, para a organização ainda ser cobrada e avisada ([cobrança](billing.md#ganchos-de-direito)) |
 | SIGTERM/SIGINT | Para de reivindicar, termina o job atual e sai |
-| Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker pausa (heartbeat `paused`) |
+| Manutenção | Com o marcador `SKELETON_MAINTENANCE_MARKER`, o worker e o scheduler pausam (heartbeat `paused`). Na [manutenção administrativa](maintenance.md#jobs-durante-a-manutenção) pausam só com a opção "pausar jobs" (o padrão; `--keep-jobs` desliga), lida do SQLite da instância em até 5 s, sem banco (#448). Um job em execução termina; a fila acumula e é drenada na saída |
 | Logs | `job.claimed`, `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` via `security_event`, com o UUID do job e nunca o payload; `job.failed` e `job.dead` trazem `error_stack` (arquivo:linha:função), nunca a mensagem da exceção nem o payload (#243) |
 | Correlação | Cada execução recebe um `request_id` próprio, gerado pelo worker: vai em `job.succeeded`, `job.failed`, `job.dead` e `job.skipped` e, com tracing ligado, no span `job <code>` e nos spans de SQL abaixo dele (#176). Veja [deployment](deployment.md#tracing-opentelemetry-176) |
 
@@ -139,7 +139,7 @@ A administração da plataforma tem uma tela da fila (#40), com contagens por es
 | Proteções | POST com CSRF, autenticação recente e o `updated_at` que a pessoa viu (CAS): um segundo envio ou uma mudança concorrente não reenvia de novo, e a tela avisa que o job mudou |
 | Registro | `job.resent` e `job.discarded` em `security_event`, com o UUID do job e a origem `platform:<usuário>` |
 
-As operações ficam em `skeleton.jobs.operations` (`resend_dead_job`, `discard_dead_job`, `queue_health`), e o probe `manage.py check_jobs` usa as mesmas contagens. Veja [deployment](deployment.md#worker-de-jobs-e-agendador) para o serviço do worker e a drenagem pelo agente.
+As operações ficam em `skeleton.jobs.operations` (`resend_dead_job`, `discard_dead_job`, `queue_health`), e o probe `manage.py check_jobs` usa as mesmas contagens. Enquanto uma manutenção pausa os jobs, `check_jobs` não acusa `queue_lag` (a fila espera de propósito) e acrescenta `paused=1` à linha de contagens; os jobs esgotados e a falta de worker continuam valendo. Veja [deployment](deployment.md#worker-de-jobs-e-agendador) para o serviço do worker e a drenagem pelo agente.
 
 ## Métricas da fila
 

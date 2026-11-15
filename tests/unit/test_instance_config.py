@@ -218,7 +218,7 @@ def test_status_lists_what_the_setup_still_needs(instance):
     run("set", "secret_key", SECRET)
     status = run("status")
     assert "Faltam para o setup: allowed_hosts, database_url" in status
-    assert "Versão do schema: 1" in status
+    assert "Versão do schema: 2" in status
 
 
 def test_store_and_key_must_be_separate_files(tmp_path):
