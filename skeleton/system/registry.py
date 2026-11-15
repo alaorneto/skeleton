@@ -170,6 +170,18 @@ def register_core_specs():
             "global",
             ("logo_key", "icon_key"),
         ),
+        "sk_tenancy.sitedomain": (
+            "Domínios próprios",
+            "Domínios que a organização prova controlar por DNS para servir o seu endereço próprio.",
+            "organization",
+            (),
+        ),
+        "sk_tenancy.sitedomainclaim": (
+            "Posse de domínios próprios",
+            "Índice global de qual organização comprovou cada domínio próprio, lido pela validação do host.",
+            "global",
+            (),
+        ),
         "sk_tenancy.identityprovideradmission": (
             "Admissão por provedor de identidade",
             "Regras da organização para o seu provedor: JIT, aprovação, papel padrão e domínios permitidos.",

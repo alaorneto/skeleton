@@ -7,8 +7,10 @@ from tests.integration_postgres.test_admission_schema import _owner_execute, _po
 
 SITE = "sk_tenancy_organizationsite"
 SETTINGS = "sk_tenancy_organizationsettings"
-GLOBAL_TABLES = (SITE,)
-TENANT_TABLES = (SETTINGS,)
+DOMAIN = "sk_tenancy_sitedomain"
+CLAIM = "sk_tenancy_sitedomainclaim"
+GLOBAL_TABLES = (SITE, CLAIM)
+TENANT_TABLES = (SETTINGS, DOMAIN)
 
 
 @pytest.fixture

@@ -246,6 +246,13 @@ _SPECS = (
         _base_domain,
     ),
     SettingSpec(
+        "organization_custom_domains",
+        "SKELETON_ORGANIZATION_CUSTOM_DOMAINS",
+        "bool",
+        "Domínios próprios de organizações",
+        _bool,
+    ),
+    SettingSpec(
         "webpush_vapid_private_key_file",
         "WEBPUSH_VAPID_PRIVATE_KEY_FILE",
         "path",

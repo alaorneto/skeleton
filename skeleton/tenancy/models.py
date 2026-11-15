@@ -489,3 +489,72 @@ class OrganizationSite(SystemRecord):
 
     def __str__(self):
         return str(self.site_organization_id)
+
+
+class SiteDomain(OrganizationRecord):
+    """A custom domain the organization proves it controls, to serve its own address (#488).
+
+    ``challenge`` is public by definition: it is published in ``_skeleton-site.<domain>``. A
+    separate table and challenge from ``VerifiedDomain``: proving an email domain never
+    authorizes a host, and the other way round. Only a ``verified`` domain with a live
+    ``SiteDomainClaim`` is served (#489); three failed rechecks in a row mark it ``failed``.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Aguardando verificação"
+        VERIFIED = "verified", "Verificado"
+        FAILED = "failed", "Falhou"
+
+    domain = models.CharField(max_length=253)
+    challenge = models.CharField(max_length=80)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    verified_at = models.DateTimeField(null=True, blank=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveSmallIntegerField(default=0)
+    last_error_code = models.CharField(max_length=40, blank=True, default="")
+    immutable_fields = ("domain", "challenge")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "domain"),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_tenancy_sitedomain_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=("pending", "verified", "failed")), name="sk_tenancy_sitedomain_choices"
+            ),
+            models.CheckConstraint(
+                condition=~Q(status="verified") | Q(verified_at__isnull=False),
+                name="sk_tenancy_sitedomain_verified_at",
+            ),
+        ]
+
+    def __str__(self):
+        return self.domain
+
+
+class SiteDomainClaim(SystemRecord):
+    """Global ownership index of a verified custom domain (#488), read by the host validation (#489).
+
+    Written only by the verification, in the ``SiteDomain`` transaction; one live claim per
+    domain. Not named ``organization`` (E017).
+    """
+
+    domain = models.CharField(max_length=253)
+    claiming_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    immutable_fields = ("domain", "claiming_organization_id")
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("domain",),
+                condition=Q(deleted_at__isnull=True),
+                name="sk_tenancy_sitedomainclaim_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return self.domain

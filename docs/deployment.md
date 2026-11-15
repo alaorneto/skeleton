@@ -67,6 +67,7 @@ As chaves do catálogo (`skeleton/instance/schema.py`: `DJANGO_SECRET_KEY`, `DJA
 
 - `SKELETON_ORGANIZATION_BASE_DOMAIN` (catálogo da instância, padrão vazio): domínio base dos endereços `<slug>.<domínio base>` das organizações, como `skeleton.com`. Vazio, o recurso fica desligado e toda organização continua só em `/o/<uuid>/`. O valor é só o domínio (sem esquema, caminho, porta ou curinga) e exige `SKELETON_PUBLIC_URL`, de onde vêm o esquema e a porta dos endereços; o check `skeleton.E038` reprova os dois erros.
 - **Domínio base dedicado:** todo host abaixo dele recebe o cookie de sessão, compartilhado entre o domínio principal e os endereços das organizações ([sessão entre hosts](authentication-sso.md#sessão-entre-o-domínio-principal-e-os-endereços-de-organização)). Não delegue subdomínios dele a terceiros nem hospede outra aplicação ali. Configurar o domínio base troca o nome do cookie de sessão para `skeleton_session`: todos entram de novo uma vez. Use um `SKELETON_PUBLIC_URL` dentro do domínio base (`https://app.skeleton.com`), senão a sessão não é compartilhada (`skeleton.W039`).
+- `SKELETON_ORGANIZATION_CUSTOM_DOMAINS` (catálogo da instância, booleano, padrão desligado; só vale com o domínio base): permite que o administrador de uma organização cadastre até 3 domínios próprios em `/o/<org>/settings/domains/` e os comprove com o TXT `_skeleton-site.<domínio>` ([#488](https://github.com/alaorneto/skeleton/issues/488)). A reverificação periódica é a de `manage.py verify_domains --recheck` ([reverificação de domínios](#reverificação-de-domínios)): três falhas seguidas marcam o domínio como falho e removem a posse.
 - Com o domínio base, `.<domínio base>` entra sozinho no fim de `ALLOWED_HOSTS` (nos settings de produção também): não o acrescente em `DJANGO_ALLOWED_HOSTS`. A primeira entrada continua sendo o host de saúde padrão.
 - Ligado o endereço de uma organização, os emails **novos** (notificações, convites, links de ingresso, aprovação de pedido) levam links para `<slug>.<domínio base>`; desligá-lo faz os novos voltarem ao domínio principal, e os links já enviados para o endereço desligado passam a responder 404 ([notificações](notifications.md#email-imediato)).
 
@@ -606,7 +607,7 @@ WantedBy=timers.target
 
 ### Reverificação de domínios
 
-Organizações que admitem por domínio de email verificado (#28) dependem do registro TXT continuar publicado. Agende `manage.py verify_domains --recheck` uma vez por dia com cron ou um systemd timer, com o mesmo ambiente do `web`. O comando consulta o DNS fora das transações (3 s por domínio) e imprime só contagens; três falhas seguidas suspendem a admissão por aquele domínio ([autenticação](authentication-sso.md#domínio-de-email-verificado)).
+Organizações que admitem por domínio de email verificado (#28), e as que servem o endereço próprio num domínio comprovado (#488), dependem do registro TXT continuar publicado; o mesmo comando reverifica os dois. Agende `manage.py verify_domains --recheck` uma vez por dia com cron ou um systemd timer, com o mesmo ambiente do `web`. O comando consulta o DNS fora das transações (3 s por domínio) e imprime só contagens; três falhas seguidas suspendem a admissão por aquele domínio ([autenticação](authentication-sso.md#domínio-de-email-verificado)).
 
 ### Worker de jobs e agendador
 

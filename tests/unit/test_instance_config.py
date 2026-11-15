@@ -496,3 +496,11 @@ def test_organization_base_domain_is_a_bare_domain():
     for refused in ("https://x.com", "x.com/", "*.x.com", "x.com:8000", "a@x.com", "a b.com", "-x.com", "x..com"):
         with pytest.raises(ValueError, match="Informe só o domínio"):
             spec.clean(refused)
+
+
+def test_organization_custom_domains_is_a_boolean():
+    spec = CATALOG["organization_custom_domains"]
+    assert spec.env == "SKELETON_ORGANIZATION_CUSTOM_DOMAINS"
+    assert spec.clean("TRUE") == "true" and spec.clean("") == ""
+    with pytest.raises(ValueError):
+        spec.clean("maybe")

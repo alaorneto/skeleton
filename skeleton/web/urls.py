@@ -2,7 +2,7 @@ from django.urls import path
 
 from skeleton.api.health import probe_response
 from skeleton.tenancy.routing import ORG
-from skeleton.web import admission_views, identity_views, privacy_views, views
+from skeleton.web import admission_views, identity_views, privacy_views, site_domain_views, views
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import (
     favicon,
@@ -67,6 +67,12 @@ urlpatterns = [
     path(f"{ORG}settings/logo/update/", organization_logo_update, name="organization-logo-update"),
     path(f"{ORG}settings/icon/", organization_icon, name="organization-icon"),
     path(f"{ORG}settings/icon/update/", organization_icon_update, name="organization-icon-update"),
+    path(f"{ORG}settings/domains/", site_domain_views.site_domain_list, name="site-domains"),
+    path(
+        f"{ORG}settings/domains/<uuid:sysid>/",
+        site_domain_views.site_domain_action,
+        name="site-domain-action",
+    ),
     path(f"{ORG}catalog/", views.catalog, name="catalog"),
     path(f"{ORG}audit/", views.audit, name="audit"),
     path(f"{ORG}invitations/<uuid:sysid>/resend/", resend, name="invitation-resend"),

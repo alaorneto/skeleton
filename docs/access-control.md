@@ -176,6 +176,8 @@ No host de uma organização, as listagens de vínculos são **estreitadas** par
 
 Depois do login, um `next` absoluto só é seguido quando aponta para o endereço de uma organização com endereço ativo, no mesmo esquema e porta da URL pública, e a requisição está num host que compartilha a sessão ([login no endereço da organização](authentication-sso.md#login-no-endereço-da-organização)); qualquer outro host abaixo do domínio base cai no destino padrão.
 
+**Domínios próprios (#488).** Só o administrador da organização cadastra, verifica e remove um domínio próprio, sob o lock da organização. A posse (`SiteDomainClaim`) é global e única por domínio, porque é ela que autoriza um host externo a representar uma organização; é escrita só na transação de verificação, depois da consulta DNS (feita fora de lock), e um domínio já comprovado por outra organização falha com a mesma resposta neutra, sem dizer quem o tem. A plataforma lista e revoga posses em `/platform/domains/`. Domínio igual ao domínio base ou abaixo dele, host da instalação, IP, `localhost` e curingas são recusados no cadastro.
+
 Um projeto derivado libera uma rota global própria acrescentando o prefixo a `SKELETON_ORGANIZATION_SITE_EXTRA_PREFIXES` (lista, padrão vazia), como `["/relatorios/"]`; só faça isso para rotas da própria pessoa, nunca para rotas que leiam várias organizações.
 
 ### Leitura agregada entre organizações

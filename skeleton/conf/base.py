@@ -277,6 +277,8 @@ SKELETON_ORGANIZATION_BASE_DOMAIN = env("SKELETON_ORGANIZATION_BASE_DOMAIN", def
 SESSION_COOKIE_NAME = "skeleton_session" if SKELETON_ORGANIZATION_BASE_DOMAIN else "sessionid"
 if SKELETON_ORGANIZATION_BASE_DOMAIN and "." + SKELETON_ORGANIZATION_BASE_DOMAIN not in ALLOWED_HOSTS:
     ALLOWED_HOSTS = [*ALLOWED_HOSTS, "." + SKELETON_ORGANIZATION_BASE_DOMAIN]  # Last: the first is the health host.
+# Custom domains of organizations, proven by DNS (#488, #489); only with the base domain.
+SKELETON_ORGANIZATION_CUSTOM_DOMAINS = env.bool("SKELETON_ORGANIZATION_CUSTOM_DOMAINS", default=False)
 # Global route prefixes a derived project opens on organization hosts (#482), such as ["/reports/"].
 SKELETON_ORGANIZATION_SITE_EXTRA_PREFIXES = []
 

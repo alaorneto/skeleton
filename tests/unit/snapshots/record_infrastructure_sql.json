@@ -72,6 +72,8 @@
   "sk_tenancy.organizationdirectoryentry": "267a54a46dc592d2e7ab888bbfeeecae86e9edfd22772147c0c516e27ae68634",
   "sk_tenancy.organizationsettings": "8d0560c9b04593e76f34b71dbe208b21d4351516fc248a62f902f7abe0f35e09",
   "sk_tenancy.organizationsite": "b47ecdea37c4b75842a67bde738e67ffcb8eaa3f78a9e1a7bb239a6514db0474",
+  "sk_tenancy.sitedomain": "ded344729f02eed3a3859d0f4dd9824b78eaa830f18f84d842547f762dd4d209",
+  "sk_tenancy.sitedomainclaim": "30a31ea894dc0787daeef201ebd5e1ab7a165a6af6b5fa506837d67e4170c08a",
   "sk_tenancy.verifieddomain": "2cb3d97ded9038b8c0d3303d682e716972992b1efeb03ef74d790a16a36908a7",
   "sk_transfer.transferjob": "190e46d91b0ea1981bf1496b100de965b83d791c21ccf09439741a7d1b2fdafa",
   "skeleton_calendar.calendar": "2a60ce1cfbfbc0ced9c59ffce05dced668a5fb11753fa893d661f5e213c9b5c3",

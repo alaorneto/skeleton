@@ -105,6 +105,12 @@ def _site_address(organization_id):
     return organization_origin(organization.slug), ""
 
 
+def _custom_domains_enabled() -> bool:
+    from skeleton.tenancy.site_domains import custom_domains_enabled
+
+    return custom_domains_enabled()
+
+
 def _apply_error(form: OrganizationSettingsForm, error: ValidationError, site_form=None) -> None:
     for field, problems in error.message_dict.items():
         if site_form is not None and field in site_form.fields:
@@ -127,6 +133,7 @@ def _page(request, organization_id, form, *, status=200, logo_errors=(), site_fo
             "site_form": site_form if origin else None,
             "site_origin": origin,
             "site_refused": site_refused,
+            "custom_domains": _custom_domains_enabled(),
             "organization_id": organization_id,
             "revision": revision_of(record),
             "has_logo": bool(record is not None and record.logo_key),
