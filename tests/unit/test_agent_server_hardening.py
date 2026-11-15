@@ -253,3 +253,38 @@ def test_agent_update_answers_then_serve_exits_for_a_restart(tmp_path, token_fil
     }
     thread.join(10)
     assert not thread.is_alive() and result["code"] == 75 and not path.exists()
+
+
+def test_run_update_checks_waits_with_the_event_and_never_sleeps(monkeypatch):
+    from deployment_agent import catalogue
+
+    waits, checks = [], []
+
+    class Stop:
+        answers = [False, False, True]
+
+        def wait(self, delay):
+            waits.append(delay)
+            return self.answers.pop(0)
+
+    monkeypatch.setattr(catalogue, "scheduled_check", lambda service: checks.append(service) or "checked")
+    server_module.run_update_checks("service", Stop(), interval=3600, first_delay=120)
+    assert waits == [120, 3600, 3600] and checks == ["service", "service"]
+
+
+@pytest.mark.parametrize("interval,expected", [(0, False), (3600, True)])
+def test_serve_starts_the_update_check_thread_only_with_an_interval(tmp_path, token_file, servers, interval, expected):
+    import threading
+
+    service, path = serving(tmp_path, token_file)
+    service.config["update_check_interval"] = interval
+    thread = Thread(target=server_module.serve, args=(service,), daemon=True)
+    thread.start()
+    wait_for(path)
+    try:
+        names = {item.name for item in threading.enumerate()}
+        assert ("deployment-update-check" in names) is expected
+    finally:
+        _stop(servers)
+        thread.join(5)
+    assert not thread.is_alive()

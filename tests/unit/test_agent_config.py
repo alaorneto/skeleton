@@ -262,3 +262,11 @@ def test_agent_root_and_publishers_are_validated(tmp_path):
     assert refused("invalid_agent_publishers", tmp_path, agent_publishers="org.example")
     config = load_config(tmp_path, agent_root=str(root), agent_publishers=["org.example"])
     assert config.get("agent_root") == str(root) and config.path == tmp_path / "agent.json"
+
+
+@pytest.mark.parametrize("value", [-1, "6h", True])
+def test_update_check_interval_is_a_non_negative_number(value):
+    with pytest.raises(AgentError, match="invalid_numeric_setting"):
+        _validate_optional({"update_check_interval": value})
+    for valid in (0, 3600, 21600.5):
+        _validate_optional({"update_check_interval": valid})

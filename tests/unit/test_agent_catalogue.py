@@ -5,6 +5,7 @@ No network: ``build_opener`` is replaced by a fake whose responses the test choo
 
 import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,7 +16,7 @@ from deployment_agent import catalogue as catalogue_module  # noqa: E402
 from deployment_agent.service import NoRedirect  # noqa: E402
 from deployment_agent.storage import AgentError  # noqa: E402
 from skeleton.system.packages import PackageError  # noqa: E402
-from tests.unit.agent_helpers import bare_service  # noqa: E402
+from tests.unit.agent_helpers import bare_service, journal_operation  # noqa: E402
 
 pytestmark = pytest.mark.posix
 CATALOG_URL = "https://releases.example.test/catalog/index.json"
@@ -388,3 +389,33 @@ def test_same_version_from_two_sources_keeps_the_first(service, tmp_path, expiri
         {"id": "second", "path": str(second / "index.json")},
     ]
     assert service.check_updates()["paths"][0]["steps"] == [{"version": "0.6.3", "source_id": "first"}]
+
+
+def test_scheduled_check_skips_without_touching_the_network(service, tmp_path, network):
+    assert catalogue_module.scheduled_check(service) == "skipped"  # No sources.
+    service.config["catalogue_sources"] = [{"id": "remote", "url": CATALOG_URL}]
+    Path(service.config["maintenance_marker"]).write_text("{}")
+    assert catalogue_module.scheduled_check(service) == "skipped"
+    Path(service.config["maintenance_marker"]).unlink()
+    journal_operation(service, tmp_path, state="running")
+    assert catalogue_module.scheduled_check(service) == "skipped"
+    (tmp_path / "fresh").mkdir()
+    fresh = bare_service(tmp_path / "fresh")
+    fresh.config["catalogue_sources"] = [{"id": "remote", "url": CATALOG_URL}]
+    (fresh.store.root / "active.json").unlink()
+    assert catalogue_module.scheduled_check(fresh) == "skipped"
+    assert network.requests == []
+
+
+def test_scheduled_check_refreshes_and_never_raises(service, expiring, network, monkeypatch):
+    network.responses[CATALOG_URL] = json.dumps({"signed": True, "body": body(core_entry("0.6.3"))}).encode()
+    service.config["catalogue_sources"] = [{"id": "remote", "url": CATALOG_URL}]
+    assert catalogue_module.scheduled_check(service) == "checked"
+    assert service.update_status()["checked_at"] is not None
+    assert service.update_status()["paths"][0]["steps"] == [{"version": "0.6.3", "source_id": "remote"}]
+
+    def broken(service):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(catalogue_module, "refresh_sources", broken)
+    assert catalogue_module.scheduled_check(service) == "failed"

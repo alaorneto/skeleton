@@ -3,3 +3,4 @@
 {% block shell_class %}{% translate "with-sidebar" %}{% endblock %}
 {% block sidebar %}{% include "skeleton/web/components/platform-sidebar.html" %}{% endblock %}
 {% block main_class %}{% translate "max-lg:pt-0" %}{% endblock %}
+{% block notices %}{% if platform_update_notice.mode %}{% if platform_section != "updates" or platform_update_notice.mode == "informative" %}<div class="message warning mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% include "skeleton/web/platform/update-notice.html" %}</div></div>{% endif %}{% endif %}{% endblock %}

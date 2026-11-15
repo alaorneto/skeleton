@@ -23,6 +23,7 @@ from .storage import (
     atomic_json,
     digest,
     load_json,
+    log_internal_error,
     now,
 )
 from .types import JSON
@@ -299,6 +300,27 @@ def evaluate(service: "DeploymentService") -> JSON:
             )
         )
     return {"releases": releases, "paths": paths}
+
+
+def scheduled_check(service: "DeploymentService") -> str:
+    """One unattended check (#501): 'checked', 'skipped' or 'failed'; never raises, never downloads a package."""
+    try:
+        if not service.catalogue_sources():
+            return "skipped"
+        service.state()  # deployment_not_initialized: nothing to compare with yet.
+        service.ensure_available()  # Never during maintenance, an operation or a preparation.
+    except AgentError:
+        return "skipped"
+    except Exception as error:  # noqa: BLE001 - the periodic thread must survive anything
+        log_internal_error(error)
+        return "failed"
+    try:
+        refresh_sources(service)
+    except Exception as error:  # noqa: BLE001 - one failed check never stops the next one
+        if not isinstance(error, AgentError):
+            log_internal_error(error)
+        return "failed"
+    return "checked"
 
 
 def check_updates(service: "DeploymentService") -> JSON:

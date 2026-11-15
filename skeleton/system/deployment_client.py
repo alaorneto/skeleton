@@ -198,9 +198,9 @@ class AgentClient:
             "POST", "/sources/remove", {"id": source_id, "actor_id": str(actor_id)}, timeout=STATUS_TIMEOUT
         )
 
-    def update_status(self):
+    def update_status(self, *, timeout=STATUS_TIMEOUT):
         """Last check of the sources and the update paths, recalculated; the agent stays offline (#493)."""
-        return self._request("GET", "/updates/status", timeout=STATUS_TIMEOUT)
+        return self._request("GET", "/updates/status", timeout=timeout)
 
     def fetch_release(self, component_id, version, source_id):
         return self._request(

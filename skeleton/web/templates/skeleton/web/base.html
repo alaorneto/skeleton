@@ -39,6 +39,7 @@
   {% block sidebar %}{% if organization_id %}{% include "skeleton/web/components/org-sidebar.html" %}{% endif %}{% endblock %}
   <main id="conteudo" tabindex="-1" class="app-main min-w-0 py-6 focus:outline-none sm:py-8 {% block main_class %}{% if organization_id %}max-lg:pt-0{% endif %}{% endblock %}">
     {% include "skeleton/web/components/messages.html" %}
+    {% block notices %}{% endblock %}
     {% block page_nav %}{% endblock %}
     {% block content %}{% endblock %}
   </main>

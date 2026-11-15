@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template.loader import render_to_string
+from django.test import Client
 from django.urls import reverse
 
 from skeleton.accounts.platform import grant_platform_role
@@ -380,7 +381,7 @@ class PathAgent:
         self.calls, self.status, self.fetched = [], status, fetched
         self.agent = agent or {"version": "0.7.0", "self_update": True}
 
-    def update_status(self):
+    def update_status(self, **options):
         self.calls.append("update_status")
         if isinstance(self.status, Exception):
             raise self.status
@@ -567,3 +568,100 @@ def test_finished_operation_offers_the_next_step(admin, monkeypatch, subtests):
         double.status = DeploymentUnavailable("x")
         response = client.get(url)
         assert response.status_code == 200 and "Próximo passo" not in response.content.decode()
+
+
+@pytest.fixture
+def notice_cache(settings):
+    from django.core.cache import cache
+
+    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "banner"}}
+    settings.SKELETON_AGENT_SOCKET = "/run/skeleton/agent.sock"
+    cache.clear()
+    yield cache
+    cache.clear()
+
+
+def notice_agent(monkeypatch, status=STATUS):
+    from skeleton.system import releases
+
+    double = PathAgent(status)
+    monkeypatch.setattr(releases, "agent_client", lambda: double)
+    monkeypatch.setattr(updates, "agent_client", lambda: double)
+    return double
+
+
+def test_platform_banner_for_release_operators(admin, monkeypatch, notice_cache, subtests):
+    double = notice_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    with subtests.test("banner on platform pages"):
+        body = client.get(reverse("platform:overview")).content.decode()
+        assert "Há uma versão nova do núcleo: 0.7.1." in body
+        assert reverse("platform:updates-available") in body
+    with subtests.test("one agent call for many pages"):
+        client.get(reverse("platform:users"))
+        assert double.calls.count("update_status") == 1
+    with subtests.test("not on the update pages"):
+        body = client.get(reverse("platform:updates-operations")).content.decode()
+        assert "Há atualizações disponíveis" not in body
+    with subtests.test("check now recomputes"):
+        client.post(reverse("platform:updates-available"))
+        client.get(reverse("platform:overview"))
+        assert double.calls.count("update_status") == 2
+
+
+def test_banner_counts_apps_with_plural(admin, monkeypatch, notice_cache):
+    two = {
+        "paths": [
+            {
+                "component_id": f"org.example.app{n}",
+                "latest": "2.0.0",
+                "steps": [{"version": "2.0.0", "source_id": "s"}],
+            }
+            for n in (1, 2)
+        ]
+    }
+    notice_agent(monkeypatch, {**two, "paths": [*two["paths"], STATUS["paths"][0]]})
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    assert (
+        "Há atualizações disponíveis: núcleo 0.7.1 e 2 apps."
+        in client.get(reverse("platform:overview")).content.decode()
+    )
+    from django.core.cache import cache
+
+    cache.clear()
+    notice_agent(monkeypatch, {"paths": two["paths"][:1]})
+    assert "Há atualizações para 1 app." in client.get(reverse("platform:overview")).content.decode()
+
+
+def test_overview_says_up_to_date(admin, monkeypatch, notice_cache):
+    notice_agent(monkeypatch, {"paths": []})
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    body = client.get(reverse("platform:overview")).content.decode()
+    assert "Tudo atualizado." in body and "Há atualizações" not in body
+
+
+def test_banner_never_breaks_a_page_when_the_agent_is_down(admin, monkeypatch, notice_cache):
+    from skeleton.system.releases import DeploymentUnavailable
+
+    notice_agent(monkeypatch, DeploymentUnavailable("down"))
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    assert client.get(reverse("platform:overview")).status_code == 200
+    assert client.get(reverse("platform:users")).status_code == 200
+
+
+def test_no_banner_and_no_agent_call_without_the_capability(admin, monkeypatch, notice_cache):
+    double = notice_agent(monkeypatch)
+    with system_context(reason="test:banner-auditor"):
+        auditor = create_identity(email="banner-auditor@example.test", password=PASSWORD)
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=auditor, email=auditor.email, verified=True, primary=True)
+    with request_context(actor=admin, request_id=uuid4(), source="test:banner"):
+        grant_platform_role(actor=admin, user=auditor, role="auditor")
+    client = support.login(auditor, password=PASSWORD, csrf=False)
+    assert "Há atualizações" not in client.get(reverse("platform:audit")).content.decode()
+    anonymous = Client()
+    anonymous.get(reverse("account_login"))
+    admin_client = support.login(admin, password=PASSWORD, csrf=False)
+    admin_client.get("/me/")  # Outside /platform/: never the agent.
+    assert double.calls == []

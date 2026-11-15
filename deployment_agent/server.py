@@ -320,6 +320,25 @@ class StatusHandler(QuietHandler):
             self.close_connection = True
 
 
+UPDATE_CHECK_FIRST_DELAY = 120  # An agent restarting in a loop never hammers the sources.
+
+
+def run_update_checks(
+    service: "DeploymentService",
+    stop: threading.Event,
+    *,
+    interval: float,
+    first_delay: float = UPDATE_CHECK_FIRST_DELAY,
+) -> None:
+    """Check the sources every ``interval`` seconds until ``stop`` is set (#501); waits never block shutdown."""
+    from .catalogue import scheduled_check
+
+    delay = first_delay
+    while not stop.wait(delay):
+        scheduled_check(service)
+        delay = interval
+
+
 def install_signal_handlers(server: Any) -> Callable[[int, FrameType | None], None]:
     """SIGTERM/SIGINT stop accepting requests; serve() then waits for the running operation (#280)."""
 
@@ -387,9 +406,20 @@ def serve(service: "DeploymentService") -> int:
         threading.Thread(target=status_server.serve_forever, daemon=True, name="deployment-status").start()
     if threading.current_thread() is threading.main_thread():
         install_signal_handlers(server)
+    stop_checks = threading.Event()
+    interval = service.config.get("update_check_interval", 21600)
+    if interval and interval > 0:
+        threading.Thread(
+            target=run_update_checks,
+            args=(service, stop_checks),
+            kwargs={"interval": interval},
+            daemon=True,
+            name="deployment-update-check",
+        ).start()
     try:
         server.serve_forever()
     finally:
+        stop_checks.set()
         server.server_close()
         if status_server:
             status_server.shutdown()

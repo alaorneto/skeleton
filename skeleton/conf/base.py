@@ -94,6 +94,7 @@ TEMPLATES = [
                 "skeleton.system.applications.application_navigation",
                 "skeleton.web.navigation.organization_shell",
                 "skeleton.accounts.platform.platform_admin_context",
+                "skeleton.web.platform.context.platform_update_notice",
             ]
         },
     }

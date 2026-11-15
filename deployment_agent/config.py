@@ -131,6 +131,9 @@ def _validate_optional(values: JSON) -> None:
     interval = values.get("drift_check_interval")
     if interval is not None and (isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 0):
         raise AgentError("invalid_numeric_setting")  # Seconds; 0 turns the inventory cache off (#281).
+    interval = values.get("update_check_interval")
+    if interval is not None and (isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 0):
+        raise AgentError("invalid_numeric_setting")  # Seconds between unattended checks; 0 turns them off (#501).
     for key in NUMERIC_SETTINGS:
         if key in values:
             value = values[key]

@@ -31,6 +31,7 @@ from skeleton.system.releases import (
     DeploymentUnavailable,
     agent_client,
     confirm_operation,
+    invalidate_update_notice,
     plan_artifact,
     preview_status,
     reconcile_operation,
@@ -476,6 +477,7 @@ def available(request):
             agent_client().check_updates()
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
+        invalidate_update_notice()
         return redirect("platform:updates-available")
     status = None
     try:
