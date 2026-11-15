@@ -421,6 +421,8 @@ class OrganizationSettings(OrganizationRecord):
     default_timezone = models.CharField(max_length=64, blank=True, default="")
     brand_color = models.CharField(max_length=7, blank=True, default="")
     logo_key = models.CharField(max_length=300, blank=True, default="")
+    # The square PNG icon (#485): favicon and shortcut icon; private key like the logo, redacted in audit.
+    icon_key = models.CharField(max_length=300, blank=True, default="")
     # The business calendar (#416): weekday -> [["09:00", "18:00"], ...] and ISO holiday dates.
     business_hours = models.JSONField(default=dict, blank=True)
     holidays = models.JSONField(default=list, blank=True)
@@ -475,6 +477,7 @@ class OrganizationSite(SystemRecord):
     brand_color = models.CharField(max_length=7, blank=True, default="")
     logo_key = models.CharField(max_length=300, blank=True, default="")
     default_language = models.CharField(max_length=16, blank=True, default="")
+    icon_key = models.CharField(max_length=300, blank=True, default="")
     immutable_fields = ("site_organization_id",)
 
     class Meta(SystemRecord.Meta):

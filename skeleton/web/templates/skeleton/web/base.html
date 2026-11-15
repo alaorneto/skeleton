@@ -7,6 +7,8 @@
 <title>{% block title %}{{ site_name }}{% endblock %}</title>
 <link rel="preload" href="{% static 'skeleton/web/vendor/inter-5.3.0/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
 {% block extrahead %}{% endblock %}
+{% if organization_icon_url %}<link rel="icon" type="image/png" href="{{ organization_icon_url }}"><link rel="apple-touch-icon" href="{{ organization_icon_url }}">{% else %}<link rel="icon" type="image/svg+xml" href="{% static 'skeleton/web/favicon.svg' %}">{% endif %}
+{% if site_mode %}<link rel="manifest" href="{% url 'web:site-manifest' %}">{% endif %}
 <link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
 {% if organization_brand.css %}<style nonce="{{ csp_nonce }}">{{ organization_brand.css|safe }}</style>{% endif %}
 <script src="{% static 'skeleton/web/vendor/flowbite-4.0.2/flowbite.min.js' %}" defer></script>

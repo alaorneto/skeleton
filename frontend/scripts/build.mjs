@@ -65,6 +65,8 @@ function buildInto(outRoot) {
     if (result.status !== 0) process.exit(result.status ?? 1);
     files.set(entry, Buffer.from(lf(readFileSync(cssOut, "utf8")).trimEnd() + "\n"));
   }
+  // Favicon padrão do núcleo (#485): copiado de frontend/src, nunca editado em static/.
+  files.set("favicon.svg", Buffer.from(lf(readFileSync(join(frontend, "src", "favicon.svg"), "utf8")).trimEnd() + "\n"));
 
   // Flowbite JS: o mapa de fonte não é distribuído, então a referência sai
   // (ManifestStaticFilesStorage falharia ao resolver um .map ausente).

@@ -105,9 +105,16 @@ A página de detalhe mostra uma **linha do tempo** que junta a auditoria e os an
 - **Anexos:** seguem a autorização do alvo.
 
 Novas fontes entram com `skeleton.web.timeline.register_timeline_source`, e cada uma devolve só o que já mostraria sozinha.
+
 ### Título e marca no endereço da organização
 
 O título de toda página termina com `· {{ site_name }}` (`<tela> · {{ site_name }}`), nunca com o literal "Skeleton" ([#484](https://github.com/alaorneto/skeleton/issues/484)). `site_name` vem do processador `organization_shell`: o nome público da organização no host `<slug>.<domínio base>` e "Skeleton" em qualquer outro host. No host da organização a marca aparece também nas páginas anônimas (login, cadastro, senha, MFA, "sem vínculo"): sem contexto de tenant, `organization_brand` vem do índice `OrganizationSite` (nome, paleta e `/site/logo/`), sem ler `OrganizationSettings`; dentro do tenant vem das configurações, como antes, mas o logo usa a URL pública `/site/logo/?v=…`. O leiaute de entrada (`account/base_entrance.html`) mostra o logo ou o nome no cartão, o rodapé mostra só o nome e `<meta name="theme-color">` leva a cor da marca. Não há template de 404/500 próprio: as respostas de erro do Django continuam em texto puro, sem marca.
+
+### Favicon, ícone da organização e manifesto
+
+O favicon padrão do núcleo (`frontend/src/favicon.svg`, na cor de marca padrão) é copiado pelo build (`frontend/scripts/build.mjs`) para `skeleton/web/static/skeleton/web/favicon.svg`, e `npm run check` recusa uma cópia divergente; nada é editado à mão em `static/`. `base.html` (e por ele o leiaute de entrada e a plataforma) e o leiaute do setup têm `<link rel="icon">`. O administrador envia em `/o/<org>/settings/` um ícone PNG quadrado de exatamente 512 × 512 pixels, até 256 KB, provado pelo conteúdo (assinatura e cabeçalho `IHDR`, sem biblioteca de imagem; [#485](https://github.com/alaorneto/skeleton/issues/485)). `organization_icon_url`, do processador `organization_shell`, aponta para `/site/icon/?v=…` no host da organização e para `/o/<org>/settings/icon/?v=…` (só membros) nas páginas da organização no domínio principal; vazio, vale o favicon padrão. Trocar o ícone muda o `?v=`. No host da organização há ainda `<link rel="manifest">` para `/site/manifest.webmanifest` (nome, nome curto de 12 caracteres, cor e ícone, todos já públicos).
+
+### Texto nos templates
 
 Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skeleton/issues/172)). Isso vale para o conteúdo entre tags, como em `{% translate "Salvar" %}`, e para os atributos visíveis (`alt`, `title`, `placeholder`, `aria-label`). Nos argumentos de tags, use `_("…")`, como em `{% include "…" with label=_("Abrir") %}`. As msgids ficam em pt-BR e o template carrega `{% load i18n %}`. Em frases com variável, prefira `{% blocktranslate trimmed %}` com nomes simples, usando `with` para os atributos. Dados (nomes, emails, valores) nunca entram no gettext.
 

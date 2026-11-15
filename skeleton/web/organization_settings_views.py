@@ -113,7 +113,7 @@ def _apply_error(form: OrganizationSettingsForm, error: ValidationError, site_fo
             form.add_error(field if field in form.fields else None, problems)
 
 
-def _page(request, organization_id, form, *, status=200, logo_errors=(), site_form=None):
+def _page(request, organization_id, form, *, status=200, logo_errors=(), site_form=None, icon_errors=()):
     record = current_settings()
     dashboard = reverse("web:dashboard", kwargs={"organization_id": organization_id})
     origin, site_refused = _site_address(organization_id)
@@ -131,6 +131,8 @@ def _page(request, organization_id, form, *, status=200, logo_errors=(), site_fo
             "revision": revision_of(record),
             "has_logo": bool(record is not None and record.logo_key),
             "logo_errors": list(logo_errors),
+            "has_icon": bool(record is not None and record.icon_key),
+            "icon_errors": list(icon_errors),
             "cancel_url": dashboard,
             "breadcrumbs": [{"label": gettext("Início"), "url": dashboard}, {"label": gettext("Configurações")}],
         },
@@ -271,3 +273,115 @@ def site_logo(request):
     if site is None or not site.logo_key:
         raise Http404
     return public_site_image(request, open_site_logo(site))
+
+
+def _default_favicon():
+    from django.templatetags.static import static
+
+    return static("skeleton/web/favicon.svg")
+
+
+def site_icon_url(site) -> str:
+    return reverse("web:site-icon") + f"?v={site.icon_key[-12:]}"
+
+
+@require_safe
+def site_icon(request):
+    """``/site/icon/`` (#485): the public PNG icon of the organization host; without one, the core favicon."""
+    from django.shortcuts import redirect as go
+
+    from skeleton.tenancy.branding import open_site_icon
+
+    site = getattr(request, "organization_site", None)
+    if site is None:
+        raise Http404
+    if not site.icon_key:
+        return go(_default_favicon())
+    return public_site_image(request, open_site_icon(site))
+
+
+@require_safe
+def site_manifest(request):
+    """``/site/manifest.webmanifest`` (#485): only the name, colour and icon already public."""
+    from django.http import JsonResponse
+
+    site = getattr(request, "organization_site", None)
+    if site is None:
+        raise Http404
+    manifest = {"name": site.name, "short_name": site.name[:12], "start_url": "/", "display": "standalone"}
+    if site.brand_color:
+        manifest["theme_color"] = site.brand_color
+    if site.icon_key:
+        manifest["icons"] = [{"src": reverse("web:site-icon"), "sizes": "512x512", "type": "image/png"}]
+    response = JsonResponse(manifest, content_type="application/manifest+json")
+    response["Cache-Control"] = "public, max-age=300"
+    return response
+
+
+@require_safe
+def favicon(request):
+    """``/favicon.ico``: the organization's icon on its host, the core SVG everywhere else."""
+    from django.shortcuts import redirect as go
+
+    site = getattr(request, "organization_site", None)
+    if site is not None and site.icon_key:
+        return go(site_icon_url(site))
+    return go(_default_favicon())
+
+
+@tenant_page()
+@require_safe
+def organization_icon(request, organization_id):
+    """The icon of the organization for its members on the main domain (#485)."""
+    from skeleton.tenancy.branding import open_icon
+
+    found = open_icon()
+    if found is None:
+        raise Http404
+    record, content = found
+    etag = '"' + record.icon_key.rsplit("/", 1)[1] + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"}
+    if request.headers.get("If-None-Match") == etag:
+        response = HttpResponseNotModified()
+    else:
+        response = HttpResponse(content, content_type="image/png")
+        response["Content-Disposition"] = "inline"
+        response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+    for name, value in headers.items():
+        response[name] = value
+    return response
+
+
+@tenant_page(admin=True)
+@never_cache
+@require_POST
+def organization_icon_update(request, organization_id):
+    from skeleton.tenancy.branding import remove_icon, replace_icon
+
+    action = request.POST.get("action")
+    try:
+        revision = int(request.POST.get("revision", ""))
+    except ValueError:
+        revision = -1
+    form = OrganizationSettingsForm(initial={"revision": revision_of(current_settings())})
+    try:
+        with transaction.atomic():
+            if action == "upload" and "icon" in request.FILES:
+                replace_icon(actor=request.user, upload=request.FILES["icon"], expected_revision=revision)
+            elif action == "remove":
+                remove_icon(actor=request.user, expected_revision=revision)
+            else:
+                raise ValidationError({"icon": gettext("Escolha um arquivo PNG.")})
+    except ConcurrentUpdate:
+        return _page(
+            request,
+            organization_id,
+            form,
+            status=409,
+            icon_errors=[gettext("As configurações mudaram. Atualize a página.")],
+        )
+    except ValidationError as exc:
+        errors = [message for messages_ in exc.message_dict.values() for message in messages_]
+        return _page(request, organization_id, form, status=400, icon_errors=errors)
+    messages.success(request, gettext("Ícone removido.") if action == "remove" else gettext("Ícone atualizado."))
+    return redirect("web:organization-settings", organization_id=organization_id)

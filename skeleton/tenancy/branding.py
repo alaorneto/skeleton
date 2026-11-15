@@ -279,3 +279,102 @@ def open_site_image(
 def open_site_logo(site: Any) -> tuple[bytes, str] | None:
     """The public logo of an enabled site (#484): only the key of the index, only PNG, JPEG or WebP."""
     return open_site_image(site.logo_key, site.organization_id, LOGO_TYPES, ("logo.png", "logo.jpg", "logo.webp"))
+
+
+# --------------------------------------------------------------------------- icon (#485)
+
+ICON_MAX_BYTES = 256 * 1024
+ICON_SIDE = 512
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def icon_key(organization_id: Any) -> str:
+    return logo_key(organization_id)  # Same private prefix: org/<uuid>/branding/<uuid4>.
+
+
+def _checked_icon(upload: Any) -> None:
+    """PNG, exactly 512 x 512, up to 256 KB; proven by the content, never by the name."""
+    import struct
+
+    from skeleton.files.sniffing import HEAD_BYTES, detect
+
+    size = getattr(upload, "size", None)
+    if size is None or size > ICON_MAX_BYTES:
+        raise ValidationError({"icon": gettext("O ícone pode ter até 256 KB.")})
+    head = upload.read(max(HEAD_BYTES, 24))
+    upload.seek(0)
+    if detect(head[:HEAD_BYTES], getattr(upload, "name", "") or "") != "image/png" or not head.startswith(
+        PNG_SIGNATURE
+    ):
+        raise ValidationError({"icon": gettext("Use uma imagem PNG.")})
+    if len(head) < 24 or head[12:16] != b"IHDR" or struct.unpack(">II", head[16:24]) != (ICON_SIDE, ICON_SIDE):
+        raise ValidationError({"icon": gettext("O ícone precisa ser um PNG quadrado de 512 × 512 pixels.")})
+
+
+def replace_icon(*, actor: Any, upload: IO[bytes], expected_revision: int) -> Any:
+    """Store a new icon and point the settings at it (CAS); the old object goes after commit."""
+    from skeleton.access.services import organization_lock
+    from skeleton.files.storage import StorageError, delete, put_stream
+
+    from .models import OrganizationSettings
+    from .site import sync_site
+
+    _check_revision(expected_revision)
+    _checked_icon(upload)
+    with organization_lock(actor) as organization:
+        record = _locked_settings(organization, expected_revision)
+        key = icon_key(organization.pk)
+        try:
+            put_stream(key, upload, max_bytes=ICON_MAX_BYTES)
+        except StorageError:
+            raise ValidationError({"icon": gettext("Não foi possível guardar o ícone.")}) from None
+        previous = record.icon_key if record is not None else ""
+        try:
+            with transaction.atomic():
+                if record is None:
+                    record = OrganizationSettings(organization=organization, icon_key=key)
+                    record.save()
+                else:
+                    record.icon_key = key
+                    record.save(update_fields={"icon_key"})
+        except BaseException:
+            delete(key)
+            raise
+        sync_site(organization, record)
+        _delete_after_commit(previous)
+        return record
+
+
+def remove_icon(*, actor: Any, expected_revision: int) -> Any:
+    """Clear the icon (CAS); the object is deleted after the commit."""
+    from skeleton.access.services import organization_lock
+
+    from .site import sync_site
+
+    _check_revision(expected_revision)
+    with organization_lock(actor) as organization:
+        record = _locked_settings(organization, expected_revision)
+        if record is None or not record.icon_key:
+            return record
+        previous = record.icon_key
+        record.icon_key = ""
+        record.save(update_fields={"icon_key"})
+        sync_site(organization, record)
+        _delete_after_commit(previous)
+        return record
+
+
+def open_icon() -> tuple[Any, bytes] | None:
+    """The icon of the context organization as (record, PNG bytes), or None (members only)."""
+    from .organization_settings import current_settings
+
+    record = current_settings()
+    if record is None or not record.icon_key:
+        return None
+    found = open_site_image(record.icon_key, record.organization_id, frozenset({"image/png"}), ("icon.png",))
+    return (record, found[0]) if found is not None else None
+
+
+def open_site_icon(site: Any) -> tuple[bytes, str] | None:
+    """The public icon of an enabled site: only the key of the index, only PNG."""
+    return open_site_image(site.icon_key, site.organization_id, frozenset({"image/png"}), ("icon.png",))

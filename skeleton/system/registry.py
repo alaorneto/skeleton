@@ -132,7 +132,7 @@ def register_core_specs():
             gettext_lazy("Configurações da organização"),
             gettext_lazy("Nome de exibição, idioma e fuso padrão e marca da organização, editados pelo administrador."),
             "organization",
-            ("logo_key",),
+            ("logo_key", "icon_key"),
         ),
         "sk_tenancy.organizationadmissionpolicy": (
             "Política de admissão",
@@ -168,7 +168,7 @@ def register_core_specs():
             "Endereços de organizações",
             "Índice global das organizações com endereço próprio ligado e da marca que o administrador publicou.",
             "global",
-            ("logo_key",),
+            ("logo_key", "icon_key"),
         ),
         "sk_tenancy.identityprovideradmission": (
             "Admissão por provedor de identidade",

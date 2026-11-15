@@ -80,6 +80,10 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
         "site": site,
         # The suffix of every page title (#484): the organization on its own address, else the product.
         "site_name": site.name if site is not None else "Skeleton",
+        # The favicon (#485): the site's public icon on its host; inside /o/<org>/ the members' icon.
+        "organization_icon_url": reverse("web:site-icon") + f"?v={site.icon_key[-12:]}"
+        if site is not None and site.icon_key
+        else "",
     }
     if site is not None and current_context().organization_id is None:
         # Before login or outside the tenant context: the brand the administrator published (#484).
@@ -122,6 +126,12 @@ def _signed_in_shell(request: HttpRequest, user: Any, site: Any) -> dict[str, An
     values.update(_access_navigation(organization_id, resource, capabilities))
     values["admission_links"] = _admission_links(organization_id, capabilities, request.path)
     values["organization_brand"] = _brand(organization_id, site)
+    if site is None:
+        icon = values["organization_brand"].get("icon_key", "")
+        if icon:
+            values["organization_icon_url"] = (
+                reverse("web:organization-icon", kwargs={"organization_id": organization_id}) + f"?v={icon[-12:]}"
+            )
     return values
 
 
@@ -161,6 +171,7 @@ def _brand(organization_id: Any, site: Any = None) -> dict[str, Any]:
         "css": tokens.css() if tokens else "",
         "color": tokens.brand if tokens else "",
         "logo_url": logo_url,
+        "icon_key": record.icon_key,
     }
 
 

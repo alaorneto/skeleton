@@ -5,10 +5,15 @@ from skeleton.tenancy.routing import ORG
 from skeleton.web import admission_views, identity_views, privacy_views, views
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import (
+    favicon,
+    organization_icon,
+    organization_icon_update,
     organization_logo,
     organization_logo_update,
     organization_settings,
+    site_icon,
     site_logo,
+    site_manifest,
 )
 
 app_name = "web"
@@ -24,6 +29,9 @@ urlpatterns = [
     path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
     # Public brand of the organization host (#484, #485): 404 on the main domain.
     path("site/logo/", site_logo, name="site-logo"),
+    path("site/icon/", site_icon, name="site-icon"),
+    path("site/manifest.webmanifest", site_manifest, name="site-manifest"),
+    path("favicon.ico", favicon, name="favicon"),
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
     path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
@@ -57,6 +65,8 @@ urlpatterns = [
     path(f"{ORG}settings/", organization_settings, name="organization-settings"),
     path(f"{ORG}settings/logo/", organization_logo, name="organization-logo"),
     path(f"{ORG}settings/logo/update/", organization_logo_update, name="organization-logo-update"),
+    path(f"{ORG}settings/icon/", organization_icon, name="organization-icon"),
+    path(f"{ORG}settings/icon/update/", organization_icon_update, name="organization-icon-update"),
     path(f"{ORG}catalog/", views.catalog, name="catalog"),
     path(f"{ORG}audit/", views.audit, name="audit"),
     path(f"{ORG}invitations/<uuid:sysid>/resend/", resend, name="invitation-resend"),

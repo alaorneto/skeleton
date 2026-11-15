@@ -112,9 +112,10 @@ class Site:
     brand_color: str
     logo_key: str
     default_language: str
+    icon_key: str = ""  # The square PNG icon (#485).
 
 
-BRAND_FIELDS = ("display_name", "brand_color", "logo_key", "default_language")
+BRAND_FIELDS = ("display_name", "brand_color", "logo_key", "default_language", "icon_key")
 
 
 def sync_site(organization: Any, settings_record: Any) -> None:
@@ -161,6 +162,7 @@ def _as_site(row: Any) -> Site | None:
         brand_color=row.brand_color,
         logo_key=row.logo_key,
         default_language=row.default_language,
+        icon_key=row.icon_key,
     )
 
 
