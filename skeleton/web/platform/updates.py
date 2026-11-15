@@ -242,6 +242,17 @@ ERROR_TEXT = {
         "O índice desta fonte foi assinado por outro publicador que não o escolhido para ela."
     ),
     "catalogue_artifact_path_rejected": gettext_lazy("O índice desta fonte aponta para um arquivo fora do permitido."),
+    "catalogue_unavailable": gettext_lazy(
+        "A fonte não respondeu ou respondeu em formato inesperado. Tente de novo mais tarde."
+    ),
+    "catalogue_download_too_large": gettext_lazy("O arquivo da fonte passa do limite de tamanho do agente."),
+    "catalogue_redirect_rejected": gettext_lazy("A fonte tentou redirecionar o download, o que o agente não segue."),
+    "package_verification_failed": gettext_lazy(
+        "O pacote não passou na verificação: assinatura de publicador não aprovado, conteúdo alterado ou formato inválido."
+    ),
+    "stored_artifact_corrupted": gettext_lazy(
+        "O pacote guardado no agente foi alterado. Avise o operador do servidor."
+    ),
 }
 
 
