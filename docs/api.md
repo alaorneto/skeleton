@@ -95,10 +95,11 @@ O GET de detalhe retorna um ETag forte `"<revision>"`, o marcador exato da vers�
 | Admin sem enrollment obrigatório | 403 `mfa_required` |
 | Validação/mass assignment | 400 |
 | Unicidade/referência viva/conflito de último admin | 409 |
+| Instância em manutenção (deploy ou administrativa), inclusive com token | 503 `maintenance` com `Retry-After` |
 
 Use os códigos para decidir a próxima ação, não como motivo para repetir cegamente a escrita. 428 pede a revisão obtida no GET; 412 pede reler o estado e conciliar a alteração com o usuário. 400 exige corrigir o corpo ou formato do header. 409 indica que a operação viola uma regra de integridade e não foi aplicada. 403 exige resolver autenticação, MFA ou permissão conforme o erro; 404 não distingue registro inexistente de registro oculto, evitando revelar dados de outra organização. Em sucesso, 201 indica criação, 200 traz a representação atualizada e 204 confirma exclusão lógica sem corpo.
 
-Erros JSON `{code,detail,fields?}`; X-Request-ID é gerado no servidor, sem traceback/SQL/segredo. Não use UUID do cliente como ator. Revisões são controle de concorrência, não grants.
+Erros JSON `{code,detail,fields?}`; a resposta de manutenção acrescenta `ends_at`, a previsão de término em ISO 8601 UTC ou `null`, e o cliente deve esperar o `Retry-After` antes de tentar de novo ([manutenção](maintenance.md)); X-Request-ID é gerado no servidor, sem traceback/SQL/segredo. Não use UUID do cliente como ator. Revisões são controle de concorrência, não grants.
 
 Criação/reenvio de convite confirma persistência, não entrega SMTP. Falha pós-commit conserva 201 e acrescenta `X-Email-Delivery: failed`; use resend com a revisão atual para gerar nova prova e invalidar a anterior. Audit de negócio apresenta somente fields de leitura do TableSpec; captura persistida não é descartada para filtrar a representação.
 

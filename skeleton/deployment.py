@@ -286,11 +286,60 @@ def release_response(request, confirmation=None):
     return response
 
 
+# Routes that stay open during the administrative maintenance mode (#446), by URL name and without
+# a namespace: the login, MFA and reauthentication a platform administrator needs to reach
+# /platform/ and leave the mode. Sign-up, password reset and e-mail flows stay closed (they send
+# e-mail inside the request). /platform/ itself is open here and restricted to full platform
+# administrators by MaintenancePlatformGuardMiddleware, after authentication.
+MAINTENANCE_OPEN_URL_NAMES = frozenset(
+    {
+        "account_login",
+        "account_logout",
+        "account_reauthenticate",
+        "mfa_index",
+        "mfa_authenticate",
+        "mfa_reauthenticate",
+        "mfa_trust",
+        "mfa_activate_totp",
+        "mfa_view_recovery_codes",
+        "mfa_login_webauthn",
+        "mfa_reauthenticate_webauthn",
+        "openid_connect_login",
+        "openid_connect_callback",
+        "ldap_login",
+        "saml_login",
+        "saml_acs",
+        "saml_finish_acs",
+        "github_login",
+        "github_callback",
+        "socialaccount_login_error",
+        "socialaccount_login_cancelled",
+    }
+)
+MAINTENANCE_PLATFORM_NAMESPACE = "platform"
+
+
+def maintenance_open_route(request) -> bool:
+    """True for the closed list of routes the administrative maintenance mode leaves open (#446)."""
+    from django.urls import Resolver404, resolve
+
+    try:
+        match = resolve(request.path_info, getattr(request, "urlconf", None))
+    except Resolver404:
+        return False
+    if match.namespaces:
+        return match.namespaces[0] == MAINTENANCE_PLATFORM_NAMESPACE and request.path_info.startswith("/platform/")
+    return match.url_name in MAINTENANCE_OPEN_URL_NAMES
+
+
 class MaintenanceMiddleware:
     """Maintenance and confirmation execute before sessions or DB middleware.
 
-    Application/admin requests are closed, including status views backed by the DB.
-    The separate authenticated deployment agent remains the operation control plane.
+    Two independent modes answer 503 here (#446). The deployment marker, written only by the
+    deployment agent, closes every request; the separate authenticated agent remains the
+    operation control plane. The administrative mode, stored in the instance SQLite, closes
+    every request except the routes of ``maintenance_open_route``. Both answer with
+    ``maintenance_response``. The deployment smoke requests pass both.
     """
 
     def __init__(self, get_response):
@@ -318,14 +367,29 @@ class MaintenanceMiddleware:
         )
 
     def __call__(self, request):
+        from skeleton.common.maintenance_response import maintenance_response
+        from skeleton.instance.maintenance import current_state
+
         if request.path_info == "/health/release/":
             return release_response(request, self.confirmation)
-        if self.marker and Path(self.marker).exists() and not self._private_smoke(request):
-            request.get_host()
-            from django.http import JsonResponse
+        if self._private_smoke(request):
+            return self.get_response(request)
+        if self.marker and Path(self.marker).exists():
+            return maintenance_response(request, message=None, ends_at=None, retry_after=60, deployment=True)
+        state = current_state()
+        if state.is_active():
+            if not maintenance_open_route(request):
+                from urllib.parse import urlencode
 
-            response = JsonResponse({"status": "maintenance"}, status=503)
-            response["Cache-Control"] = "no-store"
-            response["Retry-After"] = "60"
-            return response
+                from django.urls import reverse
+
+                login_url = f"{reverse('account_login')}?{urlencode({'next': '/platform/'})}"
+                return maintenance_response(
+                    request,
+                    message=state.message,
+                    ends_at=state.ends_at,
+                    retry_after=state.retry_after(),
+                    login_url=login_url,
+                )
+            request.skeleton_maintenance = state
         return self.get_response(request)

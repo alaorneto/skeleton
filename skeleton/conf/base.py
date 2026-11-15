@@ -4,7 +4,7 @@ import environ
 
 from skeleton.conf.mailers import mailer_from_url
 from skeleton.conf.paths import project_root
-from skeleton.instance.resolve import instance_env
+from skeleton.instance.resolve import instance_env, instance_paths
 
 BASE_DIR = project_root()
 environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
@@ -364,6 +364,9 @@ SKELETON_RETAINED_SCHEMA_PATHS = SKELETON_DEPLOYMENT_STATE.retained_schema_paths
 SKELETON_MIGRATION_ARCHIVES = SKELETON_DEPLOYMENT_STATE.migration_archives
 SKELETON_FROZEN_INFRASTRUCTURE = SKELETON_DEPLOYMENT_STATE.frozen_infrastructure
 SKELETON_MAINTENANCE_MARKER = env("SKELETON_MAINTENANCE_MARKER", default=None)
+# Administrative maintenance mode (#446): read on every request from the instance SQLite,
+# independent of the deployment marker above. Derived from the bootstrap paths, never configured.
+SKELETON_MAINTENANCE_STORE = str(instance_paths(BASE_DIR)[0])
 SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE = env("SKELETON_DEPLOYMENT_SMOKE_TOKEN_FILE", default=None)
 SKELETON_DEPLOYMENT_SMOKE_PATHS = tuple(env.list("SKELETON_DEPLOYMENT_SMOKE_PATHS", default=[]))
 if any(not path.startswith("/") or "?" in path or "#" in path for path in SKELETON_DEPLOYMENT_SMOKE_PATHS):
