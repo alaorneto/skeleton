@@ -76,7 +76,7 @@ def test_forwarded_proto_is_ignored_by_default(setup_profile):
         page, response = post_token(store)
         assert not page.wsgi_request.is_secure()
     assert response.status_code == 403
-    assert b"CSRF" in response.content
+    assert "A página expirou".encode() in response.content  # The CSRF refusal page (#473).
     assert tokens.token_file(store).exists()  # The token was never consumed.
 
 

@@ -75,7 +75,7 @@ def test_reservation_release_and_restore_above_the_quota(scenario):
     assert used(scenario.b) == 100
 
 
-def test_html_upload_above_the_quota_is_a_409_page(scenario, settings):
+def test_html_upload_above_the_quota_returns_to_the_record_with_the_reason(scenario, settings):
     settings.SKELETON_FILES_ORG_QUOTA_BYTES = 50
     note = scenario.create(scenario.a, owner=scenario.member, code="Q-3", title="Q")
     client = login(scenario.member)
@@ -86,7 +86,11 @@ def test_html_upload_above_the_quota_is_a_409_page(scenario, settings):
         target,
         {"file": SimpleUploadedFile("file.png", PNG), "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
     )
-    assert response.status_code == 409 and "cota" in response.content.decode()
+    detail = reverse(
+        "web:record", kwargs={"organization_id": scenario.a.pk, "table_key": "example_notes.note", "sysid": note.pk}
+    )
+    assert response.status_code == 302 and response["Location"] == detail
+    assert "A cota de armazenamento da organização foi atingida." in client.get(detail).content.decode()
 
 
 def test_recount_corrects_a_planted_divergence(scenario):

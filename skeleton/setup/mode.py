@@ -9,7 +9,16 @@ from pathlib import Path
 SETUP_SETTINGS = "config.settings.setup"
 SETUP_TARGET_ENV = "SKELETON_SETUP_TARGET"
 DEVELOPMENT_SETTINGS = "config.settings.development"
+PRODUCTION_SETTINGS = "config.settings.production"
 COMPLETED = "completed"
+
+
+def target_is_strict(name: str) -> bool:
+    """True unless the process will start with the development or test profile (#463).
+
+    An empty or unknown name counts as production, the most demanding profile.
+    """
+    return (name or PRODUCTION_SETTINGS).rsplit(".", 1)[-1] not in {"development", "test"}
 
 
 def project_root() -> Path:

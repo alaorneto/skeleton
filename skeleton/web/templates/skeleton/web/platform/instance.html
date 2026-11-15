@@ -7,10 +7,10 @@
 {% if form and form.errors %}{% include "skeleton/web/components/form-errors.html" %}{% endif %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Valor" %}</th><th scope="col">{% translate "Alterar" %}</th></tr></thead><tbody>
 {% for row in rows %}<tr>
-  <th scope="row"><span class="font-medium text-heading">{{ row.key }}</span><br><code class="text-body-subtle">{{ row.env }}</code><br><span class="text-body-subtle">{{ row.description }}</span></th>
+  <th scope="row" class="font-normal"><span class="cell-primary">{{ row.key }}</span><span class="cell-secondary"><code>{{ row.env }}</code></span><span class="cell-secondary">{{ row.description }}</span></th>
   <td>{% if row.origin == "env" %}<span class="badge badge-warning">{% translate "ambiente" %}</span>{% elif row.origin == "instance" %}<span class="badge badge-brand">{% translate "SQLite da instância" %}</span>{% else %}<span class="badge">{% translate "padrão" %}</span>{% endif %}</td>
   <td>{% if row.secret %}{% if row.value %}<span aria-label="{% translate "Segredo definido" %}">{{ row.value }}</span>{% else %}<span class="text-body-subtle">{% translate "não definido" %}</span>{% endif %}{% else %}<code>{{ row.value|default:"—" }}</code>{% endif %}</td>
-  <td>{% if row.editable %}<form method="post" action="{% url 'platform:instance-setting' %}" class="flex flex-wrap gap-2">{% csrf_token %}<input type="hidden" name="key" value="{{ row.key }}">
+  <td>{% if row.editable %}<form method="post" action="{% url 'platform:instance-setting' %}" class="flex flex-wrap items-center gap-2">{% csrf_token %}<input type="hidden" name="key" value="{{ row.key }}">
     <label class="sr-only" for="value-{{ row.key }}">{% translate "Novo valor de" %} {{ row.key }}</label>
     <input id="value-{{ row.key }}" name="value" {% if row.secret %}type="password" autocomplete="new-password" placeholder="{% translate "novo valor" %}"{% else %}type="text" value="{{ row.value }}"{% endif %}>
     <button type="submit" name="action" value="set" class="btn btn-primary btn-sm">{% translate "Gravar" %}</button>

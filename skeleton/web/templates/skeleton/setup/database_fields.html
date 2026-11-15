@@ -1,0 +1,8 @@
+{% load i18n %}{{ form.non_field_errors }}
+<div class="form-stack">
+{% for field in form.visible_fields %}{% if field.name not in form.advanced_fields %}{% include "skeleton/web/components/form-field.html" %}{% endif %}{% endfor %}
+<details class="rounded-base border border-default p-4"{% for field in form.visible_fields %}{% if field.name in form.advanced_fields and field.errors %} open{% endif %}{% endfor %}>
+<summary class="cursor-pointer text-sm font-medium text-heading">{% translate "Avançado: informar a URL completa" %}</summary>
+<div class="form-stack mt-4">{% for field in form.visible_fields %}{% if field.name in form.advanced_fields %}{% include "skeleton/web/components/form-field.html" %}{% endif %}{% endfor %}</div>
+</details>
+</div>

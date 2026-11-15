@@ -7,6 +7,7 @@ from django.views.decorators.http import require_POST
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.invitations import resend_invitation
 from skeleton.tenancy.models import Invitation
+from skeleton.web.errors import error_response
 from skeleton.web.views import tenant_page
 
 
@@ -28,9 +29,5 @@ def resend(request, organization_id, sysid):
     try:
         resend_invitation(invitation, user=request.user, revision=form.cleaned_data["revision"], request=request)
     except ConcurrentUpdate:
-        from django.shortcuts import render
-
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("Convite alterado. Atualize a lista.")}, status=409
-        )
+        return error_response(request, gettext("Convite alterado. Atualize a lista."), status=409)
     return redirect("web:access-list", organization_id=organization_id, resource="invitations")

@@ -68,3 +68,100 @@ def test_profile_lives_in_account_area():
     for name in ("web:profile", "account_email", "account_change_password", "mfa_index"):
         assert f'href="{reverse(name)}"' in html
     assert html.count('name="csrfmiddlewaretoken"') == 1
+
+
+def test_access_lists_show_one_column_per_field_without_uuid_or_revision_columns():
+    """Each field of a dedicated access resource has its own column; the UUID is a second line (#470)."""
+    from skeleton.access.resources import dedicated_model
+    from skeleton.web.forms import dedicated_label
+
+    client, _, organization = logged_client("nav-columns")
+    response = client.get(reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"}))
+    assert response.status_code == 200
+    model, fields = dedicated_model("roles")
+    assert response.context["headings"] == [dedicated_label(model, name) for name in fields]
+    html = response.content.decode()
+    header = html.split("<thead>", 1)[1].split("</thead>", 1)[0]
+    assert header.count('<th scope="col"') == len(fields) + 1
+    assert ">UUID<" not in header and ">Revisão<" not in header
+    row = response.context["rows"].object_list[0]
+    assert len(row["cells"]) == len(fields)
+    assert f'<span class="cell-secondary"><code class="uuid">{row["sysid"]}</code></span>' in html
+    assert 'class="btn btn-danger-outline btn-sm"' in html
+
+
+def test_forms_mark_required_and_optional_fields_once():
+    """Every simple form shows * on required fields, "(opcional)" on the others and the legend once (#474)."""
+    client, _, organization = logged_client("nav-marks")
+    for path in (
+        reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "invitations"}),
+        reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "groups"}),
+    ):
+        html = client.get(path).content.decode()
+        assert '<span class="required" aria-hidden="true"> *</span>' in html, path
+        assert html.count("Campos com * são obrigatórios.") == 1, path
+    login = Client().get("/accounts/login/").content.decode()
+    assert "Campos com * são obrigatórios." not in login and "(opcional)" not in login
+
+
+def test_audit_shows_the_actor_by_name_and_the_platform_keeps_the_identifier():
+    """One name lookup for the page; the global audit keeps the full UUID (#475)."""
+    client, actor, organization = logged_client("nav-audit")
+    created = client.post(
+        reverse("web:access-create", kwargs={"organization_id": organization.pk, "resource": "groups"}),
+        {"code": "audit-group", "name": "Grupo auditado", "description": ""},
+    )
+    assert created.status_code == 302
+    html = client.get(reverse("web:audit", kwargs={"organization_id": organization.pk})).content.decode()
+    assert f'<span title="{actor.pk}">nav-audit</span>' in html
+    assert actor.email not in html.split("<tbody>", 1)[1]  # The account menu shows it; the table never.
+    platform = client.get("/platform/audit/").content.decode()
+    assert f'<code class="uuid">{actor.pk}</code>' in platform
+
+
+def test_person_filter_names_members_and_hides_the_rest():
+    import uuid
+
+    from skeleton.web.templatetags.skeleton_format import person
+
+    known, gone = uuid.uuid4(), uuid.uuid4()
+    people = {str(known): "Ana"}
+    assert str(person(None, people)) == "Sistema"
+    assert str(person(known, people)) == f'<span title="{known}">Ana</span>'
+    unavailable = str(person(gone, people))
+    assert "Pessoa indisponível" in unavailable and f">{str(gone)[:8]}</code>" in unavailable
+    assert str(person(known, {str(known): "<b>x</b>"})).endswith(">&lt;b&gt;x&lt;/b&gt;</span>")
+
+
+def test_page_titles_end_with_the_product_name(subtests):
+    """A sample of screens: every tab title ends in " · Skeleton" (#476)."""
+    import re
+
+    client, _, organization = logged_client("nav-titles")
+    org = {"organization_id": organization.pk}
+    pages = [
+        "/",
+        f"/o/{organization.pk}/",
+        reverse("web:profile"),
+        reverse("web:audit", kwargs=org),
+        reverse("web:access-list", kwargs={**org, "resource": "memberships"}),
+        reverse("web:access-list", kwargs={**org, "resource": "roles"}),
+        reverse("web:access-create", kwargs={**org, "resource": "groups"}),
+        "/platform/",
+        "/platform/users/",
+        "/platform/jobs/",
+    ]
+    for path in pages:
+        with subtests.test(path=path):
+            response = client.get(path)
+            assert response.status_code == 200
+            title = re.search(r"<title>(.*?)</title>", response.content.decode(), re.S).group(1).strip()
+            assert title.endswith("· Skeleton"), title
+
+
+def test_jobs_filter_bar_offers_clear_only_with_a_filter():
+    client, _, _ = logged_client("nav-jobs")
+    plain = client.get("/platform/jobs/").content.decode()
+    assert 'class="filter-bar"' in plain and 'class="stat-grid"' in plain and ">Limpar<" not in plain
+    filtered = client.get("/platform/jobs/?state=dead").content.decode()
+    assert ">Limpar<" in filtered

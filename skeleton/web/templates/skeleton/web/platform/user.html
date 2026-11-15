@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load platform_admin i18n %}
+{% load platform_admin i18n skeleton_format %}
 {% block page_title %}{{ subject.email }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
@@ -29,8 +29,8 @@
       <div><dt>{% translate "Nome de exibição" %}</dt><dd>{{ profile.display_name|default:"—" }}</dd></div>
       <div><dt>{% translate "Fuso horário / idioma" %}</dt><dd>{{ profile.timezone|default:"—" }} · {{ profile.language|default:"—" }}</dd></div>
       <div><dt>{% translate "Senha local" %}</dt><dd>{% if subject.local_password_allowed %}{% translate "Permitida" %}{% else %}{% translate "Somente SSO" %}{% endif %}</dd></div>
-      <div><dt>{% translate "Último acesso" %}</dt><dd>{{ subject.last_login|default:"—" }}</dd></div>
-      <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at }}</dd></div>
+      <div><dt>{% translate "Último acesso" %}</dt><dd>{{ subject.last_login|moment }}</dd></div>
+      <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at|moment }}</dd></div>
       <div><dt>{% translate "Revisão" %}</dt><dd>{{ subject.revision }}</dd></div>
     </dl>
   </section>

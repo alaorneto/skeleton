@@ -4,7 +4,7 @@ from functools import wraps
 
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.utils.translation import gettext
 from django.views.decorators.cache import never_cache
 
@@ -13,6 +13,7 @@ from skeleton.accounts.mfa import mfa_required
 from skeleton.accounts.platform import LastPlatformAdministrator, is_platform_admin
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy.context import current_context
+from skeleton.web.errors import error_response
 
 __all__ = ["platform_page"]
 
@@ -54,7 +55,7 @@ def platform_page(view=None, *, capability=None, writes=False):
                 detail = gettext("A operação deixaria uma organização sem administrador ativo.")
             except ConcurrentUpdate:
                 detail = gettext("O registro mudou. Atualize a página antes de tentar novamente.")
-            return render(request, "skeleton/web/error.html", {"detail": detail}, status=409)
+            return error_response(request, detail, status=409)
 
         return guarded
 

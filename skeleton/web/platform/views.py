@@ -34,6 +34,7 @@ from skeleton.accounts.services import (
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.catalog_labels import update_catalog_labels
 from skeleton.tenancy.services import create_organization, update_organization
+from skeleton.web.errors import error_response
 from skeleton.web.views import form_error, pagination, service_pagination
 
 from .forms import (
@@ -603,9 +604,7 @@ def audit(request):
     try:
         filters = parse_audit_filters(request.GET)
     except ValidationError:
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("Verifique os filtros informados.")}, status=400
-        )
+        return error_response(request, gettext("Verifique os filtros informados."), status=400)
 
     def page(**page):
         if is_platform_admin(request.user):
@@ -625,6 +624,8 @@ def audit(request):
         {
             "platform_section": "audit",
             "rows": rows,
+            # Global audit: the actor stays the full identifier, never a tenant's name (#475).
+            "show_actor_uuid": True,
             "filters": request.GET,
             "operations": operation_choices(),
         },

@@ -2,7 +2,7 @@
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Agenda" %}</h1><p class="page-description">{% translate "Horários no fuso" %} {{ zone }}. {% translate "Eventos privados de outras pessoas aparecem só como Ocupado." %}</p></div>
-  <nav class="toolbar" aria-label="{% translate "Ações da agenda" %}"><a class="button" href="{% url 'skeleton_calendar:event-new' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo evento" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações da agenda" %}"><a class="btn btn-primary" href="{% url 'skeleton_calendar:event-new' organization_id %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo evento" %}</a></nav>
 </div>
 <nav class="mb-4 flex flex-wrap items-center gap-2" aria-label="{% translate "Navegação da agenda" %}">
   <a class="btn btn-secondary" href="{{ previous_url }}" rel="prev">{% include "skeleton/web/components/icon.html" with name="chevron-left" %}<span class="sr-only">{% translate "Período anterior" %}</span></a>

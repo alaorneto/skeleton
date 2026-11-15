@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/updates/base.html" %}
-{% load i18n %}{% block step_title %}{% translate "Novas versões" %}{% endblock %}
+{% load i18n skeleton_format %}{% block step_title %}{% translate "Novas versões" %}{% endblock %}
 {% block step %}
 <section class="card" aria-labelledby="available-check">
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -10,7 +10,7 @@
     <form method="post" action="{% url 'platform:updates-available' %}">{% csrf_token %}<button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Verificar versões disponíveis" %}</button></form>
   </div>
   {% if updates %}
-  <p class="mt-4 text-sm text-body-subtle">{% translate "Consulta:" %} {{ updates.checked_at }}</p>
+  <p class="mt-4 text-sm text-body-subtle">{% translate "Consulta:" %} {{ updates.checked_at|moment }}</p>
   <ul class="mt-2 flex flex-wrap gap-2">{% for source in updates.sources %}<li class="badge {% if source.state == 'ok' %}badge-success{% else %}badge-warning{% endif %} badge-dot">{{ source.id }}: {{ source.state }}{% if source.error_code %} — {{ source.error_code }}{% endif %}</li>{% empty %}<li class="text-sm text-body-subtle">{% translate "Nenhuma fonte de releases configurada." %}</li>{% endfor %}</ul>
   {% endif %}
 </section>

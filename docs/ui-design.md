@@ -61,6 +61,23 @@ Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
 - Raios: controles 8 px (`rounded-base`), cartões 12 px (`rounded-card`), avatares e pílulas redondos.
 - Profundidade por borda e sombra mínima (`shadow-card`); sombra maior (`shadow-pop`) apenas em menus suspensos.
 
+### Anatomia de uma página
+
+```django
+<div class="page-header">
+  <div class="min-w-0">
+    [breadcrumbs OU <p class="page-eyebrow">Área</p>]
+    <h1>Título</h1>
+    [<p class="page-description">Uma frase.</p>]
+  </div>
+  [<nav class="toolbar" aria-label="Ações">…</nav>]
+</div>
+```
+
+- O breadcrumb fica dentro do primeiro `div` do `page-header`; toda tela tem eyebrow ou breadcrumb, e telas de lista têm descrição de uma frase.
+- A barra de ações do cabeçalho é `<nav class="toolbar" aria-label="Ações">`; o botão principal é `btn btn-primary` (`.button` continua só como alias legado).
+- O título da aba é `<título da tela> · Skeleton`; nas telas da plataforma, `<título> · Plataforma · Skeleton` (#476).
+
 ## Navegação
 
 A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu lateral:
@@ -83,14 +100,67 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | Classe | Uso |
 |---|---|
 | `page-header`, `page-eyebrow`, `page-description`, `section-heading` | Cabeçalho de página e rótulos de seção. |
-| `btn` + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-ghost`, `btn-sm` | Botões e links com aparência de botão. `.button` continua como alias do primário. |
+| `btn` + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-danger-outline` / `btn-ghost`, `btn-sm` | Botões e links com aparência de botão. `.button` continua como alias do primário. |
 | `card`, `link-card` (+ `link-card-icon`, `link-card-title`, `link-card-text`) | Superfícies e atalhos navegáveis. |
-| `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página). `empty-state` para listas vazias. |
+| `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). `empty-state` para listas vazias. |
 | `pagination` | Componente `skeleton/web/pagination.html` (resumo "Mostrando X–Y de N" e Anterior/Próxima). |
+| `components/cursor-pagination.html` | Paginação por cursor (`next_url`, `label`): "Carregar mais" só quando há próxima página. A view monta `next_url` com `urlencode`, preservando os outros parâmetros (o escopo das tarefas). |
+| `stat-grid`, `stat` | Indicadores: `<dl class="stat-grid">` com `{% include "skeleton/web/components/stat.html" with label=… value=… hint=… key=… %}` (`key` vira `data-count`). Duas colunas no celular, quatro a partir de 640 px. |
+| `filter-bar` | Filtro em linha: `<form method="get" class="filter-bar" aria-label="Filtros">`, um `<div class="field">` por campo com rótulo visível e `<div class="filter-actions">` com "Filtrar" e, só com filtro aplicado, "Limpar" (`href="?"`). |
 | `breadcrumbs`, `toolbar`, `filter-panel`, `record-tabs` | Navegação, ações, filtros e abas. |
+| `link-tabs`, `segmented` | `link-tabs`: abas entre telas irmãs (links com `aria-current="page"`). `segmented` (`components/segmented.html`, com `options` = `[{label, url, current}]` e `label`): alternância de um filtro na mesma tela, uma opção com `aria-current`. Nunca um `badge` como opção ativa ao lado de botões do mesmo grupo (#472). |
 | `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |
-| `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados. |
-| `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. |
+| `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-danger`, `badge-neutral`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados; estado de um registro sempre pelo filtro `status_badge`. |
+| `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. Todo campo obrigatório (Django `required`, `marked_required` ou o atributo `data-required` no widget) leva `*` e os demais "(opcional)"; checkbox não leva marca; acima dos campos aparece uma vez "Campos com * são obrigatórios.". `hide_marks=True` no `include` desliga as marcas (login, LDAP, token do setup). O renderer de registros (`skeleton_crud/field.html`) segue a mesma regra, sem "(opcional)" nos campos com a caixa "alterar este campo" (#474). |
+| `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
+| `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
+
+### Tabelas
+
+Toda lista é `<div class="table-scroll"><table>…</table></div>` ([#469](https://github.com/alaorneto/skeleton/issues/469)). A tabela rola dentro do cartão; a página nunca rola na horizontal. As células são alinhadas pelo meio, não preservam o espaço do template e não quebram palavras letra a letra.
+
+| Classe | Onde | Uso |
+|---|---|---|
+| `col-num` | `th` e `td` | Números, alinhados à direita, sem quebra. |
+| `col-date` | `th` e `td` | Datas (com o filtro `moment`), sem quebra. |
+| `col-actions` | `th` e `td` | Última coluna, de ações: largura mínima, à direita. |
+| `col-text` | `td` | Texto que pode ter várias linhas (até 28rem, quebras preservadas). |
+| `cell-primary` | link ou texto | Nome do item, na primeira coluna. |
+| `cell-secondary` | `span` | Segunda linha da célula (identificador técnico, detalhe). |
+| `cell-truncate` | `span` | Texto cortado com reticências numa linha. |
+| `row-actions` | `div` | Grupo de botões da coluna de ações. |
+
+- `{% load skeleton_format %}{{ estado|status_badge }}` mostra o código de estado como badge traduzido e colorido (sucesso, em andamento, atenção, falha, neutro). O argumento é um domínio do mapa (`"flows"`, `"invoice"`, `"jobs"`…) quando o mesmo código muda de sentido, ou um rótulo que substitui o do mapa (`{{ job.state|status_badge:job.get_state_display }}`). Um código desconhecido sai neutro, com o próprio texto. Todo `TextChoices` `*Status`/`*State` do núcleo tem entrada no mapa (teste em `tests/unit/test_format_filters.py`).
+- Pessoas pelo nome: a view junta os identificadores da página e chama `skeleton.web.people.people_labels(ids, actor=request.user)` **uma vez** (que usa `IdentityService.people`, só membros ativos da organização atual); o template usa `{{ row.actor_sysid|person:people }}`, que mostra o nome, "Sistema" para vazio e "Pessoa indisponível" com os 8 primeiros caracteres do UUID para quem não é membro ativo. Assim um nome nunca vaza de outra organização. A auditoria global (`/platform/audit/`) continua com o UUID completo ([#475](https://github.com/alaorneto/skeleton/issues/475)).
+- Lista vazia: `{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum token.") hint=_("Crie um token para integrar.") icon="key" %}`.
+- A tabela genérica de registros (`components/record-table.html`) é a referência: `list_context` devolve cada célula como `{"text", "kind"}` e cada cabeçalho como `{"label", "kind"}`, com `kind` em `text`, `num`, `date` ou `bool` pelo tipo do campo, e corta na lista textos com mais de 160 caracteres (o detalhe mostra tudo). Um template derivado que copiou a versão anterior (com `{{ cell }}` e `{{ heading }}`) passa a usar `{{ cell.text }}` e `{{ heading.label }}`.
+
+Regras:
+
+1. A primeira coluna é o nome do item, como link (`cell-primary`).
+2. Identificadores técnicos (UUID, código) vão numa segunda linha (`cell-secondary`), nunca em coluna própria, a não ser que sejam o único identificador.
+3. Números à direita (`col-num`); datas com `col-date` e o filtro `moment`.
+4. Estado sempre com `status_badge`, nunca o código cru.
+5. Ações na última coluna (`col-actions`), dentro de `<div class="row-actions">`, com botões `btn btn-secondary btn-sm` e a ação destrutiva `btn btn-danger-outline btn-sm`; o cabeçalho é `<span class="sr-only">Ações</span>`.
+6. Lista vazia com `empty-row.html`.
+7. Nunca `<br>` para empilhar: use `cell-secondary`.
+
+### Páginas de erro
+
+Toda recusa mostra uma página em português, com a marca, uma frase do que aconteceu e o caminho de volta ([#473](https://github.com/alaorneto/skeleton/issues/473)).
+
+- **Erros do Django:** `400.html`, `403.html`, `403_csrf.html` ("A página expirou", com "Entrar novamente"), `404.html` e `500.html`, na raiz de `skeleton/web/templates/`. Estendem `skeleton/web/error_base.html`, um layout autônomo: não estende `base.html`, não usa `{% url %}` nem variável de contexto, e por isso renderiza no 500 e em modo setup. A ação padrão é "Ir para o início" (`/`).
+- O `404.html` tem um texto só para "não existe" e "sem acesso" e não mostra o caminho pedido: as duas respostas são idênticas byte a byte (teste A/B em `tests/integration/test_error_pages.py`). O 500 não mostra a exceção; o traceback vai só para o log e o relato de erros. A página de CSRF não muda a verificação (não há `CSRF_FAILURE_VIEW`).
+- **Erros de operação:** `skeleton.web.errors.error_response(request, detail, *, status, back_url=None, back_label=None)` renderiza `skeleton/web/error.html` com um título pelo status (400 "Não foi possível concluir", 403 "Acesso não permitido", 404 "Página não encontrada", 409 "Os dados mudaram", 413 "Arquivo grande demais", 429 "Muitas tentativas"), o detalhe e "Voltar" ("Voltar e recarregar" no 409) para `back_url` ou para o `Referer` validado com `url_has_allowed_host_and_scheme` contra o host do pedido; sempre há "Ir para o início". Nunca chame `render` com `error.html` direto.
+- Recusa de validação que tem uma tela de origem (envio de anexo) volta a ela com `messages.error`, em vez de uma página de erro.
+
+### Datas e horas
+
+Toda data e hora na interface aparece como `15/11/2026 14:30` (só a data: `15/11/2026`; só a hora: `14:30`), no fuso efetivo da pessoa, da organização ou da instância ([#468](https://github.com/alaorneto/skeleton/issues/468)). O formato vem de um ponto só, `FORMAT_MODULE_PATH = ["skeleton.conf.formats"]` (pacote `skeleton/conf/formats/pt_BR/`), que também vale para `presentation._value` nas listas e no detalhe genéricos.
+
+- Use `{% load skeleton_format %}` e `{{ valor|moment }}`, `{{ valor|moment:"date" }}` ou `{{ valor|moment:"time" }}`. O filtro gera `<time datetime="ISO">texto</time>`, devolve "—" para vazio e escapa um texto que não é data.
+- Nunca imprima uma data crua (`{{ x.created_at }}`) nem `|default:"—"` numa data: `tests/unit/test_template_dates.py` recusa. As exceções são os corpos de email.
+- Os valores "Antes"/"Depois" da auditoria são o dado gravado e não passam pelo filtro.
 
 Ícones: `{% include "skeleton/web/components/icon.html" with name="table" class="size-5" %}` (traço 24 px, estilo Heroicons, decorativos com `aria-hidden`).
 
@@ -113,6 +183,7 @@ Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skel
 - Sem scripts inline e sem CDN: o JS do Flowbite é servido de `static/skeleton/web/vendor/flowbite-4.0.2/`.
 - Sem JavaScript tudo funciona: o menu móvel e o menu da conta ficam abertos via `@media (scripting: none)` (variante `noscript:`); as abas do registro voltam a ser seções empilhadas.
 - Abas mantêm ARIA e teclado (ArrowLeft/ArrowRight/Home/End) em `site.js`.
+- Envio duplo: `site.js` ignora um segundo envio do mesmo formulário POST até a página mudar e marca os botões com `aria-disabled` (nunca `disabled`, que perderia o `name`/`value` do botão clicado); voltar pelo navegador (`pageshow`) reabilita. Um formulário que responde com arquivo na mesma página usa `data-allow-resubmit` (#474).
 - Até 600 px o renderer usa uma coluna e não há rolagem horizontal da página; acima disso vale a grade de 12 colunas (`field-span-1..12`), gerada fora do scanner porque vem do manifesto.
 
 ## Django admin
@@ -141,7 +212,7 @@ npm run build                # gera site.css e copia os assets vendorizados
 npm run check                # falha se static/ estiver desatualizado em relação às fontes
 ```
 
-Rode `npm run build` sempre que alterar `frontend/src/` **ou templates**: o Tailwind só gera as classes que encontra em `skeleton/web/templates`, `skeleton/web/static/skeleton/web/*.js`, `skeleton/system/app_template/*.html-tpl` e `examples/notes/templates`. Versione o resultado junto com a mudança.
+Rode `npm run build` sempre que alterar `frontend/src/` **ou templates**: o Tailwind só gera as classes que encontra nos templates de todos os pacotes do núcleo (`skeleton/**/templates`, conferido por `tests/unit/test_css_sources.py`), em `skeleton/contrib`, `skeleton/web/static/skeleton/web/*.js`, `skeleton/system/app_template/*.html-tpl` e `examples/notes/templates`. Versione o resultado junto com a mudança.
 
 Templates de apps derivadas em `applications/` não são varridos, porque o CSS faz parte do wheel do núcleo. Nesses templates use as classes de componente da tabela acima e utilitários que o núcleo já usa; um utilitário Tailwind inédito não existirá no `site.css`. Estilo próprio de uma app vai num arquivo estático da própria app, carregado pelo bloco `extrahead`, usando as variáveis `--color-*` dos tokens.
 

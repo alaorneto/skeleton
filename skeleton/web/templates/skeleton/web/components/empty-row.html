@@ -1,0 +1,1 @@
+{% load i18n %}<tr><td colspan="{{ colspan }}" class="empty-state">{% include "skeleton/web/components/icon.html" with name=icon|default:"table" class="mx-auto mb-2 size-6 text-body-subtle" %}<p class="font-medium text-heading">{{ message|default:_("Nada por aqui ainda.") }}</p>{% if hint %}<p class="mt-1">{{ hint }}</p>{% endif %}</td></tr>
