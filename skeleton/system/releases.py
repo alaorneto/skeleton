@@ -47,6 +47,16 @@ def agent_client():
 PLAN_STATES = {"preparing", "ready", "failed"}
 
 
+def plan_artifact(upload):
+    """Digest to plan and the action to preselect for an upload or fetch result (#495).
+
+    A release package is planned through the core package it carries: the agent kept both.
+    """
+    if upload.get("kind") == "release":
+        return upload["core"]["digest"], "core_update"
+    return upload["digest"], None
+
+
 def _plan_id(value):
     try:
         return str(UUID(str(value)))

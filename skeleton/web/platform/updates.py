@@ -29,6 +29,7 @@ from skeleton.system.releases import (
     DeploymentUnavailable,
     agent_client,
     confirm_operation,
+    plan_artifact,
     preview_status,
     reconcile_operation,
     record_preview,
@@ -65,7 +66,8 @@ class UploadForm(forms.Form):
     package = forms.FileField(
         label=gettext_lazy("Pacote assinado (.skapp)"),
         help_text=gettext_lazy(
-            "Assinado por um publicador autorizado. O agente verifica assinatura e conteúdo antes de liberar o digest."
+            "Pacote de componente (app ou núcleo) ou pacote de release, assinado por um publicador autorizado. "
+            "O agente verifica assinatura e conteúdo antes de liberar o digest."
         ),
     )
 
@@ -308,9 +310,10 @@ def _upload(request):
                 source.chmod(0o600)
                 artifact = agent_client().upload(source)
             messages.success(request, gettext("Pacote verificado. Confira o plano e visualize o impacto."))
+            digest, action = plan_artifact(artifact)
             return _plan_page(
                 request,
-                PlanForm(initial={"artifacts": artifact["digest"], "action": "install"}),
+                PlanForm(initial={"artifacts": digest, "action": action or "install"}),
                 artifact=artifact,
             )
         except (ValueError, RuntimeError, OSError) as exc:
@@ -408,7 +411,7 @@ def add_dependency(request):
     try:
         artifact = agent_client().fetch_release(**identifiers)
         action = "update" if request.POST.get("upgrade") == "1" else form.cleaned_data["action"]
-        artifacts = list(dict.fromkeys([*form.cleaned_data["artifacts"], artifact["digest"]]))
+        artifacts = list(dict.fromkeys([*form.cleaned_data["artifacts"], plan_artifact(artifact)[0]]))
         form = PlanForm({"action": action, "artifacts": " ".join(artifacts)})
         form.is_valid()
         plan_id = request_preview(user=request.user, action=action, artifacts=artifacts)
@@ -426,14 +429,13 @@ def fetch_release(request):
         if any(not value or len(value) > 128 for value in identifiers.values()):
             return HttpResponse(gettext("Identificação de release inválida."), status=400)
         artifact = agent_client().fetch_release(**identifiers)
-        if identifiers["component_id"] == "django-skeleton":
+        digest, action = plan_artifact(artifact)
+        if action is None and identifiers["component_id"] == "django-skeleton":
             action = "core_update"
-        else:
+        elif action is None:
             action = "update" if identifiers["component_id"] in _installed_components() else "install"
         messages.success(request, gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."))
-        return _plan_page(
-            request, PlanForm(initial={"action": action, "artifacts": artifact["digest"]}), artifact=artifact
-        )
+        return _plan_page(request, PlanForm(initial={"action": action, "artifacts": digest}), artifact=artifact)
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
         return redirect("platform:updates-available")

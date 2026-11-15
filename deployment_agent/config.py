@@ -72,6 +72,8 @@ def _validate_optional(values: JSON) -> None:
     paths = values.get("recovery_paths")
     if paths is not None and (not isinstance(paths, list) or not all(_absolute(path) for path in paths)):
         raise AgentError("invalid_recovery_path")
+    if "project_requirements_lock" in values and not _absolute(values["project_requirements_lock"]):
+        raise AgentError("invalid_config_path")  # The derived project's own pins (#495), like PATH_KEYS.
     if "smoke_token_file" in values and not _absolute(values["smoke_token_file"]):
         raise AgentError("invalid_smoke_token_path")
     for key in TOOL_SETTINGS:

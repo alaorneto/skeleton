@@ -21,6 +21,7 @@ pytestmark = pytest.mark.posix
 # Keys of the plan the synchronous preview returned before #298 (same content, now prepared in a thread).
 PLAN_KEYS = {
     "id",
+    "dropped_dependencies",  # #495
     "generation",
     "action",
     "components",

@@ -2,7 +2,10 @@
 {% load i18n %}{% block step_title %}{% translate "Preparar plano" %}{% endblock %}
 {% block step %}
 {% if artifact %}
-<section class="alert alert-success mb-5" aria-labelledby="plan-artifact">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0"><h2 id="plan-artifact" class="text-sm font-semibold text-inherit">{% translate "Pacote verificado:" %} {{ artifact.manifest.name|default:_("pacote") }} {{ artifact.manifest.version }}</h2><p class="mt-1">{% translate "Digest" %} <code class="uuid text-inherit!">{{ artifact.digest }}</code></p></div></section>
+<section class="alert alert-success mb-5" aria-labelledby="plan-artifact">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0"><h2 id="plan-artifact" class="text-sm font-semibold text-inherit">{% translate "Pacote verificado:" %} {{ artifact.manifest.name|default:_("pacote") }} {{ artifact.manifest.version }}</h2><p class="mt-1">{% translate "Digest" %} <code class="uuid text-inherit!">{{ artifact.digest }}</code></p>{% if artifact.kind == "release" %}<p class="mt-1">{% translate "Pacote de release: o plano usa o pacote do núcleo que veio nele" %} <code class="uuid text-inherit!">{{ artifact.core.digest }}</code></p>{% endif %}</div></section>
+{% if artifact.kind == "release" and not artifact.target %}
+<section class="alert alert-warning mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<p>{% translate "Este pacote não traz dependências para a plataforma deste servidor. Valem o lock e o wheelhouse configurados no agente." %}</p></section>
+{% endif %}
 {% endif %}
 {% if problems %}
 <section class="card mb-5 border-danger-subtle!" aria-labelledby="plan-problems">

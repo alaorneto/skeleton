@@ -12,6 +12,7 @@ from .releases import (
     file_diff,
     freeze,
     owned_snapshot,
+    parse_lock,
     presentation_diff,
     remove_release,
     verified,
@@ -117,8 +118,19 @@ def check_preview(
     if action == "update" and not any(component in old_apps for component in kinds):
         raise AgentError("not_installed_use_install", 409)
     # Resolve the resulting component set before any copy, extraction or lock work.
+    core_digest = next(
+        (value for value, manifest in zip(artifacts, manifests, strict=True) if manifest["kind"] == "core"),
+        (inventory.get("core") or {}).get("digest"),
+    )
     check_plan_dependencies(
-        service.config, service.backend, inventory, manifests, app_ids, suggest=service.catalogue_suggestions
+        service.config,
+        service.backend,
+        inventory,
+        manifests,
+        app_ids,
+        suggest=service.catalogue_suggestions,
+        store=service.store,
+        core_digest=core_digest,
     )
     return state, source, inventory
 
@@ -203,6 +215,7 @@ def prepare(service: "DeploymentService", plan_id: str) -> Plan | None:
                 "backend": service.config["backend"],
             }
             plan["presentation_changes"] = presentation_diff(inventory, target)
+            plan["dropped_dependencies"] = dropped_dependencies(source, release)
             plan["resources"] = [
                 {
                     "resource": service.config["active_link"],
@@ -254,6 +267,14 @@ def prepare(service: "DeploymentService", plan_id: str) -> Plan | None:
                 remove_release(release)
             preparation_failed(service, plan_id, request_record, error)
             return None
+
+
+def dropped_dependencies(active: Path, release: Path) -> list[str]:
+    """Distributions the active release installs and the new one no longer does (#495)."""
+    before, after = Path(active) / "requirements.lock", Path(release) / "requirements.lock"
+    if not before.is_file() or not after.is_file():
+        return []
+    return sorted(set(parse_lock(before)) - set(parse_lock(after)))
 
 
 def preparation_failed(service: "DeploymentService", plan_id: str, request_record: JSON, error: BaseException) -> None:
