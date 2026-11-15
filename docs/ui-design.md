@@ -83,16 +83,45 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | Classe | Uso |
 |---|---|
 | `page-header`, `page-eyebrow`, `page-description`, `section-heading` | Cabeçalho de página e rótulos de seção. |
-| `btn` + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-ghost`, `btn-sm` | Botões e links com aparência de botão. `.button` continua como alias do primário. |
+| `btn` + `btn-primary` / `btn-secondary` / `btn-danger` / `btn-danger-outline` / `btn-ghost`, `btn-sm` | Botões e links com aparência de botão. `.button` continua como alias do primário. |
 | `card`, `link-card` (+ `link-card-icon`, `link-card-title`, `link-card-text`) | Superfícies e atalhos navegáveis. |
-| `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página). `empty-state` para listas vazias. |
+| `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). `empty-state` para listas vazias. |
 | `pagination` | Componente `skeleton/web/pagination.html` (resumo "Mostrando X–Y de N" e Anterior/Próxima). |
 | `breadcrumbs`, `toolbar`, `filter-panel`, `record-tabs` | Navegação, ações, filtros e abas. |
 | `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |
-| `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados. |
+| `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-danger`, `badge-neutral`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados; estado de um registro sempre pelo filtro `status_badge`. |
 | `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. |
 | `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
 | `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
+
+### Tabelas
+
+Toda lista é `<div class="table-scroll"><table>…</table></div>` ([#469](https://github.com/alaorneto/skeleton/issues/469)). A tabela rola dentro do cartão; a página nunca rola na horizontal. As células são alinhadas pelo meio, não preservam o espaço do template e não quebram palavras letra a letra.
+
+| Classe | Onde | Uso |
+|---|---|---|
+| `col-num` | `th` e `td` | Números, alinhados à direita, sem quebra. |
+| `col-date` | `th` e `td` | Datas (com o filtro `moment`), sem quebra. |
+| `col-actions` | `th` e `td` | Última coluna, de ações: largura mínima, à direita. |
+| `col-text` | `td` | Texto que pode ter várias linhas (até 28rem, quebras preservadas). |
+| `cell-primary` | link ou texto | Nome do item, na primeira coluna. |
+| `cell-secondary` | `span` | Segunda linha da célula (identificador técnico, detalhe). |
+| `cell-truncate` | `span` | Texto cortado com reticências numa linha. |
+| `row-actions` | `div` | Grupo de botões da coluna de ações. |
+
+- `{% load skeleton_format %}{{ estado|status_badge }}` mostra o código de estado como badge traduzido e colorido (sucesso, em andamento, atenção, falha, neutro). O argumento é um domínio do mapa (`"flows"`, `"invoice"`, `"jobs"`…) quando o mesmo código muda de sentido, ou um rótulo que substitui o do mapa (`{{ job.state|status_badge:job.get_state_display }}`). Um código desconhecido sai neutro, com o próprio texto. Todo `TextChoices` `*Status`/`*State` do núcleo tem entrada no mapa (teste em `tests/unit/test_format_filters.py`).
+- Lista vazia: `{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum token.") hint=_("Crie um token para integrar.") icon="key" %}`.
+- A tabela genérica de registros (`components/record-table.html`) é a referência: `list_context` devolve cada célula como `{"text", "kind"}` e cada cabeçalho como `{"label", "kind"}`, com `kind` em `text`, `num`, `date` ou `bool` pelo tipo do campo, e corta na lista textos com mais de 160 caracteres (o detalhe mostra tudo). Um template derivado que copiou a versão anterior (com `{{ cell }}` e `{{ heading }}`) passa a usar `{{ cell.text }}` e `{{ heading.label }}`.
+
+Regras:
+
+1. A primeira coluna é o nome do item, como link (`cell-primary`).
+2. Identificadores técnicos (UUID, código) vão numa segunda linha (`cell-secondary`), nunca em coluna própria, a não ser que sejam o único identificador.
+3. Números à direita (`col-num`); datas com `col-date` e o filtro `moment`.
+4. Estado sempre com `status_badge`, nunca o código cru.
+5. Ações na última coluna (`col-actions`), dentro de `<div class="row-actions">`, com botões `btn btn-secondary btn-sm` e a ação destrutiva `btn btn-danger-outline btn-sm`; o cabeçalho é `<span class="sr-only">Ações</span>`.
+6. Lista vazia com `empty-row.html`.
+7. Nunca `<br>` para empilhar: use `cell-secondary`.
 
 ### Datas e horas
 

@@ -62,3 +62,59 @@ def test_record_presentation_uses_the_short_formats():
         assert _value(models.DateField(), date(2026, 11, 15)) == "15/11/2026"
         assert _value(models.TimeField(), time(14, 30)) == "14:30"
         assert _value(models.DateTimeField(), None) == "—"
+
+
+def test_status_badge(subtests):
+    from skeleton.web.templatetags.skeleton_format import status_badge
+
+    with translation.override("pt-br"):
+        cases = (
+            ("succeeded", None, '<span class="badge badge-success badge-dot">Concluído</span>'),
+            ("xyz", None, '<span class="badge badge-neutral badge-dot">xyz</span>'),
+            ("dead", "Esgotado agora", '<span class="badge badge-danger badge-dot">Esgotado agora</span>'),
+            ("completed", "flows", '<span class="badge badge-success badge-dot">Concluída</span>'),
+            ("open", "invoice", '<span class="badge badge-warning badge-dot">Em aberto</span>'),
+            ("<b>x</b>", None, '<span class="badge badge-neutral badge-dot">&lt;b&gt;x&lt;/b&gt;</span>'),
+            ("ok", "<i>y</i>", '<span class="badge badge-neutral badge-dot">&lt;i&gt;y&lt;/i&gt;</span>'),
+            (None, None, "—"),
+        )
+        for code, label, expected in cases:
+            with subtests.test(code=code, label=label):
+                assert str(status_badge(code, label)) == expected
+
+
+def test_every_core_state_code_has_a_badge():
+    from django.apps import apps
+    from django.db import models
+
+    from skeleton.web.templatetags.skeleton_format import STATUS, TONES
+
+    assert {tone for _, tone in STATUS.values()} <= TONES
+    known = {key.rsplit(":", 1)[-1] for key in STATUS}
+    missing = set()
+    for model in apps.get_models():
+        if not model.__module__.startswith("skeleton."):
+            continue
+        for name in dir(model):
+            choices = getattr(model, name, None)
+            if (
+                isinstance(choices, type)
+                and issubclass(choices, models.TextChoices)
+                and ("Status" in name or "State" in name)
+            ):
+                missing |= {f"{model._meta.label}.{name}:{value}" for value in choices.values if value not in known}
+    assert not missing, sorted(missing)
+    assert all(key in STATUS for key in {code for code in known})  # Every domain code also has a plain entry.
+
+
+def test_list_columns_have_a_kind_and_long_text_is_cut():
+    from types import SimpleNamespace
+
+    from skeleton.jobs.models import Job
+    from skeleton.web.presentation import LIST_TEXT_LIMIT, _column_kind, _list_text
+
+    spec = SimpleNamespace(model=Job)
+    kinds = {name: _column_kind(spec, name) for name in ("attempts", "run_after", "job_type", "state", "__label__")}
+    assert kinds == {"attempts": "num", "run_after": "date", "job_type": "text", "state": "text", "__label__": "text"}
+    assert _list_text("x" * LIST_TEXT_LIMIT) == "x" * LIST_TEXT_LIMIT
+    assert _list_text("y" * 400) == "y" * LIST_TEXT_LIMIT + "…"

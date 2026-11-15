@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.apps import apps
+from django.db import models
 from django.urls import reverse
 from django.utils import formats, timezone
 from django.utils.translation import gettext, gettext_lazy
@@ -80,10 +81,36 @@ def _value(field, value):
     return str(formats.localize(value)) if value != "" else "—"
 
 
+LIST_TEXT_LIMIT = 160
+
+
+def _column_kind(spec, name: str) -> str:
+    """How a list column aligns (#469): ``num``, ``date``, ``bool`` or ``text``, from ``_meta`` only."""
+    if name == "__label__":
+        return "text"
+    field = spec.model._meta.get_field(name)
+    if field.is_relation or field.choices:
+        return "text"
+    if isinstance(field, (models.IntegerField, models.DecimalField, models.FloatField)):
+        return "num"
+    if isinstance(field, (models.DateField, models.TimeField)):  # DateTimeField is a DateField.
+        return "date"
+    if isinstance(field, models.BooleanField):
+        return "bool"
+    return "text"
+
+
+def _list_text(text: str) -> str:
+    """Long values are cut in the list only; the detail shows everything."""
+    text = str(text)
+    return text if len(text) <= LIST_TEXT_LIMIT else text[:LIST_TEXT_LIMIT].rstrip() + "…"
+
+
 def list_context(spec, records, *, user, params=None):
     ui = get_model_ui(spec.model._meta.label_lower).list
     records = list(records)
     projected = records_data(records, list_fields(spec), user=user)
+    kinds = {name: _column_kind(spec, name) for name in ui.columns}
     rows = []
     for record, values in zip(records, projected, strict=True):
         rows.append(
@@ -91,16 +118,21 @@ def list_context(spec, records, *, user, params=None):
                 "sysid": str(record.sysid),
                 "label": safe_record_label(record, spec),
                 "cells": [
-                    safe_record_label(record, spec)
-                    if name == "__label__"
-                    else _value(spec.model._meta.get_field(name), values.get(name))
+                    {
+                        "text": _list_text(
+                            safe_record_label(record, spec)
+                            if name == "__label__"
+                            else _value(spec.model._meta.get_field(name), values.get(name))
+                        ),
+                        "kind": kinds[name],
+                    }
                     for name in ui.columns
                 ],
             }
         )
     params = params or {}
     return {
-        "headings": [_field_label(spec, name) for name in ui.columns],
+        "headings": [{"label": _field_label(spec, name), "kind": kinds[name]} for name in ui.columns],
         "record_rows": rows,
         "filters": [
             {"name": name, "label": _field_label(spec, name), "value": params.get(name, "")} for name in ui.filters
