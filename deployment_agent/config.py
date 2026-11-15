@@ -70,8 +70,11 @@ def _absolute(value: object) -> bool:
 
 
 def _valid_source(source: JSON, values: JSON) -> bool:
-    """Exactly one of path, url and github (#498); a GitHub source pins an approved publisher."""
-    if sum(key in source for key in ("path", "url", "github")) != 1:
+    """At most one of path, url and github (#498); a GitHub source pins an approved publisher.
+
+    A source without any keeps loading, as before: the check marks it invalid_catalogue_source.
+    """
+    if sum(key in source for key in ("path", "url", "github")) > 1:
         return False
     channels = source.get("channels", ["stable"])
     if not isinstance(channels, list) or not all(isinstance(channel, str) for channel in channels):

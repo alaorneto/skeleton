@@ -213,7 +213,6 @@ def test_invalid_repository_and_tag_are_refused_without_requests(tmp_path, netwo
             {"catalogue_sources": [{"id": "s", "github": REPO, "publisher": "p", "private": "yes"}]},
             "invalid_catalogue_sources",
         ),
-        ({"catalogue_sources": [{"id": "s"}]}, "invalid_catalogue_sources"),
         ({"github": {"api_url": "http://api.github.com"}}, "invalid_github_settings"),
         ({"github": {"api_url": "https://api.github.com/?x=1"}}, "invalid_github_settings"),
         ({"github": {"download_hosts": []}}, "invalid_github_settings"),

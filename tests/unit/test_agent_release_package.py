@@ -70,7 +70,7 @@ def test_upload_keeps_release_and_core_and_records_the_environment(agent, tmp_pa
     result = upload(agent, release)
     assert result["kind"] == "release" and result["target"] == "cp314-linux-x86_64"
     assert result["manifest"]["kind"] == "release" and result["core"]["manifest"]["kind"] == "core"
-    assert result["agent"] == {"version": None}
+    assert result["agent"] == {"version": None, "update_required": False}
     names = uploads(agent)
     assert names == sorted([f"{result['digest']}.skapp", f"{result['core']['digest']}.skapp"])
     for name in names:
