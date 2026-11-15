@@ -100,3 +100,19 @@ def test_more_than_200_members_fall_back_to_text(members):
     form = views.TaskForm(infos=[info("owner", "user")], actor=SimpleNamespace(pk=uuid4()))
     assert form.fields["owner"].widget.input_type == "text"
     assert "Administração › Pessoas" in str(form.fields["owner"].help_text)
+
+
+def test_cursor_pages_keep_the_other_parameters():
+    """ "Carregar mais" in Tasks keeps the scope and replaces only the cursor (#476)."""
+    from django.test import RequestFactory
+
+    request = RequestFactory().get("/o/x/flows/tasks/", {"scope": "available", "cursor": "old"})
+    page = views._cursor_page(request, lambda cursor: SimpleNamespace(items=[cursor], next_cursor="next-1"))
+    assert page["items"] == ["old"] and page["next_url"] == "?scope=available&cursor=next-1"
+    last = views._cursor_page(request, lambda cursor: SimpleNamespace(items=[], next_cursor=None))
+    assert last["next_url"] is None
+    html = render_to_string(
+        "skeleton/web/components/cursor-pagination.html", {"next_url": page["next_url"], "label": "Mais tarefas"}
+    )
+    assert 'href="?scope=available&amp;cursor=next-1"' in html and "Mais tarefas" in html
+    assert render_to_string("skeleton/web/components/cursor-pagination.html", {"next_url": None}).strip() == ""

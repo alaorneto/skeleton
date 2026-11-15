@@ -131,3 +131,37 @@ def test_person_filter_names_members_and_hides_the_rest():
     unavailable = str(person(gone, people))
     assert "Pessoa indisponível" in unavailable and f">{str(gone)[:8]}</code>" in unavailable
     assert str(person(known, {str(known): "<b>x</b>"})).endswith(">&lt;b&gt;x&lt;/b&gt;</span>")
+
+
+def test_page_titles_end_with_the_product_name(subtests):
+    """A sample of screens: every tab title ends in " · Skeleton" (#476)."""
+    import re
+
+    client, _, organization = logged_client("nav-titles")
+    org = {"organization_id": organization.pk}
+    pages = [
+        "/",
+        f"/o/{organization.pk}/",
+        reverse("web:profile"),
+        reverse("web:audit", kwargs=org),
+        reverse("web:access-list", kwargs={**org, "resource": "memberships"}),
+        reverse("web:access-list", kwargs={**org, "resource": "roles"}),
+        reverse("web:access-create", kwargs={**org, "resource": "groups"}),
+        "/platform/",
+        "/platform/users/",
+        "/platform/jobs/",
+    ]
+    for path in pages:
+        with subtests.test(path=path):
+            response = client.get(path)
+            assert response.status_code == 200
+            title = re.search(r"<title>(.*?)</title>", response.content.decode(), re.S).group(1).strip()
+            assert title.endswith("· Skeleton"), title
+
+
+def test_jobs_filter_bar_offers_clear_only_with_a_filter():
+    client, _, _ = logged_client("nav-jobs")
+    plain = client.get("/platform/jobs/").content.decode()
+    assert 'class="filter-bar"' in plain and 'class="stat-grid"' in plain and ">Limpar<" not in plain
+    filtered = client.get("/platform/jobs/?state=dead").content.decode()
+    assert ">Limpar<" in filtered

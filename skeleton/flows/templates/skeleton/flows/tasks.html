@@ -13,5 +13,5 @@
   <td class="col-date">{{ task.created_at|moment }}</td>
 </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhuma tarefa.") icon="check-circle" %}{% endfor %}
 </tbody></table></div>
-{% if page.next_cursor %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="?scope={{ scope }}&amp;cursor={{ page.next_cursor }}">{% translate "Mais tarefas" %}</a></p>{% endif %}
+{% include "skeleton/web/components/cursor-pagination.html" with next_url=page.next_url label=_("Mais tarefas") %}
 {% endblock %}

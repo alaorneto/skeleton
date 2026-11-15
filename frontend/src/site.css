@@ -268,6 +268,36 @@
     @apply border-brand text-fg-brand;
   }
 
+  /* Indicadores (#476): <dl class="stat-grid"> com components/stat.html. */
+  .stat-grid {
+    @apply mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4;
+  }
+  .stat {
+    @apply min-w-0 rounded-card border border-default bg-neutral-primary-soft p-4 shadow-card;
+  }
+  .stat-label {
+    @apply text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+  }
+  .stat-value {
+    @apply mt-1 text-2xl/8 font-semibold text-heading tabular-nums;
+  }
+  .stat-hint {
+    @apply mt-0.5 text-xs/5 text-body-subtle;
+  }
+  /* Filtro em linha (#476): form method=get, um .field por campo e .filter-actions no fim. */
+  .filter-bar {
+    @apply mb-5 flex flex-wrap items-end gap-3 rounded-card border border-default bg-neutral-primary-soft p-4 shadow-card;
+  }
+  .filter-bar .field {
+    @apply min-w-40 flex-1 sm:max-w-xs;
+  }
+  .filter-bar .field > label {
+    @apply mb-1.5 block;
+  }
+  .filter-bar .filter-actions {
+    @apply flex items-center gap-2;
+  }
+
   /* Alternância de um filtro dentro da mesma tela (links, uma opção ativa; #472). */
   .segmented {
     @apply inline-flex max-w-full overflow-x-auto rounded-base border border-default-medium bg-neutral-primary-soft p-0.5 shadow-xs;

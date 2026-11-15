@@ -6,7 +6,7 @@
     <h1>{% translate "Entregas de" %} {{ endpoint.name }}</h1>
     <p class="page-description">{% translate "Cada entrega mostra a última tentativa e até 1 KB da resposta do receptor. Reenviar cria uma entrega nova do mesmo evento; a original não muda." %}</p>
   </div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}"><form method="post" action="{% url 'integrations:webhook-ping' organization_id endpoint.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="button"{% if not endpoint.is_enabled %} disabled{% endif %}>{% translate "Enviar teste (webhook.ping)" %}</button></form></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><form method="post" action="{% url 'integrations:webhook-ping' organization_id endpoint.pk %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ endpoint.revision }}"><button type="submit" class="btn btn-primary"{% if not endpoint.is_enabled %} disabled{% endif %}>{% translate "Enviar teste (webhook.ping)" %}</button></form></nav>
 </div>
 <div class="table-scroll"><table><thead><tr><th scope="col" class="col-date">{% translate "Criada em" %}</th><th scope="col">{% translate "Evento" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-num">{% translate "Tentativas" %}</th><th scope="col">{% translate "Resposta" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>{% for delivery in rows %}<tr>
 <td class="col-date">{{ delivery.created_at|moment }}{% if delivery.resend_of_id %}<span class="cell-secondary"><span class="badge">{% translate "reenvio" %}</span></span>{% endif %}</td>

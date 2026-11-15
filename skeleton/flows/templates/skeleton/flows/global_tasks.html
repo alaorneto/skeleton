@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n skeleton_format %}{% block title %}{% translate "Minhas tarefas" %}{% endblock %}
+{% load i18n skeleton_format %}{% block title %}{% translate "Minhas tarefas" %} · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Minhas tarefas" %}</h1><p class="page-description">{% translate "Tarefas abertas atribuídas a você em todas as organizações em que você tem vínculo. Tarefas de fila aparecem na caixa de cada organização." %}</p></div></div>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Etapa" %}</th><th scope="col" class="col-date">{% translate "Prazo" %}</th><th scope="col" class="col-date">{% translate "Criada em" %}</th></tr></thead><tbody>

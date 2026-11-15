@@ -61,6 +61,23 @@ Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
 - Raios: controles 8 px (`rounded-base`), cartões 12 px (`rounded-card`), avatares e pílulas redondos.
 - Profundidade por borda e sombra mínima (`shadow-card`); sombra maior (`shadow-pop`) apenas em menus suspensos.
 
+### Anatomia de uma página
+
+```django
+<div class="page-header">
+  <div class="min-w-0">
+    [breadcrumbs OU <p class="page-eyebrow">Área</p>]
+    <h1>Título</h1>
+    [<p class="page-description">Uma frase.</p>]
+  </div>
+  [<nav class="toolbar" aria-label="Ações">…</nav>]
+</div>
+```
+
+- O breadcrumb fica dentro do primeiro `div` do `page-header`; toda tela tem eyebrow ou breadcrumb, e telas de lista têm descrição de uma frase.
+- A barra de ações do cabeçalho é `<nav class="toolbar" aria-label="Ações">`; o botão principal é `btn btn-primary` (`.button` continua só como alias legado).
+- O título da aba é `<título da tela> · Skeleton`; nas telas da plataforma, `<título> · Plataforma · Skeleton` (#476).
+
 ## Navegação
 
 A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu lateral:
@@ -87,6 +104,9 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `card`, `link-card` (+ `link-card-icon`, `link-card-title`, `link-card-text`) | Superfícies e atalhos navegáveis. |
 | `table-scroll` | Tabela responsiva (rola dentro do cartão, nunca a página); classes de coluna e de célula em [Tabelas](#tabelas). `empty-state` para listas vazias. |
 | `pagination` | Componente `skeleton/web/pagination.html` (resumo "Mostrando X–Y de N" e Anterior/Próxima). |
+| `components/cursor-pagination.html` | Paginação por cursor (`next_url`, `label`): "Carregar mais" só quando há próxima página. A view monta `next_url` com `urlencode`, preservando os outros parâmetros (o escopo das tarefas). |
+| `stat-grid`, `stat` | Indicadores: `<dl class="stat-grid">` com `{% include "skeleton/web/components/stat.html" with label=… value=… hint=… key=… %}` (`key` vira `data-count`). Duas colunas no celular, quatro a partir de 640 px. |
+| `filter-bar` | Filtro em linha: `<form method="get" class="filter-bar" aria-label="Filtros">`, um `<div class="field">` por campo com rótulo visível e `<div class="filter-actions">` com "Filtrar" e, só com filtro aplicado, "Limpar" (`href="?"`). |
 | `breadcrumbs`, `toolbar`, `filter-panel`, `record-tabs` | Navegação, ações, filtros e abas. |
 | `link-tabs`, `segmented` | `link-tabs`: abas entre telas irmãs (links com `aria-current="page"`). `segmented` (`components/segmented.html`, com `options` = `[{label, url, current}]` e `label`): alternância de um filtro na mesma tela, uma opção com `aria-current`. Nunca um `badge` como opção ativa ao lado de botões do mesmo grupo (#472). |
 | `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |

@@ -2,18 +2,18 @@
 {% load i18n skeleton_format %}{% block page_title %}{% translate "Jobs" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Jobs" %}</h1><p class="page-description">{% translate "Fila de trabalho em segundo plano de todas as organizações. A tela mostra tipo, fila, organização, estado e código de erro, nunca o payload. Um job esgotado pode ser reenviado ou descartado." %}</p></div></div>
-<dl class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-  <div class="card"><dt class="text-sm text-body-subtle">{% translate "Na fila" %}</dt><dd class="text-2xl font-semibold text-heading">{{ counts.queued }}</dd></div>
-  <div class="card"><dt class="text-sm text-body-subtle">{% translate "Atraso do mais antigo" %}</dt><dd class="text-2xl font-semibold text-heading">{{ health.oldest_due_lag_s|floatformat:0 }} {% translate "s" %}</dd></div>
-  <div class="card"><dt class="text-sm text-body-subtle">{% translate "Esgotados" %}</dt><dd class="text-2xl font-semibold text-heading">{{ counts.dead }}</dd></div>
-  <div class="card"><dt class="text-sm text-body-subtle">{% translate "Workers ativos" %}</dt><dd class="text-2xl font-semibold text-heading">{{ health.live_workers }}</dd></div>
+<dl class="stat-grid">
+  {% include "skeleton/web/components/stat.html" with label=_("Na fila") value=counts.queued key="queued" %}
+  {% blocktranslate asvar lag with seconds=health.oldest_due_lag_s|floatformat:0 %}{{ seconds }} s{% endblocktranslate %}{% include "skeleton/web/components/stat.html" with label=_("Atraso do mais antigo") value=lag key="lag" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Esgotados") value=counts.dead key="dead" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Workers ativos") value=health.live_workers key="workers" %}
 </dl>
-<form method="get" class="mb-4 flex flex-wrap items-end gap-2" aria-label="{% translate "Filtros" %}">
+<form method="get" class="filter-bar" aria-label="{% translate "Filtros" %}">
   <div class="field"><label for="{{ filter_form.state.id_for_label }}">{% translate "Estado" %}</label>{{ filter_form.state }}</div>
   <div class="field"><label for="{{ filter_form.queue.id_for_label }}">{% translate "Fila" %}</label>{{ filter_form.queue }}</div>
   <div class="field"><label for="{{ filter_form.job_type.id_for_label }}">{% translate "Tipo" %}</label>{{ filter_form.job_type }}</div>
-  <button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="filter" %}{% translate "Filtrar" %}</button>
-  <a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="filter" %}{% translate "Filtrar" %}</button>
+  {% if request.GET.state or request.GET.queue or request.GET.job_type %}<a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>{% endif %}</div>
 </form>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Fila" %}</th><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-num">{% translate "Tentativas" %}</th><th scope="col">{% translate "Erro" %}</th><th scope="col" class="col-date">{% translate "Executar após" %}</th><th scope="col" class="col-date">{% translate "Concluído em" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for job in rows %}<tr>

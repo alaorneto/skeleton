@@ -28,9 +28,16 @@ STALE = gettext_lazy("Os dados mudaram desde que a página foi aberta. Confira o
 
 
 def _cursor_page(request, fetch):
+    from urllib.parse import urlencode
+
     cursor = request.GET.get("cursor") or None
     page = fetch(cursor)
-    return {"items": page.items, "next_cursor": page.next_cursor}
+    next_url = None
+    if page.next_cursor:
+        # Keeps the other parameters (the task scope) and replaces only the cursor (#476).
+        params = {name: value for name, value in request.GET.items() if name != "cursor"}
+        next_url = "?" + urlencode({**params, "cursor": page.next_cursor})
+    return {"items": page.items, "next_cursor": page.next_cursor, "next_url": next_url}
 
 
 PEOPLE_LIMIT = 200

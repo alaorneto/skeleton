@@ -11,5 +11,5 @@
   <td class="col-date">{{ instance.created_at|moment }}</td>
 </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum processo.") %}{% endfor %}
 </tbody></table></div>
-{% if page.next_cursor %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="?cursor={{ page.next_cursor }}">{% translate "Mais processos" %}</a></p>{% endif %}
+{% include "skeleton/web/components/cursor-pagination.html" with next_url=page.next_url label=_("Mais processos") %}
 {% endblock %}

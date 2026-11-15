@@ -2,7 +2,7 @@
 {% block content %}
 <div class="page-header mb-4! sm:mb-5!">
   <div class="min-w-0"><p class="page-eyebrow">{{ access_section.label|default:_("Administração") }}</p><h1>{{ title }}</h1></div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="button" href="{% url 'web:access-create' organization_id resource %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Criar" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-primary" href="{% url 'web:access-create' organization_id resource %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Criar" %}</a></nav>
 </div>
 {% if access_section %}<nav class="link-tabs" aria-label="{{ access_section.label }}">{% for tab in access_section.tabs %}<a href="{{ tab.url }}"{% if tab.current %} aria-current="page"{% endif %}>{{ tab.label }}</a>{% endfor %}</nav>{% endif %}
 <div class="table-scroll"><table><thead><tr>{% for heading in headings %}<th scope="col">{{ heading }}</th>{% endfor %}<th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>

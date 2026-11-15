@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Identidade" %}</p><h1>{% translate "Usuários" %}</h1><p class="page-description">{% translate "Identidades globais. Vínculos e papéis em organizações são administrados dentro de cada organização." %}</p></div>
-  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="button" href="{% url 'platform:user-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Nova identidade" %}</a></nav>
+  <nav class="toolbar" aria-label="{% translate "Ações" %}"><a class="btn btn-primary" href="{% url 'platform:user-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Nova identidade" %}</a></nav>
 </div>
 {% include "skeleton/web/platform/search.html" with placeholder=_("Buscar por email ou nome") %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Email" %}</th><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col">{% translate "Acesso de plataforma" %}</th><th scope="col" class="col-date">{% translate "Último acesso" %}</th></tr></thead><tbody>
