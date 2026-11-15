@@ -10,6 +10,8 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
+from packaging.version import Version
+
 from skeleton.system.packages import (
     PackageError,
     match_release_target,
@@ -19,7 +21,7 @@ from skeleton.system.packages import (
     validate_release,
 )
 
-from . import adoption, catalogue, environments, execution, planning, recovery
+from . import adoption, catalogue, environments, execution, planning, recovery, selfupdate
 from .backends import backend_for
 from .catalogue import NoRedirect  # noqa: F401 - public name, importable from here
 from .config import Config
@@ -100,6 +102,7 @@ class DeploymentService:
         if error:
             result["error"] = error
         result["drift_checked_at"] = checked_at
+        result["agent"] = {"version": selfupdate.agent_version(), "self_update": bool(self.config.get("agent_root"))}
         return result
 
     def upload(self, data: bytes) -> JSON:
@@ -160,8 +163,19 @@ class DeploymentService:
             "manifest": verified.manifest,
             "core": {"digest": verified.core_digest, "manifest": verified.core_manifest},
             "target": target["id"] if target else None,
-            "agent": {"version": (verified.manifest.get("agent") or {}).get("version")},
+            "agent": self._agent_offer(verified.manifest.get("agent")),
         }
+
+    @staticmethod
+    def _agent_offer(agent: JSON | None) -> JSON:
+        """The agent a release package brings and whether it is newer than this one (#497)."""
+        version = (agent or {}).get("version")
+        current = selfupdate.agent_version()
+        newer = bool(version and current and Version(version) > Version(current))
+        return {"version": version, "update_required": newer}
+
+    def update_agent(self, release: str, *, actor_id: str | None = None) -> JSON:
+        return selfupdate.update(self, release, actor_id=actor_id)
 
     def initialize(
         self, inventory_path: StrPath, *, core_package: StrPath, app_packages: Iterable[StrPath] = ()

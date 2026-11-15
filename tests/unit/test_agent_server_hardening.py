@@ -235,3 +235,21 @@ def test_sigterm_stops_idle_agent_and_removes_socket(tmp_path, token_file):
     finally:
         if process.poll() is None:
             process.kill()
+
+
+def test_agent_update_answers_then_serve_exits_for_a_restart(tmp_path, token_file):
+    from skeleton.system.deployment_client import AgentClient
+
+    service, path = serving(tmp_path, token_file)
+    service.update_agent = lambda release, actor_id=None: {"state": "restarting", "version": "0.7.0"}
+    result = {}
+    thread = Thread(target=lambda: result.setdefault("code", server_module.serve(service)), daemon=True)
+    thread.start()
+    wait_for(path)
+    client = AgentClient(str(path), str(token_file))
+    assert client.update_agent("a" * 64, actor_id="11111111-2222-4333-8444-555555555555") == {
+        "state": "restarting",
+        "version": "0.7.0",
+    }
+    thread.join(10)
+    assert not thread.is_alive() and result["code"] == 75 and not path.exists()

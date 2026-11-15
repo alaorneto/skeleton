@@ -81,3 +81,24 @@ def test_update_status_is_a_short_get(opened, monkeypatch):
     monkeypatch.setattr(client, "_request", request)
     client.update_status()
     assert calls == [("GET", "/updates/status", {"timeout": deployment_client.STATUS_TIMEOUT})]
+
+
+def test_update_agent_waits_like_a_submission(opened, monkeypatch):
+    _, socket, token = opened
+    client = AgentClient(socket, token)
+    calls = []
+
+    def request(method, path, body=None, **kwargs):
+        calls.append((method, path, body, kwargs))
+        return {}
+
+    monkeypatch.setattr(client, "_request", request)
+    client.update_agent("a" * 64, actor_id=OPERATION)
+    assert calls == [
+        (
+            "POST",
+            "/agent/update",
+            {"release": "a" * 64, "actor_id": OPERATION},
+            {"timeout": deployment_client.SUBMIT_TIMEOUT},
+        )
+    ]

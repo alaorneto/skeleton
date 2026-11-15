@@ -225,3 +225,25 @@ def test_update_status_route_is_an_authenticated_get(agent):
     assert send(agent, http_request("GET", "/updates/status", token=None)) == (401, {"error": "unauthorized"})
     assert send(agent, http_request("GET", "/updates/status?refresh=1")) == (400, {"error": "invalid_control_path"})
     assert agent.calls == ["update_status"]
+
+
+def test_agent_update_route_validates_its_body(agent):
+    received = []
+
+    def update_agent(release, *, actor_id=None):
+        received.append((release, actor_id))
+        return {"state": "restarting", "version": "0.7.0"}
+
+    agent.server.service.update_agent = update_agent
+    body = {"release": "a" * 64, "actor_id": OPERATION}
+    assert send(agent, json_request("/agent/update", body)) == (200, {"state": "restarting", "version": "0.7.0"})
+    assert received == [("a" * 64, OPERATION)]
+    assert send(agent, json_request("/agent/update", body, token=None))[0] == 401
+    for invalid, code in (
+        ({}, "invalid_agent_update_fields"),
+        ({"release": "a" * 64, "path": "/tmp"}, "invalid_agent_update_fields"),
+        ({"release": "../x"}, "invalid_digest"),
+        ({"release": "a" * 64, "actor_id": "nobody"}, "invalid_uuid"),
+    ):
+        assert send(agent, json_request("/agent/update", invalid)) == (400, {"error": code})
+    assert len(received) == 1

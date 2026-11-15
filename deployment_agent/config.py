@@ -110,6 +110,15 @@ def _validate_optional(values: JSON) -> None:
             value = values[key]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise AgentError("invalid_numeric_setting")
+    # Self-update (#497): the agent's own versions live under agent_root.
+    if "agent_root" in values and (not _absolute(values["agent_root"]) or not Path(values["agent_root"]).is_dir()):
+        raise AgentError("invalid_agent_root")
+    publishers = values.get("agent_publishers")
+    if publishers is not None and (
+        not isinstance(publishers, list)
+        or not all(isinstance(item, str) and item in (values.get("approved_publishers") or {}) for item in publishers)
+    ):
+        raise AgentError("invalid_agent_publishers")
 
 
 def read_environment(path: StrPath) -> dict[str, str]:
@@ -270,6 +279,7 @@ def _validate_credentials(values: JSON) -> None:
 @dataclass(frozen=True)
 class Config:
     values: JSON
+    path: Path | None = None  # The loaded file, for the selfcheck of a new agent version (#497).
 
     @classmethod
     def load(cls, path: StrPath) -> Self:
@@ -291,7 +301,7 @@ class Config:
         token = private_file(values["token_file"]).read_text().strip()
         if not token.isascii() or len(token) < 32:
             raise AgentError("invalid_agent_token")
-        return cls(values)
+        return cls(values, Path(path))
 
     def __getitem__(self, key: str) -> Any:
         return self.values[key]

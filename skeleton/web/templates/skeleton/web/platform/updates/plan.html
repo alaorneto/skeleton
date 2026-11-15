@@ -3,6 +3,14 @@
 {% block step %}
 {% if artifact %}
 <section class="alert alert-success mb-5" aria-labelledby="plan-artifact">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0"><h2 id="plan-artifact" class="text-sm font-semibold text-inherit">{% translate "Pacote verificado:" %} {{ artifact.manifest.name|default:_("pacote") }} {{ artifact.manifest.version }}</h2><p class="mt-1">{% translate "Digest" %} <code class="uuid text-inherit!">{{ artifact.digest }}</code></p>{% if artifact.kind == "release" %}<p class="mt-1">{% translate "Pacote de release: o plano usa o pacote do núcleo que veio nele" %} <code class="uuid text-inherit!">{{ artifact.core.digest }}</code></p>{% endif %}</div></section>
+{% if artifact.kind == "release" and artifact.agent.update_required %}
+<section class="card mb-5" aria-labelledby="plan-agent">
+  <h2 id="plan-agent">{% translate "Agente de deployment" %} {{ artifact.agent.version }}</h2>
+  {% if agent_self_update %}<p class="mt-1 mb-4 text-sm/6 text-body">{% translate "Este pacote traz um agente mais novo. Atualize o agente antes do núcleo: ele monta um ambiente novo, testa e reinicia." %}</p>
+  <form method="post" action="{% url 'platform:updates-agent' %}">{% csrf_token %}<input type="hidden" name="release" value="{{ artifact.digest }}"><button type="submit" class="btn btn-secondary">{% translate "Atualizar agente" %}</button></form>
+  {% else %}<p class="mt-1 text-sm/6 text-body">{% translate "Este pacote traz um agente mais novo, e este agente não se atualiza sozinho. No servidor, rode" %} <code>skeleton-deployment-agent --config &lt;agent.json&gt; agent-install --release &lt;pacote&gt; --root &lt;diretório&gt;</code> {% translate "e reinicie o serviço do agente." %}</p>{% endif %}
+</section>
+{% endif %}
 {% if artifact.kind == "release" and not artifact.target %}
 <section class="alert alert-warning mb-5" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<p>{% translate "Este pacote não traz dependências para a plataforma deste servidor. Valem o lock e o wheelhouse configurados no agente." %}</p></section>
 {% endif %}

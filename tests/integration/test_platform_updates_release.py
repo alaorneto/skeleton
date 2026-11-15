@@ -104,3 +104,82 @@ def test_plan_details_list_dropped_dependencies():
         "skeleton/web/platform/updates/plan-details.html", {"plan": {**plan, "dropped_dependencies": ["redis"]}}
     )
     assert "Dependências que deixam de ser instaladas" in text and "<code>redis</code>" in text
+
+
+def agent_double(monkeypatch, *, self_update=True, calls=None):
+    calls = [] if calls is None else calls
+
+    def update_agent(digest, *, actor_id):
+        calls.append((digest, actor_id))
+        return {"state": "restarting", "version": "0.7.0"}
+
+    inventory = {
+        "generation": 1,
+        "apps": [],
+        "core": {"version": "0.6.0"},
+        "agent": {"version": "0.6.0", "self_update": self_update},
+    }
+    client = SimpleNamespace(update_agent=update_agent, inventory=lambda: inventory, upload=lambda path: offer())
+    from skeleton.system import releases
+
+    monkeypatch.setattr(releases, "agent_client", lambda: client)
+    monkeypatch.setattr(updates, "agent_client", lambda: client)
+    return calls
+
+
+def offer():
+    return {**release_result(), "agent": {"version": "0.7.0", "update_required": True}}
+
+
+def test_installed_versions_show_the_agent(admin, monkeypatch):
+    agent_double(monkeypatch, self_update=False)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    body = client.get(reverse("platform:updates")).content.decode()
+    assert "Agente de deployment" in body and "Atualização do agente: manual (veja o guia)" in body
+
+
+def test_release_upload_offers_the_agent_update(admin, monkeypatch):
+    agent_double(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    package = SimpleUploadedFile("release.skapp", b"PK\x05\x06" + b"\0" * 18)
+    body = client.post(reverse("platform:updates-upload"), {"package": package}).content.decode()
+    assert "Atualizar agente" in body and reverse("platform:updates-agent") in body
+    agent_double(monkeypatch, self_update=False)
+    package = SimpleUploadedFile("release.skapp", b"PK\x05\x06" + b"\0" * 18)
+    body = client.post(reverse("platform:updates-upload"), {"package": package}).content.decode()
+    assert "Atualizar agente" not in body and "agent-install" in body
+
+
+def test_agent_update_posts_the_digest_and_redirects(admin, monkeypatch):
+    calls = agent_double(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.post(reverse("platform:updates-agent"), {"release": RELEASE_DIGEST})
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates")
+    assert calls == [(RELEASE_DIGEST, admin.pk)]
+    assert client.post(reverse("platform:updates-agent"), {"release": "../x"}).status_code == 400
+    assert client.get(reverse("platform:updates-agent")).status_code == 405
+    assert len(calls) == 1
+
+
+def test_agent_update_needs_csrf_recent_authentication_and_the_capability(admin, monkeypatch):
+    calls = agent_double(monkeypatch)
+    strict = support.login(admin, password=PASSWORD)
+    assert strict.post(reverse("platform:updates-agent"), {"release": RELEASE_DIGEST}).status_code == 403
+    session = strict.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    response = strict.post(
+        reverse("platform:updates-agent"),
+        {"release": RELEASE_DIGEST, "csrfmiddlewaretoken": strict.cookies["csrftoken"].value},
+    )
+    assert response.status_code == 302 and response["Location"].startswith(reverse("account_reauthenticate"))
+    with system_context(reason="test:agent-update-auditor"):
+        auditor = create_identity(email="agent-auditor@example.test", password=PASSWORD)
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=auditor, email=auditor.email, verified=True, primary=True)
+    with request_context(actor=admin, request_id=uuid4(), source="test:agent-update"):
+        grant_platform_role(actor=admin, user=auditor, role="auditor")
+    denied = support.login(auditor, password=PASSWORD, csrf=False)
+    assert denied.post(reverse("platform:updates-agent"), {"release": RELEASE_DIGEST}).status_code == 403
+    assert calls == []

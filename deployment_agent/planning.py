@@ -5,6 +5,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
+from skeleton.versioning import release_line
+
+from . import selfupdate
 from .releases import (
     check_drift,
     check_plan_dependencies,
@@ -76,6 +79,31 @@ def preview_request(action: object, artifacts: Any, app_ids: Any) -> tuple[list[
     return artifacts, app_ids
 
 
+def check_agent_line(manifests: list[JSON]) -> None:
+    """The agent validates and installs the core: it must be on the target core's line or newer (#497)."""
+    agent = selfupdate.agent_version()
+    if agent is None:
+        return  # A source checkout of the agent: no lock.
+    for manifest in manifests:
+        if manifest["kind"] != "core":
+            continue
+        line = release_line(manifest["version"])
+        if release_line(agent) < line:
+            required = f">={line[0]}.{line[1]}.0"
+            raise AgentError(
+                "agent_update_required",
+                409,
+                details=[
+                    {
+                        "code": "agent_update_required",
+                        "component": selfupdate.DISTRIBUTION,
+                        "required": required,
+                        "found": agent,
+                    }
+                ],
+            )
+
+
 def check_preview(
     service: "DeploymentService",
     action: str,
@@ -114,6 +142,7 @@ def check_preview(
             raise AgentError("explicit_reinstall_required", 409)
     if len(kinds) != len(set(kinds)) or action == "core_update" and "django-skeleton" not in kinds:
         raise AgentError("duplicate_component_or_missing_core")
+    check_agent_line(manifests)
     # An update may bring new dependencies along, but must update something installed.
     if action == "update" and not any(component in old_apps for component in kinds):
         raise AgentError("not_installed_use_install", 409)

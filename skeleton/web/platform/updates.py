@@ -38,6 +38,7 @@ from skeleton.system.releases import (
     retry_submission,
     submission_can_retry,
 )
+from skeleton.system.releases import update_agent as request_agent_update
 
 from .guards import platform_page
 
@@ -50,6 +51,7 @@ __all__ = [
     "operations",
     "plan",
     "preview",
+    "update_agent",
     "upload",
 ]
 
@@ -145,15 +147,38 @@ def _context(step, **values):
     return {"platform_section": "updates", "updates_step": step, "steps": STEPS, **values}
 
 
+# Operator-facing text of the agent update codes (#497); any other code is shown as is.
+ERROR_TEXT = {
+    "agent_update_required": gettext_lazy(
+        "O agente de deployment é mais antigo que a linha do núcleo de destino: atualize o agente primeiro."
+    ),
+    "agent_self_update_unavailable": gettext_lazy(
+        "Este agente não se atualiza sozinho (agent_root não configurado): atualize-o pelo comando agent-install."
+    ),
+    "release_without_agent": gettext_lazy("O pacote de release não traz o agente de deployment."),
+    "agent_publisher_not_allowed": gettext_lazy(
+        "O publicador deste pacote não pode fornecer o agente: só o publicador do núcleo instalado ou um de agent_publishers."
+    ),
+    "agent_already_current": gettext_lazy("O agente de deployment já está nesta versão."),
+    "agent_downgrade_forbidden": gettext_lazy("O pacote traz um agente mais antigo que o instalado."),
+    "agent_target_unavailable": gettext_lazy("O pacote não traz dependências para a plataforma do agente."),
+    "agent_build_failed": gettext_lazy(
+        "A montagem do agente novo falhou; o agente atual continua em uso. Veja o diário do agente no servidor."
+    ),
+}
+
+
 def _error(request, exc):
     if isinstance(exc, DeploymentUnavailable):
         messages.error(
             request, gettext("O agente de deployment não está disponível ou não foi configurado nesta instalação.")
         )
         return
-    messages.error(
-        request, gettext("Operação indisponível: %(value1)s.") % {"value1": getattr(exc, "code", type(exc).__name__)}
-    )
+    code = getattr(exc, "code", type(exc).__name__)
+    if code in ERROR_TEXT:
+        messages.error(request, ERROR_TEXT[code])
+        return
+    messages.error(request, gettext("Operação indisponível: %(value1)s.") % {"value1": code})
 
 
 PROBLEM_TEXT = {
@@ -173,6 +198,9 @@ PROBLEM_TEXT = {
     "wheel_pin_conflict": "{component} fixa {dependency} {required}, em conflito com {found} fixado por outro componente.",
     "installed_dependents": gettext_lazy(
         "{component} depende de {dependency}: retire as duas no mesmo plano ou mantenha {dependency}."
+    ),
+    "agent_update_required": gettext_lazy(
+        "{component} {found} não instala o núcleo {required}: atualize o agente antes do núcleo."
     ),
 }
 
@@ -207,7 +235,9 @@ def _installed_components():
     }
 
 
-def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts=""):
+def _plan_page(
+    request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts="", agent_self_update=False
+):
     return render(
         request,
         "skeleton/web/platform/updates/plan.html",
@@ -218,9 +248,20 @@ def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_ac
             problems=problems,
             plan_action=plan_action,
             plan_artifacts=plan_artifacts,
+            agent_self_update=agent_self_update,
         ),
         status=status,
     )
+
+
+def _agent_self_update(artifact):
+    """Whether the agent can replace itself, asked only when a release package offers a newer one."""
+    if not (artifact.get("agent") or {}).get("update_required"):
+        return False
+    try:
+        return bool((agent_client().inventory().get("agent") or {}).get("self_update"))
+    except (ValueError, RuntimeError, OSError):
+        return False
 
 
 # --------------------------------------------------------------------------- steps
@@ -315,6 +356,7 @@ def _upload(request):
                 request,
                 PlanForm(initial={"artifacts": digest, "action": action or "install"}),
                 artifact=artifact,
+                agent_self_update=_agent_self_update(artifact),
             )
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
@@ -435,10 +477,31 @@ def fetch_release(request):
         elif action is None:
             action = "update" if identifiers["component_id"] in _installed_components() else "install"
         messages.success(request, gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."))
-        return _plan_page(request, PlanForm(initial={"action": action, "artifacts": digest}), artifact=artifact)
+        return _plan_page(
+            request,
+            PlanForm(initial={"action": action, "artifacts": digest}),
+            artifact=artifact,
+            agent_self_update=_agent_self_update(artifact),
+        )
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
         return redirect("platform:updates-available")
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def update_agent(request):
+    """Replace the agent with the one of an uploaded release package (#497); the agent restarts."""
+    digest = request.POST.get("release", "")
+    if not re.fullmatch("[0-9a-f]{64}", digest):
+        return HttpResponse(gettext("Digest de pacote inválido."), status=400)
+    try:
+        request_agent_update(user=request.user, digest=digest)
+        messages.success(request, gettext("O agente está reiniciando. Atualize a página em alguns segundos."))
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    return redirect("platform:updates")
 
 
 @platform_page(capability="updates.operate", writes=True)

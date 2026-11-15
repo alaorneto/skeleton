@@ -57,6 +57,26 @@ def plan_artifact(upload):
     return upload["digest"], None
 
 
+def update_agent(*, user, digest):
+    """Ask the agent to replace itself from an uploaded release package (#497); identifiers only."""
+    import re
+
+    from skeleton.common.logging import security_event
+
+    require_release_operator(user)
+    if not isinstance(digest, str) or not re.fullmatch("[0-9a-f]{64}", digest):
+        raise ValidationError("Invalid release package digest.")
+    ctx = current_context()
+    result = agent_client().update_agent(digest, actor_id=user.pk)
+    security_event(
+        "deployment.agent_update_requested",
+        request_id=ctx.request_id,
+        source="deployment:agent-update",
+        outcome=str(result.get("state", ""))[:40],
+    )
+    return result
+
+
 def _plan_id(value):
     try:
         return str(UUID(str(value)))

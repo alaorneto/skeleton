@@ -606,6 +606,18 @@ Todos os paths são absolutos; publisher IDs precisam corresponder aos manifests
 
 **Ambiente do publicador (#495).** Quando o core chega num [pacote de release](#pacote-de-release) que traz o alvo deste servidor, o lock e os wheels das dependências do core vêm do publicador, não do `requirements_lock` nem do `wheelhouse` do operador: o agente registra em `environments/<digest do core>.json` (no armazenamento privado, 0600) de qual pacote de release enviado tirá-los, e a cada montagem revalida a assinatura desse pacote em `uploads/` e lê os membros do snapshot verificado; nada fica extraído entre operações. A chave opcional `project_requirements_lock` (caminho absoluto, `invalid_config_path`) é o lock com hashes das dependências **só do projeto derivado**: ele é somado ao do publicador; uma distribuição que o publicador já fixa em outra versão falha com 409 `dependency_version_conflict`. Os wheels dessas dependências continuam no `wheelhouse`. Sem pacote de release, ou com um pacote que não traz o alvo deste servidor, valem o `requirements_lock` e o `wheelhouse` como antes.
 
+**Auto-atualização do agente (#497).** A chave opcional `agent_root` (caminho absoluto de um diretório existente, `invalid_agent_root`) liga a auto-atualização; sem ela, a atualização do agente continua manual. `agent_publishers` (lista de ids, todos em `approved_publishers`; senão `invalid_agent_publishers`) lista os publicadores autorizados a fornecer o agente **além** do publicador do core instalado. O diretório pertence ao usuário do agente (`skeleton-agent`, 0755 ou mais fechado) e nunca é gravável por `skeleton-web` nem por outros usuários: é o código do processo que guarda a credencial owner.
+
+```
+<agent_root>/
+  current -> versions/0.6.0-1a2b3c4d5e6f      link simbólico relativo
+  state.json                                  {"current", "previous", "version", "release", "switched_at"}
+  versions/<versão>-<12 primeiros caracteres do digest do pacote de release>/
+    venv/  wheels/  requirements.lock  READY
+```
+
+A unit de referência (`deploy/systemd/skeleton-agent.service`) executa `/opt/skeleton-agent/current/venv/bin/skeleton-deployment-agent` com `Restart=on-failure`: depois de trocar o link, o agente sai com o código 75 e o systemd o sobe de novo, já na versão nova.
+
 **Nota de migração.** Quem mantém dependências do projeto no `requirements_lock` deve movê-las para `project_requirements_lock` **antes** do primeiro pacote de release: com o ambiente do publicador, o `requirements_lock` deixa de ser lido para o core, e essas dependências apareceriam em "Dependências que deixam de ser instaladas" na prévia.
 
 Cada env é texto `KEY=value`, uma variável por linha, com aspas opcionais; não use `export`, interpolação `$VAR`, substituições ou `source`. Exemplo de **estrutura** dos três arquivos; substitua os valores de credenciais pelo provisionamento PostgreSQL anterior:
@@ -847,6 +859,7 @@ API equivalente pelo socket (todas as chamadas exigem `Authorization: Bearer <to
 | POST `/status-ticket` | `{"operation_id":"<uuid>"}`; permite emitir link antes de submit |
 | POST `/catalog/check` | `{}` |
 | GET `/updates/status` | nenhum; última consulta e `paths` recalculado, sem rede |
+| POST `/agent/update` | `{"release":"<sha256 do pacote de release>","actor_id":"<uuid>"}`; responde `{"state":"restarting"}` e o agente sai com 75 |
 | POST `/catalog/fetch` | `{"component_id":"notes","version":"1.1.0","source_id":"platform-stable"}` |
 
 Não existe API HTTP de `initialize` ou `recover`. Para curl, provisione arquivo privado `control-header` com a linha `Authorization: Bearer ...` (0600), evitando token em argv/history:
@@ -862,6 +875,28 @@ curl --unix-socket /srv/skeleton/control/agent.sock \
   --header @/srv/skeleton/private/control-header --header 'Content-Type: application/json' \
   --data-binary @/srv/skeleton/private/preview-request.json http://localhost/preview
 ```
+
+### Atualizar o agente
+
+O agente informa a própria versão em `GET /inventory` (`agent.version`, `null` quando roda de um checkout de código, e `agent.self_update`, verdadeiro com `agent_root`), e "Versões instaladas" a mostra. Como o agente valida e instala o core, a prévia de um `core_update` para uma linha acima da do agente é recusada com 409 `agent_update_required` (os `details` dizem a versão do agente e a linha exigida); diferença só de patch não bloqueia, e um agente de versão desconhecida não é travado.
+
+- **Pela tela.** Ao enviar (ou buscar) um pacote de release que traz um agente mais novo, a tela oferece "Atualizar agente" (POST com CSRF, `updates.operate` e autenticação recente; só o digest do pacote segue pelo socket, para `POST /agent/update` com `{"release", "actor_id"}`). O agente, sob o lock de deployment e sem operação pendente, revalida o pacote, exige que ele traga o agente (`release_without_agent`), que o publicador seja o do core instalado ou um de `agent_publishers` (403 `agent_publisher_not_allowed`), que a versão seja maior (`agent_already_current`, `agent_downgrade_forbidden`) e que haja alvo para o interpretador do próprio agente (`agent_target_unavailable`). Monta `versions/<nome>` sem rede (`pip install --no-index --only-binary=:all: --require-hashes` do lock do alvo mais o core e o agente, `pip check`) e roda `selfcheck` do agente novo com a mesma configuração; qualquer falha apaga o diretório parcial, mantém o agente atual e responde `agent_build_failed` (a saída do pip fica fora da resposta, da tela e do journal). Depois troca `current` atomicamente (`os.replace`), registra o evento em `agent-updates/` no armazenamento privado, responde `{"state": "restarting"}` e sai com 75. Recarregue a página em alguns segundos.
+- **Pelo servidor.** `agent-install --release <pacote de release> [--root <diretório>]` instala ou atualiza a partir de um arquivo, com o serviço parado ou não, e imprime os próximos passos; não reinicia nada sozinho. `agent-rollback [--root <diretório>]` aponta `current` de volta para a versão anterior (recusa com `agent_rollback_unavailable` quando não há anterior pronta). Downgrade só existe por esse comando offline.
+
+```sh
+# Migração de uma instalação existente (/opt/skeleton-agent/venv): a primeira versão com este recurso
+# é instalada como hoje; depois:
+sudo -u skeleton-agent install -d -m 0755 /opt/skeleton-agent
+sudo -u skeleton-agent /opt/skeleton-agent/venv/bin/skeleton-deployment-agent \
+  --config /srv/skeleton/private/agent.json agent-install \
+  --release /srv/skeleton/artifacts/skeleton-<versão>.release.skapp --root /opt/skeleton-agent
+# Acrescente "agent_root": "/opt/skeleton-agent" ao agent.json e troque o ExecStart da unit para
+# /opt/skeleton-agent/current/venv/bin/skeleton-deployment-agent ... serve
+sudo systemctl daemon-reload && sudo systemctl restart skeleton-agent
+"$AGENT" --config "$CONFIG" agent-rollback   # se o agente novo não subir; depois systemctl restart
+```
+
+**Regra de compatibilidade de formato.** O agente da linha N precisa conseguir validar o pacote de release da linha N+1 para se atualizar a partir dele. Por isso, um formato novo de manifesto, de pacote ou de índice só pode ser **emitido** a partir da linha seguinte àquela em que os leitores passaram a aceitá-lo. Limite aceito: se o agente novo não subir por um erro que o `selfcheck` não pegou, o systemd fica reiniciando; a volta é `agent-rollback` seguido de `systemctl restart skeleton-agent`. Um supervisor que não reinicia em saída diferente de zero não serve: use `Restart=on-failure` ou equivalente.
 
 ### Backend Compose
 

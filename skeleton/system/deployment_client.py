@@ -172,6 +172,12 @@ class AgentClient:
     def check_updates(self):
         return self._request("POST", "/catalog/check")
 
+    def update_agent(self, digest, *, actor_id):
+        """Ask the agent to replace itself with the agent of an uploaded release package (#497)."""
+        return self._request(
+            "POST", "/agent/update", {"release": digest, "actor_id": str(actor_id)}, timeout=SUBMIT_TIMEOUT
+        )
+
     def update_status(self):
         """Last check of the sources and the update paths, recalculated; the agent stays offline (#493)."""
         return self._request("GET", "/updates/status", timeout=STATUS_TIMEOUT)

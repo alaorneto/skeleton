@@ -251,3 +251,14 @@ def test_allow_version_jumps_boolean_loads(tmp_path):
         _validate_optional({"allow_version_jumps": value})
     with pytest.raises(AgentError, match="invalid_boolean_setting"):
         _validate_optional({"allow_version_jumps": "sim"})
+
+
+def test_agent_root_and_publishers_are_validated(tmp_path):
+    root = tmp_path / "agent-root"
+    root.mkdir()
+    assert refused("invalid_agent_root", tmp_path, agent_root="relative/agent")
+    assert refused("invalid_agent_root", tmp_path, agent_root=str(tmp_path / "missing"))
+    assert refused("invalid_agent_publishers", tmp_path, agent_publishers=["not.approved"])
+    assert refused("invalid_agent_publishers", tmp_path, agent_publishers="org.example")
+    config = load_config(tmp_path, agent_root=str(root), agent_publishers=["org.example"])
+    assert config.get("agent_root") == str(root) and config.path == tmp_path / "agent.json"

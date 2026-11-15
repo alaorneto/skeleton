@@ -18,7 +18,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from .storage import AgentError, atomic_bytes, canonical, identifier, log_internal_error, private_file
+from .storage import AgentError, artifact_id, atomic_bytes, canonical, identifier, log_internal_error, private_file
 from .types import JSON
 
 if TYPE_CHECKING:
@@ -197,6 +197,16 @@ class ControlHandler(QuietHandler):
             raise AgentError("unknown_fields")
         return self.server.service.check_updates()
 
+    def _agent_update(self, body: JSON) -> JSON:
+        if not {"release"} <= set(body) <= {"release", "actor_id"}:
+            raise AgentError("invalid_agent_update_fields")
+        actor = body.get("actor_id")
+        result = self.server.service.update_agent(
+            artifact_id(body["release"]), actor_id=identifier(actor) if actor is not None else None
+        )
+        self.restart_after_response = True  # The new version is started by the supervisor (#497).
+        return result
+
     def _catalog_fetch(self, body: JSON) -> JSON:
         if set(body) != {"component_id", "version", "source_id"}:
             raise AgentError("invalid_catalogue_selection")
@@ -208,11 +218,17 @@ class ControlHandler(QuietHandler):
         "/submit": _submit,
         "/catalog/check": _catalog_check,
         "/catalog/fetch": _catalog_fetch,
+        "/agent/update": _agent_update,
     }
+
+    restart_after_response = False
 
     def handle_request(self) -> None:
         try:
             self.send_json(self.dispatch())
+            restart = getattr(self.server, "request_restart", None)
+            if self.restart_after_response and restart is not None:
+                restart()
         except AgentError as error:
             body = {"error": error.code}
             if error.details:
@@ -306,9 +322,17 @@ class UnixHTTPServer(ThreadingMixIn, UnixStreamServer):
     block_on_close = False
     service: "DeploymentService"  # Set by serve().
     tickets: StatusTickets
+    restart_requested = False
+
+    def request_restart(self) -> None:
+        """Stop serving after the current response; serve() then exits with RESTART_EXIT_CODE (#497)."""
+        self.restart_requested = True
+        # shutdown() blocks until serve_forever() returns: never from the request thread.
+        threading.Thread(target=self.shutdown, daemon=True, name="deployment-restart").start()
 
 
-def serve(service: "DeploymentService") -> None:
+def serve(service: "DeploymentService") -> int:
+    """Serve until a signal or a self-update; the process exit code (RESTART_EXIT_CODE after an update)."""
     path = Path(service.config["socket_path"])
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o750)
     if path.exists():
@@ -359,3 +383,6 @@ def serve(service: "DeploymentService") -> None:
         if worker is not None and worker.is_alive():
             worker.join()  # The operation in progress reaches its final state before the agent exits.
         path.unlink(missing_ok=True)
+    from .selfupdate import RESTART_EXIT_CODE
+
+    return RESTART_EXIT_CODE if server.restart_requested else 0
