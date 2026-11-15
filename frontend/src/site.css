@@ -432,6 +432,37 @@
   .required {
     @apply text-fg-danger;
   }
+  .optional {
+    @apply font-normal text-body-subtle;
+  }
+  /* Etapas do setup do primeiro acesso: vertical no desktop, linha rolável no celular. */
+  .setup-steps {
+    @apply flex gap-2 overflow-x-auto pb-2 md:flex-col md:gap-1 md:overflow-visible md:pb-0;
+  }
+  .setup-steps > li {
+    @apply shrink-0;
+  }
+  .setup-steps a {
+    @apply flex items-center gap-2.5 rounded-base px-3 py-2 text-sm/5 font-medium text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading;
+  }
+  .setup-steps a[aria-current] {
+    @apply bg-brand-softer text-fg-brand;
+  }
+  .setup-step-number {
+    @apply grid size-6 shrink-0 place-items-center rounded-full border border-default-medium text-xs font-semibold tabular-nums;
+    & svg {
+      @apply size-4;
+    }
+  }
+  .setup-steps a[aria-current] .setup-step-number {
+    @apply border-brand bg-brand text-white;
+  }
+  .setup-step-done .setup-step-number {
+    @apply border-success-subtle bg-success-soft text-fg-success-strong;
+  }
+  .setup-step-later .setup-step-number {
+    @apply border-warning-subtle bg-warning-soft text-fg-warning;
+  }
   .form-actions {
     @apply mt-6 flex flex-wrap items-center gap-3 border-t border-default pt-5;
   }

@@ -70,6 +70,18 @@ def test_setup_mode_follows_the_required_keys(tmp_path, monkeypatch):
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == "config.settings.test"
 
 
+def test_target_is_strict_unless_development_or_test(subtests):
+    for name, strict in (
+        ("config.settings.production", True),
+        ("config.settings.development", False),
+        ("config.settings.test", False),
+        ("project.settings.staging", True),
+        ("", True),
+    ):
+        with subtests.test(name=name):
+            assert mode.target_is_strict(name) is strict
+
+
 def test_the_wsgi_entrypoint_issues_and_prints_the_token_in_a_fresh_process(tmp_path):
     """Gunicorn imports ``config.wsgi`` before the apps exist; issuing the token must not translate (#455)."""
     environment = {
@@ -170,3 +182,14 @@ def test_restart_modes(monkeypatch, environment, expected):
         "manual": [],
     }[expected]
     assert calls == expected_calls
+
+
+def test_setup_templates_only_link_inside_the_setup():
+    """Setup mode routes only /setup/: a {% url %} of another namespace would fail to render (#463)."""
+    import re
+
+    folder = ROOT / "skeleton" / "web" / "templates" / "skeleton" / "setup"
+    names = []
+    for template in folder.glob("*.html"):
+        names += re.findall(r"{%\s*url\s+['\"]([^'\"]+)['\"]", template.read_text(encoding="utf-8"))
+    assert names and all(name.startswith("setup:") for name in names), names

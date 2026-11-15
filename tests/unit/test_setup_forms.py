@@ -1,4 +1,4 @@
-"""The setup only completes with values the target profile accepts (#457)."""
+"""The setup only completes with values the target profile accepts (#457, #463)."""
 
 import pytest
 from django.test import override_settings
@@ -12,17 +12,49 @@ EMAIL = {"default_from_email": "noreply@example.test", "test_recipient": "ops@ex
 @override_settings(SKELETON_SETUP_PRODUCTION=True)
 def test_production_target_requires_a_shared_redis_cache(subtests):
     for value in ("", "locmemcache://", "dummycache://", "not a url"):
-        with subtests.test(cache_url=value):
-            form = forms.StorageForm({**STORAGE, "cache_url": value})
-            assert not form.is_valid() and "cache_url" in form.errors
-    for value in ("redis://:secret@redis:6379/0", "rediss://:secret@redis:6380/0"):
-        with subtests.test(cache_url=value):
-            assert forms.StorageForm({**STORAGE, "cache_url": value}).is_valid()
+        with subtests.test(cache_location=value):
+            form = forms.StorageForm({**STORAGE, "cache_location": value})
+            assert not form.is_valid() and "cache_location" in form.errors
+    for value in ("redis://redis:6379/0", "rediss://redis:6380/0"):
+        with subtests.test(cache_location=value):
+            form = forms.StorageForm({**STORAGE, "cache_location": value, "cache_password": "secret"})
+            assert form.is_valid() and form.cleaned_data["cache_url"].startswith(value.split("//")[0])
 
 
 @override_settings(SKELETON_SETUP_PRODUCTION=False)
 def test_development_target_keeps_the_local_cache():
-    assert forms.StorageForm({**STORAGE, "cache_url": ""}).is_valid()
+    form = forms.StorageForm({**STORAGE, "cache_location": ""})
+    assert form.is_valid() and form.cleaned_data["cache_url"] == ""
+    assert not form.fields["cache_location"].required
+
+
+def test_strict_is_an_argument_of_the_storage_form():
+    assert not forms.StorageForm({**STORAGE}, strict=True).is_valid()
+    assert forms.StorageForm({**STORAGE}, strict=False).is_valid()
+    assert forms.StorageForm(strict=True).fields["cache_location"].required
+
+
+def test_redis_password_is_percent_encoded_and_reads_back(subtests):
+    from urllib.parse import unquote, urlsplit
+
+    import environ
+
+    for password in ("p@ss:w/rd", "a b#c?d%e", "simple"):
+        with subtests.test(password=password):
+            form = forms.StorageForm(
+                {**STORAGE, "cache_location": "redis://redis:6379/0", "cache_password": password}, strict=True
+            )
+            assert form.is_valid(), form.errors
+            location = environ.Env.cache_url_config(form.cleaned_data["cache_url"])["LOCATION"]
+            parts = urlsplit(location)
+            assert unquote(parts.password) == password and parts.hostname == "redis" and parts.port == 6379
+
+
+def test_redis_address_with_credentials_is_refused():
+    form = forms.StorageForm({**STORAGE, "cache_location": "redis://:secret-value@redis:6379/0"}, strict=True)
+    assert not form.is_valid()
+    assert form.errors["cache_location"] == ["Informe a senha no campo ao lado, não dentro do endereço."]
+    assert "secret-value" not in str(form.errors)
 
 
 @override_settings(SKELETON_SETUP_PRODUCTION=True)
@@ -38,7 +70,7 @@ def test_production_target_requires_smtp(subtests):
 
 @override_settings(SKELETON_SETUP_PRODUCTION=True)
 def test_refusals_never_echo_the_secret():
-    form = forms.StorageForm({**STORAGE, "cache_url": "locmemcache://secret-value"})
+    form = forms.StorageForm({**STORAGE, "cache_location": "locmemcache://secret-value"})
     email = forms.EmailForm({**EMAIL, "email_url": "consolemail://user:secret-value@host"})
     assert not form.is_valid() and not email.is_valid()
     assert "secret-value" not in str(form.errors) + str(email.errors)

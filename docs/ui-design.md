@@ -91,6 +91,8 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `message`/`alert` (+ `success`, `warning`, `error`), `error-summary`, `confirmation` | Retorno ao usuário. |
 | `badge` (+ `badge-brand`, `badge-success`, `badge-warning`, `badge-dot`), `uuid`, `meta-list` | Estados e metadados. |
 | `form-stack`, `form-field`, `helptext`, `errorlist`, `form-actions` | Formulários simples; `components/form-fields.html` substitui `form.as_p` mantendo ids, ajuda, erros e `aria-describedby`. |
+| `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
+| `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
 
 Ícones: `{% include "skeleton/web/components/icon.html" with name="table" class="size-5" %}` (traço 24 px, estilo Heroicons, decorativos com `aria-hidden`).
 

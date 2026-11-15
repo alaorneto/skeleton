@@ -1,6 +1,7 @@
 {% extends "skeleton/setup/base.html" %}
 {% load i18n %}{% block content %}
-{% if pending %}<p class="mt-2 text-sm/6 text-body">{% translate "Ainda faltam etapas:" %}</p><ul class="mt-2">{% for label in pending %}<li>{{ label }}</li>{% endfor %}</ul>
-{% else %}<p class="mt-2 text-sm/6 text-body">{% translate "Tudo validado. Ao concluir, o setup é encerrado (" %}<code>/setup/</code> {% translate "passa a responder 404) e a instância reinicia em modo normal." %}</p>
+{% if pending %}<p class="page-description">{% translate "Ainda faltam etapas:" %}</p>
+<ul class="mt-2 list-disc space-y-1 ps-5">{% for item in pending %}<li><a href="{% url 'setup:'|add:item.name %}">{{ item.label }}</a></li>{% endfor %}</ul>
+{% else %}<p class="page-description">{% translate "Tudo validado. Ao concluir, o setup é encerrado (" %}<code>/setup/</code> {% translate "passa a responder 404) e a instância reinicia em modo normal." %}</p>
 <form method="post" class="mt-6">{% csrf_token %}<div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Concluir e reiniciar" %}</button></div></form>{% endif %}
 {% endblock %}

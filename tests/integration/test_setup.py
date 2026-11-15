@@ -323,3 +323,114 @@ def test_failed_admin_bootstrap_is_logged(setup_mode, caplog, monkeypatch):
     [record] = [record for record in caplog.records if record.name == "skeleton.setup"]
     assert record.exc_info and "step=admin" in record.getMessage()
     assert PASSWORD not in caplog.text
+
+
+def test_steps_show_their_position_intro_and_a_way_back(setup_mode, subtests):
+    _ready_for(setup_mode, "database", "schema")
+    client = enter(setup_mode)
+    for number, (url, back) in enumerate(
+        (
+            ("/setup/instance/", "/setup/"),
+            ("/setup/database/", "/setup/instance/"),
+            ("/setup/schema/", "/setup/database/"),
+            ("/setup/email/", "/setup/schema/"),
+            ("/setup/storage/", "/setup/email/"),
+            ("/setup/admin/", "/setup/storage/"),
+        ),
+        1,
+    ):
+        with subtests.test(url=url):
+            response = client.get(url)
+            html = response.content.decode()
+            assert response.status_code == 200
+            assert f"Etapa {number} de 6" in html
+            assert 'class="page-description"' in html
+            assert f'<a class="btn btn-secondary" href="{back}">Voltar</a>' in html
+            assert 'aria-current="step"' in html
+
+
+def test_optional_and_required_fields_are_marked(setup_mode, subtests):
+    _ready_for(setup_mode, "database", "schema")
+    client = enter(setup_mode)
+    for url, required, optional in (
+        ("/setup/instance/", ("allowed_hosts",), ("public_url", "csrf_trusted_origins")),
+        ("/setup/storage/", (), ("cache_location", "cache_password", "files_root", "files_s3_region")),
+        ("/setup/admin/", ("email", "password1", "organization_slug"), ()),
+    ):
+        html = client.get(url).content.decode()
+        for name in required:
+            with subtests.test(url=url, required=name):
+                label = html.split(f'<label for="id_{name}">', 1)[1].split("</label>", 1)[0]
+                assert '<span class="required" aria-hidden="true"> *</span>' in label and "(opcional)" not in label
+        for name in optional:
+            with subtests.test(url=url, optional=name):
+                label = html.split(f'<label for="id_{name}">', 1)[1].split("</label>", 1)[0]
+                assert '<span class="optional">(opcional)</span>' in label and "*" not in label
+
+
+def test_production_target_requires_the_redis_address(setup_mode, tmp_path):
+    client = enter(setup_mode)
+    data = {"files_backend": "local", "files_root": str(tmp_path / "files"), "cache_password": "redis-secret-x"}
+    with override_settings(SKELETON_SETUP_PRODUCTION=True):
+        html = client.get("/setup/storage/").content.decode()
+        label = html.split('<label for="id_cache_location">', 1)[1].split("</label>", 1)[0]
+        assert "required" in label and "Obrigatório em produção" in html
+        refused = post(client, "/setup/storage/", data)
+    assert refused.status_code == 400 and "cache_location" in refused.context["form"].errors
+    assert "redis-secret-x" not in refused.content.decode()
+    assert "cache_url" not in setup_mode.settings()
+    with override_settings(SKELETON_SETUP_PRODUCTION=False):
+        assert post(client, "/setup/storage/", data).status_code == 302
+    assert "cache_url" not in setup_mode.settings()
+
+
+def test_storage_step_stores_the_redis_url_with_the_separate_password(setup_mode, tmp_path):
+    from urllib.parse import unquote, urlsplit
+
+    from skeleton.setup.views import _stored
+
+    client = enter(setup_mode)
+    password = "p@ss:w/rd"
+    data = {
+        "cache_location": "redis://redis:6379/0",
+        "cache_password": password,
+        "files_backend": "local",
+        "files_root": str(tmp_path / "files"),
+    }
+    with override_settings(SKELETON_SETUP_PRODUCTION=True):
+        response = post(client, "/setup/storage/", data)
+    assert response.status_code == 302
+    assert unquote(urlsplit(_stored("cache_url")).password) == password
+    assert password not in client.get("/setup/storage/").content.decode()
+
+
+def test_instance_step_suggests_the_host_and_fills_the_csrf_origin(setup_mode):
+    client = enter(setup_mode)
+    html = client.get("/setup/instance/", HTTP_HOST="testserver:8000").content.decode()
+    assert 'name="allowed_hosts" value="testserver"' in html
+    assert "checked" not in html.split('name="trust_proxy"', 1)[1].split(">", 1)[0]
+    proxied = client.get("/setup/instance/", HTTP_X_FORWARDED_PROTO="https").content.decode()
+    assert "checked" in proxied.split('name="trust_proxy"', 1)[1].split(">", 1)[0]
+    response = post(
+        client, "/setup/instance/", {"allowed_hosts": "app.example.test", "public_url": "https://app.example.test"}
+    )
+    assert response.status_code == 302
+    assert setup_mode.settings()["csrf_trusted_origins"][0] == "https://app.example.test"
+    after = client.get(response["Location"]).content.decode()
+    assert '<div role="status" class="message success">' in after and "Etapa “Instância” salva." in after
+
+
+def test_overview_lists_what_to_have_and_leads_to_the_next_pending_step(setup_mode):
+    client = enter(setup_mode)
+    html = client.get("/setup/").content.decode()
+    assert "Antes de começar, tenha em mãos" in html and "skeleton_runtime" in html
+    assert '<a class="btn btn-primary" href="/setup/instance/">Começar</a>' in html
+    setup_mode.put_setup_state("step:instance", "done")
+    html = client.get("/setup/").content.decode()
+    assert '<a class="btn btn-primary" href="/setup/database/">Continuar: Banco de dados</a>' in html
+    for name in ("database", "schema", "email", "storage", "admin"):
+        setup_mode.put_setup_state(f"step:{name}", "done")
+    assert (
+        '<a class="btn btn-primary" href="/setup/finish/">Revisar e concluir</a>'
+        in client.get("/setup/").content.decode()
+    )
