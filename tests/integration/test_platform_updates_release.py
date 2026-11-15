@@ -183,3 +183,141 @@ def test_agent_update_needs_csrf_recent_authentication_and_the_capability(admin,
     denied = support.login(auditor, password=PASSWORD, csrf=False)
     assert denied.post(reverse("platform:updates-agent"), {"release": RELEASE_DIGEST}).status_code == 403
     assert calls == []
+
+
+class SourcesAgent:
+    """The agent's sources API, recorded; ``refuse`` makes set_source fail with that code."""
+
+    def __init__(self, *, publishers=("skeleton", "acme"), rows=(), refuse=None):
+        self.calls, self.refuse = [], refuse
+        self.listing = {"sources": list(rows), "publishers": list(publishers), "private_available": False, "limit": 16}
+
+    def sources(self):
+        return self.listing
+
+    def set_source(self, **values):
+        self.calls.append(("set", values))
+        if self.refuse:
+            from skeleton.system.deployment_client import AgentError
+
+            raise AgentError(self.refuse, 409)
+        return self.listing
+
+    def remove_source(self, source_id, *, actor_id):
+        self.calls.append(("remove", source_id, actor_id))
+        return self.listing
+
+
+def sources_agent(monkeypatch, **options):
+    from skeleton.system import releases
+
+    double = SourcesAgent(**options)
+    monkeypatch.setattr(releases, "agent_client", lambda: double)
+    return double
+
+
+def test_sources_page_suggests_the_upstream_repository(admin, monkeypatch):
+    sources_agent(monkeypatch, rows=[{"id": "local", "type": "path", "channels": ["stable"], "origin": "config"}])
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.get(reverse("platform:updates-sources"))
+    assert response.status_code == 200
+    form = response.context["source_form"]
+    assert form.initial["repository"] == "alaorneto/skeleton" and form.initial["source_id"] == "skeleton"
+    body = response.content.decode()
+    assert "arquivo do agente" in body and "esta tela não cadastra chaves" in body
+    assert [choice for choice, _ in form.fields["publisher"].choices] == ["skeleton", "acme"]
+    assert "private" not in form.fields
+
+
+def test_sources_page_without_publishers_explains_what_to_do(admin, monkeypatch):
+    sources_agent(monkeypatch, publishers=())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    body = client.get(reverse("platform:updates-sources")).content.decode()
+    assert "Nenhum publicador aprovado no servidor" in body
+
+
+def test_save_and_remove_a_source(admin, monkeypatch):
+    double = sources_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    data = {"source_id": "fork", "repository": "acme/skeleton", "publisher": "acme", "channel": "stable"}
+    response = client.post(reverse("platform:updates-sources"), data)
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates-sources")
+    assert double.calls == [
+        (
+            "set",
+            {
+                "id": "fork",
+                "github": "acme/skeleton",
+                "publisher": "acme",
+                "channels": ["stable"],
+                "private": False,
+                "actor_id": admin.pk,
+            },
+        )
+    ]
+    response = client.post(reverse("platform:updates-sources-remove"), {"source_id": "fork"})
+    assert response.status_code == 302 and double.calls[-1] == ("remove", "fork", admin.pk)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"repository": "https://github.com/acme/skeleton"},
+        {"repository": "acme/skeleton/extra"},
+        {"repository": "acme/../x"},
+        {"publisher": "evil"},
+        {"source_id": "Fork"},
+    ],
+)
+def test_invalid_forms_never_reach_the_agent(admin, monkeypatch, changes):
+    double = sources_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    data = {"source_id": "fork", "repository": "acme/skeleton", "publisher": "acme", "channel": "stable", **changes}
+    assert client.post(reverse("platform:updates-sources"), data).status_code == 400
+    assert double.calls == []
+
+
+def test_agent_refusal_is_translated(admin, monkeypatch):
+    sources_agent(monkeypatch, refuse="publisher_not_approved")
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    data = {"source_id": "fork", "repository": "acme/skeleton", "publisher": "acme", "channel": "stable"}
+    response = client.post(reverse("platform:updates-sources"), data, follow=True)
+    assert "não está aprovado no servidor" in response.content.decode()
+
+
+def test_unavailable_agent_shows_the_standard_notice(admin, monkeypatch):
+    from skeleton.system import releases
+
+    def unavailable():
+        raise releases.DeploymentUnavailable("not configured")
+
+    monkeypatch.setattr(releases, "agent_client", unavailable)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.get(reverse("platform:updates-sources"))
+    assert response.status_code == 200 and "não está disponível" in response.content.decode()
+
+
+def test_source_changes_need_csrf_recent_authentication_and_the_capability(admin, monkeypatch):
+    double = sources_agent(monkeypatch)
+    data = {"source_id": "fork", "repository": "acme/skeleton", "publisher": "acme", "channel": "stable"}
+    strict = support.login(admin, password=PASSWORD)
+    for name in ("platform:updates-sources", "platform:updates-sources-remove"):
+        assert strict.post(reverse(name), data).status_code == 403
+    session = strict.session
+    session["account_authentication_methods"][-1]["at"] = 0
+    session.save()
+    response = strict.post(
+        reverse("platform:updates-sources"), {**data, "csrfmiddlewaretoken": strict.cookies["csrftoken"].value}
+    )
+    assert response.status_code == 302 and response["Location"].startswith(reverse("account_reauthenticate"))
+    with system_context(reason="test:sources-auditor"):
+        auditor = create_identity(email="sources-auditor@example.test", password=PASSWORD)
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.create(user=auditor, email=auditor.email, verified=True, primary=True)
+    with request_context(actor=admin, request_id=uuid4(), source="test:sources"):
+        grant_platform_role(actor=admin, user=auditor, role="auditor")
+    denied = support.login(auditor, password=PASSWORD, csrf=False)
+    assert denied.get(reverse("platform:updates-sources")).status_code == 403
+    assert denied.post(reverse("platform:updates-sources"), data).status_code == 403
+    assert double.calls == []

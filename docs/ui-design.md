@@ -68,7 +68,7 @@ A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu
 | Área | Entrada | Conteúdo |
 |---|---|---|
 | Organização (`/o/<org>/…`) | seletor de organização no cabeçalho | menu lateral: Início · Aplicativos (apps ativas) · Dados (Tabelas, Auditoria) · Administração, com as seções da capacidade do ator (Pessoas para `members.view`; Grupos e Papéis e permissões para `access.manage`; Aplicativos para `organization_admin`) |
-| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global). Views próprias em `skeleton/web/platform`; Versões e atualizações (`/platform/updates/`) segue em etapas: instaladas, novas versões, enviar pacote, preparar plano, operações. |
+| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global). Views próprias em `skeleton/web/platform`; Versões e atualizações (`/platform/updates/`) segue em etapas: instaladas, fontes (repositórios do GitHub consultados, #499), novas versões, enviar pacote, preparar plano, operações. |
 | Minha conta | menu da conta | Perfil, Email, Senha, Autenticação em dois fatores |
 
 - O seletor lista os vínculos ativos do usuário (`memberships_for_user`); ele só cria links, e cada tela revalida a autorização.

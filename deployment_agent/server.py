@@ -171,6 +171,8 @@ class ControlHandler(QuietHandler):
             return self.server.service.plan_status(identifier(path.removeprefix("/plans/")))
         if path == "/updates/status":
             return self.server.service.update_status()
+        if path == "/sources":
+            return self.server.service.sources()
         raise AgentError("not_found", 404)
 
     def _status_ticket(self, body: JSON) -> JSON:
@@ -207,6 +209,17 @@ class ControlHandler(QuietHandler):
         self.restart_after_response = True  # The new version is started by the supervisor (#497).
         return result
 
+    def _sources_set(self, body: JSON) -> JSON:
+        if set(body) - {"id", "github", "publisher", "channels", "private", "actor_id"}:
+            raise AgentError("unknown_fields")
+        payload = {key: value for key, value in body.items() if key != "actor_id"}
+        return self.server.service.set_source(payload, actor_id=body.get("actor_id"))
+
+    def _sources_remove(self, body: JSON) -> JSON:
+        if set(body) - {"id", "actor_id"} or "id" not in body:
+            raise AgentError("unknown_fields")
+        return self.server.service.remove_source(body["id"], actor_id=body.get("actor_id"))
+
     def _catalog_fetch(self, body: JSON) -> JSON:
         if set(body) != {"component_id", "version", "source_id"}:
             raise AgentError("invalid_catalogue_selection")
@@ -219,6 +232,8 @@ class ControlHandler(QuietHandler):
         "/catalog/check": _catalog_check,
         "/catalog/fetch": _catalog_fetch,
         "/agent/update": _agent_update,
+        "/sources/set": _sources_set,
+        "/sources/remove": _sources_remove,
     }
 
     restart_after_response = False

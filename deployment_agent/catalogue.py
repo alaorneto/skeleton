@@ -17,6 +17,7 @@ from skeleton.system.packages import PackageError, validate_catalog
 
 from .github import INDEX_ASSET, MAX_INDEX_BYTES, GitHub, NoRedirect, artifact_reference, find_asset
 from .paths import component_path
+from .sources import managed_sources
 from .storage import (
     AgentError,
     atomic_json,
@@ -79,12 +80,13 @@ def catalogue_suggestions(
 
 
 def catalogue_sources(service: "DeploymentService") -> list[JSON]:
+    """The agent file's sources, then the ones registered from the platform page (#499)."""
     sources = service.config.get("catalogue_sources", [])
     if not isinstance(sources, list) or any(
         not isinstance(source, dict) or not isinstance(source.get("id"), str) for source in sources
     ):
         raise AgentError("invalid_catalogue_sources")
-    return sources
+    return [*sources, *managed_sources(service)]
 
 
 def fetch_bytes(

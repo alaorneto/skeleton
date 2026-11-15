@@ -26,6 +26,8 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.deployment_client import AgentError, sanitize_details
 from skeleton.system.models import ComponentInstallation, DeploymentOperation
 from skeleton.system.releases import (
+    GITHUB_REPOSITORY,
+    UPSTREAM_REPOSITORY,
     DeploymentUnavailable,
     agent_client,
     confirm_operation,
@@ -33,10 +35,13 @@ from skeleton.system.releases import (
     preview_status,
     reconcile_operation,
     record_preview,
+    remove_update_source,
     request_preview,
     require_release_operator,
     retry_submission,
+    save_update_source,
     submission_can_retry,
+    update_sources,
 )
 from skeleton.system.releases import update_agent as request_agent_update
 
@@ -51,12 +56,15 @@ __all__ = [
     "operations",
     "plan",
     "preview",
+    "remove_source",
+    "sources",
     "update_agent",
     "upload",
 ]
 
 STEPS = (
     ("installed", gettext_lazy("Versões instaladas"), "platform:updates"),
+    ("sources", gettext_lazy("Fontes"), "platform:updates-sources"),
     ("available", gettext_lazy("Novas versões"), "platform:updates-available"),
     ("upload", gettext_lazy("Enviar pacote"), "platform:updates-upload"),
     ("plan", gettext_lazy("Preparar plano"), "platform:updates-plan"),
@@ -121,6 +129,32 @@ class PlanForm(forms.Form):
         return values
 
 
+class SourceForm(forms.Form):
+    """A GitHub repository the agent consults (#499); keys and tokens stay in the agent file."""
+
+    source_id = forms.RegexField(r"^[a-z][a-z0-9-]{0,31}$", label=gettext_lazy("Identificador"), max_length=32)
+    repository = forms.CharField(label=gettext_lazy("Repositório do GitHub (dono/nome)"), max_length=140)
+    publisher = forms.ChoiceField(label=gettext_lazy("Publicador (chave aprovada no servidor)"), choices=())
+    channel = forms.ChoiceField(label=gettext_lazy("Canal"), choices=(("stable", "stable"),), initial="stable")
+    private = forms.BooleanField(
+        label=gettext_lazy("Repositório privado (token configurado no servidor)"), required=False
+    )
+
+    def __init__(self, *args, publishers=(), private_available=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["publisher"].choices = [(publisher, publisher) for publisher in publishers]
+        if not private_available:
+            del self.fields["private"]
+
+    def clean_repository(self):
+        value = self.cleaned_data["repository"].strip()
+        if "://" in value or value.lower().startswith(("github.com/", "www.github.com/")):
+            raise forms.ValidationError(gettext("Informe só dono/nome, sem https://github.com/."))
+        if not GITHUB_REPOSITORY.fullmatch(value):
+            raise forms.ValidationError(gettext("Repositório inválido: use dono/nome."))
+        return value
+
+
 class ConfirmationForm(forms.Form):
     revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     plan_digest = forms.CharField(widget=forms.HiddenInput)
@@ -165,6 +199,23 @@ ERROR_TEXT = {
     "agent_build_failed": gettext_lazy(
         "A montagem do agente novo falhou; o agente atual continua em uso. Veja o diário do agente no servidor."
     ),
+    # Sources registered on the page (#499).
+    "invalid_source": gettext_lazy("Fonte inválida: confira o identificador, o repositório e o canal."),
+    "source_id_reserved": gettext_lazy(
+        "Este identificador é de uma fonte do arquivo do agente e não pode ser usado aqui."
+    ),
+    "publisher_not_approved": gettext_lazy(
+        "O publicador escolhido não está aprovado no servidor (approved_publishers do agente)."
+    ),
+    "too_many_sources": gettext_lazy(
+        "O limite de fontes cadastradas foi atingido. Remova uma antes de cadastrar outra."
+    ),
+    "source_not_found": gettext_lazy("A fonte não está cadastrada."),
+    "invalid_managed_sources": gettext_lazy(
+        "As fontes cadastradas estão inválidas no agente (por exemplo, um publicador deixou de ser aprovado). "
+        "Corrija o arquivo sources.json do agente no servidor."
+    ),
+    "github_token_missing": gettext_lazy("Repositório privado exige o token configurado no arquivo do agente."),
 }
 
 
@@ -486,6 +537,80 @@ def fetch_release(request):
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
         return redirect("platform:updates-available")
+
+
+def _sources_page(request, form=None, *, listing=None, status=200):
+    listing = listing or {}
+    rows = listing.get("sources") if isinstance(listing.get("sources"), list) else []
+    publishers = [value for value in listing.get("publishers", []) if isinstance(value, str)]
+    private_available = bool(listing.get("private_available"))
+    if form is None and publishers:
+        initial = {"channel": "stable"}
+        if not any(isinstance(row, dict) and row.get("type") == "github" for row in rows):
+            initial.update(source_id="skeleton", repository=UPSTREAM_REPOSITORY)
+        form = SourceForm(initial=initial, publishers=publishers, private_available=private_available)
+    return render(
+        request,
+        "skeleton/web/platform/updates/sources.html",
+        _context(
+            "sources",
+            sources=[row for row in rows if isinstance(row, dict)],
+            source_form=form if publishers else None,
+            publishers=publishers,
+            listing_loaded=bool(listing),
+        ),
+        status=status,
+    )
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def sources(request):
+    """The release sources the agent consults; registering one changes only where it looks (#499)."""
+    try:
+        listing = update_sources(user=request.user)
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return _sources_page(request)
+    if request.method != "POST":
+        return _sources_page(request, listing=listing)
+    form = SourceForm(
+        request.POST,
+        publishers=[value for value in listing.get("publishers", []) if isinstance(value, str)],
+        private_available=bool(listing.get("private_available")),
+    )
+    if not form.is_valid():
+        return _sources_page(request, form, listing=listing, status=400)
+    try:
+        save_update_source(
+            user=request.user,
+            source_id=form.cleaned_data["source_id"],
+            repository=form.cleaned_data["repository"],
+            publisher=form.cleaned_data["publisher"],
+            channel=form.cleaned_data["channel"],
+            private=form.cleaned_data.get("private", False),
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return _sources_page(request, form, listing=listing, status=400)
+    messages.success(request, gettext("Fonte salva. Ela passa a ser consultada em Novas versões."))
+    return redirect("platform:updates-sources")
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def remove_source(request):
+    source_id = request.POST.get("source_id", "")
+    if not re.fullmatch("[a-z][a-z0-9-]{0,31}", source_id):
+        return HttpResponse(gettext("Identificador de fonte inválido."), status=400)
+    try:
+        remove_update_source(user=request.user, source_id=source_id)
+        messages.success(request, gettext("Fonte removida."))
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    return redirect("platform:updates-sources")
 
 
 @platform_page(capability="updates.operate", writes=True)

@@ -247,3 +247,28 @@ def test_agent_update_route_validates_its_body(agent):
     ):
         assert send(agent, json_request("/agent/update", invalid)) == (400, {"error": code})
     assert len(received) == 1
+
+
+def test_sources_routes(agent):
+    calls = []
+    agent.server.service.sources = lambda: {"sources": []}
+    agent.server.service.set_source = lambda payload, actor_id=None: calls.append(("set", payload, actor_id)) or {}
+    agent.server.service.remove_source = lambda source_id, actor_id=None: (
+        calls.append(("remove", source_id, actor_id)) or {}
+    )
+    assert send(agent, http_request("GET", "/sources")) == (200, {"sources": []})
+    assert send(agent, http_request("GET", "/sources", token=None))[0] == 401
+    body = {"id": "fork", "github": "acme/skeleton", "publisher": "acme", "actor_id": OPERATION}
+    assert send(agent, json_request("/sources/set", body))[0] == 200
+    assert send(agent, json_request("/sources/remove", {"id": "fork", "actor_id": OPERATION}))[0] == 200
+    assert calls == [
+        ("set", {"id": "fork", "github": "acme/skeleton", "publisher": "acme"}, OPERATION),
+        ("remove", "fork", OPERATION),
+    ]
+    assert send(agent, json_request("/sources/set", {**body, "url": "https://evil.example"})) == (
+        400,
+        {"error": "unknown_fields"},
+    )
+    assert send(agent, json_request("/sources/remove", {"actor_id": OPERATION})) == (400, {"error": "unknown_fields"})
+    assert send(agent, json_request("/sources/set", body, token=None))[0] == 401
+    assert len(calls) == 2

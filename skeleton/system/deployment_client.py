@@ -178,6 +178,26 @@ class AgentClient:
             "POST", "/agent/update", {"release": digest, "actor_id": str(actor_id)}, timeout=SUBMIT_TIMEOUT
         )
 
+    def sources(self):
+        """Release sources (#499): ids, repositories and approved publisher ids, never keys or URLs."""
+        return self._request("GET", "/sources", timeout=STATUS_TIMEOUT)
+
+    def set_source(self, *, id, github, publisher, channels, private, actor_id):  # noqa: A002 - the source field
+        body = {
+            "id": id,
+            "github": github,
+            "publisher": publisher,
+            "channels": list(channels),
+            "private": bool(private),
+            "actor_id": str(actor_id),
+        }
+        return self._request("POST", "/sources/set", body, timeout=STATUS_TIMEOUT)
+
+    def remove_source(self, source_id, *, actor_id):
+        return self._request(
+            "POST", "/sources/remove", {"id": source_id, "actor_id": str(actor_id)}, timeout=STATUS_TIMEOUT
+        )
+
     def update_status(self):
         """Last check of the sources and the update paths, recalculated; the agent stays offline (#493)."""
         return self._request("GET", "/updates/status", timeout=STATUS_TIMEOUT)

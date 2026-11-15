@@ -21,7 +21,7 @@ from skeleton.system.packages import (
     validate_release,
 )
 
-from . import adoption, catalogue, environments, execution, planning, recovery, selfupdate
+from . import adoption, catalogue, environments, execution, planning, recovery, selfupdate, sources
 from .backends import backend_for
 from .catalogue import NoRedirect  # noqa: F401 - public name, importable from here
 from .config import Config
@@ -304,6 +304,15 @@ class DeploymentService:
 
     def update_status(self) -> JSON:
         return catalogue.update_status(self)
+
+    def sources(self) -> JSON:
+        return sources.listing(self)
+
+    def set_source(self, payload: JSON, actor_id: str | None = None) -> JSON:
+        return sources.set_source(self, payload, actor_id=actor_id)
+
+    def remove_source(self, source_id: str, actor_id: str | None = None) -> JSON:
+        return sources.remove_source(self, source_id, actor_id=actor_id)
 
     def fetch_release(self, component_id: str, version: str, source_id: str) -> JSON:
         return catalogue.fetch_release(self, component_id, version, source_id)

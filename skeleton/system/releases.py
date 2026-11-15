@@ -1,6 +1,7 @@
 """Platform control plane. Privileged deployment work belongs to the agent."""
 
 import logging
+import re
 from copy import deepcopy
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -59,8 +60,6 @@ def plan_artifact(upload):
 
 def update_agent(*, user, digest):
     """Ask the agent to replace itself from an uploaded release package (#497); identifiers only."""
-    import re
-
     from skeleton.common.logging import security_event
 
     require_release_operator(user)
@@ -75,6 +74,32 @@ def update_agent(*, user, digest):
         outcome=str(result.get("state", ""))[:40],
     )
     return result
+
+
+UPSTREAM_REPOSITORY = "alaorneto/skeleton"
+# Must stay equal to REPOSITORY in deployment_agent/github.py: the core never imports the agent.
+GITHUB_REPOSITORY = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}\Z")
+
+
+def update_sources(*, user):
+    """The release sources the agent consults (#499); identities only."""
+    require_release_operator(user)
+    return agent_client().sources()
+
+
+def save_update_source(*, user, source_id, repository, publisher, channel, private):
+    """Register (or replace) a GitHub source; the agent validates it against approved_publishers."""
+    require_release_operator(user)
+    if not isinstance(repository, str) or not GITHUB_REPOSITORY.fullmatch(repository):
+        raise ValidationError("Invalid GitHub repository.")
+    return agent_client().set_source(
+        id=source_id, github=repository, publisher=publisher, channels=[channel], private=private, actor_id=user.pk
+    )
+
+
+def remove_update_source(*, user, source_id):
+    require_release_operator(user)
+    return agent_client().remove_source(source_id, actor_id=user.pk)
 
 
 def _plan_id(value):
