@@ -272,7 +272,7 @@ IdentityService().update_my_preferences(actor=request.user, expected_revision=me
 | Método | Autorização | Erros |
 |---|---|---|
 | `current(*, actor) -> OrganizationInfo` | vínculo ativo | `ContextRequired` sem organização |
-| `my_organizations(*, actor) -> tuple[OrganizationInfo, ...]` | o próprio ator, por autodescoberta; só organizações ativas com vínculo ativo; funciona sem organização | `Forbidden` (ator divergente) |
+| `my_organizations(*, actor) -> tuple[OrganizationInfo, ...]` | o próprio ator, por autodescoberta; só organizações ativas com vínculo ativo; funciona sem organização; numa requisição no endereço de uma organização (`<slug>.<domínio base>`, #483) devolve só a organização do host | `Forbidden` (ator divergente) |
 | `members(*, actor, query=None, group_id=None, cursor=None, page_size=25) -> Page[PersonSummary]` | vínculo ativo; `email` só com `members.view` | `NotFound` (grupo de outra organização); `InvalidInput` (busca acima de 100 caracteres, cursor, página acima de 100) |
 | `groups(*, actor, cursor=None, page_size=25) -> Page[GroupSummary]` | vínculo ativo | `InvalidInput` |
 | `is_member(*, actor, user_id) -> bool` | vínculo ativo | `InvalidInput` |

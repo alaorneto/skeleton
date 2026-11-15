@@ -119,7 +119,9 @@ def export_my_data(user: Any) -> bytes:
     data = {"format": FORMAT, "generated_at": timezone.now(), **_identity(user)}
     data["organizations"] = [
         {"sysid": result.organization_id, "name": result.organization_name, **result.value}
-        for result in for_each_organization(user, _organization_part(user), source="privacy:export")
+        for result in for_each_organization(
+            user, _organization_part(user), source="privacy:export", all_organizations=True
+        )
     ]
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:

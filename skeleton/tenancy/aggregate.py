@@ -82,8 +82,13 @@ def _materialized(value: Any) -> Any:
     return value
 
 
-def _organizations(user: Any, *, request_id: Any, source: str, limit: int, using: str) -> list[tuple[UUID, str]]:
+def _organizations(
+    user: Any, *, request_id: Any, source: str, limit: int, using: str, all_organizations: bool = False
+) -> list[tuple[UUID, str]]:
     from .models import Membership
+    from .routing import site_organization_id
+
+    site = None if all_organizations else site_organization_id()
 
     with request_context(actor=user, request_id=request_id, source=source, using=using):
         # The membership self-discovery policy shows the actor's own rows only.
@@ -97,9 +102,11 @@ def _organizations(user: Any, *, request_id: Any, source: str, limit: int, using
                 organization__deleted_at__isnull=True,
             )
             .order_by("organization__name", "organization_id")
-            .values_list("organization_id", "organization__name")[:limit]
+            .values_list("organization_id", "organization__name")
         )
-        return list(rows)
+        if site is not None:  # An organization host shows only its organization (#483).
+            rows = rows.filter(organization_id=site)
+        return list(rows[:limit])
 
 
 def for_each_organization(
@@ -112,8 +119,13 @@ def for_each_organization(
     limit: int = DEFAULT_LIMIT,
     using: str = "default",
     credential_scopes: frozenset[str] | None = None,
+    all_organizations: bool = False,
 ) -> list[OrganizationResult]:
-    """Run ``fn(organization_id)`` in each of the user's organizations; return the materialized results."""
+    """Run ``fn(organization_id)`` in each of the user's organizations; return the materialized results.
+
+    On an organization host only that organization runs (#483), unless ``all_organizations``:
+    the personal data export and anything that decides about the account pass it.
+    """
     if in_context():
         raise InvalidContext("for_each_organization runs outside any context (mark the view with aggregate_route).")
     if not getattr(user, "is_authenticated", False):
@@ -121,7 +133,10 @@ def for_each_organization(
     if not 1 <= limit <= DEFAULT_LIMIT:
         raise ValueError(f"limit must be between 1 and {DEFAULT_LIMIT}.")
     results = []
-    for organization_id, name in _organizations(user, request_id=request_id, source=source, limit=limit, using=using):
+    listed = _organizations(
+        user, request_id=request_id, source=source, limit=limit, using=using, all_organizations=all_organizations
+    )
+    for organization_id, name in listed:
         try:
             with request_context(
                 actor=user, request_id=request_id, source=source, using=using, credential_scopes=credential_scopes

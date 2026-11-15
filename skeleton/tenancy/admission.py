@@ -187,7 +187,7 @@ def directory(user: Any) -> tuple[DirectoryEntry, ...]:
         return ()
     from .context import memberships_for_user
 
-    mine = {item["organization_id"] for item in memberships_for_user(user)}
+    mine = {item["organization_id"] for item in memberships_for_user(user, all_organizations=True)}
     # An organization the person already asked to join is followed in "Minhas solicitações".
     mine |= set(
         own_rows(_models().JoinRequest, user)

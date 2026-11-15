@@ -251,7 +251,7 @@ def suggestions(user: Any) -> tuple[DomainSuggestion, ...]:
     }
     if not domains_of_user:
         return ()
-    mine = {item["organization_id"] for item in memberships_for_user(user)}
+    mine = {item["organization_id"] for item in memberships_for_user(user, all_organizations=True)}
     models = _models()
     accepting = set(
         models.OrganizationDirectoryEntry.objects.filter(accepts_domain=True).values_list(

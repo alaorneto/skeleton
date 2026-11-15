@@ -74,9 +74,17 @@ def _access_navigation(organization_id: Any, resource: str | None, capabilities:
 
 
 def organization_shell(request: HttpRequest) -> dict[str, Any]:
+    site = getattr(request, "organization_site", None)  # Set by OrganizationSiteMiddleware (#482).
+    shell: dict[str, Any] = {"site_mode": site is not None, "site": site}
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
-        return {}
+        return shell
+    shell.update(_signed_in_shell(request, user))
+    return shell
+
+
+def _signed_in_shell(request: HttpRequest, user: Any) -> dict[str, Any]:
+    # On an organization host the memberships (and so the counters) are only that organization's (#483).
     memberships = memberships_for_user(user)
     from skeleton.flows.inbox import open_task_count
     from skeleton.notifications.inbox import counter_label, unread_count
