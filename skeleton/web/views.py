@@ -1,3 +1,4 @@
+import datetime
 from functools import wraps
 
 from django.contrib import messages
@@ -96,6 +97,17 @@ def _display(value):
     if value is False:
         return gettext("Não")
     return value
+
+
+def _cell(value):
+    """One cell of an access list (#470): Sim/Não, "—" when empty, dates kept for |moment."""
+    if value is True or value is False:
+        return {"value": _display(value), "kind": "text"}
+    if value is None or value == "":
+        return {"value": "—", "kind": "text"}
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return {"value": value, "kind": "date"}
+    return {"value": str(value), "kind": "text"}
 
 
 def tenant_page(*, admin=False, capability=None):
@@ -408,7 +420,7 @@ def access_list(request, organization_id, resource):
         {
             "sysid": item.sysid,
             "revision": item.revision,
-            "fields": [(dedicated_label(model, name), _display(getattr(item, name))) for name in fields],
+            "cells": [_cell(getattr(item, name)) for name in fields],
         }
         for item in rows
     ]
@@ -417,6 +429,7 @@ def access_list(request, organization_id, resource):
         "skeleton/web/access_list.html",
         {
             "title": get_spec(model._meta.label_lower).label,
+            "headings": [dedicated_label(model, name) for name in fields],
             "rows": rows,
             "organization_id": organization_id,
             "resource": resource,

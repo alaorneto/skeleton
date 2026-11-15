@@ -15,19 +15,19 @@
   <button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="filter" %}{% translate "Filtrar" %}</button>
   <a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>
 </form>
-<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Fila" %}</th><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col">{% translate "Tentativas" %}</th><th scope="col">{% translate "Erro" %}</th><th scope="col">{% translate "Executar após" %}</th><th scope="col">{% translate "Concluído em" %}</th><th scope="col"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Fila" %}</th><th scope="col">{% translate "Organização" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-num">{% translate "Tentativas" %}</th><th scope="col">{% translate "Erro" %}</th><th scope="col" class="col-date">{% translate "Executar após" %}</th><th scope="col" class="col-date">{% translate "Concluído em" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for job in rows %}<tr>
-  <td class="break-all">{{ job.job_type }}</td>
+  <td><span class="cell-primary cell-truncate" title="{{ job.job_type }}">{{ job.job_type }}</span></td>
   <td>{{ job.queue }}</td>
   <td>{% if job.job_organization_id %}<a href="{% url 'platform:organization' job.job_organization_id %}">{{ job.organization_name|default:job.job_organization_id }}</a>{% else %}<span class="text-body-subtle">{% translate "Global" %}</span>{% endif %}</td>
-  <td>{% if job.state == dead_state %}<span class="badge badge-warning badge-dot">{{ job.get_state_display }}</span>{% elif job.state == "succeeded" %}<span class="badge badge-success badge-dot">{{ job.get_state_display }}</span>{% else %}<span class="badge badge-dot">{{ job.get_state_display }}</span>{% endif %}</td>
-  <td>{{ job.attempts }} / {{ job.max_attempts }}</td>
-  <td class="break-all">{% if job.last_error_code or job.last_error_class %}{{ job.last_error_code|default:"—" }}{% if job.last_error_class %} <span class="text-body-subtle">({{ job.last_error_class }})</span>{% endif %}{% else %}<span class="text-body-subtle">—</span>{% endif %}</td>
-  <td class="whitespace-nowrap!">{{ job.run_after|moment }}</td>
-  <td class="whitespace-nowrap!">{{ job.finished_at|moment }}</td>
-  <td>{% if job.state == dead_state %}<form method="post" action="{% url 'platform:job-action' job.pk %}" class="flex gap-2">{% csrf_token %}<input type="hidden" name="expected_updated_at" value="{{ job.updated_at.isoformat }}"><button type="submit" name="action" value="resend" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reenviar" %}</button><button type="submit" name="action" value="discard" class="btn btn-ghost btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Descartar" %}</button></form>{% endif %}</td>
+  <td>{{ job.state|status_badge:job.get_state_display }}</td>
+  <td class="col-num">{{ job.attempts }} / {{ job.max_attempts }}</td>
+  <td>{% if job.last_error_code or job.last_error_class %}<span class="cell-truncate" title="{{ job.last_error_code|default:"—" }}">{{ job.last_error_code|default:"—" }}</span>{% if job.last_error_class %}<span class="cell-secondary">{{ job.last_error_class }}</span>{% endif %}{% else %}<span class="text-body-subtle">—</span>{% endif %}</td>
+  <td class="col-date">{{ job.run_after|moment }}</td>
+  <td class="col-date">{{ job.finished_at|moment }}</td>
+  <td class="col-actions">{% if job.state == dead_state %}<form method="post" action="{% url 'platform:job-action' job.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="expected_updated_at" value="{{ job.updated_at.isoformat }}"><button type="submit" name="action" value="resend" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reenviar" %}</button><button type="submit" name="action" value="discard" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Descartar" %}</button></form>{% endif %}</td>
 </tr>
-{% empty %}<tr><td colspan="9" class="empty-state">{% translate "Nenhum job encontrado." %}</td></tr>{% endfor %}
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=9 message=_("Nenhum job encontrado.") icon="clock" %}{% endfor %}
 </tbody></table></div>
 {% include "skeleton/web/pagination.html" %}
 {% endblock %}

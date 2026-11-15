@@ -102,6 +102,13 @@ STATUS = {
     "tentative": (_("Provisório"), "warning"),
     "draft": (_("Rascunho"), "neutral"),
     "archived": (_("Arquivado"), "neutral"),
+    "inactive": (_("Inativo"), "neutral"),
+    # Audit operations (AuditEvent.Operation).
+    "create": (_("Criação"), "success"),
+    "update": (_("Alteração"), "brand"),
+    "soft_delete": (_("Exclusão"), "danger"),
+    "restore": (_("Restauração"), "warning"),
+    "hard_delete": (_("Exclusão física"), "danger"),
     # Jobs.
     "jobs:running": (_("Executando"), "brand"),
     # Notification and webhook deliveries.

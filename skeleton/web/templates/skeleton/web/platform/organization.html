@@ -55,11 +55,11 @@
     <p class="mt-1 text-sm/6 text-body-subtle">A disponibilidade é decidida pela plataforma; a ativação, pela própria organização. Esta leitura não mostra parâmetros nem dados de negócio.</p>
     <div class="table-scroll mt-4"><table><thead><tr><th scope="col">Aplicativo</th><th scope="col">Disponível</th><th scope="col">Ativada pela organização</th><th scope="col">Em uso</th></tr></thead><tbody>
     {% for app in overview.applications %}<tr>
-      <td><a href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></td>
-      <td>{% if app.available %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
-      <td>{% if app.enabled %}<span class="badge badge-success badge-dot">Sim</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
-      <td>{% if app.effective %}<span class="badge badge-success badge-dot">Sim</span>{% elif app.enabled %}<span class="badge badge-warning badge-dot">Bloqueada</span>{% else %}<span class="badge badge-dot">Não</span>{% endif %}</td>
-    </tr>{% empty %}<tr><td colspan="4" class="empty-state">Nenhum aplicativo instalado.</td></tr>{% endfor %}
+      <td><a class="cell-primary" href="{% url 'platform:app-availability' app.app_label %}">{{ app.label }}</a></td>
+      <td>{% if app.available %}{{ "active"|status_badge:"Sim" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
+      <td>{% if app.enabled %}{{ "active"|status_badge:"Sim" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
+      <td>{% if app.effective %}{{ "active"|status_badge:"Sim" }}{% elif app.enabled %}{{ "past_due"|status_badge:"Bloqueada" }}{% else %}{{ "inactive"|status_badge:"Não" }}{% endif %}</td>
+    </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message="Nenhum aplicativo instalado." icon="cube" %}{% endfor %}
     </tbody></table></div>
   </section>
   <section class="card lg:col-span-2" aria-labelledby="organization-identity">

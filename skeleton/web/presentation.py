@@ -373,6 +373,16 @@ def _audit_value(value, redacted):
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def _table_label(model_label: str) -> str:
+    """The table's name from the in-memory registry; the technical label when it is unknown."""
+    from skeleton.system.registry import get_spec
+
+    try:
+        return str(get_spec(model_label).label)
+    except (KeyError, LookupError):
+        return model_label
+
+
 def audit_rows(events):
     """Audit page rows: the REST shape, with the changes as rows Field / Before / After (#287).
 
@@ -393,5 +403,6 @@ def audit_rows(events):
             for name, change in sorted(data["changes"].items())
             if isinstance(change, dict)
         ]
+        data["table_label"] = _table_label(data.get("model_label", ""))
         rows.append(data)
     return rows

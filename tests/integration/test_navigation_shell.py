@@ -68,3 +68,23 @@ def test_profile_lives_in_account_area():
     for name in ("web:profile", "account_email", "account_change_password", "mfa_index"):
         assert f'href="{reverse(name)}"' in html
     assert html.count('name="csrfmiddlewaretoken"') == 1
+
+
+def test_access_lists_show_one_column_per_field_without_uuid_or_revision_columns():
+    """Each field of a dedicated access resource has its own column; the UUID is a second line (#470)."""
+    from skeleton.access.resources import dedicated_model
+    from skeleton.web.forms import dedicated_label
+
+    client, _, organization = logged_client("nav-columns")
+    response = client.get(reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"}))
+    assert response.status_code == 200
+    model, fields = dedicated_model("roles")
+    assert response.context["headings"] == [dedicated_label(model, name) for name in fields]
+    html = response.content.decode()
+    header = html.split("<thead>", 1)[1].split("</thead>", 1)[0]
+    assert header.count('<th scope="col"') == len(fields) + 1
+    assert ">UUID<" not in header and ">Revisão<" not in header
+    row = response.context["rows"].object_list[0]
+    assert len(row["cells"]) == len(fields)
+    assert f'<span class="cell-secondary"><code class="uuid">{row["sysid"]}</code></span>' in html
+    assert 'class="btn btn-danger-outline btn-sm"' in html
