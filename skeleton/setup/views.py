@@ -50,6 +50,7 @@ class Progress:
     required: bool
     done: bool
     number: int
+    skipped: bool = False
 
 
 STEPS = (
@@ -109,6 +110,7 @@ STEPS = (
 )
 BY_NAME = {step.name: step for step in STEPS}
 SESSION_KEY = "skeleton_setup"
+SKIPPED = "skipped"
 logger = logging.getLogger("skeleton.setup")
 MAX_FAILURES = 5
 FAILURE_WINDOW = 15 * 60
@@ -139,15 +141,18 @@ def _mark(step: str) -> None:
 
 
 def _progress():
-    state = _state()
+    state, strict = _state(), _strict()
     return [
         Progress(
             name=step.name,
             label=step.label,
             summary=step.summary,
-            required=step.required,
-            done=state.get(f"step:{step.name}") == "done",
+            # Email may wait outside production; production refuses to start without it (#465).
+            required=strict if step.name == "email" else step.required,
+            # A skipped step counts as concluded for "Concluir", and is shown as "depois".
+            done=state.get(f"step:{step.name}") in {"done", SKIPPED},
             number=number,
+            skipped=state.get(f"step:{step.name}") == SKIPPED,
         )
         for number, step in enumerate(STEPS, 1)
     ]
@@ -377,6 +382,73 @@ def schema(request):
     return _step(request, "schema", form, problems=problems, target=target, status=status)
 
 
+def _email_failure(error: BaseException) -> tuple[str | None, str]:
+    """The field and the message for a failed test email; the server reply is never shown (#465).
+
+    The reply of an SMTP server can repeat the user, so only the class of the error decides.
+    """
+    import smtplib
+    import socket
+    import ssl
+
+    table = (
+        (
+            smtplib.SMTPAuthenticationError,
+            "smtp_password",
+            gettext(
+                "O servidor recusou o usuário ou a senha. Em contas com verificação em duas etapas, use uma senha"
+                " de aplicativo."
+            ),
+        ),
+        (
+            smtplib.SMTPSenderRefused,
+            "default_from_email",
+            gettext("O servidor recusou o remetente. Use um endereço que essa conta tem permissão para enviar."),
+        ),
+        (smtplib.SMTPRecipientsRefused, "test_recipient", gettext("O servidor recusou o destinatário do teste.")),
+        (
+            smtplib.SMTPNotSupportedError,
+            "smtp_security",
+            gettext("O servidor não aceita o tipo de segurança escolhido. Tente a outra opção."),
+        ),
+        (
+            ssl.SSLError,
+            "smtp_security",
+            gettext(
+                "Falha ao negociar a criptografia. Confira se a porta combina com o tipo de segurança: 587 usa"
+                " STARTTLS e 465 usa SSL/TLS."
+            ),
+        ),
+        (socket.gaierror, "smtp_host", gettext("O servidor não foi encontrado. Confira o endereço.")),
+        (
+            ConnectionRefusedError,
+            "smtp_port",
+            gettext("Conexão recusada nessa porta. Confira a porta e se o servidor aceita conexões desta rede."),
+        ),
+        (
+            TimeoutError,
+            "smtp_port",
+            gettext(
+                "O servidor não respondeu em 10 segundos. Muitos provedores de hospedagem bloqueiam a porta 25: use"
+                " 587 ou 465."
+            ),
+        ),
+        (
+            smtplib.SMTPServerDisconnected,
+            "smtp_security",
+            gettext("O servidor fechou a conexão. Em geral a porta e o tipo de segurança não combinam."),
+        ),
+    )
+    for kind, field, message in table:
+        if isinstance(error, kind):
+            return field, message
+    if isinstance(error, smtplib.SMTPException):
+        return None, gettext("O servidor SMTP recusou o envio (%(error_class)s). Veja o log skeleton.setup.") % {
+            "error_class": type(error).__name__
+        }
+    return None, gettext("O envio de teste falhou (%(__name__)s).") % {"__name__": type(error).__name__}
+
+
 def _email_connection(url: str):
     """A connection to the URL being configured, outside MAILERS (it is not saved yet)."""
     from skeleton.conf.mailers import connection_for
@@ -387,16 +459,31 @@ def _email_connection(url: str):
 @setup_page
 @require_http_methods(["GET", "POST"])
 def email(request):
-    form = forms.EmailForm(request.POST or None)
+    strict = _strict()
+    form = forms.EmailForm(request.POST or None, strict=strict)
     if request.method == "POST" and form.is_valid():
+        import smtplib
+
         from django.core.exceptions import ImproperlyConfigured
         from django.core.mail import EmailMessage
 
         data = form.cleaned_data
+        if data["email_mode"] == "later":
+            store, _ = _store()
+            store.put_setup_state("step:email", SKIPPED)
+            messages.warning(
+                request,
+                gettext(
+                    "E-mail ficou para depois. Convites, recuperação de senha e notificações por e-mail não serão"
+                    " enviados até você configurar."
+                ),
+            )
+            return redirect("setup:storage")
+        url = data["url"]
         try:
             from skeleton.instance.schema import spec_for
 
-            spec_for("email_url").clean(data["email_url"])
+            spec_for("email_url").clean(url)
             message = EmailMessage(
                 subject=gettext("Teste do Skeleton"),
                 body=gettext("O servidor de email da instância está configurado."),
@@ -404,22 +491,43 @@ def email(request):
                 to=[data["test_recipient"]],
             )
             # The URL is not in MAILERS yet: send through its own backend instance (#127).
-            if _email_connection(data["email_url"]).send_messages([message]) != 1:
+            if _email_connection(url).send_messages([message]) != 1:
                 raise RuntimeError("not accepted")
         except (ValueError, ImproperlyConfigured) as error:
-            form.add_error("email_url", str(error))  # Scheme or parameter names only, never the password.
+            # Scheme or parameter names only, never the password.
+            form.add_error("email_url" if data.get("email_url") else None, str(error))
         except Exception as error:  # noqa: BLE001 - class only: the URL carries a password
-            logger.error("setup.step_failed step=%s error_class=%s", "email", type(error).__name__, exc_info=True)
-            form.add_error(
-                None, gettext("O envio de teste falhou (%(__name__)s).") % {"__name__": type(error).__name__}
+            field, text = _email_failure(error)
+            # A classified failure keeps no traceback: the SMTP reply in it can repeat the user (#465).
+            classified = isinstance(error, (smtplib.SMTPException, OSError))
+            logger.error(
+                "setup.step_failed step=%s error_class=%s", "email", type(error).__name__, exc_info=not classified
             )
+            if data.get("email_url") and field is not None:
+                field = None  # The separate fields were ignored: the message belongs to the whole form.
+            form.add_error(field, text)
         else:
-            write_setting(settings.BASE_DIR, "email_url", data["email_url"], source="setup")
+            write_setting(settings.BASE_DIR, "email_url", url, source="setup")
             write_setting(settings.BASE_DIR, "default_from_email", data["default_from_email"], source="setup")
             _mark("email")
-            _saved(request, "email")
+            messages.success(
+                request,
+                gettext("Mensagem de teste enviada para %(email)s. Confira a caixa de entrada (e o spam).")
+                % {"email": data["test_recipient"]},
+            )
             return redirect("setup:storage")
-    return _step(request, "email", form, status=400 if request.method == "POST" else 200)
+    intro = (
+        gettext(
+            "O sistema envia convites, recuperação de senha e notificações por e-mail. Em produção o servidor SMTP é"
+            " obrigatório. Uma mensagem de teste é enviada agora; a etapa só é salva se o servidor aceitar."
+        )
+        if strict
+        else gettext(
+            "O sistema envia convites, recuperação de senha e notificações por e-mail. Neste modo você pode deixar"
+            " para depois. Uma mensagem de teste é enviada agora; a etapa só é salva se o servidor aceitar."
+        )
+    )
+    return _step(request, "email", form, intro=intro, status=400 if request.method == "POST" else 200)
 
 
 @setup_page
@@ -529,4 +637,6 @@ def finish(request):
         request.session.flush()
         how = restart.request_restart()
         return _render(request, "done.html", {"title": gettext("Configuração concluída"), "restart": how, "steps": ()})
-    return _render(request, "finish.html", {"title": gettext("Concluir"), "pending": pending, "finishing": True})
+    email_skipped = _state().get("step:email") == SKIPPED
+    context = {"title": gettext("Concluir"), "pending": pending, "finishing": True, "email_skipped": email_skipped}
+    return _render(request, "finish.html", context)

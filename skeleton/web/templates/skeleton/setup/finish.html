@@ -1,5 +1,6 @@
 {% extends "skeleton/setup/base.html" %}
 {% load i18n %}{% block content %}
+{% if email_skipped %}<div class="message warning mt-4 mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "E-mail não configurado. Para configurar depois: Plataforma › Configuração da instância, chaves email_url e default_from_email." %}</div></div>{% endif %}
 {% if pending %}<p class="page-description">{% translate "Ainda faltam etapas:" %}</p>
 <ul class="mt-2 list-disc space-y-1 ps-5">{% for item in pending %}<li><a href="{% url 'setup:'|add:item.name %}">{{ item.label }}</a></li>{% endfor %}</ul>
 {% else %}<p class="page-description">{% translate "Tudo validado. Ao concluir, o setup é encerrado (" %}<code>/setup/</code> {% translate "passa a responder 404) e a instância reinicia em modo normal." %}</p>

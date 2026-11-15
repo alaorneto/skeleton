@@ -205,35 +205,150 @@ def production_target() -> bool:
     return getattr(settings, "SKELETON_SETUP_PRODUCTION", True)
 
 
+SMTP_SCHEMES = {"smtp", "smtps", "smtp+tls", "smtp+ssl"}
+SECURITY_SCHEMES = {"starttls": "smtp+tls", "ssl": "smtp+ssl", "none": "smtp"}
+
+
+def smtp_url(*, host: str, port: int | str, security: str, user: str = "", password: str = "") -> str:
+    """The email URL from separate fields; user and password are percent-encoded (#465)."""
+    from urllib.parse import quote
+
+    credentials = ""
+    if user or password:
+        credentials = quote(user, safe="") + (":" + quote(password, safe="") if password else "") + "@"
+    return f"{SECURITY_SCHEMES[security]}://{credentials}{host.strip()}:{int(port)}"
+
+
 class EmailForm(forms.Form):
-    email_url = forms.CharField(
-        label=gettext_lazy("Servidor de email"),
-        max_length=500,
-        widget=forms.PasswordInput(render_value=False),
-        help_text=gettext_lazy("smtp+tls://usuário:senha@smtp.example.com:587"),
+    """SMTP by separate fields; "Configurar depois" only when the target is not production (#465)."""
+
+    advanced_fields = ("email_url",)
+
+    email_mode = forms.ChoiceField(
+        label=gettext_lazy("Como enviar e-mails"),
+        choices=(("smtp", gettext_lazy("Usar um servidor SMTP")), ("later", gettext_lazy("Configurar depois"))),
+        initial="smtp",
+        required=False,
+        widget=forms.RadioSelect,
     )
-    default_from_email = forms.EmailField(label=gettext_lazy("Remetente padrão"))
-    test_recipient = forms.EmailField(label=gettext_lazy("Enviar email de teste para"))
+    smtp_host = forms.CharField(
+        label=gettext_lazy("Servidor SMTP"),
+        max_length=255,
+        required=False,
+        help_text=gettext_lazy(
+            "Endereço do servidor de envio. Exemplos: smtp.gmail.com, smtp.office365.com,"
+            " email-smtp.sa-east-1.amazonaws.com."
+        ),
+    )
+    smtp_port = forms.IntegerField(
+        label=gettext_lazy("Porta"),
+        min_value=1,
+        max_value=65535,
+        initial=587,
+        required=False,
+        help_text=gettext_lazy("587 para STARTTLS (o mais comum) ou 465 para SSL/TLS."),
+    )
+    smtp_security = forms.ChoiceField(
+        label=gettext_lazy("Segurança da conexão"),
+        choices=(
+            ("starttls", gettext_lazy("STARTTLS, normalmente na porta 587")),
+            ("ssl", gettext_lazy("SSL/TLS direto, normalmente na porta 465")),
+            ("none", gettext_lazy("Sem criptografia, só em rede interna ou teste")),
+        ),
+        initial="starttls",
+        required=False,
+        widget=forms.RadioSelect,
+    )
+    smtp_user = forms.CharField(
+        label=gettext_lazy("Usuário"),
+        max_length=255,
+        required=False,
+        help_text=gettext_lazy(
+            "Em geral o endereço de e-mail completo ou a chave de acesso do provedor. Em branco se o servidor não"
+            " pede autenticação."
+        ),
+    )
+    smtp_password = forms.CharField(
+        label=gettext_lazy("Senha"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy(
+            "Em provedores com verificação em duas etapas (Gmail, Microsoft 365), use uma senha de aplicativo."
+        ),
+    )
+    default_from_email = forms.EmailField(
+        label=gettext_lazy("Remetente padrão"),
+        required=False,
+        help_text=gettext_lazy(
+            "Endereço que aparece como remetente das mensagens do sistema. Precisa ser um endereço que o servidor"
+            " SMTP aceita enviar. Exemplo: nao-responda@exemplo.com.br."
+        ),
+    )
+    test_recipient = forms.EmailField(
+        label=gettext_lazy("Enviar o teste para"),
+        required=False,
+        help_text=gettext_lazy(
+            "Uma mensagem de teste é enviada agora para este endereço. Use um e-mail que você possa conferir."
+        ),
+    )
+    email_url = forms.CharField(
+        label=gettext_lazy("URL completa (avançado)"),
+        max_length=500,
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text=gettext_lazy(
+            "Quando preenchida, os campos de servidor acima são ignorados. Formato:"
+            " smtp+tls://usuário:senha@servidor:587."
+        ),
+    )
+    # Marked as required on the page when SMTP is used; the HTML attribute stays off ("later").
+    smtp_required = ("smtp_host", "default_from_email", "test_recipient")
+
+    def __init__(self, *args, strict: bool | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.strict = production_target() if strict is None else strict
+        if self.strict:
+            mode = self.fields["email_mode"]
+            mode.choices = [("smtp", gettext_lazy("Usar um servidor SMTP"))]
+            mode.widget = forms.HiddenInput()
+        for name in (*self.smtp_required, "smtp_port", "smtp_security"):
+            self.fields[name].marked_required = True
 
     def clean_email_url(self):
         # Messages never echo the value: the URL carries the SMTP password. Other parser refusals
         # (unknown scheme or parameter) stay with the view, which reports names only.
+        from urllib.parse import urlsplit
+
         value = self.cleaned_data["email_url"]
-        if not production_target():
-            return value
-        from django.core.exceptions import ImproperlyConfigured
-
-        from skeleton.conf.mailers import SMTP, mailer_from_url
-
-        try:
-            backend = mailer_from_url(value).get("BACKEND")
-        except (ImproperlyConfigured, ValueError):
-            return value
-        if backend != SMTP:
-            raise forms.ValidationError(
-                gettext("Em produção o email precisa de um servidor SMTP: smtp+tls://, smtp+ssl:// ou smtp://.")
-            )
+        if value and self.strict and urlsplit(value).scheme.lower() not in SMTP_SCHEMES:
+            raise forms.ValidationError(gettext("Em produção só um servidor SMTP é aceito."))
         return value
+
+    def clean(self):
+        data = super().clean()
+        data["email_mode"] = "smtp" if self.strict else (data.get("email_mode") or "smtp")
+        data["url"] = ""
+        if data["email_mode"] == "later":
+            return data
+        required = self.smtp_required if not data.get("email_url") else ("default_from_email", "test_recipient")
+        for name in required:
+            if not data.get(name) and name not in self.errors:
+                self.add_error(name, FILL_IN)
+        if self.errors:
+            return data
+        if data.get("email_url"):
+            data["url"] = data["email_url"]
+        else:
+            data["url"] = smtp_url(
+                host=data["smtp_host"],
+                port=data.get("smtp_port") or 587,
+                security=data.get("smtp_security") or "starttls",
+                user=data.get("smtp_user") or "",
+                password=data.get("smtp_password") or "",
+            )
+        return data
 
 
 def redis_url(location: str, password: str) -> str:

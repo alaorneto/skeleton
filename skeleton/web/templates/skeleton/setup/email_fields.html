@@ -1,0 +1,26 @@
+{% load i18n %}{{ form.non_field_errors }}{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+<div class="form-stack">
+{% if not form.email_mode.is_hidden %}<fieldset class="form-field">
+<legend class="mb-1.5 block font-medium text-heading">{{ form.email_mode.label }}</legend>
+{{ form.email_mode }}
+<div class="helptext">{% translate "Sem e-mail, convites, recuperação de senha e notificações por e-mail não são enviados." %}</div>
+</fieldset>{% endif %}
+<fieldset class="form-stack rounded-base border border-default p-4">
+<legend class="px-1 text-sm font-semibold text-heading">{% translate "Servidor SMTP" %}</legend>
+{% with field=form.smtp_host %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+{% with field=form.smtp_port %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+<fieldset class="form-field">
+<legend class="mb-1.5 block font-medium text-heading">{{ form.smtp_security.label }}{% if show_required %}<span class="required" aria-hidden="true"> *</span>{% endif %}</legend>
+{{ form.smtp_security }}
+{{ form.smtp_security.errors }}
+</fieldset>
+{% with field=form.smtp_user %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+{% with field=form.smtp_password %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+{% with field=form.default_from_email %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+{% with field=form.test_recipient %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}
+<details class="rounded-base border border-default p-4"{% if form.email_url.errors %} open{% endif %}>
+<summary class="cursor-pointer text-sm font-medium text-heading">{% translate "Avançado: informar a URL completa" %}</summary>
+<div class="form-stack mt-4">{% with field=form.email_url %}{% include "skeleton/web/components/form-field.html" %}{% endwith %}</div>
+</details>
+</fieldset>
+</div>

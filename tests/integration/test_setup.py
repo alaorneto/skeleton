@@ -503,3 +503,90 @@ def test_database_step_shows_where_the_connection_failed(setup_mode, caplog, sub
             if "db_user" in changes:
                 assert changes["db_user"] not in str(response.context["form"].errors) + caplog.text
     assert "database_url" not in setup_mode.settings()
+
+
+SMTP_FIELDS = {
+    "smtp_host": "smtp.example.test",
+    "smtp_port": "587",
+    "smtp_security": "starttls",
+    "smtp_user": "mailer@example.test",
+    "smtp_password": "smtp-secret-465",
+    "default_from_email": "noreply@example.test",
+    "test_recipient": "ops@example.test",
+}
+
+
+def test_email_step_can_wait_outside_production(setup_mode):
+    client = enter(setup_mode)
+    html = client.get("/setup/email/").content.decode()
+    assert "Configurar depois" in html and "Neste modo você pode deixar para depois" in html
+    assert "(opcional neste modo)" in client.get("/setup/").content.decode()
+    response = post(client, "/setup/email/", {"email_mode": "later"})
+    assert response["Location"] == reverse("setup:storage")
+    assert "email_url" not in setup_mode.settings() and setup_mode.setup_state()["step:email"] == "skipped"
+    after = client.get("/setup/storage/").content.decode()
+    assert "E-mail ficou para depois" in after
+    overview = client.get("/setup/").content.decode()
+    assert '<span class="badge badge-warning">depois</span>' in overview
+    for name in ("instance", "database", "schema", "storage", "admin"):
+        setup_mode.put_setup_state(f"step:{name}", "done")
+    finish = client.get("/setup/finish/").content.decode()
+    assert "E-mail não configurado" in finish and "Concluir e reiniciar" in finish
+
+
+def test_email_step_in_production_only_takes_smtp(setup_mode):
+    client = enter(setup_mode)
+    with override_settings(SKELETON_SETUP_PRODUCTION=True):
+        html = client.get("/setup/email/").content.decode()
+        assert "Configurar depois" not in html and "Em produção o servidor SMTP é obrigatório" in html
+        refused = post(
+            client,
+            "/setup/email/",
+            {"email_url": "consolemail://", "default_from_email": "a@b.test", "test_recipient": "c@d.test"},
+        )
+        later = post(client, "/setup/email/", {"email_mode": "later"})
+    assert refused.status_code == 400 and "Em produção só um servidor SMTP é aceito." in refused.content.decode()
+    assert later.status_code == 400 and "step:email" not in setup_mode.setup_state()
+
+
+def test_email_test_failure_points_at_the_field(setup_mode, caplog, monkeypatch):
+    import smtplib
+
+    from skeleton.setup import views
+
+    class Refusing:
+        def send_messages(self, messages):
+            raise smtplib.SMTPAuthenticationError(535, b"5.7.8 mailer@example.test credentials rejected")
+
+    monkeypatch.setattr(views, "_email_connection", lambda url: Refusing())
+    client = enter(setup_mode)
+    with caplog.at_level(logging.DEBUG):
+        response = post(client, "/setup/email/", SMTP_FIELDS)
+    html = response.content.decode()
+    assert response.status_code == 400 and "smtp_password" in response.context["form"].errors
+    for leaked in ("smtp-secret-465", "credentials rejected"):
+        assert leaked not in html and leaked not in caplog.text
+    assert "email_url" not in setup_mode.settings()
+
+
+def test_email_step_sends_the_test_by_separate_fields(setup_mode, monkeypatch):
+    from skeleton.setup import views
+
+    sent, urls = [], []
+
+    class Accepting:
+        def send_messages(self, messages):
+            sent.extend(messages)
+            return len(messages)
+
+    def connection(url):
+        urls.append(url)
+        return Accepting()
+
+    monkeypatch.setattr(views, "_email_connection", connection)
+    client = enter(setup_mode)
+    response = post(client, "/setup/email/", SMTP_FIELDS)
+    assert response["Location"] == reverse("setup:storage")
+    assert urls == ["smtp+tls://mailer%40example.test:smtp-secret-465@smtp.example.test:587"]
+    assert sent[0].to == ["ops@example.test"]
+    assert "Mensagem de teste enviada para ops@example.test" in client.get("/setup/storage/").content.decode()
