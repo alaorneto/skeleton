@@ -4,9 +4,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-# Email bodies keep their own formats; maintenance.html renders without the full Django setup.
+# Email bodies keep their own formats.
 EXCEPTIONS = (
-    "skeleton/web/templates/skeleton/maintenance.html",
     "notifications/templates/notifications/",
     "tenancy/templates/skeleton/tenancy/invitation/",
     "skeleton/email/",

@@ -138,7 +138,7 @@ Toda recusa mostra uma página em português, com a marca, uma frase do que acon
 Toda data e hora na interface aparece como `15/11/2026 14:30` (só a data: `15/11/2026`; só a hora: `14:30`), no fuso efetivo da pessoa, da organização ou da instância ([#468](https://github.com/alaorneto/skeleton/issues/468)). O formato vem de um ponto só, `FORMAT_MODULE_PATH = ["skeleton.conf.formats"]` (pacote `skeleton/conf/formats/pt_BR/`), que também vale para `presentation._value` nas listas e no detalhe genéricos.
 
 - Use `{% load skeleton_format %}` e `{{ valor|moment }}`, `{{ valor|moment:"date" }}` ou `{{ valor|moment:"time" }}`. O filtro gera `<time datetime="ISO">texto</time>`, devolve "—" para vazio e escapa um texto que não é data.
-- Nunca imprima uma data crua (`{{ x.created_at }}`) nem `|default:"—"` numa data: `tests/unit/test_template_dates.py` recusa. As exceções são os corpos de email e `skeleton/maintenance.html`.
+- Nunca imprima uma data crua (`{{ x.created_at }}`) nem `|default:"—"` numa data: `tests/unit/test_template_dates.py` recusa. As exceções são os corpos de email.
 - Os valores "Antes"/"Depois" da auditoria são o dado gravado e não passam pelo filtro.
 
 Ícones: `{% include "skeleton/web/components/icon.html" with name="table" class="size-5" %}` (traço 24 px, estilo Heroicons, decorativos com `aria-hidden`).
