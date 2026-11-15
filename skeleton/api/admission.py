@@ -281,7 +281,9 @@ class OrganizationJoinLinksAPI(TenantAPI):
         except PermissionDenied:
             raise BoundaryError("privileged_role", "Só o administrador concede papel com capacidades.", 403) from None
         path = reverse("web:join-link", kwargs={"organization_id": organization_id, "token": token})
-        response = Response({**link_data(link), "url": request.build_absolute_uri(path)}, status=201)
+        from skeleton.tenancy.site import shareable_url
+
+        response = Response({**link_data(link), "url": shareable_url(request, organization_id, path)}, status=201)
         response["Cache-Control"] = "no-store"
         return etag(response, link.revision)
 

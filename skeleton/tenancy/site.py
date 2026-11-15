@@ -211,3 +211,60 @@ def is_site_url(url: str) -> bool:
     if kind.kind != "organization" or not kind.label or find_site(kind.label) is None:
         return False
     return url_has_allowed_host_and_scheme(url, allowed_hosts={parts.netloc}, require_https=parts.scheme == "https")
+
+
+def site_origin(site: Site) -> str | None:
+    """Origin of the organization's own address (#487): the slug host."""
+    return organization_origin(site.slug)
+
+
+_NO_SITE = object()
+
+
+def _site_for_links(organization_id: Any) -> Site | None:
+    """``site_of`` memoized for the unit of work (a request or a job context): one index read per organization."""
+    from .context import request_cache
+
+    cache = request_cache()
+    key = ("skeleton.site_of", str(organization_id))
+    if cache is not None and key in cache:
+        value = cache[key]
+        return None if value is _NO_SITE else value
+    site = site_of(organization_id)
+    if cache is not None:
+        cache[key] = site if site is not None else _NO_SITE
+    return site
+
+
+def organization_url(organization_id: Any, path: str) -> str | None:
+    """``path`` (as ``reverse`` gives it outside a request) on the organization's own address (#487).
+
+    ``None`` when the organization has no enabled site: the caller keeps the platform URL. An
+    organization route loses its ``/o/<uuid>`` prefix; global and API routes keep their path.
+    """
+    from .routing import is_org_route
+
+    if organization_id is None or not base_domain():
+        return None
+    site = _site_for_links(organization_id)
+    origin = site_origin(site) if site is not None else None
+    if origin is None:
+        return None
+    prefix = f"/o/{site.organization_id}/"
+    if path.startswith(prefix) and is_org_route(path):
+        path = "/" + path[len(prefix) :]
+    return origin + path
+
+
+def shareable_url(request: Any, organization_id: Any, path: str) -> str | None:
+    """A link about an organization that leaves the page (email, copied link): its own address when enabled.
+
+    Falls back to the request's host, then to ``SKELETON_PUBLIC_URL``; ``None`` when neither exists.
+    """
+    url = organization_url(organization_id, path)
+    if url is not None:
+        return url
+    if request is not None:
+        return request.build_absolute_uri(path)
+    origin = (getattr(settings, "SKELETON_PUBLIC_URL", "") or "").strip().rstrip("/")
+    return origin + path if origin else None
