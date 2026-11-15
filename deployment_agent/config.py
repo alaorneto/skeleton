@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlsplit
 
+from .github import REPOSITORY
+from .github import valid_settings as github_settings_valid
 from .storage import AgentError, private_file
 from .types import JSON, StrPath
 
@@ -67,6 +69,27 @@ def _absolute(value: object) -> bool:
     return isinstance(value, str) and bool(value) and "\x00" not in value and Path(value).is_absolute()
 
 
+def _valid_source(source: JSON, values: JSON) -> bool:
+    """Exactly one of path, url and github (#498); a GitHub source pins an approved publisher."""
+    if sum(key in source for key in ("path", "url", "github")) != 1:
+        return False
+    channels = source.get("channels", ["stable"])
+    if not isinstance(channels, list) or not all(isinstance(channel, str) for channel in channels):
+        return False
+    if "github" not in source:
+        return True
+    github = values.get("github")
+    settings: JSON = github if isinstance(github, dict) else {}
+    return (
+        isinstance(source["github"], str)
+        and REPOSITORY.fullmatch(source["github"]) is not None
+        and isinstance(source.get("publisher"), str)
+        and source["publisher"] in (values.get("approved_publishers") or {})
+        and isinstance(source.get("private", False), bool)
+        and (not source.get("private") or bool(settings.get("token_file")))
+    )
+
+
 def _validate_optional(values: JSON) -> None:
     """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
     paths = values.get("recovery_paths")
@@ -98,8 +121,11 @@ def _validate_optional(values: JSON) -> None:
     if sources is not None and (
         not isinstance(sources, list)
         or not all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in sources)
+        or not all(_valid_source(item, values) for item in sources)
     ):
         raise AgentError("invalid_catalogue_sources")
+    if "github" in values and not github_settings_valid(values["github"]):
+        raise AgentError("invalid_github_settings")
     if "allow_version_jumps" in values and not isinstance(values["allow_version_jumps"], bool):
         raise AgentError("invalid_boolean_setting")  # Emergency switch for skipping core lines (#493).
     interval = values.get("drift_check_interval")
