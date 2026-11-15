@@ -98,6 +98,36 @@ def reset_key_path(client, email):
     return response["Location"] if response.status_code == 302 else path
 
 
+def test_account_mail_names_the_site_it_was_sent_from(local_user):
+    """#508: the adapter keeps allauth's base context, so the greeting is not "Olá da !"."""
+    assert Client().post("/accounts/password/reset/", {"email": local_user.email}).status_code == 302
+    body = [message for message in mail.outbox if local_user.email in message.to][-1].body
+    assert body.startswith("Olá da testserver!")
+    assert body.rstrip().endswith("Obrigado por usar testserver!\ntestserver")
+
+
+def test_account_mail_still_waits_for_the_commit_and_keeps_the_callers_site(local_user):
+    from types import SimpleNamespace
+
+    from allauth.core.context import request_context
+    from django.db import transaction
+
+    from skeleton.accounts.adapters import AccountAdapter
+
+    adapter, before = AccountAdapter(), len(mail.outbox)
+    context = {"user": local_user, "password_reset_url": "https://testserver/reset/"}
+    with request_context(RequestFactory().get("/")):
+        with pytest.raises(RuntimeError), transaction.atomic():
+            adapter.send_mail("account/email/password_reset_key", local_user.email, context)
+            raise RuntimeError
+        assert len(mail.outbox) == before  # Rolled back: nothing is sent.
+        with transaction.atomic():
+            site = SimpleNamespace(name="Caller", domain="caller.example.test")
+            adapter.send_mail("account/email/password_reset_key", local_user.email, {**context, "current_site": site})
+            assert len(mail.outbox) == before  # Sent only on commit.
+    assert mail.outbox[-1].body.startswith("Olá da Caller!")
+
+
 def test_password_reset_real_mail_token_is_single_use_and_revokes_old_session(local_user):
     old = Client()
     assert old.post("/accounts/login/", {"login": local_user.email, "password": PASSWORD}).status_code == 302
