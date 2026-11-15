@@ -21,7 +21,8 @@ from skeleton.common.hostnames import slug_problem
 @dataclass(frozen=True)
 class HostKind:
     kind: str  # "platform" | "organization" | "unknown"
-    label: str = ""  # the slug, when kind == "organization"
+    label: str = ""  # the slug, when kind == "organization" under the base domain
+    organization_id: UUID | None = None  # a verified custom domain (#489)
 
 
 PLATFORM = HostKind("platform")
@@ -80,7 +81,27 @@ def classify_host(host: str) -> HostKind:
         if "." in front or not front:
             return UNKNOWN
         return HostKind("organization", front) if slug_problem(front) is None else UNKNOWN
+    from .site_domains import custom_hosts
+
+    organization_id = custom_hosts().get(name)
+    if organization_id is not None:
+        return HostKind("organization", "", organization_id)
     return PLATFORM
+
+
+class SiteAllowedHosts(list):
+    """The static allowed hosts plus the verified custom domains (#489); never a wildcard.
+
+    Django validates a host by iterating ``ALLOWED_HOSTS``: the dynamic part is appended at
+    iteration time from the per-process cache of ``SiteDomainClaim``. ``"*" in`` and indexing
+    see only the static part.
+    """
+
+    def __iter__(self):
+        yield from super().__iter__()
+        from .site_domains import custom_hosts
+
+        yield from (host for host in custom_hosts() if host and not host.startswith(".") and "*" not in host)
 
 
 def _origin_for(hostname: str) -> str | None:
@@ -113,6 +134,7 @@ class Site:
     logo_key: str
     default_language: str
     icon_key: str = ""  # The square PNG icon (#485).
+    custom_domain: str = ""  # The oldest verified custom domain (#489), or "".
 
 
 BRAND_FIELDS = ("display_name", "brand_color", "logo_key", "default_language", "icon_key")
@@ -155,6 +177,19 @@ def _as_site(row: Any) -> Site | None:
     if row is None:
         return None
     organization = row.site_organization
+    from .models import SiteDomainClaim
+
+    custom = ""
+    from .site_domains import custom_domains_enabled
+
+    if custom_domains_enabled():
+        custom = (
+            SiteDomainClaim.objects.filter(claiming_organization_id=organization.pk)
+            .order_by("created_at", "domain")
+            .values_list("domain", flat=True)
+            .first()
+            or ""
+        )
     return Site(
         organization_id=organization.pk,
         slug=organization.slug,
@@ -163,6 +198,7 @@ def _as_site(row: Any) -> Site | None:
         logo_key=row.logo_key,
         default_language=row.default_language,
         icon_key=row.icon_key,
+        custom_domain=custom,
     )
 
 
@@ -214,7 +250,9 @@ def is_site_url(url: str) -> bool:
 
 
 def site_origin(site: Site) -> str | None:
-    """Origin of the organization's own address (#487): the slug host."""
+    """Origin of the organization's own address (#487): the verified custom domain (#489), else the slug host."""
+    if site.custom_domain and base_domain():
+        return _origin_for(site.custom_domain)
     return organization_origin(site.slug)
 
 

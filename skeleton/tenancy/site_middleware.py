@@ -106,7 +106,7 @@ class OrganizationSiteMiddleware:
 
     def __call__(self, request):
         from .routing import site_scope
-        from .site import classify_host, find_site
+        from .site import classify_host, find_site, site_of
 
         try:
             host = request.get_host()
@@ -114,11 +114,39 @@ class OrganizationSiteMiddleware:
             return self.get_response(request)  # CommonMiddleware answers 400, as before.
         kind = classify_host(host)
         if kind.kind == "platform":
+            if _dynamic_only(host):
+                # Allowed by the custom domain cache but no longer classified (the cache expired in
+                # between): never serve the platform on a customer's domain (#489).
+                return refused(request)
             return self.get_response(request)
-        site = find_site(kind.label) if kind.kind == "organization" else None
+        site = None
+        if kind.kind == "organization":
+            site = find_site(kind.label) if kind.label else site_of(kind.organization_id)
         if site is None:
             return refused(request)
         request.organization_site = site
         with site_scope(site.organization_id):
             early = route_for_site(request, site)
-            return early if early is not None else self.get_response(request)
+            response = early if early is not None else self.get_response(request)
+        if not kind.label:
+            _custom_domain_hsts(request, response)
+        return response
+
+
+def _dynamic_only(host):
+    """True when ``host`` passed ``ALLOWED_HOSTS`` only through the custom domains."""
+    from django.http.request import split_domain_port, validate_host
+
+    from .site import _static_allowed_hosts
+    from .site_domains import custom_domains_enabled
+
+    if not custom_domains_enabled():
+        return False
+    return not validate_host(split_domain_port(host)[0], _static_allowed_hosts())
+
+
+def _custom_domain_hsts(request, response):
+    """HSTS without includeSubDomains/preload on a customer's domain: it must not bind their other hosts."""
+    seconds = getattr(settings, "SECURE_HSTS_SECONDS", 0)
+    if seconds and request.is_secure():
+        response.headers["Strict-Transport-Security"] = f"max-age={seconds}"

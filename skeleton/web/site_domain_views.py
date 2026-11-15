@@ -117,3 +117,27 @@ def site_domain_action(request, organization_id, sysid):
             % {"domain": record.domain, "code": record.last_error_code},
         )
     return redirect("web:site-domains", organization_id=organization_id)
+
+
+def site_host_check(request):
+    """``/health/site-host/?domain=<host>`` (#489): may the proxy issue a certificate for this host?
+
+    Answers only on ``SKELETON_HEALTH_HOST`` (the proxy's internal call) and only yes (200, empty)
+    or no (404): an enabled organization address, by slug or by verified custom domain.
+    """
+    from django.http import HttpResponse, HttpResponseNotFound
+    from django.http.request import split_domain_port
+
+    from skeleton.tenancy.site import classify_host, find_site, site_of
+
+    health = (getattr(settings, "SKELETON_HEALTH_HOST", "") or "").lower()
+    if request.method not in ("GET", "HEAD") or not health:
+        return HttpResponseNotFound()
+    if split_domain_port(request.get_host().lower())[0] != split_domain_port(health)[0]:
+        return HttpResponseNotFound()
+    domain = (request.GET.get("domain") or "").strip().lower()
+    kind = classify_host(domain) if domain else None
+    if kind is None or kind.kind != "organization":
+        return HttpResponseNotFound()
+    site = find_site(kind.label) if kind.label else site_of(kind.organization_id)
+    return HttpResponse(status=200) if site is not None else HttpResponseNotFound()

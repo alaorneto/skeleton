@@ -25,6 +25,8 @@ urlpatterns = [
     path("profile/privacy/erasure/", privacy_views.privacy_erasure, name="privacy-erasure"),
     path("health/live/", probe_response, name="health-live"),
     path("health/ready/", probe_response, name="health-ready"),
+    # Internal certificate-issuance question of the proxy, only on the health host (#489).
+    path("health/site-host/", site_domain_views.site_host_check, name="health-site-host"),
     path("join/", admission_views.join_directory, name="join"),
     path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
     # Public brand of the organization host (#484, #485): 404 on the main domain.
