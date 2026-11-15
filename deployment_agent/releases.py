@@ -23,8 +23,10 @@ from skeleton.system.packages import (
     validate_package,
     validate_wheel_set,
 )
+from skeleton.versioning import adjacent_release_line
 
 from .config import installed_bundled_app_ids
+from .environments import publisher_environment
 from .storage import AgentError, atomic_bytes, atomic_json, file_hash, inventory_files, load_json
 from .types import JSON, StrPath
 
@@ -75,7 +77,11 @@ def compare_history(old: JSON, new: JSON) -> None:
 
 
 def parse_lock(path: StrPath, target_environment: Mapping[str, Any] | None = None) -> JSON:
-    text = Path(path).read_text().replace("\\\n", " ")
+    return parse_lock_text(Path(path).read_text(), target_environment)
+
+
+def parse_lock_text(text: str, target_environment: Mapping[str, Any] | None = None) -> JSON:
+    text = text.replace("\\\n", " ")
     rows: JSON = {}
     for line in text.splitlines():
         line = line.strip()
@@ -131,18 +137,66 @@ def _package_selections(manifests: Sequence[JSON], rows: JSON, target_environmen
     return selections
 
 
+def _merge_project_lock(config: "Config", rows: JSON, target_environment: Mapping[str, Any]) -> None:
+    """Add the derived project's own pins (project_requirements_lock) to the publisher's lock."""
+    path = config.get("project_requirements_lock")
+    if not path:
+        return
+    for name, row in parse_lock(path, target_environment).items():
+        if name not in rows:
+            rows[name] = row
+        elif Version(rows[name]["version"]) != Version(row["version"]):
+            raise AgentError("dependency_version_conflict", 409)
+        else:
+            rows[name]["hashes"] |= row["hashes"]
+            rows[name]["extras"] |= row["extras"]
+
+
 def build_lock(
-    config: "Config", release: Path, manifests: Sequence[JSON], target_environment: Mapping[str, Any] | None = None
+    config: "Config",
+    release: Path,
+    manifests: Sequence[JSON],
+    target_environment: Mapping[str, Any] | None = None,
+    *,
+    store: "Store | None" = None,
+    core_digest: str | None = None,
 ) -> JSON:
+    """Hash-locked requirements of a release: the publisher environment when the core came in a
+    release package for this target (#495), else the operator lock and wheelhouse."""
     target_environment = target_environment or default_environment()
-    rows = parse_lock(config["requirements_lock"], target_environment)
+    staging = release / ".publisher-environment"
+    try:
+        return _build_lock(config, release, manifests, target_environment, store, core_digest, staging)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)  # Never left in the release (owned files, image).
+
+
+def _build_lock(
+    config: "Config",
+    release: Path,
+    manifests: Sequence[JSON],
+    target_environment: Mapping[str, Any],
+    store: "Store | None",
+    core_digest: str | None,
+    staging: Path,
+) -> JSON:
+    environment = (
+        publisher_environment(config, store, core_digest, target_environment) if store and core_digest else None
+    )
+    extra_wheels: list[Path] = []
+    if environment is None:
+        rows = parse_lock(config["requirements_lock"], target_environment)
+    else:
+        rows = parse_lock(environment.materialize(staging), target_environment)
+        _merge_project_lock(config, rows, target_environment)
+        extra_wheels = list((staging / "wheels").glob("*.whl"))
     wheels = release / "wheels"
     rows.update(_package_selections(manifests, rows, target_environment))
     if "django-skeleton" not in rows or "django" not in rows:
         raise AgentError("missing_core_dependencies", 409)
     wheelhouse = Path(config["wheelhouse"])
     available: dict[str, set[str]] = {}
-    for path in [*wheelhouse.glob("*.whl"), *wheels.glob("*.whl")]:
+    for path in [*wheelhouse.glob("*.whl"), *extra_wheels, *wheels.glob("*.whl")]:
         name, version = wheel_metadata(path)
         value = file_hash(path)
         if name not in rows or Version(version) != Version(rows[name]["version"]) or value not in rows[name]["hashes"]:
@@ -266,9 +320,28 @@ SUGGESTIBLE_CODES = frozenset({"missing_dependency", "incompatible_dependency_ve
 MAX_PROBLEM_DETAILS = 64
 
 
-def target_django_version(config: "Config", manifests: Sequence[JSON], environment: Mapping[str, Any]) -> str:
+def base_lock_rows(
+    config: "Config", environment: Mapping[str, Any], *, store: "Store | None" = None, core_digest: str | None = None
+) -> JSON:
+    """The lock build_lock starts from: the publisher environment of the core (#495) or the operator's."""
+    publisher = publisher_environment(config, store, core_digest, environment) if store and core_digest else None
+    if publisher is None:
+        return parse_lock(config["requirements_lock"], environment)
+    rows = parse_lock_text(publisher.lock_text(), environment)
+    _merge_project_lock(config, rows, environment)
+    return rows
+
+
+def target_django_version(
+    config: "Config",
+    manifests: Sequence[JSON],
+    environment: Mapping[str, Any],
+    *,
+    store: "Store | None" = None,
+    core_digest: str | None = None,
+) -> str:
     """The Django version build_lock will select: the locked pin, overridden by active manifest pins."""
-    version = parse_lock(config["requirements_lock"], environment).get("django", {}).get("version")
+    version = base_lock_rows(config, environment, store=store, core_digest=core_digest).get("django", {}).get("version")
     for manifest in manifests:
         for dependency in manifest["python_dependencies"]:
             marker = dependency.get("marker")
@@ -315,6 +388,9 @@ def check_plan_dependencies(
     artifact_manifests: Sequence[JSON],
     removals: Sequence[str],
     suggest: Callable[..., Any] | None = None,
+    *,
+    store: "Store | None" = None,
+    core_digest: str | None = None,
 ) -> "Resolution | None":
     """Resolve the resulting component set before any copy, extraction or lock work.
 
@@ -345,7 +421,7 @@ def check_plan_dependencies(
         return None  # create_release reports the unidentified core base.
     remaining = [manifest for app_id, manifest in apps.items() if app_id not in removed]
     environment = backend.target_environment()
-    django = target_django_version(config, [core, *remaining], environment)
+    django = target_django_version(config, [core, *remaining], environment, store=store, core_digest=core_digest)
     # First-party apps the runtime installs satisfy dependencies at the core's version (#254).
     provided = installed_bundled_app_ids(config)
     resolution = resolve_target(
@@ -395,7 +471,9 @@ def create_release(
     environment = backend.target_environment()
     _install_core_wheels(config, store, release, inventory, core, changed)
     retained, archives = _materialize_apps(config, store, backend, release, source, entries, old_entries, removals)
-    return _finalize(config, backend, release, inventory, core, entries, manifests, environment, retained, archives)
+    return _finalize(
+        config, store, backend, release, inventory, core, entries, manifests, environment, retained, archives
+    )
 
 
 def _apply_artifacts(
@@ -407,7 +485,9 @@ def _apply_artifacts(
         package = verified(store, config, artifact)
         manifest = package.manifest
         if manifest["kind"] == "core":
-            core = _core_from_package(manifest, core, artifact)
+            core = _core_from_package(
+                manifest, core, artifact, allow_jumps=bool(config.get("allow_version_jumps", False))
+            )
             changed.add("django-skeleton")
             continue
         app_id = manifest["app_id"]
@@ -416,11 +496,14 @@ def _apply_artifacts(
     return core, changed
 
 
-def _core_from_package(manifest: JSON, core: JSON, artifact: str) -> JSON:
+def _core_from_package(manifest: JSON, core: JSON, artifact: str, *, allow_jumps: bool = False) -> JSON:
     if core.get("version") and not _supports_source(manifest, core["version"]):
         raise AgentError("unsupported_core_upgrade", 409)
     if core.get("version") and Version(manifest["version"]) < Version(core["version"]):
         raise AgentError("downgrade_forbidden", 409)
+    # One minor line at a time, whatever range the publisher declared (#493); patches may be skipped.
+    if core.get("version") and not allow_jumps and not adjacent_release_line(core["version"], manifest["version"]):
+        raise AgentError("version_jump_forbidden", 409)
     return {
         "manifest": manifest,
         "version": manifest["version"],
@@ -592,6 +675,7 @@ def _extract_app(release: Path, target: Path, package: "VerifiedPackage", packag
 
 def _finalize(
     config: "Config",
+    store: "Store",
     backend: "Backend",
     release: Path,
     inventory: JSON,
@@ -603,7 +687,9 @@ def _finalize(
     archives: list[JSON],
 ) -> JSON:
     """Lock, resolve, write the inventory and run the build checks of the prepared release."""
-    lock = build_lock(config, release, [core["manifest"], *manifests], environment)
+    lock = build_lock(
+        config, release, [core["manifest"], *manifests], environment, store=store, core_digest=core["digest"]
+    )
     resolution = resolve_target(
         [core["manifest"], *manifests],
         core=core["version"],

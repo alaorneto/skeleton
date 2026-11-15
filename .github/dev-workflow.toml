@@ -208,4 +208,5 @@ hide = []
 mode = "pull-request"
 commit_message = "chore(release): {tag}"
 mark = ["comment", "milestone"]
-dispatch_workflow = ""
+# Artefatos assinados de cada release (#496): core, pacote de release, agente e índice.
+dispatch_workflow = "release-artifacts.yml"

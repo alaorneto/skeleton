@@ -126,6 +126,8 @@ register_periodic("jobs.retention", "jobs.retention", every=timedelta(hours=6), 
 - Mudar o agendamento vale a partir da próxima janela calculada com a nova cadência.
 - Jobs periódicos rodam como sistema; o tipo precisa ter `scope` coerente com `per_organization` (check `skeleton.E021`).
 
+O núcleo declara também `system.update_check` (#502): global (`scope="global"`, `per_organization=False`), uma tentativa por janela, a cada `SKELETON_UPDATE_CHECK_HOURS` horas, agendado só quando `SKELETON_UPDATE_REPOSITORY` está definido e não há agente de deployment ([aviso sem agente](deployment.md#sandbox-no-coolify-369)). O payload é vazio e o job não lê nem escreve tabelas: o resultado vai para o cache.
+
 ## Operar a fila: `/platform/jobs/`
 
 A administração da plataforma tem uma tela da fila (#40), com contagens por estado, atraso do job vencido mais antigo, workers vivos e a lista dos jobs filtrável por estado, fila e tipo. A tela mostra tipo, fila, organização, estado, tentativas, código e classe do erro e datas; **nunca o payload**.

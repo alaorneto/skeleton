@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from skeleton.versioning import normalize_version, version_satisfies
+from skeleton.versioning import adjacent_release_line, normalize_version, release_line, version_satisfies
 
 
 @pytest.mark.parametrize(
@@ -48,3 +48,27 @@ def test_source_metadata_never_claims_an_unrelated_installed_distribution(monkey
     monkeypatch.setattr(versioning.metadata, "distribution", lambda _: UnrelatedDistribution())
     assert versioning.core_version()["origin"] == "source"
     assert versioning.core_version()["version"] != "9.9.9"
+
+
+@pytest.mark.parametrize(
+    "current,target",
+    [("0.5.2", "0.5.9"), ("0.5.2", "0.6.0"), ("0.9.1", "1.0.0"), ("1.4.0", "1.5.3"), ("0.5.2", "0.5.2")],
+)
+def test_adjacent_release_lines(current, target):
+    assert adjacent_release_line(current, target) is True
+
+
+@pytest.mark.parametrize(
+    "current,target",
+    [("0.5.2", "0.7.0"), ("0.9.1", "1.1.0"), ("0.9.1", "2.0.0"), ("0.6.0", "0.5.9"), ("1.0.0", "0.9.9")],
+)
+def test_release_line_jumps_and_downgrades_are_not_adjacent(current, target):
+    assert adjacent_release_line(current, target) is False
+
+
+def test_release_line_of_versions():
+    assert release_line("0.6.4") == (0, 6)
+    assert release_line("1.0.0-rc.1") == (1, 0)
+    for value in ("0.6", "not a version", ""):
+        with pytest.raises(ValueError):
+            release_line(value)

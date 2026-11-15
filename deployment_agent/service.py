@@ -10,9 +10,18 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
-from skeleton.system.packages import PackageError, validate_package
+from packaging.version import Version
 
-from . import adoption, catalogue, execution, planning, recovery
+from skeleton.system.packages import (
+    PackageError,
+    match_release_target,
+    package_kind,
+    read_release_member,
+    validate_package,
+    validate_release,
+)
+
+from . import adoption, catalogue, environments, execution, planning, recovery, selfupdate, sources
 from .backends import backend_for
 from .catalogue import NoRedirect  # noqa: F401 - public name, importable from here
 from .config import Config
@@ -93,6 +102,7 @@ class DeploymentService:
         if error:
             result["error"] = error
         result["drift_checked_at"] = checked_at
+        result["agent"] = {"version": selfupdate.agent_version(), "self_update": bool(self.config.get("agent_root"))}
         return result
 
     def upload(self, data: bytes) -> JSON:
@@ -103,19 +113,69 @@ class DeploymentService:
         atomic_bytes(temporary, data)
         try:
             try:
+                kind = package_kind(temporary)
+                if kind == "release":
+                    return self._upload_release(temporary)
                 package = validate_package(temporary, self.config["approved_publishers"])
             except PackageError:
                 raise AgentError("package_verification_failed") from None
-            destination = self.store.path("uploads", package.digest)
-            if destination.exists():
-                if file_hash(destination) != package.digest:
-                    raise AgentError("stored_artifact_corrupted", 409)
-            else:
-                os.replace(temporary, destination)
-                os.chmod(destination, 0o400)
-            return {"digest": package.digest, "manifest": package.manifest}
+            self._store_upload(temporary, package.digest)
+            return {"digest": package.digest, "kind": package.manifest["kind"], "manifest": package.manifest}
         finally:
             temporary.unlink(missing_ok=True)
+
+    def _store_upload(self, temporary: Path, artifact: str) -> None:
+        """Keep a verified artifact in uploads/ under its digest, read-only; reuse an identical one."""
+        destination = self.store.path("uploads", artifact)
+        if destination.exists():
+            if file_hash(destination) != artifact:
+                raise AgentError("stored_artifact_corrupted", 409)
+        else:
+            os.replace(temporary, destination)
+            os.chmod(destination, 0o400)
+
+    def _release_target(self, manifest: JSON) -> JSON | None:
+        try:
+            environment = self.backend.target_environment()
+        except Exception:  # noqa: BLE001 - an unknown target means no publisher environment, not a failed upload
+            return None
+        return match_release_target(manifest, environment)
+
+    def _upload_release(self, temporary: Path) -> JSON:
+        """A release package (#495): keep it and its core package, and record the target's environment."""
+        verified = validate_release(temporary, self.config["approved_publishers"])
+        target = self._release_target(verified.manifest)
+        core = read_release_member(verified, verified.manifest["core"]["path"])
+        if target is not None:
+            environments.check(self.store, verified)  # A conflict refuses the upload before anything is kept.
+        self._store_upload(temporary, verified.digest)
+        core_temporary = self.store.root / "uploads" / f".{uuid4()}.upload"
+        atomic_bytes(core_temporary, core)
+        try:
+            self._store_upload(core_temporary, verified.core_digest)
+        finally:
+            core_temporary.unlink(missing_ok=True)
+        if target is not None:
+            environments.record(self.store, verified, target["id"])
+        return {
+            "digest": verified.digest,
+            "kind": "release",
+            "manifest": verified.manifest,
+            "core": {"digest": verified.core_digest, "manifest": verified.core_manifest},
+            "target": target["id"] if target else None,
+            "agent": self._agent_offer(verified.manifest.get("agent")),
+        }
+
+    @staticmethod
+    def _agent_offer(agent: JSON | None) -> JSON:
+        """The agent a release package brings and whether it is newer than this one (#497)."""
+        version = (agent or {}).get("version")
+        current = selfupdate.agent_version()
+        newer = bool(version and current and Version(version) > Version(current))
+        return {"version": version, "update_required": newer}
+
+    def update_agent(self, release: str, *, actor_id: str | None = None) -> JSON:
+        return selfupdate.update(self, release, actor_id=actor_id)
 
     def initialize(
         self, inventory_path: StrPath, *, core_package: StrPath, app_packages: Iterable[StrPath] = ()
@@ -241,6 +301,18 @@ class DeploymentService:
 
     def check_updates(self) -> JSON:
         return catalogue.check_updates(self)
+
+    def update_status(self) -> JSON:
+        return catalogue.update_status(self)
+
+    def sources(self) -> JSON:
+        return sources.listing(self)
+
+    def set_source(self, payload: JSON, actor_id: str | None = None) -> JSON:
+        return sources.set_source(self, payload, actor_id=actor_id)
+
+    def remove_source(self, source_id: str, actor_id: str | None = None) -> JSON:
+        return sources.remove_source(self, source_id, actor_id=actor_id)
 
     def fetch_release(self, component_id: str, version: str, source_id: str) -> JSON:
         return catalogue.fetch_release(self, component_id, version, source_id)

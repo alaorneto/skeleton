@@ -222,6 +222,10 @@ Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, e
 
 Quando a plataforma é vendida como SaaS ([cobrança](billing.md)), a **conta de cobrança** é a organização. Um **produto** é o que se vende (plano base, app ou pacote de armazenamento) e um **preço** é uma oferta dele numa moeda e num ciclo; os termos de um preço nunca mudam, e quem já assinou mantém o preço antigo. A **assinatura** é o contrato recorrente da organização, e cada **item** dela é um preço contratado. A **fatura** é o valor devido num período, com número e valores imutáveis depois de emitida; o **pagamento** é uma tentativa de quitá-la. Disponível ≠ contratado: com a cobrança ligada, uma app paga só fica disponível para a organização que tem o direito a ela.
 
+### Pacote de release, fonte e caminho de atualização
+
+Um **pacote de release** é um `.skapp` de `kind: "release"`, um por release do core: leva o pacote do core, o lock e os wheels das dependências de cada **alvo** (interpretador e plataforma) e o wheel do agente. O lock e os wheels de um alvo, guardados pelo agente, são o **ambiente do publicador**. Uma **fonte** é onde o agente procura releases (`path`, `url` ou um repositório do GitHub); o **índice de releases** é o catálogo assinado que ela publica. A **linha** de uma versão é o par major.minor; o **caminho de atualização** é a lista de versões a aplicar, uma linha por vez, e cada **passo** é uma operação completa do agente. Veja o [guia de atualização](updates.md).
+
 ### Release, preparação e troca
 
 **Deployment** é a instalação operacional que atende usuários. Um **release** é um conjunto preparado de core, apps, ambiente e recursos. **Staging** é sua preparação em diretório ou imagem separado do conjunto ativo.

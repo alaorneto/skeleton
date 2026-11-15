@@ -147,6 +147,16 @@ def _sentry_dsn(value: str) -> str:
     return value.strip()
 
 
+def _github_repository(value: str) -> str:
+    """Empty (off) or ``owner/name``; the same pattern as GITHUB_REPOSITORY of skeleton.system.releases."""
+    import re
+
+    value = _text(value).strip()
+    if value and not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}", value):
+        raise ValueError("Use dono/nome, sem https://github.com/.")
+    return value
+
+
 def _choice(*choices: str) -> Callable[[str], str]:
     def validate(value: str) -> str:
         if value not in choices:
@@ -291,6 +301,13 @@ _SPECS = (
     SettingSpec("require_admin_mfa", "SKELETON_REQUIRE_ADMIN_MFA", "bool", "MFA obrigatório para administração", _bool),
     SettingSpec("json_max_bytes", "SKELETON_JSON_MAX_BYTES", "int", "Tamanho máximo de JSON", _int(1)),
     SettingSpec("package_max_bytes", "SKELETON_PACKAGE_MAX_BYTES", "int", "Tamanho máximo de pacote", _int(1)),
+    SettingSpec(
+        "update_repository",
+        "SKELETON_UPDATE_REPOSITORY",
+        "str",
+        "Repositório do GitHub consultado para avisar de versão nova (dono/nome)",
+        _github_repository,
+    ),
     SettingSpec("upload_max_bytes", "SKELETON_UPLOAD_MAX_BYTES", "int", "Tamanho máximo de anexo", _int(1)),
     SettingSpec(
         "files_org_quota_bytes", "SKELETON_FILES_ORG_QUOTA_BYTES", "int", "Cota de anexos por organização", _int(0)

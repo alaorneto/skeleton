@@ -1,0 +1,190 @@
+# Atualizar o sistema base e as apps
+
+Este guia responde a quem opera uma instalação: como atualizo, de onde vêm as versões, como uso um fork e o que fazer quando algo dá errado. Ele reúne o que o épico #491 entregou; a referência completa do agente, das chaves de configuração e das rotas continua em [deployment](deployment.md#agente-independente-de-deployment).
+
+## Visão geral
+
+Quem publica assina; o agente de deployment, no servidor, verifica e instala; a tela da plataforma só pede e mostra. Nada é aplicado sem que o operador veja o plano e confirme, e cada passo é uma operação completa do agente.
+
+```
+publicador ── workflow "Artefatos de release" ──► release do GitHub
+   (chave privada no ambiente "release")           django-skeleton-<v>.skapp      (pacote do core)
+                                                    skeleton-<v>.release.skapp     (pacote de release)
+                                                    skeleton_deployment_agent-<v>-py3-none-any.whl
+                                                    skeleton-index.json            (índice assinado)
+                                                             │
+                                  agente ◄───────────────────┘  verifica assinatura (approved_publishers),
+                                    │                            hashes, linha de versão, alvo
+                                    ▼
+                          /platform/updates/  ── mostra o caminho; o operador prepara e confirma cada passo
+```
+
+O agente confere a assinatura do índice e de cada pacote contra as chaves que o operador aprovou no arquivo do agente (`approved_publishers`); o GitHub só entrega bytes. A tela nunca cadastra chave nem token e nunca baixa nada: ela fala com o agente pelo socket de controle.
+
+## Vocabulário
+
+| Termo | Significado |
+|---|---|
+| pacote de componente | `.skapp` de `kind` `core` ou `app`. |
+| pacote de release | `.skapp` de `kind` `release`: um arquivo por release do core, com o pacote do core, os wheels das dependências, o lock e o wheel do agente ([formato](deployment.md#pacote-de-release)). |
+| alvo | Interpretador e plataforma: `implementation_name`, `python_version`, `platform_machine`, `sys_platform`. Ex.: `cp314-manylinux_2_28_x86_64`. |
+| ambiente do publicador | Lock e wheels de um alvo, vindos de um pacote de release e guardados pelo agente. |
+| índice de releases | O catálogo assinado, publicado como o asset `skeleton-index.json` do release mais recente. |
+| fonte | Onde o agente procura releases: `path`, `url` ou `github`; do arquivo do agente ou cadastrada na tela. |
+| caminho de atualização | Lista ordenada de versões entre a instalada e a mais nova alcançável. |
+| passo | Uma operação completa do agente: plano, confirmação, manutenção, backup, migrations, cutover. |
+| linha | Par `(major, minor)` de uma versão. |
+
+## Atualizar por arquivo
+
+1. Baixe o pacote de release (`skeleton-<versão>.release.skapp`) do release do GitHub e confira-o, se quiser, com a chave pública do publicador:
+
+   ```sh
+   .venv/bin/python -m skeleton.system.packages validate skeleton-0.6.1.release.skapp \
+     --trust-store /caminho/privado/publishers.json
+   ```
+
+2. Envie-o em `/platform/updates/` → "Enviar pacote". O agente verifica o pacote inteiro, guarda o pacote de release e o pacote do core que veio nele e abre "Preparar plano" já com a ação "Atualizar núcleo" e o digest do core. Se o pacote não traz a plataforma deste servidor, a tela avisa que valem o lock e o wheelhouse configurados no agente.
+3. "Visualizar impacto" pede a prévia. Confira os componentes, as migrations, os arquivos e, quando houver, "Dependências que deixam de ser instaladas".
+4. Na tela da operação, confirme (autenticação recente) e acompanhe até `succeeded`.
+
+Pelo shell do servidor, o mesmo fluxo é:
+
+```sh
+AGENT=/opt/skeleton-agent/current/venv/bin/skeleton-deployment-agent
+CONFIG=/srv/skeleton/private/agent.json
+"$AGENT" --config "$CONFIG" upload /srv/skeleton/artifacts/skeleton-0.6.1.release.skapp
+"$AGENT" --config "$CONFIG" preview core_update --artifact "$CORE_DIGEST"   # o core.digest da resposta
+"$AGENT" --config "$CONFIG" submit --plan-id "$PLAN_UUID" --plan-digest "$PLAN_DIGEST" \
+  --generation "$GENERATION" --operation-id "$OPERATION_UUID" --actor-id "$ACTOR_UUID" --request-id "$REQUEST_UUID"
+"$AGENT" --config "$CONFIG" operation "$OPERATION_UUID"
+```
+
+## Atualizar pelo GitHub
+
+1. Em "Fontes", cadastre o repositório (`dono/nome`) e escolha o publicador entre os aprovados no servidor. Sem nenhuma fonte GitHub, o formulário já sugere o repositório oficial, `alaorneto/skeleton`.
+2. Em "Novas versões", "Verificar agora" consulta as fontes. A página mostra a última consulta e, para o núcleo e cada app, a versão instalada, a mais nova e os passos.
+3. "Preparar este passo" (só no primeiro passo) baixa o pacote pelo agente e abre o plano. Confirme como no envio por arquivo.
+4. Ao fim da operação, a página dela oferece o próximo passo, até não haver mais atualizações pendentes.
+
+Pelo shell: `check-updates`, `update-status` (sem rede), `sources` e `fetch-release <component_id> <versão> <source_id>`.
+
+## Passo a passo e a regra de linhas
+
+O agente recusa atualizar o núcleo pulando uma linha minor (`version_jump_forbidden`): cada linha pode trazer migrations e mudanças que a seguinte presume aplicadas. Correções (patch) podem ser puladas. De `0.5.2`, com `0.5.3`, `0.6.0`, `0.6.4` e `0.7.1` publicadas, o caminho é `0.5.2 → 0.6.4 → 0.7.1`; de `0.9.x`, o próximo passo é `1.0.x`. Quem publica declara o mesmo em `from_versions` (a própria linha e a anterior, gerado por `skeleton-core manifest`); quem instala confere de novo. Apps seguem só o `from_versions` delas.
+
+| Bloqueio | Significa | O que fazer |
+|---|---|---|
+| `missing_intermediate_release` | Falta publicado um release de uma linha intermediária. | Peça ao publicador o release da linha que falta; não force o salto. |
+| `incompatible_runtime` | Nenhuma versão mais nova serve ao Python ou ao núcleo desta instalação. | Atualize o runtime (ou o núcleo, no caso de apps) primeiro. |
+
+`allow_version_jumps: true` no arquivo do agente desliga a regra. É uma chave de **emergência**, não de rotina: um salto aplica migrations de várias linhas de uma vez, sem os pontos de parada que o publicador testou. Ligue-a só com backup verificado e por uma operação, e desligue em seguida.
+
+## Usar um fork
+
+- **Dono do fork:** gera a própria chave (`python -m skeleton.system.packages keygen --private-key release.key --public-key release.pub.pem`), cria o ambiente `release` do repositório com o segredo `RELEASE_SIGNING_KEY` e a variável `RELEASE_PUBLISHER` (um id próprio, diferente do oficial), publica e divulga a chave pública ([publicação automática](deployment.md#publicação-automática-nos-releases-do-github)).
+- **Operador do servidor:** acrescenta a chave pública em `approved_publishers` do arquivo do agente e reinicia o agente. É ele quem decide em quem confiar.
+- **Administrador da plataforma:** cadastra `dono/nome` do fork em "Fontes" e escolhe o publicador do fork.
+
+Trocar o publicador do núcleo de um para outro muda a fonte e a chave que vale; não muda o que está instalado, os dados nem o histórico de migrations. O agente só aceita do novo publicador versões que o caminho permite, e o próprio agente só se atualiza a partir do publicador do núcleo instalado (ou de um de `agent_publishers`).
+
+## Repositórios privados
+
+Crie um token de acesso de escopo mínimo (leitura de conteúdo só dos repositórios consultados) e grave-o num arquivo do usuário do agente, modo `0600`, fora do release. Aponte-o em `"github": {"token_file": "/srv/skeleton/private/github-token"}` e marque a fonte com `"private": true` (no arquivo do agente ou na tela, que só mostra a opção quando o token está configurado). O token só vai para o host de `api_url`; nunca segue o redirecionamento do download e nunca aparece em erro, log ou tela.
+
+## Atualizar o agente
+
+O agente informa a própria versão em "Versões instaladas". Como ele valida e instala o núcleo, uma prévia de núcleo de linha acima da do agente é recusada com `agent_update_required`, e a tela mostra "Atualize o agente primeiro". Com `agent_root` configurado, "Atualizar agente" monta um virtualenv novo a partir do pacote de release (sem rede), testa-o com `selfcheck`, troca o link `current` e reinicia o serviço (código de saída 75 com `Restart=on-failure`). Sem `agent_root`, use o servidor:
+
+```sh
+"$AGENT" --config "$CONFIG" agent-install --release /srv/skeleton/artifacts/skeleton-0.7.0.release.skapp --root /opt/skeleton-agent
+sudo systemctl restart skeleton-agent
+"$AGENT" --config "$CONFIG" agent-rollback --root /opt/skeleton-agent    # volta à versão anterior
+```
+
+Migração de uma instalação antiga (`/opt/skeleton-agent/venv`) e o leiaute de `agent_root`: [atualizar o agente](deployment.md#atualizar-o-agente).
+
+## Apps
+
+Apps continuam em pacotes de componente. Uma app publica o próprio índice no próprio repositório: `package build` gera o `.skapp`, e `package index --previous` acumula o índice anterior; anexe ao release do GitHub o pacote e o asset `skeleton-index.json`, com `artifact` no formato `<tag>/<arquivo>` (`--artifact-base <tag>`). Declare `migrations.from_versions` com a mesma política do núcleo: a própria linha e a anterior ([extensão](extending.md#publicar-apps-e-releases-assinados)). Depois de um passo do núcleo, uma app que deixou de ser compatível aparece na checagem de dependências da prévia, com a sugestão de versão quando as fontes têm uma.
+
+## Avisos
+
+O agente consulta as fontes sozinho a cada `update_check_interval` segundos (padrão 6 horas; `0` desliga; a primeira consulta, 2 minutos depois de subir). Quem tem `updates.operate` vê nas páginas de `/platform/` uma faixa com o link "Ver o passo a passo"; o atraso máximo é o intervalo do agente mais 5 minutos de cache. Nada é baixado nem aplicado sozinho.
+
+Sem agente, com o opt-in `SKELETON_UPDATE_REPOSITORY`, o job `system.update_check` consulta o release mais recente e mostra um aviso **só informativo** com o link para o release ([aviso sem agente](deployment.md#sandbox-no-coolify-369)).
+
+## Dependências do projeto derivado
+
+Com um pacote de release que traz o alvo do servidor, o lock e os wheels das dependências do núcleo vêm do publicador. As dependências **só do projeto** ficam em `project_requirements_lock` (com os wheels no `wheelhouse`). Antes do primeiro pacote de release, mova-as do `requirements_lock` para `project_requirements_lock`; senão a prévia as lista em "Dependências que deixam de ser instaladas". Num alvo que o pacote não traz, o agente usa o `requirements_lock` e o `wheelhouse` como antes, e um wheel faltante dá `locked_wheel_unavailable`.
+
+## Segurança
+
+1. Nada é instalado sem assinatura de um publicador aprovado pelo operador, no servidor. A assinatura prova procedência, não ausência de código malicioso: aprove só publicadores em quem confia.
+2. A tela escolhe **onde procurar** (um `dono/nome`); o servidor escolhe **em quem confiar** (`approved_publishers`). A tela não cadastra chave, token, host, caminho nem URL.
+3. Tudo o que vem da rede é dado não confiável: tamanho limitado, formato validado, nunca vira caminho ou comando sem validação.
+4. Saída de rede: o agente só contata `api.github.com` (ou o `api_url` configurado), os hosts de `download_hosts` no download (padrão `*.githubusercontent.com`) e os hosts das fontes `url`; o web, só com o opt-in sem agente, `api.github.com`. Libere só esses no firewall.
+5. Chaves privadas de publicação ficam fora do servidor de produção (no ambiente `release` do repositório); tokens ficam em arquivo privado do agente. Nenhum dos dois aparece em log, erro, journal ou tela.
+6. Downgrade é proibido; salto de linha é recusado por padrão.
+7. Toda operação exige `updates.operate`, autenticação recente e confirmação do plano. Não há aplicação automática.
+8. A instalação é offline (`pip --no-index --require-hashes`).
+
+**Rotação da chave do publicador:** gere uma chave nova, publique com outro id de publicador e troque a entrada em `approved_publishers`; a chave antiga deixa de valer quando sai do arquivo.
+
+## Solução de problemas
+
+| Código | O que significa | O que fazer |
+|---|---|---|
+| `version_jump_forbidden` | O pacote está mais de uma linha à frente do núcleo instalado. | Siga o caminho de "Novas versões", um passo por vez. |
+| `agent_update_required` | O agente é de linha anterior à do núcleo de destino. | Atualize o agente primeiro. |
+| `agent_self_update_unavailable` | `agent_root` não configurado. | Use `agent-install` no servidor. |
+| `release_without_agent` | O pacote de release não traz o agente. | Use um pacote que traga, ou atualize o agente à mão. |
+| `agent_publisher_not_allowed` | O publicador do pacote não é o do núcleo instalado nem está em `agent_publishers`. | Confirme a origem; acrescente o id em `agent_publishers` só se confiar. |
+| `agent_already_current`, `agent_downgrade_forbidden` | O agente do pacote é igual ou mais antigo. | Nada a fazer; a volta é só por `agent-rollback`. |
+| `agent_target_unavailable` | O pacote não traz a plataforma do interpretador do agente. | Peça ao publicador o alvo, ou instale o agente à mão. |
+| `agent_build_failed` | A montagem ou o `selfcheck` do agente novo falhou; o atual continua. | Veja o log do agente no servidor. |
+| `agent_rollback_unavailable` | Não há versão anterior pronta. | Instale a versão desejada com `agent-install`. |
+| `release_environment_conflict` | O mesmo núcleo chegou com outro conjunto de dependências. | O publicador precisa publicar outra versão. |
+| `dependency_version_conflict` | `project_requirements_lock` fixa outra versão de uma dependência do núcleo. | Alinhe a versão com o lock do publicador. |
+| `locked_wheel_unavailable` | Alvo sem ambiente no pacote e wheel faltando no `wheelhouse`. | Disponibilize o wheel ou use um pacote com o alvo. |
+| `package_verification_failed` | Assinatura de publicador não aprovado, conteúdo alterado ou formato inválido. | Confira a origem do arquivo e `approved_publishers`. |
+| `catalogue_publisher_mismatch` | O índice da fonte foi assinado por outro publicador que o escolhido. | Confira o publicador da fonte. |
+| `catalogue_verification_failed` | O índice não passou na verificação (assinatura, formato ou validade vencida). | Índice vencido bloqueia a fonte até o publicador renovar (o workflow renova todo mês). |
+| `catalogue_generation_content_changed` | O índice mudou sem aumentar a geração. | Avise o publicador: é recusado de propósito. |
+| `source_index_missing` | O release mais recente ainda não tem `skeleton-index.json`. | Logo depois de publicar, aguarde alguns minutos. |
+| `github_rate_limited` | O GitHub limitou as requisições deste IP. | Aguarde, ou configure um token e não use intervalo menor que 1 hora. |
+| `github_release_not_found` | O repositório não tem release (ou não está acessível). | Confira `dono/nome` e, se privado, o token. |
+| `github_token_missing` | Fonte privada sem token legível. | Configure `github.token_file` (0600). |
+| `github_asset_missing` | O asset citado no índice não está no release. | Avise o publicador. |
+| `github_asset_url_rejected` | O download apontou para endereço fora do permitido. | Confira `download_hosts`; não amplie sem motivo. |
+| `catalogue_artifact_path_rejected` | O índice aponta para arquivo fora do formato `<tag>/<asset>` ou do diretório da fonte. | Avise o publicador. |
+| `catalogue_unavailable` | A fonte não respondeu ou respondeu fora do formato. | Tente de novo mais tarde. |
+| `invalid_source`, `source_id_reserved`, `publisher_not_approved`, `too_many_sources`, `source_not_found` | Cadastro de fonte recusado. | Corrija o formulário; o publicador precisa estar aprovado no servidor. |
+| `invalid_managed_sources` | O `sources.json` do agente está inválido (por exemplo, publicador retirado). | Corrija ou apague a entrada no arquivo do agente. |
+
+**O agente não volta depois de se atualizar:** rode `agent-rollback` e `sudo systemctl restart skeleton-agent`; depois investigue o log do serviço.
+
+## Limites desta versão
+
+- Não há aplicação automática; cada passo tem a sua janela de manutenção.
+- Sem `agent_root`, o agente não se atualiza sozinho.
+- Alvos sem ambiente no pacote continuam com o lock e o wheelhouse do operador.
+- Apps do projeto e apps first-party não têm fonte própria.
+- GitHub Enterprise Server não é testado (as chaves `api_url` e `download_hosts` existem).
+- O aviso sem agente é só informativo; não há e-mail de aviso.
+- Índice vencido bloqueia a fonte até o publicador renovar.
+
+## Roteiro de verificação manual
+
+Num servidor de teste Linux com systemd e PostgreSQL, com um repositório de teste (ou fork) e uma chave de teste:
+
+1. Publique dois releases de teste em linhas diferentes pelo workflow "Artefatos de release".
+2. Instale a primeira versão com o agente no leiaute `agent_root` (`agent-install`).
+3. Envie pela tela o pacote de release da versão seguinte; confira o plano (`core_update`, dependências, migrations), confirme e veja a operação concluir.
+4. Cadastre em "Fontes" o `dono/nome` do repositório de teste; "Verificar agora"; confira o caminho com dois passos e o botão só no primeiro.
+5. Tente enviar direto o pacote da segunda linha; confira a recusa com o texto de salto de versão.
+6. Atualize o agente pela tela; confira a versão nova em "Versões instaladas".
+7. Conclua os dois passos; confira que a página da operação oferece o passo seguinte e que a faixa de aviso some no fim.
+8. Rode `agent-rollback` e reinicie; confira a versão anterior do agente.
+9. Numa instalação sem agente (`compose.sandbox.yaml`), defina `SKELETON_UPDATE_REPOSITORY`, rode o job e veja a faixa informativa.
+10. Confira nos logs do agente e do web que nenhum token, chave ou URL de download assinada aparece.

@@ -2,6 +2,7 @@
 
 import os
 import stat
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,8 @@ pytest.importorskip("fcntl", reason="O agente de deployment exige fcntl (Linux o
 from packaging.markers import default_environment  # noqa: E402
 
 from deployment_agent.releases import (  # noqa: E402
+    _app_from_package,
+    _core_from_package,
     check_drift,
     copy_project,
     freeze,
@@ -262,3 +265,59 @@ def test_inventory_files_records_links_without_following_them(tmp_path):
     (release / "link").symlink_to(tmp_path / "outside")
     row = inventory_files(release)["link"]
     assert row["type"] == "symlink" and "size" not in row
+
+
+def core_manifest(version, from_versions=">=0.1.0"):
+    return {
+        "kind": "core",
+        "version": version,
+        "publisher": "org.example",
+        "migrations": {"from_versions": from_versions},
+    }
+
+
+def test_core_update_skipping_a_line_is_refused_unless_allowed():
+    installed = {"version": "0.5.2"}
+    with pytest.raises(AgentError) as raised:
+        _core_from_package(core_manifest("0.7.0"), installed, "d" * 64)
+    assert (raised.value.code, raised.value.status) == ("version_jump_forbidden", 409)
+    accepted = _core_from_package(core_manifest("0.7.0"), installed, "d" * 64, allow_jumps=True)
+    assert accepted["version"] == "0.7.0"
+    assert _core_from_package(core_manifest("0.6.4"), installed, "d" * 64)["version"] == "0.6.4"
+    assert _core_from_package(core_manifest("0.5.9"), installed, "d" * 64)["version"] == "0.5.9"
+
+
+def test_version_jump_check_keeps_the_order_of_errors():
+    with pytest.raises(AgentError, match="unsupported_core_upgrade"):
+        _core_from_package(core_manifest("0.9.0", ">=0.8.0"), {"version": "0.5.2"}, "d" * 64)
+    with pytest.raises(AgentError, match="downgrade_forbidden"):
+        _core_from_package(core_manifest("0.4.0"), {"version": "0.5.2"}, "d" * 64)
+
+
+def test_apply_artifacts_reads_the_switch_from_the_configuration(monkeypatch):
+    from deployment_agent import releases
+
+    monkeypatch.setattr(
+        releases, "verified", lambda store, config, artifact: SimpleNamespace(manifest=core_manifest("0.7.0"))
+    )
+    with pytest.raises(AgentError, match="version_jump_forbidden"):
+        releases._apply_artifacts({}, None, ["d" * 64], {}, {"version": "0.5.2"})
+    core, changed = releases._apply_artifacts({"allow_version_jumps": True}, None, ["d" * 64], {}, {"version": "0.5.2"})
+    assert core["version"] == "0.7.0" and changed == {"django-skeleton"}
+
+
+def test_app_updates_may_skip_lines():
+    previous = {
+        "manifest": {
+            "app_id": "org.example.notes",
+            "version": "1.2.0",
+            "app_label": "notes",
+            "package_name": "notes",
+            "app_config": "applications.notes.apps.NotesConfig",
+            "files": [],
+        },
+        "state": "installed",
+        "origin": "installed",
+    }
+    manifest = {**previous["manifest"], "version": "1.5.0", "migrations": {"from_versions": ">=1.0.0"}}
+    assert _app_from_package(manifest, previous, "d" * 64)["manifest"]["version"] == "1.5.0"

@@ -1,0 +1,23 @@
+{
+  "name": "Skeleton",
+  "earliest_source": "0.5.0",
+  "index_validity_days": 120,
+  "targets": [
+    {
+      "id": "cp314-manylinux_2_28_x86_64",
+      "environment": {
+        "implementation_name": "cpython",
+        "python_version": "3.14",
+        "platform_machine": "x86_64",
+        "sys_platform": "linux"
+      },
+      "requirements": "requirements.txt",
+      "pip": {
+        "python_version": "3.14",
+        "implementation": "cp",
+        "abi": "cp314",
+        "platforms": ["manylinux_2_28_x86_64", "manylinux_2_17_x86_64", "manylinux2014_x86_64"]
+      }
+    }
+  ]
+}

@@ -26,17 +26,25 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.system.deployment_client import AgentError, sanitize_details
 from skeleton.system.models import ComponentInstallation, DeploymentOperation
 from skeleton.system.releases import (
+    GITHUB_REPOSITORY,
+    UPSTREAM_REPOSITORY,
     DeploymentUnavailable,
     agent_client,
     confirm_operation,
+    invalidate_update_notice,
+    plan_artifact,
     preview_status,
     reconcile_operation,
     record_preview,
+    remove_update_source,
     request_preview,
     require_release_operator,
     retry_submission,
+    save_update_source,
     submission_can_retry,
+    update_sources,
 )
+from skeleton.system.releases import update_agent as request_agent_update
 
 from .guards import platform_page
 
@@ -49,11 +57,15 @@ __all__ = [
     "operations",
     "plan",
     "preview",
+    "remove_source",
+    "sources",
+    "update_agent",
     "upload",
 ]
 
 STEPS = (
     ("installed", gettext_lazy("Versões instaladas"), "platform:updates"),
+    ("sources", gettext_lazy("Fontes"), "platform:updates-sources"),
     ("available", gettext_lazy("Novas versões"), "platform:updates-available"),
     ("upload", gettext_lazy("Enviar pacote"), "platform:updates-upload"),
     ("plan", gettext_lazy("Preparar plano"), "platform:updates-plan"),
@@ -65,7 +77,8 @@ class UploadForm(forms.Form):
     package = forms.FileField(
         label=gettext_lazy("Pacote assinado (.skapp)"),
         help_text=gettext_lazy(
-            "Assinado por um publicador autorizado. O agente verifica assinatura e conteúdo antes de liberar o digest."
+            "Pacote de componente (app ou núcleo) ou pacote de release, assinado por um publicador autorizado. "
+            "O agente verifica assinatura e conteúdo antes de liberar o digest."
         ),
     )
 
@@ -117,6 +130,32 @@ class PlanForm(forms.Form):
         return values
 
 
+class SourceForm(forms.Form):
+    """A GitHub repository the agent consults (#499); keys and tokens stay in the agent file."""
+
+    source_id = forms.RegexField(r"^[a-z][a-z0-9-]{0,31}$", label=gettext_lazy("Identificador"), max_length=32)
+    repository = forms.CharField(label=gettext_lazy("Repositório do GitHub (dono/nome)"), max_length=140)
+    publisher = forms.ChoiceField(label=gettext_lazy("Publicador (chave aprovada no servidor)"), choices=())
+    channel = forms.ChoiceField(label=gettext_lazy("Canal"), choices=(("stable", "stable"),), initial="stable")
+    private = forms.BooleanField(
+        label=gettext_lazy("Repositório privado (token configurado no servidor)"), required=False
+    )
+
+    def __init__(self, *args, publishers=(), private_available=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["publisher"].choices = [(publisher, publisher) for publisher in publishers]
+        if not private_available:
+            del self.fields["private"]
+
+    def clean_repository(self):
+        value = self.cleaned_data["repository"].strip()
+        if "://" in value or value.lower().startswith(("github.com/", "www.github.com/")):
+            raise forms.ValidationError(gettext("Informe só dono/nome, sem https://github.com/."))
+        if not GITHUB_REPOSITORY.fullmatch(value):
+            raise forms.ValidationError(gettext("Repositório inválido: use dono/nome."))
+        return value
+
+
 class ConfirmationForm(forms.Form):
     revision = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     plan_digest = forms.CharField(widget=forms.HiddenInput)
@@ -143,15 +182,91 @@ def _context(step, **values):
     return {"platform_section": "updates", "updates_step": step, "steps": STEPS, **values}
 
 
+# Operator-facing text of the agent update codes (#497); any other code is shown as is.
+ERROR_TEXT = {
+    "agent_update_required": gettext_lazy(
+        "O agente de deployment é mais antigo que a linha do núcleo de destino: atualize o agente primeiro."
+    ),
+    "agent_self_update_unavailable": gettext_lazy(
+        "Este agente não se atualiza sozinho (agent_root não configurado): atualize-o pelo comando agent-install."
+    ),
+    "release_without_agent": gettext_lazy("O pacote de release não traz o agente de deployment."),
+    "agent_publisher_not_allowed": gettext_lazy(
+        "O publicador deste pacote não pode fornecer o agente: só o publicador do núcleo instalado ou um de agent_publishers."
+    ),
+    "agent_already_current": gettext_lazy("O agente de deployment já está nesta versão."),
+    "agent_downgrade_forbidden": gettext_lazy("O pacote traz um agente mais antigo que o instalado."),
+    "agent_target_unavailable": gettext_lazy("O pacote não traz dependências para a plataforma do agente."),
+    "agent_build_failed": gettext_lazy(
+        "A montagem do agente novo falhou; o agente atual continua em uso. Veja o diário do agente no servidor."
+    ),
+    # Sources registered on the page (#499).
+    "invalid_source": gettext_lazy("Fonte inválida: confira o identificador, o repositório e o canal."),
+    "source_id_reserved": gettext_lazy(
+        "Este identificador é de uma fonte do arquivo do agente e não pode ser usado aqui."
+    ),
+    "publisher_not_approved": gettext_lazy(
+        "O publicador escolhido não está aprovado no servidor (approved_publishers do agente)."
+    ),
+    "too_many_sources": gettext_lazy(
+        "O limite de fontes cadastradas foi atingido. Remova uma antes de cadastrar outra."
+    ),
+    "source_not_found": gettext_lazy("A fonte não está cadastrada."),
+    "invalid_managed_sources": gettext_lazy(
+        "As fontes cadastradas estão inválidas no agente (por exemplo, um publicador deixou de ser aprovado). "
+        "Corrija o arquivo sources.json do agente no servidor."
+    ),
+    "github_token_missing": gettext_lazy("Repositório privado exige o token configurado no arquivo do agente."),
+    # Update path and sources (#500).
+    "version_jump_forbidden": gettext_lazy(
+        "Esta versão está mais de uma linha à frente da instalada. Atualize antes para a versão indicada em Novas versões."
+    ),
+    "release_environment_conflict": gettext_lazy(
+        "Este núcleo já foi recebido com outro conjunto de dependências. O publicador precisa publicar outra versão."
+    ),
+    "dependency_version_conflict": gettext_lazy(
+        "Uma dependência do projeto (project_requirements_lock) fixa outra versão de uma dependência do núcleo."
+    ),
+    "github_rate_limited": gettext_lazy(
+        "O GitHub limitou as consultas deste servidor. Tente de novo mais tarde ou configure um token no agente."
+    ),
+    "github_release_not_found": gettext_lazy("O repositório não tem release publicado (ou não está acessível)."),
+    "source_index_missing": gettext_lazy(
+        "O release mais recente ainda não tem o índice assinado. Logo depois de uma publicação, aguarde alguns minutos."
+    ),
+    "github_asset_missing": gettext_lazy("O arquivo indicado pelo índice não está no release do GitHub."),
+    "github_asset_url_rejected": gettext_lazy(
+        "O download do GitHub apontou para um endereço não permitido pelo agente."
+    ),
+    "catalogue_publisher_mismatch": gettext_lazy(
+        "O índice desta fonte foi assinado por outro publicador que não o escolhido para ela."
+    ),
+    "catalogue_artifact_path_rejected": gettext_lazy("O índice desta fonte aponta para um arquivo fora do permitido."),
+    "catalogue_unavailable": gettext_lazy(
+        "A fonte não respondeu ou respondeu em formato inesperado. Tente de novo mais tarde."
+    ),
+    "catalogue_download_too_large": gettext_lazy("O arquivo da fonte passa do limite de tamanho do agente."),
+    "catalogue_redirect_rejected": gettext_lazy("A fonte tentou redirecionar o download, o que o agente não segue."),
+    "package_verification_failed": gettext_lazy(
+        "O pacote não passou na verificação: assinatura de publicador não aprovado, conteúdo alterado ou formato inválido."
+    ),
+    "stored_artifact_corrupted": gettext_lazy(
+        "O pacote guardado no agente foi alterado. Avise o operador do servidor."
+    ),
+}
+
+
 def _error(request, exc):
     if isinstance(exc, DeploymentUnavailable):
         messages.error(
             request, gettext("O agente de deployment não está disponível ou não foi configurado nesta instalação.")
         )
         return
-    messages.error(
-        request, gettext("Operação indisponível: %(value1)s.") % {"value1": getattr(exc, "code", type(exc).__name__)}
-    )
+    code = getattr(exc, "code", type(exc).__name__)
+    if code in ERROR_TEXT:
+        messages.error(request, ERROR_TEXT[code])
+        return
+    messages.error(request, gettext("Operação indisponível: %(value1)s.") % {"value1": code})
 
 
 PROBLEM_TEXT = {
@@ -171,6 +286,9 @@ PROBLEM_TEXT = {
     "wheel_pin_conflict": "{component} fixa {dependency} {required}, em conflito com {found} fixado por outro componente.",
     "installed_dependents": gettext_lazy(
         "{component} depende de {dependency}: retire as duas no mesmo plano ou mantenha {dependency}."
+    ),
+    "agent_update_required": gettext_lazy(
+        "{component} {found} não instala o núcleo {required}: atualize o agente antes do núcleo."
     ),
 }
 
@@ -205,7 +323,9 @@ def _installed_components():
     }
 
 
-def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts=""):
+def _plan_page(
+    request, form, *, status=200, artifact=None, problems=(), plan_action="", plan_artifacts="", agent_self_update=False
+):
     return render(
         request,
         "skeleton/web/platform/updates/plan.html",
@@ -216,9 +336,37 @@ def _plan_page(request, form, *, status=200, artifact=None, problems=(), plan_ac
             problems=problems,
             plan_action=plan_action,
             plan_artifacts=plan_artifacts,
+            agent_self_update=agent_self_update,
         ),
         status=status,
     )
+
+
+def _agent_behind(artifact):
+    """The agent inventory when the agent's line is older than the release's core line (#500)."""
+    from skeleton.versioning import release_line
+
+    if artifact.get("kind") != "release":
+        return None
+    try:
+        agent = agent_client().inventory().get("agent") or {}
+        if agent.get("version") and release_line(agent["version"]) < release_line(
+            artifact["core"]["manifest"]["version"]
+        ):
+            return agent
+    except (ValueError, RuntimeError, OSError, KeyError, TypeError):
+        return None  # The preview's own agent_update_required check still applies.
+    return None
+
+
+def _agent_self_update(artifact):
+    """Whether the agent can replace itself, asked only when a release package offers a newer one."""
+    if not (artifact.get("agent") or {}).get("update_required"):
+        return False
+    try:
+        return bool((agent_client().inventory().get("agent") or {}).get("self_update"))
+    except (ValueError, RuntimeError, OSError):
+        return False
 
 
 # --------------------------------------------------------------------------- steps
@@ -259,16 +407,110 @@ def installed(request):
     )
 
 
+BLOCKED_TEXT = {
+    "missing_intermediate_release": gettext_lazy(
+        "Falta publicar uma versão intermediária: esta instalação não pode pular direto para {latest}."
+    ),
+    "incompatible_runtime": gettext_lazy(
+        "As versões mais novas não são compatíveis com o Python ou o núcleo desta instalação."
+    ),
+}
+
+
+def _text(value, maximum=200):
+    return value if isinstance(value, str) and 0 < len(value) <= maximum else None
+
+
+def update_paths(status, names=None):
+    """Cards of the agent's update paths (#500); unexpected shapes are dropped, never a 500."""
+    names = names or {}
+    cards = []
+    for path in status.get("paths") or () if isinstance(status, dict) else ():
+        if not isinstance(path, dict) or not _text(path.get("component_id")):
+            continue
+        steps = [
+            {"version": step["version"], "source_id": step["source_id"]}
+            for step in (path.get("steps") if isinstance(path.get("steps"), list) else [])
+            if isinstance(step, dict) and _text(step.get("version")) and _text(step.get("source_id"))
+        ]
+        latest = _text(path.get("latest"))
+        blocked = BLOCKED_TEXT.get(path.get("blocked"))
+        component = path["component_id"]
+        default = gettext("Núcleo") if component == "django-skeleton" else component
+        cards.append(
+            {
+                "component_id": component,
+                "name": names.get(component) or default,
+                "installed": _text(path.get("installed")) or "—",
+                "latest": latest,
+                "steps": steps,
+                "blocked": str(blocked).format(latest=latest or "—") if blocked else None,
+            }
+        )
+    return cards
+
+
+def _source_rows(status):
+    rows = []
+    for source in status.get("sources") or () if isinstance(status, dict) else ():
+        if isinstance(source, dict) and _text(source.get("id")):
+            code = source.get("error_code")
+            rows.append(
+                {
+                    "id": source["id"],
+                    "state": _text(source.get("state")) or "—",
+                    "error_code": _text(code),
+                    "error": ERROR_TEXT.get(code) if code else None,
+                }
+            )
+    return rows
+
+
+def _component_names():
+    """Readable names of installed apps, from the agent inventory; only a nicety."""
+    try:
+        inventory = agent_client().inventory()
+    except (ValueError, RuntimeError, OSError):
+        return {}
+    return {
+        entry["manifest"]["app_id"]: entry["manifest"].get("name") or entry["manifest"]["app_id"]
+        for entry in inventory.get("apps", [])
+        if isinstance(entry, dict) and isinstance(entry.get("manifest"), dict) and entry["manifest"].get("app_id")
+    }
+
+
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 def available(request):
-    updates = None
+    """The last check and the update path, one step at a time (#500); POST checks again."""
     if request.method == "POST":
         try:
-            updates = agent_client().check_updates()
+            agent_client().check_updates()
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
-    return render(request, "skeleton/web/platform/updates/available.html", _context("available", updates=updates))
+        invalidate_update_notice()
+        return redirect("platform:updates-available")
+    status = None
+    try:
+        status = agent_client().update_status()
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    status = status if isinstance(status, dict) else {}
+    paths = update_paths(status, _component_names() if status.get("paths") else {})
+    return render(
+        request,
+        "skeleton/web/platform/updates/available.html",
+        _context(
+            "available",
+            updates=status,
+            loaded=bool(status),
+            checked_at=_text(status.get("checked_at")),
+            sources=_source_rows(status),
+            paths=[card for card in paths if card["latest"]],
+            current=[card for card in paths if not card["latest"]],
+            releases=[row for row in status.get("releases") or () if isinstance(row, dict)],
+        ),
+    )
 
 
 @csrf_exempt
@@ -308,10 +550,12 @@ def _upload(request):
                 source.chmod(0o600)
                 artifact = agent_client().upload(source)
             messages.success(request, gettext("Pacote verificado. Confira o plano e visualize o impacto."))
+            digest, action = plan_artifact(artifact)
             return _plan_page(
                 request,
-                PlanForm(initial={"artifacts": artifact["digest"], "action": "install"}),
+                PlanForm(initial={"artifacts": digest, "action": action or "install"}),
                 artifact=artifact,
+                agent_self_update=_agent_self_update(artifact),
             )
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
@@ -408,7 +652,7 @@ def add_dependency(request):
     try:
         artifact = agent_client().fetch_release(**identifiers)
         action = "update" if request.POST.get("upgrade") == "1" else form.cleaned_data["action"]
-        artifacts = list(dict.fromkeys([*form.cleaned_data["artifacts"], artifact["digest"]]))
+        artifacts = list(dict.fromkeys([*form.cleaned_data["artifacts"], plan_artifact(artifact)[0]]))
         form = PlanForm({"action": action, "artifacts": " ".join(artifacts)})
         form.is_valid()
         plan_id = request_preview(user=request.user, action=action, artifacts=artifacts)
@@ -426,17 +670,118 @@ def fetch_release(request):
         if any(not value or len(value) > 128 for value in identifiers.values()):
             return HttpResponse(gettext("Identificação de release inválida."), status=400)
         artifact = agent_client().fetch_release(**identifiers)
-        if identifiers["component_id"] == "django-skeleton":
+        digest, action = plan_artifact(artifact)
+        blocking = _agent_behind(artifact)
+        if blocking is not None:
+            return render(
+                request,
+                "skeleton/web/platform/updates/agent-first.html",
+                _context("available", artifact=artifact, agent=blocking),
+            )
+        if action is None and identifiers["component_id"] == "django-skeleton":
             action = "core_update"
-        else:
+        elif action is None:
             action = "update" if identifiers["component_id"] in _installed_components() else "install"
         messages.success(request, gettext("Versão obtida e verificada. Confira o plano e visualize o impacto."))
         return _plan_page(
-            request, PlanForm(initial={"action": action, "artifacts": artifact["digest"]}), artifact=artifact
+            request,
+            PlanForm(initial={"action": action, "artifacts": digest}),
+            artifact=artifact,
+            agent_self_update=_agent_self_update(artifact),
         )
     except (ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
         return redirect("platform:updates-available")
+
+
+def _sources_page(request, form=None, *, listing=None, status=200):
+    listing = listing or {}
+    rows = listing.get("sources") if isinstance(listing.get("sources"), list) else []
+    publishers = [value for value in listing.get("publishers", []) if isinstance(value, str)]
+    private_available = bool(listing.get("private_available"))
+    if form is None and publishers:
+        initial = {"channel": "stable"}
+        if not any(isinstance(row, dict) and row.get("type") == "github" for row in rows):
+            initial.update(source_id="skeleton", repository=UPSTREAM_REPOSITORY)
+        form = SourceForm(initial=initial, publishers=publishers, private_available=private_available)
+    return render(
+        request,
+        "skeleton/web/platform/updates/sources.html",
+        _context(
+            "sources",
+            sources=[row for row in rows if isinstance(row, dict)],
+            source_form=form if publishers else None,
+            publishers=publishers,
+            listing_loaded=bool(listing),
+        ),
+        status=status,
+    )
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["GET", "POST"])
+@recent_authentication_required(allow_get=True)
+def sources(request):
+    """The release sources the agent consults; registering one changes only where it looks (#499)."""
+    try:
+        listing = update_sources(user=request.user)
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return _sources_page(request)
+    if request.method != "POST":
+        return _sources_page(request, listing=listing)
+    form = SourceForm(
+        request.POST,
+        publishers=[value for value in listing.get("publishers", []) if isinstance(value, str)],
+        private_available=bool(listing.get("private_available")),
+    )
+    if not form.is_valid():
+        return _sources_page(request, form, listing=listing, status=400)
+    try:
+        save_update_source(
+            user=request.user,
+            source_id=form.cleaned_data["source_id"],
+            repository=form.cleaned_data["repository"],
+            publisher=form.cleaned_data["publisher"],
+            channel=form.cleaned_data["channel"],
+            private=form.cleaned_data.get("private", False),
+        )
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+        return _sources_page(request, form, listing=listing, status=400)
+    messages.success(request, gettext("Fonte salva. Ela passa a ser consultada em Novas versões."))
+    return redirect("platform:updates-sources")
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def remove_source(request):
+    source_id = request.POST.get("source_id", "")
+    if not re.fullmatch("[a-z][a-z0-9-]{0,31}", source_id):
+        return HttpResponse(gettext("Identificador de fonte inválido."), status=400)
+    try:
+        remove_update_source(user=request.user, source_id=source_id)
+        messages.success(request, gettext("Fonte removida."))
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    return redirect("platform:updates-sources")
+
+
+@platform_page(capability="updates.operate", writes=True)
+@require_http_methods(["POST"])
+@recent_authentication_required
+def update_agent(request):
+    """Replace the agent with the one of an uploaded release package (#497); the agent restarts."""
+    digest = request.POST.get("release", "")
+    if not re.fullmatch("[0-9a-f]{64}", digest):
+        return HttpResponse(gettext("Digest de pacote inválido."), status=400)
+    try:
+        request_agent_update(user=request.user, digest=digest)
+        messages.success(request, gettext("O agente está reiniciando. Atualize a página em alguns segundos."))
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    return redirect("platform:updates")
 
 
 @platform_page(capability="updates.operate", writes=True)
@@ -480,11 +825,18 @@ def operation(request, operation_id):
             status_url = status.get("status_url")
     except (ConcurrentUpdate, ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
+    next_steps = None
+    if row.state == "succeeded":
+        try:
+            next_steps = [card for card in update_paths(agent_client().update_status()) if card["steps"]]
+        except (ValueError, RuntimeError, OSError, TypeError):
+            next_steps = None  # Only hides the section; the operation page never breaks for it.
     return render(
         request,
         "skeleton/web/platform/updates/operation.html",
         _context(
             "operations",
+            next_steps=next_steps,
             operation=row,
             confirmation_form=ConfirmationForm(initial={"revision": row.revision, "plan_digest": row.plan_digest}),
             status_url=status_url,

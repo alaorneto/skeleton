@@ -1,6 +1,8 @@
 """Platform control plane. Privileged deployment work belongs to the agent."""
 
+import contextlib
 import logging
+import re
 from copy import deepcopy
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -45,6 +47,129 @@ def agent_client():
 
 
 PLAN_STATES = {"preparing", "ready", "failed"}
+
+
+def plan_artifact(upload):
+    """Digest to plan and the action to preselect for an upload or fetch result (#495).
+
+    A release package is planned through the core package it carries: the agent kept both.
+    """
+    if upload.get("kind") == "release":
+        return upload["core"]["digest"], "core_update"
+    return upload["digest"], None
+
+
+def update_agent(*, user, digest):
+    """Ask the agent to replace itself from an uploaded release package (#497); identifiers only."""
+    from skeleton.common.logging import security_event
+
+    require_release_operator(user)
+    if not isinstance(digest, str) or not re.fullmatch("[0-9a-f]{64}", digest):
+        raise ValidationError("Invalid release package digest.")
+    ctx = current_context()
+    result = agent_client().update_agent(digest, actor_id=user.pk)
+    security_event(
+        "deployment.agent_update_requested",
+        request_id=ctx.request_id,
+        source="deployment:agent-update",
+        outcome=str(result.get("state", ""))[:40],
+    )
+    return result
+
+
+UPSTREAM_REPOSITORY = "alaorneto/skeleton"
+# Must stay equal to REPOSITORY in deployment_agent/github.py: the core never imports the agent.
+GITHUB_REPOSITORY = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}\Z")
+
+
+def update_sources(*, user):
+    """The release sources the agent consults (#499); identities only."""
+    require_release_operator(user)
+    return agent_client().sources()
+
+
+def save_update_source(*, user, source_id, repository, publisher, channel, private):
+    """Register (or replace) a GitHub source; the agent validates it against approved_publishers."""
+    require_release_operator(user)
+    if not isinstance(repository, str) or not GITHUB_REPOSITORY.fullmatch(repository):
+        raise ValidationError("Invalid GitHub repository.")
+    return agent_client().set_source(
+        id=source_id, github=repository, publisher=publisher, channels=[channel], private=private, actor_id=user.pk
+    )
+
+
+def remove_update_source(*, user, source_id):
+    require_release_operator(user)
+    return agent_client().remove_source(source_id, actor_id=user.pk)
+
+
+NOTICE_CACHE_KEY = "skeleton:update-notice:agent"
+NOTICE_TTL = 300  # seconds: at most one agent call every 5 minutes per installation.
+NOTICE_FAILURE_TTL = 60
+
+
+def _notice_from_status(status):
+    paths = status.get("paths") if isinstance(status, dict) else None
+    if not isinstance(paths, list):
+        raise ValueError("Invalid agent update status.")
+    core, apps = None, 0
+    for path in paths:
+        if not isinstance(path, dict) or not isinstance(path.get("steps"), list) or not path["steps"]:
+            continue
+        if path.get("component_id") == "django-skeleton":
+            core = path.get("latest") if isinstance(path.get("latest"), str) else None
+        else:
+            apps += 1
+    if core is None and not apps:
+        return {"mode": None}
+    checked = status.get("checked_at")
+    return {"mode": "agent", "core": core, "apps": apps, "checked_at": checked if isinstance(checked, str) else None}
+
+
+def update_notice():
+    """Summary of pending updates for the platform banner, or None (#501). Never raises."""
+    from django.core.cache import cache
+
+    if not getattr(settings, "SKELETON_AGENT_SOCKET", None):
+        return _informative_notice(cache)
+    try:
+        cached = cache.get(NOTICE_CACHE_KEY)
+    except Exception:  # noqa: BLE001 - a cache outage means no notice, never a broken page
+        return None
+    if isinstance(cached, dict):
+        return cached if cached.get("mode") else None
+    try:
+        notice, ttl = _notice_from_status(agent_client().update_status(timeout=2)), NOTICE_TTL
+    except Exception:  # noqa: BLE001 - agent down, slow or answering out of shape: no notice
+        notice, ttl = {"mode": None}, NOTICE_FAILURE_TTL
+    with contextlib.suppress(Exception):  # A cache outage only drops the hint.
+        cache.set(NOTICE_CACHE_KEY, notice, ttl)
+    return notice if notice.get("mode") else None
+
+
+def _informative_notice(cache):
+    """Without agent (#502): the cached result of the system.update_check job, only informative."""
+    from .jobs import GITHUB_NOTICE_KEY
+
+    try:
+        cached = cache.get(GITHUB_NOTICE_KEY)
+    except Exception:  # noqa: BLE001 - no notice, never a broken page
+        return None
+    if not isinstance(cached, dict) or cached.get("newer") is not True:
+        return None
+    return {
+        "mode": "informative",
+        "core": cached.get("latest"),
+        "url": cached.get("url"),
+        "checked_at": cached.get("checked_at"),
+    }
+
+
+def invalidate_update_notice():
+    from django.core.cache import cache
+
+    with contextlib.suppress(Exception):  # The notice is only a hint.
+        cache.delete(NOTICE_CACHE_KEY)
 
 
 def _plan_id(value):
@@ -253,6 +378,8 @@ def reconcile_operation(row, status):
         and status["plan"] != row.plan
     ):
         raise DeploymentUnavailable("Agent operation approval mismatch.")
+    if state == "succeeded" and row.state != "succeeded":
+        invalidate_update_notice()  # The installed versions changed: recompute the banner (#501).
     result = deepcopy(status)
     # Status tickets are short-lived credentials, not durable operation evidence.
     result.pop("status_url", None)

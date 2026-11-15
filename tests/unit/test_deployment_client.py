@@ -67,3 +67,73 @@ def test_instance_timeout_caps_status_timeout(opened):
     client.submit(OPERATION, "a" * 64, 1, OPERATION, OPERATION, OPERATION)
     client.preview("install")
     assert deadlines == [5, 5, 5]
+
+
+def test_update_status_is_a_short_get(opened, monkeypatch):
+    _, socket, token = opened
+    client = AgentClient(socket, token)
+    calls = []
+
+    def request(method, path, **kwargs):
+        calls.append((method, path, kwargs))
+        return {}
+
+    monkeypatch.setattr(client, "_request", request)
+    client.update_status()
+    assert calls == [("GET", "/updates/status", {"timeout": deployment_client.STATUS_TIMEOUT})]
+
+
+def test_update_agent_waits_like_a_submission(opened, monkeypatch):
+    _, socket, token = opened
+    client = AgentClient(socket, token)
+    calls = []
+
+    def request(method, path, body=None, **kwargs):
+        calls.append((method, path, body, kwargs))
+        return {}
+
+    monkeypatch.setattr(client, "_request", request)
+    client.update_agent("a" * 64, actor_id=OPERATION)
+    assert calls == [
+        (
+            "POST",
+            "/agent/update",
+            {"release": "a" * 64, "actor_id": OPERATION},
+            {"timeout": deployment_client.SUBMIT_TIMEOUT},
+        )
+    ]
+
+
+def test_source_calls_are_short(opened, monkeypatch):
+    _, socket, token = opened
+    client = AgentClient(socket, token)
+    calls = []
+
+    def request(method, path, body=None, **kwargs):
+        calls.append((method, path, body, kwargs))
+        return {}
+
+    monkeypatch.setattr(client, "_request", request)
+    client.sources()
+    client.set_source(
+        id="fork", github="acme/skeleton", publisher="acme", channels=("stable",), private=0, actor_id=OPERATION
+    )
+    client.remove_source("fork", actor_id=OPERATION)
+    short = {"timeout": deployment_client.STATUS_TIMEOUT}
+    assert calls == [
+        ("GET", "/sources", None, short),
+        (
+            "POST",
+            "/sources/set",
+            {
+                "id": "fork",
+                "github": "acme/skeleton",
+                "publisher": "acme",
+                "channels": ["stable"],
+                "private": False,
+                "actor_id": OPERATION,
+            },
+            short,
+        ),
+        ("POST", "/sources/remove", {"id": "fork", "actor_id": OPERATION}, short),
+    ]

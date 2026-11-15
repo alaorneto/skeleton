@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlsplit
 
+from .github import REPOSITORY
+from .github import valid_settings as github_settings_valid
 from .storage import AgentError, private_file
 from .types import JSON, StrPath
 
@@ -67,11 +69,37 @@ def _absolute(value: object) -> bool:
     return isinstance(value, str) and bool(value) and "\x00" not in value and Path(value).is_absolute()
 
 
+def _valid_source(source: JSON, values: JSON) -> bool:
+    """At most one of path, url and github (#498); a GitHub source pins an approved publisher.
+
+    A source without any keeps loading, as before: the check marks it invalid_catalogue_source.
+    """
+    if sum(key in source for key in ("path", "url", "github")) > 1:
+        return False
+    channels = source.get("channels", ["stable"])
+    if not isinstance(channels, list) or not all(isinstance(channel, str) for channel in channels):
+        return False
+    if "github" not in source:
+        return True
+    github = values.get("github")
+    settings: JSON = github if isinstance(github, dict) else {}
+    return (
+        isinstance(source["github"], str)
+        and REPOSITORY.fullmatch(source["github"]) is not None
+        and isinstance(source.get("publisher"), str)
+        and source["publisher"] in (values.get("approved_publishers") or {})
+        and isinstance(source.get("private", False), bool)
+        and (not source.get("private") or bool(settings.get("token_file")))
+    )
+
+
 def _validate_optional(values: JSON) -> None:
     """Shape of the optional keys at load time (#246); existence on disk is the preflight's job."""
     paths = values.get("recovery_paths")
     if paths is not None and (not isinstance(paths, list) or not all(_absolute(path) for path in paths)):
         raise AgentError("invalid_recovery_path")
+    if "project_requirements_lock" in values and not _absolute(values["project_requirements_lock"]):
+        raise AgentError("invalid_config_path")  # The derived project's own pins (#495), like PATH_KEYS.
     if "smoke_token_file" in values and not _absolute(values["smoke_token_file"]):
         raise AgentError("invalid_smoke_token_path")
     for key in TOOL_SETTINGS:
@@ -96,16 +124,33 @@ def _validate_optional(values: JSON) -> None:
     if sources is not None and (
         not isinstance(sources, list)
         or not all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in sources)
+        or not all(_valid_source(item, values) for item in sources)
     ):
         raise AgentError("invalid_catalogue_sources")
+    if "github" in values and not github_settings_valid(values["github"]):
+        raise AgentError("invalid_github_settings")
+    if "allow_version_jumps" in values and not isinstance(values["allow_version_jumps"], bool):
+        raise AgentError("invalid_boolean_setting")  # Emergency switch for skipping core lines (#493).
     interval = values.get("drift_check_interval")
     if interval is not None and (isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 0):
         raise AgentError("invalid_numeric_setting")  # Seconds; 0 turns the inventory cache off (#281).
+    interval = values.get("update_check_interval")
+    if interval is not None and (isinstance(interval, bool) or not isinstance(interval, (int, float)) or interval < 0):
+        raise AgentError("invalid_numeric_setting")  # Seconds between unattended checks; 0 turns them off (#501).
     for key in NUMERIC_SETTINGS:
         if key in values:
             value = values[key]
             if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
                 raise AgentError("invalid_numeric_setting")
+    # Self-update (#497): the agent's own versions live under agent_root.
+    if "agent_root" in values and (not _absolute(values["agent_root"]) or not Path(values["agent_root"]).is_dir()):
+        raise AgentError("invalid_agent_root")
+    publishers = values.get("agent_publishers")
+    if publishers is not None and (
+        not isinstance(publishers, list)
+        or not all(isinstance(item, str) and item in (values.get("approved_publishers") or {}) for item in publishers)
+    ):
+        raise AgentError("invalid_agent_publishers")
 
 
 def read_environment(path: StrPath) -> dict[str, str]:
@@ -266,6 +311,7 @@ def _validate_credentials(values: JSON) -> None:
 @dataclass(frozen=True)
 class Config:
     values: JSON
+    path: Path | None = None  # The loaded file, for the selfcheck of a new agent version (#497).
 
     @classmethod
     def load(cls, path: StrPath) -> Self:
@@ -287,7 +333,7 @@ class Config:
         token = private_file(values["token_file"]).read_text().strip()
         if not token.isascii() or len(token) < 32:
             raise AgentError("invalid_agent_token")
-        return cls(values)
+        return cls(values, Path(path))
 
     def __getitem__(self, key: str) -> Any:
         return self.values[key]

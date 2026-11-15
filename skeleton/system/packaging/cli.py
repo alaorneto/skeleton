@@ -6,13 +6,15 @@ from urllib.parse import urljoin
 from skeleton.versioning import core_version
 
 from . import archive as artifacts
+from . import limits
 from .archive import extract_package, inspect_package
 from .build import build_package, sign_package
-from .catalog import build_catalog, catalog_entry, validate_catalog
+from .catalog import build_catalog, catalog_entry, release_catalog_entry, validate_catalog
 from .doctor import doctor
 from .errors import _fail
 from .manifest import load_manifest
-from .primitives import _json, canonical_json
+from .primitives import _json, _object, canonical_json
+from .release import build_release, inspect_release, package_kind, validate_release
 from .signing import initialize_keys, load_trust_store
 from .template import default_service_class, manifest_template
 
@@ -39,6 +41,12 @@ def configure_parser(parser):
     build.add_argument("--output", required=True)
     build.add_argument("--private-key", required=True)
     build.add_argument("--wheel", action="append", default=[])
+    release = commands.add_parser(
+        "release-build", help="Wrap a signed core package with per-target locks, wheels and the agent wheel."
+    )
+    for name in ("core", "recipe", "output", "private-key"):
+        release.add_argument("--" + name, required=True)
+    release.add_argument("--agent-wheel")
     manifest = commands.add_parser("validate-manifest")
     manifest.add_argument("path")
     for name in ("validate", "inspect"):
@@ -56,12 +64,15 @@ def configure_parser(parser):
     extract.add_argument("--destination")
     extract.add_argument("--wheels-destination")
     index = commands.add_parser("index", help="Build a signed expiring release index from trusted artifacts.")
-    index.add_argument("artifacts", nargs="+")
+    index.add_argument("artifacts", nargs="*")
     for name in ("output", "private-key", "trust-store", "publisher", "expires-at"):
         index.add_argument("--" + name, required=True)
     index.add_argument("--generation", type=int, required=True)
     index.add_argument("--channel", default="stable")
     index.add_argument("--artifact-base", default="")
+    index.add_argument(
+        "--previous", help="Previous signed index whose entries are kept (may be expired); its generation must grow."
+    )
     validate_index = commands.add_parser("validate-index")
     validate_index.add_argument("path")
     validate_index.add_argument("--trust-store", required=True)
@@ -119,11 +130,56 @@ def _run_build(options):
     return {"artifact": str(path)}
 
 
+def _recipe_targets(path):
+    """The targets of a release recipe; relative paths are relative to the recipe file."""
+    path = Path(path)
+    if path.stat().st_size > 1024 * 1024:
+        _fail("Release recipe is too large.")
+    recipe = _object(_json(path.read_bytes()), ("name", "release_notes", "build", "targets"), ("targets",))
+    if not isinstance(recipe["targets"], list):
+        _fail("Release recipe targets must be a list.")
+    base = path.parent
+    targets = []
+    for target in recipe["targets"]:
+        _object(target, ("id", "environment", "lock", "wheels"), ("id", "environment", "lock", "wheels"))
+        if not isinstance(target["lock"], str) or not isinstance(target["wheels"], str):
+            _fail("Release recipe lock and wheels must be paths.")
+        wheels = base / target["wheels"]
+        if not wheels.is_dir():
+            _fail("Release recipe wheels must be a directory.")
+        targets.append(
+            {
+                "id": target["id"],
+                "environment": target["environment"],
+                "lock": base / target["lock"],
+                "wheels": sorted(wheels.glob("*.whl"), key=lambda item: item.name),
+            }
+        )
+    return recipe, targets
+
+
+def _run_release_build(options):
+    recipe, targets = _recipe_targets(options["recipe"])
+    path = build_release(
+        options["core"],
+        options["output"],
+        options["private_key"],
+        targets=targets,
+        agent_wheel=options.get("agent_wheel"),
+        name=recipe.get("name", "Skeleton"),
+        release_notes=recipe.get("release_notes", ""),
+        build=recipe.get("build", ""),
+    )
+    return {"artifact": str(path)}
+
+
 def _run_validate_manifest(options):
     return load_manifest(options["path"])
 
 
 def _run_inspect(options):
+    if package_kind(options["path"]) == "release":
+        return inspect_release(options["path"], _optional_trust(options))
     return inspect_package(options["path"], _optional_trust(options))
 
 
@@ -141,14 +197,51 @@ def _run_extract(options):
     return {key: str(value) for key, value in roots.items()}
 
 
+def _previous_entries(path, store, *, publisher, generation):
+    """Entries of the previous index, verified (expiry aside) and older than the new generation."""
+    path = Path(path)
+    if path.stat().st_size > limits.MAX_METADATA_BYTES:
+        _fail("Catalog size limit exceeded.")
+    envelope = _json(path.read_bytes())
+    entries = envelope.get("catalog", {}).get("entries") if isinstance(envelope, dict) else None
+    if not isinstance(entries, list) or not isinstance(envelope.get("catalog"), dict):
+        _fail("Previous index is not a release catalog.")
+    channels = {entry.get("channel") for entry in entries if isinstance(entry, dict)}
+    body = validate_catalog(envelope, store, allow_expired=True, channels=tuple(channels))
+    if body["publisher"] != publisher:
+        _fail("Previous index belongs to another publisher.")
+    if generation <= body["generation"]:
+        _fail("Index generation must be greater than the previous index generation.")
+    return body["entries"]
+
+
 def _run_index(options):
     store = _trust(options)
+    previous = options.get("previous")
+    if not options["artifacts"] and not previous:
+        _fail("At least one artifact is required without --previous.")
     entries = []
+    if previous:
+        entries = _previous_entries(previous, store, publisher=options["publisher"], generation=options["generation"])
     for artifact in options["artifacts"]:
-        package = artifacts.validate_package(artifact, store)
         base = options["artifact_base"]
         reference = urljoin(base.rstrip("/") + "/", Path(artifact).name) if base else Path(artifact).name
-        entries.append(catalog_entry(package, artifact=reference, channel=options["channel"]))
+        if package_kind(artifact) == "release":
+            entry = release_catalog_entry(
+                validate_release(artifact, store), artifact=reference, channel=options["channel"]
+            )
+        else:
+            entry = catalog_entry(
+                artifacts.validate_package(artifact, store), artifact=reference, channel=options["channel"]
+            )
+        identity = (entry["component_id"], entry["version"], entry["channel"])
+        positions = [
+            i for i, old in enumerate(entries) if (old["component_id"], old["version"], old["channel"]) == identity
+        ]
+        if positions:
+            entries[positions[0]] = entry  # The new artifact replaces the entry of the same identity.
+        else:
+            entries.append(entry)
     path = build_catalog(
         entries,
         options["output"],
@@ -157,7 +250,7 @@ def _run_index(options):
         generation=options["generation"],
         expires_at=options["expires_at"],
     )
-    return {"index": str(path), "entries": len(entries)}
+    return {"index": str(path), "entries": len(entries), "generation": options["generation"]}
 
 
 def _run_validate_index(options):
@@ -207,6 +300,7 @@ OPERATIONS = {
     "keygen": _run_keygen,
     "init": _run_init,
     "build": _run_build,
+    "release-build": _run_release_build,
     "validate-manifest": _run_validate_manifest,
     "validate": _run_inspect,
     "inspect": _run_inspect,

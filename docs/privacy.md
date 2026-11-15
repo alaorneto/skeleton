@@ -2,6 +2,8 @@
 
 O núcleo atende os direitos da pessoa sobre os dados que ele mesmo guarda: a identidade global, o perfil, os tokens e, em cada organização, o vínculo, as notificações e os anexos enviados. Os registros de negócio pertencem a cada organização, que é a controladora deles, e ficam fora daqui.
 
+A consulta opcional de versão nova ao GitHub (`SKELETON_UPDATE_REPOSITORY`, #502) não envia dado pessoal nem identificação da instalação: só o pedido do release mais recente, com `User-Agent: django-skeleton`; o GitHub vê o endereço IP do servidor, por isso ela é desligada por padrão.
+
 ## Endereço próprio da organização
 
 Ligar o endereço próprio (`/o/<org>/settings/`, seção "Endereço próprio", [#480](https://github.com/alaorneto/skeleton/issues/480)) torna públicos, para qualquer pessoa que abra `<slug>.<domínio base>`, mesmo sem login: o nome de exibição, a cor da marca, o logo, o ícone e o idioma padrão da organização. A tela avisa disso antes da ativação. Esses valores são copiados para o índice global `OrganizationSite`, que guarda só eles e só enquanto o endereço está ligado; desligar esvazia a cópia. Nenhum dado pessoal nem dado de negócio vai para o índice. O logo publicado é servido sem login em `/site/logo/` do host da organização ([arquivos](files.md#armazenamento-privado)). A exportação dos próprios dados é sempre completa, com todas as organizações da pessoa, mesmo pedida no endereço de uma organização (#483).
