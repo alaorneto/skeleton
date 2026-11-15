@@ -777,6 +777,12 @@ def _components(audience: Audience, specs: list[tuple[Any, frozenset[str]]]) -> 
                     "description": "Erros por campo.",
                     "additionalProperties": {"anyOf": [array(string()), string()]},
                 },
+                # Only the maintenance answer (503, code "maintenance") carries the scheduled end (#446).
+                "ends_at": {
+                    "type": ["string", "null"],
+                    "format": "date-time",
+                    "description": "Previsão de término da manutenção (UTC), nula sem horário.",
+                },
             },
             required=("code", "detail"),
         ),

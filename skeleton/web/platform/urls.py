@@ -1,6 +1,15 @@
 from django.urls import path
 
-from . import billing_views, identity_views, instance_views, jobs_views, privacy_views, updates, views
+from . import (
+    billing_views,
+    identity_views,
+    instance_views,
+    jobs_views,
+    maintenance_views,
+    privacy_views,
+    updates,
+    views,
+)
 
 app_name = "platform"
 urlpatterns = [
@@ -8,6 +17,9 @@ urlpatterns = [
     path("instance/", instance_views.instance, name="instance"),
     path("instance/setting/", instance_views.instance_setting, name="instance-setting"),
     path("instance/restart/", instance_views.instance_restart, name="instance-restart"),
+    path("maintenance/", maintenance_views.maintenance, name="maintenance"),
+    path("maintenance/enter/", maintenance_views.maintenance_enter, name="maintenance-enter"),
+    path("maintenance/exit/", maintenance_views.maintenance_exit, name="maintenance-exit"),
     path("users/", views.users, name="users"),
     path("users/new/", views.user_create, name="user-create"),
     path("users/<uuid:sysid>/", views.user_detail, name="user"),
