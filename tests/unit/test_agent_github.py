@@ -383,3 +383,20 @@ def test_errors_never_carry_the_signed_url_or_token(agent, published, network):
     assert result["sources"][0]["error_code"] == "catalogue_unavailable"
     status = (agent.store.root / "catalogue-status.json").read_text()
     assert "secret-signature" not in status and TOKEN not in status
+
+
+def test_fetch_of_an_uploaded_artifact_skips_the_network(agent, published, network):
+    import os
+
+    serve_release(network, published)
+    agent.check_updates()
+    first = agent.fetch_release("django-skeleton", "0.6.0", "official")
+    network.requests.clear()
+    assert agent.fetch_release("django-skeleton", "0.6.0", "official") == first
+    assert network.requests == []
+    stored = agent.store.path("uploads", first["digest"])
+    os.chmod(stored, 0o600)
+    stored.write_bytes(stored.read_bytes() + b"tampered")
+    with pytest.raises(AgentError) as raised:
+        agent.fetch_release("django-skeleton", "0.6.0", "official")
+    assert raised.value.code in ("catalogue_artifact_hash_conflict", "stored_artifact_corrupted")

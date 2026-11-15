@@ -321,3 +321,249 @@ def test_source_changes_need_csrf_recent_authentication_and_the_capability(admin
     assert denied.get(reverse("platform:updates-sources")).status_code == 403
     assert denied.post(reverse("platform:updates-sources"), data).status_code == 403
     assert double.calls == []
+
+
+STATUS = {
+    "checked_at": "2026-11-15T12:00:00+00:00",
+    "sources": [
+        {"id": "official", "state": "available", "error_code": None},
+        {"id": "fork", "state": "unavailable", "error_code": "github_rate_limited"},
+    ],
+    "releases": [
+        {
+            "source_id": "official",
+            "component_id": "django-skeleton",
+            "version": "0.8.0",
+            "state": "available",
+            "notes": "",
+        }
+    ],
+    "paths": [
+        {
+            "component_id": "django-skeleton",
+            "kind": "core",
+            "installed": "0.5.2",
+            "latest": "0.7.1",
+            "steps": [{"version": "0.6.4", "source_id": "official"}, {"version": "0.7.1", "source_id": "official"}],
+            "blocked": None,
+        },
+        {
+            "component_id": "org.example.notes",
+            "kind": "app",
+            "installed": "1.0.0",
+            "latest": "1.4.0",
+            "steps": [],
+            "blocked": "missing_intermediate_release",
+        },
+        {
+            "component_id": "org.example.calc",
+            "kind": "app",
+            "installed": "2.0.0",
+            "latest": "3.0.0",
+            "steps": [],
+            "blocked": "incompatible_runtime",
+        },
+        {
+            "component_id": "org.example.done",
+            "kind": "app",
+            "installed": "1.0.0",
+            "latest": None,
+            "steps": [],
+            "blocked": None,
+        },
+    ],
+}
+
+
+class PathAgent:
+    def __init__(self, status=STATUS, *, agent=None, fetched=None):
+        self.calls, self.status, self.fetched = [], status, fetched
+        self.agent = agent or {"version": "0.7.0", "self_update": True}
+
+    def update_status(self):
+        self.calls.append("update_status")
+        if isinstance(self.status, Exception):
+            raise self.status
+        return self.status
+
+    def check_updates(self):
+        self.calls.append("check_updates")
+        return {}
+
+    def inventory(self):
+        self.calls.append("inventory")
+        return {
+            "generation": 1,
+            "apps": [{"state": "installed", "manifest": {"app_id": "org.example.notes", "name": "Notas"}}],
+            "agent": self.agent,
+        }
+
+    def fetch_release(self, **identifiers):
+        self.calls.append(("fetch_release", identifiers))
+        return self.fetched
+
+    def preview(self, action, artifacts=None, app_ids=None):
+        self.calls.append(("preview", action, artifacts))
+        return {"id": "11111111-2222-4333-8444-555555555555", "state": "preparing"}
+
+
+def path_agent(monkeypatch, **options):
+    from skeleton.system import releases
+
+    double = PathAgent(**options)
+    monkeypatch.setattr(releases, "agent_client", lambda: double)
+    monkeypatch.setattr(updates, "agent_client", lambda: double)
+    return double
+
+
+def test_available_shows_the_last_check_and_one_step_at_a_time(admin, monkeypatch, subtests):
+    double = path_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.get(reverse("platform:updates-available"))
+    body = response.content.decode()
+    with subtests.test("no new check"):
+        assert "check_updates" not in double.calls and "update_status" in double.calls
+    with subtests.test("steps in order, only the first with a button"):
+        cards = response.context["paths"]
+        assert [step["version"] for step in cards[0]["steps"]] == ["0.6.4", "0.7.1"]
+        assert body.count("Preparar este passo") == 1 and "Depois: 0.7.1" in body
+        assert body.index("0.6.4") < body.index("Depois: 0.7.1")
+        assert 'name="version" value="0.6.4"' in body and 'name="source_id" value="official"' in body
+    with subtests.test("blocked texts"):
+        assert "não pode pular direto para 1.4.0" in body
+        assert "não são compatíveis com o Python ou o núcleo" in body
+        assert "Notas" in body  # The installed manifest's name.
+    with subtests.test("up-to-date component has no button"):
+        assert [card["component_id"] for card in response.context["current"]] == ["org.example.done"]
+    with subtests.test("source error text and full table"):
+        assert "O GitHub limitou as consultas" in body and "Todas as versões publicadas" in body
+        assert "2026-11-15T12:00:00" in body
+
+
+def test_check_now_redirects_to_the_status(admin, monkeypatch):
+    double = path_agent(monkeypatch)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.post(reverse("platform:updates-available"))
+    assert response.status_code == 302 and response["Location"] == reverse("platform:updates-available")
+    assert double.calls == ["check_updates"]
+
+
+@pytest.mark.parametrize(
+    "status", [{"paths": [{"steps": "x"}, "nope", {"component_id": 3}], "sources": [None]}, {}, []]
+)
+def test_unexpected_status_shapes_never_break_the_page(admin, monkeypatch, status):
+    path_agent(monkeypatch, status=status)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    assert client.get(reverse("platform:updates-available")).status_code == 200
+
+
+def test_unavailable_agent_on_available_shows_the_notice(admin, monkeypatch):
+    from skeleton.system.releases import DeploymentUnavailable
+
+    path_agent(monkeypatch, status=DeploymentUnavailable("x"))
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.get(reverse("platform:updates-available"))
+    assert response.status_code == 200 and "não está disponível" in response.content.decode()
+
+
+def release_fetch(core_version="0.7.1"):
+    return {
+        **release_result(),
+        "manifest": {"kind": "release", "name": "Skeleton", "version": core_version},
+        "core": {"digest": CORE_DIGEST, "manifest": {"kind": "core", "version": core_version}},
+        "agent": {"version": core_version, "update_required": True},
+    }
+
+
+def fetch(client, component="django-skeleton", version="0.7.1"):
+    return client.post(
+        reverse("platform:updates-fetch"), {"component_id": component, "version": version, "source_id": "official"}
+    )
+
+
+def test_step_needing_a_newer_agent_stops_before_the_preview(admin, monkeypatch):
+    double = path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": True}, fetched=release_fetch())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    body = fetch(client).content.decode()
+    assert "Atualize o agente primeiro" in body and "O agente instalado é 0.6.4" in body
+    assert reverse("platform:updates-agent") in body and RELEASE_DIGEST in body
+    assert not any(call[0] == "preview" for call in double.calls if isinstance(call, tuple))
+    path_agent(monkeypatch, agent={"version": "0.6.4", "self_update": False}, fetched=release_fetch())
+    body = fetch(client).content.decode()
+    assert "agent-install" in body and reverse("platform:updates-agent") not in body
+
+
+def test_step_with_a_current_agent_goes_to_the_plan(admin, monkeypatch):
+    path_agent(monkeypatch, agent={"version": "0.7.0", "self_update": True}, fetched=release_fetch())
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = fetch(client)
+    assert response.context["plan_form"].initial == {"action": "core_update", "artifacts": CORE_DIGEST}
+
+
+def test_app_step_goes_straight_to_the_plan(admin, monkeypatch):
+    app = {"digest": RELEASE_DIGEST, "kind": "app", "manifest": {"name": "Notas", "version": "1.4.0"}}
+    path_agent(monkeypatch, fetched=app)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = fetch(client, "org.example.notes", "1.4.0")
+    assert response.context["plan_form"].initial == {"action": "update", "artifacts": RELEASE_DIGEST}
+
+
+def test_jump_refusal_is_translated(admin, monkeypatch):
+    from skeleton.system.deployment_client import AgentError
+
+    class Refusing(PathAgent):
+        def preview(self, action, artifacts=None, app_ids=None):
+            raise AgentError("version_jump_forbidden", 409)
+
+    from skeleton.system import releases
+
+    double = Refusing()
+    monkeypatch.setattr(releases, "agent_client", lambda: double)
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    response = client.post(reverse("platform:updates-plan"), {"action": "core_update", "artifacts": CORE_DIGEST})
+    assert "mais de uma linha à frente da instalada" in response.content.decode()
+
+
+def finished_operation(admin, state="succeeded"):
+    from skeleton.system.models import DeploymentOperation
+
+    with request_context(actor=admin, request_id=uuid4(), source="test:next-step"):
+        return DeploymentOperation.objects.create(
+            operation="core_update",
+            state=state,
+            stage="ready",
+            expected_generation=1,
+            plan={"id": str(uuid4()), "components": [], "files": [], "resources": [], "migrations": []},
+            plan_digest="c" * 64,
+        )
+
+
+def test_finished_operation_offers_the_next_step(admin, monkeypatch, subtests):
+    row = finished_operation(admin)
+    double = path_agent(monkeypatch)
+    double.operation = lambda operation_id: {
+        "id": str(row.pk),
+        "state": "succeeded",
+        "stage": "ready",
+        "generation": 2,
+        "expected_generation": 1,
+        "plan_digest": row.plan_digest,
+        "operation": row.operation,
+        "action": row.operation,
+    }
+    client = support.login(admin, password=PASSWORD, csrf=False)
+    url = reverse("platform:updates-operation", args=[row.pk])
+    with subtests.test("next step"):
+        body = client.get(url).content.decode()
+        assert "Próximo passo" in body and "Preparar este passo" in body
+    with subtests.test("nothing left"):
+        double.status = {
+            "paths": [{"component_id": "django-skeleton", "installed": "0.7.1", "latest": None, "steps": []}]
+        }
+        assert "Não há mais atualizações pendentes" in client.get(url).content.decode()
+    with subtests.test("status failure only hides the section"):
+        from skeleton.system.releases import DeploymentUnavailable
+
+        double.status = DeploymentUnavailable("x")
+        response = client.get(url)
+        assert response.status_code == 200 and "Próximo passo" not in response.content.decode()

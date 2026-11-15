@@ -216,6 +216,31 @@ ERROR_TEXT = {
         "Corrija o arquivo sources.json do agente no servidor."
     ),
     "github_token_missing": gettext_lazy("Repositório privado exige o token configurado no arquivo do agente."),
+    # Update path and sources (#500).
+    "version_jump_forbidden": gettext_lazy(
+        "Esta versão está mais de uma linha à frente da instalada. Atualize antes para a versão indicada em Novas versões."
+    ),
+    "release_environment_conflict": gettext_lazy(
+        "Este núcleo já foi recebido com outro conjunto de dependências. O publicador precisa publicar outra versão."
+    ),
+    "dependency_version_conflict": gettext_lazy(
+        "Uma dependência do projeto (project_requirements_lock) fixa outra versão de uma dependência do núcleo."
+    ),
+    "github_rate_limited": gettext_lazy(
+        "O GitHub limitou as consultas deste servidor. Tente de novo mais tarde ou configure um token no agente."
+    ),
+    "github_release_not_found": gettext_lazy("O repositório não tem release publicado (ou não está acessível)."),
+    "source_index_missing": gettext_lazy(
+        "O release mais recente ainda não tem o índice assinado. Logo depois de uma publicação, aguarde alguns minutos."
+    ),
+    "github_asset_missing": gettext_lazy("O arquivo indicado pelo índice não está no release do GitHub."),
+    "github_asset_url_rejected": gettext_lazy(
+        "O download do GitHub apontou para um endereço não permitido pelo agente."
+    ),
+    "catalogue_publisher_mismatch": gettext_lazy(
+        "O índice desta fonte foi assinado por outro publicador que não o escolhido para ela."
+    ),
+    "catalogue_artifact_path_rejected": gettext_lazy("O índice desta fonte aponta para um arquivo fora do permitido."),
 }
 
 
@@ -305,6 +330,23 @@ def _plan_page(
     )
 
 
+def _agent_behind(artifact):
+    """The agent inventory when the agent's line is older than the release's core line (#500)."""
+    from skeleton.versioning import release_line
+
+    if artifact.get("kind") != "release":
+        return None
+    try:
+        agent = agent_client().inventory().get("agent") or {}
+        if agent.get("version") and release_line(agent["version"]) < release_line(
+            artifact["core"]["manifest"]["version"]
+        ):
+            return agent
+    except (ValueError, RuntimeError, OSError, KeyError, TypeError):
+        return None  # The preview's own agent_update_required check still applies.
+    return None
+
+
 def _agent_self_update(artifact):
     """Whether the agent can replace itself, asked only when a release package offers a newer one."""
     if not (artifact.get("agent") or {}).get("update_required"):
@@ -353,16 +395,109 @@ def installed(request):
     )
 
 
+BLOCKED_TEXT = {
+    "missing_intermediate_release": gettext_lazy(
+        "Falta publicar uma versão intermediária: esta instalação não pode pular direto para {latest}."
+    ),
+    "incompatible_runtime": gettext_lazy(
+        "As versões mais novas não são compatíveis com o Python ou o núcleo desta instalação."
+    ),
+}
+
+
+def _text(value, maximum=200):
+    return value if isinstance(value, str) and 0 < len(value) <= maximum else None
+
+
+def update_paths(status, names=None):
+    """Cards of the agent's update paths (#500); unexpected shapes are dropped, never a 500."""
+    names = names or {}
+    cards = []
+    for path in status.get("paths") or () if isinstance(status, dict) else ():
+        if not isinstance(path, dict) or not _text(path.get("component_id")):
+            continue
+        steps = [
+            {"version": step["version"], "source_id": step["source_id"]}
+            for step in (path.get("steps") if isinstance(path.get("steps"), list) else [])
+            if isinstance(step, dict) and _text(step.get("version")) and _text(step.get("source_id"))
+        ]
+        latest = _text(path.get("latest"))
+        blocked = BLOCKED_TEXT.get(path.get("blocked"))
+        component = path["component_id"]
+        default = gettext("Núcleo") if component == "django-skeleton" else component
+        cards.append(
+            {
+                "component_id": component,
+                "name": names.get(component) or default,
+                "installed": _text(path.get("installed")) or "—",
+                "latest": latest,
+                "steps": steps,
+                "blocked": str(blocked).format(latest=latest or "—") if blocked else None,
+            }
+        )
+    return cards
+
+
+def _source_rows(status):
+    rows = []
+    for source in status.get("sources") or () if isinstance(status, dict) else ():
+        if isinstance(source, dict) and _text(source.get("id")):
+            code = source.get("error_code")
+            rows.append(
+                {
+                    "id": source["id"],
+                    "state": _text(source.get("state")) or "—",
+                    "error_code": _text(code),
+                    "error": ERROR_TEXT.get(code) if code else None,
+                }
+            )
+    return rows
+
+
+def _component_names():
+    """Readable names of installed apps, from the agent inventory; only a nicety."""
+    try:
+        inventory = agent_client().inventory()
+    except (ValueError, RuntimeError, OSError):
+        return {}
+    return {
+        entry["manifest"]["app_id"]: entry["manifest"].get("name") or entry["manifest"]["app_id"]
+        for entry in inventory.get("apps", [])
+        if isinstance(entry, dict) and isinstance(entry.get("manifest"), dict) and entry["manifest"].get("app_id")
+    }
+
+
 @platform_page(capability="updates.operate", writes=True)
 @require_http_methods(["GET", "POST"])
 def available(request):
-    updates = None
+    """The last check and the update path, one step at a time (#500); POST checks again."""
     if request.method == "POST":
         try:
-            updates = agent_client().check_updates()
+            agent_client().check_updates()
         except (ValueError, RuntimeError, OSError) as exc:
             _error(request, exc)
-    return render(request, "skeleton/web/platform/updates/available.html", _context("available", updates=updates))
+        return redirect("platform:updates-available")
+    status = None
+    try:
+        status = agent_client().update_status()
+    except (ValueError, RuntimeError, OSError) as exc:
+        _error(request, exc)
+    status = status if isinstance(status, dict) else {}
+    paths = update_paths(status, _component_names() if status.get("paths") else {})
+    return render(
+        request,
+        "skeleton/web/platform/updates/available.html",
+        _context(
+            "available",
+            updates=status,
+            loaded=bool(status),
+            checked_at=_text(status.get("checked_at")),
+            sources=_source_rows(status),
+            paths=[card for card in paths if card["latest"]],
+            current=[card for card in paths if not card["latest"]],
+            releases=[row for row in status.get("releases") or () if isinstance(row, dict)],
+        ),
+    )
 
 
 @csrf_exempt
@@ -523,6 +658,13 @@ def fetch_release(request):
             return HttpResponse(gettext("Identificação de release inválida."), status=400)
         artifact = agent_client().fetch_release(**identifiers)
         digest, action = plan_artifact(artifact)
+        blocking = _agent_behind(artifact)
+        if blocking is not None:
+            return render(
+                request,
+                "skeleton/web/platform/updates/agent-first.html",
+                _context("available", artifact=artifact, agent=blocking),
+            )
         if action is None and identifiers["component_id"] == "django-skeleton":
             action = "core_update"
         elif action is None:
@@ -670,11 +812,18 @@ def operation(request, operation_id):
             status_url = status.get("status_url")
     except (ConcurrentUpdate, ValueError, RuntimeError, OSError) as exc:
         _error(request, exc)
+    next_steps = None
+    if row.state == "succeeded":
+        try:
+            next_steps = [card for card in update_paths(agent_client().update_status()) if card["steps"]]
+        except (ValueError, RuntimeError, OSError, TypeError):
+            next_steps = None  # Only hides the section; the operation page never breaks for it.
     return render(
         request,
         "skeleton/web/platform/updates/operation.html",
         _context(
             "operations",
+            next_steps=next_steps,
             operation=row,
             confirmation_form=ConfirmationForm(initial={"revision": row.revision, "plan_digest": row.plan_digest}),
             status_url=status_url,

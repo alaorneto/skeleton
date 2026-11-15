@@ -339,7 +339,12 @@ def fetch_release(service: "DeploymentService", component_id: str, version: str,
     entry = entries[0]
     if source.get("publisher") and entry["publisher"] != source["publisher"]:
         raise AgentError("catalogue_publisher_mismatch", 409)
-    if source.get("github"):
+    stored = service.store.path("uploads", entry["digest"])
+    maximum = service.config.get("max_upload_bytes", 128 * 1024 * 1024)
+    if stored.is_file() and not stored.is_symlink() and stored.stat().st_size <= maximum:
+        # Already uploaded (#500): no download, and the same verification as any upload below.
+        content = stored.read_bytes()
+    elif source.get("github"):
         tag, name = artifact_reference(entry["artifact"])
         github, private = GitHub(service.config), bool(source.get("private"))
         asset = find_asset(

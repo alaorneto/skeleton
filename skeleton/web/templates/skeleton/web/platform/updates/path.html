@@ -1,0 +1,7 @@
+{% load i18n %}<section class="card" aria-labelledby="path-{{ card.component_id|slugify }}">
+  <h3 id="path-{{ card.component_id|slugify }}">{{ card.name }}</h3>
+  <p class="mt-1 text-sm/6 text-body">{% translate "Instalada:" %} {{ card.installed }}{% if card.latest %} · {% translate "Mais nova:" %} {{ card.latest }}{% endif %}</p>
+  {% if card.steps %}<ol class="mt-4 space-y-2">{% for step in card.steps %}<li class="flex flex-wrap items-center justify-between gap-2 text-sm/6">{% if forloop.first %}<span class="font-medium text-heading">{{ step.version }} <span class="text-body-subtle">({% translate "fonte" %} {{ step.source_id }})</span></span>
+    <form method="post" action="{% url 'platform:updates-fetch' %}">{% csrf_token %}<input type="hidden" name="component_id" value="{{ card.component_id }}"><input type="hidden" name="version" value="{{ step.version }}"><input type="hidden" name="source_id" value="{{ step.source_id }}"><button type="submit" class="btn btn-primary btn-sm">{% translate "Preparar este passo" %}</button></form>{% else %}<span class="text-body-subtle">{% translate "Depois:" %} {{ step.version }}</span>{% endif %}</li>{% endfor %}</ol>{% endif %}
+  {% if card.blocked %}<p class="mt-3 text-sm/6 text-body">{% if card.steps %}{% blocktranslate with last=card.steps|last %}O caminho para em {{ last.version }}.{% endblocktranslate %} {% endif %}{{ card.blocked }}</p>{% endif %}
+</section>
