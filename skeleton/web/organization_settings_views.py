@@ -244,3 +244,30 @@ def organization_logo(request, organization_id):
     for name, value in headers.items():
         response[name] = value
     return response
+
+
+def public_site_image(request, found):
+    """Bytes of a published brand image on the organization host: public cache, ``nosniff``, sandbox CSP."""
+    if found is None:
+        raise Http404
+    content, kind = found
+    response = HttpResponse(content, content_type=kind)
+    response["Content-Disposition"] = "inline"
+    response["Content-Security-Policy"] = "default-src 'none'; sandbox"
+    response["Cache-Control"] = "public, max-age=300"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@require_safe
+def site_logo(request):
+    """``/site/logo/`` (#484): the logo of the organization host, public by the administrator's choice.
+
+    Only on an organization host and only the key of the site index; 404 on the main domain.
+    """
+    from skeleton.tenancy.branding import open_site_logo
+
+    site = getattr(request, "organization_site", None)
+    if site is None or not site.logo_key:
+        raise Http404
+    return public_site_image(request, open_site_logo(site))

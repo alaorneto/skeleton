@@ -5,6 +5,7 @@
   <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(60%_100%_at_50%_0%,color-mix(in_oklab,var(--color-brand)_14%,transparent),transparent)]"></div>
   <div class="w-full max-w-md">
     <div class="card p-6 sm:p-8">
+      {% if site_mode %}<p class="mb-6 flex items-center gap-3">{% if organization_brand.logo_url %}<img class="h-10 w-auto max-w-40 rounded-base object-contain" src="{{ organization_brand.logo_url }}" alt="{{ site_name }}">{% else %}<span class="text-lg font-semibold text-heading">{{ site_name }}</span>{% endif %}</p>{% endif %}
       {% include "skeleton/web/components/messages.html" %}
       {% block content %}{% endblock %}
     </div>

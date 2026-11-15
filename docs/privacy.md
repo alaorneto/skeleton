@@ -4,7 +4,7 @@ O núcleo atende os direitos da pessoa sobre os dados que ele mesmo guarda: a id
 
 ## Endereço próprio da organização
 
-Ligar o endereço próprio (`/o/<org>/settings/`, seção "Endereço próprio", [#480](https://github.com/alaorneto/skeleton/issues/480)) torna públicos, para qualquer pessoa que abra `<slug>.<domínio base>`, mesmo sem login: o nome de exibição, a cor da marca, o logo, o ícone e o idioma padrão da organização. A tela avisa disso antes da ativação. Esses valores são copiados para o índice global `OrganizationSite`, que guarda só eles e só enquanto o endereço está ligado; desligar esvazia a cópia. Nenhum dado pessoal nem dado de negócio vai para o índice. A exportação dos próprios dados é sempre completa, com todas as organizações da pessoa, mesmo pedida no endereço de uma organização (#483).
+Ligar o endereço próprio (`/o/<org>/settings/`, seção "Endereço próprio", [#480](https://github.com/alaorneto/skeleton/issues/480)) torna públicos, para qualquer pessoa que abra `<slug>.<domínio base>`, mesmo sem login: o nome de exibição, a cor da marca, o logo, o ícone e o idioma padrão da organização. A tela avisa disso antes da ativação. Esses valores são copiados para o índice global `OrganizationSite`, que guarda só eles e só enquanto o endereço está ligado; desligar esvazia a cópia. Nenhum dado pessoal nem dado de negócio vai para o índice. O logo publicado é servido sem login em `/site/logo/` do host da organização ([arquivos](files.md#armazenamento-privado)). A exportação dos próprios dados é sempre completa, com todas as organizações da pessoa, mesmo pedida no endereço de uma organização (#483).
 
 ## Exportação dos próprios dados
 

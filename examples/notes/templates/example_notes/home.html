@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% load i18n %}{% block title %}{{ heading }} · Skeleton{% endblock %}
+{% load i18n %}{% block title %}{{ heading }} · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="page-header">
   <div class="min-w-0"><p class="page-eyebrow">{% translate "App de exemplo" %}</p><h1>{{ heading }}</h1><p class="page-description">{% translate "Anotações protegidas por organização, dono, visibilidade e grupo." %}</p></div>

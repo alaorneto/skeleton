@@ -19,6 +19,8 @@ O núcleo guarda arquivos num **armazenamento privado** (`skeleton/files`, label
 
 O check de deploy `skeleton.E024` (`manage.py check --deploy`) reprova armazenamento ausente, local sem `location`, dentro de `STATIC_ROOT` ou com `base_url`, e S3 com ACL pública, URL sem assinatura ou domínio público.
 
+**Marca pública do endereço da organização (#484).** É a única saída de bytes do armazenamento privado sem autenticação. Com o endereço próprio ligado pelo administrador ([privacidade](privacy.md#endereço-próprio-da-organização)), `/site/logo/` serve o logo **só no host da organização** e só pela chave gravada no índice `OrganizationSite` por `sync_site`; a chave tem de estar sob `org/<uuid da organização do host>/branding/`, o tipo é provado de novo pelo conteúdo (`LOGO_TYPES`), e a resposta leva `Cache-Control: public, max-age=300`, `nosniff` e CSP `sandbox`. No domínio principal a rota é 404; o logo das páginas `/o/<org>/` continua o de membros (`/o/<org>/settings/logo/`). Nenhum outro arquivo de `skeleton/files` fica alcançável assim.
+
 ## Anexos
 
 `sk_files.Attachment` (`OrganizationRecord`, auditado) guarda os metadados de um arquivo anexado a um registro: `target_table` (FK PROTECT ao catálogo), `target_sysid`, `filename`, `content_type`, `size`, `sha256`, `storage_key` (sensível, redigido na auditoria e nunca devolvido), `state` (`pending`, `available`, `quarantined`, `rejected`), `scanned_at` e `scan_result_code`. Os bytes ficam no armazenamento privado.

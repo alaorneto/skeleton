@@ -235,3 +235,47 @@ def open_logo() -> tuple[Any, str] | None:
         if kind in LOGO_TYPES:
             return record, kind
     return None
+
+
+def _key_of_site(key: str, organization_id: Any) -> bool:
+    """A branding key of ``organization_id`` only: ``org/<uuid>/branding/<uuid>`` (#484)."""
+    prefix = f"org/{uuid.UUID(str(organization_id))}/branding/"
+    if not key.startswith(prefix):
+        return False
+    try:
+        uuid.UUID(key[len(prefix) :])
+    except ValueError:
+        return False
+    return True
+
+
+def open_site_image(
+    key: str, organization_id: Any, types: frozenset[str], names: tuple[str, ...]
+) -> tuple[bytes, str] | None:
+    """The bytes and MIME type of a published image of the site index, or ``None``.
+
+    The key comes only from ``OrganizationSite`` (written by ``sync_site``) and must sit under the
+    organization's own branding prefix; the type is proven by the content again.
+    """
+    from skeleton.files.sniffing import HEAD_BYTES, detect
+    from skeleton.files.storage import StorageError, open_object
+
+    if not key or not _key_of_site(key, organization_id):
+        return None
+    try:
+        with open_object(key) as stream:
+            content = stream.read(LOGO_MAX_BYTES + 1)
+    except (StorageError, FileNotFoundError, OSError):
+        return None
+    if len(content) > LOGO_MAX_BYTES:
+        return None
+    for name in names:
+        kind = detect(content[:HEAD_BYTES], name)
+        if kind in types:
+            return content, kind
+    return None
+
+
+def open_site_logo(site: Any) -> tuple[bytes, str] | None:
+    """The public logo of an enabled site (#484): only the key of the index, only PNG, JPEG or WebP."""
+    return open_site_image(site.logo_key, site.organization_id, LOGO_TYPES, ("logo.png", "logo.jpg", "logo.webp"))

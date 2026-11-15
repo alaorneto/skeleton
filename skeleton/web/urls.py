@@ -4,7 +4,12 @@ from skeleton.api.health import probe_response
 from skeleton.tenancy.routing import ORG
 from skeleton.web import admission_views, identity_views, privacy_views, views
 from skeleton.web.invitation_views import resend
-from skeleton.web.organization_settings_views import organization_logo, organization_logo_update, organization_settings
+from skeleton.web.organization_settings_views import (
+    organization_logo,
+    organization_logo_update,
+    organization_settings,
+    site_logo,
+)
 
 app_name = "web"
 urlpatterns = [
@@ -17,6 +22,8 @@ urlpatterns = [
     path("health/ready/", probe_response, name="health-ready"),
     path("join/", admission_views.join_directory, name="join"),
     path("join/requests/<uuid:sysid>/withdraw/", admission_views.join_withdraw, name="join-withdraw"),
+    # Public brand of the organization host (#484, #485): 404 on the main domain.
+    path("site/logo/", site_logo, name="site-logo"),
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
     path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
