@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{% translate "Jobs" %}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Jobs" %}{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Jobs" %}</h1><p class="page-description">{% translate "Fila de trabalho em segundo plano de todas as organizações. A tela mostra tipo, fila, organização, estado e código de erro, nunca o payload. Um job esgotado pode ser reenviado ou descartado." %}</p></div></div>
 <dl class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -23,8 +23,8 @@
   <td>{% if job.state == dead_state %}<span class="badge badge-warning badge-dot">{{ job.get_state_display }}</span>{% elif job.state == "succeeded" %}<span class="badge badge-success badge-dot">{{ job.get_state_display }}</span>{% else %}<span class="badge badge-dot">{{ job.get_state_display }}</span>{% endif %}</td>
   <td>{{ job.attempts }} / {{ job.max_attempts }}</td>
   <td class="break-all">{% if job.last_error_code or job.last_error_class %}{{ job.last_error_code|default:"—" }}{% if job.last_error_class %} <span class="text-body-subtle">({{ job.last_error_class }})</span>{% endif %}{% else %}<span class="text-body-subtle">—</span>{% endif %}</td>
-  <td class="whitespace-nowrap!">{{ job.run_after }}</td>
-  <td class="whitespace-nowrap!">{{ job.finished_at|default:"—" }}</td>
+  <td class="whitespace-nowrap!">{{ job.run_after|moment }}</td>
+  <td class="whitespace-nowrap!">{{ job.finished_at|moment }}</td>
   <td>{% if job.state == dead_state %}<form method="post" action="{% url 'platform:job-action' job.pk %}" class="flex gap-2">{% csrf_token %}<input type="hidden" name="expected_updated_at" value="{{ job.updated_at.isoformat }}"><button type="submit" name="action" value="resend" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Reenviar" %}</button><button type="submit" name="action" value="discard" class="btn btn-ghost btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Descartar" %}</button></form>{% endif %}</td>
 </tr>
 {% empty %}<tr><td colspan="9" class="empty-state">{% translate "Nenhum job encontrado." %}</td></tr>{% endfor %}

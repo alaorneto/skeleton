@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% block title %}Solicitações de ingresso · Skeleton{% endblock %}
+{% load skeleton_format %}{% block title %}Solicitações de ingresso · Skeleton{% endblock %}
 {% block content %}
 <div class="page-header"><div class="min-w-0">
 {% include 'skeleton/web/components/breadcrumbs.html' %}
@@ -11,7 +11,7 @@
 <td><span class="font-medium text-heading">{{ item.user.get_full_name|default:item.user.email }}</span><br><span class="text-sm text-body-subtle">{{ item.user.email }}</span>{% if row.returning %}<br><span class="badge badge-warning badge-dot">Já foi membro: aprovar reativa o vínculo</span>{% endif %}</td>
 <td class="max-w-sm">{{ item.message|default:"—"|linebreaksbr }}</td>
 <td>{{ item.role.name }}</td>
-<td class="whitespace-nowrap!">{{ item.created_at }}</td>
+<td class="whitespace-nowrap!">{{ item.created_at|moment }}</td>
 <td class="text-right"><form method="post" action="{% url 'web:join-request-decide' organization_id item.pk %}" class="inline-flex gap-2">{% csrf_token %}<input type="hidden" name="revision" value="{{ item.revision }}">
 <button type="submit" name="decision" value="approve" class="btn btn-primary btn-sm">Aprovar<span class="sr-only"> {{ item.user.email }}</span></button>
 <button type="submit" name="decision" value="reject" class="btn btn-secondary btn-sm">Recusar<span class="sr-only"> {{ item.user.email }}</span></button></form></td>

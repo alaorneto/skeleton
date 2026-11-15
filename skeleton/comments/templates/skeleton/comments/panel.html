@@ -1,7 +1,7 @@
-{% load i18n %}<section aria-labelledby="comments-heading" class="mt-8">
+{% load i18n skeleton_format %}<section aria-labelledby="comments-heading" class="mt-8">
   <h2 id="comments-heading" class="section-heading">{% translate "Comentários" %}</h2>
   {% if comments.rows %}<ol class="space-y-3">{% for row in comments.rows %}<li class="card p-3!" id="comment-{{ row.sysid }}" data-comment{% if row.deleted %} data-deleted{% endif %}>
-    <p class="text-sm text-body-subtle"><code class="uuid">{{ row.author_id|default_if_none:'' }}</code> · <time datetime="{{ row.created_at|date:'c' }}">{{ row.created_at }}</time>{% if row.edited_at %} · {% translate "editado" %}{% endif %}{% if row.deleted %} · <span class="badge badge-warning">{% translate "excluído" %}</span>{% endif %}</p>
+    <p class="text-sm text-body-subtle"><code class="uuid">{{ row.author_id|default_if_none:'' }}</code> · {{ row.created_at|moment }}{% if row.edited_at %} · {% translate "editado" %}{% endif %}{% if row.deleted %} · <span class="badge badge-warning">{% translate "excluído" %}</span>{% endif %}</p>
     <p class="mt-2 whitespace-pre-line text-heading">{{ row.body_html }}</p>
     <div class="toolbar mt-2">
       {% if row.can_edit %}<details><summary class="btn btn-secondary btn-sm">{% translate "Editar" %}</summary><form method="post" action="{% url 'comments:edit' organization_id table_key record.sysid row.sysid %}" class="mt-2">{% csrf_token %}{% if comments.next %}<input type="hidden" name="next" value="{{ comments.next }}">{% endif %}<input type="hidden" name="revision" value="{{ row.revision }}"><label class="sr-only" for="comment-edit-{{ row.sysid }}">{% translate "Comentário" %}</label><textarea id="comment-edit-{{ row.sysid }}" name="body" maxlength="5000" rows="3" required>{{ row.body }}</textarea><button class="btn btn-primary btn-sm mt-2" type="submit">{% translate "Salvar" %}</button></form></details>{% endif %}

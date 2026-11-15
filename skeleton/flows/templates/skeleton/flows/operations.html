@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n %}{% block title %}{% translate "Operação dos processos" %}{% endblock %}
+{% load i18n skeleton_format %}{% block title %}{% translate "Operação dos processos" %}{% endblock %}
 {% block content %}
 <div>
   <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></li><li><span aria-current="page">{% translate "Operação" %}</span></li></ol></nav>
@@ -17,7 +17,7 @@
   </dl>
   <h2 class="section-heading">{% translate "Instâncias com falha" %}</h2>
   <div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col">{% translate "Número" %}</th><th scope="col">{% translate "Atualizada em" %}</th></tr></thead><tbody>
-  {% for row in panel.failed %}<tr><td><a href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td>{{ row.number|default:"—" }}</td><td class="whitespace-nowrap!">{{ row.updated_at }}</td></tr>
+  {% for row in panel.failed %}<tr><td><a href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td>{{ row.number|default:"—" }}</td><td class="whitespace-nowrap!">{{ row.updated_at|moment }}</td></tr>
   {% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma instância com falha." %}</td></tr>{% endfor %}
   </tbody></table></div>
   {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas sem responsável") rows=panel.unassigned empty=_("Nenhuma tarefa sem responsável.") %}

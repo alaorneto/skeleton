@@ -1,5 +1,5 @@
 {% extends "skeleton/web/platform/base.html" %}
-{% load i18n %}{% block page_title %}{{ subject.name }}{% endblock %}
+{% load i18n skeleton_format %}{% block page_title %}{{ subject.name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header">
@@ -24,7 +24,7 @@
     <dl class="meta-list sm:grid-cols-1!">
       <div><dt>{% translate "Identificador" %}</dt><dd><code class="uuid">{{ subject.slug }}</code></dd></div>
       <div><dt>{% translate "UUID" %}</dt><dd><code class="uuid">{{ subject.pk }}</code></dd></div>
-      <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at }}</dd></div>
+      <div><dt>{% translate "Criada em" %}</dt><dd>{{ subject.created_at|moment }}</dd></div>
       <div><dt>{% translate "Revisão" %}</dt><dd>{{ subject.revision }}</dd></div>
     </dl>
     <p class="mt-4 text-sm/6 text-body-subtle">{% translate "Para administrar membros e dados, entre na organização com um vínculo de administrador." %}</p>
@@ -79,7 +79,7 @@
     <dl class="meta-list mt-4">
       <div><dt>{% translate "Em uso" %}</dt><dd>{{ storage.bytes_used|filesizeformat }}</dd></div>
       <div><dt>{% translate "Cota" %}</dt><dd>{% if storage.quota_bytes is None %}{% translate "Ilimitada" %}{% else %}{{ storage.quota_bytes|filesizeformat }}{% endif %}{% if not storage.overridden %} <span class="badge">{% translate "padrão da instância" %}</span>{% endif %}</dd></div>
-      <div><dt>{% translate "Última recontagem" %}</dt><dd>{{ storage.recounted_at|default:_("Ainda não recontado") }}</dd></div>
+      <div><dt>{% translate "Última recontagem" %}</dt><dd>{% if storage.recounted_at %}{{ storage.recounted_at|moment }}{% else %}{% translate "Ainda não recontado" %}{% endif %}</dd></div>
     </dl>
     <form method="post" action="{% url 'platform:organization-storage' subject.pk %}" class="mt-5">
       {% csrf_token %}

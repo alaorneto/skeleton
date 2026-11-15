@@ -440,5 +440,6 @@ Para entregar outro idioma, o projeto derivado:
 1. acrescenta o idioma em `LANGUAGES`;
 2. cria o catálogo em `LOCALE_PATHS` com `manage.py makemessages -l <idioma>`, traduzindo a partir das msgids em pt-BR;
 3. compila com `compilemessages`.
+4. se quiser formatos de data próprios, cria um pacote `formats/<idioma>/formats.py` e o põe **antes** do núcleo em `FORMAT_MODULE_PATH` (`["config.formats", "skeleton.conf.formats"]`); o núcleo só define os formatos de exibição pt-BR (`DD/MM/AAAA HH:mm`, #468), e quem redefine `FORMAT_MODULE_PATH` sem listar `skeleton.conf.formats` volta aos formatos longos do Django.
 
 Os emails aceitam também templates por idioma (`body.<idioma>.html`), que têm precedência sobre o gettext.

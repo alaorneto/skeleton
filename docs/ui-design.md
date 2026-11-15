@@ -94,6 +94,14 @@ Use as classes abaixo nos templates do núcleo e das apps; elas encapsulam os pa
 | `required`, `optional` | Marcas do rótulo: `*` nos obrigatórios (`show_required`) e "(opcional)" nos demais (`show_optional`), passadas ao `include` de `form-fields.html`. |
 | `setup-steps`, `setup-step-number` | Lista numerada das etapas do setup do primeiro acesso (vertical no desktop, linha rolável no celular); `setup-step-done` e `setup-step-later` marcam o estado. |
 
+### Datas e horas
+
+Toda data e hora na interface aparece como `15/11/2026 14:30` (só a data: `15/11/2026`; só a hora: `14:30`), no fuso efetivo da pessoa, da organização ou da instância ([#468](https://github.com/alaorneto/skeleton/issues/468)). O formato vem de um ponto só, `FORMAT_MODULE_PATH = ["skeleton.conf.formats"]` (pacote `skeleton/conf/formats/pt_BR/`), que também vale para `presentation._value` nas listas e no detalhe genéricos.
+
+- Use `{% load skeleton_format %}` e `{{ valor|moment }}`, `{{ valor|moment:"date" }}` ou `{{ valor|moment:"time" }}`. O filtro gera `<time datetime="ISO">texto</time>`, devolve "—" para vazio e escapa um texto que não é data.
+- Nunca imprima uma data crua (`{{ x.created_at }}`) nem `|default:"—"` numa data: `tests/unit/test_template_dates.py` recusa. As exceções são os corpos de email e `skeleton/maintenance.html`.
+- Os valores "Antes"/"Depois" da auditoria são o dado gravado e não passam pelo filtro.
+
 Ícones: `{% include "skeleton/web/components/icon.html" with name="table" class="size-5" %}` (traço 24 px, estilo Heroicons, decorativos com `aria-hidden`).
 
 Elementos sem classe continuam legíveis: `h1`–`h3`, links, listas, `code`, `pre`, inputs, selects e `button` têm estilo de base. Telas de apps que ainda usam `<h1>`/`<p>` soltos recebem o mesmo ritmo do cabeçalho padrão.
