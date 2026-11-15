@@ -157,3 +157,25 @@ def test_no_web_route_hardcodes_the_organization_prefix():
             if "o/<uuid:organization_id>" in line and "api/v1/o/" not in line:
                 offenders.append(f"{path.relative_to(ROOT)}:{number}")
     assert offenders == []
+
+
+def test_clean_forms_that_collide_with_global_routes():
+    """Without the host rewrite (#482), these clean forms would reach a global route: the rewrite fixes them."""
+    from skeleton.tenancy.routing import is_org_route
+
+    collisions = {}
+    with site_scope(U):
+        for name, kwargs in organization_routes().items():
+            clean = reverse(name, kwargs={"organization_id": U, **kwargs})
+            try:
+                found = resolve(clean).view_name
+            except Resolver404:
+                found = None
+            if found != name:
+                collisions[clean] = found
+            assert is_org_route(f"/o/{U}" + clean), name  # With the rewrite, every one is the organization's.
+    assert collisions == {
+        "/": "web:home",
+        "/notifications/": "notifications:global",
+        "/flows/tasks/": "flows:global-tasks",
+    }

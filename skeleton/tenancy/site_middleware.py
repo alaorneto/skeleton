@@ -28,3 +28,97 @@ class SiteSessionMiddleware(SessionMiddleware):
             if shares_session(host):
                 response.cookies[name]["domain"] = "." + base_domain()
         return response
+
+
+# Global routes reachable on an organization host (#482): identity and the person's own pages.
+# Platform routes and routes over many organizations are refused; when in doubt, refuse.
+ALLOWED_GLOBAL_PREFIXES = ("/accounts/", "/profile/", "/me/", "/api/v1/", "/site/", "/health/")
+ALLOWED_GLOBAL_PATHS = frozenset({"/sw.js", "/favicon.ico"})
+
+
+def refused(request):
+    """The same neutral 404 for an unknown, disabled, reserved or foreign host or path, whatever the method."""
+    from django.http import HttpResponseNotFound
+
+    request.skeleton_site_refused = True
+    return HttpResponseNotFound("Not found.")
+
+
+def _query(request):
+    query = request.META.get("QUERY_STRING", "")
+    return "?" + query if query else ""
+
+
+def allowed_global(path, site):
+    """A global route that the organization host may serve (identity, the person's pages, health)."""
+    prefixes = list(ALLOWED_GLOBAL_PREFIXES)
+    static = getattr(settings, "STATIC_URL", "") or ""
+    if static.startswith("/"):
+        prefixes.append(static)
+    prefixes += [f"/invite/{site.organization_id}/", f"/join/{site.organization_id}/"]
+    prefixes += [prefix for prefix in getattr(settings, "SKELETON_ORGANIZATION_SITE_EXTRA_PREFIXES", ()) if prefix]
+    return path in ALLOWED_GLOBAL_PATHS or path.startswith(tuple(prefixes))
+
+
+def route_for_site(request, site):
+    """Rewrite, redirect or refuse a request on the organization host; ``None`` lets it through."""
+    from django.http import HttpResponsePermanentRedirect, HttpResponseRedirect
+
+    from .routing import is_org_route
+
+    prefix = f"/o/{site.organization_id}"
+    path = request.path_info
+    if path.startswith(("/o/", "/api/v1/o/")):
+        parts = path.split("/")
+        explicit = parts[2] if path.startswith("/o/") else (parts[4] if len(parts) > 4 else "")
+        if explicit.lower() != str(site.organization_id):
+            return refused(request)
+        if path.startswith(prefix + "/") and request.method in ("GET", "HEAD") and is_org_route(path):
+            return HttpResponseRedirect(path[len(prefix) :] + _query(request))
+        return None
+    if is_org_route(prefix + path):
+        # The organization route always wins over a global one (/, /notifications/, /flows/tasks/).
+        # Only path_info changes: request.path stays clean for templates and ?next=.
+        request.path_info = prefix + path
+        return None
+    if (
+        settings.APPEND_SLASH
+        and request.method in ("GET", "HEAD")
+        and not path.endswith("/")
+        and is_org_route(prefix + path + "/")
+    ):
+        return HttpResponsePermanentRedirect(path + "/" + _query(request))
+    if allowed_global(path, site):
+        return None
+    return refused(request)
+
+
+class OrganizationSiteMiddleware:
+    """Serve ``<slug>.<base domain>`` as its organization (#482); the host restricts, never grants.
+
+    The site comes only from ``request.get_host()``, already validated by ``ALLOWED_HOSTS``;
+    membership, RLS and authorization stay the tenant context's. Nothing here opens
+    ``system_context``.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from .routing import site_scope
+        from .site import classify_host, find_site
+
+        try:
+            host = request.get_host()
+        except DisallowedHost:
+            return self.get_response(request)  # CommonMiddleware answers 400, as before.
+        kind = classify_host(host)
+        if kind.kind == "platform":
+            return self.get_response(request)
+        site = find_site(kind.label) if kind.kind == "organization" else None
+        if site is None:
+            return refused(request)
+        request.organization_site = site
+        with site_scope(site.organization_id):
+            early = route_for_site(request, site)
+            return early if early is not None else self.get_response(request)

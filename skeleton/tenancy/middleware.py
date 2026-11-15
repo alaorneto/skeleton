@@ -55,7 +55,13 @@ class TenantContextMiddleware:
                 if match and request.path_info.startswith(("/o/", "/api/v1/o/"))
                 else None
             )
+            from .routing import site_organization_id
+
+            site = site_organization_id()
             try:
+                if site is not None and organization_id is not None and str(organization_id) != str(site):
+                    # Defense in depth (#482): the host middleware already refused another organization.
+                    raise PermissionDenied
                 if organization_id and user.is_authenticated:
                     with tenant_context(
                         organization_id=organization_id, actor=user if user.is_authenticated else None, source=source

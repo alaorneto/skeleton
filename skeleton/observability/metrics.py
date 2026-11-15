@@ -33,6 +33,8 @@ PATH = "/metrics"
 MIDDLEWARE = "skeleton.observability.metrics.MetricsMiddleware"
 METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"})
 UNRESOLVED_ROUTE = "unresolved"
+# Fixed label of a request refused by an organization host (#482): never the host, slug or sysid.
+SITE_REFUSED_ROUTE = "organization-site-refused"
 # Probes answer before URL resolution; they keep a fixed label of their own.
 PROBE_ROUTES = {"/health/live/": "health/live/", "/health/ready/": "health/ready/"}
 OTHER_JOB_TYPE = "other"
@@ -73,6 +75,8 @@ def route_label(request: Any) -> str:
     """The URL pattern that resolved, never the path: ``orgs/<uuid:organization>/`` not its value."""
     if request.path_info in PROBE_ROUTES:
         return PROBE_ROUTES[request.path_info]
+    if getattr(request, "skeleton_site_refused", False):
+        return SITE_REFUSED_ROUTE
     match = getattr(request, "resolver_match", None)
     if match is None:
         # A middleware (tenant, maintenance) answered before URL resolution: resolve the pattern here.

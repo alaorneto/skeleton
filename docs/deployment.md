@@ -67,6 +67,7 @@ As chaves do catálogo (`skeleton/instance/schema.py`: `DJANGO_SECRET_KEY`, `DJA
 
 - `SKELETON_ORGANIZATION_BASE_DOMAIN` (catálogo da instância, padrão vazio): domínio base dos endereços `<slug>.<domínio base>` das organizações, como `skeleton.com`. Vazio, o recurso fica desligado e toda organização continua só em `/o/<uuid>/`. O valor é só o domínio (sem esquema, caminho, porta ou curinga) e exige `SKELETON_PUBLIC_URL`, de onde vêm o esquema e a porta dos endereços; o check `skeleton.E038` reprova os dois erros.
 - **Domínio base dedicado:** todo host abaixo dele recebe o cookie de sessão, compartilhado entre o domínio principal e os endereços das organizações ([sessão entre hosts](authentication-sso.md#sessão-entre-o-domínio-principal-e-os-endereços-de-organização)). Não delegue subdomínios dele a terceiros nem hospede outra aplicação ali. Configurar o domínio base troca o nome do cookie de sessão para `skeleton_session`: todos entram de novo uma vez. Use um `SKELETON_PUBLIC_URL` dentro do domínio base (`https://app.skeleton.com`), senão a sessão não é compartilhada (`skeleton.W039`).
+- Com o domínio base, `.<domínio base>` entra sozinho no fim de `ALLOWED_HOSTS` (nos settings de produção também): não o acrescente em `DJANGO_ALLOWED_HOSTS`. A primeira entrada continua sendo o host de saúde padrão.
 
 ### Primeira instalação pelo setup (#146)
 

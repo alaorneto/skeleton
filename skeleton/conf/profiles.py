@@ -22,6 +22,9 @@ def production_settings(base):
 
     SECRET_KEY = env("DJANGO_SECRET_KEY")
     ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
+    organization_base = base["SKELETON_ORGANIZATION_BASE_DOMAIN"]
+    if organization_base and "." + organization_base not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS = [*ALLOWED_HOSTS, "." + organization_base]  # Organization addresses (#482).
     from skeleton.conf.base import database_config
 
     database = database_config(env, "DATABASE_URL")
