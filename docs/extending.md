@@ -264,7 +264,7 @@ Extração offline exige raiz nova e separada: `package extract ARTIFACT --trust
   --generation 12 --expires-at 2027-01-31T00:00:00Z
 ```
 
-Recomendação para apps: declare `migrations.from_versions` com a mesma política do core, a própria linha e a anterior (`>=1.4.0,<=1.5.2` para a 1.5.2, publicada depois da linha 1.4). Para apps o agente não impõe a parada em cada linha: o `from_versions` do publicador é a regra.
+O [guia de atualização](updates.md#apps) descreve como uma app publica o próprio índice num repositório do GitHub e como as instalações a consultam. Recomendação para apps: declare `migrations.from_versions` com a mesma política do core, a própria linha e a anterior (`>=1.4.0,<=1.5.2` para a 1.5.2, publicada depois da linha 1.4). Para apps o agente não impõe a parada em cada linha: o `from_versions` do publicador é a regra.
 
 O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON canônico do corpo. Entradas contêm componente, tipo, versão, canal, compatibilidade, referência HTTPS/relativa ao artefato, SHA-256 do ZIP, assinatura do manifesto, publisher, notas e migrations. O formato 2 (`catalog_version: 2`, gerado por `package index`) acrescenta `dependencies` e `conflicts`, que permitem à prévia sugerir dependências; índices no formato 1 continuam válidos, e em ambos o manifesto do artefato baixado é a fonte que vale. Índices expirados, adulterados e gerações abaixo da última confirmada são rejeitados; canais são allowlist do operador. O agente só consulta fontes previamente autorizadas, não URLs fornecidas pelo upload. `versions` distingue metadata da distribuição instalada de checkout (`origin: source`) e manifests locais (`project-local`); um arquivo JSON isolado nunca prova release instalado.
 

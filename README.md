@@ -13,7 +13,7 @@ Base reutilizável de Django 6.1 para construir sistemas com login, várias orga
 | Criar uma app de negócio | [Extensão](docs/extending.md), [modelo de dados](docs/data-model.md), [controle de acesso](docs/access-control.md) e [API de serviços](docs/service-api.md) |
 | Fazer apps conversarem entre si ou usar notificações, identidade e outros serviços do núcleo | [API de serviços](docs/service-api.md) e o skill `service-api` |
 | Integrar uma interface ou cliente HTTP | [API](docs/api.md) e [autenticação](docs/authentication-sso.md) |
-| Instalar, atualizar ou operar produção | [Deployment](docs/deployment.md) e [testes/evidências](docs/testing.md) |
+| Instalar, atualizar ou operar produção | [Deployment](docs/deployment.md), [guia de atualização](docs/updates.md) e [testes/evidências](docs/testing.md) |
 | Relatar uma falha de segurança | [Política de segurança](SECURITY.md): pelo relato privado do GitHub, nunca em issue pública |
 
 ## Quem usa cada interface

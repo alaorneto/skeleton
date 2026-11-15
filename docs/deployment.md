@@ -413,6 +413,8 @@ skeleton-core manifest --wheel dist/django_skeleton-<versão>-py3-none-any.whl \
 | 1.0.1 | 0.7.2, 1.0.0 | — | `>=0.7.0,<=1.0.1` |
 | 0.6.0 | — | — | `>=0.6.0,<=0.6.0` (só a própria versão) |
 
+Para o passo a passo de quem opera uma instalação (por arquivo, pelo GitHub, forks, agente, avisos e solução de problemas), veja o [guia de atualização](updates.md). A lista abaixo descreve o formato do manifesto core, que `skeleton-core manifest` gera:
+
 O manifesto core identifica o artefato e limita como instalá-lo:
 
 - Use `manifest_version=2`, `kind="core"` e `component_id="django-skeleton"`, com nome, descrição, versão e publisher. Formato 1 continua aceito para verificação de artefatos existentes, sem reescrever sua assinatura.
@@ -602,7 +604,32 @@ Gere tokens ASCII independentes com pelo menos 32 caracteres (por exemplo `opens
 }
 ```
 
-Todos os paths são absolutos; publisher IDs precisam corresponder aos manifests/índices assinados. `project_paths` é uma allowlist de overlays preservados: inclua `templates`, `examples` ou assets locais usados pelo derivado. Não inclua `.`, core, virtualenv, dados, secrets ou metadata gerada. `requirements_lock` tem pins `==` e SHA-256; disponibilize todos os wheels compatíveis, incluindo dependências transitivas e extras, em `wheelhouse`. O core selecionado vem de `.skapp` assinado; não use `pip` online no release. Um wheel faltante bloqueia o preview.
+Todos os paths são absolutos; publisher IDs precisam corresponder aos manifests/índices assinados. `project_paths` é uma allowlist de overlays preservados: inclua `templates`, `examples` ou assets locais usados pelo derivado. Não inclua `.`, core, virtualenv, dados, secrets ou metadata gerada. `requirements_lock` tem pins `==` e SHA-256; disponibilize todos os wheels compatíveis, incluindo dependências transitivas e extras, em `wheelhouse`. O core selecionado vem de `.skapp` assinado; não use `pip` online no release. Um wheel faltante bloqueia o preview. Com um [pacote de release](#pacote-de-release) que traz o alvo do servidor, o lock e os wheels do core vêm do publicador e o `wheelhouse` só precisa das dependências do projeto (ambiente do publicador, abaixo).
+
+Chaves opcionais das atualizações (#491), com o padrão e o efeito:
+
+| Chave | Padrão | Efeito |
+|---|---|---|
+| `allow_version_jumps` | `false` | Emergência: deixa o core pular linhas minor (`version_jump_forbidden`). |
+| `project_requirements_lock` | ausente | Lock das dependências só do projeto, somado ao do publicador. |
+| `agent_root` | ausente | Liga a auto-atualização do agente (`current`, `versions/`, `state.json`). |
+| `agent_publishers` | `[]` | Publicadores aprovados que podem fornecer o agente além do do core instalado. |
+| `github` | `api_url` `https://api.github.com`, `download_hosts` `[".githubusercontent.com"]` | Host da API, hosts de download e `token_file` das fontes GitHub. |
+| `catalogue_sources[].github` | — | Fonte GitHub `dono/nome`, com `publisher` obrigatório e `private` opcional. |
+| `update_check_interval` | `21600` | Segundos entre as consultas automáticas às fontes; `0` desliga. |
+
+Exemplo das chaves opcionais (acrescente ao JSON acima só o que usar; os caminhos são fictícios):
+
+```json
+{
+  "agent_root": "/opt/skeleton-agent",
+  "agent_publishers": [],
+  "project_requirements_lock": "/srv/skeleton/project-requirements.txt",
+  "github": {"token_file": "/srv/skeleton/private/github-token"},
+  "catalogue_sources": [{"id": "skeleton", "github": "alaorneto/skeleton", "publisher": "platform-release-key"}],
+  "update_check_interval": 21600
+}
+```
 
 **Chaves opcionais** (#246). A forma é conferida na partida do agente, com um código por chave: `recovery_paths` (lista de caminhos absolutos, `invalid_recovery_path`), `smoke_token_file` (caminho absoluto, `invalid_smoke_token_path`), `python`, `pg_dump`, `pg_restore`, `psql` e `docker` (caminhos absolutos, `invalid_tool_path`), `socket_gid` (inteiro não negativo, `invalid_socket_gid`), `status_http` (`port` de 1 a 65535, `public_url` `http`/`https`, `host` `127.0.0.1` ou `::1`; `insecure_status_listener`), `catalogue_sources` (lista de objetos com `id`, `invalid_catalogue_sources`) e `command_timeout`, `health_timeout`, `catalogue_timeout`, `max_upload_bytes`, `minimum_free_bytes` (número positivo, `invalid_numeric_setting`). Uma instalação com chave opcional malformada, que antes subia, passa a ser recusada na partida com o código específico.
 
@@ -800,7 +827,7 @@ Um plano/geração antigo é rejeitado para uma nova submissão. O preview prepa
 
 No admin, "Visualizar impacto" leva a uma página de acompanhamento que se atualiza sozinha (`<meta http-equiv="refresh">`, sem JavaScript) e só lê o estado; quando o plano fica pronto, "Continuar" (POST, com autenticação recente) cria o `DeploymentOperation` e abre a tela da operação. Reenviar "Continuar" para o mesmo plano reabre a mesma operação. A CLI `preview` consulta o plano a cada 2 s e imprime o plano final; uma falha sai no stderr com código 1.
 
-**Compatibilidade:** atualize o agente junto com o núcleo. Um núcleo novo com agente antigo recusa a prévia com "Deployment agent is older than this core."; um núcleo antigo com agente novo trata `{id, state}` como resposta inválida e mostra o erro, sem efeito colateral.
+**Compatibilidade:** o agente precisa estar na linha do núcleo de destino ou acima: a prévia recusa com `agent_update_required`, e o [guia de atualização](updates.md#atualizar-o-agente) mostra como atualizá-lo. Um núcleo novo com agente antigo de antes da prévia assíncrona recusa a prévia com "Deployment agent is older than this core."; um núcleo antigo com agente novo trata `{id, state}` como resposta inválida e mostra o erro, sem efeito colateral.
 
 ```sh
 "$AGENT" --config "$CONFIG" preview update --artifact "$NEW_APP_DIGEST"

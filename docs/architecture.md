@@ -46,7 +46,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `config` | Overlay de settings, URLs e entrypoints do projeto | Mantém os hooks de extensão sem renomear labels do núcleo |
 | `applications` | Apps de negócio do projeto derivado | Consome contratos do núcleo; não modifica suas regras |
 | `examples/notes` | Exemplo didático opt-in | Não é dependência do núcleo |
-| `deployment_agent` | Processo operacional separado para preparar e trocar releases | Credenciais/comandos privilegiados não pertencem ao web |
+| `deployment_agent` | Processo operacional separado para preparar e trocar releases; módulos do épico #491: `paths.py` (caminho de atualização), `environments.py` (ambiente do publicador), `selfupdate.py` (versão e auto-atualização), `github.py` (fontes GitHub) e `sources.py` (fontes cadastradas na tela); ver o [guia de atualização](updates.md) | Credenciais/comandos privilegiados não pertencem ao web |
 
 “Overlay” significa os arquivos de configuração pertencentes ao projeto derivado, sobre os defaults do core. Atualizar o wheel do núcleo não deve substituir esses arquivos.
 

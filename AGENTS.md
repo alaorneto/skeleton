@@ -10,7 +10,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
 5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md`, `docs/sequences.md`, `docs/flows.md`, `docs/comments.md`, `docs/data-transfer.md` e `docs/billing.md` antes de usar ou alterar o subsistema correspondente.
 6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas.
-7. `docs/testing.md`, `docs/checks.md` e `docs/deployment.md` antes de verificar/operar.
+7. `docs/testing.md`, `docs/checks.md`, `docs/deployment.md` e `docs/updates.md` antes de verificar/operar.
 8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
 
 ## Rastreabilidade: plano, issue, commit, versão e fechamento
