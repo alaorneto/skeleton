@@ -58,6 +58,17 @@ class InstanceForm(forms.Form):
 
 
 FILL_IN = gettext_lazy("Informe este campo.")
+KEEP_SECRET = gettext_lazy("Já definida. Deixe em branco para manter a atual.")
+
+
+def keep_secret(form, name: str, kept: str | None) -> None:
+    """A stored secret makes its field optional; the value itself never reaches the page (#466)."""
+    form.kept_secret = kept
+    if kept is not None:
+        field = form.fields[name]
+        field.required = False
+        field.marked_required = False
+        field.help_text = KEEP_SECRET
 
 
 class DatabaseForm(forms.Form):
@@ -122,10 +133,11 @@ class DatabaseForm(forms.Form):
     # attribute stays off so the browser does not block a submission with the URL.
     separate_required = ("db_host", "db_port", "db_name", "db_user", "db_password")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, kept_password: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         for name in self.separate_required:
             self.fields[name].marked_required = True
+        keep_secret(self, "db_password", kept_password)
 
     def clean(self):
         from .database import DEFAULT_PORT, build_dsn
@@ -134,6 +146,8 @@ class DatabaseForm(forms.Form):
         if data.get("database_url"):
             data["dsn"] = data["database_url"]
             return data
+        if not data.get("db_password") and self.kept_secret is not None:
+            data["db_password"] = self.kept_secret
         missing = [name for name in self.separate_required if name != "db_port" and not data.get(name)]
         for name in missing:
             if name not in self.errors:
@@ -306,9 +320,10 @@ class EmailForm(forms.Form):
     # Marked as required on the page when SMTP is used; the HTML attribute stays off ("later").
     smtp_required = ("smtp_host", "default_from_email", "test_recipient")
 
-    def __init__(self, *args, strict: bool | None = None, **kwargs):
+    def __init__(self, *args, strict: bool | None = None, kept_password: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.strict = production_target() if strict is None else strict
+        keep_secret(self, "smtp_password", kept_password)
         if self.strict:
             mode = self.fields["email_mode"]
             mode.choices = [("smtp", gettext_lazy("Usar um servidor SMTP"))]
@@ -346,7 +361,7 @@ class EmailForm(forms.Form):
                 port=data.get("smtp_port") or 587,
                 security=data.get("smtp_security") or "starttls",
                 user=data.get("smtp_user") or "",
-                password=data.get("smtp_password") or "",
+                password=data.get("smtp_password") or self.kept_secret or "",
             )
         return data
 
@@ -420,9 +435,10 @@ class StorageForm(forms.Form):
         ),
     )
 
-    def __init__(self, *args, strict: bool | None = None, **kwargs):
+    def __init__(self, *args, strict: bool | None = None, kept_password: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.strict = production_target() if strict is None else strict
+        keep_secret(self, "cache_password", kept_password)
         location = self.fields["cache_location"]
         location.required = self.strict
         location.help_text = (
@@ -448,7 +464,7 @@ class StorageForm(forms.Form):
         location = data.get("cache_location")
         data["cache_url"] = ""
         if location:
-            url = redis_url(location, data.get("cache_password") or "")
+            url = redis_url(location, data.get("cache_password") or self.kept_secret or "")
             try:
                 import environ  # type: ignore[import-untyped]
 

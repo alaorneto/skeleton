@@ -177,10 +177,110 @@ def setup_page(view):
     def wrapper(request, *args, **kwargs):
         _not_completed()
         if not request.session.get(SESSION_KEY):
+            messages.warning(
+                request,
+                gettext(
+                    "Sua sessão do setup expirou. Informe um token para continuar. O que já foi salvo continua"
+                    " guardado."
+                ),
+            )
             return redirect("setup:start")
         return view(request, *args, **kwargs)
 
     return wrapper
+
+
+# Steps that need others first; the remaining steps can be done in any order (#466).
+PREREQUISITES = {"schema": ("database",), "admin": ("database", "schema")}
+
+
+def _missing_prerequisite(step: str) -> str | None:
+    state = _state()
+    for name in PREREQUISITES.get(step, ()):
+        if state.get(f"step:{name}") != "done":
+            return name
+    return None
+
+
+def _go_to_prerequisite(request, step: str):
+    """A redirect to the first step this one needs, with the reason; ``None`` when nothing is missing."""
+    missing = _missing_prerequisite(step)
+    if missing is None:
+        return None
+    messages.info(request, gettext("Conclua antes a etapa “%(label)s”.") % {"label": BY_NAME[missing].label})
+    return redirect(f"setup:{missing}")
+
+
+def _secret_of(key: str) -> str | None:
+    """The password inside a stored URL, for a blank password field to keep it; never rendered."""
+    from urllib.parse import unquote, urlsplit
+
+    try:
+        value = _stored(key)
+        password = urlsplit(value).password if value else None
+    except Exception:  # noqa: BLE001 - an unreadable value only means nothing to keep
+        return None
+    return unquote(password) if password is not None else None
+
+
+def _initial(step: str) -> dict:
+    """Stored values of a step without any secret, to correct one field without retyping (#466).
+
+    Any failure to read or decrypt a stored value means no initial value: the page never fails
+    because of it.
+    """
+    from urllib.parse import unquote, urlsplit
+
+    try:
+        if step == "instance":
+            values = {name: _stored(name) for name in ("allowed_hosts", "csrf_trusted_origins", "public_url")}
+            trust = _stored("trust_proxy")
+            if trust is not None:
+                values["trust_proxy"] = trust.lower() in {"1", "true", "yes", "on"}
+            return {key: value for key, value in values.items() if value is not None}
+        if step == "database":
+            url = _stored("database_url")
+            if not url:
+                return {}
+            config = database.parse(url)
+            return {
+                "db_host": config.get("HOST") or "",
+                "db_port": config.get("PORT") or database.DEFAULT_PORT,
+                "db_name": config.get("NAME") or "",
+                "db_user": config.get("USER") or "",
+            }
+        if step == "email":
+            values = {}
+            url = _stored("email_url")
+            if url:
+                parts = urlsplit(url)
+                security = {"smtp+tls": "starttls", "smtp+ssl": "ssl", "smtps": "ssl", "smtp": "none"}
+                if parts.scheme in security:
+                    values = {
+                        "smtp_host": parts.hostname or "",
+                        "smtp_port": parts.port or 587,
+                        "smtp_user": unquote(parts.username or ""),
+                        "smtp_security": security[parts.scheme],
+                    }
+            sender = _stored("default_from_email")
+            if sender:
+                values["default_from_email"] = sender
+            return values
+        if step == "storage":
+            values = {}
+            url = _stored("cache_url")
+            if url:
+                parts = urlsplit(url)
+                host = parts.netloc.rsplit("@", 1)[-1]  # Without user:password@.
+                values["cache_location"] = parts._replace(netloc=host).geturl()
+            for name in ("files_backend", "files_root", "files_s3_bucket", "files_s3_region", "files_s3_endpoint"):
+                value = _stored(name)
+                if value is not None:
+                    values[name] = value
+            return values
+    except Exception:  # noqa: BLE001 - see the docstring; the class alone goes to the log
+        logger.warning("setup.initial_unreadable step=%s", step)
+    return {}
 
 
 def _render(request, template, context, status=200):
@@ -238,7 +338,7 @@ def start(request):
                 "form": forms.TokenForm(),
                 "error": gettext("Muitas tentativas. Aguarde 15 minutos.")
                 if limited
-                else gettext("Token inválido, já usado ou expirado."),
+                else gettext("Token inválido, já usado ou expirado. Veja abaixo como gerar um novo."),
                 "title": gettext("Primeiro acesso"),
                 "steps": (),
             },
@@ -251,6 +351,7 @@ def start(request):
 def _step(request, name, form, *, status=200, **context):
     index = [step.name for step in STEPS].index(name)
     previous = f"setup:{STEPS[index - 1].name}" if index else "setup:start"
+    following = f"setup:{STEPS[index + 1].name}" if index + 1 < len(STEPS) else "setup:finish"
     page = {
         "form": form,
         "step": name,
@@ -258,6 +359,8 @@ def _step(request, name, form, *, status=200, **context):
         "intro": BY_NAME[name].intro,
         "number": index + 1,
         "previous": previous,
+        "following": following,
+        "already_done": _state().get(f"step:{name}") == "done",
     }
     return _render(request, "step.html", {**page, **context}, status)
 
@@ -270,6 +373,7 @@ def instance(request):
         "allowed_hosts": request.get_host().split(":")[0],
         "trust_proxy": "HTTP_X_FORWARDED_PROTO" in request.META,
     }
+    initial.update(_initial("instance"))  # A stored value wins over the suggestion.
     form = forms.InstanceForm(request.POST or None, initial=initial)
     if request.method == "POST" and form.is_valid():
         data = form.cleaned_data
@@ -309,7 +413,9 @@ def _check_error(form, error, *, prefix: str = "db_") -> None:
 @setup_page
 @require_http_methods(["GET", "POST"])
 def database_step(request):
-    form = forms.DatabaseForm(request.POST or None)
+    form = forms.DatabaseForm(
+        request.POST or None, initial=_initial("database"), kept_password=_secret_of("database_url")
+    )
     if request.method == "POST" and form.is_valid():
         dsn = form.cleaned_data["dsn"]
         try:
@@ -325,7 +431,10 @@ def database_step(request):
             _mark("database")
             _saved(request, "database")
             return redirect("setup:schema")
-    return _step(request, "database", form, status=400 if request.method == "POST" else 200)
+    connected = None
+    if _state().get("step:database") == "done":
+        connected = {"role": _state().get("database_role", ""), "name": _initial("database").get("db_name", "")}
+    return _step(request, "database", form, connected=connected, status=400 if request.method == "POST" else 200)
 
 
 def _runtime_role(dsn: str):
@@ -340,8 +449,9 @@ def _runtime_role(dsn: str):
 @require_http_methods(["GET", "POST"])
 def schema(request):
     runtime_dsn = _stored("database_url")
-    if runtime_dsn is None:
-        return redirect("setup:database")
+    waiting = _go_to_prerequisite(request, "schema")
+    if waiting is not None or runtime_dsn is None:
+        return waiting or redirect("setup:database")
     form = forms.SchemaForm(request.POST or None)
     problems = []
     try:
@@ -460,7 +570,9 @@ def _email_connection(url: str):
 @require_http_methods(["GET", "POST"])
 def email(request):
     strict = _strict()
-    form = forms.EmailForm(request.POST or None, strict=strict)
+    form = forms.EmailForm(
+        request.POST or None, initial=_initial("email"), strict=strict, kept_password=_secret_of("email_url")
+    )
     if request.method == "POST" and form.is_valid():
         import smtplib
 
@@ -533,10 +645,10 @@ def email(request):
 @setup_page
 @require_http_methods(["GET", "POST"])
 def storage(request):
+    initial = {"files_root": str(settings.BASE_DIR / "var" / "files"), "files_backend": "local"}
+    initial.update(_initial("storage"))
     form = forms.StorageForm(
-        request.POST or None,
-        initial={"files_root": str(settings.BASE_DIR / "var" / "files"), "files_backend": "local"},
-        strict=_strict(),
+        request.POST or None, initial=initial, strict=_strict(), kept_password=_secret_of("cache_url")
     )
     if request.method == "POST" and form.is_valid():
         from pathlib import Path
@@ -593,8 +705,9 @@ def storage(request):
 @require_http_methods(["GET", "POST"])
 def admin(request):
     runtime_dsn = _stored("database_url")
-    if runtime_dsn is None or _state().get("step:schema") != "done":
-        return redirect("setup:schema")
+    waiting = _go_to_prerequisite(request, "admin")
+    if waiting is not None or runtime_dsn is None:
+        return waiting or redirect("setup:database")
     form = forms.AdminForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         from django.core.exceptions import ValidationError

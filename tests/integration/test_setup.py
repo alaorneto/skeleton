@@ -36,6 +36,8 @@ def setup_mode(tmp_path, monkeypatch, settings):
             "MIDDLEWARE",
             "SESSION_ENGINE",
             "SESSION_COOKIE_SAMESITE",
+            "SESSION_COOKIE_AGE",
+            "SESSION_SAVE_EVERY_REQUEST",
             "MESSAGE_STORAGE",
             "SECRET_KEY",
             "SKELETON_SETUP_MODE",
@@ -287,7 +289,7 @@ def test_failed_migration_is_logged_without_credentials(setup_mode, caplog, monk
 
     owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
     owner_password = owner.split(":")[2].split("@")[0]
-    _ready_for(setup_mode)
+    _ready_for(setup_mode, "database")
     monkeypatch.setattr(database, "migrate_schema", broken)
     client = enter(setup_mode)
     with caplog.at_level(logging.ERROR, logger="skeleton.setup"):
@@ -304,7 +306,7 @@ def test_failed_admin_bootstrap_is_logged(setup_mode, caplog, monkeypatch):
     def broken(**kwargs):
         raise RuntimeError("boom")
 
-    _ready_for(setup_mode, "schema")
+    _ready_for(setup_mode, "database", "schema")
     monkeypatch.setattr(services, "bootstrap_identity", broken)
     client = enter(setup_mode)
     with caplog.at_level(logging.ERROR, logger="skeleton.setup"):
@@ -590,3 +592,80 @@ def test_email_step_sends_the_test_by_separate_fields(setup_mode, monkeypatch):
     assert urls == ["smtp+tls://mailer%40example.test:smtp-secret-465@smtp.example.test:587"]
     assert sent[0].to == ["ops@example.test"]
     assert "Mensagem de teste enviada para ops@example.test" in client.get("/setup/storage/").content.decode()
+
+
+def test_saved_steps_come_back_filled_without_secrets(setup_mode, tmp_path, monkeypatch):
+    from skeleton.setup import database
+
+    runtime = _fields(os.environ["TEST_DATABASE_URL"], "db_")
+    client = enter(setup_mode)
+    post(client, "/setup/instance/", {"allowed_hosts": "app.example.test", "public_url": "https://app.example.test"})
+    html = client.get("/setup/instance/").content.decode()
+    assert 'value="app.example.test"' in html and 'value="https://app.example.test"' in html
+    assert "Esta etapa já foi salva" in html and 'href="/setup/database/">Próxima etapa</a>' in html
+    assert post(client, "/setup/database/", runtime).status_code == 302
+    html = client.get("/setup/database/").content.decode()
+    for name in ("db_host", "db_name", "db_user"):
+        assert f'value="{runtime[name]}"' in html
+    assert runtime["db_password"] not in html and "Já definida. Deixe em branco para manter a atual." in html
+    assert f"Conectado como {runtime['db_user']} ao banco {runtime['db_name']}." in html
+    # The same port again with a blank password keeps the stored one.
+    assert post(client, "/setup/database/", {**runtime, "db_password": ""}).status_code == 302
+    assert database.parse(_stored_url(setup_mode))["PASSWORD"] == runtime["db_password"]
+    data = {
+        "cache_location": "redis://redis:6379/0",
+        "cache_password": "redis-secret-466",
+        "files_backend": "local",
+        "files_root": str(tmp_path / "files"),
+    }
+    assert post(client, "/setup/storage/", data).status_code == 302
+    html = client.get("/setup/storage/").content.decode()
+    assert 'value="redis://redis:6379/0"' in html and "redis-secret-466" not in html
+    assert post(client, "/setup/storage/", {**data, "cache_password": ""}).status_code == 302
+    from skeleton.setup.views import _secret_of
+
+    assert _secret_of("cache_url") == "redis-secret-466"
+
+
+def test_unreadable_stored_values_leave_the_form_blank(setup_mode, monkeypatch):
+    from skeleton.setup import views
+
+    client = enter(setup_mode)
+    setup_mode.put_setup_state("step:instance", "done")
+
+    def broken(key):
+        raise ValueError("unreadable")
+
+    monkeypatch.setattr(views, "_stored", broken)
+    for url in ("/setup/instance/", "/setup/database/", "/setup/email/", "/setup/storage/"):
+        assert client.get(url).status_code == 200
+
+
+def test_every_setup_response_renews_the_session(setup_mode):
+    client = enter(setup_mode)
+    for _ in range(2):
+        response = client.get("/setup/instance/")
+        assert "sessionid" in response.cookies and response.cookies["sessionid"]["max-age"] == 2 * 3600
+
+
+def test_expired_session_and_step_order_explain_the_redirect(setup_mode):
+    anonymous = Client()
+    response = anonymous.get("/setup/database/", follow=True)
+    assert response.redirect_chain[-1][0] == reverse("setup:start")
+    assert "Sua sessão do setup expirou" in response.content.decode()
+    client = enter(setup_mode)
+    response = client.get("/setup/admin/", follow=True)
+    assert response.redirect_chain[-1][0] == reverse("setup:database")
+    assert "Conclua antes a etapa “Banco de dados”." in response.content.decode()
+    _ready_for(setup_mode, "database")
+    response = client.get("/setup/admin/", follow=True)
+    assert response.redirect_chain[-1][0] == reverse("setup:schema")
+    assert "Conclua antes a etapa “Tabelas do banco”." in response.content.decode()
+
+
+def test_refused_token_points_at_the_command(setup_mode):
+    client = Client(enforce_csrf_checks=True)
+    client.get("/setup/")
+    response = client.post("/setup/", {"token": "x" * 32, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    html = response.content.decode()
+    assert "Veja abaixo como gerar um novo." in html and "manage.py instance setup-token" in html

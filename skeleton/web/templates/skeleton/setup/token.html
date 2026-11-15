@@ -15,5 +15,6 @@
 <li>{% translate "Servidor ou máquina local: no terminal em que o processo foi iniciado, ou no arquivo" %} <code>setup-token</code>, {% translate "na mesma pasta do banco de configuração da instância." %}</li>
 <li>{% translate "O token vale 24 horas e só pode ser usado uma vez." %}</li>
 </ul>
+<p class="mt-4 text-sm/6">{% translate "Perdeu o token ou ele expirou? No servidor, rode" %} <code>python manage.py instance setup-token</code> ({% translate "no Docker Compose:" %} <code>docker compose exec web python manage.py instance setup-token</code>). {% translate "Reiniciar o serviço também gera um token novo quando não há um válido." %}</p>
 </section>
 {% endblock %}

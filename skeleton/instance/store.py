@@ -200,6 +200,20 @@ class InstanceStore:
                 return False
         return row is not None
 
+    def revoke_setup_tokens(self, *, now: datetime) -> int:
+        """Mark every open token as used (one transaction); returns how many were open (#466)."""
+        if not self.exists():
+            return 0
+        self.initialize()
+        moment = now.astimezone(UTC).isoformat()
+        with closing(self._connect(create=False)) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE setup_token SET used_at = ? WHERE used_at IS NULL AND expires_at > ?", (moment, moment)
+            ).rowcount
+            connection.execute("COMMIT")
+        return int(changed)
+
     def consume_setup_token(self, token_hash: str, *, now: datetime) -> bool:
         """Mark the token used if it exists, is unused and not expired; True exactly once."""
         if not self.exists():

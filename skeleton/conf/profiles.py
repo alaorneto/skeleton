@@ -182,7 +182,9 @@ def setup_settings(base):
     SESSION_ENGINE = "django.contrib.sessions.backends.signed_cookies"
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Strict"
-    SESSION_COOKIE_AGE = 3600
+    # Two hours of inactivity, renewed by every request: a long migration does not end the session (#466).
+    SESSION_COOKIE_AGE = 2 * 3600
+    SESSION_SAVE_EVERY_REQUEST = True
     SESSION_COOKIE_SECURE = env.bool("SKELETON_SETUP_SECURE_COOKIES", default=not DEBUG)
     CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
     CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
