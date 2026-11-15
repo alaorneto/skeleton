@@ -296,3 +296,80 @@ def test_old_marker_contract_kept_for_release_probe():
     with override_settings(SKELETON_DEPLOYMENT_STATE=state, SKELETON_MAINTENANCE_MARKER=None):
         middleware = MaintenanceMiddleware(lambda request: HttpResponse("ok"))
         assert json.loads(middleware(RequestFactory().get("/health/release/")).content)["generation"] == 0
+
+
+# --- /platform/ guard and form (#447) ---------------------------------------------------------
+
+
+class _User:
+    def __init__(self, *, staff=False, superuser=False, authenticated=True):
+        self.is_authenticated = authenticated
+        self.is_active = True
+        self.deleted_at = None
+        self.is_staff = staff
+        self.is_superuser = superuser
+
+
+def test_platform_guard_lets_only_full_administrators_through_during_the_mode(store_file):
+    from skeleton.web.maintenance import MaintenancePlatformGuardMiddleware
+
+    state = enter(InstanceStore(store_file), message="Janela", ends_at=None, pause_jobs=True, source="t")
+    called = []
+    guard = MaintenancePlatformGuardMiddleware(lambda request: called.append(request) or HttpResponse("ok"))
+    factory = RequestFactory()
+    people = {
+        "anonymous": _User(authenticated=False),
+        "staff only": _User(staff=True),
+        "superuser only": _User(superuser=True),
+        "member": _User(),
+    }
+    for name, user in people.items():
+        request = factory.get("/platform/audit/")
+        request.user, request.skeleton_maintenance = user, state
+        response = guard(request)
+        assert response.status_code == 503, name
+        assert "next=%2Fplatform%2Fmaintenance%2F" in response.content.decode()
+    request = factory.get("/platform/audit/")
+    request.user, request.skeleton_maintenance = _User(staff=True, superuser=True), state
+    assert guard(request).status_code == 200
+    outside = factory.get("/accounts/login/")  # Open routes outside /platform/ are not this guard's business.
+    outside.user, outside.skeleton_maintenance = _User(), state
+    assert guard(outside).status_code == 200
+    no_mode = factory.get("/platform/audit/")  # Without the mode the platform guards decide, as before.
+    no_mode.user = _User()
+    assert guard(no_mode).status_code == 200
+    assert len(called) == 3
+
+
+def test_enter_form_validates_confirmation_end_and_message():
+    from skeleton.web.platform.maintenance_views import EnterMaintenanceForm
+
+    valid = EnterMaintenanceForm({"message": "Janela", "pause_jobs": "on", "confirm": "on"})
+    assert valid.is_valid(), valid.errors
+    assert valid.cleaned_data["pause_jobs"] is True and valid.cleaned_data["ends_at"] is None
+    assert EnterMaintenanceForm().initial == {} and EnterMaintenanceForm().fields["pause_jobs"].initial is True
+    assert "confirm" in EnterMaintenanceForm({"message": "x"}).errors
+    past = (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
+    assert "ends_at" in EnterMaintenanceForm({"ends_at": past, "confirm": "on"}).errors
+    future = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")
+    assert EnterMaintenanceForm({"ends_at": future, "confirm": "on"}).is_valid()
+    assert "message" in EnterMaintenanceForm({"message": "x" * 501, "confirm": "on"}).errors
+    assert "message" in EnterMaintenanceForm({"message": "a\x1bb", "confirm": "on"}).errors
+    assert "message" in EnterMaintenanceForm({"message": "a‮b", "confirm": "on"}).errors
+
+
+def test_middleware_order_check_requires_the_guard_after_authentication(settings):
+    from skeleton.system.checks.contract import record_contract_checks
+
+    guard = "skeleton.web.maintenance.MaintenancePlatformGuardMiddleware"
+    auth = "django.contrib.auth.middleware.AuthenticationMiddleware"
+    assert guard in settings.MIDDLEWARE
+    assert settings.MIDDLEWARE.index(auth) < settings.MIDDLEWARE.index(guard)
+
+    def e009():
+        return [error for error in record_contract_checks(None) if error.id == "skeleton.E009"]
+
+    assert e009() == []
+    middleware = [item for item in settings.MIDDLEWARE if item != guard]
+    settings.MIDDLEWARE = [*middleware[: middleware.index(auth)], guard, *middleware[middleware.index(auth) :]]
+    assert e009()

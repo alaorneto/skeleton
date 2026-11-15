@@ -367,7 +367,7 @@ class MaintenanceMiddleware:
         )
 
     def __call__(self, request):
-        from skeleton.common.maintenance_response import maintenance_response
+        from skeleton.common.maintenance_response import maintenance_response, platform_login_url
         from skeleton.instance.maintenance import current_state
 
         if request.path_info == "/health/release/":
@@ -379,17 +379,12 @@ class MaintenanceMiddleware:
         state = current_state()
         if state.is_active():
             if not maintenance_open_route(request):
-                from urllib.parse import urlencode
-
-                from django.urls import reverse
-
-                login_url = f"{reverse('account_login')}?{urlencode({'next': '/platform/'})}"
                 return maintenance_response(
                     request,
                     message=state.message,
                     ends_at=state.ends_at,
                     retry_after=state.retry_after(),
-                    login_url=login_url,
+                    login_url=platform_login_url(),
                 )
             request.skeleton_maintenance = state
         return self.get_response(request)

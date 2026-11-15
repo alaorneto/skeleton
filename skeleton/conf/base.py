@@ -70,6 +70,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "skeleton.accounts.middleware.AuthVersionMiddleware",
+    # Administrative maintenance (#447): /platform/ only for full administrators, 503 for everyone else.
+    "skeleton.web.maintenance.MaintenancePlatformGuardMiddleware",
     "skeleton.integrations.tokens.middleware.ApiTokenMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "skeleton.tenancy.middleware.TenantContextMiddleware",

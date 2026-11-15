@@ -18,6 +18,15 @@ ADMINISTRATIVE_DEFAULT = "O sistema está em manutenção. Tente novamente mais 
 DEPLOYMENT_DEFAULT = "O sistema está sendo atualizado. Tente novamente em instantes."
 
 
+def platform_login_url() -> str:
+    """The login that brings a platform administrator back to the maintenance page (#447)."""
+    from urllib.parse import urlencode
+
+    from django.urls import reverse
+
+    return f"{reverse('account_login')}?{urlencode({'next': reverse('platform:maintenance')})}"
+
+
 def wants_json(request: HttpRequest) -> bool:
     """The API prefix, or a client that asks for JSON and not for HTML."""
     if request.path_info.startswith("/api/"):
