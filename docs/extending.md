@@ -384,6 +384,8 @@ Bootstrap/sync reconcilia TablePermission de organization_admin para a tabela ex
 7. Exclusão `.../<sysid>/delete/` e restore `.../<sysid>/restore/` via POST/revisão; GET não apaga. Tombstone não volta à lista viva.
 8. Audit `/o/<org>/audit/`: body redigido; contagem/lista autorizadas.
 
+As páginas de erro do Django (`400.html`, `403.html`, `403_csrf.html`, `404.html`, `500.html`) vêm do núcleo, em `skeleton/web/templates/`, e estendem `skeleton/web/error_base.html` ([interface](ui-design.md#páginas-de-erro)). Um projeto derivado as sobrescreve com um arquivo do mesmo nome em `templates/` na raiz do projeto, que vem antes em `TEMPLATES["DIRS"]`; o `500.html` não pode usar `{% url %}` nem variável de contexto. Erros de operação numa view usam `skeleton.web.errors.error_response`, nunca `render` com `error.html`.
+
 Só botões permitidos aparecem, mas servidor revalida cada ação. Usuário comum que recebe visibilidade organization pode ler, não ganha escrita. Relacionamentos de novos apps exigem PROTECT + guard same-tenant e FK picker autorizado.
 
 ## Fluxo API de ponta a ponta

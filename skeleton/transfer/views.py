@@ -18,6 +18,7 @@ from django.utils.translation import gettext
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
+from skeleton.web.errors import error_response
 from skeleton.web.views import tenant_page
 
 
@@ -33,9 +34,7 @@ def export_request(request, organization_id, table_key):
     except PermissionDenied:
         raise Http404 from None
     except ValidationError:
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("Verifique os filtros informados.")}, status=400
-        )
+        return error_response(request, gettext("Verifique os filtros informados."), status=400)
     messages.success(request, gettext("Exportação na fila. O arquivo aparece aqui quando estiver pronto."))
     return redirect("transfer:list", organization_id=organization_id)
 
@@ -53,9 +52,7 @@ def audit_export_request(request, organization_id):
     except PermissionDenied:
         raise Http404 from None
     except ValidationError:
-        return render(
-            request, "skeleton/web/error.html", {"detail": gettext("Verifique os filtros informados.")}, status=400
-        )
+        return error_response(request, gettext("Verifique os filtros informados."), status=400)
     messages.success(request, gettext("Exportação na fila. O arquivo aparece aqui quando estiver pronto."))
     return redirect("transfer:list", organization_id=organization_id)
 
@@ -169,12 +166,7 @@ def import_confirm(request, organization_id, sysid):
     except PermissionDenied:
         raise Http404 from None
     except ValidationError:
-        return render(
-            request,
-            "skeleton/web/error.html",
-            {"detail": gettext("Só uma prévia sem erros pode ser aplicada.")},
-            status=409,
-        )
+        return error_response(request, gettext("Só uma prévia sem erros pode ser aplicada."), status=409)
     messages.success(request, gettext("Importação na fila. O resultado aparece aqui."))
     return redirect("transfer:list", organization_id=organization_id)
 

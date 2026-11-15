@@ -124,6 +124,15 @@ Regras:
 6. Lista vazia com `empty-row.html`.
 7. Nunca `<br>` para empilhar: use `cell-secondary`.
 
+### Páginas de erro
+
+Toda recusa mostra uma página em português, com a marca, uma frase do que aconteceu e o caminho de volta ([#473](https://github.com/alaorneto/skeleton/issues/473)).
+
+- **Erros do Django:** `400.html`, `403.html`, `403_csrf.html` ("A página expirou", com "Entrar novamente"), `404.html` e `500.html`, na raiz de `skeleton/web/templates/`. Estendem `skeleton/web/error_base.html`, um layout autônomo: não estende `base.html`, não usa `{% url %}` nem variável de contexto, e por isso renderiza no 500 e em modo setup. A ação padrão é "Ir para o início" (`/`).
+- O `404.html` tem um texto só para "não existe" e "sem acesso" e não mostra o caminho pedido: as duas respostas são idênticas byte a byte (teste A/B em `tests/integration/test_error_pages.py`). O 500 não mostra a exceção; o traceback vai só para o log e o relato de erros. A página de CSRF não muda a verificação (não há `CSRF_FAILURE_VIEW`).
+- **Erros de operação:** `skeleton.web.errors.error_response(request, detail, *, status, back_url=None, back_label=None)` renderiza `skeleton/web/error.html` com um título pelo status (400 "Não foi possível concluir", 403 "Acesso não permitido", 404 "Página não encontrada", 409 "Os dados mudaram", 413 "Arquivo grande demais", 429 "Muitas tentativas"), o detalhe e "Voltar" ("Voltar e recarregar" no 409) para `back_url` ou para o `Referer` validado com `url_has_allowed_host_and_scheme` contra o host do pedido; sempre há "Ir para o início". Nunca chame `render` com `error.html` direto.
+- Recusa de validação que tem uma tela de origem (envio de anexo) volta a ela com `messages.error`, em vez de uma página de erro.
+
 ### Datas e horas
 
 Toda data e hora na interface aparece como `15/11/2026 14:30` (só a data: `15/11/2026`; só a hora: `14:30`), no fuso efetivo da pessoa, da organização ou da instância ([#468](https://github.com/alaorneto/skeleton/issues/468)). O formato vem de um ponto só, `FORMAT_MODULE_PATH = ["skeleton.conf.formats"]` (pacote `skeleton/conf/formats/pt_BR/`), que também vale para `presentation._value` nas listas e no detalhe genéricos.

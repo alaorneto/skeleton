@@ -42,6 +42,7 @@ from skeleton.service_api import errors as service_errors
 from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
+from skeleton.web.errors import error_response
 from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
 from skeleton.web.presentation import (
     audit_rows,
@@ -145,19 +146,9 @@ def tenant_page(*, admin=False, capability=None):
             except service_errors.Forbidden:
                 raise PermissionDenied from None
             except (ValidationError, service_errors.InvalidInput):
-                return render(
-                    request,
-                    "skeleton/web/error.html",
-                    {"detail": gettext("Verifique os campos ou filtros informados.")},
-                    status=400,
-                )
+                return error_response(request, gettext("Verifique os campos ou filtros informados."), status=400)
             except (IntegrityError, service_errors.Conflict):
-                return render(
-                    request,
-                    "skeleton/web/error.html",
-                    {"detail": gettext("A operação conflita com os dados existentes.")},
-                    status=409,
-                )
+                return error_response(request, gettext("A operação conflita com os dados existentes."), status=409)
 
         return wrapper
 
