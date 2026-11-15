@@ -39,6 +39,44 @@ def version_satisfies(version, specifier):
     return bool(SpecifierSet(validate_specifier(specifier)).contains(Version(str(version)), prereleases=True))
 
 
+def release_line(version):
+    """``(major, minor)`` of a component version: the line it belongs to (#493)."""
+    parsed = Version(normalize_version(version))
+    return parsed.major, parsed.minor
+
+
+def adjacent_release_line(current, target):
+    """True when ``target`` is in the line of ``current``, in the next minor of the same major,
+    or in the first line (``X+1.0``) of the next major: an update never skips a line (#493)."""
+    (current_major, current_minor), (target_major, target_minor) = release_line(current), release_line(target)
+    if target_major == current_major:
+        return 0 <= target_minor - current_minor <= 1
+    return target_major == current_major + 1 and target_minor == 0
+
+
+def upgrade_sources(version, known_versions=(), *, earliest=None):
+    """Installed versions a release accepts: its own line and the line right before it (#494).
+
+    ``known_versions`` are the versions already published; ``earliest`` is used only when no
+    earlier line is known (the first automated release). Returns ``>=<floor>,<=<version>``.
+    """
+    version = normalize_version(version)
+    line = release_line(version)
+    earlier = {
+        release_line(value)
+        for value in (normalize_version(known) for known in known_versions)
+        if Version(value) < Version(version)
+    }
+    previous = max((item for item in earlier if item < line), default=None)
+    if previous is not None:
+        floor = f"{previous[0]}.{previous[1]}.0"
+    elif earliest is not None:
+        floor = normalize_version(earliest)
+    else:
+        floor = version
+    return f">={floor},<={version}"
+
+
 def core_version():
     """Installed distribution metadata is authoritative; checkout is explicitly source."""
     try:

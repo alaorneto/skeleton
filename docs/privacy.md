@@ -2,6 +2,8 @@
 
 O núcleo atende os direitos da pessoa sobre os dados que ele mesmo guarda: a identidade global, o perfil, os tokens e, em cada organização, o vínculo, as notificações e os anexos enviados. Os registros de negócio pertencem a cada organização, que é a controladora deles, e ficam fora daqui.
 
+A consulta opcional de versão nova ao GitHub (`SKELETON_UPDATE_REPOSITORY`, #502) não envia dado pessoal nem identificação da instalação: só o pedido do release mais recente, com `User-Agent: django-skeleton`; o GitHub vê o endereço IP do servidor, por isso ela é desligada por padrão.
+
 ## Exportação dos próprios dados
 
 Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://github.com/alaorneto/skeleton/issues/190)). O arquivo traz:

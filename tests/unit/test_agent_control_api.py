@@ -216,3 +216,59 @@ def test_error_response_carries_only_code_and_details(agent):
 
     agent.server.service.preview = plain
     assert send(agent, json_request("/preview", body)) == (409, {"error": "deployment_busy"})
+
+
+def test_update_status_route_is_an_authenticated_get(agent):
+    agent.server.service.update_status = lambda: agent.calls.append("update_status") or {"paths": []}
+    assert send(agent, http_request("GET", "/updates/status")) == (200, {"paths": []})
+    assert agent.calls == ["update_status"]
+    assert send(agent, http_request("GET", "/updates/status", token=None)) == (401, {"error": "unauthorized"})
+    assert send(agent, http_request("GET", "/updates/status?refresh=1")) == (400, {"error": "invalid_control_path"})
+    assert agent.calls == ["update_status"]
+
+
+def test_agent_update_route_validates_its_body(agent):
+    received = []
+
+    def update_agent(release, *, actor_id=None):
+        received.append((release, actor_id))
+        return {"state": "restarting", "version": "0.7.0"}
+
+    agent.server.service.update_agent = update_agent
+    body = {"release": "a" * 64, "actor_id": OPERATION}
+    assert send(agent, json_request("/agent/update", body)) == (200, {"state": "restarting", "version": "0.7.0"})
+    assert received == [("a" * 64, OPERATION)]
+    assert send(agent, json_request("/agent/update", body, token=None))[0] == 401
+    for invalid, code in (
+        ({}, "invalid_agent_update_fields"),
+        ({"release": "a" * 64, "path": "/tmp"}, "invalid_agent_update_fields"),
+        ({"release": "../x"}, "invalid_digest"),
+        ({"release": "a" * 64, "actor_id": "nobody"}, "invalid_uuid"),
+    ):
+        assert send(agent, json_request("/agent/update", invalid)) == (400, {"error": code})
+    assert len(received) == 1
+
+
+def test_sources_routes(agent):
+    calls = []
+    agent.server.service.sources = lambda: {"sources": []}
+    agent.server.service.set_source = lambda payload, actor_id=None: calls.append(("set", payload, actor_id)) or {}
+    agent.server.service.remove_source = lambda source_id, actor_id=None: (
+        calls.append(("remove", source_id, actor_id)) or {}
+    )
+    assert send(agent, http_request("GET", "/sources")) == (200, {"sources": []})
+    assert send(agent, http_request("GET", "/sources", token=None))[0] == 401
+    body = {"id": "fork", "github": "acme/skeleton", "publisher": "acme", "actor_id": OPERATION}
+    assert send(agent, json_request("/sources/set", body))[0] == 200
+    assert send(agent, json_request("/sources/remove", {"id": "fork", "actor_id": OPERATION}))[0] == 200
+    assert calls == [
+        ("set", {"id": "fork", "github": "acme/skeleton", "publisher": "acme"}, OPERATION),
+        ("remove", "fork", OPERATION),
+    ]
+    assert send(agent, json_request("/sources/set", {**body, "url": "https://evil.example"})) == (
+        400,
+        {"error": "unknown_fields"},
+    )
+    assert send(agent, json_request("/sources/remove", {"actor_id": OPERATION})) == (400, {"error": "unknown_fields"})
+    assert send(agent, json_request("/sources/set", body, token=None))[0] == 401
+    assert len(calls) == 2

@@ -7,7 +7,9 @@ After=network.target
 User=skeleton-agent
 Group=skeleton-web
 UMask=0077
-ExecStart=/opt/skeleton-agent/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
+# agent_root (#497): current -> versions/<version>-<digest>; a self-update swaps the link and exits
+# with 75, and Restart=on-failure starts the new version.
+ExecStart=/opt/skeleton-agent/current/venv/bin/skeleton-deployment-agent --config /srv/skeleton/private/agent.json serve
 Restart=on-failure
 # SIGTERM: stop accepting requests and wait for the running operation (#280).
 KillSignal=SIGTERM

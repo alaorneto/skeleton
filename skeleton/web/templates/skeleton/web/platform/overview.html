@@ -20,6 +20,7 @@
       <div><dt>{% translate "Manutenção" %}</dt><dd>{% if request.skeleton_maintenance %}<a class="badge badge-warning" href="{% url 'platform:maintenance' %}">{% translate "ativa" %}</a>{% else %}<a href="{% url 'platform:maintenance' %}">{% translate "inativa" %}</a>{% endif %}</dd></div>
     </dl>
     <a class="btn btn-secondary btn-sm mt-4" href="{% url 'platform:updates' %}">{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Versões e atualizações" %}</a>
+    {% if platform_update_notice is not None %}<div class="mt-4" aria-labelledby="overview-updates"><h3 id="overview-updates" class="mb-1">{% translate "Atualizações" %}</h3><p class="text-sm/6 text-body">{% if platform_update_notice.mode %}{% include "skeleton/web/platform/update-notice.html" %}{% else %}{% translate "Tudo atualizado." %}{% endif %}</p></div>{% endif %}
   </section>
   <section class="card lg:col-span-2" aria-labelledby="overview-operations">
     <h2 id="overview-operations" class="mb-3">{% translate "Operações recentes" %}</h2>

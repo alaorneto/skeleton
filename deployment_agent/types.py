@@ -51,6 +51,7 @@ class Plan(TypedDict, total=False):
     backend: str
     presentation_changes: list[JSON]
     resources: list[JSON]
+    dropped_dependencies: list[str]
     digest: str
 
 

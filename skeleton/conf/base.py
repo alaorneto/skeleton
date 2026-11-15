@@ -96,6 +96,7 @@ TEMPLATES = [
                 "skeleton.system.applications.application_navigation",
                 "skeleton.web.navigation.organization_shell",
                 "skeleton.accounts.platform.platform_admin_context",
+                "skeleton.web.platform.context.platform_update_notice",
             ]
         },
     }
@@ -379,6 +380,10 @@ if any(not path.startswith("/") or "?" in path or "#" in path for path in SKELET
     raise ImproperlyConfigured("Deployment smoke paths must be exact URL paths.")
 SKELETON_AGENT_SOCKET = env("SKELETON_AGENT_SOCKET", default=None)
 SKELETON_AGENT_TOKEN_FILE = env("SKELETON_AGENT_TOKEN_FILE", default=None)
+# Informative update notice of installations without agent (#502): opt-in, it reveals the IP to GitHub.
+SKELETON_UPDATE_REPOSITORY = env("SKELETON_UPDATE_REPOSITORY", default="")
+SKELETON_UPDATE_GITHUB_TOKEN_FILE = env("SKELETON_UPDATE_GITHUB_TOKEN_FILE", default=None)
+SKELETON_UPDATE_CHECK_HOURS = max(1, env.int("SKELETON_UPDATE_CHECK_HOURS", default=24))
 SKELETON_PACKAGE_MAX_BYTES = env.int("SKELETON_PACKAGE_MAX_BYTES", default=128 * 1024 * 1024)
 if SKELETON_PACKAGE_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured

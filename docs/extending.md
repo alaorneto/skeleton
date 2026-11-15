@@ -225,6 +225,8 @@ Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e n
 .venv/bin/python manage.py package versions --manifest applications/tasks/manifest.json
 ```
 
+Apps continuam publicadas em pacote de componente (`kind: "app"`), com os próprios wheels em `python_dependencies`. O pacote de release (`kind: "release"`, [Pacote de release](deployment.md#pacote-de-release)) é só do core: leva o pacote do core, o lock e os wheels de cada alvo e o wheel do agente.
+
 O trust store, ou lista de chaves de publicadores confiáveis, é um JSON administrado pelo operador, por exemplo `{"example-publisher": "/private/publisher.pub.pem"}`. A chave do mapa é o `publisher` do manifesto; valores aceitam PEM público literal, caminho PEM ou `{"public_key": "/private/publisher.pub.pem", "publisher": "example-publisher"}`. Caminhos relativos do CLI são relativos ao arquivo de configuração. A API também aceita objetos `Ed25519PublicKey`. A chave pública pode verificar assinaturas; a privada deve ficar somente com quem está autorizado a publicar. Chaves públicas trazidas pelo próprio pacote nunca são âncoras de confiança. Revogação/rotação exige alterar explicitamente esse arquivo privado. `inspect` sem trust store mostra `"trusted": false`, mesmo quando os hashes são íntegros.
 
 Build gera o inventário completo, excluindo somente o próprio manifesto e caches/artefatos de build conhecidos; recusa symlinks, secrets/private keys, output dentro da app, namespaces reservados, docs incompletos e dependências não inventariadas. O ZIP tem exatamente `manifest.json`, `manifest.sig`, `app/` e wheels opcionais. Assinatura Ed25519 cobre os bytes canônicos exatos do manifesto; SHA-256/tamanhos cobrem todos os payloads. Validação recusa membros extras/duplicados, colisões normalizadas, travessia, links/dispositivos, arquivos/diretórios conflitantes e limites de ZIP (512 MiB comprimido, 1 GiB expandido, 256 MiB por arquivo, 4096 membros, expansão máxima 200:1).
@@ -251,6 +253,18 @@ Extração offline exige raiz nova e separada: `package extract ARTIFACT --trust
 .venv/bin/python manage.py package validate-index /private/index.json \
   --trust-store /private/trusted-publishers.json --minimum-generation 1 --channel stable
 ```
+
+**Índice acumulado (#494).** `package index` aceita também pacotes de release: a entrada é a do core daquela versão (`kind: "core"`), com o `digest` e a assinatura do pacote de release e a compatibilidade e as migrations do core embutido. `--previous <índice anterior>` reconstrói o índice acumulando os releases já publicados: as entradas anteriores são mantidas, as novas são acrescentadas e uma entrada com a mesma identidade (`component_id`, versão, canal) é substituída. O índice anterior precisa ter assinatura válida do mesmo `--publisher` e geração menor que `--generation` (a geração só cresce); ele pode estar vencido, porque só a publicação lê índice vencido (`validate_catalog(..., allow_expired=True)`): o agente continua recusando. Com `--previous` e nenhum artefato, o comando renova a validade (mesmas entradas, geração e validade novas). O resultado informa `generation`. Com `--artifact-base v0.6.0`, o `artifact` de cada entrada vira o caminho relativo `v0.6.0/<arquivo>`.
+
+```sh
+.venv/bin/python manage.py package index /private/artifacts/skeleton-release-0.6.1.skapp \
+  --previous /private/index/skeleton-index.json --artifact-base v0.6.1 \
+  --output /private/index/skeleton-index-new.json --private-key /private/publisher.pem \
+  --trust-store /private/trusted-publishers.json --publisher example-publisher \
+  --generation 12 --expires-at 2027-01-31T00:00:00Z
+```
+
+O [guia de atualização](updates.md#apps) descreve como uma app publica o próprio índice num repositório do GitHub e como as instalações a consultam. Recomendação para apps: declare `migrations.from_versions` com a mesma política do core, a própria linha e a anterior (`>=1.4.0,<=1.5.2` para a 1.5.2, publicada depois da linha 1.4). Para apps o agente não impõe a parada em cada linha: o `from_versions` do publicador é a regra.
 
 O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON canônico do corpo. Entradas contêm componente, tipo, versão, canal, compatibilidade, referência HTTPS/relativa ao artefato, SHA-256 do ZIP, assinatura do manifesto, publisher, notas e migrations. O formato 2 (`catalog_version: 2`, gerado por `package index`) acrescenta `dependencies` e `conflicts`, que permitem à prévia sugerir dependências; índices no formato 1 continuam válidos, e em ambos o manifesto do artefato baixado é a fonte que vale. Índices expirados, adulterados e gerações abaixo da última confirmada são rejeitados; canais são allowlist do operador. O agente só consulta fontes previamente autorizadas, não URLs fornecidas pelo upload. `versions` distingue metadata da distribuição instalada de checkout (`origin: source`) e manifests locais (`project-local`); um arquivo JSON isolado nunca prova release instalado.
 

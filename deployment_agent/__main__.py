@@ -6,6 +6,7 @@ import sys
 import time
 from typing import Any
 
+from . import selfupdate
 from .config import Config
 from .server import StatusTickets, serve
 from .service import DeploymentService
@@ -41,6 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--actor-id", required=True)
     submit.add_argument("--request-id", required=True)
     commands.add_parser("check-updates")
+    commands.add_parser("sources", help="Release sources: the agent file's and the ones registered on the page")
+    commands.add_parser("update-status", help="Last check of the sources and the update paths, without network")
     fetch = commands.add_parser("fetch-release")
     fetch.add_argument("component_id")
     fetch.add_argument("version")
@@ -54,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator reviewed loss/reconciliation of writes after cutover",
     )
     commands.add_parser("revoke-status-tickets")
+    commands.add_parser("selfcheck", help="Load the configuration and the agent modules; print the version")
+    install = commands.add_parser(
+        "agent-install", help="Offline: install or update the agent from a signed release package (agent_root)"
+    )
+    install.add_argument("--release", required=True)
+    install.add_argument("--root", help="Agent root directory instead of agent_root")
+    rollback = commands.add_parser("agent-rollback", help="Offline: point the agent back at its previous version")
+    rollback.add_argument("--root", help="Agent root directory instead of agent_root")
     prune = commands.add_parser(
         "prune", help="Offline: list, and with --apply remove, releases, plans, images and backups no operation needs"
     )
@@ -84,6 +95,10 @@ OFFLINE = {
         plan_days=options.plan_days, backup_days=options.backup_days, apply=options.apply
     ),
     "revoke-status-tickets": lambda service, options: revoke_status_tickets(service),
+    "agent-install": lambda service, options: selfupdate.install_from_file(
+        service.config, options.release, root=options.root
+    ),
+    "agent-rollback": lambda service, options: selfupdate.rollback(service.config, root=options.root),
 }
 ONLINE = {
     "inventory": lambda client, options: client.inventory(),
@@ -98,6 +113,8 @@ ONLINE = {
         options.request_id,
     ),
     "check-updates": lambda client, options: client.check_updates(),
+    "sources": lambda client, options: client.sources(),
+    "update-status": lambda client, options: client.update_status(),
     "fetch-release": lambda client, options: client.fetch_release(
         options.component_id, options.version, options.source_id
     ),
@@ -121,10 +138,12 @@ def main() -> int:
     options = build_parser().parse_args()
     try:
         config = Config.load(options.config)
+        if options.command == "selfcheck":  # Writes nothing: not even the service's directories.
+            print(json.dumps(selfupdate.selfcheck(config), sort_keys=True))
+            return 0
         service = DeploymentService(config)
         if options.command == "serve":
-            serve(service)
-            return 0
+            return serve(service)
         if options.command in OFFLINE:
             result = OFFLINE[options.command](service, options)
         else:

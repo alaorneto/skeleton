@@ -9,6 +9,7 @@ import os
 import zipfile
 from pathlib import Path
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import Version
 
@@ -18,8 +19,10 @@ from skeleton.system.packages import (
     _read_member,
     build_artifact,
     load_trust_store,
+    validate_manifest,
     validate_package,
 )
+from skeleton.versioning import normalize_version, upgrade_sources
 
 
 def _digest(data):
@@ -53,7 +56,87 @@ def wheel_inventory(wheel):
             raise PackageError("Expected a django-skeleton core wheel.")
         if "skeleton/__init__.py" not in inventory or "skeleton/conf/base.py" not in inventory:
             raise PackageError("Core wheel lacks reusable defaults.")
-        return {"version": metadata[0]["Version"], "files": inventory}
+        return {
+            "version": metadata[0]["Version"],
+            "files": inventory,
+            # Read from the same METADATA, for core_manifest (#494).
+            "requires_python": metadata[0].get("Requires-Python"),
+            "requires_dist": list(metadata[0].get_all("Requires-Dist", ())),
+        }
+
+
+def _django_range(requirements):
+    """``>=X.Y,<X.(Y+1)`` from the core wheel's exact Django pin (``==X.Y.Z`` or ``==X.Y``)."""
+    pins = [Requirement(value) for value in requirements if canonicalize_name(Requirement(value).name) == "django"]
+    specifiers = list(pins[0].specifier) if len(pins) == 1 and not pins[0].marker else []
+    if len(specifiers) != 1 or specifiers[0].operator != "==" or "*" in specifiers[0].version:
+        raise PackageError("Core wheel must pin Django to derive compatibility.")
+    release = Version(specifiers[0].version).release
+    if len(release) not in (2, 3):
+        raise PackageError("Core wheel must pin Django to derive compatibility.")
+    return f">={release[0]}.{release[1]},<{release[0]}.{release[1] + 1}"
+
+
+def core_manifest(
+    wheel_path,
+    *,
+    publisher,
+    known_versions=(),
+    earliest_source=None,
+    name="Skeleton",
+    description="Skeleton core release",
+    release_notes="",
+    build="",
+):
+    """The core manifest of a wheel (#494): versions from the wheel, sources from the line policy.
+
+    The manifest uses the input format of build_core_release (``files: []``); dependencies travel
+    per target in the release package, not here.
+    """
+    wheel = Path(wheel_path)
+    base = wheel_inventory(wheel)
+    version = normalize_version(base["version"])
+    sources = upgrade_sources(version, known_versions, earliest=earliest_source)
+    try:
+        django = _django_range(base["requires_dist"])
+    except InvalidRequirement as exc:
+        raise PackageError("Core wheel must pin Django to derive compatibility.") from exc
+    if not base["requires_python"]:
+        raise PackageError("Core wheel must declare Requires-Python.")
+    data = wheel.read_bytes()
+    manifest = {
+        "manifest_version": 2,
+        "kind": "core",
+        "component_id": "django-skeleton",
+        "name": name,
+        "description": description,
+        "version": version,
+        "publisher": publisher,
+        "compatibility": {"skeleton": sources, "python": base["requires_python"], "django": django},
+        "dependencies": {},
+        "migrations": {"leaves": [], "from_versions": sources},
+        "files": [],
+        "python_dependencies": [
+            {
+                "name": "django-skeleton",
+                "version": base["version"],
+                "wheel": "wheels/" + wheel.name,
+                "sha256": _digest(data),
+            }
+        ],
+        "lifecycle": {"data_retention": "retain", "maintenance": True, "backup": True},
+    }
+    if release_notes:
+        manifest["release_notes"] = release_notes
+    if build:
+        manifest["build"] = build
+    # validate_manifest checks the inventoried form; the input form keeps files empty.
+    inventoried = {
+        **manifest,
+        "files": [{"path": "wheels/" + wheel.name, "size": len(data), "sha256": _digest(data), "role": "wheel"}],
+    }
+    checked = validate_manifest(inventoried)
+    return {**checked, "files": []}
 
 
 def build_core_release(wheel_path, manifest_path, output_path, private_key_path, *, wheels=()):
@@ -181,6 +264,14 @@ def main(argv=None):
     build.add_argument("--output", required=True)
     build.add_argument("--private-key", required=True)
     build.add_argument("--dependency-wheel", action="append", default=[])
+    generated = commands.add_parser("manifest", help="Generate the core manifest of a wheel (line policy, #494)")
+    generated.add_argument("--wheel", required=True)
+    generated.add_argument("--publisher", required=True)
+    generated.add_argument("--output", required=True)
+    generated.add_argument("--known-version", action="append", default=[], help="Already published version")
+    generated.add_argument("--earliest-source", help="Floor of the first automated release")
+    generated.add_argument("--release-notes-file")
+    generated.add_argument("--build", default="")
     for name in ("adoption-plan", "adopt"):
         command = commands.add_parser(name)
         command.add_argument("--project-root", required=True)
@@ -190,7 +281,25 @@ def main(argv=None):
             command.add_argument("--backup-root", required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "build":
+        if args.command == "manifest":
+            notes = ""
+            if args.release_notes_file:
+                path = Path(args.release_notes_file)
+                if path.stat().st_size > 64 * 1024:
+                    raise PackageError("Release notes file is too large.")
+                notes = path.read_text(encoding="utf-8")
+            value = core_manifest(
+                args.wheel,
+                publisher=args.publisher,
+                known_versions=args.known_version,
+                earliest_source=args.earliest_source,
+                release_notes=notes,
+                build=args.build,
+            )
+            with Path(args.output).open("xb") as handle:
+                handle.write(json.dumps(value, sort_keys=True, ensure_ascii=False, indent=2).encode("utf-8") + b"\n")
+            print(args.output)
+        elif args.command == "build":
             print(
                 build_core_release(
                     args.wheel, args.manifest, args.output, args.private_key, wheels=args.dependency_wheel
