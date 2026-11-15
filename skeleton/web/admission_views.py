@@ -16,6 +16,7 @@ from django.http import Http404
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.translation import gettext
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST, require_safe
 
@@ -24,6 +25,7 @@ from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.tenancy import admission
 from skeleton.tenancy.context import current_context
 from skeleton.tenancy.site import shareable_url
+from skeleton.web.errors import error_response
 
 from .views import tenant_page
 
@@ -80,11 +82,8 @@ class JoinRequestForm(forms.Form):
 
 
 def _rate_limited(request, retry_after):
-    response = render(
-        request,
-        "skeleton/web/error.html",
-        {"detail": "Muitas solicitações em pouco tempo. Tente de novo mais tarde."},
-        status=429,
+    response = error_response(
+        request, gettext("Muitas solicitações em pouco tempo. Tente de novo mais tarde."), status=429
     )
     response["Retry-After"] = str(retry_after)
     return response
@@ -151,11 +150,8 @@ def join_withdraw(request, sysid):
     except admission.JoinUnavailable:
         raise Http404 from None
     except (ConcurrentUpdate, ValidationError):
-        return render(
-            request,
-            "skeleton/web/error.html",
-            {"detail": "O pedido mudou desde que a página foi aberta. Atualize e tente de novo."},
-            status=409,
+        return error_response(
+            request, gettext("O pedido mudou desde que a página foi aberta. Atualize e tente de novo."), status=409
         )
     messages.success(request, "Pedido retirado.")
     return redirect("web:join")

@@ -1,11 +1,11 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n %}{% block title %}{% translate "Fluxos em dados" %}{% endblock %}
+{% load i18n %}{% block title %}{% translate "Fluxos em dados" %} · {{ site_name }}{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:instances' organization_id %}">{% translate "Processos" %}</a></li><li><span aria-current="page">{% translate "Fluxos em dados" %}</span></li></ol></nav>
-<div class="page-header"><div class="min-w-0"><h1>{% translate "Fluxos em dados" %}</h1><p class="page-description">{% translate "Fluxos que a organização define sem código, usando só o que as apps registraram. Um rascunho vira uma versão nova ao ser publicado; uma versão publicada não muda." %}</p></div></div>
-<div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Rótulo" %}</th><th scope="col">{% translate "Versão publicada" %}</th><th scope="col">{% translate "Problemas" %}</th></tr></thead><tbody>
-{% for row in rows %}<tr><td><a href="{% url 'flows:draft' organization_id row.sysid %}">{{ row.key }}</a></td><td>{{ row.label }}</td><td>{{ row.published_version|default:"—" }}</td><td>{{ row.problems|length }}</td></tr>
-{% empty %}<tr><td colspan="4" class="empty-state">{% translate "Nenhum fluxo em dados." %}</td></tr>{% endfor %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Fluxos de processo" %}</p><h1>{% translate "Fluxos em dados" %}</h1><p class="page-description">{% translate "Fluxos que a organização define sem código, usando só o que as apps registraram. Um rascunho vira uma versão nova ao ser publicado; uma versão publicada não muda." %}</p></div></div>
+{% include "skeleton/flows/_nav.html" %}
+<div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Rótulo" %}</th><th scope="col" class="col-num">{% translate "Versão publicada" %}</th><th scope="col" class="col-num">{% translate "Problemas" %}</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><a class="cell-primary" href="{% url 'flows:draft' organization_id row.sysid %}">{{ row.key }}</a></td><td>{{ row.label }}</td><td class="col-num">{{ row.published_version|default:"—" }}</td><td class="col-num">{{ row.problems|length }}</td></tr>
+{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum fluxo em dados.") %}{% endfor %}
 </tbody></table></div>
 <section class="card" aria-labelledby="new-draft">
   <h2 id="new-draft" class="section-heading">{% translate "Novo rascunho" %}</h2>

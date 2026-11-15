@@ -384,6 +384,8 @@ Bootstrap/sync reconcilia TablePermission de organization_admin para a tabela ex
 7. Exclusão `.../<sysid>/delete/` e restore `.../<sysid>/restore/` via POST/revisão; GET não apaga. Tombstone não volta à lista viva.
 8. Audit `/o/<org>/audit/`: body redigido; contagem/lista autorizadas.
 
+As páginas de erro do Django (`400.html`, `403.html`, `403_csrf.html`, `404.html`, `500.html`) vêm do núcleo, em `skeleton/web/templates/`, e estendem `skeleton/web/error_base.html` ([interface](ui-design.md#páginas-de-erro)). Um projeto derivado as sobrescreve com um arquivo do mesmo nome em `templates/` na raiz do projeto, que vem antes em `TEMPLATES["DIRS"]`; o `500.html` não pode usar `{% url %}` nem variável de contexto. Erros de operação numa view usam `skeleton.web.errors.error_response`, nunca `render` com `error.html`.
+
 Só botões permitidos aparecem, mas servidor revalida cada ação. Usuário comum que recebe visibilidade organization pode ler, não ganha escrita. Relacionamentos de novos apps exigem PROTECT + guard same-tenant e FK picker autorizado.
 
 ## Fluxo API de ponta a ponta
@@ -440,5 +442,6 @@ Para entregar outro idioma, o projeto derivado:
 1. acrescenta o idioma em `LANGUAGES`;
 2. cria o catálogo em `LOCALE_PATHS` com `manage.py makemessages -l <idioma>`, traduzindo a partir das msgids em pt-BR;
 3. compila com `compilemessages`.
+4. se quiser formatos de data próprios, cria um pacote `formats/<idioma>/formats.py` e o põe **antes** do núcleo em `FORMAT_MODULE_PATH` (`["config.formats", "skeleton.conf.formats"]`); o núcleo só define os formatos de exibição pt-BR (`DD/MM/AAAA HH:mm`, #468), e quem redefine `FORMAT_MODULE_PATH` sem listar `skeleton.conf.formats` volta aos formatos longos do Django.
 
 Os emails aceitam também templates por idioma (`body.<idioma>.html`), que têm precedência sobre o gettext.

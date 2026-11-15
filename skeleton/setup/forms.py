@@ -9,54 +9,236 @@ class TokenForm(forms.Form):
     token = forms.CharField(label=gettext_lazy("Token de primeiro acesso"), max_length=200, strip=True)
 
 
+DEFAULT_TIMEZONE = "America/Sao_Paulo"
+
+
 class InstanceForm(forms.Form):
     allowed_hosts = forms.CharField(
-        label=gettext_lazy("Hosts aceitos"),
+        label=gettext_lazy("Endereços (hosts) aceitos"),
         max_length=500,
-        help_text=gettext_lazy("Separados por vírgula, por exemplo app.example.com."),
-    )
-    csrf_trusted_origins = forms.CharField(
-        label=gettext_lazy("Origens confiáveis (CSRF)"),
-        max_length=500,
-        required=False,
-        help_text=gettext_lazy("Opcional: https://app.example.com, separadas por vírgula."),
+        help_text=gettext_lazy(
+            "Obrigatório. Só o nome, sem http:// e sem porta. Separe vários com vírgula. Exemplo:"
+            " app.exemplo.com.br. Para testar nesta máquina: localhost,127.0.0.1. Pedidos para qualquer outro"
+            " endereço são recusados."
+        ),
     )
     public_url = forms.CharField(
-        label=gettext_lazy("Origem pública"),
+        label=gettext_lazy("Endereço público (URL)"),
         max_length=200,
         required=False,
-        help_text=gettext_lazy("Usada nos links dos emails."),
+        help_text=gettext_lazy(
+            "Opcional, mas recomendado. Endereço completo que as pessoas usam, com https:// e sem caminho."
+            " Exemplo: https://app.exemplo.com.br. É usado para montar os links enviados por e-mail e nas"
+            " notificações."
+        ),
+    )
+    csrf_trusted_origins = forms.CharField(
+        label=gettext_lazy("Origens confiáveis para formulários (CSRF)"),
+        max_length=500,
+        required=False,
+        help_text=gettext_lazy(
+            "Opcional. Deixe em branco na maioria dos casos: se o endereço público acima foi informado, ele já é"
+            " usado. Preencha só quando outro domínio também envia formulários ao sistema: origens completas com"
+            " https://, separadas por vírgula."
+        ),
     )
     trust_proxy = forms.BooleanField(
-        label=gettext_lazy("Atrás de um proxy reverso que termina o HTTPS"), required=False
+        label=gettext_lazy("Há um proxy reverso na frente recebendo o HTTPS"),
+        required=False,
+        help_text=gettext_lazy(
+            "Marque se Nginx, Traefik, Caddy, Coolify ou um balanceador recebe o HTTPS e repassa os pedidos ao"
+            " sistema. Deixe desmarcado se o navegador fala direto com este processo (por exemplo, no runserver"
+            " local). Marcar sem ter proxy permite forjar o endereço de quem acessa."
+        ),
+    )
+
+    default_timezone = forms.CharField(
+        label=gettext_lazy("Fuso horário padrão"),
+        max_length=64,
+        initial=DEFAULT_TIMEZONE,
+        help_text=gettext_lazy(
+            "Usado para mostrar datas e horas a quem não escolheu um fuso próprio. America/Sao_Paulo é o horário"
+            " de Brasília. Outros: America/Manaus, America/Cuiaba, America/Belem, America/Fortaleza,"
+            " America/Rio_Branco."
+        ),
     )
 
     def __init__(self, *args, **kwargs):
+        import zoneinfo
+
         from skeleton.instance.schema import CATALOG
 
         super().__init__(*args, **kwargs)
         if "public_url" not in CATALOG:  # The key arrives with the notifications epic (#54).
             del self.fields["public_url"]
+        zones = sorted(zoneinfo.available_timezones())
+        if zones:  # Without the tz database the catalog validation still refuses an unknown zone.
+            field = self.fields["default_timezone"]
+            self.fields["default_timezone"] = forms.ChoiceField(
+                label=field.label,
+                initial=field.initial,
+                help_text=field.help_text,
+                choices=[(zone, zone) for zone in zones],
+                required=False,
+            )
+        # Always submitted by the page (a value is selected); a scripted POST without it gets the default.
+        self.fields["default_timezone"].required = False
+        self.fields["default_timezone"].marked_required = True
+
+    def clean_default_timezone(self):
+        return self.cleaned_data["default_timezone"] or DEFAULT_TIMEZONE
+
+
+FILL_IN = gettext_lazy("Informe este campo.")
+KEEP_SECRET = gettext_lazy("Já definida. Deixe em branco para manter a atual.")
+
+
+def keep_secret(form, name: str, kept: str | None) -> None:
+    """A stored secret makes its field optional; the value itself never reaches the page (#466)."""
+    form.kept_secret = kept
+    if kept is not None:
+        field = form.fields[name]
+        field.required = False
+        field.marked_required = False
+        field.help_text = KEEP_SECRET
 
 
 class DatabaseForm(forms.Form):
-    database_url = forms.CharField(
-        label=gettext_lazy("URL da role runtime"),
-        max_length=500,
-        widget=forms.PasswordInput(render_value=False),
+    """Runtime role of the database by separate fields; the full URL only under "Avançado" (#464)."""
+
+    advanced_fields = ("database_url",)
+
+    db_host = forms.CharField(
+        label=gettext_lazy("Servidor (host)"),
+        max_length=255,
+        required=False,
         help_text=gettext_lazy(
-            "postgres://skeleton_runtime:senha@host:5432/banco. Sem superuser, sem BYPASSRLS, sem ser dona do schema."
+            "Nome ou IP do servidor PostgreSQL, como este processo o enxerga. No Docker Compose deste projeto:"
+            " postgres. Na mesma máquina, fora do Docker: 127.0.0.1."
         ),
     )
+    db_port = forms.IntegerField(
+        label=gettext_lazy("Porta"),
+        min_value=1,
+        max_value=65535,
+        initial=5432,
+        required=False,
+        help_text=gettext_lazy("O padrão do PostgreSQL é 5432."),
+    )
+    db_name = forms.CharField(
+        label=gettext_lazy("Nome do banco"),
+        max_length=63,
+        required=False,
+        help_text=gettext_lazy(
+            "O banco criado para o sistema. Ele precisa existir e ter sido preparado com deploy/postgres/bootstrap.sql."
+        ),
+    )
+    db_user = forms.CharField(
+        label=gettext_lazy("Usuário (role de aplicação)"),
+        max_length=63,
+        required=False,
+        initial="skeleton_runtime",
+        help_text=gettext_lazy(
+            "A role que o sistema usa no dia a dia. O bootstrap cria skeleton_runtime. Não pode ser superusuário"
+            " nem dona do schema."
+        ),
+    )
+    db_password = forms.CharField(
+        label=gettext_lazy("Senha dessa role"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy("A senha definida com \\password skeleton_runtime. Pode conter qualquer caractere."),
+    )
+    database_url = forms.CharField(
+        label=gettext_lazy("URL completa (avançado)"),
+        max_length=500,
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text=gettext_lazy(
+            "Só se precisar de parâmetros extras (por exemplo sslmode). Quando preenchida, os campos acima são"
+            " ignorados. Formato: postgres://usuário:senha@host:5432/banco, com a senha em percent-encoding."
+        ),
+    )
+    # Marked as required on the page: they are, unless the advanced URL is used; the HTML
+    # attribute stays off so the browser does not block a submission with the URL.
+    separate_required = ("db_host", "db_port", "db_name", "db_user", "db_password")
+
+    def __init__(self, *args, kept_password: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.separate_required:
+            self.fields[name].marked_required = True
+        keep_secret(self, "db_password", kept_password)
+
+    def clean(self):
+        from .database import DEFAULT_PORT, build_dsn
+
+        data = super().clean()
+        if data.get("database_url"):
+            data["dsn"] = data["database_url"]
+            return data
+        if not data.get("db_password") and self.kept_secret is not None:
+            data["db_password"] = self.kept_secret
+        missing = [name for name in self.separate_required if name != "db_port" and not data.get(name)]
+        for name in missing:
+            if name not in self.errors:
+                self.add_error(name, FILL_IN)
+        if not missing and not self.errors:
+            data["dsn"] = build_dsn(
+                host=data["db_host"],
+                port=data.get("db_port") or DEFAULT_PORT,
+                name=data["db_name"],
+                user=data["db_user"],
+                password=data["db_password"],
+            )
+        return data
 
 
 class SchemaForm(forms.Form):
-    owner_url = forms.CharField(
-        label=gettext_lazy("URL da role de migração (dona do schema)"),
-        max_length=500,
-        widget=forms.PasswordInput(render_value=False),
-        help_text=gettext_lazy("Usada só nesta requisição para migrar; nunca é gravada."),
+    """The schema owner, only user and password: host, port and database come from the runtime step."""
+
+    advanced_fields = ("owner_url",)
+    separate_required = ("owner_user", "owner_password")
+
+    owner_user = forms.CharField(
+        label=gettext_lazy("Usuário dono do schema"),
+        max_length=63,
+        required=False,
+        initial="skeleton_owner",
+        help_text=gettext_lazy("A role que cria e altera as tabelas. O bootstrap cria skeleton_owner."),
     )
+    owner_password = forms.CharField(
+        label=gettext_lazy("Senha dessa role"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy("Usada só agora, para criar as tabelas. Não é gravada em lugar nenhum."),
+    )
+    owner_url = forms.CharField(
+        label=gettext_lazy("URL completa (avançado)"),
+        max_length=500,
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text=gettext_lazy(
+            "Só se precisar de parâmetros extras. Quando preenchida, os campos acima são ignorados. Precisa apontar"
+            " para o mesmo banco da etapa anterior. Usada só nesta requisição; nunca é gravada."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.separate_required:
+            self.fields[name].marked_required = True
+
+    def clean(self):
+        data = super().clean()
+        if not data.get("owner_url"):
+            for name in self.separate_required:
+                if not data.get(name) and name not in self.errors:
+                    self.add_error(name, FILL_IN)
+        return data
 
 
 REDIS_CACHE = "django.core.cache.backends.redis.RedisCache"
@@ -69,79 +251,266 @@ def production_target() -> bool:
     return getattr(settings, "SKELETON_SETUP_PRODUCTION", True)
 
 
+SMTP_SCHEMES = {"smtp", "smtps", "smtp+tls", "smtp+ssl"}
+SECURITY_SCHEMES = {"starttls": "smtp+tls", "ssl": "smtp+ssl", "none": "smtp"}
+
+
+def smtp_url(*, host: str, port: int | str, security: str, user: str = "", password: str = "") -> str:
+    """The email URL from separate fields; user and password are percent-encoded (#465)."""
+    from urllib.parse import quote
+
+    credentials = ""
+    if user or password:
+        credentials = quote(user, safe="") + (":" + quote(password, safe="") if password else "") + "@"
+    return f"{SECURITY_SCHEMES[security]}://{credentials}{host.strip()}:{int(port)}"
+
+
 class EmailForm(forms.Form):
-    email_url = forms.CharField(
-        label=gettext_lazy("Servidor de email"),
-        max_length=500,
-        widget=forms.PasswordInput(render_value=False),
-        help_text=gettext_lazy("smtp+tls://usuário:senha@smtp.example.com:587"),
+    """SMTP by separate fields; "Configurar depois" only when the target is not production (#465)."""
+
+    advanced_fields = ("email_url",)
+
+    email_mode = forms.ChoiceField(
+        label=gettext_lazy("Como enviar e-mails"),
+        choices=(("smtp", gettext_lazy("Usar um servidor SMTP")), ("later", gettext_lazy("Configurar depois"))),
+        initial="smtp",
+        required=False,
+        widget=forms.RadioSelect,
     )
-    default_from_email = forms.EmailField(label=gettext_lazy("Remetente padrão"))
-    test_recipient = forms.EmailField(label=gettext_lazy("Enviar email de teste para"))
-
-    def clean_email_url(self):
-        # Messages never echo the value: the URL carries the SMTP password. Other parser refusals
-        # (unknown scheme or parameter) stay with the view, which reports names only.
-        value = self.cleaned_data["email_url"]
-        if not production_target():
-            return value
-        from django.core.exceptions import ImproperlyConfigured
-
-        from skeleton.conf.mailers import SMTP, mailer_from_url
-
-        try:
-            backend = mailer_from_url(value).get("BACKEND")
-        except (ImproperlyConfigured, ValueError):
-            return value
-        if backend != SMTP:
-            raise forms.ValidationError(
-                gettext("Em produção o email precisa de um servidor SMTP: smtp+tls://, smtp+ssl:// ou smtp://.")
-            )
-        return value
-
-
-class StorageForm(forms.Form):
-    cache_url = forms.CharField(
-        label=gettext_lazy("Cache compartilhado (Redis)"),
+    smtp_host = forms.CharField(
+        label=gettext_lazy("Servidor SMTP"),
+        max_length=255,
+        required=False,
+        help_text=gettext_lazy(
+            "Endereço do servidor de envio. Exemplos: smtp.gmail.com, smtp.office365.com,"
+            " email-smtp.sa-east-1.amazonaws.com."
+        ),
+    )
+    smtp_port = forms.IntegerField(
+        label=gettext_lazy("Porta"),
+        min_value=1,
+        max_value=65535,
+        initial=587,
+        required=False,
+        help_text=gettext_lazy("587 para STARTTLS (o mais comum) ou 465 para SSL/TLS."),
+    )
+    smtp_security = forms.ChoiceField(
+        label=gettext_lazy("Segurança da conexão"),
+        choices=(
+            ("starttls", gettext_lazy("STARTTLS, normalmente na porta 587")),
+            ("ssl", gettext_lazy("SSL/TLS direto, normalmente na porta 465")),
+            ("none", gettext_lazy("Sem criptografia, só em rede interna ou teste")),
+        ),
+        initial="starttls",
+        required=False,
+        widget=forms.RadioSelect,
+    )
+    smtp_user = forms.CharField(
+        label=gettext_lazy("Usuário"),
+        max_length=255,
+        required=False,
+        help_text=gettext_lazy(
+            "Em geral o endereço de e-mail completo ou a chave de acesso do provedor. Em branco se o servidor não"
+            " pede autenticação."
+        ),
+    )
+    smtp_password = forms.CharField(
+        label=gettext_lazy("Senha"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy(
+            "Em provedores com verificação em duas etapas (Gmail, Microsoft 365), use uma senha de aplicativo."
+        ),
+    )
+    default_from_email = forms.EmailField(
+        label=gettext_lazy("Remetente padrão"),
+        required=False,
+        help_text=gettext_lazy(
+            "Endereço que aparece como remetente das mensagens do sistema. Precisa ser um endereço que o servidor"
+            " SMTP aceita enviar. Exemplo: nao-responda@exemplo.com.br."
+        ),
+    )
+    test_recipient = forms.EmailField(
+        label=gettext_lazy("Enviar o teste para"),
+        required=False,
+        help_text=gettext_lazy(
+            "Uma mensagem de teste é enviada agora para este endereço. Use um e-mail que você possa conferir."
+        ),
+    )
+    email_url = forms.CharField(
+        label=gettext_lazy("URL completa (avançado)"),
         max_length=500,
         required=False,
         widget=forms.PasswordInput(render_value=False),
         help_text=gettext_lazy(
-            "redis://:senha@redis:6379/0. Obrigatório em produção; vazio mantém o cache local, só no runserver de"
-            " desenvolvimento."
+            "Quando preenchida, os campos de servidor acima são ignorados. Formato:"
+            " smtp+tls://usuário:senha@servidor:587."
         ),
     )
-    files_backend = forms.ChoiceField(
-        label=gettext_lazy("Armazenamento de anexos"), choices=(("local", gettext_lazy("Local")), ("s3", "S3"))
-    )
-    files_root = forms.CharField(label=gettext_lazy("Pasta local dos anexos"), max_length=500, required=False)
-    files_s3_bucket = forms.CharField(label="Bucket S3", max_length=200, required=False)
-    files_s3_region = forms.CharField(label=gettext_lazy("Região S3"), max_length=100, required=False)
-    files_s3_endpoint = forms.CharField(label="Endpoint S3", max_length=500, required=False)
+    # Marked as required on the page when SMTP is used; the HTML attribute stays off ("later").
+    smtp_required = ("smtp_host", "default_from_email", "test_recipient")
 
-    def clean_cache_url(self):
-        # Messages never echo the value: the URL carries the Redis password.
-        value = self.cleaned_data["cache_url"]
-        if not value:
-            if production_target():
-                raise forms.ValidationError(
-                    gettext("Em produção o cache precisa de um Redis compartilhado: redis://:senha@redis:6379/0.")
-                )
-            return value
-        try:
-            import environ  # type: ignore[import-untyped]
+    def __init__(self, *args, strict: bool | None = None, kept_password: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.strict = production_target() if strict is None else strict
+        keep_secret(self, "smtp_password", kept_password)
+        if self.strict:
+            mode = self.fields["email_mode"]
+            mode.choices = [("smtp", gettext_lazy("Usar um servidor SMTP"))]
+            mode.widget = forms.HiddenInput()
+        for name in (*self.smtp_required, "smtp_port", "smtp_security"):
+            self.fields[name].marked_required = True
 
-            backend = environ.Env.cache_url_config(value).get("BACKEND")
-        except Exception:  # noqa: BLE001 - any parser failure is the same refusal, without the value
-            raise forms.ValidationError(gettext("URL de cache inválida.")) from None
-        if production_target() and backend != REDIS_CACHE:
-            raise forms.ValidationError(
-                gettext("Em produção o cache precisa de um Redis compartilhado: redis://:senha@redis:6379/0.")
-            )
+    def clean_email_url(self):
+        # Messages never echo the value: the URL carries the SMTP password. Other parser refusals
+        # (unknown scheme or parameter) stay with the view, which reports names only.
+        from urllib.parse import urlsplit
+
+        value = self.cleaned_data["email_url"]
+        if value and self.strict and urlsplit(value).scheme.lower() not in SMTP_SCHEMES:
+            raise forms.ValidationError(gettext("Em produção só um servidor SMTP é aceito."))
         return value
 
     def clean(self):
         data = super().clean()
+        data["email_mode"] = "smtp" if self.strict else (data.get("email_mode") or "smtp")
+        data["url"] = ""
+        if data["email_mode"] == "later":
+            return data
+        required = self.smtp_required if not data.get("email_url") else ("default_from_email", "test_recipient")
+        for name in required:
+            if not data.get(name) and name not in self.errors:
+                self.add_error(name, FILL_IN)
+        if self.errors:
+            return data
+        if data.get("email_url"):
+            data["url"] = data["email_url"]
+        else:
+            data["url"] = smtp_url(
+                host=data["smtp_host"],
+                port=data.get("smtp_port") or 587,
+                security=data.get("smtp_security") or "starttls",
+                user=data.get("smtp_user") or "",
+                password=data.get("smtp_password") or self.kept_secret or "",
+            )
+        return data
+
+
+def redis_url(location: str, password: str) -> str:
+    """The cache URL from the address and a separate password, percent-encoded after ``://`` (#463)."""
+    from urllib.parse import quote
+
+    if not password:
+        return location
+    scheme, separator, rest = location.partition("://")
+    if not separator:
+        return location
+    return f"{scheme}://:{quote(password, safe='')}@{rest}"
+
+
+class StorageForm(forms.Form):
+    cache_location = forms.CharField(
+        label=gettext_lazy("Endereço do Redis"),
+        max_length=500,
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "redis://redis:6379/0", "autocomplete": "off"}),
+    )
+    cache_password = forms.CharField(
+        label=gettext_lazy("Senha do Redis"),
+        max_length=500,
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy("Em branco se o Redis não pede senha."),
+    )
+    files_backend = forms.ChoiceField(
+        label=gettext_lazy("Onde guardar os anexos"),
+        choices=(
+            ("local", gettext_lazy("Pasta neste servidor")),
+            ("s3", gettext_lazy("Armazenamento S3 ou compatível (MinIO, R2, Spaces)")),
+        ),
+        initial="local",
+        widget=forms.RadioSelect,
+    )
+    files_root = forms.CharField(
+        label=gettext_lazy("Pasta dos anexos"),
+        max_length=500,
+        required=False,
+        help_text=gettext_lazy(
+            "Obrigatório se escolheu “Pasta neste servidor”. Caminho completo de uma pasta que o sistema pode"
+            " gravar e que não é servida ao público. Em Docker, precisa ser um volume. O setup cria a pasta e testa"
+            " a gravação."
+        ),
+    )
+    files_s3_bucket = forms.CharField(
+        label=gettext_lazy("Bucket S3"),
+        max_length=200,
+        required=False,
+        help_text=gettext_lazy("Obrigatório se escolheu S3. Só o nome do bucket."),
+    )
+    files_s3_region = forms.CharField(
+        label=gettext_lazy("Região S3"),
+        max_length=100,
+        required=False,
+        help_text=gettext_lazy(
+            "Opcional. Na AWS, por exemplo sa-east-1. Em serviços compatíveis, costuma ficar em branco."
+        ),
+    )
+    files_s3_endpoint = forms.CharField(
+        label=gettext_lazy("Endpoint S3"),
+        max_length=500,
+        required=False,
+        help_text=gettext_lazy(
+            "Opcional. Em branco para a AWS. Para MinIO, R2 ou Spaces, o endereço completo com https://."
+        ),
+    )
+
+    def __init__(self, *args, strict: bool | None = None, kept_password: str | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.strict = production_target() if strict is None else strict
+        keep_secret(self, "cache_password", kept_password)
+        location = self.fields["cache_location"]
+        location.required = self.strict
+        location.help_text = (
+            gettext_lazy(
+                "Obrigatório em produção. Formato: redis://host:6379/0. No Docker Compose deste projeto o host é redis."
+            )
+            if self.strict
+            else gettext_lazy(
+                "Opcional neste modo. Em branco, cada processo usa um cache próprio em memória (serve só para testar"
+                " numa máquina)."
+            )
+        )
+
+    def clean_cache_location(self):
+        # Messages never echo the value: an address could still carry a password.
+        value = self.cleaned_data["cache_location"].strip()
+        if "@" in value:
+            raise forms.ValidationError(gettext("Informe a senha no campo ao lado, não dentro do endereço."))
+        return value
+
+    def clean(self):
+        data = super().clean()
+        location = data.get("cache_location")
+        data["cache_url"] = ""
+        if location:
+            url = redis_url(location, data.get("cache_password") or self.kept_secret or "")
+            try:
+                import environ  # type: ignore[import-untyped]
+
+                backend = environ.Env.cache_url_config(url).get("BACKEND")
+            except Exception:  # noqa: BLE001 - any parser failure is the same refusal, without the value
+                self.add_error("cache_location", gettext("Endereço de cache inválido."))
+            else:
+                if self.strict and backend != REDIS_CACHE:
+                    self.add_error(
+                        "cache_location",
+                        gettext("Em produção o cache precisa de um Redis compartilhado: redis://redis:6379/0."),
+                    )
+                else:
+                    data["cache_url"] = url
         if data.get("files_backend") == "s3" and not data.get("files_s3_bucket"):
             self.add_error("files_s3_bucket", gettext("Informe o bucket."))
         if data.get("files_backend") == "local" and not data.get("files_root"):
@@ -150,11 +519,47 @@ class StorageForm(forms.Form):
 
 
 class AdminForm(forms.Form):
-    email = forms.EmailField(label=gettext_lazy("Email do administrador da plataforma"))
-    password1 = forms.CharField(label=gettext_lazy("Senha"), widget=forms.PasswordInput(render_value=False))
-    password2 = forms.CharField(label=gettext_lazy("Confirme a senha"), widget=forms.PasswordInput(render_value=False))
-    organization_name = forms.CharField(label=gettext_lazy("Nome da primeira organização"), max_length=200)
-    organization_slug = forms.SlugField(label=gettext_lazy("Identificador da organização"), max_length=63)
+    email = forms.EmailField(
+        label=gettext_lazy("E-mail do administrador da plataforma"),
+        help_text=gettext_lazy(
+            "É o login da primeira conta, com acesso total à administração da plataforma. Use um e-mail real: a"
+            " recuperação de senha chega nele."
+        ),
+    )
+    password1 = forms.CharField(
+        label=gettext_lazy("Senha"),
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+    )
+    password2 = forms.CharField(
+        label=gettext_lazy("Confirme a senha"),
+        strip=False,
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=gettext_lazy("Digite a mesma senha de novo."),
+    )
+    organization_name = forms.CharField(
+        label=gettext_lazy("Nome da primeira organização"),
+        max_length=200,
+        help_text=gettext_lazy(
+            "Nome de exibição da empresa, órgão ou equipe. Pode ser alterado depois nas configurações da"
+            " organização. Exemplo: Prefeitura de Exemplo."
+        ),
+    )
+    organization_slug = forms.SlugField(
+        label=gettext_lazy("Identificador da organização"),
+        max_length=63,
+        help_text=gettext_lazy(
+            "Apelido técnico, usado no endereço da organização e em integrações: de 1 a 63 caracteres, só letras"
+            " minúsculas, números e hífen, sem espaços nem acentos. Exemplo: prefeitura-exemplo."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        from django.contrib.auth.password_validation import password_validators_help_text_html
+
+        super().__init__(*args, **kwargs)
+        # The real rules of the configured validators (length, common passwords...), as escaped HTML.
+        self.fields["password1"].help_text = password_validators_help_text_html()
 
     def clean_organization_slug(self):
         from skeleton.common.hostnames import slug_problem

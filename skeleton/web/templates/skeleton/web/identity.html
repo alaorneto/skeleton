@@ -1,5 +1,5 @@
 {% extends 'skeleton/web/base.html' %}
-{% block title %}Identidade · {{ site_name }}{% endblock %}
+{% load skeleton_format %}{% block title %}Identidade · {{ site_name }}{% endblock %}
 {% block content %}
 <div class="max-w-5xl">
 <div class="page-header"><div class="min-w-0">
@@ -13,7 +13,7 @@
     <p class="mt-1 text-sm/6 text-body-subtle">{{ item.protocol|upper }} · <code class="uuid">{{ item.provider_id }}</code>{% if item.login_path %} · login em <code class="uuid">{{ item.login_path }}</code>{% endif %}</p></div>
     <p>{% if item.enabled %}<span class="badge badge-success badge-dot">Ativo</span>{% else %}<span class="badge badge-dot">Desligado pela plataforma</span>{% endif %}{% if not item.show_on_login %} <span class="badge">fora da tela de login</span>{% endif %}</p>
   </div>
-  <p class="mt-2 text-sm/6 text-body-subtle">Último teste da plataforma: {{ item.last_check_code|default:"nunca" }}{% if item.last_check_at %} em {{ item.last_check_at }}{% endif %}.</p>
+  <p class="mt-2 text-sm/6 text-body-subtle">Último teste da plataforma: {{ item.last_check_code|default:"nunca" }}{% if item.last_check_at %} em {{ item.last_check_at|moment }}{% endif %}.</p>
   <form method="post" action="{% url 'web:identity-admission' organization_id item.sysid %}" class="mt-5">
     {% csrf_token %}
     {% include "skeleton/web/components/form-errors.html" %}

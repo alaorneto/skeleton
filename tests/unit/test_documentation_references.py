@@ -55,7 +55,7 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 def documents():
     found = [ROOT / "README.md", ROOT / "AGENTS.md"]
     for base in (ROOT / "docs", ROOT / ".claude" / "skills"):
-        found += [path for path in base.rglob("*.md") if not SKIPPED_DIRECTORIES & set(path.parts)]
+        found += [path for path in base.rglob("*.md") if not SKIPPED_DIRECTORIES & set(path.relative_to(ROOT).parts)]
     return sorted(found)
 
 
@@ -200,7 +200,7 @@ def _commands():
     names = set()
     for base in (ROOT / "skeleton", ROOT / "examples", ROOT / "applications", ROOT / "config"):
         for path in base.rglob("management/commands/*.py"):
-            if not SKIPPED_DIRECTORIES & set(path.parts) and path.stem != "__init__":
+            if not SKIPPED_DIRECTORIES & set(path.relative_to(ROOT).parts) and path.stem != "__init__":
                 names.add(path.stem)
     return names
 

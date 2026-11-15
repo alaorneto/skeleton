@@ -346,3 +346,30 @@ def test_every_flow_route_is_in_the_openapi_schema():
         )  # Token with flows:write (#410).
     detail = paths[base + "tasks/{sysid}/"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert {"task", "fields", "actions", "can_act"} <= set(detail["properties"])
+
+
+@pytest.mark.needs_example_app
+def test_task_scope_is_one_segmented_selector_and_flow_screens_share_tabs(world, subtests):
+    """The scope selector has one current option, never a badge beside buttons (#472)."""
+    alice, admin = login(world.alice), login(world.admin)
+    for query, current in (
+        ("", "?scope=mine"),
+        ("?scope=available", "?scope=available"),
+        ("?scope=qualquer", "?scope=mine"),
+    ):
+        with subtests.test(query=query):
+            html = alice.get(url("tasks", world) + query).content.decode()
+            header = html.split('<div class="page-header">', 1)[1].split('<nav class="link-tabs"', 1)[0]
+            assert "badge badge-brand" not in header
+            selector = header.split('<nav class="segmented"', 1)[1].split("</nav>", 1)[0]
+            assert selector.count("aria-current") == 1
+            assert f'<a href="{current}" aria-current="true">' in selector
+    tabs = {name: url(name, world) for name in ("tasks", "instances", "operations", "drafts")}
+    for name, target in tabs.items():
+        with subtests.test(screen=name):
+            html = admin.get(target).content.decode()
+            nav = html.split('<nav class="link-tabs"', 1)[1].split("</nav>", 1)[0]
+            assert [link for link in tabs.values() if f'href="{link}"' in nav] == list(tabs.values())
+            assert nav.count('aria-current="page"') == 1 and f'href="{target}" aria-current="page"' in nav
+    member = alice.get(tabs["instances"]).content.decode().split('<nav class="link-tabs"', 1)[1].split("</nav>", 1)[0]
+    assert tabs["operations"] not in member and tabs["drafts"] not in member

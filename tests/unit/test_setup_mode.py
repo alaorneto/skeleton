@@ -70,6 +70,18 @@ def test_setup_mode_follows_the_required_keys(tmp_path, monkeypatch):
     assert mode.select_settings_module("config.settings.production", base_dir=tmp_path) == "config.settings.test"
 
 
+def test_target_is_strict_unless_development_or_test(subtests):
+    for name, strict in (
+        ("config.settings.production", True),
+        ("config.settings.development", False),
+        ("config.settings.test", False),
+        ("project.settings.staging", True),
+        ("", True),
+    ):
+        with subtests.test(name=name):
+            assert mode.target_is_strict(name) is strict
+
+
 def test_the_wsgi_entrypoint_issues_and_prints_the_token_in_a_fresh_process(tmp_path):
     """Gunicorn imports ``config.wsgi`` before the apps exist; issuing the token must not translate (#455)."""
     environment = {
@@ -170,3 +182,46 @@ def test_restart_modes(monkeypatch, environment, expected):
         "manual": [],
     }[expected]
     assert calls == expected_calls
+
+
+def test_setup_templates_only_link_inside_the_setup():
+    """Setup mode routes only /setup/: a {% url %} of another namespace would fail to render (#463)."""
+    import re
+
+    folder = ROOT / "skeleton" / "web" / "templates" / "skeleton" / "setup"
+    names = []
+    for template in folder.glob("*.html"):
+        names += re.findall(r"{%\s*url\s+['\"]([^'\"]+)['\"]", template.read_text(encoding="utf-8"))
+    assert names and all(name.startswith("setup:") for name in names), names
+
+
+def test_forced_token_revokes_the_open_one(store):
+    now = datetime(2026, 11, 10, tzinfo=UTC)
+    first = tokens.issue_token(store, now=now, stream=io.StringIO())
+    assert store.revoke_setup_tokens(now=now) == 1 and store.revoke_setup_tokens(now=now) == 0
+    assert not tokens.consume_token(store, first, now=now)
+    second = tokens.issue_token(store, now=now, stream=io.StringIO())
+    third = tokens.issue_token(store, now=now, stream=io.StringIO(), force=True)
+    assert third and third != second
+    assert not tokens.consume_token(store, second, now=now)
+    assert tokens.consume_token(store, third, now=now)
+
+
+def test_setup_token_command_issues_a_new_token_until_the_setup_completes(tmp_path, monkeypatch):
+    from django.core.management import CommandError, call_command
+
+    database = tmp_path / "instance" / "instance.sqlite3"
+    monkeypatch.setenv("SKELETON_INSTANCE_DB", str(database))
+    monkeypatch.setenv("SKELETON_INSTANCE_KEY_FILE", str(tmp_path / "keys" / "master.key"))
+    instance = InstanceStore(database)
+    old = tokens.issue_token(instance, stream=io.StringIO())
+    output = io.StringIO()
+    call_command("instance", "setup-token", stdout=output)
+    new = tokens.token_file(instance).read_text().strip()
+    assert new != old and new in output.getvalue()
+    assert not tokens.consume_token(instance, old) and tokens.consume_token(instance, new)
+    instance.put_setup_state("status", mode.COMPLETED)
+    refused = io.StringIO()
+    with pytest.raises(CommandError, match="já foi concluído"):
+        call_command("instance", "setup-token", stdout=refused)
+    assert refused.getvalue() == "" and not instance.has_open_setup_token(now=datetime.now(UTC))

@@ -1,4 +1,4 @@
-"""``manage.py instance status|show|set|unset|import-env|export-template|rotate-key`` (#143, #342).
+"""``manage.py instance status|show|set|unset|import-env|export-template|rotate-key|setup-token`` (#143, #342, #466).
 
 Secrets are written encrypted, read back only by the settings, and never printed: ``show``
 masks them and every subcommand reports keys and origins, not values.
@@ -41,6 +41,7 @@ class Command(BaseCommand):
         actions.add_parser("export-template", help="Print a commented .env template with no values.")
         rotate = actions.add_parser("rotate-key", help="Generate a new master key and re-encrypt every stored secret.")
         rotate.add_argument("--drop-old", action="store_true", help="Remove the previous keys from the key file.")
+        actions.add_parser("setup-token", help="Issue a new single-use setup token, replacing any open one.")
 
     def handle(self, *args, **options):
         database, key = instance_paths(settings.BASE_DIR)
@@ -131,6 +132,15 @@ class Command(BaseCommand):
         self.stdout.write(
             "Faça backup do novo arquivo de chave, reinicie a instância e depois rode: instance rotate-key --drop-old"
         )
+
+    def _setup_token(self, store, key, options):
+        """A new first-access token when the session or the token was lost (#466); prints it once."""
+        from skeleton.setup.mode import setup_completed
+        from skeleton.setup.tokens import issue_token
+
+        if store.exists() and setup_completed(store):
+            raise CommandError("O setup já foi concluído; não há token a emitir.")
+        issue_token(store, force=True, stream=self.stdout)
 
     def _export_template(self, store, key, options):
         self.stdout.write("# Variáveis de bootstrap (somente no ambiente):")

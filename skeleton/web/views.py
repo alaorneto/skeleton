@@ -1,3 +1,4 @@
+import datetime
 from functools import wraps
 
 from django.contrib import messages
@@ -41,7 +42,9 @@ from skeleton.service_api import errors as service_errors
 from skeleton.service_api.dto import MAX_OFFSET
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import current_context
+from skeleton.web.errors import error_response
 from skeleton.web.forms import ProfileForm, dedicated_form, dedicated_label, explicit_form, record_form, wire_values
+from skeleton.web.people import people_labels
 from skeleton.web.presentation import (
     audit_rows,
     detail_sections,
@@ -98,6 +101,17 @@ def _display(value):
     return value
 
 
+def _cell(value):
+    """One cell of an access list (#470): Sim/Não, "—" when empty, dates kept for |moment."""
+    if value is True or value is False:
+        return {"value": _display(value), "kind": "text"}
+    if value is None or value == "":
+        return {"value": "—", "kind": "text"}
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return {"value": value, "kind": "date"}
+    return {"value": str(value), "kind": "text"}
+
+
 def tenant_page(*, admin=False, capability=None):
     """Tenant HTML page; ``admin`` requires the administrator, ``capability`` a delegated capability.
 
@@ -133,19 +147,9 @@ def tenant_page(*, admin=False, capability=None):
             except service_errors.Forbidden:
                 raise PermissionDenied from None
             except (ValidationError, service_errors.InvalidInput):
-                return render(
-                    request,
-                    "skeleton/web/error.html",
-                    {"detail": gettext("Verifique os campos ou filtros informados.")},
-                    status=400,
-                )
+                return error_response(request, gettext("Verifique os campos ou filtros informados."), status=400)
             except (IntegrityError, service_errors.Conflict):
-                return render(
-                    request,
-                    "skeleton/web/error.html",
-                    {"detail": gettext("A operação conflita com os dados existentes.")},
-                    status=409,
-                )
+                return error_response(request, gettext("A operação conflita com os dados existentes."), status=409)
 
         return wrapper
 
@@ -408,7 +412,7 @@ def access_list(request, organization_id, resource):
         {
             "sysid": item.sysid,
             "revision": item.revision,
-            "fields": [(dedicated_label(model, name), _display(getattr(item, name))) for name in fields],
+            "cells": [_cell(getattr(item, name)) for name in fields],
         }
         for item in rows
     ]
@@ -417,6 +421,7 @@ def access_list(request, organization_id, resource):
         "skeleton/web/access_list.html",
         {
             "title": get_spec(model._meta.label_lower).label,
+            "headings": [dedicated_label(model, name) for name in fields],
             "rows": rows,
             "organization_id": organization_id,
             "resource": resource,
@@ -548,6 +553,8 @@ def audit(request, organization_id):
             "filters": request.GET,
             "operations": operation_choices(),
             "related_events": related,
+            # Actors by name, one lookup for the page (#475).
+            "people": people_labels((row.get("actor_sysid") for row in rows.object_list), actor=request.user),
             # The filtered audit as CSV, for the administrator (#186).
             "can_export_audit": is_organization_admin(request.user),
         },
@@ -628,6 +635,7 @@ def record_detail(request, organization_id, table_key, sysid):
     from skeleton.files.views import panel_context
     from skeleton.web.timeline import timeline_for
 
+    timeline = timeline_for(request.user, spec, item)
     return render(
         request,
         "skeleton/web/detail.html",
@@ -635,7 +643,8 @@ def record_detail(request, organization_id, table_key, sysid):
             "attachments": panel_context(spec, item, user=request.user),
             "comments": comments_panel(spec, item, user=request.user),
             # Audit and attachments of the record, each filtered for the reader (#185).
-            "timeline": timeline_for(request.user, spec, item),
+            "timeline": timeline,
+            "timeline_people": people_labels((entry.actor_id for entry in timeline), actor=request.user),
             "record": {"sysid": item.sysid},
             "title": safe_record_label(item, spec),
             "actions": actions,

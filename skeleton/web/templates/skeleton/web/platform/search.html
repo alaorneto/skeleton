@@ -1,6 +1,5 @@
-{% load i18n %}<form method="get" role="search" class="mb-4 flex max-w-xl gap-2">
-  <label for="platform-search" class="sr-only">{% translate "Buscar" %}</label>
-  <input id="platform-search" type="search" name="q" value="{{ q }}" placeholder="{{ placeholder|default:_("Buscar") }}">
-  <button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="search" %}{% translate "Buscar" %}</button>
-  {% if q %}<a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>{% endif %}
+{% load i18n %}<form method="get" role="search" class="filter-bar" aria-label="{% translate "Filtros" %}">
+  <div class="field"><label for="platform-search">{% translate "Buscar" %}</label><input id="platform-search" type="search" name="q" value="{{ q }}" placeholder="{{ placeholder|default:_("Buscar") }}"></div>
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% include "skeleton/web/components/icon.html" with name="search" %}{% translate "Buscar" %}</button>
+  {% if q %}<a class="btn btn-ghost" href="?">{% translate "Limpar" %}</a>{% endif %}</div>
 </form>

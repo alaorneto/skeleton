@@ -4,7 +4,7 @@ from django import forms
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import Http404
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
@@ -33,7 +33,9 @@ def _detail(request, organization_id, table_key, sysid):
 
 
 def _error(request, detail, status):
-    return render(request, "skeleton/web/error.html", {"detail": detail}, status=status)
+    from skeleton.web.errors import error_response
+
+    return error_response(request, detail, status=status)
 
 
 def panel_context(spec, record, *, user, next_url=""):
@@ -63,9 +65,12 @@ def panel_context(spec, record, *, user, next_url=""):
                 "can_restore": (mine or moderator) and row.deleted_at is not None,
             }
         )
+    from skeleton.web.people import people_labels
+
     from .mentions import mentionable
 
-    return {"rows": items, "mentionable": mentionable(spec, record), "next": next_url}
+    people = people_labels((item["author_id"] for item in items), actor=user)  # One lookup (#475).
+    return {"rows": items, "mentionable": mentionable(spec, record), "next": next_url, "people": people}
 
 
 @tenant_page()

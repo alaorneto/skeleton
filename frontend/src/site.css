@@ -16,8 +16,7 @@
 }
 
 /* Fontes de classes: somente templates e JS do próprio projeto. */
-@source "../../skeleton/web/templates";
-@source "../../skeleton/integrations/templates";
+@source "../../skeleton/**/templates/**/*.html";
 @source "../../skeleton/contrib";
 @source "../../skeleton/web/static/skeleton/web/*.js";
 @source "../../skeleton/system/app_template/*.html-tpl";
@@ -155,6 +154,9 @@
 @utility btn-danger {
   @apply border-transparent bg-danger text-white hover:bg-danger-strong;
 }
+@utility btn-danger-outline {
+  @apply border-danger-subtle bg-neutral-primary-soft text-fg-danger hover:bg-danger-soft;
+}
 @utility btn-ghost {
   @apply border-transparent bg-transparent text-fg-brand shadow-none hover:bg-brand-softer;
 }
@@ -264,6 +266,47 @@
   }
   .link-tabs a[aria-current] {
     @apply border-brand text-fg-brand;
+  }
+
+  /* Indicadores (#476): <dl class="stat-grid"> com components/stat.html. */
+  .stat-grid {
+    @apply mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4;
+  }
+  .stat {
+    @apply min-w-0 rounded-card border border-default bg-neutral-primary-soft p-4 shadow-card;
+  }
+  .stat-label {
+    @apply text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+  }
+  .stat-value {
+    @apply mt-1 text-2xl/8 font-semibold text-heading tabular-nums;
+  }
+  .stat-hint {
+    @apply mt-0.5 text-xs/5 text-body-subtle;
+  }
+  /* Filtro em linha (#476): form method=get, um .field por campo e .filter-actions no fim. */
+  .filter-bar {
+    @apply mb-5 flex flex-wrap items-end gap-3 rounded-card border border-default bg-neutral-primary-soft p-4 shadow-card;
+  }
+  .filter-bar .field {
+    @apply min-w-40 flex-1 sm:max-w-xs;
+  }
+  .filter-bar .field > label {
+    @apply mb-1.5 block;
+  }
+  .filter-bar .filter-actions {
+    @apply flex items-center gap-2;
+  }
+
+  /* Alternância de um filtro dentro da mesma tela (links, uma opção ativa; #472). */
+  .segmented {
+    @apply inline-flex max-w-full overflow-x-auto rounded-base border border-default-medium bg-neutral-primary-soft p-0.5 shadow-xs;
+  }
+  .segmented a {
+    @apply rounded-[calc(var(--radius-base)-2px)] px-3 py-1.5 text-sm/5 font-medium whitespace-nowrap text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading;
+  }
+  .segmented a[aria-current] {
+    @apply bg-brand-softer font-semibold text-fg-brand;
   }
 
   /* Página. Todo cabeçalho de tela segue o mesmo ritmo:
@@ -433,6 +476,37 @@
   .required {
     @apply text-fg-danger;
   }
+  .optional {
+    @apply font-normal text-body-subtle;
+  }
+  /* Etapas do setup do primeiro acesso: vertical no desktop, linha rolável no celular. */
+  .setup-steps {
+    @apply flex gap-2 overflow-x-auto pb-2 md:flex-col md:gap-1 md:overflow-visible md:pb-0;
+  }
+  .setup-steps > li {
+    @apply shrink-0;
+  }
+  .setup-steps a {
+    @apply flex items-center gap-2.5 rounded-base px-3 py-2 text-sm/5 font-medium text-body no-underline transition-colors hover:bg-neutral-tertiary hover:text-heading;
+  }
+  .setup-steps a[aria-current] {
+    @apply bg-brand-softer text-fg-brand;
+  }
+  .setup-step-number {
+    @apply grid size-6 shrink-0 place-items-center rounded-full border border-default-medium text-xs font-semibold tabular-nums;
+    & svg {
+      @apply size-4;
+    }
+  }
+  .setup-steps a[aria-current] .setup-step-number {
+    @apply border-brand bg-brand text-white;
+  }
+  .setup-step-done .setup-step-number {
+    @apply border-success-subtle bg-success-soft text-fg-success-strong;
+  }
+  .setup-step-later .setup-step-number {
+    @apply border-warning-subtle bg-warning-soft text-fg-warning;
+  }
   .form-actions {
     @apply mt-6 flex flex-wrap items-center gap-3 border-t border-default pt-5;
   }
@@ -549,22 +623,60 @@
     @apply relative max-w-full overflow-x-auto rounded-card border border-default bg-neutral-primary-soft shadow-card;
   }
   .table-scroll table {
-    @apply w-full min-w-[32rem] text-left text-sm/5 text-body tabular-nums;
+    @apply w-full min-w-[36rem] border-collapse text-left text-sm/5 text-body tabular-nums;
   }
   .table-scroll thead {
-    @apply border-b border-default bg-neutral-secondary-soft text-xs/5 font-medium tracking-wide text-body-subtle uppercase;
+    @apply border-b border-default bg-neutral-secondary-soft text-xs/5 tracking-wide text-body-subtle uppercase;
   }
   .table-scroll th {
-    @apply px-4 py-3 font-medium whitespace-nowrap sm:px-5;
+    @apply px-4 py-2.5 font-semibold whitespace-nowrap sm:px-5;
   }
+  /* Sem pre-wrap nem overflow-wrap:anywhere: o espaço do template não vira conteúdo e uma palavra
+     longa faz a tabela rolar dentro do cartão em vez de quebrar letra a letra (#469). */
   .table-scroll td {
-    @apply px-4 py-3.5 align-top break-words whitespace-pre-wrap [overflow-wrap:anywhere] sm:px-5;
+    @apply px-4 py-3 align-middle break-words sm:px-5;
   }
   .table-scroll tbody tr {
     @apply border-b border-default-subtle last:border-b-0;
   }
-  .table-scroll tbody tr:has(> td a, > td button) {
-    @apply transition-colors hover:bg-neutral-secondary-soft;
+  .table-scroll tbody tr:hover {
+    @apply bg-neutral-secondary-soft;
+  }
+  /* Tipos de coluna: a mesma classe vai no th e no td. */
+  .table-scroll :is(th, td).col-num {
+    @apply text-right whitespace-nowrap;
+  }
+  .table-scroll :is(th, td).col-date {
+    @apply whitespace-nowrap;
+  }
+  .table-scroll :is(th, td).col-actions {
+    @apply w-px text-right whitespace-nowrap;
+  }
+  .table-scroll td.col-text {
+    @apply max-w-[28rem] whitespace-pre-line;
+  }
+  /* Conteúdo de célula. */
+  .table-scroll .cell-primary {
+    @apply font-medium text-heading;
+  }
+  .table-scroll a.cell-primary {
+    @apply no-underline hover:text-fg-brand hover:underline;
+  }
+  .table-scroll .cell-secondary {
+    @apply mt-0.5 block text-xs/5 text-body-subtle;
+  }
+  .table-scroll .cell-truncate {
+    @apply block max-w-[18rem] truncate;
+  }
+  .row-actions {
+    @apply inline-flex items-center justify-end gap-2;
+  }
+  /* Tabela dentro de célula (diff da auditoria). */
+  .table-scroll td table {
+    @apply min-w-0 text-xs/5;
+  }
+  .table-scroll td table :is(th, td) {
+    @apply px-2 py-1.5;
   }
   .table-scroll td:first-child > a:not([class]) {
     @apply font-medium text-heading no-underline hover:text-fg-brand hover:underline;
@@ -641,6 +753,12 @@
   }
   .badge-warning {
     @apply border-warning-subtle bg-warning-soft text-fg-warning;
+  }
+  .badge-danger {
+    @apply border-danger-subtle bg-danger-soft text-fg-danger-strong;
+  }
+  .badge-neutral {
+    @apply border-default bg-neutral-secondary-soft text-body;
   }
   .badge-dot::before {
     content: "";

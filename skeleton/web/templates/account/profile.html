@@ -1,5 +1,5 @@
 {% extends "account/base_manage.html" %}
-{% load crud_forms i18n %}
+{% load crud_forms i18n skeleton_format %}
 {% block head_title %}{% translate "Perfil" %}{% endblock %}
 {% block extrahead %}{{ block.super }}{{ form.media }}{% endblock %}
 {% block content %}
@@ -9,6 +9,7 @@
 {% csrf_token %}
 {% include 'skeleton/web/components/form-errors.html' %}
 {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+{% if form|any_required %}<p class="helptext mb-4">{% translate "Campos com * são obrigatórios." %}</p>{% endif %}
 {% crud_form_fields form %}
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar" %}</button></div>
 </form>

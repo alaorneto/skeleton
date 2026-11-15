@@ -7,7 +7,7 @@
   <p class="mt-1.5 text-sm/6 text-body">{% if site_mode %}{% blocktranslate with name=site_name %}Use sua conta para acessar {{ name }}.{% endblocktranslate %}{% else %}{% translate "Use sua conta para acessar as organizações em que você tem vínculo." %}{% endif %}</p>
 </div>
 <form method="post" action="{% url 'account_login' %}">
-  {% csrf_token %}{% include "skeleton/web/components/form-fields.html" %}{{ redirect_field }}
+  {% csrf_token %}{% include "skeleton/web/components/form-fields.html" with hide_marks=True %}{{ redirect_field }}
   <button type="submit" class="btn btn-primary mt-6 w-full">{% translate "Entrar" %}</button>
 </form>
 {% get_providers as socialaccount_providers %}

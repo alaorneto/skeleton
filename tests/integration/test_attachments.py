@@ -133,6 +133,9 @@ def test_storage_key_is_redacted_in_audit_and_html_panel_uploads(scenario):
         {"file": SimpleUploadedFile("photo.png", PNG), "csrfmiddlewaretoken": client.cookies["csrftoken"].value},
     )
     assert response.status_code == 302 and "photo.png" in client.get(detail).content.decode()
+    empty = client.post(form_url, {"csrfmiddlewaretoken": client.cookies["csrftoken"].value})
+    assert empty.status_code == 302 and empty["Location"] == detail
+    assert "Selecione um arquivo." in client.get(detail).content.decode()
     with system_context(reason="test:attach-audit", organization_id=scenario.a.pk):
         change = AuditEvent.objects.get(model_label="sk_files.attachment", operation="create").changes["storage_key"]
     assert change == {"old": None, "new": "[REDACTED]", "redacted": True}
@@ -223,7 +226,12 @@ def test_html_upload_above_the_limit_is_refused_before_it_is_stored(scenario, se
         {"file": SimpleUploadedFile("big.png", body)},
         HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,  # The token does not depend on the cut body.
     )
-    assert response.status_code == 413
+    # Back to the record with the limit in the message, not a dead-end error page (#473).
+    detail = reverse(
+        "web:record", kwargs={"organization_id": scenario.a.pk, "table_key": "example_notes.note", "sysid": note.pk}
+    )
+    assert response.status_code == 302 and response["Location"] == detail
+    assert "O arquivo excede o limite de 1000" in client.get(detail).content.decode()
     assert sum(received) <= 1000 + OVERHEAD
     with system_context(reason="test:big-html-upload", organization_id=scenario.a.pk):
         assert not Attachment.objects.filter(target_sysid=note.pk).exists()

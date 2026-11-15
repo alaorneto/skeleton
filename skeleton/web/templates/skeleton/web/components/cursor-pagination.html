@@ -1,0 +1,1 @@
+{% load i18n %}{% if next_url %}<nav class="pagination" aria-label="{% translate "Paginação" %}"><p class="pagination-summary">{% translate "Há mais itens." %}</p><div class="pagination-links"><a class="pagination-next" rel="next" href="{{ next_url }}">{{ label|default:_("Carregar mais") }}</a></div></nav>{% endif %}

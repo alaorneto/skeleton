@@ -1,5 +1,5 @@
 {% extends "skeleton/web/base.html" %}
-{% load i18n %}{% block title %}{{ draft.key }}{% endblock %}
+{% load i18n %}{% block title %}{{ draft.key }} · {{ site_name }}{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="{% translate "Caminho" %}"><ol><li><a href="{% url 'flows:drafts' organization_id %}">{% translate "Fluxos em dados" %}</a></li><li><span aria-current="page">{{ draft.key }}</span></li></ol></nav>
 <div class="page-header"><div class="min-w-0"><h1>{{ draft.label|default:draft.key }}</h1><p class="page-description"><code>{{ draft.key }}</code> · {% translate "Versão publicada:" %} {{ draft.published_version|default:"—" }}</p></div></div>
@@ -8,11 +8,11 @@
 <div class="grid gap-4 lg:grid-cols-2">
   <section class="card" aria-labelledby="draft-steps"><h2 id="draft-steps" class="section-heading">{% translate "Etapas" %}</h2>
     <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Chave" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Rótulo" %}</th></tr></thead><tbody>
-    {% for step in steps %}<tr><td><code>{{ step.key }}</code></td><td>{{ step.kind }}</td><td>{{ step.label }}</td></tr>{% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma etapa." %}</td></tr>{% endfor %}
+    {% for step in steps %}<tr><td><code>{{ step.key }}</code></td><td>{{ step.kind }}</td><td>{{ step.label }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma etapa.") %}{% endfor %}
     </tbody></table></div>
     <h3 class="mt-4 text-sm font-medium text-heading">{% translate "Transições" %}</h3>
     <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "De" %}</th><th scope="col">{% translate "Para" %}</th><th scope="col">{% translate "Quando" %}</th></tr></thead><tbody>
-    {% for item in transitions %}<tr><td><code>{{ item.source }}</code></td><td><code>{{ item.target }}</code></td><td>{{ item.on|default:item.key|default:"—" }}</td></tr>{% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma transição." %}</td></tr>{% endfor %}
+    {% for item in transitions %}<tr><td><code>{{ item.source }}</code></td><td><code>{{ item.target }}</code></td><td>{{ item.on|default:item.key|default:"—" }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma transição.") %}{% endfor %}
     </tbody></table></div>
   </section>
   <section class="card" aria-labelledby="draft-registered"><h2 id="draft-registered" class="section-heading">{% translate "O que as apps registraram" %}</h2>

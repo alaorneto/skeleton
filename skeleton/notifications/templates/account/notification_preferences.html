@@ -8,7 +8,7 @@
 {% csrf_token %}
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tipo" %}</th>{% for channel, label in channel_labels.items %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead><tbody>
 {% for row in rows %}<tr>
-  <th scope="row"><span class="font-medium text-heading">{{ row.label }}</span>{% if row.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}<br><code class="text-body-subtle">{{ row.type_code }}</code></th>
+  <th scope="row" class="font-normal"><span class="cell-primary">{{ row.label }}</span>{% if row.mandatory %} <span class="badge">{% translate "Obrigatório" %}</span>{% endif %}<span class="cell-secondary"><code>{{ row.type_code }}</code></span></th>
   {% for cell in row.cells %}<td>
     <label class="sr-only" for="{{ cell.mode_name }}">{{ row.label }}: {{ cell.channel }}</label>
     <select id="{{ cell.mode_name }}" name="{{ cell.mode_name }}"{% if cell.locked %} disabled{% endif %}>
