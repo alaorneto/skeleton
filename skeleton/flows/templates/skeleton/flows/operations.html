@@ -16,9 +16,9 @@
     <div class="card"><dt class="text-sm text-body-subtle">{% translate "A vencer em 24 horas" %}</dt><dd class="text-2xl font-semibold text-heading" data-count="due_soon">{{ panel.counts.due_soon }}</dd></div>
   </dl>
   <h2 class="section-heading">{% translate "Instâncias com falha" %}</h2>
-  <div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col">{% translate "Número" %}</th><th scope="col">{% translate "Atualizada em" %}</th></tr></thead><tbody>
-  {% for row in panel.failed %}<tr><td><a href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td>{{ row.number|default:"—" }}</td><td class="whitespace-nowrap!">{{ row.updated_at|moment }}</td></tr>
-  {% empty %}<tr><td colspan="3" class="empty-state">{% translate "Nenhuma instância com falha." %}</td></tr>{% endfor %}
+  <div class="table-scroll mb-6"><table><thead><tr><th scope="col">{% translate "Fluxo" %}</th><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col" class="col-date">{% translate "Atualizada em" %}</th></tr></thead><tbody>
+  {% for row in panel.failed %}<tr><td><a class="cell-primary" href="{% url 'flows:instance' organization_id row.sysid %}">{{ row.flow_key }} v{{ row.flow_version }}</a></td><td class="col-num">{{ row.number|default:"—" }}</td><td class="col-date">{{ row.updated_at|moment }}</td></tr>
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma instância com falha.") icon="check-circle" %}{% endfor %}
   </tbody></table></div>
   {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas sem responsável") rows=panel.unassigned empty=_("Nenhuma tarefa sem responsável.") %}
   {% include "skeleton/flows/operations_tasks.html" with heading=_("Tarefas atrasadas") rows=panel.overdue empty=_("Nenhuma tarefa atrasada.") %}

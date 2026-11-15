@@ -103,6 +103,10 @@ STATUS = {
     "draft": (_("Rascunho"), "neutral"),
     "archived": (_("Arquivado"), "neutral"),
     "inactive": (_("Inativo"), "neutral"),
+    "read": (_("Lida"), "neutral"),
+    "unread": (_("Não lida"), "warning"),
+    "export": (_("Exportação"), "brand"),
+    "import": (_("Importação"), "brand"),
     # Audit operations (AuditEvent.Operation).
     "create": (_("Criação"), "success"),
     "update": (_("Alteração"), "brand"),
@@ -128,6 +132,11 @@ STATUS = {
     "flows:cancelled": (_("Cancelada"), "neutral"),
     "flows:failed": (_("Com falha"), "danger"),
     "flows:open": (_("Aberta"), "brand"),
+    "assigned": (_("Atribuída"), "warning"),
+    "tasks:assigned": (_("Aberta"), "warning"),
+    "tasks:queued": (_("Na fila"), "neutral"),
+    "tasks:completed": (_("Concluída"), "success"),
+    "tasks:cancelled": (_("Cancelada"), "neutral"),
     # Billing.
     "billing:active": (_("Em dia"), "success"),
     "subscription:active": (_("Ativa"), "success"),
