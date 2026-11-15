@@ -9,6 +9,9 @@ class TokenForm(forms.Form):
     token = forms.CharField(label=gettext_lazy("Token de primeiro acesso"), max_length=200, strip=True)
 
 
+DEFAULT_TIMEZONE = "America/Sao_Paulo"
+
+
 class InstanceForm(forms.Form):
     allowed_hosts = forms.CharField(
         label=gettext_lazy("Endereços (hosts) aceitos"),
@@ -49,12 +52,41 @@ class InstanceForm(forms.Form):
         ),
     )
 
+    default_timezone = forms.CharField(
+        label=gettext_lazy("Fuso horário padrão"),
+        max_length=64,
+        initial=DEFAULT_TIMEZONE,
+        help_text=gettext_lazy(
+            "Usado para mostrar datas e horas a quem não escolheu um fuso próprio. America/Sao_Paulo é o horário"
+            " de Brasília. Outros: America/Manaus, America/Cuiaba, America/Belem, America/Fortaleza,"
+            " America/Rio_Branco."
+        ),
+    )
+
     def __init__(self, *args, **kwargs):
+        import zoneinfo
+
         from skeleton.instance.schema import CATALOG
 
         super().__init__(*args, **kwargs)
         if "public_url" not in CATALOG:  # The key arrives with the notifications epic (#54).
             del self.fields["public_url"]
+        zones = sorted(zoneinfo.available_timezones())
+        if zones:  # Without the tz database the catalog validation still refuses an unknown zone.
+            field = self.fields["default_timezone"]
+            self.fields["default_timezone"] = forms.ChoiceField(
+                label=field.label,
+                initial=field.initial,
+                help_text=field.help_text,
+                choices=[(zone, zone) for zone in zones],
+                required=False,
+            )
+        # Always submitted by the page (a value is selected); a scripted POST without it gets the default.
+        self.fields["default_timezone"].required = False
+        self.fields["default_timezone"].marked_required = True
+
+    def clean_default_timezone(self):
+        return self.cleaned_data["default_timezone"] or DEFAULT_TIMEZONE
 
 
 FILL_IN = gettext_lazy("Informe este campo.")

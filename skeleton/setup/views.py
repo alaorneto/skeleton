@@ -26,7 +26,7 @@ from skeleton.instance import crypto
 from skeleton.instance.writer import open_store, write_setting
 
 from . import database, forms, restart, tokens
-from .mode import COMPLETED
+from .mode import COMPLETED, PRODUCTION_SETTINGS
 
 
 @dataclass(frozen=True)
@@ -233,7 +233,8 @@ def _initial(step: str) -> dict:
 
     try:
         if step == "instance":
-            values = {name: _stored(name) for name in ("allowed_hosts", "csrf_trusted_origins", "public_url")}
+            names = ("allowed_hosts", "csrf_trusted_origins", "public_url", "default_timezone")
+            values = {name: _stored(name) for name in names}
             trust = _stored("trust_proxy")
             if trust is not None:
                 values["trust_proxy"] = trust.lower() in {"1", "true", "yes", "on"}
@@ -387,6 +388,7 @@ def instance(request):
             if data.get("public_url"):
                 write_setting(settings.BASE_DIR, "public_url", data["public_url"], source="setup")
             write_setting(settings.BASE_DIR, "trust_proxy", "true" if data["trust_proxy"] else "false", source="setup")
+            write_setting(settings.BASE_DIR, "default_timezone", data["default_timezone"], source="setup")
         except ValueError as error:
             form.add_error(None, str(error))
         else:
@@ -735,7 +737,7 @@ def admin(request):
             )
         else:
             _mark("admin")
-            _saved(request, "admin")
+            messages.success(request, gettext("Administrador e organização criados."))
             return redirect("setup:finish")
     return _step(request, "admin", form, status=400 if request.method == "POST" else 200)
 
@@ -744,12 +746,25 @@ def admin(request):
 @require_http_methods(["GET", "POST"])
 def finish(request):
     pending = [step for step in _progress() if not step.done]
+    email_skipped = _state().get("step:email") == SKIPPED
+    context = {"title": gettext("Concluir"), "pending": pending, "finishing": True, "email_skipped": email_skipped}
     if request.method == "POST" and not pending:
+        from . import preflight
+
+        target = getattr(settings, "SKELETON_SETUP_TARGET", "") or PRODUCTION_SETTINGS
+        try:
+            problems = preflight.start_problems(target, settings.BASE_DIR)
+        except preflight.PreflightUnavailable:
+            # No child process here: completing is still allowed, with the risk said out loud (#467).
+            problems = []
+            messages.warning(
+                request, gettext("Não foi possível conferir a partida; se o serviço não subir, veja os logs.")
+            )
+        if problems:
+            return _render(request, "finish.html", {**context, "problems": problems}, status=400)
         store, _ = _store()
         store.put_setup_state("status", COMPLETED)
         request.session.flush()
         how = restart.request_restart()
         return _render(request, "done.html", {"title": gettext("Configuração concluída"), "restart": how, "steps": ()})
-    email_skipped = _state().get("step:email") == SKIPPED
-    context = {"title": gettext("Concluir"), "pending": pending, "finishing": True, "email_skipped": email_skipped}
     return _render(request, "finish.html", context)

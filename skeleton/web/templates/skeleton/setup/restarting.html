@@ -1,0 +1,19 @@
+{% load static i18n %}<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="refresh" content="5">
+<title>{% translate "Reiniciando" %} · {% translate "Configuração do Skeleton" %}</title>
+<link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
+</head>
+<body>
+<main id="conteudo" class="mx-auto w-full max-w-2xl px-4 py-12 sm:px-6">
+<div class="card">
+<h1>{% translate "Reiniciando o serviço" %}</h1>
+<p class="page-description">{% translate "A configuração foi concluída. O serviço está reiniciando; esta página se atualiza sozinha. Se nada mudar em um minuto, reinicie o serviço:" %}</p>
+{% include "skeleton/setup/restart_commands.html" %}
+</div>
+</main>
+</body>
+</html>

@@ -103,7 +103,11 @@ def test_privileged_runtime_dsn_is_refused_with_a_clear_message(setup_mode):
     assert "database_url" not in setup_mode.settings()
 
 
-def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_path):
+def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_path, monkeypatch):
+    from skeleton.setup import preflight
+
+    # The start check runs the target settings in a child process; it has its own tests (#467).
+    monkeypatch.setattr(preflight, "start_problems", lambda target, base_dir: [])
     store = setup_mode
     owner = os.environ["TEST_MIGRATION_DATABASE_URL"]
     owner_password = owner.split(":")[2].split("@")[0]
@@ -174,7 +178,9 @@ def test_full_setup_never_keeps_the_owner_credential(setup_mode, caplog, tmp_pat
         done = post(client, "/setup/finish/", {})
     assert done.status_code == 200 and "reinicie o serviço" in done.content.decode().lower()
     assert store.setup_state()["status"] == "completed"
-    assert Client().get("/setup/").status_code == 404
+    # Until the process restarts, the setup only answers with the waiting page (#467).
+    assert Client().get("/setup/").status_code == 503
+    assert Client().post("/setup/database/", {"database_url": "postgres://x:y@h/d"}).status_code == 503
     from skeleton.accounts.models import User
 
     assert User.objects.filter(email="root@example.test", is_superuser=True).exists()
@@ -533,7 +539,7 @@ def test_email_step_can_wait_outside_production(setup_mode):
     for name in ("instance", "database", "schema", "storage", "admin"):
         setup_mode.put_setup_state(f"step:{name}", "done")
     finish = client.get("/setup/finish/").content.decode()
-    assert "E-mail não configurado" in finish and "Concluir e reiniciar" in finish
+    assert "E-mail não configurado" in finish and "Conferir e concluir" in finish
 
 
 def test_email_step_in_production_only_takes_smtp(setup_mode):
@@ -669,3 +675,93 @@ def test_refused_token_points_at_the_command(setup_mode):
     response = client.post("/setup/", {"token": "x" * 32, "csrfmiddlewaretoken": client.cookies["csrftoken"].value})
     html = response.content.decode()
     assert "Veja abaixo como gerar um novo." in html and "manage.py instance setup-token" in html
+
+
+def _all_done(store):
+    for name in ("instance", "database", "schema", "email", "storage", "admin"):
+        store.put_setup_state(f"step:{name}", "done")
+
+
+def test_instance_step_stores_the_default_timezone(setup_mode):
+    client = enter(setup_mode)
+    html = client.get("/setup/instance/").content.decode()
+    assert '<option value="America/Sao_Paulo" selected>' in html
+    response = post(
+        client,
+        "/setup/instance/",
+        {"allowed_hosts": "app.example.test", "default_timezone": "America/Manaus"},
+    )
+    assert response.status_code == 302
+    assert setup_mode.settings()["default_timezone"][0] == "America/Manaus"
+    assert '<option value="America/Manaus" selected>' in client.get("/setup/instance/").content.decode()
+
+
+def test_finish_waits_for_a_clean_start(setup_mode, monkeypatch):
+    from skeleton.setup import preflight
+
+    calls = []
+
+    def problems(target, base_dir):
+        calls.append(target)
+        return ["A instância não subiria com esta configuração: Falta o Redis: preencha o endereço do Redis."]
+
+    _all_done(setup_mode)
+    monkeypatch.setattr(preflight, "start_problems", problems)
+    client = enter(setup_mode)
+    assert "Conferir e concluir" in client.get("/setup/finish/").content.decode()
+    refused = post(client, "/setup/finish/", {})
+    assert refused.status_code == 400 and "Falta o Redis" in refused.content.decode()
+    assert setup_mode.setup_state().get("status") != "completed" and calls
+    monkeypatch.setattr(preflight, "start_problems", lambda target, base_dir: [])
+    done = post(client, "/setup/finish/", {})
+    html = done.content.decode()
+    assert done.status_code == 200 and setup_mode.setup_state()["status"] == "completed"
+    assert "docker compose restart web worker scheduler" in html and "sudo systemctl restart" in html
+
+
+def test_finish_completes_with_a_warning_when_no_child_process_starts(setup_mode, monkeypatch):
+    from skeleton.setup import preflight
+
+    def unavailable(target, base_dir):
+        raise preflight.PreflightUnavailable
+
+    _all_done(setup_mode)
+    monkeypatch.setattr(preflight, "start_problems", unavailable)
+    client = enter(setup_mode)
+    assert post(client, "/setup/finish/", {}).status_code == 200
+    assert setup_mode.setup_state()["status"] == "completed"
+
+
+def test_a_completed_setup_only_shows_the_waiting_page(setup_mode, subtests):
+    client = enter(setup_mode)
+    setup_mode.put_setup_state("status", "completed")
+    for method, url in (("get", "/"), ("get", "/setup/"), ("get", "/setup/finish/"), ("post", "/setup/database/")):
+        with subtests.test(method=method, url=url):
+            response = getattr(client, method)(url, {"database_url": "postgres://x:y@h/d"} if method == "post" else {})
+            html = response.content.decode()
+            assert response.status_code == 503 and response["Retry-After"] == "5"
+            assert "O serviço está reiniciando" in html and '<meta http-equiv="refresh" content="5">' in html
+            assert "<form" not in html and "csrfmiddlewaretoken" not in html
+    assert "database_url" not in setup_mode.settings()
+    assert client.get("/health/live/").status_code == 200
+
+
+def test_admin_step_warns_that_the_password_does_not_change(setup_mode):
+    _ready_for(setup_mode, "database", "schema", "admin")
+    client = enter(setup_mode)
+    html = client.get("/setup/admin/").content.decode()
+    assert "O administrador já foi criado" in html and "não altera a senha" in html
+
+
+def test_bootstrap_identity_messages_are_in_portuguese(subtests):
+    from django.core.exceptions import ValidationError
+
+    from skeleton.accounts.services import bootstrap_identity, create_identity
+
+    create_identity(email="member-467@example.test", password=PASSWORD)
+    with subtests.test("existing non-admin"), pytest.raises(ValidationError) as info:
+        bootstrap_identity(email="member-467@example.test", organization="org-467", name="Org", password=PASSWORD)
+    assert "Esta conta já existe e não é administradora da plataforma" in info.value.messages[0]
+    with subtests.test("no password"), pytest.raises(ValidationError) as info:
+        bootstrap_identity(email="new-467@example.test", organization="org-467", name="Org")
+    assert info.value.messages == ["Informe uma senha para a nova conta."]
