@@ -401,6 +401,33 @@ O manifesto core identifica o artefato e limita como instalá-lo:
 
 A assinatura segue o mesmo contrato e trust store dos pacotes de apps. O pacote não pode trazer uma segunda chave para autorizar a si mesmo.
 
+#### Pacote de release
+
+O pacote do core leva só o wheel do core: as dependências Python e o lock ficam por conta do operador. O **pacote de release** (#492) resolve isso num arquivo único por release do core: um `.skapp` de `kind: "release"` que embrulha o pacote do core **sem alterá-lo** e acrescenta, por **alvo** (interpretador e plataforma, como `cp314-manylinux_2_28_x86_64`), o lock com hashes e os wheels que ele fixa, mais o wheel do agente. É verificado com o mesmo trust store dos pacotes de componente; o código está em `skeleton/system/packaging/release.py`.
+
+```
+manifest.json, manifest.sig
+packages/django-skeleton-<versão>.skapp           pacote do core, intacto
+wheels/<arquivo>.whl                              dependências; um wheel puro aparece uma vez para todos os alvos
+locks/<id do alvo>.txt                            lock com --hash=sha256 de cada wheel do alvo
+agent/skeleton_deployment_agent-<versão>-py3-none-any.whl   (opcional)
+```
+
+O manifesto (JSON canônico, contador próprio `release_format: 1`, que não é o `manifest_version` dos pacotes de componente) declara `kind`, `component_id="django-skeleton"`, `name`, `version`, `publisher`, `core` (`path` e `sha256`), `targets` (cada um com `id`, `environment` de quatro chaves — `implementation_name`, `python_version`, `platform_machine`, `sys_platform` —, `lock` e `wheels`), o inventário `files` (`path`, `size`, `sha256`, `role` coerente com o diretório) e, opcionais, `agent`, `release_notes` e `build`. A validação recusa campo desconhecido, membro a mais, a menos ou alterado, alvo repetido, dois wheels da mesma distribuição num alvo, wheel fora de qualquer alvo ou ausente do lock do alvo, o core ou o agente entre os wheels de um alvo, e um wheel do agente de outra distribuição ou versão. O core embutido é verificado como pacote: **mesmo publicador e mesma versão** do pacote de release, de modo que um publicador aprovado para apps não consegue embrulhar o core de outro. `validate_package` continua recusando um pacote de release (leitores antigos falham de forma limpa).
+
+```sh
+# receita.json: {"name": "Skeleton", "release_notes": "", "build": "",
+#   "targets": [{"id": "cp314-manylinux_2_28_x86_64",
+#                "environment": {"implementation_name": "cpython", "python_version": "3.14",
+#                                "platform_machine": "x86_64", "sys_platform": "linux"},
+#                "lock": "locks/x86_64.txt", "wheels": "wheels-x86_64"}]}
+# Caminhos relativos à receita; "wheels" é um diretório e entram todos os *.whl dele.
+.venv/bin/python -m skeleton.system.packages release-build   --core /caminho/privado/core-<versão>.skapp --recipe /caminho/privado/receita.json   --agent-wheel dist/skeleton_deployment_agent-<versão>-py3-none-any.whl   --private-key /caminho/privado/publisher.pem --output /caminho/privado/skeleton-release-<versão>.skapp
+.venv/bin/python -m skeleton.system.packages validate /caminho/privado/skeleton-release-<versão>.skapp   --trust-store /caminho/privado/publishers.json
+```
+
+`release-build` só produz o arquivo se a mesma chave assinou o core ("Release and core must be signed by the same publisher key."), nunca sobrescreve o destino e gera arquivos byte a byte iguais para as mesmas entradas. `inspect` e `validate` reconhecem os dois tipos de arquivo; sem trust store, `inspect` diz `"trusted": false`. Como nos demais pacotes, a assinatura prova procedência, não ausência de código malicioso.
+
 O projeto derivado instala o wheel fixado em ambiente isolado e mantém um lock final com hashes para core, apps e dependências. O Dockerfile do template constrói esse wheel em stage separado, instala dependências dos locks com `--require-hashes`, instala o wheel já produzido sem resolver dependências e copia apenas os arquivos de projeto para o runtime. Não sobra uma cópia `skeleton/` em `/app` ocultando a distribuição instalada. A imagem do agente para releases gerenciados usa o lock final offline e wheels aprovados do release.
 
 ### Cutover de uma cópia do core

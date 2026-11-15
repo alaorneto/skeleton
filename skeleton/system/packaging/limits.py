@@ -98,3 +98,23 @@ DOCUMENT_HEADINGS = {
 
 
 SUGGESTIBLE_PROBLEM_CODES = ("missing_dependency", "incompatible_dependency_version")
+
+
+# Release packages (#492): one signed .skapp per core release, with the core package, the locked
+# dependency wheels of each target and the deployment agent wheel. Its own format counter.
+RELEASE_KIND = "release"
+
+
+RELEASE_FORMATS = (1,)
+
+
+AGENT_DISTRIBUTION = "skeleton-deployment-agent"
+
+
+TARGET_ID = re.compile(r"[a-z0-9][a-z0-9_.-]{0,63}\Z")
+
+
+TARGET_ENVIRONMENT_KEYS = ("implementation_name", "python_version", "platform_machine", "sys_platform")
+
+
+MAX_RELEASE_TARGETS = 16

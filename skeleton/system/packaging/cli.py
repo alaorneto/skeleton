@@ -12,7 +12,8 @@ from .catalog import build_catalog, catalog_entry, validate_catalog
 from .doctor import doctor
 from .errors import _fail
 from .manifest import load_manifest
-from .primitives import _json, canonical_json
+from .primitives import _json, _object, canonical_json
+from .release import build_release, inspect_release, package_kind
 from .signing import initialize_keys, load_trust_store
 from .template import default_service_class, manifest_template
 
@@ -39,6 +40,12 @@ def configure_parser(parser):
     build.add_argument("--output", required=True)
     build.add_argument("--private-key", required=True)
     build.add_argument("--wheel", action="append", default=[])
+    release = commands.add_parser(
+        "release-build", help="Wrap a signed core package with per-target locks, wheels and the agent wheel."
+    )
+    for name in ("core", "recipe", "output", "private-key"):
+        release.add_argument("--" + name, required=True)
+    release.add_argument("--agent-wheel")
     manifest = commands.add_parser("validate-manifest")
     manifest.add_argument("path")
     for name in ("validate", "inspect"):
@@ -119,11 +126,56 @@ def _run_build(options):
     return {"artifact": str(path)}
 
 
+def _recipe_targets(path):
+    """The targets of a release recipe; relative paths are relative to the recipe file."""
+    path = Path(path)
+    if path.stat().st_size > 1024 * 1024:
+        _fail("Release recipe is too large.")
+    recipe = _object(_json(path.read_bytes()), ("name", "release_notes", "build", "targets"), ("targets",))
+    if not isinstance(recipe["targets"], list):
+        _fail("Release recipe targets must be a list.")
+    base = path.parent
+    targets = []
+    for target in recipe["targets"]:
+        _object(target, ("id", "environment", "lock", "wheels"), ("id", "environment", "lock", "wheels"))
+        if not isinstance(target["lock"], str) or not isinstance(target["wheels"], str):
+            _fail("Release recipe lock and wheels must be paths.")
+        wheels = base / target["wheels"]
+        if not wheels.is_dir():
+            _fail("Release recipe wheels must be a directory.")
+        targets.append(
+            {
+                "id": target["id"],
+                "environment": target["environment"],
+                "lock": base / target["lock"],
+                "wheels": sorted(wheels.glob("*.whl"), key=lambda item: item.name),
+            }
+        )
+    return recipe, targets
+
+
+def _run_release_build(options):
+    recipe, targets = _recipe_targets(options["recipe"])
+    path = build_release(
+        options["core"],
+        options["output"],
+        options["private_key"],
+        targets=targets,
+        agent_wheel=options.get("agent_wheel"),
+        name=recipe.get("name", "Skeleton"),
+        release_notes=recipe.get("release_notes", ""),
+        build=recipe.get("build", ""),
+    )
+    return {"artifact": str(path)}
+
+
 def _run_validate_manifest(options):
     return load_manifest(options["path"])
 
 
 def _run_inspect(options):
+    if package_kind(options["path"]) == "release":
+        return inspect_release(options["path"], _optional_trust(options))
     return inspect_package(options["path"], _optional_trust(options))
 
 
@@ -207,6 +259,7 @@ OPERATIONS = {
     "keygen": _run_keygen,
     "init": _run_init,
     "build": _run_build,
+    "release-build": _run_release_build,
     "validate-manifest": _run_validate_manifest,
     "validate": _run_inspect,
     "inspect": _run_inspect,
