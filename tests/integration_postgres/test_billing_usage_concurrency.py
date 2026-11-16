@@ -1,4 +1,4 @@
-"""Two transactions racing for the last unit of an allowance: one records, the other is refused (#523)."""
+"""Two transactions racing for the last unit of an allowance: one records, the other is refused (#523, #525)."""
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -57,3 +57,10 @@ def test_the_last_unit_has_one_winner(skeleton_db, settings, monkeypatch, seeded
     with system_context(reason="test:usage-race-read", organization_id=scenario.a.pk):
         assert UsageBalance.objects.get().used == limit
         assert UsageEvent.objects.count() == limit
+        # The winner crossed 80% and 100% once: one notice each, never one per racer (#525).
+        from skeleton.notifications.models import Notification
+
+        keys = sorted(
+            Notification.objects.filter(type_code="billing.usage_threshold").values_list("dedupe_key", flat=True)
+        )
+        assert [key.rsplit(":", 1)[1] for key in keys] == ["100", "80"]

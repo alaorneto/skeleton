@@ -337,6 +337,10 @@ def record(meter: str, *, quantity: int = 1, idempotency_key: str, now: Any = No
                 raise QuotaLimitExceeded(meter, limit)
             balance.used += quantity
             balance.save(update_fields={"used", "updated_at"})
+            # Under the counter's lock: each crossing is seen by one transaction (and deduplicated anyway).
+            from .notices import usage_threshold
+
+            usage_threshold(meter, before=balance.used - quantity, after=balance.used, limit=limit, period_start=start)
     except IntegrityError:
         # The same key won a race: answer like the repeated call.
         return _repeat(meter, UsageEvent.objects.get(meter=meter, idempotency_key=idempotency_key), terms)

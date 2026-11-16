@@ -74,7 +74,7 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 - Lotes de até 500 pessoas: cada lote é um job (`notification:<id>:<offset>`), e o último marca `fanned_out_at`. A leitura do alvo é decidida para o lote inteiro por `users_who_can_read`, com a mesma regra de `require_record_action` e um número de consultas que não cresce com o lote; as entregas já existentes do lote são lidas numa consulta por canal (#296).
 - Agrupamento: com `group_key`, uma linha não lida e não arquivada da mesma chave recebe `count + 1` e passa a apontar para a notificação mais recente, em vez de criar outra linha.
 
-Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem tabela-alvo, obrigatórios, por email e na aplicação: `authorize` reconfere no fan-out que a pessoa ainda administra a organização, e `dedupe_key` faz cada etapa sair uma vez.
+Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem tabela-alvo, obrigatórios, por email e na aplicação: `authorize` reconfere no fan-out que a pessoa ainda administra a organização, e `dedupe_key` faz cada etapa sair uma vez. A exceção é `billing.usage_threshold` (#525), o aviso de 80% e 100% do limite de um medidor de uso: não é obrigatório (a pessoa pode desligar o canal) e leva só o código do medidor e os números ([medidores de uso](billing.md#medidores-de-uso)).
 
 ## Caixa de notificações
 

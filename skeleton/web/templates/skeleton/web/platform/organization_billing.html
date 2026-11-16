@@ -11,6 +11,11 @@
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Item" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>{% for item in items %}<tr><td><span class="cell-primary">{{ item.price.product.name }}</span></td><td class="col-num">{{ item.price.unit_amount|money:item.price.currency }}</td><td>{{ item.status|status_badge:"item" }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 
+{% if meters %}<section class="mb-8" aria-labelledby="usage-heading"><h2 id="usage-heading" class="section-heading">{% translate "Uso neste período" %}</h2>
+<div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Medidor" %}</th><th scope="col" class="col-num">{% translate "Usado" %}</th><th scope="col" class="col-num">{% translate "Incluído" %}</th><th scope="col" class="col-num">{% translate "Limite" %}</th><th scope="col">{% translate "Acima da franquia" %}</th></tr></thead><tbody>
+{% for meter in meters %}<tr><td><code class="cell-primary">{{ meter.meter }}</code></td><td class="col-num">{{ meter.used }}</td><td class="col-num">{{ meter.included }}</td><td class="col-num">{{ meter.limit|default_if_none:"—" }}</td><td>{{ meter.overage }}</td></tr>{% endfor %}
+</tbody></table></div></section>{% endif %}
+
 <section class="mb-8" aria-labelledby="invoices-heading"><h2 id="invoices-heading" class="section-heading">{% translate "Faturas" %}</h2>
 <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Número" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th><th scope="col" class="col-date">{% translate "Vencimento" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
 {% for invoice in invoices %}<tr><td><code class="cell-primary">{{ invoice.number }}</code></td><td class="col-num">{{ invoice.total|money:invoice.currency }}</td><td class="col-date">{{ invoice.due_at|moment:"date" }}</td><td>{{ invoice.status|status_badge:"invoice" }}{% if invoice.status_note %}<span class="cell-secondary">{{ invoice.status_note }}</span>{% endif %}</td>

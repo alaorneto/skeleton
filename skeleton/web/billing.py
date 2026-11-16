@@ -31,6 +31,18 @@ def _overview_url(organization_id):
     return reverse("billing-overview", kwargs={"organization_id": organization_id})
 
 
+def _meter_rows(statuses):
+    """The contracted meters of the period with the share of the limit used (#525); unlimited ones are left out."""
+    rows = []
+    for status in statuses:
+        if status.overage == "unlimited":
+            continue
+        bound = status.limit if status.limit else status.included
+        percent = min(100, status.used * 100 // bound) if bound else 0
+        rows.append({"status": status, "percent": percent, "bound": bound})
+    return rows
+
+
 def _usage_by_app():
     from skeleton.billing.models import UsageSnapshot
 
@@ -58,6 +70,7 @@ def billing_overview(request, organization_id):
             "offers": service.offers(actor=actor),
             "storage": service.storage_allowance(actor=actor),
             "usage_by_app": _usage_by_app(),
+            "meters": _meter_rows(service.usage(actor=actor)),
             "account": account,
             "can_manage": has_capability(actor, BILLING_MANAGE),
             "terms_version": TERMS_VERSION,

@@ -153,6 +153,14 @@ def _in_organization(user: Any, organization_id: Any) -> Any:
     return system_context(reason=PLATFORM_REASON, organization_id=organization_id)
 
 
+def _meter_statuses() -> list[Any]:
+    """The organization's use of each meter its subscription cites, in the current period (#525)."""
+    from . import usage
+
+    found = [usage.status(meter.code) for meter in usage.registered_usage_meters()]
+    return [status for status in found if status.overage != "unlimited"]
+
+
 def account_snapshot(user: Any, organization_id: Any) -> dict[str, Any]:
     """What the platform page shows of one organization's billing (read only)."""
     from .models import Invoice, Payment
@@ -167,6 +175,7 @@ def account_snapshot(user: Any, organization_id: Any) -> dict[str, Any]:
             else [],
             "invoices": list(Invoice.objects.order_by("-number")[:50]),
             "payments": list(Payment.objects.select_related("invoice").order_by("-created_at")[:50]),
+            "meters": _meter_statuses() if subscription else [],
         }
 
 
