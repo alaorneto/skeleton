@@ -71,6 +71,18 @@ O livro padrão da organização, criado na primeira chamada.
 
 Os títulos são gerados pelo job diário `ledger.recurrences`, não pelos métodos.
 
+#### Saldos e relatórios (#548)
+Todos com leitura do livro, só leitura, só lançamentos selados; `NotFound` para livro ou conta ilegível; `InvalidInput` para janela (até cinco anos), data, cursor ou página inválidos.
+
+| Método | Notas |
+|---|---|
+| `balance(*, actor, as_of, account_id=None, account_key=None, book_id=None) -> BalanceInfo` | exatamente um de `account_id` e `account_key`; `Conflict("account_not_bound")` com chave sem vínculo |
+| `trial_balance(*, actor, start, end, book_id=None) -> TrialBalanceInfo` | todas as contas, grupos somando descendentes |
+| `income_statement(*, actor, start, end, book_id=None) -> IncomeStatementInfo` | receitas menos despesas |
+| `account_statement(*, actor, account_id, start, end, cursor=None, page_size=25, book_id=None) -> StatementInfo` | paginado, com saldo corrente |
+| `cash_flow(*, actor, start, end, book_id=None) -> CashFlowInfo` | realizado e previsto, por mês |
+| `aging(*, actor, as_of, direction="receivable", book_id=None) -> AgingInfo` | faixas `current`, `1-30`, `31-60`, `61-90`, `90+` |
+
 `reverse` também aceita `expected_revision` (CAS) e `system_context`; um lançamento com origem é estornado com a ação da regra na origem. `amounts` mapeia o nome de cada componente a um inteiro da menor unidade da moeda; `accounts` mapeia o nome de cada `Param` ao `sysid` de uma conta do livro.
 
 `lines` é uma tupla de `PostingLine(account_id, debit=0, credit=0, memo="", cost_center_id=None, party_ref="", party_kind="")`, reexportado pelo módulo. A contraparte é identificada só por `party_ref` (referência opaca), nunca por nome.
@@ -85,7 +97,12 @@ Os títulos são gerados pelo job diário `ledger.recurrences`, não pelos méto
 - `TitleInfo`: `sysid`, `book_id`, `direction`, `description`, `counterparty_name`, `party_ref`, `party_kind`, `category_account_id`, `cost_center_id`, `amount`, `amount_settled`, `balance`, `issue_date`, `due_date`, `status`, `source_table`, `source_id`, `installment_number`, `installment_count`, `revision`. `counterparty_name` sai para quem lê o livro e, em `titles_for_source`, para quem lê a origem.
 - `SettlementInfo`: `sysid`, `title_id`, `date`, `amount`, `discount`, `interest`, `fee`, `payment_account_id`, `method`, `entry_id`, `reversal_entry_id`, `revision`.
 - `RecurrenceInfo`: `sysid`, `book_id`, `direction`, `description`, `counterparty_name`, `category_account_id`, `cost_center_id`, `amount`, `frequency`, `interval`, `day_of_month`, `start_date`, `end_date`, `max_occurrences`, `next_due` (`None` quando encerrada), `generated_count`, `days_ahead`, `is_active`, `ended`, `revision`.
+- `BalanceInfo`: `account_id`, `code`, `name`, `kind`, `is_group`, `as_of`, `debit`, `credit`, `balance` (sinal natural).
+- `ReportRow`: `account_id`, `code`, `name`, `kind`, `parent_id`, `is_group`, `opening`, `debit`, `credit`, `closing`; `TrialBalanceInfo`: `start`, `end`, `rows`, `total_debit`, `total_credit`; `IncomeStatementInfo`: `start`, `end`, `revenue`, `expense`, `result`, `rows` (o movimento em `closing`).
+- `StatementInfo`: `account_id`, `start`, `end`, `opening`, `page` (`Page[StatementLine]`: `line_id`, `entry_id`, `date`, `year`, `number`, `description`, `memo`, `debit`, `credit`, `balance`).
+- `CashFlowInfo`: `start`, `end`, `opening`, `realized_in`, `realized_out`, `closing`, `forecast_in`, `forecast_out`, `months` (`CashFlowMonth`: `month`, `realized_in`, `realized_out`, `forecast_in`, `forecast_out`).
+- `AgingInfo`: `as_of`, `direction`, `total`, `buckets` (`AgingBucket`: `name`, `amount`, `count`).
 - `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest` e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Histórico de versões
-- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547).
+- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547); saldos e relatórios (#548).

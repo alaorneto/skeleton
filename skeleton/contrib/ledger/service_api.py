@@ -25,19 +25,29 @@ __all__ = [
     "AccountInfo",
     "AccountKey",
     "AccountKeyInfo",
+    "AgingBucket",
+    "AgingInfo",
+    "BalanceInfo",
     "BookInfo",
+    "CashFlowInfo",
+    "CashFlowMonth",
     "CostCenterInfo",
     "EntryInfo",
     "EntryLineInfo",
+    "IncomeStatementInfo",
     "LedgerService",
     "Key",
     "Param",
     "PostingLine",
     "PostingRule",
     "RecurrenceInfo",
+    "ReportRow",
     "RuleLine",
     "SettlementInfo",
+    "StatementInfo",
+    "StatementLine",
     "TitleInfo",
+    "TrialBalanceInfo",
     "register_posting_rule",
     "register_account_key",
 ]
@@ -318,6 +328,132 @@ def recurrence_info(rule: RecurringTitle) -> RecurrenceInfo:
         is_active=rule.is_active,
         ended=ended(rule, rule.next_due),
         revision=rule.revision,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BalanceInfo:
+    """Balance of an account on ``as_of``, in the natural sign of its kind (groups sum descendants)."""
+
+    account_id: UUID
+    code: str
+    name: str
+    kind: str
+    is_group: bool
+    as_of: date
+    debit: int
+    credit: int
+    balance: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReportRow:
+    """One account of a trial balance or an income statement: ``closing = opening ± (debit - credit)``."""
+
+    account_id: UUID
+    code: str
+    name: str
+    kind: str
+    parent_id: UUID | None
+    is_group: bool
+    opening: int
+    debit: int
+    credit: int
+    closing: int
+
+
+@dataclass(frozen=True, slots=True)
+class TrialBalanceInfo:
+    start: date
+    end: date
+    rows: tuple[ReportRow, ...]
+    total_debit: int
+    total_credit: int
+
+
+@dataclass(frozen=True, slots=True)
+class IncomeStatementInfo:
+    start: date
+    end: date
+    revenue: int
+    expense: int
+    result: int
+    rows: tuple[ReportRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class StatementLine:
+    line_id: UUID
+    entry_id: UUID
+    date: date
+    year: int
+    number: int
+    description: str
+    memo: str
+    debit: int
+    credit: int
+    balance: int
+
+
+@dataclass(frozen=True, slots=True)
+class StatementInfo:
+    account_id: UUID
+    start: date
+    end: date
+    opening: int
+    page: Page[StatementLine]
+
+
+@dataclass(frozen=True, slots=True)
+class CashFlowMonth:
+    month: date
+    realized_in: int
+    realized_out: int
+    forecast_in: int
+    forecast_out: int
+
+
+@dataclass(frozen=True, slots=True)
+class CashFlowInfo:
+    start: date
+    end: date
+    opening: int
+    realized_in: int
+    realized_out: int
+    closing: int
+    forecast_in: int
+    forecast_out: int
+    months: tuple[CashFlowMonth, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AgingBucket:
+    name: str
+    amount: int
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AgingInfo:
+    as_of: date
+    direction: str
+    total: int
+    buckets: tuple[AgingBucket, ...]
+
+
+def report_row(node: Any) -> ReportRow:
+    account = node.account
+    return ReportRow(
+        account_id=account.pk,
+        code=account.code,
+        name=account.name,
+        kind=account.kind,
+        parent_id=account.parent_id,
+        is_group=account.is_group,
+        opening=node.opening,
+        debit=node.debit,
+        credit=node.credit,
+        closing=node.closing,
     )
 
 
@@ -1235,6 +1371,212 @@ class LedgerService(ServiceAPI):
         book = _readable_book(actor, book_id)
         return tuple(recurrence_info(rule) for rule in RecurringTitle.objects.filter(book=book))
 
+    # ----------------------------------------------------------- balances and reports (#548)
+
+    @service_method(read_only=True, since="0.6.0")
+    def balance(
+        self,
+        *,
+        actor: Any,
+        as_of: date,
+        account_id: UUID | None = None,
+        account_key: str | None = None,
+        book_id: UUID | None = None,
+    ) -> BalanceInfo:
+        """Balance of one account (by id or by bound key) on ``as_of``; a group sums its descendants.
+
+        Autorização: leitura do livro.
+        Erros: NotFound (livro ou conta); Conflict("account_not_bound") com chave sem vínculo;
+        InvalidInput sem exatamente um de ``account_id`` e ``account_key``, ou data inválida.
+        Efeitos: nenhum.
+        """
+        from skeleton.service_api import Conflict, InvalidInput, NotFound
+
+        from . import reports
+
+        book = _readable_book(actor, book_id)
+        as_of = _as_of(as_of)
+        if (account_id is None) == (account_key is None):
+            raise InvalidInput({"account_id": ["Informe account_id ou account_key."]})
+        if account_key is not None:
+            target = (
+                AccountBinding.objects.filter(book=book, key=_key(account_key))
+                .values_list("account_id", flat=True)
+                .first()
+            )
+            if target is None:
+                raise Conflict("account_not_bound", f"Vincule a chave {account_key} a uma conta do livro.")
+        else:
+            target = _uuid(account_id, "account_id")
+        _, nodes = reports.totals(book, start=None, end=as_of)
+        node = nodes.get(target)
+        if node is None:
+            raise NotFound()
+        account = node.account
+        return BalanceInfo(
+            account.pk,
+            account.code,
+            account.name,
+            account.kind,
+            account.is_group,
+            as_of,
+            node.debit,
+            node.credit,
+            node.closing,
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def trial_balance(self, *, actor: Any, start: date, end: date, book_id: UUID | None = None) -> TrialBalanceInfo:
+        """Trial balance of ``[start, end]`` (at most five years): every account, groups summing descendants.
+
+        Totals sum the analytic accounts only, so debits equal credits in any window.
+        Autorização: leitura do livro.
+        Erros: NotFound; InvalidInput para janela inválida.
+        Efeitos: nenhum.
+        """
+        from . import reports
+
+        book = _readable_book(actor, book_id)
+        start, end = _date_window(start, end)
+        accounts, nodes = reports.totals(book, start=start, end=end)
+        rows = tuple(report_row(nodes[account.pk]) for account in accounts)
+        analytic = [row for row in rows if not row.is_group]
+        return TrialBalanceInfo(
+            start, end, rows, sum(row.debit for row in analytic), sum(row.credit for row in analytic)
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def income_statement(
+        self, *, actor: Any, start: date, end: date, book_id: UUID | None = None
+    ) -> IncomeStatementInfo:
+        """Revenue minus expenses of ``[start, end]`` (at most five years), with the accounts that moved.
+
+        Autorização: leitura do livro.
+        Erros: NotFound; InvalidInput para janela inválida.
+        Efeitos: nenhum.
+        """
+        from . import reports
+
+        book = _readable_book(actor, book_id)
+        start, end = _date_window(start, end)
+        accounts, nodes = reports.totals(book, start=start, end=end)
+        rows, revenue, expense = [], 0, 0
+        for account in accounts:
+            if account.kind not in ("revenue", "expense"):
+                continue
+            node = nodes[account.pk]
+            movement = node.sign * (node.debit - node.credit)
+            row = report_row(node)
+            rows.append(ReportRow(**{**_row_dict(row), "opening": 0, "closing": movement}))
+            if not account.is_group:
+                if account.kind == "revenue":
+                    revenue += movement
+                else:
+                    expense += movement
+        return IncomeStatementInfo(start, end, revenue, expense, revenue - expense, tuple(rows))
+
+    @service_method(read_only=True, since="0.6.0")
+    def account_statement(
+        self,
+        *,
+        actor: Any,
+        account_id: UUID,
+        start: date,
+        end: date,
+        cursor: str | None = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        book_id: UUID | None = None,
+    ) -> StatementInfo:
+        """Ledger of one account (with its descendants) in ``[start, end]``, by date, number and line.
+
+        Each line carries the running balance, in the natural sign of the account, from the opening
+        balance of ``start``.
+        Autorização: leitura do livro.
+        Erros: NotFound (livro ou conta); InvalidInput para janela, cursor ou página inválidos.
+        Efeitos: nenhum.
+        """
+        from skeleton.service_api import NotFound
+
+        from . import reports
+
+        book = _readable_book(actor, book_id)
+        start, end = _date_window(start, end)
+        target = _uuid(account_id, "account_id")
+        accounts = reports.chart(book)
+        account = next((item for item in accounts if item.pk == target), None)
+        if account is None:
+            raise NotFound()
+        opening, rows = reports.statement_rows(book, accounts, account, start=start, end=end)
+
+        def convert(line: Any) -> StatementLine:
+            return StatementLine(
+                line.pk,
+                line.entry_id,
+                line.date,
+                line.entry.year,
+                line.entry.number,
+                line.entry.description,
+                line.memo,
+                line.debit,
+                line.credit,
+                opening + line.running,
+            )
+
+        page = paginate(rows, convert=convert, page_size=page_size, cursor=cursor)
+        return StatementInfo(account.pk, start, end, opening, page)
+
+    @service_method(read_only=True, since="0.6.0")
+    def cash_flow(self, *, actor: Any, start: date, end: date, book_id: UUID | None = None) -> CashFlowInfo:
+        """Realized cash flow (accounts bound to ``ledger.cash`` and ``ledger.bank``) and the forecast.
+
+        The forecast is the open balance of the titles falling due in the window, by month.
+        Autorização: leitura do livro.
+        Erros: NotFound; InvalidInput para janela inválida.
+        Efeitos: nenhum.
+        """
+        from . import reports
+
+        book = _readable_book(actor, book_id)
+        start, end = _date_window(start, end)
+        flow = reports.cash_flow(book, start=start, end=end)
+        months = tuple(CashFlowMonth(month, **values) for month, values in flow["months"].items())
+        realized_in = sum(month.realized_in for month in months)
+        realized_out = sum(month.realized_out for month in months)
+        return CashFlowInfo(
+            start,
+            end,
+            flow["opening"],
+            realized_in,
+            realized_out,
+            flow["opening"] + realized_in - realized_out,
+            sum(month.forecast_in for month in months),
+            sum(month.forecast_out for month in months),
+            months,
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def aging(
+        self, *, actor: Any, as_of: date, direction: str = "receivable", book_id: UUID | None = None
+    ) -> AgingInfo:
+        """Open balance of the titles by overdue bucket on ``as_of``: current, 1-30, 31-60, 61-90, 90+ days.
+
+        Uses the current open balance of each title issued on or before ``as_of``.
+        Autorização: leitura do livro.
+        Erros: NotFound; InvalidInput para data ou direção inválida.
+        Efeitos: nenhum.
+        """
+        from skeleton.service_api import InvalidInput
+
+        from . import reports
+
+        book = _readable_book(actor, book_id)
+        as_of = _as_of(as_of)
+        if direction not in Title.Direction.values:
+            raise InvalidInput({"direction": ["Use receivable ou payable."]})
+        found = reports.aging(book, as_of=as_of, direction=direction)
+        buckets = tuple(AgingBucket(name, *found[name]) for name in reports.AGING_BUCKETS)
+        return AgingInfo(as_of, direction, sum(bucket.amount for bucket in buckets), buckets)
+
     @service_method(read_only=False, since="0.6.0")
     def set_lock(
         self, *, actor: Any, locked_until: date | None, expected_revision: int, book_id: UUID | None = None
@@ -1724,3 +2066,17 @@ def _recurrence_to_change(actor: Any, recurrence_id: Any, expected_revision: Any
     if type(expected_revision) is not int or rule.revision != expected_revision:
         raise Conflict("stale_revision", "A recorrência mudou.")
     return rule
+
+
+def _as_of(value: Any) -> date:
+    from datetime import datetime
+
+    from skeleton.service_api import InvalidInput
+
+    if not isinstance(value, date) or isinstance(value, datetime):
+        raise InvalidInput({"as_of": ["Use uma data."]})
+    return value
+
+
+def _row_dict(row: ReportRow) -> dict[str, Any]:
+    return {name: getattr(row, name) for name in ReportRow.__dataclass_fields__}

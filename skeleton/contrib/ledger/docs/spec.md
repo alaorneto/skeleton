@@ -60,6 +60,17 @@ Uma app lança pelos registros dela com uma **regra declarada em código** (`Pos
 - `end_date` e `max_occurrences` encerram a geração; estender um deles retoma a regra. Pausar interrompe; retomar pula as ocorrências que venceram durante a pausa e volta a gerar a partir de hoje.
 - Alterar valor, descrição, contraparte ou centro de custo vale para as próximas ocorrências; os títulos já gerados não mudam.
 
+### Saldos e relatórios (#548)
+Todo número sai das partidas dos lançamentos selados (`sealed_at` preenchido), a cada consulta: não há saldo materializado, e um lançamento sem selo (que só existe dentro da transação que o cria) nunca entra. O saldo usa o sinal natural do tipo da conta: débito menos crédito em ativo e despesa; crédito menos débito em passivo, patrimônio e receita. Uma conta-grupo soma as descendentes.
+
+- `balance`: saldo de uma conta (por id ou pela chave vinculada) numa data.
+- `trial_balance`: balancete da janela, com saldo inicial, débitos, créditos e saldo final de cada conta; os totais somam só as analíticas, e débitos e créditos fecham em qualquer janela.
+- `income_statement`: receitas menos despesas da janela, com o movimento das contas de resultado.
+- `account_statement`: razão de uma conta (e descendentes), paginado em ordem estável (data, ano, número, partida), cada linha com o saldo corrente desde o saldo inicial da janela (calculado pelo banco sobre a janela inteira, então qualquer página tem o saldo certo).
+- `cash_flow`: realizado (movimento das contas vinculadas a `ledger.cash` e `ledger.bank`) e previsto (saldo aberto dos títulos que vencem na janela), por mês.
+- `aging`: saldo aberto atual dos títulos emitidos até a data, por faixa de atraso: a vencer, 1–30, 31–60, 61–90 e mais de 90 dias.
+- Janelas de até cinco anos, com o fim depois do início; cada relatório faz um número fixo de consultas (as contas do livro e uma agregação; o razão e o fluxo de caixa, duas), qualquer que seja o volume. Só quem lê o livro.
+
 ## Acceptance
 - `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.
