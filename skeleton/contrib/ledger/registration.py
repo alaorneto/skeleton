@@ -36,3 +36,40 @@ def register_ledger_tables() -> None:
         ),
     )
     register_quota_metric("skeleton_ledger.books", services.book_count)
+    from .models import Account, AccountBinding, CostCenter
+
+    for model, label, description, fields in (
+        (
+            Account,
+            gettext_lazy("Contas"),
+            gettext_lazy("Plano de contas de cada livro; a autorização vem do livro."),
+            ("book", "code", "name", "kind", "parent", "is_group", "is_active"),
+        ),
+        (
+            AccountBinding,
+            gettext_lazy("Vínculos de chaves de conta"),
+            gettext_lazy("Qual conta do livro cada chave registrada em código usa."),
+            ("book", "key", "account"),
+        ),
+        (
+            CostCenter,
+            gettext_lazy("Centros de custo"),
+            gettext_lazy("Centros de custo de cada livro."),
+            ("book", "code", "name", "is_active"),
+        ),
+    ):
+        register(
+            TableSpec(
+                model=model,
+                description=description,
+                label=label,
+                scope="organization",
+                read_fields=fields,
+                write_fields=(),
+                sensitive_fields=(),
+                expose_api=False,
+            )
+        )
+    from .registry import register_base_keys
+
+    register_base_keys()

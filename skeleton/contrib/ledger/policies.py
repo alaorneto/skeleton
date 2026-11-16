@@ -29,4 +29,9 @@ def writable_books(user: Any) -> QuerySet[Book]:
 
 
 def can_manage(user: Any, book: Book) -> bool:
-    return writable_books(user).filter(pk=book.pk).exists()
+    from django.core.exceptions import PermissionDenied
+
+    try:
+        return writable_books(user).filter(pk=book.pk).exists()
+    except PermissionDenied:
+        return False
