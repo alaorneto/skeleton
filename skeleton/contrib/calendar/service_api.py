@@ -115,7 +115,6 @@ class CalendarService(ServiceAPI):
         """
         import uuid
 
-        from skeleton.access.capabilities import ACCESS_MANAGE, has_capability
         from skeleton.access.policies import has_table_permission
         from skeleton.service_api import Forbidden, InvalidInput, as_uuid
         from skeleton.service_api.access import AccessService
@@ -125,7 +124,9 @@ class CalendarService(ServiceAPI):
 
         if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
             raise InvalidInput({"idempotency_key": [gettext("Chave de 1 a 200 caracteres.")]})
-        if not has_table_permission(Calendar, user=actor, action="create") or not has_capability(actor, ACCESS_MANAGE):
+        if not has_table_permission(Calendar, user=actor, action="create") or (
+            "access.manage" not in AccessService().capabilities(actor=actor)
+        ):
             raise Forbidden()
         groups = {"update": writer_group_ids, "read": reader_group_ids}
         if (
