@@ -17,6 +17,18 @@ Calendários que o ator lê, o pessoal padrão primeiro (criado na primeira cham
 - **Erros:** `Forbidden` sem a permissão; `Unavailable`.
 - **Efeitos:** cria o calendário pessoal padrão na primeira chamada, para qualquer ator com `TablePermission` de leitura, inclusive conta de serviço (#345).
 
+#### `calendars(*, actor) -> tuple[CalendarInfo, ...]`
+Todos os calendários que o ator lê na organização, sem criar nenhum (#539); `my_calendars` é quem cria o pessoal padrão.
+- **Autorização:** TablePermission read em `skeleton_calendar.calendar` e visibilidade dos registros.
+- **Erros:** `Forbidden` sem a permissão; `Unavailable`.
+- **Efeitos:** nenhum.
+
+#### `create_shared_calendar(*, actor, name, owner_user_id, timezone, writer_group_ids=(), reader_group_ids=(), idempotency_key) -> CalendarInfo`
+Cria um calendário de atendimento (#539): compartilhado, **privado**, de propriedade de `owner_user_id` (membro ativo), com `read` e `update` concedidos por `RecordGrant` aos grupos de `writer_group_ids` e `read` aos de `reader_group_ids` (até 20 grupos), pelo `AccessService.grant_record_access` do núcleo. Assim a equipe de apoio escreve na agenda de quem atende sem abrir o calendário pessoal dessa pessoa. O membro do grupo ainda precisa da `TablePermission` da agenda (default deny).
+- **Autorização:** `create` em `skeleton_calendar.calendar` **e** a capacidade `access.manage`.
+- **Erros:** `Forbidden` sem uma das duas; `InvalidInput` (nome, fuso, dono que não é membro ativo, grupo de outra organização, grupos demais, chave inválida).
+- **Efeitos:** cria o calendário e as concessões na transação do chamador; a mesma `idempotency_key` do mesmo ator devolve o calendário já criado (o `sysid` é derivado da organização, do ator e da chave). O administrador continua sem escrever em calendário **pessoal** alheio.
+
 #### `upcoming(*, actor, start, end, calendar_ids=None) -> tuple[EventOccurrence, ...]`
 Ocorrências legíveis em `[start, end)`, no máximo 400 dias, com a recorrência expandida.
 - **Autorização:** leitura do calendário ou convite.
@@ -142,4 +154,4 @@ Os métodos gerais (`update_event`, `cancel_event`, `delete_event`, `edit_occurr
 
 ## Histórico de versões
 - 0.5.0: `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
-- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`.
+- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`. Calendários de atendimento (#539): `calendars` e `create_shared_calendar`.

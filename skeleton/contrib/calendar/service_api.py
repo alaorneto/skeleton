@@ -71,6 +71,98 @@ class CalendarService(ServiceAPI):
         rows = authorized_queryset(Calendar, user=actor, action="read").order_by("-is_default", "name", "sysid")
         return tuple(calendar_info(calendar, writable=can_write(actor, calendar)) for calendar in rows)
 
+    @service_method(read_only=True, since="0.6.0")
+    def calendars(self, *, actor: Any) -> tuple[CalendarInfo, ...]:
+        """Every calendar the actor reads in the current organization, without creating any (#539).
+
+        Autorização: TablePermission read em skeleton_calendar.calendar e visibilidade dos registros.
+        Erros: Forbidden sem a permissão de tabela; Unavailable com a app desativada.
+        Efeitos: nenhum (``my_calendars`` é quem cria o calendário pessoal padrão).
+        """
+        from skeleton.service_api import Forbidden
+
+        from .policies import can_write
+
+        try:
+            rows = authorized_queryset(Calendar, user=actor, action="read").order_by("-is_default", "name", "sysid")
+            return tuple(calendar_info(calendar, writable=can_write(actor, calendar)) for calendar in rows)
+        except PermissionDenied:
+            raise Forbidden() from None
+
+    @service_method(read_only=False, since="0.6.0")
+    def create_shared_calendar(
+        self,
+        *,
+        actor: Any,
+        name: str,
+        owner_user_id: UUID,
+        timezone: str,
+        writer_group_ids: tuple[UUID, ...] = (),
+        reader_group_ids: tuple[UUID, ...] = (),
+        idempotency_key: str,
+    ) -> CalendarInfo:
+        """Create a private shared calendar owned by a member, with writing delegated to groups (#539).
+
+        For example the calendar of the appointments of one professional, written by the support
+        team: the groups in ``writer_group_ids`` get ``read`` and ``update``, those in
+        ``reader_group_ids`` only ``read``, by record grants of the core.
+        Autorização: ``create`` em skeleton_calendar.calendar e a capacidade ``access.manage``
+        (a gestão de acesso do núcleo).
+        Erros: Forbidden sem uma das duas; InvalidInput para nome, fuso, dono que não é membro ativo,
+        grupo de outra organização, mais de 20 grupos ou chave inválida.
+        Efeitos: cria o calendário e as concessões na transação do chamador; a mesma
+        ``idempotency_key`` do mesmo ator devolve o calendário já criado.
+        """
+        import uuid
+
+        from skeleton.access.capabilities import ACCESS_MANAGE, has_capability
+        from skeleton.access.policies import has_table_permission
+        from skeleton.service_api import Forbidden, InvalidInput, as_uuid
+        from skeleton.service_api.access import AccessService
+        from skeleton.service_api.organizations import OrganizationService
+
+        from .policies import TABLE_KEY
+
+        if not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 200:
+            raise InvalidInput({"idempotency_key": [gettext("Chave de 1 a 200 caracteres.")]})
+        if not has_table_permission(Calendar, user=actor, action="create") or not has_capability(actor, ACCESS_MANAGE):
+            raise Forbidden()
+        groups = {"update": writer_group_ids, "read": reader_group_ids}
+        if (
+            not all(isinstance(value, tuple) for value in groups.values())
+            or len(writer_group_ids) + len(reader_group_ids) > 20
+        ):
+            raise InvalidInput({"writer_group_ids": [gettext("Informe até 20 grupos.")]})
+        organization_id = current_context().organization_id
+        sysid = uuid.uuid5(
+            uuid.NAMESPACE_URL, f"skeleton-calendar:shared:{organization_id}:{actor.pk}:{idempotency_key}"
+        )
+        existing = Calendar.objects.filter(pk=sysid).first()
+        if existing is not None:
+            return calendar_info(existing, writable=True)
+        owner = as_uuid(owner_user_id, field="owner_user_id")
+        if not OrganizationService().member_refs(actor=actor, user_ids=(owner,)):
+            raise InvalidInput({"owner_user_id": [gettext("O dono precisa ser membro ativo desta organização.")]})
+        with transaction.atomic(using=current_context().using):
+            calendar = Calendar(  # type: ignore[misc]  # The organization is set: this runs in a tenant context.
+                sysid=sysid,
+                organization_id=organization_id,
+                owner_id=owner,
+                visibility=Calendar.Visibility.PRIVATE,
+                kind=Calendar.Kind.SHARED,
+                name=name,
+                timezone=timezone,
+            )
+            calendar.save()
+            access = AccessService()
+            for action, group_ids in groups.items():
+                for group_id in dict.fromkeys(group_ids):
+                    for granted in ("read", "update") if action == "update" else ("read",):
+                        access.grant_record_access(
+                            actor=actor, table_key=TABLE_KEY, record_id=calendar.pk, action=granted, group_id=group_id
+                        )
+        return calendar_info(calendar, writable=True)
+
     @service_method(read_only=True, since="0.5.0")
     def upcoming(
         self, *, actor: Any, start: datetime, end: datetime, calendar_ids: tuple[UUID, ...] | None = None
@@ -532,7 +624,7 @@ class CalendarService(ServiceAPI):
                 attending.setdefault(event_id, set()).add(user_id)
             condition |= Q(pk__in=list(attending))
         events = Event.objects.filter(condition, status__in=("confirmed", "tentative"))
-        blocks = []
+        blocks: list[BusyBlock] = []
         for master, occurrence in _expanded(events, start, end):
             if occurrence.event.status == "cancelled":
                 continue
