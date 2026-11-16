@@ -10,13 +10,19 @@ from __future__ import annotations
 from django.core.exceptions import ImproperlyConfigured
 
 # name -> AppConfig path.
-BUNDLED_APPS: dict[str, str] = {"calendar": "skeleton.contrib.calendar.apps.CalendarConfig"}
+BUNDLED_APPS: dict[str, str] = {
+    "calendar": "skeleton.contrib.calendar.apps.CalendarConfig",
+    "ledger": "skeleton.contrib.ledger.apps.LedgerConfig",
+}
 # name -> app label, and the frozen schema snapshot shipped in the wheel (relative to skeleton/),
 # used when the app is opted out after migrating (SKELETON_BUNDLED_RETAINED, #67).
-BUNDLED_LABELS: dict[str, str] = {"calendar": "skeleton_calendar"}
-BUNDLED_SNAPSHOTS: dict[str, str] = {"calendar": "contrib/calendar/retained_schema.json"}
+BUNDLED_LABELS: dict[str, str] = {"calendar": "skeleton_calendar", "ledger": "skeleton_ledger"}
+BUNDLED_SNAPSHOTS: dict[str, str] = {
+    "calendar": "contrib/calendar/retained_schema.json",
+    "ledger": "contrib/ledger/retained_schema.json",
+}
 # name -> stable app_id of the manifest shipped in skeleton/contrib/<package>/manifest.json (#254).
-BUNDLED_APP_IDS: dict[str, str] = {"calendar": "org.skeleton.calendar"}
+BUNDLED_APP_IDS: dict[str, str] = {"calendar": "org.skeleton.calendar", "ledger": "org.skeleton.ledger"}
 
 
 def bundled_app_configs(names, *, available: dict[str, str] | None = None) -> list[str]:

@@ -730,7 +730,7 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 | Passo | O que fazer | Resultado |
 |---|---|---|
-| Instalar | `SKELETON_BUNDLED_APPS=calendar` no ambiente ou em `/platform/instance/`, reinício e `manage.py migrate` | Depois do `migrate`, `ComponentInstallation` registra a app com `kind=bundled` e `state=bundled`. A disponibilidade nasce `selected` sem concessão: a app fica indisponível e desativada em todas as organizações até a plataforma liberar e cada organização ativar |
+| Instalar | `SKELETON_BUNDLED_APPS=calendar` (ou `calendar,ledger`, com o livro contábil, #542) no ambiente ou em `/platform/instance/`, reinício e `manage.py migrate` | Depois do `migrate`, `ComponentInstallation` registra a app com `kind=bundled` e `state=bundled`. A disponibilidade nasce `selected` sem concessão: a app fica indisponível e desativada em todas as organizações até a plataforma liberar e cada organização ativar |
 | Retirar com dados | Tire o nome de `SKELETON_BUNDLED_APPS`, ponha em `SKELETON_BUNDLED_RETAINED`, reinicie e rode `manage.py sync_bundled_apps` | O estado vira `schema_retained`; as tabelas ficam, validadas pelo snapshot congelado do wheel, e a ativação de cada organização é desligada. Nada é apagado |
 | Reinstalar | Volte o nome para `SKELETON_BUNDLED_APPS`, tire de `SKELETON_BUNDLED_RETAINED`, reinicie e rode `migrate` | O estado volta a `bundled` com os mesmos UUIDs, registros e configurações; cada organização reativa a app |
 

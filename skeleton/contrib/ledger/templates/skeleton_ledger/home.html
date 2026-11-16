@@ -1,0 +1,26 @@
+{% extends "skeleton/web/base.html" %}{% load i18n %}{% block title %}{% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aplicativos" %}</p><h1>{% translate "Livro contábil" %}</h1><p class="page-description">{% translate "Livros da organização, cada um numa moeda e num regime." %}</p></div>
+</div>
+{% if books %}
+<div class="table-wrap"><table class="table">
+  <caption class="sr-only">{% translate "Livros" %}</caption>
+  <thead><tr><th scope="col">{% translate "Livro" %}</th><th scope="col">{% translate "Moeda" %}</th><th scope="col">{% translate "Regime" %}</th><th scope="col">{% translate "Travado até" %}</th></tr></thead>
+  <tbody>{% for book in books %}<tr><td>{{ book.name }}{% if book.is_default %} <span class="badge">{% translate "padrão" %}</span>{% endif %}</td><td>{{ book.currency }}</td><td>{% if book.basis == "cash" %}{% translate "Caixa" %}{% else %}{% translate "Competência" %}{% endif %}</td><td>{% if book.locked_until %}<time datetime="{{ book.locked_until|date:'Y-m-d' }}">{{ book.locked_until|date:"d/m/Y" }}</time>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% if not has_default %}
+<section class="card mt-6 max-w-xl" aria-labelledby="new-book">
+  <h2 id="new-book">{% translate "Criar o livro padrão" %}</h2>
+  <p class="mt-1 text-sm text-body-subtle">{% translate "A moeda e o regime não mudam depois. Caixa reconhece receitas e despesas no pagamento; competência, no fato gerador." %}</p>
+  <form method="post" action="{% url 'skeleton_ledger:default-book' organization_id %}" class="mt-3 flex flex-col gap-3">{% csrf_token %}
+    <fieldset><legend class="text-sm font-semibold">{% translate "Regime" %}</legend>
+      <label class="flex items-center gap-2"><input type="radio" name="basis" value="cash" checked> {% translate "Caixa" %}</label>
+      <label class="flex items-center gap-2"><input type="radio" name="basis" value="accrual"> {% translate "Competência" %}</label>
+    </fieldset>
+    <div><button type="submit" class="btn btn-primary">{% translate "Criar livro" %}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

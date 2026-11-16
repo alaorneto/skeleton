@@ -158,6 +158,20 @@ path = "skeleton/contrib/calendar/docs/service-api.md"
 regex = '"org\.skeleton\.calendar": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
 replace = '"org.skeleton.calendar": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
 
+[[versioning.files]]
+path = "skeleton/contrib/ledger/manifest.json"
+search = '"version": "{current}"'
+
+[[versioning.files]]
+path = "skeleton/contrib/ledger/manifest.json"
+regex = '"skeleton": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
+replace = '"skeleton": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
+
+[[versioning.files]]
+path = "skeleton/contrib/ledger/docs/service-api.md"
+regex = '"org\.skeleton\.ledger": ">=\d+\.\d+\.\d+,<\d+\.\d+\.\d+"'
+replace = '"org.skeleton.ledger": ">={new_major}.{new_minor}.0,<{new_next_minor}"'
+
 # Contratos que projetos derivados e apps consomem. Remover um arquivo pede major (minor em 0.x);
 # acrescentar ou alterar pede análise do diff.
 [[versioning.public_surfaces]]

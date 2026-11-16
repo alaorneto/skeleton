@@ -1,0 +1,270 @@
+{
+ "app_label": "skeleton_ledger",
+ "format": 1,
+ "impact": {
+  "organizations": 0,
+  "records": 0,
+  "references": []
+ },
+ "tables": [
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "owner_id",
+     "label": "owner",
+     "name": "owner",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_accounts_user",
+      "model_label": "sk_accounts.user",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "visibility",
+     "label": "visibility",
+     "name": "visibility",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "owning_group_id",
+     "label": "owning group",
+     "name": "owning_group",
+     "nullable": true,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_access_accessgroup",
+      "model_label": "sk_access.accessgroup",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "name",
+     "label": "name",
+     "name": "name",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "currency",
+     "label": "currency",
+     "name": "currency",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "basis",
+     "label": "basis",
+     "name": "basis",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "is_default",
+     "label": "is default",
+     "name": "is_default",
+     "nullable": false,
+     "primary_key": false,
+     "type": "BooleanField"
+    },
+    {
+     "column": "locked_until",
+     "label": "locked until",
+     "name": "locked_until",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateField"
+    }
+   ],
+   "db_table": "skeleton_ledger_book",
+   "description": "Livros contábeis da organização, cada um numa moeda e num regime; tudo do livro herda a autorização dele.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "owner_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "visibility",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "owning_group_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "name",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "currency",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "basis",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "is_default",
+      "sensitive": false,
+      "type": "BooleanField"
+     },
+     {
+      "name": "locked_until",
+      "sensitive": false,
+      "type": "DateField"
+     }
+    ],
+    "immutable_fields": [
+     "currency",
+     "basis"
+    ],
+    "scope": "organization",
+    "sensitive_fields": []
+   },
+   "label": "Livros",
+   "model_label": "skeleton_ledger.book",
+   "scope": "organization",
+   "sensitive_fields": []
+  }
+ ]
+}
