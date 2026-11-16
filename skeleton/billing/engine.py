@@ -59,6 +59,7 @@ class LineDraft:
     period_start: datetime | None = None
     period_end: datetime | None = None
     item: Any = None
+    metric: str = ""  # The usage meter of an overage line (#524).
 
 
 # Contributions to a renewal invoice: (subscription, closing period start, closing period end,
@@ -278,6 +279,7 @@ def issue_invoice(
             amount=line.amount,
             period_start=line.period_start,
             period_end=line.period_end,
+            metric=line.metric,
         ).save()
     _publish(
         "billing.invoice_finalized",

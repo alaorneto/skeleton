@@ -421,3 +421,56 @@ def purge_usage(*, now: Any = None) -> int:
     events, _ = UsageEvent.objects.filter(period_start__lt=cutoff).delete()
     balances, _ = UsageBalance.objects.filter(period_start__lt=cutoff).delete()
     return events + balances
+
+
+# --------------------------------------------------------------------------- invoicing (#524)
+
+USAGE_ORDER = 510  # After the storage overage (500), before the discounts.
+
+
+def usage_lines(subscription: Any, period_start: Any, period_end: Any, lines: list[Any], now: Any) -> list[Any]:
+    """The billed excess of each meter in the closing period, on its renewal invoice (a line source).
+
+    The terms are those of the items live in the last instant of the period, so a pack contracted
+    in the middle of it counts; a closing period in trial, or with ``block``, gives no line. One line
+    per meter, by code: ``ceil((used - included) / unit)`` blocks at ``unit_amount``.
+    """
+    import math
+    from datetime import timedelta
+
+    from .engine import LineDraft, live_items
+    from .models import UsageBalance
+
+    balances = list(UsageBalance.objects.filter(period_start=period_start, used__gt=0).order_by("meter"))
+    if not balances:
+        return []
+    items = live_items(subscription, now=period_end - timedelta(microseconds=1), statuses=("active", "ended"))
+    trial = subscription.trial_end is not None and subscription.trial_end >= period_end
+    found = []
+    for balance in balances:
+        terms = resolve_terms(balance.meter, items, trialing=trial)
+        if terms.overage != "bill" or balance.used <= terms.included or not terms.unit or not terms.unit_amount:
+            continue
+        blocks = math.ceil((balance.used - terms.included) / terms.unit)
+        meter = _meters.get(balance.meter)
+        label = str(meter.label) if meter else balance.meter
+        found.append(
+            LineDraft(
+                kind="overage",
+                description=gettext("%(label)s excedente (%(meter)s)") % {"label": label, "meter": balance.meter},
+                amount=blocks * terms.unit_amount,
+                unit_amount=terms.unit_amount,
+                quantity=blocks,
+                app_label=balance.meter.split(".", 1)[0],
+                period_start=period_start,
+                period_end=period_end,
+                metric=balance.meter,
+            )
+        )
+    return found
+
+
+def register_usage() -> None:
+    from .engine import register_line_source
+
+    register_line_source(usage_lines, order=USAGE_ORDER)

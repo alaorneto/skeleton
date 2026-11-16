@@ -544,6 +544,8 @@ class InvoiceLine(OrganizationRecord):
     amount = models.BigIntegerField()
     period_start = models.DateTimeField(null=True, blank=True)
     period_end = models.DateTimeField(null=True, blank=True)
+    # The usage meter an overage line charges (#524); empty for every other line.
+    metric = models.CharField(max_length=100, blank=True, default="")
     immutable_fields = (
         "invoice_id",
         "kind",
@@ -556,6 +558,7 @@ class InvoiceLine(OrganizationRecord):
         "amount",
         "period_start",
         "period_end",
+        "metric",
         "deleted_at",
         "deleted_by",
     )
