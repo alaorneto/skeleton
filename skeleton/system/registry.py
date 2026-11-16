@@ -23,6 +23,23 @@ class CommentPolicy:
 
 
 @dataclass(frozen=True)
+class SealPolicy:
+    """What the seal of a SealableMixin table also freezes (#527, #529).
+
+    ``attachments="frozen"`` (default): no upload, removal or restoration of an attachment after the
+    seal, and the live attachments enter the seal digest; ``"open"`` leaves them free and outside it.
+    ``comments="open"`` (default) keeps commenting; ``"frozen"``: no new comment, edit or deletion.
+    """
+
+    attachments: str = "frozen"
+    comments: str = "open"
+
+    def __post_init__(self):
+        if self.attachments not in ("frozen", "open") or self.comments not in ("frozen", "open"):
+            raise ValueError("SealPolicy values are 'frozen' or 'open'.")
+
+
+@dataclass(frozen=True)
 class TableSpec:
     model: type
     description: "StrOrPromise"  # Translated lazily.
@@ -34,6 +51,8 @@ class TableSpec:
     expose_api: bool = False
     attachments: AttachmentPolicy | None = None
     comments: CommentPolicy | None = None
+    # Sealable tables (#527): required for a SealableMixin model, refused for any other (E040).
+    seal: SealPolicy | None = None
     # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
     sequence_fields: tuple = ()
     # Text columns of the full-text search (#180): read_fields, text, never sensitive; the table's

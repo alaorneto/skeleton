@@ -29,6 +29,9 @@ def _differences(frozen, specification, model):
         reasons.append("immutable_fields")
     if frozen._append_only(model) != generated._append_only(model):
         reasons.append("append_only")
+    for key in ("seal", "seal_parent"):  # #526, #528
+        if current.get(key) != specification.get(key):
+            reasons.append(key)
     columns = current.get("columns")
     if columns is None or {column["name"] for column in columns} != {
         column["name"] for column in specification["columns"]

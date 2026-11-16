@@ -105,6 +105,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 - Relações entre entidades próprias usam `PROTECT`, links concretos UUID e infraestrutura de integridade tenant. Não introduza through implícito inteiro; não use `.add/.set/.clear` como caminho alternativo de segurança.
 - Marque segredos antes da persistência em audit. Claims/JSON sensíveis são redigidos integralmente; não prometa que campos desconhecidos serão detectados automaticamente.
 - Dados pessoais (email, nomes, documentos) entram em `personal_fields`: continuam legíveis pela API e saem `[REDACTED]` na auditoria, que cita a pessoa só pelo sysid (#189). A declaração é congelada com a infraestrutura (E032).
+- Registro que vira definitivo num ato (assinar, lançar) deriva de `SealableMixin` com `seal_fields` explícitos; o selo é congelado na especificação da migration e vale no guard do banco (E040). Não existe desselar: correção é por adendo, nunca edição, e não se contorna o guard com SQL, `update` ou outra app.
 - Toda tabela técnica precisa de exceção nominal com motivo no manifesto; não acrescente isenção por prefixo.
 
 ## Contexto, autorização e concorrência
@@ -131,6 +132,7 @@ Não implemente purge por HTTP/admin/manager. O único expurgo de conteúdo de n
 - CAS com duas revisões iguais tem um vencedor; update_fields vazio não escreve.
 - Auditoria create/save/queryset/bulk/SQL/delete/restore correta, segredos redigidos, rollback/savepoint sem eventos residuais.
 - Soft delete/restore/conflito/referências preservam IDs e dados.
+- Tabela selável: coluna congelada recusada por modelo, `update` e SQL direto depois do selo; transição inválida recusada; colunas livres editáveis; exclusão conforme `seal_allows_delete`.
 - PostgreSQL com **role runtime** (toda a suíte; `tools/dev_postgres.py` localmente), sem usar owner para provar RLS; o owner só migra ou monta DDL de fixture. Fixtures protegidas, sem flush/TRUNCATE de tabelas próprias.
 - Testes novos seguem [Escrever testes que mantêm a suíte rápida](docs/testing.md#escrever-testes-que-mantêm-a-suíte-rápida). Banco só quando a prova depende dele; casos de leitura dividem um preparo (`subtests`). Nada de porta fixa, arquivo fora de `tmp_path`, `sleep` de espera, estado global sem restauração ou dependência de ordem: a suíte roda em paralelo (`-n`). Tempo não se ganha pulando teste nem trocando o PostgreSQL com a role runtime.
 

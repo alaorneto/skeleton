@@ -19,6 +19,7 @@ from skeleton.common.exceptions import (
     LiveReferencesExist,
     MissingTenantContext,
     QuotaLimitExceeded,
+    RecordSealed,
 )
 
 Kind = Literal["conflict", "invalid", "context"]
@@ -57,6 +58,8 @@ def classify(exc: BaseException) -> InternalError | None:
         return InternalError("conflict", "stale_revision")
     if isinstance(exc, LiveReferencesExist):
         return InternalError("conflict", "live_references")
+    if isinstance(exc, RecordSealed):
+        return InternalError("conflict", "record_sealed")
     # Both are ValidationError subclasses: they come before the generic branch.
     if isinstance(exc, LastAdministrator):
         return InternalError("conflict", "last_administrator")

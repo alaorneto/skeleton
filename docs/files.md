@@ -52,6 +52,10 @@ Sem antivírus configurado, o anexo nasce `available`; com ele, nasce `pending` 
 | API | `GET/POST /api/v1/o/<org>/tables/<table_key>/records/<sysid>/attachments/` (multipart, campo `file`), `DELETE .../attachments/<id>/`, `POST .../attachments/<id>/restore/` |
 | HTML | Painel "Anexos" no detalhe do registro, com envio (`multipart/form-data`) e remoção por formulário. Um envio sem arquivo, acima do limite ou além da cota volta ao registro com a mensagem ("Selecione um arquivo.", "O arquivo excede o limite de 10 MB.", cota atingida), sem página de erro; a política da tabela é conferida antes (#473) |
 
+### Anexos de registro selado (#529)
+
+Num registro selado ([modelo de dados](data-model.md#registros-selados-526)) cuja tabela declara `SealPolicy(attachments="frozen")` (o padrão), upload, remoção e restauração de anexo respondem 409 `record_sealed` nas páginas, na API e no `FileService` (`Conflict("record_sealed")`); o download continua permitido. Os anexos vivos (`sysid`, `sha256`, `size`, `filename`, em ordem de `sysid`) entram no resumo do selo, e `verify` acusa um anexo trocado depois. A operação trava a linha do registro antes de conferir o selo, então um selo concorrente ou espera o anexo (e o inclui) ou vem antes e o recusa. Como um anexo de selado congelado não pode ser excluído, o expurgo (`files.purge`) nunca o alcança. Com `attachments="open"`, os anexos seguem livres e ficam fora do resumo. A cota de armazenamento não muda.
+
 ## Download
 
 Arquivos só saem por `/o/<org>/tables/<table_key>/<sysid>/attachments/<id>/download/`, que autoriza **a cada pedido**: leitura do alvo, anexo vivo e no estado `available`. Inexistente, excluído, `pending`, `quarantined`, `rejected` e não autorizado respondem 404, e a revogação vale no pedido seguinte. Não há URL pública.

@@ -8,7 +8,7 @@ from django.shortcuts import redirect
 from django.utils.translation import gettext
 from django.views.decorators.http import require_POST
 
-from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.common.exceptions import ConcurrentUpdate, RecordSealed
 from skeleton.records.services import exposed_spec
 from skeleton.web.errors import error_response
 from skeleton.web.views import tenant_page
@@ -65,6 +65,8 @@ def upload(request, organization_id, table_key, sysid):
         return _refused(request, back, _too_large())
     except services.QuotaExceeded:
         return _refused(request, back, gettext("A cota de armazenamento da organização foi atingida."))
+    except RecordSealed:
+        return _refused(request, back, gettext("O registro está selado: os anexos não podem mais mudar."))
     return _detail(organization_id, table_key, sysid)
 
 
@@ -81,6 +83,8 @@ def remove(request, organization_id, table_key, sysid, attachment_id):
         )
     except ConcurrentUpdate:
         return error_response(request, gettext("O anexo foi alterado. Atualize a página."), status=409)
+    except RecordSealed:
+        return error_response(request, gettext("O registro está selado: os anexos não podem mais mudar."), status=409)
     return _detail(organization_id, table_key, sysid)
 
 

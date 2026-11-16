@@ -66,12 +66,16 @@ def readable_target(spec, target_sysid, *, user):
 
 
 def writable_target(spec, target_sysid, *, user):
-    """Read first (404), then update (403): someone who sees the record learns only that writing is denied."""
+    """Read first (404), then update (403): someone who sees the record learns only that writing is denied.
+
+    A sealed target whose ``SealPolicy`` freezes the attachments refuses every change (#529).
+    """
     from skeleton.access.policies import require_record_action
+    from skeleton.records.sealing import require_open
 
     record = readable_target(spec, target_sysid, user=user)
     require_record_action(record, user=user, action="update")
-    return record
+    return require_open(spec, record, "attachments")
 
 
 def _table(spec):

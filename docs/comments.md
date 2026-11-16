@@ -28,6 +28,10 @@ Sem a política, a tabela não tem superfície de comentários: a lista, a cria�
 - A edição marca `edited_at`. A exclusão é lógica e a restauração mantém o UUID. Comentários excluídos só aparecem, para restaurar, ao autor e ao administrador.
 - Toda escrita é auditada pelos triggers da tabela (`sk_comments.comment`). Como a tabela não é exposta no gateway, a auditoria dos comentários é privilegiada: aparece para o administrador da organização.
 
+### Comentários de registro selado (#529)
+
+Com `SealPolicy(comments="open")` (o padrão), comentar um registro selado continua como sempre. Com `comments="frozen"`, depois do selo não há comentário novo, edição, exclusão nem restauração: o `CommentService` responde `Conflict("record_sealed")`, a API 409 `record_sealed` e as páginas 409. Comentários nunca entram no resumo do selo.
+
 ## Texto
 
 O corpo é texto simples, de 1 a 5.000 caracteres, sem Markdown nem HTML e sem caracteres de controle (quebras de linha são mantidas). A apresentação sempre escapa o texto; depois, URLs `http` e `https` viram links com `rel="nofollow noopener noreferrer"`. Nenhum outro esquema vira link e nada do que a pessoa digitou vira marcação. O corpo não é tratado como dado pessoal (`personal_fields`) nem é sensível.

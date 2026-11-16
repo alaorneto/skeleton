@@ -135,6 +135,40 @@ def field_internal_type(field):
     return field.target_field.get_internal_type() if field.is_relation else field.get_internal_type()
 
 
+SEAL_COLUMNS = ("sealed_at", "sealed_by", "seal_digest")
+# A seal condition is a single boolean expression written in the app's migration: no statement
+# separator, comment or dollar sign (which could close the guard's $guard$ quoting).
+_FORBIDDEN_CONDITION = (";", "--", "/*", "*/", "$")
+
+
+def validate_seal_specification(specification):
+    """Refuse a malformed ``seal``/``seal_parent`` of a frozen specification before any DDL (#526, #528)."""
+    seal = specification.get("seal")
+    if seal is not None:
+        if not isinstance(seal, dict) or set(seal) - {"fields", "allow_delete", "condition_sql"}:
+            raise ValueError("seal must be a mapping of fields, allow_delete and condition_sql.")
+        fields = seal.get("fields")
+        if not isinstance(fields, list) or not fields or not all(isinstance(name, str) and name for name in fields):
+            raise ValueError("seal.fields must list at least one column name.")
+        if set(fields) & set(SEAL_COLUMNS):
+            raise ValueError("seal.fields cannot name the seal columns.")
+        if not isinstance(seal.get("allow_delete", False), bool):
+            raise ValueError("seal.allow_delete must be a boolean.")
+        condition = seal.get("condition_sql", "")
+        if not isinstance(condition, str) or any(token in condition for token in _FORBIDDEN_CONDITION):
+            raise ValueError("seal.condition_sql must be one SQL expression without ';', comments or '$'.")
+    parent = specification.get("seal_parent")
+    if parent is not None:
+        if (
+            not isinstance(parent, dict)
+            or set(parent) != {"column", "table"}
+            or not all(isinstance(parent[key], str) and parent[key] for key in ("column", "table"))
+        ):
+            raise ValueError("seal_parent must name the foreign key column and the parent table.")
+    if (seal is not None or parent is not None) and is_operational(specification):
+        raise ValueError("Operational tables cannot be sealed.")
+
+
 def build_infrastructure_specification(model, spec):
     """Return the frozen specification to paste into a new migration.
 
@@ -166,8 +200,25 @@ def build_infrastructure_specification(model, spec):
     immutable = tuple(getattr(model, "immutable_fields", ()))
     if immutable:
         specification["immutable_fields"] = list(immutable)
+    if _is_sealable(model):
+        # The seal (#526): frozen columns, deletion policy and the optional database condition.
+        specification["seal"] = {
+            "fields": [model._meta.get_field(name).column for name in model.seal_fields],
+            "allow_delete": bool(model.seal_allows_delete),
+            "condition_sql": model.seal_condition_sql or "",
+        }
+    parent = getattr(model, "seal_parent", None)
+    if parent:
+        field = model._meta.get_field(parent)
+        specification["seal_parent"] = {"column": field.column, "table": field.related_model._meta.db_table}
     specification["columns"] = columns
     return specification
+
+
+def _is_sealable(model):
+    from .models import SealableMixin
+
+    return isinstance(model, type) and issubclass(model, SealableMixin)
 
 
 class InstallRecordInfrastructure(Operation):
@@ -175,6 +226,7 @@ class InstallRecordInfrastructure(Operation):
     reduces_to_sql = True
 
     def __init__(self, app_label, model_name, specification, replaces=None):
+        validate_seal_specification(specification)
         self.app_label = app_label
         self.model_name = model_name
         self.specification = specification
@@ -351,14 +403,81 @@ class InstallRecordInfrastructure(Operation):
                 f"IF TG_OP='INSERT' THEN IF {tenant_guc} IS NOT NULL AND NEW.{q(tenant_column)} IS DISTINCT FROM {tenant_guc}::uuid "
                 f"THEN RAISE EXCEPTION 'cross-tenant insert' USING ERRCODE='42501'; END IF; ELSE {operational_guard} END IF;"
             )
-        guard = (
-            operational_guard
-            if operational
-            else "IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'audit is append only' USING ERRCODE='23514'; END IF; IF NEW.revision <> 1 OR NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN RAISE EXCEPTION 'invalid audit metadata' USING ERRCODE='23514'; END IF;"
-            if append
-            else f"IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF; ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF; IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
-        )
-        return guard
+        if operational or append:
+            guard = (
+                operational_guard
+                if operational
+                else "IF TG_OP <> 'INSERT' THEN RAISE EXCEPTION 'audit is append only' USING ERRCODE='23514'; END IF; IF NEW.revision <> 1 OR NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN RAISE EXCEPTION 'invalid audit metadata' USING ERRCODE='23514'; END IF;"
+            )
+            return guard
+        # Seal and sealed parent (#526, #528): empty, and the body byte for byte the historical
+        # one, for every table whose specification declares neither.
+        insert_seal, update_seal = self._seal_guard(editor, model)
+        return f"IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF;{insert_seal} ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF;{update_seal} IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
+
+    def _seal_columns(self, model):
+        """Validate the frozen seal against the historical model; the frozen column names."""
+        seal = self.specification.get("seal")
+        if seal is None:
+            return None
+        columns = {field.column for field in model._meta.concrete_fields}
+        missing = [name for name in (*SEAL_COLUMNS, *seal["fields"]) if name not in columns]
+        if missing:
+            raise ValueError(f"{model._meta.label}: seal columns missing from the historical model: {missing}.")
+        return list(seal["fields"])
+
+    def _seal_guard(self, editor, model):
+        """PL/pgSQL fragments of the INSERT and UPDATE branches; both empty without a seal or parent."""
+        q = editor.quote_name
+
+        def raise_(message):
+            return f"RAISE EXCEPTION '{message}' USING ERRCODE='23514';"
+
+        def distinct(columns):
+            return " OR ".join(f"NEW.{q(name)} IS DISTINCT FROM OLD.{q(name)}" for name in columns)
+
+        insert_seal = update_seal = ""
+        fields = self._seal_columns(model)
+        if fields is not None:
+            seal = self.specification["seal"]
+            invalid = (
+                "NEW.sealed_by IS NULL OR NEW.seal_digest IS NULL OR length(NEW.seal_digest) <> 64 "
+                "OR NEW.seal_digest ~ '[^0-9a-f]'"
+            )
+            orphan = (
+                f"ELSIF NEW.sealed_by IS NOT NULL OR COALESCE(NEW.seal_digest,'') <> '' THEN {raise_('invalid seal')}"
+            )
+            condition = seal.get("condition_sql", "")
+            check = (
+                f" IF NOT COALESCE(({condition}), false) THEN {raise_('seal condition failed')} END IF;"
+                if condition
+                else ""
+            )
+            frozen = [*SEAL_COLUMNS, *fields]
+            if not seal.get("allow_delete", False):
+                frozen += ["deleted_at", "deleted_by"]
+            insert_seal = (
+                f" IF NEW.sealed_at IS NOT NULL THEN IF {invalid} THEN {raise_('invalid seal')} END IF;{check} "
+                f"{orphan} END IF;"
+            )
+            update_seal = (
+                f" IF OLD.sealed_at IS NOT NULL THEN IF {distinct(frozen)} THEN {raise_('sealed record')} END IF; "
+                f"ELSIF NEW.sealed_at IS NOT NULL THEN IF {invalid} OR {distinct(fields)} THEN {raise_('invalid seal')} "
+                f"END IF;{check} {orphan} END IF;"
+            )
+        parent = self.specification.get("seal_parent")
+        if parent is not None:
+            # FOR SHARE: the sealing transaction locks the parent FOR UPDATE, so a child write either
+            # waits for the seal and is refused, or commits first and is read by the seal (#528).
+            def sealed(alias):
+                return (
+                    f"(SELECT p.sealed_at FROM skeleton.{q(parent['table'])} p "  # noqa: S608 - DDL from the frozen spec, quoted identifiers
+                    f"WHERE p.sysid = {alias}.{q(parent['column'])} FOR SHARE) IS NOT NULL"
+                )
+
+            insert_seal += f" IF {sealed('NEW')} THEN {raise_('sealed parent')} END IF;"
+            update_seal += f" IF {sealed('NEW')} OR {sealed('OLD')} THEN {raise_('sealed parent')} END IF;"
+        return insert_seal, update_seal
 
     def _install_guard(self, editor, model):
         """The guard function and its BEFORE trigger."""

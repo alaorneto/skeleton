@@ -118,6 +118,31 @@ As seis tabelas de `sk_flows` (`sk_flows.0001_initial`) derivam de `Organization
 
 Essas tabelas são dado de negócio, não estado de pipeline: têm revisão, exclusão lógica e auditoria por linha. O que é operacional (timers, retentativas, entregas) usa a fila de jobs.
 
+## Registros selados (#526)
+
+Um documento assinado, um lançamento contábil ou um registro de atendimento é rascunho editável até um ato de negócio e imutável depois dele. `immutable_fields` não serve: ele congela desde a criação. Um modelo **selável** deriva de `SealableMixin` (`skeleton/common/models.py`) junto com a base de registro, `class Document(SealableMixin, SecuredRecord)`, e ganha três colunas, `sealed_at`, `sealed_by` e `seal_digest` (SHA-256 em hexadecimal), mais as declarações:
+
+| Declaração | Efeito |
+|---|---|
+| `seal_fields` | Colunas congeladas pelo selo (nome do campo ou da coluna; obrigatório, nunca colunas de sistema, de acesso ou do próprio selo) |
+| `seal_allows_delete` | `False` (padrão): exclusão lógica e restauração recusadas depois do selo; `True` permite |
+| `seal_condition_sql` | Opcional: expressão booleana sobre `NEW`, conferida pelo banco na transição (por exemplo, "as partidas fecham"); só lê tabelas da própria app |
+
+| Depois de selado | Regra |
+|---|---|
+| `sealed_at`, `sealed_by`, `seal_digest` | Nunca mudam: não existe "desselar" |
+| Colunas de `seal_fields` | Nunca mudam |
+| `deleted_at`, `deleted_by` | Não mudam, salvo `seal_allows_delete = True` |
+| Demais colunas (situação, dono, visibilidade, grupo) | Editáveis pelas regras normais, com revisão e auditoria |
+
+A transição (de `sealed_at` nulo para preenchido, num `UPDATE` ou já no `INSERT`) exige as três colunas juntas: `sealed_by` não nulo e `seal_digest` com 64 caracteres hexadecimais minúsculos; na mesma instrução, nenhuma coluna de `seal_fields` pode mudar (sela-se o que já foi gravado e lido). `sealed_by` ou `seal_digest` sem `sealed_at` são recusados.
+
+**Duas camadas.** O guard do banco (`<tabela>_sk_guard_fn`, gerado pela especificação congelada na migration, chave `seal`: `fields` com nomes de coluna, `allow_delete` e `condition_sql`) é a barreira: recusa a mudança com SQLSTATE 23514 e as mensagens `sealed record`, `invalid seal` ou `seal condition failed`, venha ela do ORM, de `queryset.update`, de SQL direto ou de outra app, e também para o owner (DBA e owner continuam fronteira privilegiada: o selo não é WORM). Em Python, `save()`, `delete()` e `restore()` levantam `RecordSealed` antes de ir ao banco, com mensagem clara. `apply_seal(actor_id=..., digest=..., at=...)` preenche as três colunas em memória; não autoriza nada, e quem chama salva. A expressão de `seal_condition_sql` é literal da migration, recusada na construção da operação se tiver `;`, comentário SQL ou `$`. Tabelas sem selo não mudam: a especificação delas não ganha chave nova e o corpo do guard é o de sempre (`tests/unit/test_record_infrastructure_sql.py`). O check E040 confere a declaração e a compara com a especificação congelada; `record_infrastructure` gera a migration nova quando o selo muda. A transição é um `update` comum na auditoria, com `seal_digest` legível.
+
+**Filhos de um registro selado (#528).** Uma tabela filha (as linhas ou seções de um documento) não usa o mixin: declara `seal_parent = "document"`, a FK `PROTECT` para o modelo selável da mesma app, e põe essa FK em `immutable_fields` (E040 exige as duas coisas). Enquanto o pai estiver selado, o filho não é inserido, alterado, excluído nem restaurado: `save()`, `delete()` e `restore()` levantam `RecordSealed`, e o guard do filho (chave `seal_parent` da especificação, com a coluna e a tabela do pai) recusa com `sealed parent`, conferindo o pai novo e o antigo. Mover um filho para outro pai é recusado pela imutabilidade da FK. O guard lê o pai com `FOR SHARE`: como `seal_record` trava o pai com `select_for_update` antes de ler, um filho gravado ao mesmo tempo ou espera o selo e é recusado, ou é gravado antes e entra no que quem sela lê (`tests/integration/test_sealed_children.py` prova as duas ordens com duas conexões). Quem sela os próprios modelos sem `seal_record` precisa travar o pai do mesmo jeito. O conteúdo dos filhos entra no resumo pelo `extra` que a app passa. Pai e filho são da mesma organização: a RLS esconde o pai de outra organização e a FK tenant recusa a ligação.
+
+**Selar por serviço (#527).** A tabela declara `TableSpec.seal = SealPolicy(attachments="frozen", comments="open")` (obrigatória para um modelo selável, recusada para os outros; E040). `skeleton.records.sealing.seal_record(record, user=..., expected_revision=..., extra=None)` exige `update` no registro (`SecuredRecord`; outras bases a app autoriza antes), trava a linha, confere a revisão, recusa selado ou excluído, calcula o resumo e grava o selo. O resumo é o SHA-256 de `skeleton.common.sealing.canonical_bytes` (JSON com chaves ordenadas, separadores compactos e UTF-8; `datetime` com fuso em ISO 8601 UTC, `date` em ISO, `UUID` e `Decimal` como texto, `float` recusado) sobre `{"table", "sysid", "organization", "fields", "attachments", "extra"}`. `verify_seal` recalcula e compara. Outra app sela e verifica pelo `RecordSealService` ([API de serviços](service-api.md#recordsealservice)). Nas superfícies genéricas, `sealed_at` e `sealed_by` aparecem nos metadados de sistema do registro (no JSON e no OpenAPI, só em tabelas seláveis) e nunca em `write_fields`; alterar coluna congelada, excluir ou restaurar um selado responde 409 `record_sealed` na API e erro no formulário das páginas; alterar coluna livre segue normal. Na importação CSV, a linha que altera um selado é erro de linha `record_sealed`; como toda linha com erro, ela impede a aplicação do arquivo (a importação é tudo ou nada, [transferência](data-transfer.md)). Correção de um registro selado é sempre por adendo, nunca por edição ([extending](extending.md#registros-que-não-mudam-depois-de-um-ato)).
+
 ## Tabelas operacionais (ADR)
 
 **Contexto.** Fila de jobs, outbox de eventos, entregas e estado de leitura de notificações mudam a cada claim, heartbeat ou leitura. Com `SystemRecord`, cada UPDATE geraria um `AuditEvent`, e a role runtime não tem DELETE: essas tabelas cresceriam para sempre e inflariam a auditoria.

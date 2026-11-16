@@ -25,6 +25,10 @@ class ImmutableRecord(RecordError):
     pass
 
 
+class RecordSealed(RecordError):
+    """A sealed record (or a child of one) cannot change its frozen columns (#526); surfaces answer 409."""
+
+
 class ApplicationNotEntitled(ValidationError):
     """Activation refused because the organization has not contracted a paid app (#395)."""
 

@@ -49,6 +49,25 @@ A primeira rodada completa achou quatro testes antigos que conflitavam com a mud
 
 Limites: nenhuma tela nova foi exercitada num navegador nesta rodada. As páginas foram provadas pelos testes HTTP (status, conteúdo, escape, CSRF), não por smoke manual.
 
+## Registros selados (epic #514)
+
+Rodada de 2026-11-16 na branch `feat/514-sealed-records`. Windows 11, Python 3.14, PostgreSQL 16 de `tools/dev_postgres.py` num cluster dedicado ao worktree, com as assertions como `skeleton_runtime`. Somente o que rodou.
+
+- **#526:** registro não selado editável; depois do selo, coluna congelada, `sealed_at`, `sealed_by` e `seal_digest` recusados pelo `save()` (`RecordSealed`), por `QuerySet.update` e por SQL direto (`sealed record`); coluna livre muda com revisão e auditoria; exclusão lógica recusada e aceita com `seal_allows_delete`; transições inválidas (`invalid seal`); `INSERT` já selado; `seal_condition_sql` falsa (`seal condition failed`) e expressão com `;`, comentário ou `$` recusada antes da DDL; transição auditada com `seal_digest` legível e rollback sem evento; B não lê nem sela o registro de A; `check_skeleton_schema` acusa o guard reinstalado sem o selo (`tests/integration/test_sealed_records.py`, 15). E040 em cada caso de modelo, especificação e política (`tests/unit/test_seal_checks.py`). O SQL do guard das tabelas existentes é byte a byte o mesmo (`tests/unit/test_record_infrastructure_sql.py`).
+- **#527:** vetores fixos de `canonical_bytes`/`digest`, independência da ordem, `float` e `datetime` sem fuso recusados (`tests/unit/test_common_sealing.py`); `RecordSealService` com contrato, caminho autorizado, segundo selo e revisão desatualizada, um vencedor com a mesma revisão, default deny, privado igual a inexistente, A/B, só leitura `Forbidden`, app desativada `Unavailable`, ator divergente, tabela sem selo; `verify` acusa conteúdo trocado com o guard desligado pelo owner; API 409 `record_sealed` em `PATCH` de coluna congelada e `DELETE`, 200 em coluna livre; páginas 409; OpenAPI com `sealed_at`/`sealed_by` só na tabela selável; linha selada da importação CSV vira erro de linha sem derrubar o job (`tests/integration/test_record_seal_service.py`, 14).
+- **#528:** com o pai selado, filho recusado por modelo e por SQL (`sealed parent`) em inserção, alteração, exclusão e restauração; mover o filho é recusado pela FK imutável; as duas ordens da corrida com duas conexões (o filho espera o selo e é recusado; o filho gravado antes segura o selo e é lido por quem sela); B nunca alcança o pai de A (`tests/integration/test_sealed_children.py`, 5).
+- **#529:** anexos congelados: upload, remoção e restauração recusados no `FileService`, na API e nas páginas, download permitido; o resumo muda com anexo e `verify` acusa anexo trocado; o expurgo não alcança anexo vivo de selado; comentários congelados recusados no serviço e nas páginas; política aberta mantém tudo livre e fora do resumo (`tests/integration/test_sealed_attachments.py`, 5).
+- **#530:** o kit passa num modelo de fixture do núcleo e num modelo de teste da app de exemplo, e reprova um guard instalado sem o selo (`tests/integration/test_sealing_kit.py`, 3).
+
+| Execução observada | Resultado |
+|---|---|
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` | 3360 passed, 162 skipped (O_NOFOLLOW/fcntl/SIGHUP só em POSIX), 255 subtests, 0 falhas, 16 min 53 s |
+| `python -m pytest tests/unit -q -n auto` | 1601 passed, 158 skipped |
+| `SKELETON_BUNDLED_APPS=calendar python -m mypy` | sem problemas |
+| `uvx ruff@0.17.4 check .` e `format --check .`; `manage.py check`; `makemigrations --check --dry-run` | ok; sem problemas; sem mudanças |
+
+Limites: nenhuma tela nova; as recusas nas páginas foram provadas pelos testes HTTP, não por navegador.
+
 ## Cobrança: núcleo do ledger (epic #406)
 
 Rodada de 2026-11-13 na branch `feat/394-billing-core-ledger`, a partir de `origin/main` (`e5c3562`). Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.

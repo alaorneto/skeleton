@@ -6,10 +6,10 @@ from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 from django.views.decorators.http import require_POST
 
-from skeleton.common.exceptions import ConcurrentUpdate
+from skeleton.common.exceptions import ConcurrentUpdate, RecordSealed
 from skeleton.records.services import exposed_spec
 from skeleton.web.views import tenant_page
 
@@ -19,6 +19,10 @@ from .text import linkify
 
 class RevisionForm(forms.Form):
     revision = forms.IntegerField(min_value=1)
+
+
+# A sealed record whose policy freezes the comments (#529); lazy, translated per request.
+SEALED = gettext_lazy("O registro está selado: os comentários não podem mais mudar.")
 
 
 def _detail(request, organization_id, table_key, sysid):
@@ -79,7 +83,10 @@ def panel_context(spec, record, *, user, next_url=""):
 def add(request, organization_id, table_key, sysid):
     if set(request.POST) - {"body", "next", "csrfmiddlewaretoken"}:
         return _error(request, gettext("Campo não permitido."), 400)
-    services.add(exposed_spec(table_key), sysid, user=request.user, body=request.POST.get("body", ""))
+    try:
+        services.add(exposed_spec(table_key), sysid, user=request.user, body=request.POST.get("body", ""))
+    except RecordSealed:
+        return _error(request, SEALED, 409)
     return _detail(request, organization_id, table_key, sysid)
 
 
@@ -101,6 +108,8 @@ def edit(request, organization_id, table_key, sysid, comment_id):
         )
     except ConcurrentUpdate:
         return _error(request, gettext("O comentário foi alterado. Atualize a página."), 409)
+    except RecordSealed:
+        return _error(request, SEALED, 409)
     return _detail(request, organization_id, table_key, sysid)
 
 
@@ -112,6 +121,8 @@ def _lifecycle(request, organization_id, table_key, sysid, comment_id, operation
         operation(exposed_spec(table_key), sysid, comment_id, user=request.user, revision=form.cleaned_data["revision"])
     except ConcurrentUpdate:
         return _error(request, gettext("O comentário foi alterado. Atualize a página."), 409)
+    except RecordSealed:
+        return _error(request, SEALED, 409)
     except PermissionDenied:
         raise
     return _detail(request, organization_id, table_key, sysid)

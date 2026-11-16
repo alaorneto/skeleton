@@ -72,7 +72,7 @@ def comments_for(spec: Any, target_sysid: Any, *, user: Any, include_deleted: bo
 def add(spec: Any, target_sysid: Any, *, user: Any, body: Any) -> Any:
     from .models import Comment
 
-    record = readable_target(spec, target_sysid, user=user)
+    record = _open_target(spec, readable_target(spec, target_sysid, user=user))
     comment = Comment(
         organization_id=record.organization_id,
         target_table=_table(spec),
@@ -91,7 +91,7 @@ def add(spec: Any, target_sysid: Any, *, user: Any, body: Any) -> Any:
 def _locked(spec: Any, target_sysid: Any, comment_id: Any, *, user: Any, deleted: bool = False) -> Any:
     from .models import Comment
 
-    record = readable_target(spec, target_sysid, user=user)
+    record = _open_target(spec, readable_target(spec, target_sysid, user=user))
     queryset = Comment.objects.with_deleted() if deleted else Comment.objects.all()
     comment = (
         queryset.select_for_update()
@@ -102,6 +102,13 @@ def _locked(spec: Any, target_sysid: Any, comment_id: Any, *, user: Any, deleted
     if comment is None:
         raise Http404
     return comment
+
+
+def _open_target(spec: Any, record: Any) -> Any:
+    """A sealed target whose ``SealPolicy`` freezes the comments refuses new, edited and deleted ones (#529)."""
+    from skeleton.records.sealing import require_open
+
+    return require_open(spec, record, "comments")
 
 
 def _check_revision(comment: Any, revision: int) -> None:
