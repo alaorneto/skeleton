@@ -308,3 +308,142 @@ class EntryLine(OrganizationRecord):
 
     def __str__(self) -> str:
         return f"{self.entry_id} {self.account_id}"
+
+
+class Title(OrganizationRecord):
+    """A receivable or payable (#546); ``amount`` is the principal, ``amount_settled`` what was received or paid."""
+
+    class Direction(models.TextChoices):
+        RECEIVABLE = "receivable", gettext_lazy("A receber")
+        PAYABLE = "payable", gettext_lazy("A pagar")
+
+    class Status(models.TextChoices):
+        OPEN = "open", gettext_lazy("Aberto")
+        PARTIAL = "partial", gettext_lazy("Parcial")
+        SETTLED = "settled", gettext_lazy("Baixado")
+        CANCELLED = "cancelled", gettext_lazy("Cancelado")
+
+    book = models.ForeignKey(Book, on_delete=models.PROTECT, related_name="titles")
+    direction = models.CharField(max_length=16, choices=Direction.choices)
+    description = models.CharField(max_length=300)
+    counterparty_name = models.CharField(max_length=200, blank=True, default="")
+    party_ref = models.CharField(max_length=100, blank=True, default="")
+    party_kind = models.CharField(max_length=50, blank=True, default="")
+    category_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="titles")
+    cost_center = models.ForeignKey(CostCenter, on_delete=models.PROTECT, null=True, blank=True, related_name="titles")
+    amount = models.PositiveBigIntegerField()
+    amount_settled = models.PositiveBigIntegerField(default=0)
+    issue_date = models.DateField()
+    due_date = models.DateField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+    source_app = models.CharField(max_length=100, blank=True, default="")
+    source_table = models.CharField(max_length=150, blank=True, default="")
+    source_id = models.UUIDField(null=True, blank=True)
+    idempotency_key = models.CharField(max_length=200, blank=True, default="")
+    installment_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    installment_count = models.PositiveSmallIntegerField(null=True, blank=True)
+    accrual_entry = models.ForeignKey(Entry, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    immutable_fields = (
+        "book_id",
+        "direction",
+        "amount",
+        "issue_date",
+        "category_account_id",
+        "source_app",
+        "source_table",
+        "source_id",
+        "idempotency_key",
+        "installment_number",
+        "installment_count",
+    )
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="skeleton_ledger_title_amount_positive"),
+            models.CheckConstraint(
+                condition=Q(amount_settled__lte=models.F("amount")), name="skeleton_ledger_title_settled_le_amount"
+            ),
+            models.CheckConstraint(
+                condition=(Q(status="open") & Q(amount_settled=0))
+                | (Q(status="partial") & Q(amount_settled__gt=0) & Q(amount_settled__lt=models.F("amount")))
+                | (Q(status="settled") & Q(amount_settled=models.F("amount")))
+                | (Q(status="cancelled") & Q(amount_settled=0)),
+                name="skeleton_ledger_title_status_values",
+            ),
+            models.CheckConstraint(
+                condition=Q(direction__in=("receivable", "payable")), name="skeleton_ledger_title_direction"
+            ),
+            models.UniqueConstraint(
+                fields=("organization", "source_app", "idempotency_key"),
+                condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
+                name="skeleton_ledger_title_live_key",
+                violation_error_code="unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("organization", "book", "status", "due_date"), name="skeleton_ledger_title_due"),
+            models.Index(fields=("organization", "source_table", "source_id"), name="skeleton_ledger_title_source"),
+        ]
+        ordering = ("due_date", "sysid")
+
+    @property
+    def balance(self) -> int:
+        return self.amount - self.amount_settled
+
+    def __str__(self) -> str:
+        return self.description
+
+
+class Settlement(OrganizationRecord):
+    """A receipt or payment of a title (#546), with the entry it posted; reversed, never edited."""
+
+    class Method(models.TextChoices):
+        CASH = "cash", gettext_lazy("Dinheiro")
+        PIX = "pix", gettext_lazy("Pix")
+        CARD = "card", gettext_lazy("Cartão")
+        BOLETO = "boleto", gettext_lazy("Boleto")
+        TRANSFER = "transfer", gettext_lazy("Transferência")
+        OTHER = "other", gettext_lazy("Outro")
+
+    title = models.ForeignKey(Title, on_delete=models.PROTECT, related_name="settlements")
+    date = models.DateField()
+    amount = models.PositiveBigIntegerField()
+    discount = models.PositiveBigIntegerField(default=0)
+    interest = models.PositiveBigIntegerField(default=0)
+    fee = models.PositiveBigIntegerField(default=0)
+    payment_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="settlements")
+    method = models.CharField(max_length=16, choices=Method.choices, default=Method.OTHER)
+    idempotency_key = models.CharField(max_length=200, blank=True, default="")
+    entry = models.ForeignKey(Entry, on_delete=models.PROTECT, related_name="+")
+    reversal_entry = models.ForeignKey(Entry, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    immutable_fields = (
+        "title_id",
+        "date",
+        "amount",
+        "discount",
+        "interest",
+        "fee",
+        "payment_account_id",
+        "method",
+        "idempotency_key",
+        "entry_id",
+    )
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="skeleton_ledger_settlement_amount_positive"),
+            models.CheckConstraint(
+                condition=Q(method__in=("cash", "pix", "card", "boleto", "transfer", "other")),
+                name="skeleton_ledger_settlement_method",
+            ),
+            models.UniqueConstraint(
+                fields=("title", "idempotency_key"),
+                condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
+                name="skeleton_ledger_settlement_live_key",
+                violation_error_code="unique",
+            ),
+        ]
+        ordering = ("date", "sysid")
+
+    def __str__(self) -> str:
+        return f"{self.title_id} {self.amount}"

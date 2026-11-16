@@ -1586,6 +1586,764 @@
    "model_label": "skeleton_ledger.entryline",
    "scope": "organization",
    "sensitive_fields": []
+  },
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "title_id",
+     "label": "title",
+     "name": "title",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_title",
+      "model_label": "skeleton_ledger.title",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "date",
+     "label": "date",
+     "name": "date",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateField"
+    },
+    {
+     "column": "amount",
+     "label": "amount",
+     "name": "amount",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "discount",
+     "label": "discount",
+     "name": "discount",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "interest",
+     "label": "interest",
+     "name": "interest",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "fee",
+     "label": "fee",
+     "name": "fee",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "payment_account_id",
+     "label": "payment account",
+     "name": "payment_account",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_account",
+      "model_label": "skeleton_ledger.account",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "method",
+     "label": "method",
+     "name": "method",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "idempotency_key",
+     "label": "idempotency key",
+     "name": "idempotency_key",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "entry_id",
+     "label": "entry",
+     "name": "entry",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_entry",
+      "model_label": "skeleton_ledger.entry",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "reversal_entry_id",
+     "label": "reversal entry",
+     "name": "reversal_entry",
+     "nullable": true,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_entry",
+      "model_label": "skeleton_ledger.entry",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    }
+   ],
+   "db_table": "skeleton_ledger_settlement",
+   "description": "Baixas de títulos (recebimentos e pagamentos) e o lançamento de cada uma.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "title_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "date",
+      "sensitive": false,
+      "type": "DateField"
+     },
+     {
+      "name": "amount",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "discount",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "interest",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "fee",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "payment_account_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "method",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "idempotency_key",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "entry_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "reversal_entry_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     }
+    ],
+    "immutable_fields": [
+     "title_id",
+     "date",
+     "amount",
+     "discount",
+     "interest",
+     "fee",
+     "payment_account_id",
+     "method",
+     "idempotency_key",
+     "entry_id"
+    ],
+    "scope": "organization",
+    "sensitive_fields": []
+   },
+   "label": "Baixas",
+   "model_label": "skeleton_ledger.settlement",
+   "scope": "organization",
+   "sensitive_fields": []
+  },
+  {
+   "columns": [
+    {
+     "column": "sysid",
+     "label": "sysid",
+     "name": "sysid",
+     "nullable": false,
+     "primary_key": true,
+     "type": "UUIDField"
+    },
+    {
+     "column": "created_at",
+     "label": "created at",
+     "name": "created_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "updated_at",
+     "label": "updated at",
+     "name": "updated_at",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "created_by",
+     "label": "created by",
+     "name": "created_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "updated_by",
+     "label": "updated by",
+     "name": "updated_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_by",
+     "label": "deleted by",
+     "name": "deleted_by",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "deleted_at",
+     "label": "deleted at",
+     "name": "deleted_at",
+     "nullable": true,
+     "primary_key": false,
+     "type": "DateTimeField"
+    },
+    {
+     "column": "revision",
+     "label": "revision",
+     "name": "revision",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "organization_id",
+     "label": "organization",
+     "name": "organization",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "sk_tenancy_organization",
+      "model_label": "sk_tenancy.organization",
+      "organization": false,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "book_id",
+     "label": "book",
+     "name": "book",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_book",
+      "model_label": "skeleton_ledger.book",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "direction",
+     "label": "direction",
+     "name": "direction",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "description",
+     "label": "description",
+     "name": "description",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "counterparty_name",
+     "label": "counterparty name",
+     "name": "counterparty_name",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "party_ref",
+     "label": "party ref",
+     "name": "party_ref",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "party_kind",
+     "label": "party kind",
+     "name": "party_kind",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "category_account_id",
+     "label": "category account",
+     "name": "category_account",
+     "nullable": false,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_account",
+      "model_label": "skeleton_ledger.account",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "cost_center_id",
+     "label": "cost center",
+     "name": "cost_center",
+     "nullable": true,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_costcenter",
+      "model_label": "skeleton_ledger.costcenter",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    },
+    {
+     "column": "amount",
+     "label": "amount",
+     "name": "amount",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "amount_settled",
+     "label": "amount settled",
+     "name": "amount_settled",
+     "nullable": false,
+     "primary_key": false,
+     "type": "PositiveBigIntegerField"
+    },
+    {
+     "column": "issue_date",
+     "label": "issue date",
+     "name": "issue_date",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateField"
+    },
+    {
+     "column": "due_date",
+     "label": "due date",
+     "name": "due_date",
+     "nullable": false,
+     "primary_key": false,
+     "type": "DateField"
+    },
+    {
+     "column": "status",
+     "label": "status",
+     "name": "status",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "source_app",
+     "label": "source app",
+     "name": "source_app",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "source_table",
+     "label": "source table",
+     "name": "source_table",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "source_id",
+     "label": "source id",
+     "name": "source_id",
+     "nullable": true,
+     "primary_key": false,
+     "type": "UUIDField"
+    },
+    {
+     "column": "idempotency_key",
+     "label": "idempotency key",
+     "name": "idempotency_key",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "installment_number",
+     "label": "installment number",
+     "name": "installment_number",
+     "nullable": true,
+     "primary_key": false,
+     "type": "PositiveSmallIntegerField"
+    },
+    {
+     "column": "installment_count",
+     "label": "installment count",
+     "name": "installment_count",
+     "nullable": true,
+     "primary_key": false,
+     "type": "PositiveSmallIntegerField"
+    },
+    {
+     "column": "accrual_entry_id",
+     "label": "accrual entry",
+     "name": "accrual_entry",
+     "nullable": true,
+     "primary_key": false,
+     "relation": {
+      "db_table": "skeleton_ledger_entry",
+      "model_label": "skeleton_ledger.entry",
+      "organization": true,
+      "target_type": "UUIDField"
+     },
+     "type": "ForeignKey"
+    }
+   ],
+   "db_table": "skeleton_ledger_title",
+   "description": "Títulos a pagar e a receber dos livros; a autorização vem do livro ou da origem.",
+   "infrastructure": {
+    "columns": [
+     {
+      "name": "sysid",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "created_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "updated_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "created_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "updated_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_by",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "deleted_at",
+      "sensitive": false,
+      "type": "DateTimeField"
+     },
+     {
+      "name": "revision",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "organization_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "book_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "direction",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "description",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "counterparty_name",
+      "personal": true,
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "party_ref",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "party_kind",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "category_account_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "cost_center_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "amount",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "amount_settled",
+      "sensitive": false,
+      "type": "PositiveBigIntegerField"
+     },
+     {
+      "name": "issue_date",
+      "sensitive": false,
+      "type": "DateField"
+     },
+     {
+      "name": "due_date",
+      "sensitive": false,
+      "type": "DateField"
+     },
+     {
+      "name": "status",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "source_app",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "source_table",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "source_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     },
+     {
+      "name": "idempotency_key",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "installment_number",
+      "sensitive": false,
+      "type": "PositiveSmallIntegerField"
+     },
+     {
+      "name": "installment_count",
+      "sensitive": false,
+      "type": "PositiveSmallIntegerField"
+     },
+     {
+      "name": "accrual_entry_id",
+      "sensitive": false,
+      "type": "UUIDField"
+     }
+    ],
+    "immutable_fields": [
+     "book_id",
+     "direction",
+     "amount",
+     "issue_date",
+     "category_account_id",
+     "source_app",
+     "source_table",
+     "source_id",
+     "idempotency_key",
+     "installment_number",
+     "installment_count"
+    ],
+    "personal_fields": [
+     "counterparty_name"
+    ],
+    "scope": "organization",
+    "sensitive_fields": []
+   },
+   "label": "Títulos",
+   "model_label": "skeleton_ledger.title",
+   "scope": "organization",
+   "sensitive_fields": []
   }
  ]
 }

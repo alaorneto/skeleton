@@ -109,6 +109,49 @@ def register_ledger_tables() -> None:
             expose_api=False,
         )
     )
+    from .models import Settlement, Title
+
+    register(
+        TableSpec(
+            model=Title,
+            description=gettext_lazy(
+                "Títulos a pagar e a receber dos livros; a autorização vem do livro ou da origem."
+            ),
+            label=gettext_lazy("Títulos"),
+            scope="organization",
+            read_fields=(
+                "book",
+                "direction",
+                "description",
+                "category_account",
+                "cost_center",
+                "amount",
+                "amount_settled",
+                "issue_date",
+                "due_date",
+                "status",
+                "installment_number",
+                "installment_count",
+            ),
+            write_fields=(),
+            sensitive_fields=(),
+            # The counterparty name is personal data: readable by who reads the book, redacted in the audit.
+            personal_fields=("counterparty_name",),
+            expose_api=False,
+        )
+    )
+    register(
+        TableSpec(
+            model=Settlement,
+            description=gettext_lazy("Baixas de títulos (recebimentos e pagamentos) e o lançamento de cada uma."),
+            label=gettext_lazy("Baixas"),
+            scope="organization",
+            read_fields=("title", "date", "amount", "discount", "interest", "fee", "payment_account", "method"),
+            write_fields=(),
+            sensitive_fields=(),
+            expose_api=False,
+        )
+    )
     from .registry import register_base_keys
 
     register_base_keys()

@@ -221,3 +221,58 @@ def test_the_source_reverses_its_entry_with_cas(ledger):
         lambda actor: LedgerService().reverse(actor=actor, entry_id=entry.sysid, date=DAY, expected_revision=2)
     )()
     assert reversal.reverses_id == entry.sysid
+
+
+def test_a_title_with_a_source_is_authorized_by_the_source(ledger):
+    scenario, note, cash = ledger
+    created = scenario.caller(
+        lambda actor: LedgerService().create_title(
+            actor=actor,
+            direction="receivable",
+            amount=500,
+            due_date=DAY,
+            issue_date=DAY,
+            description="Atendimento AT-1",
+            category_key="example_notes.service_revenue",
+            idempotency_key="title-1",
+            source_table=NOTE,
+            source_id=note.pk,
+            counterparty_name="Cliente Exemplo",
+        )
+    )()
+    settled = scenario.caller(
+        lambda actor: LedgerService().settle_title(
+            actor=actor,
+            title_id=created.sysid,
+            amount=500,
+            date=DAY,
+            payment_account_id=cash,
+            method="cash",
+            expected_revision=created.revision,
+            idempotency_key="pay-1",
+        )
+    )()
+    assert settled.amount == 500
+    listed = scenario.caller(
+        lambda actor: LedgerService().titles_for_source(actor=actor, table_key=NOTE, record_id=note.pk)
+    )()
+    assert [item.status for item in listed] == ["settled"] and listed[0].counterparty_name == "Cliente Exemplo"
+    with pytest.raises(NotFound):  # The book itself stays out of reach.
+        scenario.caller(lambda actor: LedgerService().titles(actor=actor))()
+    readable = scenario.create(
+        scenario.a, code="AT-9", title="Só leitura", owner=scenario.admin_a, visibility="organization"
+    )
+    with pytest.raises(Forbidden):
+        scenario.caller(
+            lambda actor: LedgerService().create_title(
+                actor=actor,
+                direction="receivable",
+                amount=1,
+                due_date=DAY,
+                description="x",
+                category_key="ledger.revenue",
+                idempotency_key="title-2",
+                source_table=NOTE,
+                source_id=readable.pk,
+            )
+        )()

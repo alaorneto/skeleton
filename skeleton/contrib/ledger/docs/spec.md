@@ -33,6 +33,23 @@ Uma app lança pelos registros dela com uma **regra declarada em código** (`Pos
 
 **A autorização vem do registro de origem**: quem tem a ação da regra no atendimento (por exemplo, `update`) gera o lançamento sem ler o livro, e lê os lançamentos daquele registro por `entries_for_source`. O estorno de um lançamento com origem também é autorizado pela origem. A descrição de um lançamento automático cita o número do documento de origem, nunca o nome de uma pessoa; a contraparte vai só como `party_ref` opaco. O kit `skeleton.contrib.ledger.testing` (`enable_ledger`, `prepare_book`, `account_id`) monta o livro, o plano e os vínculos para os testes de quem consome.
 
+### Títulos e baixas (#546)
+`Title` é um valor a receber (`receivable`) ou a pagar (`payable`) de um livro: `amount` (principal, > 0), `amount_settled` (0 ≤ baixado ≤ valor), `status` (`open`, `partial`, `settled`, `cancelled`, coerente com os valores por restrição no banco), datas de emissão e vencimento, a conta de categoria (resolvida pela chave `category_key`), o centro de custo, a origem opcional e as parcelas. `counterparty_name` é dado pessoal (`personal_fields`): legível por quem lê o livro e por quem lê a origem, `[REDACTED]` na auditoria. `Settlement` é uma baixa (data, `amount` baixado, `discount`, `interest`, `fee`, conta de pagamento, forma) com o lançamento que ela gerou; ela é estornada, nunca editada.
+
+| Evento | Regime de caixa | Regime de competência |
+|---|---|---|
+| Criar título a receber | nada | D `ledger.receivables` / C categoria |
+| Receber | D conta de pagamento (`amount + interest - discount - fee`); D `discounts_given`; D `fees`; C categoria (`amount`); C `interest_income` | igual, com C `ledger.receivables` no lugar da categoria |
+| Criar título a pagar | nada | D categoria / C `ledger.payables` |
+| Pagar | D categoria (`amount`); D `interest_expense`; D `fees`; C conta de pagamento (`amount + interest + fee - discount`); C `discounts_received` | igual, com D `ledger.payables` no lugar da categoria |
+
+- Baixa parcial soma em `amount_settled` e leva a `partial` e depois a `settled`; baixa acima do saldo é recusada. A baixa trava o título e confere a revisão: duas baixas com a mesma revisão têm um vencedor.
+- Estornar uma baixa estorna o lançamento dela e devolve o saldo; a linha da baixa fica, com o estorno.
+- Cancelar exige nenhuma baixa ativa; em competência, estorna o reconhecimento.
+- Parcelas: a soma é o total, o resto do arredondamento na última, vencimentos mensais no dia da primeira, limitados ao último dia dos meses curtos.
+- Com origem, o título e as baixas são autorizados pelo registro de origem (`update`), como as regras; sem origem, pela gestão do livro.
+- Os eventos de domínio previstos (`ledger.title_created`, `ledger.title_settled`, `ledger.title_cancelled`, `ledger.entry_posted`) não foram publicados nesta versão: a API de eventos do núcleo publica só sobre tabelas expostas e legíveis pelo ator, e títulos e lançamentos ficam fora do gateway. Publicá-los pede uma extensão do núcleo.
+
 ## Acceptance
 - `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.

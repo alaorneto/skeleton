@@ -16,7 +16,7 @@ from django.core.exceptions import PermissionDenied
 from skeleton.service_api import ServiceAPI, service_method
 from skeleton.service_api.dto import DEFAULT_PAGE_SIZE, Page, paginate
 
-from .models import Account, AccountBinding, Book, CostCenter, Entry, EntryLine
+from .models import Account, AccountBinding, Book, CostCenter, Entry, EntryLine, Settlement, Title
 from .posting import LineDraft as PostingLine
 from .registry import AccountKey, Key, Param, PostingRule, RuleLine, register_account_key, register_posting_rule
 
@@ -35,6 +35,8 @@ __all__ = [
     "PostingLine",
     "PostingRule",
     "RuleLine",
+    "SettlementInfo",
+    "TitleInfo",
     "register_posting_rule",
     "register_account_key",
 ]
@@ -182,6 +184,88 @@ def entry_info(entry: Entry) -> EntryInfo:
         sealed=entry.sealed_at is not None,
         digest=entry.seal_digest,
         lines=lines,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class TitleInfo:
+    sysid: UUID
+    book_id: UUID
+    direction: str
+    description: str
+    counterparty_name: str
+    party_ref: str
+    party_kind: str
+    category_account_id: UUID
+    cost_center_id: UUID | None
+    amount: int
+    amount_settled: int
+    balance: int
+    issue_date: date
+    due_date: date
+    status: str
+    source_table: str
+    source_id: UUID | None
+    installment_number: int | None
+    installment_count: int | None
+    revision: int
+
+
+def title_info(title: Title) -> TitleInfo:
+    return TitleInfo(
+        sysid=title.pk,
+        book_id=title.book_id,
+        direction=title.direction,
+        description=title.description,
+        counterparty_name=title.counterparty_name,
+        party_ref=title.party_ref,
+        party_kind=title.party_kind,
+        category_account_id=title.category_account_id,
+        cost_center_id=title.cost_center_id,
+        amount=title.amount,
+        amount_settled=title.amount_settled,
+        balance=title.balance,
+        issue_date=title.issue_date,
+        due_date=title.due_date,
+        status=title.status,
+        source_table=title.source_table,
+        source_id=title.source_id,
+        installment_number=title.installment_number,
+        installment_count=title.installment_count,
+        revision=title.revision,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementInfo:
+    sysid: UUID
+    title_id: UUID
+    date: date
+    amount: int
+    discount: int
+    interest: int
+    fee: int
+    payment_account_id: UUID
+    method: str
+    entry_id: UUID
+    reversal_entry_id: UUID | None
+    revision: int
+
+
+def settlement_info(settlement: Settlement) -> SettlementInfo:
+    return SettlementInfo(
+        settlement.pk,
+        settlement.title_id,
+        settlement.date,
+        settlement.amount,
+        settlement.discount,
+        settlement.interest,
+        settlement.fee,
+        settlement.payment_account_id,
+        settlement.method,
+        settlement.entry_id,
+        settlement.reversal_entry_id,
+        settlement.revision,
     )
 
 
@@ -567,6 +651,312 @@ class LedgerService(ServiceAPI):
         ).order_by("date", "number", "sysid")[:200]
         return tuple(entry_info(row) for row in rows)
 
+    # ----------------------------------------------------------- titles and settlements (#546)
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def create_title(
+        self,
+        *,
+        actor: Any,
+        direction: str,
+        amount: int,
+        due_date: date,
+        description: str,
+        category_key: str,
+        idempotency_key: str,
+        issue_date: date | None = None,
+        counterparty_name: str = "",
+        party_ref: str = "",
+        party_kind: str = "",
+        source_table: str | None = None,
+        source_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
+        book_id: UUID | None = None,
+    ) -> TitleInfo:
+        """Create a receivable or a payable; in an accrual book it posts the recognition entry.
+
+        Autorização: com origem, ``update`` no registro de origem (sem leitura do livro); sem origem,
+        gestão do livro; ``actor=None`` só em ``system_context``.
+        Erros: NotFound; Forbidden; Unavailable com a app da origem desativada;
+        Conflict("account_not_bound") com a chave da categoria ou de contrapartida sem vínculo;
+        InvalidInput para direção, valor, datas, descrição ou chave inválidos.
+        Efeitos: grava o título (e o lançamento de reconhecimento) na transação do chamador; a mesma
+        ``idempotency_key`` da mesma origem devolve o título já criado.
+        """
+        values = _title_values(
+            actor,
+            direction=direction,
+            amount=amount,
+            due_date=due_date,
+            description=description,
+            issue_date=issue_date,
+            counterparty_name=counterparty_name,
+            party_ref=party_ref,
+            party_kind=party_kind,
+            source_table=source_table,
+            source_id=source_id,
+            cost_center_id=cost_center_id,
+        )
+        book = _title_book(actor, source_table, source_id, book_id)
+        key = _key(idempotency_key)
+        existing = Title.objects.filter(source_app=values["source_app"], idempotency_key=key).first()
+        if existing is not None:
+            return title_info(existing)
+        values["category_account"] = _category(book, category_key)
+        return _title_call(lambda: _create_titles(actor, book, [{**values, "idempotency_key": key}])[0])
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def create_installments(
+        self,
+        *,
+        actor: Any,
+        direction: str,
+        amount: int,
+        count: int,
+        first_due_date: date,
+        description: str,
+        category_key: str,
+        idempotency_key: str,
+        issue_date: date | None = None,
+        counterparty_name: str = "",
+        party_ref: str = "",
+        party_kind: str = "",
+        source_table: str | None = None,
+        source_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
+        book_id: UUID | None = None,
+    ) -> tuple[TitleInfo, ...]:
+        """Split ``amount`` in ``count`` monthly titles; the rounding rest goes to the last one.
+
+        Due dates keep the day of ``first_due_date``, capped at the last day of shorter months.
+        Autorização: a de ``create_title``.
+        Erros: os de ``create_title``; InvalidInput para ``count`` fora de 2 a 120.
+        Efeitos: grava as parcelas na transação do chamador; a mesma ``idempotency_key`` devolve as já
+        criadas.
+        """
+        from skeleton.service_api import InvalidInput
+
+        from . import titles
+
+        if type(count) is not int or not 2 <= count <= 120:
+            raise InvalidInput({"count": ["Use de 2 a 120 parcelas."]})
+        values = _title_values(
+            actor,
+            direction=direction,
+            amount=amount,
+            due_date=first_due_date,
+            description=description,
+            issue_date=issue_date,
+            counterparty_name=counterparty_name,
+            party_ref=party_ref,
+            party_kind=party_kind,
+            source_table=source_table,
+            source_id=source_id,
+            cost_center_id=cost_center_id,
+        )
+        if amount < count:
+            raise InvalidInput({"amount": ["Valor menor que o número de parcelas."]})
+        book = _title_book(actor, source_table, source_id, book_id)
+        key = _key(idempotency_key)
+        existing = Title.objects.filter(source_app=values["source_app"], idempotency_key__startswith=f"{key}#")
+        if existing.exists():
+            return tuple(title_info(row) for row in existing.order_by("installment_number"))
+        values["category_account"] = _category(book, category_key)
+        rows = []
+        for number, part in enumerate(titles.split(amount, count), start=1):
+            rows.append(
+                {
+                    **values,
+                    "amount": part,
+                    "due_date": titles.add_months(first_due_date, number - 1),
+                    "installment_number": number,
+                    "installment_count": count,
+                    "idempotency_key": f"{key}#{number}",
+                    "description": f"{values['description']} ({number}/{count})"[:300],
+                }
+            )
+        return tuple(_title_call(lambda: _create_titles(actor, book, rows)))
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def settle_title(
+        self,
+        *,
+        actor: Any,
+        title_id: UUID,
+        amount: int,
+        date: date,
+        payment_account_id: UUID,
+        method: str,
+        expected_revision: int,
+        idempotency_key: str,
+        discount: int = 0,
+        interest: int = 0,
+        fee: int = 0,
+    ) -> SettlementInfo:
+        """Receive or pay all or part of a title's balance, posting the settlement entry.
+
+        Autorização: a do título (origem ou gestão do livro).
+        Erros: NotFound; Forbidden; Conflict("stale_revision") com a revisão do título divergente;
+        Conflict("title_settled") com o título já baixado; Conflict("period_locked");
+        Conflict("account_not_bound"); InvalidInput para valor acima do saldo, valores negativos,
+        conta de pagamento inválida ou forma desconhecida.
+        Efeitos: grava a baixa, o lançamento e o saldo do título na transação do chamador; a mesma
+        ``idempotency_key`` no mesmo título devolve a baixa já feita.
+        """
+        from skeleton.service_api import Conflict
+
+        from . import titles
+
+        title = _title_to_change(actor, title_id)
+        key = _key(idempotency_key)
+        done = Settlement.objects.filter(title=title, idempotency_key=key).first()
+        if done is not None:
+            return settlement_info(done)
+        if title.revision != expected_revision:
+            raise Conflict("stale_revision")
+        if title.status == Title.Status.SETTLED:
+            raise Conflict("title_settled")
+        account = Account.objects.filter(pk=_uuid(payment_account_id, "payment_account_id"), book=title.book).first()
+        if account is None:
+            from skeleton.service_api import InvalidInput
+
+            raise InvalidInput({"payment_account_id": ["Use uma conta do livro."]})
+        return _title_call(
+            lambda: settlement_info(
+                titles.settle(
+                    title=title,
+                    actor_id=getattr(actor, "pk", None),
+                    amount=amount,
+                    date=date,
+                    payment_account=account,
+                    method=method,
+                    discount=discount,
+                    interest=interest,
+                    fee=fee,
+                    idempotency_key=key,
+                )
+            )
+        )
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def reverse_settlement(
+        self, *, actor: Any, settlement_id: UUID, date: date, expected_revision: int, reason: str = ""
+    ) -> TitleInfo:
+        """Reverse a settlement: its entry is reversed and the balance goes back; the row stays.
+
+        Autorização: a do título.
+        Erros: NotFound; Forbidden; Conflict("stale_revision") com a revisão do título divergente;
+        Conflict("already_reversed"); Conflict("period_locked").
+        Efeitos: grava o estorno e o saldo na transação do chamador.
+        """
+        from skeleton.service_api import Conflict
+
+        from . import titles
+
+        settlement = Settlement.objects.filter(pk=_uuid(settlement_id, "settlement_id")).first()
+        if settlement is None:
+            from skeleton.service_api import NotFound
+
+            raise NotFound()
+        title = _title_to_change(actor, settlement.title_id)
+        if title.revision != expected_revision:
+            raise Conflict("stale_revision")
+        if settlement.reversal_entry_id is not None:
+            raise Conflict("already_reversed")
+        return _title_call(
+            lambda: title_info(
+                titles.reverse_settlement(
+                    settlement=settlement, title=title, actor_id=getattr(actor, "pk", None), date=date, reason=reason
+                )
+            )
+        )
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def cancel_title(
+        self, *, actor: Any, title_id: UUID, expected_revision: int, reason: str = "", date: date | None = None
+    ) -> TitleInfo:
+        """Cancel a title without live settlements; in an accrual book its recognition is reversed.
+
+        Autorização: a do título.
+        Erros: NotFound; Forbidden; Conflict("stale_revision"); Conflict("title_has_settlements");
+        Conflict("period_locked").
+        Efeitos: grava o cancelamento (e o estorno do reconhecimento) na transação do chamador.
+        """
+        from django.utils import timezone
+
+        from skeleton.service_api import Conflict
+
+        from . import titles
+
+        title = _title_to_change(actor, title_id)
+        if title.revision != expected_revision:
+            raise Conflict("stale_revision")
+        when = date or timezone.localdate()
+        return _title_call(
+            lambda: title_info(
+                titles.cancel(title=title, actor_id=getattr(actor, "pk", None), date=when, reason=reason)
+            )
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def titles(
+        self,
+        *,
+        actor: Any,
+        book_id: UUID | None = None,
+        direction: str | None = None,
+        status: str | None = None,
+        due_until: date | None = None,
+        cursor: str | None = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> Page[TitleInfo]:
+        """Titles of a book, by due date, filtered by direction, status and due date.
+
+        Autorização: leitura do livro.
+        Erros: NotFound; InvalidInput para filtro, cursor ou página inválidos.
+        Efeitos: nenhum.
+        """
+        from skeleton.service_api import InvalidInput
+
+        book = _readable_book(actor, book_id)
+        rows = Title.objects.filter(book=book)
+        if direction is not None:
+            if direction not in Title.Direction.values:
+                raise InvalidInput({"direction": ["Use receivable ou payable."]})
+            rows = rows.filter(direction=direction)
+        if status is not None:
+            if status not in Title.Status.values:
+                raise InvalidInput({"status": ["Situação desconhecida."]})
+            rows = rows.filter(status=status)
+        if due_until is not None:
+            rows = rows.filter(due_date__lte=due_until)
+        return paginate(rows.order_by("due_date", "sysid"), convert=title_info, page_size=page_size, cursor=cursor)
+
+    @service_method(read_only=True, since="0.6.0")
+    def titles_for_source(self, *, actor: Any, table_key: str, record_id: UUID) -> tuple[TitleInfo, ...]:
+        """Titles of one source record (at most 200): whoever reads the source knows its counterparty.
+
+        Autorização: leitura do registro de origem.
+        Erros: NotFound; InvalidInput.
+        Efeitos: nenhum.
+        """
+        _authorize_source(actor, table_key, record_id, "read")
+        rows = Title.objects.filter(source_table=table_key, source_id=_uuid(record_id, "record_id")).order_by(
+            "due_date", "installment_number", "sysid"
+        )[:200]
+        return tuple(title_info(row) for row in rows)
+
+    @service_method(read_only=True, since="0.6.0")
+    def settlements(self, *, actor: Any, title_id: UUID) -> tuple[SettlementInfo, ...]:
+        """Settlements of a title, oldest first.
+
+        Autorização: leitura do livro do título, ou do registro de origem dele.
+        Erros: NotFound.
+        Efeitos: nenhum.
+        """
+        title = _title_to_read(actor, title_id)
+        return tuple(settlement_info(row) for row in Settlement.objects.filter(title=title).order_by("date", "sysid"))
+
     @service_method(read_only=True, since="0.6.0")
     def entry(self, *, actor: Any, entry_id: UUID) -> EntryInfo:
         """One sealed entry with its lines.
@@ -885,3 +1275,133 @@ def _entry_to_change(actor: Any, entry_id: Any) -> Entry:
     if actor is None:
         raise NotFound()
     return _entry(actor, entry.pk, manage=True)
+
+
+def _title_values(actor: Any, **raw: Any) -> dict[str, Any]:
+    """Validated scalar fields of a new title (the book and the category are resolved apart)."""
+    from datetime import datetime
+
+    from django.utils import timezone
+
+    from skeleton.service_api import InvalidInput
+
+    if raw["direction"] not in Title.Direction.values:
+        raise InvalidInput({"direction": ["Use receivable ou payable."]})
+    if type(raw["amount"]) is not int or raw["amount"] <= 0:
+        raise InvalidInput({"amount": ["Valor inteiro positivo da menor unidade da moeda."]})
+    issue = raw["issue_date"] or timezone.localdate()
+    for name, value in (("due_date", raw["due_date"]), ("issue_date", issue)):
+        if not isinstance(value, date) or isinstance(value, datetime):
+            raise InvalidInput({name: ["Use uma data."]})
+    description = raw["description"]
+    if not isinstance(description, str) or not description.strip() or len(description) > 300:
+        raise InvalidInput({"description": ["Descreva o título (até 300 caracteres)."]})
+    for name, limit in (("counterparty_name", 200), ("party_ref", 100), ("party_kind", 50)):
+        if not isinstance(raw[name], str) or len(raw[name]) > limit:
+            raise InvalidInput({name: [f"Até {limit} caracteres."]})
+    source_table, source_id = raw["source_table"], raw["source_id"]
+    if (source_table is None) != (source_id is None):
+        raise InvalidInput({"source_table": ["Informe tabela e registro de origem juntos."]})
+    return {
+        "direction": raw["direction"],
+        "amount": raw["amount"],
+        "due_date": raw["due_date"],
+        "issue_date": issue,
+        "description": description.strip(),
+        "counterparty_name": raw["counterparty_name"],
+        "party_ref": raw["party_ref"],
+        "party_kind": raw["party_kind"],
+        "source_app": source_table.split(".", 1)[0] if source_table else "skeleton_ledger",
+        "source_table": source_table or "",
+        "source_id": _uuid(source_id, "source_id") if source_id is not None else None,
+        "cost_center_id": _uuid(raw["cost_center_id"], "cost_center_id") if raw["cost_center_id"] is not None else None,
+    }
+
+
+def _title_book(actor: Any, source_table: Any, source_id: Any, book_id: Any) -> Book:
+    """Book of a new title: authorized by the source record when there is one, else by the book."""
+    if source_table:
+        _authorize_source(actor, source_table, source_id, "update")
+        return _posting_book(book_id)
+    if actor is None:
+        return _posting_book(book_id)
+    return _managed_book(actor, book_id)
+
+
+def _category(book: Book, key: Any) -> Account:
+    from skeleton.service_api import Conflict, InvalidInput
+
+    from .registry import get_key
+
+    try:
+        get_key(key)
+    except (KeyError, TypeError):
+        raise InvalidInput({"category_key": ["Chave de conta desconhecida."]}) from None
+    account = Account.objects.filter(bindings__book=book, bindings__key=key, bindings__deleted_at__isnull=True).first()
+    if account is None:
+        raise Conflict("account_not_bound", f"Vincule a chave {key} a uma conta do livro.")
+    return account
+
+
+def _create_titles(actor: Any, book: Book, rows: list[dict[str, Any]]) -> list[TitleInfo]:
+    from django.db import transaction
+
+    from skeleton.tenancy.context import current_context
+
+    from . import titles
+
+    created = []
+    with transaction.atomic(using=current_context().using):
+        for values in rows:
+            created.append(
+                title_info(titles.create_title(book=book, actor_id=getattr(actor, "pk", None), values=values))
+            )
+    return created
+
+
+def _title_call(function: Any) -> Any:
+    """Run a title operation and translate its refusals to the public errors."""
+    from skeleton.service_api import Conflict
+
+    from . import posting, titles
+
+    try:
+        return function()
+    except titles.AccountNotBound as error:
+        raise Conflict("account_not_bound", f"Vincule a chave {error.key} a uma conta do livro.") from None
+    except titles.TitleHasSettlements:
+        raise Conflict("title_has_settlements") from None
+    except posting.PeriodLocked:
+        raise Conflict("period_locked") from None
+    except posting.AlreadyReversed:
+        raise Conflict("already_reversed") from None
+
+
+def _title_to_change(actor: Any, title_id: Any) -> Title:
+    """A title locked for a change: by its source record, or by the management of its book."""
+    from skeleton.service_api import NotFound
+
+    title = Title.objects.select_related("book").filter(pk=_uuid(title_id, "title_id")).first()
+    if title is None:
+        raise NotFound()
+    if title.source_table and title.source_id is not None:
+        _authorize_source(actor, title.source_table, title.source_id, "update")
+    elif actor is not None:
+        _managed_book(actor, title.book_id)
+    return Title.objects.select_related("book").select_for_update(of=("self",)).get(pk=title.pk)
+
+
+def _title_to_read(actor: Any, title_id: Any) -> Title:
+    from skeleton.service_api import NotFound
+
+    title = Title.objects.select_related("book").filter(pk=_uuid(title_id, "title_id")).first()
+    if title is None:
+        raise NotFound()
+    if title.source_table and title.source_id is not None:
+        try:
+            _authorize_source(actor, title.source_table, title.source_id, "read")
+            return title
+        except NotFound:
+            pass
+    _readable_book(actor, title.book_id)
+    return title

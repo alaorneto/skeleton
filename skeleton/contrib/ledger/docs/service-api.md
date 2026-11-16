@@ -48,6 +48,18 @@ O livro padrão da organização, criado na primeira chamada.
 | `post(*, actor, rule, amounts, date, description, source_id, idempotency_key, accounts=None, book_id=None, cost_center_id=None, party_ref="", party_kind="") -> EntryInfo` | a ação da regra no registro de origem (sem leitura do livro); `system_context` aceito | `NotFound` (origem ilegível ou de outra organização, sem livro); `Forbidden` (sem a ação na origem); `Unavailable` (app da origem desativada); `Conflict("account_not_bound")` com a chave; `Conflict("period_locked")`; `InvalidInput` (regra, valores, `Param` ausente ou de outro livro, resultado desbalanceado) |
 | `entries_for_source(*, actor, table_key, record_id) -> tuple[EntryInfo, ...]` | leitura do registro de origem | `NotFound`; `InvalidInput` |
 
+#### Títulos e baixas (#546)
+| Método | Autorização | Erros |
+|---|---|---|
+| `create_title(*, actor, direction, amount, due_date, description, category_key, idempotency_key, issue_date=None, counterparty_name="", party_ref="", party_kind="", source_table=None, source_id=None, cost_center_id=None, book_id=None) -> TitleInfo` | com origem, `update` no registro de origem; sem origem, gestão do livro; `system_context` aceito | `NotFound`; `Forbidden`; `Unavailable`; `Conflict("account_not_bound")`; `InvalidInput` |
+| `create_installments(*, actor, direction, amount, count, first_due_date, description, category_key, idempotency_key, ...) -> tuple[TitleInfo, ...]` | a de `create_title` | os de `create_title`; `InvalidInput` (`count` fora de 2 a 120) |
+| `settle_title(*, actor, title_id, amount, date, payment_account_id, method, expected_revision, idempotency_key, discount=0, interest=0, fee=0) -> SettlementInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("title_settled")`; `Conflict("period_locked")`; `Conflict("account_not_bound")`; `InvalidInput` |
+| `reverse_settlement(*, actor, settlement_id, date, expected_revision, reason="") -> TitleInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("already_reversed")`; `Conflict("period_locked")` |
+| `cancel_title(*, actor, title_id, expected_revision, reason="", date=None) -> TitleInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("title_has_settlements")` |
+| `titles(*, actor, book_id=None, direction=None, status=None, due_until=None, cursor=None, page_size=25) -> Page[TitleInfo]` | leitura do livro | `NotFound`; `InvalidInput` |
+| `titles_for_source(*, actor, table_key, record_id) -> tuple[TitleInfo, ...]` | leitura do registro de origem | `NotFound` |
+| `settlements(*, actor, title_id) -> tuple[SettlementInfo, ...]` | leitura do livro ou da origem | `NotFound` |
+
 `reverse` também aceita `expected_revision` (CAS) e `system_context`; um lançamento com origem é estornado com a ação da regra na origem. `amounts` mapeia o nome de cada componente a um inteiro da menor unidade da moeda; `accounts` mapeia o nome de cada `Param` ao `sysid` de uma conta do livro.
 
 `lines` é uma tupla de `PostingLine(account_id, debit=0, credit=0, memo="", cost_center_id=None, party_ref="", party_kind="")`, reexportado pelo módulo. A contraparte é identificada só por `party_ref` (referência opaca), nunca por nome.
@@ -59,7 +71,9 @@ O livro padrão da organização, criado na primeira chamada.
 - `AccountInfo`: `sysid`, `book_id`, `code`, `name`, `kind`, `parent_id`, `is_group`, `is_active`, `revision`.
 - `AccountKeyInfo`: `code`, `label`, `kind`, `account_id` (`None` sem vínculo).
 - `CostCenterInfo`: `sysid`, `book_id`, `code`, `name`, `is_active`, `revision`.
+- `TitleInfo`: `sysid`, `book_id`, `direction`, `description`, `counterparty_name`, `party_ref`, `party_kind`, `category_account_id`, `cost_center_id`, `amount`, `amount_settled`, `balance`, `issue_date`, `due_date`, `status`, `source_table`, `source_id`, `installment_number`, `installment_count`, `revision`. `counterparty_name` sai para quem lê o livro e, em `titles_for_source`, para quem lê a origem.
+- `SettlementInfo`: `sysid`, `title_id`, `date`, `amount`, `discount`, `interest`, `fee`, `payment_account_id`, `method`, `entry_id`, `reversal_entry_id`, `revision`.
 - `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest` e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Histórico de versões
-- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545).
+- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546).
