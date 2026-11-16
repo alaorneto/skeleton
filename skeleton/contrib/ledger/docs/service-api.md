@@ -36,6 +36,17 @@ O livro padrão da organização, criado na primeira chamada.
 | `cost_centers(*, actor, book_id=None) -> tuple[CostCenterInfo, ...]` | leitura do livro | `NotFound` |
 | `create_cost_center(*, actor, code, name, book_id=None) -> CostCenterInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("integrity_conflict")` |
 
+#### Lançamentos (#544)
+| Método | Autorização | Erros |
+|---|---|---|
+| `post_manual(*, actor, lines, date, description, idempotency_key, book_id=None) -> EntryInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("period_locked")`; `InvalidInput` (partidas que não fecham, uma só, conta-grupo, inativa ou de outro livro, data ou chave inválidas) |
+| `reverse(*, actor, entry_id, date, reason="", idempotency_key="") -> EntryInfo` | gestão do livro do lançamento | `NotFound`; `Forbidden`; `Conflict("already_reversed")`; `Conflict("period_locked")`; `InvalidInput` (estorno de estorno) |
+| `entry(*, actor, entry_id) -> EntryInfo` | leitura do livro | `NotFound` |
+| `entries(*, actor, start, end, book_id=None, cursor=None, page_size=25) -> Page[EntryInfo]` | leitura do livro; até cinco anos | `NotFound`; `InvalidInput` |
+| `set_lock(*, actor, locked_until, expected_revision, book_id=None) -> BookInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `InvalidInput` |
+
+`lines` é uma tupla de `PostingLine(account_id, debit=0, credit=0, memo="", cost_center_id=None, party_ref="", party_kind="")`, reexportado pelo módulo. A contraparte é identificada só por `party_ref` (referência opaca), nunca por nome.
+
 **Registro em código.** `skeleton.contrib.ledger.service_api` reexporta `AccountKey` e `register_account_key`: a app chama `register_account_key(AccountKey(code="acme_services.service_revenue", label=..., kind="revenue"))` no `ready()`. Código fora do formato ou duplicado é `ValueError`.
 
 ## DTOs
@@ -43,6 +54,7 @@ O livro padrão da organização, criado na primeira chamada.
 - `AccountInfo`: `sysid`, `book_id`, `code`, `name`, `kind`, `parent_id`, `is_group`, `is_active`, `revision`.
 - `AccountKeyInfo`: `code`, `label`, `kind`, `account_id` (`None` sem vínculo).
 - `CostCenterInfo`: `sysid`, `book_id`, `code`, `name`, `is_active`, `revision`.
+- `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest` e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Histórico de versões
-- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543).
+- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544).

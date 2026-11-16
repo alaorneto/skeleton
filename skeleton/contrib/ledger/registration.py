@@ -70,6 +70,45 @@ def register_ledger_tables() -> None:
                 expose_api=False,
             )
         )
+    from skeleton.system.registry import SealPolicy
+
+    from .models import Entry, EntryLine
+
+    register(
+        TableSpec(
+            model=Entry,
+            description=gettext_lazy("Lançamentos em partidas dobradas, selados ao nascer; corrigidos só por estorno."),
+            label=gettext_lazy("Lançamentos"),
+            scope="organization",
+            read_fields=("book", "year", "number", "date", "description", "kind", "rule", "reverses", "total"),
+            write_fields=(),
+            sensitive_fields=(),
+            expose_api=False,
+            seal=SealPolicy(attachments="open", comments="open"),
+        )
+    )
+    register(
+        TableSpec(
+            model=EntryLine,
+            description=gettext_lazy("Partidas dos lançamentos, congeladas com o selo do lançamento."),
+            label=gettext_lazy("Partidas"),
+            scope="organization",
+            read_fields=(
+                "entry",
+                "account",
+                "date",
+                "debit",
+                "credit",
+                "memo",
+                "cost_center",
+                "party_ref",
+                "party_kind",
+            ),
+            write_fields=(),
+            sensitive_fields=(),
+            expose_api=False,
+        )
+    )
     from .registry import register_base_keys
 
     register_base_keys()

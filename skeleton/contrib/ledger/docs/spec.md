@@ -19,6 +19,15 @@ O livro contábil (`skeleton_ledger`, `org.skeleton.ledger`) é uma app first-pa
 
 **Modelo inicial.** `apply_chart` aplica o modelo "Prestação de serviços" (`chart.py`): ativo, passivo, patrimônio, receitas e despesas, com as contas que as chaves base usam e os vínculos delas; aplicar de novo não duplica nada. `CostCenter` (`code` único vivo por livro, `name`, `is_active`) completa o plano.
 
+### Lançamentos (#544)
+`Entry` é um registro **selado** (`SealableMixin`, [modelo de dados](../../../../docs/data-model.md#registros-selados-526)) e `EntryLine` é filha dele (`seal_parent = "entry"`): o lançamento nasce, recebe as partidas e é selado na mesma transação, e depois nada dele muda, por modelo ou por SQL. Correção é só por **estorno**: um lançamento novo com débitos e créditos trocados, ligado por `reverses` (um estorno por lançamento, restrição única; um estorno não é estornável).
+
+- Cada partida tem exatamente um débito ou um crédito, inteiros da menor unidade da moeda. O serviço confere e o banco prova de novo na transição do selo (`seal_condition_sql` congelada na migration): pelo menos duas partidas vivas, débitos = créditos = `total`, toda conta analítica, ativa e do livro, toda partida na data do lançamento e a data depois de `locked_until`.
+- Numeração sem lacunas por livro e ano (`year`, `number`, únicos vivos): a linha do livro é travada enquanto o próximo número é tomado, então um rollback devolve o número. (A API de sequências do núcleo numera por organização, não por livro; por isso o livro usa a própria trava.)
+- `set_lock` move a trava de período com CAS; lançar na data da trava ou antes é `Conflict("period_locked")`.
+- `idempotency_key` única viva por `(organização, source_app, chave)`: repetir devolve o mesmo lançamento.
+- Saldos, razões e relatórios só consideram lançamentos selados.
+
 ## Acceptance
 - `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.

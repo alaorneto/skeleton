@@ -16,7 +16,8 @@ from django.core.exceptions import PermissionDenied
 from skeleton.service_api import ServiceAPI, service_method
 from skeleton.service_api.dto import DEFAULT_PAGE_SIZE, Page, paginate
 
-from .models import Account, AccountBinding, Book, CostCenter
+from .models import Account, AccountBinding, Book, CostCenter, Entry, EntryLine
+from .posting import LineDraft as PostingLine
 from .registry import AccountKey, register_account_key
 
 APP_LABEL = "skeleton_ledger"
@@ -26,7 +27,10 @@ __all__ = [
     "AccountKeyInfo",
     "BookInfo",
     "CostCenterInfo",
+    "EntryInfo",
+    "EntryLineInfo",
     "LedgerService",
+    "PostingLine",
     "register_account_key",
 ]
 
@@ -105,6 +109,75 @@ class CostCenterInfo:
 
 def cost_center_info(center: CostCenter) -> CostCenterInfo:
     return CostCenterInfo(center.pk, center.book_id, center.code, center.name, center.is_active, center.revision)
+
+
+@dataclass(frozen=True, slots=True)
+class EntryLineInfo:
+    sysid: UUID
+    account_id: UUID
+    debit: int
+    credit: int
+    memo: str
+    cost_center_id: UUID | None
+    party_ref: str
+    party_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class EntryInfo:
+    sysid: UUID
+    book_id: UUID
+    year: int
+    number: int
+    date: date
+    description: str
+    kind: str
+    rule: str
+    source_app: str
+    source_table: str
+    source_id: UUID | None
+    reverses_id: UUID | None
+    reversed_by_id: UUID | None
+    total: int
+    sealed: bool
+    digest: str
+    lines: tuple[EntryLineInfo, ...]
+
+
+def entry_info(entry: Entry) -> EntryInfo:
+    lines = tuple(
+        EntryLineInfo(
+            line.pk,
+            line.account_id,
+            line.debit,
+            line.credit,
+            line.memo,
+            line.cost_center_id,
+            line.party_ref,
+            line.party_kind,
+        )
+        for line in EntryLine.objects.filter(entry=entry).order_by("sysid")
+    )
+    reversal = Entry.objects.filter(reverses=entry).values_list("pk", flat=True).first()
+    return EntryInfo(
+        sysid=entry.pk,
+        book_id=entry.book_id,
+        year=entry.year,
+        number=entry.number,
+        date=entry.date,
+        description=entry.description,
+        kind=entry.kind,
+        rule=entry.rule,
+        source_app=entry.source_app,
+        source_table=entry.source_table,
+        source_id=entry.source_id,
+        reverses_id=entry.reverses_id,
+        reversed_by_id=reversal,
+        total=entry.total,
+        sealed=entry.sealed_at is not None,
+        digest=entry.seal_digest,
+        lines=lines,
+    )
 
 
 class LedgerService(ServiceAPI):
@@ -346,6 +419,116 @@ class LedgerService(ServiceAPI):
         center.save()
         return cost_center_info(center)
 
+    # ----------------------------------------------------------- entries (#544)
+
+    @service_method(read_only=False, since="0.6.0")
+    def post_manual(
+        self,
+        *,
+        actor: Any,
+        lines: tuple[PostingLine, ...],
+        date: date,
+        description: str,
+        idempotency_key: str,
+        book_id: UUID | None = None,
+    ) -> EntryInfo:
+        """Post a manual entry with explicit lines: created, numbered and sealed in one transaction.
+
+        Autorização: gestão do livro (update).
+        Erros: NotFound; Forbidden; Conflict("period_locked") com a data na trava; InvalidInput para
+        partidas que não fecham, uma só partida, conta-grupo, inativa ou de outro livro, data ou
+        chave inválidas.
+        Efeitos: grava o lançamento, as partidas e o selo na transação do chamador; a mesma
+        ``idempotency_key`` devolve o lançamento já criado.
+        """
+        book = _managed_book(actor, book_id)
+        return _post(
+            lambda: _create(
+                book=book,
+                lines=lines,
+                date=date,
+                description=description,
+                kind=Entry.Kind.MANUAL,
+                actor=actor,
+                idempotency_key=_key(idempotency_key),
+            )
+        )
+
+    @service_method(read_only=False, since="0.6.0")
+    def reverse(
+        self, *, actor: Any, entry_id: UUID, date: date, reason: str = "", idempotency_key: str = ""
+    ) -> EntryInfo:
+        """Reverse an entry once: the inverse entry, linked by ``reverses``; a reversal is not reversible.
+
+        Autorização: gestão do livro do lançamento; o de uma regra também pelo registro de origem (#545).
+        Erros: NotFound; Forbidden; Conflict("already_reversed"); Conflict("period_locked");
+        InvalidInput para estornar um estorno.
+        Efeitos: grava o estorno selado na transação do chamador.
+        """
+        from . import posting
+
+        entry = _entry(actor, entry_id, manage=True)
+        return _post(
+            lambda: posting.reverse_entry(
+                entry=entry,
+                date=date,
+                reason=reason,
+                actor_id=getattr(actor, "pk", None),
+                idempotency_key=_key(idempotency_key, required=False),
+            )
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def entry(self, *, actor: Any, entry_id: UUID) -> EntryInfo:
+        """One sealed entry with its lines.
+
+        Autorização: leitura do livro.
+        Erros: NotFound para lançamento inexistente, ilegível ou de outra organização.
+        Efeitos: nenhum.
+        """
+        return entry_info(_entry(actor, entry_id))
+
+    @service_method(read_only=True, since="0.6.0")
+    def entries(
+        self,
+        *,
+        actor: Any,
+        start: date,
+        end: date,
+        book_id: UUID | None = None,
+        cursor: str | None = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+    ) -> Page[EntryInfo]:
+        """Sealed entries of a book in ``[start, end]`` (at most five years), by date and number.
+
+        Autorização: leitura do livro.
+        Erros: NotFound; InvalidInput para janela inválida, cursor ou página.
+        Efeitos: nenhum.
+        """
+        book = _readable_book(actor, book_id)
+        start, end = _date_window(start, end)
+        rows = Entry.objects.filter(book=book, sealed_at__isnull=False, date__gte=start, date__lte=end).order_by(
+            "date", "number", "sysid"
+        )
+        return paginate(rows, convert=entry_info, page_size=page_size, cursor=cursor)
+
+    @service_method(read_only=False, since="0.6.0")
+    def set_lock(
+        self, *, actor: Any, locked_until: date | None, expected_revision: int, book_id: UUID | None = None
+    ) -> BookInfo:
+        """Move the period lock of a book (entries on or before it are refused), with CAS.
+
+        Autorização: gestão do livro.
+        Erros: NotFound; Forbidden; Conflict("stale_revision"); InvalidInput para data inválida.
+        Efeitos: grava a trava (auditada); recuar a trava também.
+        """
+        from . import posting
+
+        book = _managed_book(actor, book_id)
+        return book_info(
+            posting.set_lock(book=book, locked_until=locked_until, expected_revision=expected_revision), writable=True
+        )
+
 
 def _readable_book(actor: Any, book_id: Any = None) -> Book:
     """The book ``book_id`` (the default one when ``None``) if the actor reads it; NotFound otherwise."""
@@ -417,3 +600,79 @@ def _app_active(app_label: str) -> bool:
     except KeyError:
         return False
     return bool(state["effective"])
+
+
+MAX_WINDOW_DAYS = 5 * 366
+
+
+def _date_window(start: Any, end: Any) -> tuple[date, date]:
+    from datetime import datetime
+
+    from skeleton.service_api import InvalidInput
+
+    if not all(isinstance(value, date) and not isinstance(value, datetime) for value in (start, end)):
+        raise InvalidInput({"start": ["Use datas."]})
+    if end < start or (end - start).days > MAX_WINDOW_DAYS:
+        raise InvalidInput({"end": ["Use uma janela de até cinco anos, com o fim depois do início."]})
+    return start, end
+
+
+def _key(value: Any, *, required: bool = True) -> str:
+    import re
+
+    from skeleton.service_api import InvalidInput
+
+    if not required and value in ("", None):
+        return ""
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9:._-]{1,200}", value):
+        raise InvalidInput({"idempotency_key": ["Use de 1 a 200 letras, dígitos e : . _ -."]})
+    return value
+
+
+def _create(*, book: Book, lines: Any, date: Any, description: Any, kind: str, actor: Any, **values: Any) -> Entry:
+    from . import posting
+
+    return posting.create_entry(
+        book=book,
+        lines=lines,
+        date=date,
+        description=description,
+        kind=kind,
+        actor_id=getattr(actor, "pk", None),
+        **values,
+    )
+
+
+def _post(function: Any) -> EntryInfo:
+    """Run a posting and translate its refusals to the public errors."""
+    from skeleton.service_api import Conflict
+
+    from . import posting
+
+    try:
+        return entry_info(function())
+    except posting.PeriodLocked:
+        raise Conflict("period_locked") from None
+    except posting.AlreadyReversed:
+        raise Conflict("already_reversed") from None
+
+
+def _entry(actor: Any, entry_id: Any, *, manage: bool = False) -> Entry:
+    """A sealed entry of a book the actor reads (NotFound) and, with ``manage``, manages (Forbidden)."""
+    from skeleton.service_api import Forbidden, NotFound
+
+    from .policies import can_manage, readable_books
+
+    try:
+        entry = (
+            Entry.objects.select_related("book")
+            .filter(pk=_uuid(entry_id, "entry_id"), book__in=readable_books(actor), sealed_at__isnull=False)
+            .first()
+        )
+    except PermissionDenied:
+        entry = None
+    if entry is None:
+        raise NotFound()
+    if manage and not can_manage(actor, entry.book):
+        raise Forbidden()
+    return entry
