@@ -180,6 +180,89 @@ O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` pr
 
 **Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
 
+#### Depender do livro contábil (`org.skeleton.ledger`)
+
+O livro contábil (#517) é a app first-party de partidas dobradas: livros, plano de contas, lançamentos selados, títulos a pagar e a receber, baixas, recorrências e relatórios. Uma app que mexe com dinheiro lança nele pelos registros dela, sem ler nem escrever as tabelas do livro. O contrato completo está em `skeleton/contrib/ledger/docs/service-api.md`.
+
+1. **Manifesto.** Declare a dependência e instale a first-party (`SKELETON_BUNDLED_APPS=ledger`, também no `env` do job de CI):
+
+   ```json
+   "dependencies": {"org.skeleton.ledger": ">=0.6.0,<0.7.0"}
+   ```
+
+2. **Registro no `ready()`.** Chaves de conta e regras de lançamento são código da app, com o prefixo do `app_label` dela; a organização vincula cada chave a uma conta do plano. A regra diz a tabela de origem e a ação que o ator precisa ter no registro (o check E041 confere a tabela, a ação e as linhas):
+
+   ```python
+   from skeleton.contrib.ledger.service_api import (
+       AccountKey,
+       Key,
+       Param,
+       PostingRule,
+       RuleLine,
+       register_account_key,
+       register_posting_rule,
+   )
+
+   register_account_key(AccountKey(code="acme_services.revenue", label="Receita de atendimentos", kind="revenue"))
+   register_posting_rule(
+       PostingRule(
+           code="acme_services.service_paid",
+           label="Atendimento pago",
+           source_table_key="acme_services.appointment",
+           source_action="update",
+           lines=(
+               RuleLine(side="debit", account=Param("payment_account"), amount="total"),
+               RuleLine(side="credit", account=Key("acme_services.revenue"), amount="total"),
+           ),
+       )
+   )
+   ```
+
+3. **Chamadas.** O ator é o do contexto; com origem, a autorização vem do registro de origem, não do livro. Valores são inteiros da menor unidade da moeda (`skeleton.common.money`):
+
+   ```python
+   from skeleton.contrib.ledger.service_api import LedgerService
+
+   ledger = LedgerService()
+   title = ledger.create_title(
+       actor=actor,
+       direction="receivable",
+       amount=15000,
+       due_date=day,
+       description="Atendimento 42",
+       category_key="acme_services.revenue",
+       idempotency_key=f"appointment:{appointment.pk}",
+       source_table="acme_services.appointment",
+       source_id=appointment.pk,
+       counterparty_name=client_name,
+   )
+   ledger.settle_title(
+       actor=actor,
+       title_id=title.sysid,
+       amount=15000,
+       date=day,
+       payment_account_id=cash_account,
+       method="pix",
+       expected_revision=title.revision,
+       idempotency_key=f"appointment:{appointment.pk}:paid",
+   )
+   # Ou um lançamento direto pela regra:
+   ledger.post(
+       actor=actor,
+       rule="acme_services.service_paid",
+       amounts={"total": 15000},
+       date=day,
+       description="Atendimento 42",
+       source_id=appointment.pk,
+       accounts={"payment_account": cash_account},
+       idempotency_key=f"appointment:{appointment.pk}:posted",
+   )
+   ```
+
+   O livro participa da transação de quem chama: se a escrita da app falhar, o lançamento some junto. Corrija com `reverse`, nunca editando.
+
+4. **Testes mínimos.** Com `skeleton.contrib.ledger.testing` (`enable_ledger`, `prepare_book`, `account_id`), em PostgreSQL com a role runtime: o ator com a ação na origem lança e vê o lançamento em `entries_for_source`; o ator sem ela é recusado; a mesma `idempotency_key` não duplica; a organização B não vê nada de A; com o ledger desativado, `Unavailable`. O cenário completo de referência é `tests/contrib/ledger/test_scenario.py`.
+
 ### Carregar uma app em desenvolvimento (`SKELETON_DEV_APPS`)
 
 Uma app que vive no próprio repositório git (veja [Desenvolver uma app em repositório próprio](#desenvolver-uma-app-em-repositório-próprio)) entra num projeto de desenvolvimento sem editar arquivo versionado (#518): `SKELETON_DEV_APPS` lista, separados por vírgula, os diretórios de checkout das apps.

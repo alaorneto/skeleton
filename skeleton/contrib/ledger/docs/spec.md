@@ -83,3 +83,10 @@ Páginas renderizadas no servidor, sem JavaScript, sobre o livro padrão da orga
 - `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.
 - A/B, app desativada e default deny em todos os métodos de serviço.
+- Plano de contas com grupos e chaves; vínculo só com conta analítica, ativa e do tipo da chave (#543).
+- Lançamento balanceado, numerado sem lacunas por livro e ano, selado; partida e lançamento selados não mudam; um estorno por lançamento; trava de período (#544).
+- Regras registradas em código, conferidas por E041 e autorizadas pelo registro de origem; chave de idempotência repetida devolve o mesmo lançamento (#545).
+- Títulos, parcelas e baixas com os lançamentos de cada regime; CAS na baixa; cancelamento só sem baixa ativa (#546).
+- Recorrências geradas pelo job diário sem duplicar; fim, limite, pausa e retomada (#547).
+- Relatórios só de partidas seladas, com número fixo de consultas, janelas de até cinco anos (#548).
+- Telas sem JavaScript, pelo serviço, com valores no idioma, CAS e 400/404 (#549); cenário de ponta a ponta com uma app consumidora (#550).

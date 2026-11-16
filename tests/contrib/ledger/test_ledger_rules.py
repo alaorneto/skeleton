@@ -4,16 +4,14 @@ import datetime as dt
 from uuid import uuid4
 
 import pytest
+from ledger_consumer import NOTE, RULE  # Registers the consumer's keys and rules once.
 
 from skeleton.contrib.ledger.registry import _rules
 from skeleton.contrib.ledger.service_api import (
-    AccountKey,
-    Key,
     LedgerService,
     Param,
     PostingRule,
     RuleLine,
-    register_account_key,
     register_posting_rule,
 )
 from skeleton.contrib.ledger.testing import account_id, enable_ledger, prepare_book
@@ -28,35 +26,6 @@ from skeleton.testing.service_api import (
 
 pytestmark = pytest.mark.needs_example_app
 DAY = dt.date(2027, 4, 1)
-NOTE = "example_notes.note"
-RULE = "example_notes.service_received"
-register_account_key(AccountKey(code="example_notes.service_revenue", label="Receita de serviços", kind="revenue"))
-register_account_key(AccountKey(code="example_notes.unbound", label="Sem vínculo", kind="revenue"))
-register_posting_rule(
-    PostingRule(
-        code=RULE,
-        label="Serviço recebido",
-        source_table_key=NOTE,
-        source_action="update",
-        lines=(
-            RuleLine(side="debit", account=Param("payment_account"), amount="total"),
-            RuleLine(side="debit", account=Key("ledger.discounts_given"), amount="discount"),
-            RuleLine(side="credit", account=Key("example_notes.service_revenue"), amount="gross"),
-        ),
-    )
-)
-register_posting_rule(
-    PostingRule(
-        code="example_notes.unbound_rule",
-        label="Sem vínculo",
-        source_table_key=NOTE,
-        source_action="update",
-        lines=(
-            RuleLine(side="debit", account=Param("payment_account"), amount="total"),
-            RuleLine(side="credit", account=Key("example_notes.unbound"), amount="total"),
-        ),
-    )
-)
 
 
 @pytest.fixture
