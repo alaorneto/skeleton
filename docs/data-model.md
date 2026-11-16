@@ -118,6 +118,27 @@ As seis tabelas de `sk_flows` (`sk_flows.0001_initial`) derivam de `Organization
 
 Essas tabelas são dado de negócio, não estado de pipeline: têm revisão, exclusão lógica e auditoria por linha. O que é operacional (timers, retentativas, entregas) usa a fila de jobs.
 
+## Registros selados (#526)
+
+Um documento assinado, um lançamento contábil ou um registro de atendimento é rascunho editável até um ato de negócio e imutável depois dele. `immutable_fields` não serve: ele congela desde a criação. Um modelo **selável** deriva de `SealableMixin` (`skeleton/common/models.py`) junto com a base de registro, `class Document(SealableMixin, SecuredRecord)`, e ganha três colunas, `sealed_at`, `sealed_by` e `seal_digest` (SHA-256 em hexadecimal), mais as declarações:
+
+| Declaração | Efeito |
+|---|---|
+| `seal_fields` | Colunas congeladas pelo selo (nome do campo ou da coluna; obrigatório, nunca colunas de sistema, de acesso ou do próprio selo) |
+| `seal_allows_delete` | `False` (padrão): exclusão lógica e restauração recusadas depois do selo; `True` permite |
+| `seal_condition_sql` | Opcional: expressão booleana sobre `NEW`, conferida pelo banco na transição (por exemplo, "as partidas fecham"); só lê tabelas da própria app |
+
+| Depois de selado | Regra |
+|---|---|
+| `sealed_at`, `sealed_by`, `seal_digest` | Nunca mudam: não existe "desselar" |
+| Colunas de `seal_fields` | Nunca mudam |
+| `deleted_at`, `deleted_by` | Não mudam, salvo `seal_allows_delete = True` |
+| Demais colunas (situação, dono, visibilidade, grupo) | Editáveis pelas regras normais, com revisão e auditoria |
+
+A transição (de `sealed_at` nulo para preenchido, num `UPDATE` ou já no `INSERT`) exige as três colunas juntas: `sealed_by` não nulo e `seal_digest` com 64 caracteres hexadecimais minúsculos; na mesma instrução, nenhuma coluna de `seal_fields` pode mudar (sela-se o que já foi gravado e lido). `sealed_by` ou `seal_digest` sem `sealed_at` são recusados.
+
+**Duas camadas.** O guard do banco (`<tabela>_sk_guard_fn`, gerado pela especificação congelada na migration, chave `seal`: `fields` com nomes de coluna, `allow_delete` e `condition_sql`) é a barreira: recusa a mudança com SQLSTATE 23514 e as mensagens `sealed record`, `invalid seal` ou `seal condition failed`, venha ela do ORM, de `queryset.update`, de SQL direto ou de outra app, e também para o owner (DBA e owner continuam fronteira privilegiada: o selo não é WORM). Em Python, `save()`, `delete()` e `restore()` levantam `RecordSealed` antes de ir ao banco, com mensagem clara. `apply_seal(actor_id=..., digest=..., at=...)` preenche as três colunas em memória; não autoriza nada, e quem chama salva. A expressão de `seal_condition_sql` é literal da migration, recusada na construção da operação se tiver `;`, comentário SQL ou `$`. Tabelas sem selo não mudam: a especificação delas não ganha chave nova e o corpo do guard é o de sempre (`tests/unit/test_record_infrastructure_sql.py`). O check E040 confere a declaração e a compara com a especificação congelada; `record_infrastructure` gera a migration nova quando o selo muda. A transição é um `update` comum na auditoria, com `seal_digest` legível. Correção de um registro selado é sempre por adendo, nunca por edição ([extending](extending.md#registros-que-não-mudam-depois-de-um-ato)).
+
 ## Tabelas operacionais (ADR)
 
 **Contexto.** Fila de jobs, outbox de eventos, entregas e estado de leitura de notificações mudam a cada claim, heartbeat ou leitura. Com `SystemRecord`, cada UPDATE geraria um `AuditEvent`, e a role runtime não tem DELETE: essas tabelas cresceriam para sempre e inflariam a auditoria.

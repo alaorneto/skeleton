@@ -17,3 +17,6 @@ SYSTEM_FIELD_NAMES: tuple[str, ...] = (
 )
 # Access control of SecuredRecord; changed only by authorized access management.
 ACCESS_FIELD_NAMES: tuple[str, ...] = ("owner", "visibility", "owning_group")
+# The seal of a SealableMixin record (#526): written only by the sealing operation, never by the
+# generic write path, and frozen once set.
+SEAL_FIELD_NAMES: tuple[str, ...] = ("sealed_at", "sealed_by", "seal_digest")

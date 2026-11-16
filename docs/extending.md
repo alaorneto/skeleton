@@ -452,6 +452,10 @@ O comando nunca altera migrations existentes e não cria arquivo quando nada fal
 
 Isso vale tanto para app nova quanto para alteração de coluna ou relação auditável: a operação nova vai depois da alteração, com a especificação atualizada. Ela não substitui `CreateModel`. Não use o catálogo editável nem imports do modelo atual em migrations.
 
+## Registros que não mudam depois de um ato
+
+Um registro que vira definitivo num ato de negócio (assinar, lançar) deriva de `SealableMixin` e declara `seal_fields` (#526): depois do selo, o banco recusa mudança nessas colunas, no selo e, por padrão, na exclusão lógica. O modelo e as regras estão em [modelo de dados](data-model.md#registros-selados-526). Correção nunca é edição: o padrão é o **adendo**, um registro novo, também selável, com uma FK `PROTECT` para o original; os dois aparecem juntos na tela da app.
+
 ## Permissões e fluxo HTML
 
 Bootstrap/sync reconcilia TablePermission de organization_admin para a tabela exposta. Member não recebe grants automaticamente. Em `/o/<org>/access/roles/` crie role e atribua read/create/update/delete/restore e, se desejado, manage_access/audit via table-permissions. Atribua MemberRole ou GroupRole + GroupMember. Tudo exige org admin e, em produção, MFA.

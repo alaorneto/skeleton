@@ -10,10 +10,17 @@ from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 
 from .context import is_tenant_model
-from .exceptions import ConcurrentUpdate, ImmutableRecord, LiveReferencesExist, MissingTenantContext, UnsafeBulkMutation
+from .exceptions import (
+    ConcurrentUpdate,
+    ImmutableRecord,
+    LiveReferencesExist,
+    MissingTenantContext,
+    RecordSealed,
+    UnsafeBulkMutation,
+)
 
 # The field lists live in a Django-free module; re-exported here (#310).
-from .field_names import ACCESS_FIELD_NAMES, SYSTEM_FIELD_NAMES  # noqa: F401
+from .field_names import ACCESS_FIELD_NAMES, SEAL_FIELD_NAMES, SYSTEM_FIELD_NAMES  # noqa: F401
 from .querysets import (
     InfrastructureManager,
     OperationalInfrastructureManager,
@@ -39,6 +46,8 @@ class SystemRecord(models.Model):
     objects = RecordManager()
     all_objects = InfrastructureManager()
     immutable_fields: ClassVar[tuple[str, ...]] = ()
+    # FK to the sealable record that governs this one (#528): no change while that parent is sealed.
+    seal_parent: ClassVar[str | None] = None
     soft_delete_reference_policy: ClassVar[str] = "protect"
     append_only: ClassVar[bool] = False
     _loaded_values: dict[str, Any]
@@ -85,8 +94,44 @@ class SystemRecord(models.Model):
                 loaded[field.attname] = self.__dict__[field.attname]
         self._loaded_values = loaded
 
+    def _seal_tracked(self) -> set[str]:
+        """Snapshot columns the seal compares (#526); empty for a model that is not sealable."""
+        if not isinstance(self, SealableMixin):
+            return set()
+        names = {*SEAL_FIELD_NAMES, *self.seal_attnames()}
+        if not self.seal_allows_delete:
+            names |= {"deleted_at", "deleted_by"}
+        return names
+
+    def _check_seal(self, original: dict[str, Any] | None) -> None:
+        """Refuse what the database guard refuses, before the write (#526).
+
+        ``original`` is the snapshot of an update, ``None`` for a create. The guard stays the barrier.
+        """
+        if not isinstance(self, SealableMixin):
+            return
+        frozen = self.seal_attnames()
+        if original is not None and original["sealed_at"] is not None:
+            names = [*SEAL_FIELD_NAMES, *frozen]
+            if not self.seal_allows_delete:
+                names += ["deleted_at", "deleted_by"]
+            changed = [name for name in names if getattr(self, name) != original[name]]
+            if changed:
+                raise RecordSealed(f"Sealed record: {', '.join(changed)} cannot change.")
+            return
+        if self.sealed_at is None:
+            if self.sealed_by is not None or self.seal_digest:
+                raise RecordSealed("Invalid seal: sealed_by and seal_digest require sealed_at.")
+            return
+        if self.sealed_by is None or not is_seal_digest(self.seal_digest):
+            raise RecordSealed("Invalid seal: sealed_by and a 64-character hexadecimal seal_digest are required.")
+        if original is not None:
+            changed = [name for name in frozen if getattr(self, name) != original[name]]
+            if changed:
+                raise RecordSealed(f"Invalid seal: {', '.join(changed)} changed in the sealing write.")
+
     def _ensure_snapshot(self, using: str) -> dict[str, Any]:
-        tracked = {"sysid", "revision", "created_at", "created_by", *self.immutable_fields}
+        tracked = {"sysid", "revision", "created_at", "created_by", *self.immutable_fields, *self._seal_tracked()}
         if hasattr(self, "organization_id"):
             tracked.add("organization_id")
         loaded = getattr(self, "_loaded_values", {})
@@ -185,6 +230,7 @@ class SystemRecord(models.Model):
                 if force_update:
                     raise ValueError("A new record cannot be force-updated.")
                 self._prepare_create()
+                self._check_seal(None)
                 self.full_clean()
                 super().save(force_insert=True, using=using)
             else:
@@ -198,6 +244,7 @@ class SystemRecord(models.Model):
                 ):
                     if getattr(self, field) != original[field]:
                         raise ImmutableRecord(f"{field} cannot be changed.")
+                self._check_seal(original)
                 expected_revision = original["revision"]
                 if self.revision != expected_revision:
                     raise ConcurrentUpdate("The supplied revision does not match the loaded record.")
@@ -291,6 +338,57 @@ class SystemRecord(models.Model):
             self._restore_memory_state(state)
             raise
         return self
+
+
+def is_seal_digest(value: Any) -> bool:
+    """A SHA-256 digest in lowercase hexadecimal, as the guard accepts it."""
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+
+class SealableMixin(models.Model):
+    """A record that becomes immutable after a business act (#526): signing, posting.
+
+    ``seal_fields`` are the columns the seal freezes; the database guard installed by the frozen
+    migration specification refuses any change to them, to the seal itself and (unless
+    ``seal_allows_delete``) to the deletion columns once ``sealed_at`` is set, whoever writes.
+    There is no unseal: a sealed record is corrected by an addendum, a new record that references it.
+    """
+
+    sealed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    sealed_by = models.UUIDField(null=True, blank=True, editable=False)
+    seal_digest = models.CharField(max_length=64, blank=True, default="", editable=False)
+
+    seal_fields: ClassVar[tuple[str, ...]] = ()
+    seal_allows_delete: ClassVar[bool] = False
+    # Optional boolean SQL expression over NEW, checked by the guard when the seal is set. Frozen
+    # into the migration by record_infrastructure; never from the catalog or user data.
+    seal_condition_sql: ClassVar[str] = ""
+
+    class Meta:
+        abstract = True
+
+    @classmethod
+    def seal_attnames(cls) -> list[str]:
+        """Attribute names of ``seal_fields``; a foreign key may be named by field or by column."""
+        names = []
+        for name in cls.seal_fields:
+            field = cls._meta.get_field(name)
+            names.append(field.attname if isinstance(field, models.Field) else name)
+        return names
+
+    @property
+    def is_sealed(self) -> bool:
+        return self.sealed_at is not None
+
+    def apply_seal(self, *, actor_id: Any, digest: str, at: Any) -> None:
+        """Fill the three seal columns in memory; the caller authorizes and saves. Authorizes nothing."""
+        if self.sealed_at is not None:
+            raise RecordSealed("The record is already sealed.")
+        if actor_id is None or not is_seal_digest(digest) or at is None:
+            raise RecordSealed("Invalid seal: an actor, a SHA-256 digest and a time are required.")
+        self.sealed_at = at
+        self.sealed_by = actor_id
+        self.seal_digest = digest
 
 
 class OrganizationRecord(SystemRecord):

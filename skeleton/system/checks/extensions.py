@@ -109,3 +109,84 @@ def extension_consistency_checks(app_configs=None, **kwargs):
                 )
             )
     return errors
+
+
+def _frozen_seal(operation):
+    return operation.specification.get("seal"), operation.specification.get("seal_parent")
+
+
+def seal_model_problems(model, operation=None, spec=None):
+    """Declaration problems of a sealable model or of a child governed by a sealed parent (E040)."""
+    from skeleton.common.field_names import ACCESS_FIELD_NAMES, SEAL_FIELD_NAMES, SYSTEM_FIELD_NAMES
+    from skeleton.common.migration_operations import build_infrastructure_specification
+    from skeleton.common.models import SealableMixin
+
+    label = model._meta.label
+    problems = []
+    sealable = issubclass(model, SealableMixin)
+    parent = getattr(model, "seal_parent", None)
+    if sealable:
+        columns = {field.name: field for field in model._meta.concrete_fields}
+        by_attname = {field.attname: field for field in model._meta.concrete_fields}
+        reserved = {*SEAL_FIELD_NAMES, *SYSTEM_FIELD_NAMES, *ACCESS_FIELD_NAMES, "organization", "organization_id"}
+        if not model.seal_fields:
+            problems.append(f"{label}: a sealable model must declare seal_fields.")
+        for name in model.seal_fields:
+            field = columns.get(name) or by_attname.get(name)
+            if field is None:
+                problems.append(f"{label}: seal_fields names {name!r}, which is not a concrete column.")
+            elif {field.name, field.attname} & reserved:
+                problems.append(f"{label}: seal_fields cannot name the system, access or seal column {name!r}.")
+    if parent:
+        try:
+            field = model._meta.get_field(parent)
+        except Exception:  # noqa: BLE001 - FieldDoesNotExist and friends: report, never crash the checks
+            field = None
+        target = getattr(field, "related_model", None) if field is not None else None
+        if (
+            field is None
+            or not getattr(field, "many_to_one", False)
+            or not isinstance(target, type)
+            or not issubclass(target, SealableMixin)
+            or target._meta.app_label != model._meta.app_label
+        ):
+            problems.append(f"{label}: seal_parent must be a foreign key to a sealable model of the same app.")
+        elif parent not in model.immutable_fields and field.attname not in model.immutable_fields:
+            problems.append(f"{label}: the seal_parent foreign key must be in immutable_fields.")
+    if spec is not None:
+        if getattr(spec, "seal", None) is not None and not sealable:
+            problems.append(f"{label}: TableSpec.seal is declared but the model is not sealable.")
+        if sealable and getattr(spec, "seal", None) is None:
+            problems.append(f"{label}: a sealable model needs TableSpec.seal (SealPolicy).")
+        if set(spec.write_fields) & set(SEAL_FIELD_NAMES):
+            problems.append(f"{label}: the seal columns can never be in write_fields.")
+    if operation is not None and spec is not None and not problems:
+        expected = build_infrastructure_specification(model, spec)
+        frozen_seal, frozen_parent = _frozen_seal(operation)
+        if frozen_seal != expected.get("seal") or frozen_parent != expected.get("seal_parent"):
+            problems.append(
+                f"{label}: the seal declared in the model differs from the frozen migration specification; "
+                "add a migration with record_infrastructure --write."
+            )
+    return problems
+
+
+@register()
+def seal_checks(app_configs=None, **kwargs):
+    """E040: sealable models and sealed parents are declared coherently and frozen in migrations (#526)."""
+    from skeleton.common.models import SealableMixin
+
+    frozen, _, _ = _frozen_operations(from_migrations=True)
+    specs = {spec.model: spec for spec in all_specs()}
+    errors = []
+    for model in apps.get_models():
+        if not (issubclass(model, SealableMixin) or getattr(model, "seal_parent", None)):
+            if model in specs and getattr(specs[model], "seal", None) is not None:
+                errors.extend(
+                    Error(problem, id="skeleton.E040") for problem in seal_model_problems(model, spec=specs[model])
+                )
+            continue
+        operation = frozen.get(model._meta.label_lower)
+        for problem in seal_model_problems(model, operation, specs.get(model)):
+            errors.append(Error(problem, id="skeleton.E040"))
+    return errors
