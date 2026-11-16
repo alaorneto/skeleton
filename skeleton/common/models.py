@@ -130,8 +130,37 @@ class SystemRecord(models.Model):
             if changed:
                 raise RecordSealed(f"Invalid seal: {', '.join(changed)} changed in the sealing write.")
 
+    def _parent_attname(self) -> str | None:
+        if not self.seal_parent:
+            return None
+        field = self._meta.get_field(self.seal_parent)
+        return field.attname if isinstance(field, models.Field) else None
+
+    def _check_sealed_parent(self, using: str, original: dict[str, Any] | None) -> None:
+        """No insert, change, deletion or restoration while the governing parent is sealed (#528).
+
+        The guard reads the parent ``FOR SHARE``; this is the early, readable refusal.
+        """
+        attname = self._parent_attname()
+        if attname is None:
+            return
+        parents = {getattr(self, attname)}
+        if original is not None:
+            parents.add(original.get(attname))
+        parents.discard(None)
+        field = self._meta.get_field(self.seal_parent or "")
+        target = field.related_model if isinstance(field, models.ForeignKey) else None
+        if not parents or not isinstance(target, type):
+            return
+        manager: Any = getattr(target, "all_objects", target._base_manager)  # RLS still applies
+        if manager.using(using).filter(pk__in=parents, sealed_at__isnull=False).exists():
+            raise RecordSealed("The parent record is sealed: its children cannot change.")
+
     def _ensure_snapshot(self, using: str) -> dict[str, Any]:
         tracked = {"sysid", "revision", "created_at", "created_by", *self.immutable_fields, *self._seal_tracked()}
+        parent = self._parent_attname()
+        if parent is not None:
+            tracked.add(parent)
         if hasattr(self, "organization_id"):
             tracked.add("organization_id")
         loaded = getattr(self, "_loaded_values", {})
@@ -231,6 +260,7 @@ class SystemRecord(models.Model):
                     raise ValueError("A new record cannot be force-updated.")
                 self._prepare_create()
                 self._check_seal(None)
+                self._check_sealed_parent(using, None)
                 self.full_clean()
                 super().save(force_insert=True, using=using)
             else:
@@ -245,6 +275,7 @@ class SystemRecord(models.Model):
                     if getattr(self, field) != original[field]:
                         raise ImmutableRecord(f"{field} cannot be changed.")
                 self._check_seal(original)
+                self._check_sealed_parent(using, original)
                 expected_revision = original["revision"]
                 if self.revision != expected_revision:
                     raise ConcurrentUpdate("The supplied revision does not match the loaded record.")
