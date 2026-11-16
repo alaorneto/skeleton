@@ -551,6 +551,30 @@
      "nullable": false,
      "primary_key": false,
      "type": "BooleanField"
+    },
+    {
+     "column": "source_app",
+     "label": "source app",
+     "name": "source_app",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "source_key",
+     "label": "source key",
+     "name": "source_key",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
+    },
+    {
+     "column": "source_path",
+     "label": "source path",
+     "name": "source_path",
+     "nullable": false,
+     "primary_key": false,
+     "type": "CharField"
     }
    ],
    "db_table": "skeleton_calendar_event",
@@ -711,12 +735,30 @@
       "name": "is_cancelled",
       "sensitive": false,
       "type": "BooleanField"
+     },
+     {
+      "name": "source_app",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "source_key",
+      "sensitive": false,
+      "type": "CharField"
+     },
+     {
+      "name": "source_path",
+      "sensitive": false,
+      "type": "CharField"
      }
     ],
     "immutable_fields": [
      "calendar_id",
      "uid",
-     "organizer_id"
+     "organizer_id",
+     "source_app",
+     "source_key",
+     "source_path"
     ],
     "scope": "organization",
     "sensitive_fields": [

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -17,6 +18,80 @@ from .organizations import GroupSummary
 
 GRANT_ACTIONS = ("read", "update", "delete")
 MAX_RECORD_IDS = 500
+
+
+@dataclass(frozen=True, slots=True)
+class RecordGrantInfo:
+    """One record grant (#539): exactly one of the three subjects is set."""
+
+    sysid: UUID
+    table_key: str
+    record_id: UUID
+    action: str
+    group_id: UUID | None
+    role_id: UUID | None
+    membership_user_id: UUID | None
+
+
+def _grant_info(grant: Any, table_key: str) -> RecordGrantInfo:
+    return RecordGrantInfo(
+        sysid=grant.pk,
+        table_key=table_key,
+        record_id=grant.record_sysid,
+        action=grant.action,
+        group_id=grant.group_id,
+        role_id=grant.role_id,
+        membership_user_id=grant.membership.user_id if grant.membership_id else None,
+    )
+
+
+def _grant_target(
+    actor: Any, table_key: str, record_id: Any, action: str, group_id: Any, role_id: Any, membership_user_id: Any
+) -> tuple[Any, Any, dict[str, Any]]:
+    """(model, table definition, subject) of a record grant, after the read and the capability checks."""
+    from skeleton.access.capabilities import ACCESS_MANAGE, require_capability
+    from skeleton.access.models import AccessGroup, Role
+    from skeleton.access.policies import authorized_queryset
+    from skeleton.system.models import TableDefinition
+    from skeleton.tenancy.models import Membership
+
+    if action not in GRANT_ACTIONS:
+        raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(GRANT_ACTIONS)}]})
+    model = _model(table_key)
+    if model is None:
+        raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
+    identifier = as_uuid(record_id, field="record_id")
+    try:
+        readable = authorized_queryset(model, user=actor, action="read").filter(pk=identifier).exists()
+    except PermissionDenied:
+        readable = False
+    if not readable:
+        raise NotFound()
+    try:
+        require_capability(actor, ACCESS_MANAGE)
+    except PermissionDenied:
+        raise Forbidden() from None
+    given = [
+        (name, value)
+        for name, value in (("group", group_id), ("role", role_id), ("membership", membership_user_id))
+        if value is not None
+    ]
+    if len(given) != 1:
+        raise InvalidInput({"subject": [gettext("Informe exatamente um grupo, papel ou pessoa.")]})
+    name, value = given[0]
+    subject_id = as_uuid(value, field=f"{name}_id" if name != "membership" else "membership_user_id")
+    if name == "group":
+        subject = AccessGroup.objects.filter(pk=subject_id).first()
+    elif name == "role":
+        subject = Role.objects.filter(pk=subject_id).first()
+    else:
+        subject = Membership.objects.filter(user_id=subject_id, is_active=True).first()
+    if subject is None:
+        raise InvalidInput({name: [gettext("Destinatário indisponível nesta organização.")]})
+    table = TableDefinition.objects.filter(model_label=model._meta.label_lower, available=True).first()
+    if table is None:
+        raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
+    return model, table, {name: subject}
 
 
 def _model(table_key: str) -> Any:
@@ -99,6 +174,73 @@ class AccessService(ServiceAPI):
             raise NotFound()
         if not allowed:
             raise Forbidden()
+
+    @service_method(read_only=False, since="0.6.0")
+    def grant_record_access(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        table_key: str,
+        record_id: UUID,
+        action: str,
+        group_id: UUID | None = None,
+        role_id: UUID | None = None,
+        membership_user_id: UUID | None = None,
+    ) -> RecordGrantInfo:
+        """Grant ``action`` on one record to a group, a role or a person; repeating it is idempotent (#539).
+
+        Autorização: a mesma das telas de gestão de acesso: leitura do registro e a capacidade
+        ``access.manage`` (administrador ou papel que a carrega).
+        Erros: NotFound para registro inexistente, ilegível ou de outra organização; Forbidden sem a
+        capacidade; InvalidInput para tabela não exposta, ação fora de read/update/delete, nenhum ou
+        mais de um destinatário, ou grupo, papel ou pessoa de outra organização ou inativos.
+        Efeitos: grava a concessão (auditada) na transação do chamador; uma concessão viva igual é
+        devolvida sem gravar.
+        """
+        from skeleton.access.models import RecordGrant
+        from skeleton.access.services import create_record_grant
+
+        model, table, subject = _grant_target(
+            actor, table_key, record_id, action, group_id, role_id, membership_user_id
+        )
+        record_sysid = as_uuid(record_id, field="record_id")
+        existing = RecordGrant.objects.filter(table=table, record_sysid=record_sysid, action=action, **subject).first()
+        if existing is not None:
+            return _grant_info(existing, model._meta.label_lower)
+        grant = create_record_grant(
+            user=_user(actor), data={"table": table, "record_sysid": record_sysid, "action": action, **subject}
+        )
+        return _grant_info(grant, model._meta.label_lower)
+
+    @service_method(read_only=False, since="0.6.0")
+    def revoke_record_access(
+        self,
+        *,
+        actor: AbstractBaseUser,
+        table_key: str,
+        record_id: UUID,
+        action: str,
+        group_id: UUID | None = None,
+        role_id: UUID | None = None,
+        membership_user_id: UUID | None = None,
+    ) -> None:
+        """Revoke the record grant of that subject and action; without one, nothing changes (#539).
+
+        Autorização: igual a ``grant_record_access``.
+        Erros: os de ``grant_record_access``.
+        Efeitos: exclusão lógica da concessão; vale na requisição seguinte.
+        """
+        from skeleton.access.models import RecordGrant
+        from skeleton.access.services import revoke_link
+
+        _model_, table, subject = _grant_target(
+            actor, table_key, record_id, action, group_id, role_id, membership_user_id
+        )
+        grant = RecordGrant.objects.filter(
+            table=table, record_sysid=as_uuid(record_id, field="record_id"), action=action, **subject
+        ).first()
+        if grant is not None:
+            revoke_link(grant, user=_user(actor))
 
     @service_method(read_only=True, since="0.6.0")
     def granted_record_ids(

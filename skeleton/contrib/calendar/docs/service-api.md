@@ -9,13 +9,25 @@
 ## Serviços
 
 ### `CalendarService`
-Todos os métodos exigem a app ativa na organização (`Unavailable`), o contexto tenant aberto pelo chamador e `actor` igual ao ator do contexto (`Forbidden`). Nenhum abre `system_context`, faz commit ou executa efeito externo. O mascaramento vale também aqui: um evento privado, ou qualquer evento do calendário pessoal de outra pessoa sem delegação, sai como "Ocupado", sem título, descrição nem local.
+Todos os métodos exigem a app ativa na organização (`Unavailable`), o contexto tenant aberto pelo chamador e `actor` igual ao ator do contexto (`Forbidden`); só os três métodos de eventos gerenciados também aceitam `actor=None` dentro de `system_context` da organização. Nenhum abre `system_context`, faz commit ou executa efeito externo. O mascaramento vale também aqui: um evento privado, ou qualquer evento do calendário pessoal de outra pessoa sem delegação, sai como "Ocupado", sem título, descrição nem local.
 
 #### `my_calendars(*, actor) -> tuple[CalendarInfo, ...]`
 Calendários que o ator lê, o pessoal padrão primeiro (criado na primeira chamada).
 - **Autorização:** TablePermission read em `skeleton_calendar.calendar`.
 - **Erros:** `Forbidden` sem a permissão; `Unavailable`.
 - **Efeitos:** cria o calendário pessoal padrão na primeira chamada, para qualquer ator com `TablePermission` de leitura, inclusive conta de serviço (#345).
+
+#### `calendars(*, actor) -> tuple[CalendarInfo, ...]`
+Todos os calendários que o ator lê na organização, sem criar nenhum (#539); `my_calendars` é quem cria o pessoal padrão.
+- **Autorização:** TablePermission read em `skeleton_calendar.calendar` e visibilidade dos registros.
+- **Erros:** `Forbidden` sem a permissão; `Unavailable`.
+- **Efeitos:** nenhum.
+
+#### `create_shared_calendar(*, actor, name, owner_user_id, timezone, writer_group_ids=(), reader_group_ids=(), idempotency_key) -> CalendarInfo`
+Cria um calendário de atendimento (#539): compartilhado, **privado**, de propriedade de `owner_user_id` (membro ativo), com `read` e `update` concedidos por `RecordGrant` aos grupos de `writer_group_ids` e `read` aos de `reader_group_ids` (até 20 grupos), pelo `AccessService.grant_record_access` do núcleo. Assim a equipe de apoio escreve na agenda de quem atende sem abrir o calendário pessoal dessa pessoa. O membro do grupo ainda precisa da `TablePermission` da agenda (default deny).
+- **Autorização:** `create` em `skeleton_calendar.calendar` **e** a capacidade `access.manage`.
+- **Erros:** `Forbidden` sem uma das duas; `InvalidInput` (nome, fuso, dono que não é membro ativo, grupo de outra organização, grupos demais, chave inválida).
+- **Efeitos:** cria o calendário e as concessões na transação do chamador; a mesma `idempotency_key` do mesmo ator devolve o calendário já criado (o `sysid` é derivado da organização, do ator e da chave). O administrador continua sem escrever em calendário **pessoal** alheio.
 
 #### `upcoming(*, actor, start, end, calendar_ids=None) -> tuple[EventOccurrence, ...]`
 Ocorrências legíveis em `[start, end)`, no máximo 400 dias, com a recorrência expandida.
@@ -99,20 +111,47 @@ De 0 a 40320 minutos (28 dias); um lembrete com a mesma antecedência é devolvi
 - **Erros:** `NotFound` para lembrete inexistente ou de evento ilegível (a mesma resposta); `Forbidden`; `Conflict("stale_revision")`.
 - **Efeitos:** exclui logicamente o lembrete.
 
-#### `free_busy(*, actor, user_ids, start, end) -> tuple[BusyBlock, ...]`
-Horários ocupados das pessoas nos calendários pessoais delas, nunca títulos ou detalhes; até 50 pessoas.
-- **Autorização:** TablePermission read em `skeleton_calendar.calendar`; só pessoas com vínculo ativo nesta organização.
+#### `free_busy(*, actor, user_ids, start, end, include_attending=False) -> tuple[BusyBlock, ...]`
+Horários ocupados das pessoas nos calendários pessoais delas, nunca títulos ou detalhes; até 50 pessoas. Com `include_attending=True` (#538), somam-se os eventos de qualquer calendário da organização em que a pessoa é participante com resposta diferente de `declined` (`accepted`, `tentative` ou sem resposta); a recorrência é expandida, e evento cancelado ou ocorrência excluída não contam. Quem é dono do calendário e também participante conta uma vez. O padrão `False` devolve exatamente o que devolvia antes.
+- **Autorização:** TablePermission read em `skeleton_calendar.calendar`; só pessoas com vínculo ativo nesta organização. Exige ator: não aceita `system_context`.
 - **Erros:** `Forbidden`; `InvalidInput` (janela acima de 400 dias, mais de 50 pessoas ou ocorrências demais, #291).
+- **Efeitos:** nenhum. O número de consultas não cresce com o número de pessoas.
+
+#### `calendar_busy(*, actor, calendar_ids, start, end) -> tuple[CalendarBusyBlock, ...]`
+Horários ocupados de calendários que o ator lê (salas, equipamentos, calendários de atendimento), só horários (#538); de 1 a 50 calendários, na mesma janela máxima de 400 dias.
+- **Autorização:** leitura de cada calendário. Exige ator.
+- **Erros:** `NotFound` (algum calendário ilegível, inexistente ou de outra organização); `InvalidInput` (janela, quantidade de calendários ou ocorrências demais).
+- **Efeitos:** nenhum. O número de consultas não cresce com o número de calendários.
+
+#### `put_managed_event(*, actor, source_app, source_key, calendar_id, data, attendee_user_ids=(), source_path="") -> EventInfo`
+Cria ou atualiza o **evento gerenciado** que projeta um registro de outra app (#537): o único evento vivo de `(source_app, source_key)`. `data` aceita só `title`, `location`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `status` e `is_private` (padrão **verdadeiro**); `description` é sempre recusada. Evento gerenciado não tem recorrência nem lembrete.
+- **Autorização:** update no calendário (as regras de `create_event`); em `system_context` da organização (`actor=None`), aceito, e o organizador é o dono do calendário. Só a app dona do registro passa o próprio label: a API é em processo e o núcleo não consegue provar quem chama, então a regra vale por revisão de código.
+- **Erros:** `NotFound` (calendário ilegível ou de outra organização); `Forbidden` (só leitura); `InvalidInput` para `description`, campo desconhecido, `source_app` desconhecida, inativa nesta organização ou igual a `skeleton_calendar`, `source_key` fora de 1 a 200 letras, dígitos e `: . _ -`, `source_path` fora de `apps/<source_app>/` (com `..`, esquema, barra inicial ou invertida), horários inválidos e participante que não é membro ativo (ou é conta de serviço).
+- **Efeitos:** repetir com os mesmos dados não muda revisão nem `sequence`; dados diferentes atualizam e incrementam os dois. Outro `calendar_id` (ou outro `source_path`) exclui o evento antigo e cria outro, porque calendário e caminho são imutáveis. Os participantes ficam exatamente em `attendee_user_ids`, todos `accepted`, e **nenhuma** notificação é criada. Duas chamadas simultâneas com a mesma chave deixam um evento só: a perdedora relê e atualiza.
+
+#### `remove_managed_event(*, actor, source_app, source_key) -> None`
+- **Autorização:** update no calendário do evento; em `system_context` da organização, aceito.
+- **Erros:** `Forbidden` (evento só legível); `InvalidInput` (app de origem ou chave inválidas). Sem evento, ou com um evento que o ator não lê, nada muda.
+- **Efeitos:** exclusão lógica do evento e dos participantes, sem notificação; idempotente.
+
+#### `managed_event(*, actor, source_app, source_key) -> EventInfo | None`
+- **Autorização:** leitura do calendário ou convite; em `system_context` da organização, aceito.
+- **Erros:** `InvalidInput` (app de origem ou chave inválidas).
 - **Efeitos:** nenhum.
+
+Os métodos gerais (`update_event`, `cancel_event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `invite`, `remove_attendee`, `respond`, `add_reminder`, `remove_reminder`) respondem `Conflict("managed_event")` para um evento gerenciado: ele muda só pelo serviço da app de origem.
+
+**Contrato de privacidade dos eventos gerenciados.** O título descreve o tipo do compromisso ("Atendimento", "Reunião"), nunca identifica um terceiro; o detalhe fica na app de origem, alcançado por `source_path`. O evento é privado por padrão: quem não é o dono do calendário nem o organizador vê "Ocupado", e o ICS sai com `CLASS:PRIVATE`. O feed ICS nunca exporta `source_path` nem o label da app.
 
 ## DTOs
 - `CalendarInfo`: `sysid`, `name`, `kind`, `is_default`, `color`, `timezone`, `owner_id`, `revision` e `writable` (se `create_event` aceitaria o calendário para o ator, #344).
-- `EventInfo`: `sysid`, `calendar_id`, `title`, `description`, `location`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `status`, `organizer_id`, `revision`.
-- `EventOccurrence`: `event_id`, `calendar_id`, `recurrence_id`, `title`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `status`, e, só para dia inteiro, `start_date` (primeiro dia) e `end_date` (dia seguinte ao último, exclusivo); `None` em evento com hora (#312).
+- `EventInfo`: `sysid`, `calendar_id`, `title`, `description`, `location`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `status`, `organizer_id`, `revision`, e `source_app`/`source_path` (#537; vazios em evento comum e para quem só vê "Ocupado").
+- `EventOccurrence`: `event_id`, `calendar_id`, `recurrence_id`, `title`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `status`, e, só para dia inteiro, `start_date` (primeiro dia) e `end_date` (dia seguinte ao último, exclusivo); `None` em evento com hora (#312); `source_app` e `source_path` como em `EventInfo`.
 - `BusyBlock`: `user_id`, `starts_at`, `ends_at`. Um bloco de dia inteiro usa a meia-noite UTC das datas.
+- `CalendarBusyBlock`: `calendar_id`, `starts_at`, `ends_at` (#538).
 - `AttendeeInfo`: `sysid`, `event_id`, `user_id`, `response`, `optional`, `revision`.
 - `ReminderInfo`: `sysid`, `event_id`, `minutes_before`, `channel_hint`, `revision`.
 
 ## Histórico de versões
 - 0.5.0: `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
-- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado.
+- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`. Calendários de atendimento (#539): `calendars` e `create_shared_calendar`.

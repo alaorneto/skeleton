@@ -32,6 +32,9 @@ def add_reminder(*, actor: Any, event_id: Any, minutes_before: int) -> EventRemi
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
+    from .services import refuse_managed
+
+    refuse_managed(event)  # A managed event has no reminder (#537).
     if type(minutes_before) is not int or not 0 <= minutes_before <= 40320:
         raise ValidationError({"minutes_before": gettext("Use de 0 a 40320 minutos (28 dias).")})
     reminder = EventReminder.objects.filter(event=event, minutes_before=minutes_before).first()
@@ -49,7 +52,9 @@ def remove_reminder(*, actor: Any, reminder_id: Any, expected_revision: int) -> 
     reminder = EventReminder.objects.filter(pk=reminder_id).first()
     if reminder is None:
         raise ValidationError({"reminder": gettext("Lembrete indisponível.")})
-    require_writable_event(actor, reminder.event_id)
+    from .services import refuse_managed
+
+    refuse_managed(require_writable_event(actor, reminder.event_id))
     if type(expected_revision) is not int or reminder.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O lembrete mudou."))  # #344
     reminder.delete()
