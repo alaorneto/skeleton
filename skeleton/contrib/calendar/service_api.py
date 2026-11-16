@@ -477,19 +477,29 @@ class CalendarService(ServiceAPI):
 
     @service_method(read_only=True, since="0.5.0")
     def free_busy(
-        self, *, actor: Any, user_ids: tuple[UUID, ...], start: datetime, end: datetime
+        self,
+        *,
+        actor: Any,
+        user_ids: tuple[UUID, ...],
+        start: datetime,
+        end: datetime,
+        include_attending: bool = False,
     ) -> tuple[BusyBlock, ...]:
         """Busy intervals of members in their personal calendars: never titles or details.
 
+        With ``include_attending`` (#538), the events the person attends with a response other
+        than ``declined``, in any calendar of the organization, count as busy too.
         Autorização: TablePermission read em skeleton_calendar.calendar; só pessoas com vínculo
         ativo nesta organização entram no resultado.
         Erros: Forbidden sem a permissão de tabela; InvalidInput para janela ou mais de 50 pessoas.
         Efeitos: nenhum.
         """
+        from django.db.models import Q
+
         from skeleton.service_api import Forbidden, InvalidInput, as_uuid
         from skeleton.service_api.organizations import OrganizationService
 
-        from .models import Event
+        from .models import Event, EventAttendee
         from .policies import readable_calendars
 
         start, end = _window(start, end)
@@ -505,19 +515,65 @@ class CalendarService(ServiceAPI):
         if not members:
             return ()
         # Personal calendars of the people, outside the actor's visibility: only times leave.
-        # One query for everyone (#291).
-        events = Event.objects.filter(
-            calendar__owner_id__in=members,
-            calendar__kind=Calendar.Kind.PERSONAL,
-            status__in=("confirmed", "tentative"),
-        )
-        blocks = [
-            BusyBlock(master.calendar.owner_id, occurrence.starts_at, occurrence.ends_at)
-            for master, occurrence in _expanded(events, start, end)
-            if occurrence.event.status != "cancelled"
-        ]
+        # One query for everyone (#291), plus one for the invitations (#538).
+        condition = Q(calendar__owner_id__in=members, calendar__kind=Calendar.Kind.PERSONAL)
+        attending: dict[Any, set[Any]] = {}
+        if include_attending:
+            rows = (
+                EventAttendee.objects.filter(
+                    membership_id__in=[ref.membership_id for ref in refs],
+                    membership__is_active=True,
+                    event__deleted_at__isnull=True,
+                )
+                .exclude(response=EventAttendee.Response.DECLINED)
+                .values_list("event_id", "membership__user_id")
+            )
+            for event_id, user_id in rows:
+                attending.setdefault(event_id, set()).add(user_id)
+            condition |= Q(pk__in=list(attending))
+        events = Event.objects.filter(condition, status__in=("confirmed", "tentative"))
+        blocks = []
+        for master, occurrence in _expanded(events, start, end):
+            if occurrence.event.status == "cancelled":
+                continue
+            # One block per person and occurrence: the owner who also attends counts once.
+            people = set(attending.get(master.pk, ()))
+            if master.calendar.kind == Calendar.Kind.PERSONAL and master.calendar.owner_id in members:
+                people.add(master.calendar.owner_id)
+            blocks.extend(BusyBlock(user_id, occurrence.starts_at, occurrence.ends_at) for user_id in people)
         blocks.sort(key=lambda block: (str(block.user_id), block.starts_at, block.ends_at))
         return tuple(blocks)
+
+    @service_method(read_only=True, since="0.6.0")
+    def calendar_busy(
+        self, *, actor: Any, calendar_ids: tuple[UUID, ...], start: datetime, end: datetime
+    ) -> tuple[CalendarBusyBlock, ...]:
+        """Busy intervals of calendars the actor reads (rooms, equipment): only times (#538).
+
+        Autorização: leitura de cada calendário.
+        Erros: NotFound para calendário ilegível ou de outra organização; InvalidInput para janela
+        inválida ou acima de 400 dias, mais de 50 calendários ou ocorrências demais.
+        Efeitos: nenhum.
+        """
+        from skeleton.service_api import InvalidInput, NotFound, as_uuid
+
+        from .models import Event
+        from .policies import readable_calendars
+
+        start, end = _window(start, end)
+        if not isinstance(calendar_ids, tuple) or not 1 <= len(calendar_ids) <= 50:
+            raise InvalidInput({"calendar_ids": [gettext("Informe de 1 a 50 calendários.")]})
+        wanted = {as_uuid(value, field="calendar_ids") for value in calendar_ids}
+        readable = set(readable_calendars(actor).filter(pk__in=wanted).values_list("pk", flat=True))
+        if readable != wanted:
+            raise NotFound()
+        events = Event.objects.filter(calendar_id__in=readable, status__in=("confirmed", "tentative"))
+        blocks = {
+            CalendarBusyBlock(master.calendar_id, occurrence.starts_at, occurrence.ends_at)
+            for master, occurrence in _expanded(events, start, end)
+            if occurrence.event.status != "cancelled"
+        }
+        return tuple(sorted(blocks, key=lambda block: (str(block.calendar_id), block.starts_at, block.ends_at)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -665,6 +721,15 @@ def _writable_event(actor: Any, event_id: Any) -> Any:
 @dataclass(frozen=True, slots=True)
 class BusyBlock:
     user_id: UUID
+    starts_at: datetime
+    ends_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarBusyBlock:
+    """A busy interval of a calendar (#538): never a title or a detail."""
+
+    calendar_id: UUID
     starts_at: datetime
     ends_at: datetime
 

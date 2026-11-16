@@ -99,11 +99,17 @@ De 0 a 40320 minutos (28 dias); um lembrete com a mesma antecedência é devolvi
 - **Erros:** `NotFound` para lembrete inexistente ou de evento ilegível (a mesma resposta); `Forbidden`; `Conflict("stale_revision")`.
 - **Efeitos:** exclui logicamente o lembrete.
 
-#### `free_busy(*, actor, user_ids, start, end) -> tuple[BusyBlock, ...]`
-Horários ocupados das pessoas nos calendários pessoais delas, nunca títulos ou detalhes; até 50 pessoas.
-- **Autorização:** TablePermission read em `skeleton_calendar.calendar`; só pessoas com vínculo ativo nesta organização.
+#### `free_busy(*, actor, user_ids, start, end, include_attending=False) -> tuple[BusyBlock, ...]`
+Horários ocupados das pessoas nos calendários pessoais delas, nunca títulos ou detalhes; até 50 pessoas. Com `include_attending=True` (#538), somam-se os eventos de qualquer calendário da organização em que a pessoa é participante com resposta diferente de `declined` (`accepted`, `tentative` ou sem resposta); a recorrência é expandida, e evento cancelado ou ocorrência excluída não contam. Quem é dono do calendário e também participante conta uma vez. O padrão `False` devolve exatamente o que devolvia antes.
+- **Autorização:** TablePermission read em `skeleton_calendar.calendar`; só pessoas com vínculo ativo nesta organização. Exige ator: não aceita `system_context`.
 - **Erros:** `Forbidden`; `InvalidInput` (janela acima de 400 dias, mais de 50 pessoas ou ocorrências demais, #291).
-- **Efeitos:** nenhum.
+- **Efeitos:** nenhum. O número de consultas não cresce com o número de pessoas.
+
+#### `calendar_busy(*, actor, calendar_ids, start, end) -> tuple[CalendarBusyBlock, ...]`
+Horários ocupados de calendários que o ator lê (salas, equipamentos, calendários de atendimento), só horários (#538); de 1 a 50 calendários, na mesma janela máxima de 400 dias.
+- **Autorização:** leitura de cada calendário. Exige ator.
+- **Erros:** `NotFound` (algum calendário ilegível, inexistente ou de outra organização); `InvalidInput` (janela, quantidade de calendários ou ocorrências demais).
+- **Efeitos:** nenhum. O número de consultas não cresce com o número de calendários.
 
 #### `put_managed_event(*, actor, source_app, source_key, calendar_id, data, attendee_user_ids=(), source_path="") -> EventInfo`
 Cria ou atualiza o **evento gerenciado** que projeta um registro de outra app (#537): o único evento vivo de `(source_app, source_key)`. `data` aceita só `title`, `location`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `status` e `is_private` (padrão **verdadeiro**); `description` é sempre recusada. Evento gerenciado não tem recorrência nem lembrete.
@@ -130,9 +136,10 @@ Os métodos gerais (`update_event`, `cancel_event`, `delete_event`, `edit_occurr
 - `EventInfo`: `sysid`, `calendar_id`, `title`, `description`, `location`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `start_date`, `end_date`, `tzid`, `status`, `organizer_id`, `revision`, e `source_app`/`source_path` (#537; vazios em evento comum e para quem só vê "Ocupado").
 - `EventOccurrence`: `event_id`, `calendar_id`, `recurrence_id`, `title`, `busy_only`, `all_day`, `starts_at`, `ends_at`, `status`, e, só para dia inteiro, `start_date` (primeiro dia) e `end_date` (dia seguinte ao último, exclusivo); `None` em evento com hora (#312); `source_app` e `source_path` como em `EventInfo`.
 - `BusyBlock`: `user_id`, `starts_at`, `ends_at`. Um bloco de dia inteiro usa a meia-noite UTC das datas.
+- `CalendarBusyBlock`: `calendar_id`, `starts_at`, `ends_at` (#538).
 - `AttendeeInfo`: `sysid`, `event_id`, `user_id`, `response`, `optional`, `revision`.
 - `ReminderInfo`: `sysid`, `event_id`, `minutes_before`, `channel_hint`, `revision`.
 
 ## Histórico de versões
 - 0.5.0: `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
-- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais.
+- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`.
