@@ -85,6 +85,7 @@ def _internal_error_response(exc):
     status, code, detail = {
         "stale_revision": (412, "revision_conflict", gettext("O registro foi alterado por outra operação.")),
         "live_references": (409, "live_references", gettext("Existem vínculos ativos com este registro.")),
+        "record_sealed": (409, "record_sealed", gettext("O registro está selado e não pode mais ser alterado.")),
         "last_administrator": (
             409,
             "last_administrator",

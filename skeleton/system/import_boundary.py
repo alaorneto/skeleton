@@ -19,10 +19,13 @@ PUBLIC_CORE_PACKAGES = ("skeleton.service_api", "skeleton.testing")
 # The closed list of public names of each public core module (#300). None marks a module the
 # specification publishes as a set of builders (schema, flow steps): any public name of it.
 PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
-    "skeleton.common.models": frozenset({"SystemRecord", "OrganizationRecord", "SecuredRecord"}),
+    "skeleton.common.models": frozenset({"SystemRecord", "OrganizationRecord", "SecuredRecord", "SealableMixin"}),
+    # Sealed records (#527): the digest of the app's own parts and the in-process sealing of its models.
+    "skeleton.common.sealing": frozenset({"canonical_bytes", "digest"}),
+    "skeleton.records.sealing": frozenset({"seal_record", "seal_payload", "verify_seal"}),
     "skeleton.common.migration_operations": frozenset({"InstallRecordInfrastructure", "InstallSearchIndex"}),
     "skeleton.system.app_registry": frozenset({"AppManifest", "register_app"}),
-    "skeleton.system.registry": frozenset({"TableSpec", "register"}),
+    "skeleton.system.registry": frozenset({"TableSpec", "register", "AttachmentPolicy", "CommentPolicy", "SealPolicy"}),
     "skeleton.system.record_operations": frozenset({"RecordOperations", "register_record_operations"}),
     "skeleton.access.policies": frozenset({"authorized_queryset", "require_record_action", "has_table_permission"}),
     "skeleton.tenancy.context": frozenset({"current_context"}),

@@ -98,11 +98,20 @@ def coerce_fields(model, data, *, user):
     return values
 
 
+def system_fields(model):
+    """System metadata of a record: SYSTEM_FIELDS, plus sealed_at/sealed_by of a sealable table (#527)."""
+    from skeleton.common.models import SealableMixin
+
+    if issubclass(model, SealableMixin):
+        return (*SYSTEM_FIELDS, "sealed_at", "sealed_by")
+    return SYSTEM_FIELDS
+
+
 def record_data(record, fields, *, user=None):
     if user is not None:
         return records_data([record], fields, user=user)[0]
     result = {}
-    for name in dict.fromkeys((*SYSTEM_FIELDS, *fields)):
+    for name in dict.fromkeys((*system_fields(type(record)), *fields)):
         field = record._meta.get_field(name)
         value = getattr(record, field.attname)
         result[name] = value
@@ -114,7 +123,7 @@ def records_data(records, fields, *, user):
     items = list(records)
     if not items:
         return []
-    names = tuple(dict.fromkeys((*SYSTEM_FIELDS, *fields)))
+    names = tuple(dict.fromkeys((*system_fields(type(items[0])), *fields)))
     result = [record_data(record, names) for record in items]
     from skeleton.records.references import target_queryset
 

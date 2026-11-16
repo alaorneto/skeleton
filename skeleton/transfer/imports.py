@@ -134,7 +134,7 @@ def _messages(error: ValidationError) -> list[tuple[str, str]]:
 
 
 def _apply_rows(*, user: Any, spec: Any, header: list[str], rows: Any, outcome: Outcome) -> None:
-    from skeleton.common.exceptions import ConcurrentUpdate
+    from skeleton.common.exceptions import ConcurrentUpdate, RecordSealed
     from skeleton.records.services import create_record, record_queryset, update_record
 
     model = spec.model
@@ -174,6 +174,11 @@ def _apply_rows(*, user: Any, spec: Any, header: list[str], rows: Any, outcome: 
                 update_record(record, spec, user=user, data=data)
         except ValidationError as error:
             outcome.errors.extend((line, column, message) for column, message in _messages(error))
+        except RecordSealed:
+            # A sealed record (#527) is a row error, never the end of the job.
+            outcome.errors.append(
+                (line, "record_sealed", gettext("O registro está selado e não pode mais ser alterado."))
+            )
         except (PermissionDenied, ConcurrentUpdate):
             outcome.errors.append((line, "", gettext("Sem permissão ou registro alterado.")))
         except IntegrityError:

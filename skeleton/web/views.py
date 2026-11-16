@@ -23,7 +23,7 @@ from skeleton.access.capabilities import (
 from skeleton.access.policies import require_record_action
 from skeleton.access.resources import LINKS, create_resource, dedicated_model, delete_resource, update_resource
 from skeleton.accounts.mfa import mfa_required
-from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist
+from skeleton.common.exceptions import ConcurrentUpdate, LiveReferencesExist, RecordSealed
 from skeleton.records.dedicated import dedicated_input
 from skeleton.records.services import (
     ACCESS_FIELDS,
@@ -231,6 +231,8 @@ def form_error(form, error):
         form.add_error(None, gettext("O registro foi alterado. Atualize a página antes de tentar novamente."))
     elif code == "live_references":
         form.add_error(None, gettext("Existem vínculos ativos. Revogue-os antes de remover."))
+    elif code == "record_sealed":
+        form.add_error(None, gettext("O registro está selado e não pode mais ser alterado."))
     else:
         form.add_error(None, gettext("A operação conflita com os dados existentes."))
     return 409
@@ -464,7 +466,7 @@ def access_edit(request, organization_id, resource, sysid=None):
                     create_resource(resource, user=request.user, data=values, request=request)
                 messages.success(request, gettext("Operação concluída."))
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
-            except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
+            except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist, RecordSealed) as exc:
                 status = form_error(form, exc)
         else:
             status = 400
@@ -499,7 +501,7 @@ def access_delete(request, organization_id, resource, sysid):
                 check_html_revision(form, item)
                 delete_resource(resource, item, user=request.user)
                 return redirect("web:access-list", organization_id=organization_id, resource=resource)
-            except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
+            except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist, RecordSealed) as exc:
                 status = form_error(form, exc)
         else:
             status = 400
@@ -725,7 +727,7 @@ def record_edit(request, organization_id, table_key, sysid=None, operation="edit
                 if operation == "delete":
                     return redirect("web:records", organization_id=organization_id, table_key=table_key)
                 return redirect("web:record", organization_id=organization_id, table_key=table_key, sysid=item.pk)
-            except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist) as exc:
+            except (ValidationError, IntegrityError, ConcurrentUpdate, LiveReferencesExist, RecordSealed) as exc:
                 status = form_error(form, exc)
         else:
             status = 400

@@ -191,10 +191,12 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | Módulo | Uso |
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
-| `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` |
+| `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
+| `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
+| `skeleton.records.sealing` | `seal_record`, `seal_payload` e `verify_seal`: selar e verificar os modelos da própria app em processo ([modelo de dados](data-model.md#registros-selados-526)) |
 | `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
 | `skeleton.system.app_registry` | `AppManifest`, `register_app` em `ready()` |
-| `skeleton.system.registry` | `TableSpec`, `register` em `ready()` |
+| `skeleton.system.registry` | `TableSpec`, `register` em `ready()`, e as políticas `AttachmentPolicy`, `CommentPolicy` e `SealPolicy` |
 | `skeleton.system.record_operations` | `RecordOperations`, `register_record_operations` |
 | `skeleton.access.policies` | `authorized_queryset`, `require_record_action` e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
 | `skeleton.tenancy.context` | `current_context` (leitura). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
@@ -244,6 +246,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 | `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
+| `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
 | `FeedTokenService` | `skeleton.service_api.tokens` | `issue` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
 | `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
@@ -384,6 +387,16 @@ Apps não acessam o armazenamento diretamente.
 | `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto | `Forbidden` (sequência de outra app); `InvalidInput` (sequência não declarada, data sem fuso) |
 
 `SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
+
+### RecordSealService
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `seal(*, actor, table_key, record_id, expected_revision, extra_digest="") -> SealInfo` | `update` no registro | `NotFound` (inexistente, de outra organização ou ilegível); `Forbidden` (lê e não altera); `Conflict("record_sealed")`; `Conflict("stale_revision")`; `InvalidInput` (tabela sem `TableSpec.seal`, revisão ou `extra_digest` inválidos) |
+| `status(*, actor, table_key, record_id) -> SealInfo` | leitura do registro | `NotFound`; `InvalidInput` |
+| `verify(*, actor, table_key, record_id, extra_digest="") -> SealVerification` | leitura do registro | `NotFound`; `InvalidInput` |
+
+`SealInfo` tem `sysid`, `sealed`, `sealed_at`, `sealed_by`, `digest` e `revision`; `SealVerification` tem `sysid`, `valid`, `digest` (o gravado) e `computed` (o recalculado). Selar é ato de negócio de uma app: não há endpoint genérico. O resumo cobre a tabela, o registro, a organização, as colunas de `seal_fields`, os anexos vivos quando a política os congela e `extra_digest`, o SHA-256 que a app calcula das partes dela (linhas filhas, por exemplo) com `skeleton.common.sealing.digest`; para verificar, passe o mesmo `extra_digest`. O núcleo não assina nada: o resumo é o que uma app de assinatura digital assina. Uma app que sela os próprios modelos usa `skeleton.records.sealing.seal_record` ([modelo de dados](data-model.md#registros-selados-526)).
 
 ### BillingService
 

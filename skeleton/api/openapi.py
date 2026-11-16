@@ -459,10 +459,11 @@ def _input_name(spec: Any) -> str:
 
 def record_schema(spec: Any) -> Schema:
     """What the gateway renders for one record of ``spec``, without its sensitive fields."""
-    from skeleton.records.services import SYSTEM_FIELDS
+    from skeleton.records.services import system_fields
 
     sensitive = set(spec.sensitive_fields)
-    names = [name for name in dict.fromkeys((*SYSTEM_FIELDS, *spec.read_fields)) if name not in sensitive]
+    # A sealable table (#527) also shows sealed_at and sealed_by; a write to a frozen column answers 409.
+    names = [name for name in dict.fromkeys((*system_fields(spec.model), *spec.read_fields)) if name not in sensitive]
     properties = {name: field_schema(spec.model._meta.get_field(name), hidden_references=True) for name in names}
     # A sensitive read field is rendered but never described, so the object stays open.
     closed = not sensitive & set(spec.read_fields)
