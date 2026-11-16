@@ -1,0 +1,20 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "Novo lançamento" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Novo lançamento" %}</h1><p class="page-description">{% translate "Partidas explícitas: a soma dos débitos é igual à dos créditos. Valores em" %} {{ book.currency }}.</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="entries" %}
+<form method="post" class="card">{% csrf_token %}
+  <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+  {% include "skeleton/web/components/form-errors.html" %}
+  <div class="form-stack">{% include "skeleton/web/components/form-field.html" with field=form.date %}{% include "skeleton/web/components/form-field.html" with field=form.description %}</div>
+  <div class="table-scroll mt-4"><table>
+    <caption>{% translate "Partidas" %}</caption>
+    <thead><tr><th scope="col">{% translate "Conta" %}</th><th scope="col" class="col-num">{% translate "Débito" %}</th><th scope="col" class="col-num">{% translate "Crédito" %}</th></tr></thead>
+    <tbody>{% for account, debit, credit in form.line_rows %}<tr>
+      <td><label class="sr-only" for="{{ account.id_for_label }}">{{ account.label }}</label>{{ account }}{{ account.errors }}</td>
+      <td class="col-num"><label class="sr-only" for="{{ debit.id_for_label }}">{{ debit.label }}</label>{{ debit }}{{ debit.errors }}</td>
+      <td class="col-num"><label class="sr-only" for="{{ credit.id_for_label }}">{{ credit.label }}</label>{{ credit }}{{ credit.errors }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Registrar lançamento" %}</button><a class="btn btn-secondary" href="{% url 'skeleton_ledger:entries' organization_id %}">{% translate "Cancelar" %}</a></div>
+</form>
+{% endblock %}

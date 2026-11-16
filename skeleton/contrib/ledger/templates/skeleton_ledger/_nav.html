@@ -1,0 +1,8 @@
+{% load i18n %}<nav class="link-tabs" aria-label="{% translate "Livro contábil" %}">
+<a href="{% url 'skeleton_ledger:home' organization_id %}"{% if section == "home" %} aria-current="page"{% endif %}>{% translate "Livros" %}</a>
+<a href="{% url 'skeleton_ledger:accounts' organization_id %}"{% if section == "accounts" %} aria-current="page"{% endif %}>{% translate "Plano de contas" %}</a>
+<a href="{% url 'skeleton_ledger:entries' organization_id %}"{% if section == "entries" %} aria-current="page"{% endif %}>{% translate "Lançamentos" %}</a>
+<a href="{% url 'skeleton_ledger:titles' organization_id %}"{% if section == "titles" %} aria-current="page"{% endif %}>{% translate "A receber e a pagar" %}</a>
+<a href="{% url 'skeleton_ledger:recurrences' organization_id %}"{% if section == "recurrences" %} aria-current="page"{% endif %}>{% translate "Recorrências" %}</a>
+<a href="{% url 'skeleton_ledger:reports' organization_id %}"{% if section == "reports" %} aria-current="page"{% endif %}>{% translate "Relatórios" %}</a>
+</nav>

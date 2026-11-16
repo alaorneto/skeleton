@@ -1,0 +1,21 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{{ rule.description }} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{{ rule.description }}</h1><p class="page-description">{% translate "Alterações valem para as próximas ocorrências; os títulos já gerados não mudam." %}</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="recurrences" %}
+<dl class="meta-list mb-6">
+  <dt>{% translate "Frequência" %}</dt><dd>{{ rule.frequency }}{% if rule.interval > 1 %} × {{ rule.interval }}{% endif %}{% if rule.day_of_month %} · {% blocktranslate with day=rule.day_of_month %}dia {{ day }}{% endblocktranslate %}{% endif %}</dd>
+  <dt>{% translate "Início" %}</dt><dd><time datetime="{{ rule.start_date|date:'Y-m-d' }}">{{ rule.start_date|date:"SHORT_DATE_FORMAT" }}</time></dd>
+  <dt>{% translate "Próxima" %}</dt><dd>{% if rule.next_due %}<time datetime="{{ rule.next_due|date:'Y-m-d' }}">{{ rule.next_due|date:"SHORT_DATE_FORMAT" }}</time>{% else %}—{% endif %}</dd>
+  <dt>{% translate "Títulos gerados" %}</dt><dd>{{ rule.generated_count }}{% if rule.max_occurrences %} / {{ rule.max_occurrences }}{% endif %}</dd>
+  <dt>{% translate "Situação" %}</dt><dd>{% if rule.ended %}{% translate "Encerrada" %}{% elif rule.is_active %}{% translate "Ativa" %}{% else %}{% translate "Pausada" %}{% endif %}</dd>
+</dl>
+{% if book.writable %}
+<form method="post" action="{% url 'skeleton_ledger:recurrence-toggle' organization_id rule.sysid %}" class="mb-6">{% csrf_token %}<input type="hidden" name="revision" value="{{ rule.revision }}">
+  {% if rule.is_active %}<input type="hidden" name="action" value="pause"><button type="submit" class="btn btn-secondary">{% translate "Pausar" %}</button>{% else %}<input type="hidden" name="action" value="resume"><button type="submit" class="btn btn-secondary">{% translate "Retomar" %}</button>{% endif %}
+</form>
+<form method="post" class="card max-w-3xl">{% csrf_token %}<input type="hidden" name="revision" value="{{ rule.revision }}">
+  {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar alterações" %}</button><a class="btn btn-secondary" href="{% url 'skeleton_ledger:recurrences' organization_id %}">{% translate "Voltar" %}</a></div>
+</form>
+{% endif %}
+{% endblock %}

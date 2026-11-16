@@ -71,6 +71,14 @@ Todo número sai das partidas dos lançamentos selados (`sealed_at` preenchido),
 - `aging`: saldo aberto atual dos títulos emitidos até a data, por faixa de atraso: a vencer, 1–30, 31–60, 61–90 e mais de 90 dias.
 - Janelas de até cinco anos, com o fim depois do início; cada relatório faz um número fixo de consultas (as contas do livro e uma agregação; o razão e o fluxo de caixa, duas), qualquer que seja o volume. Só quem lê o livro.
 
+### Telas (#549)
+Páginas renderizadas no servidor, sem JavaScript, sobre o livro padrão da organização, com abas: livros e trava de período; plano de contas (contas, ativar e desativar, chaves e vínculos, centros de custo, aplicar o modelo); lançamentos (lista por período, detalhe com as partidas, novo manual com até seis partidas, estorno); a receber e a pagar (lista com filtros de tipo, situação e vencimento, novo título ou parcelado, detalhe com baixas, baixar, estornar baixa, cancelar); recorrências (lista, nova, alterar, pausar e retomar); relatórios (balancete, razão por conta, resultado, fluxo de caixa e títulos por atraso).
+
+- Todas leem e escrevem pelo `LedgerService`; nenhuma consulta um modelo.
+- Valores são digitados na unidade da moeda, com vírgula ou ponto decimal (`1.234,56`), convertidos por `money.parse` (casas a mais é erro de formulário) e mostrados pelo filtro `money` (`{% load ledger_money %}`), que formata `format_amount` no idioma da página.
+- Toda mutação manda a revisão em que a página se baseou; um conflito volta como mensagem legível. Formulários de criação mandam uma chave de idempotência, então reenviar não duplica.
+- Datas e filtros inválidos na URL respondem 400; registro ilegível ou de outra organização, 404. Os botões de escrita só aparecem para quem gere o livro, e o servidor revalida.
+
 ## Acceptance
 - `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.

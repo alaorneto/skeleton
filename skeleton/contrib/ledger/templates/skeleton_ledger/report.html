@@ -1,0 +1,61 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "Relatórios" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Relatórios" %}</h1><p class="page-description">{% translate "Números calculados das partidas seladas a cada consulta." %}</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="reports" %}
+<nav class="link-tabs" aria-label="{% translate "Relatórios" %}">{% for code, label, url in reports %}<a href="{{ url }}"{% if code == current %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+{% if current == "aging" %}
+<form method="get" class="filter-bar" aria-label="{% translate "Filtros" %}">
+  <div class="field"><label for="as_of">{% translate "Em" %}</label><input id="as_of" type="date" name="as_of" value="{{ as_of|date:'Y-m-d' }}"></div>
+  <div class="field"><label for="direction">{% translate "Tipo" %}</label><select id="direction" name="direction">{% for code, label in directions %}<option value="{{ code }}"{% if code == direction %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% translate "Filtrar" %}</button></div>
+</form>
+<div class="table-scroll"><table><caption>{% translate "Títulos por atraso" %}</caption>
+  <thead><tr><th scope="col">{% translate "Faixa (dias de atraso)" %}</th><th scope="col" class="col-num">{% translate "Títulos" %}</th><th scope="col" class="col-num">{% translate "Saldo aberto" %}</th></tr></thead>
+  <tbody>{% for bucket in aging.buckets %}<tr><td>{% if bucket.name == "current" %}{% translate "A vencer" %}{% elif bucket.name == "90+" %}{% translate "Mais de 90" %}{% else %}{{ bucket.name }}{% endif %}</td><td class="col-num">{{ bucket.count }}</td><td class="col-num">{{ bucket.amount|money:book.currency }}</td></tr>{% endfor %}</tbody>
+  <tfoot><tr><th scope="row" colspan="2">{% translate "Total" %}</th><td class="col-num">{{ aging.total|money:book.currency }}</td></tr></tfoot>
+</table></div>
+{% else %}
+<form method="get" class="filter-bar" aria-label="{% translate "Período" %}">
+  <div class="field"><label for="start">{% translate "De" %}</label><input id="start" type="date" name="start" value="{{ start|date:'Y-m-d' }}"></div>
+  <div class="field"><label for="end">{% translate "Até" %}</label><input id="end" type="date" name="end" value="{{ end|date:'Y-m-d' }}"></div>
+  {% if current == "statement" %}<div class="field"><label for="account">{% translate "Conta" %}</label><select id="account" name="account"><option value="">—</option>{% for item in accounts %}<option value="{{ item.sysid }}"{% if account == item.sysid|stringformat:"s" %} selected{% endif %}>{{ item.code }} {{ item.name }}</option>{% endfor %}</select></div>{% endif %}
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% translate "Filtrar" %}</button></div>
+</form>
+{% if trial %}
+<div class="table-scroll"><table><caption>{% translate "Balancete" %}</caption>
+  <thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Conta" %}</th><th scope="col" class="col-num">{% translate "Saldo inicial" %}</th><th scope="col" class="col-num">{% translate "Débitos" %}</th><th scope="col" class="col-num">{% translate "Créditos" %}</th><th scope="col" class="col-num">{% translate "Saldo final" %}</th></tr></thead>
+  <tbody>{% for row in trial.rows %}<tr><td>{% if row.is_group %}<strong>{{ row.code }}</strong>{% else %}{{ row.code }}{% endif %}</td><td>{% if row.is_group %}<strong>{{ row.name }}</strong>{% else %}{{ row.name }}{% endif %}</td><td class="col-num">{{ row.opening|money:book.currency }}</td><td class="col-num">{{ row.debit|money:book.currency }}</td><td class="col-num">{{ row.credit|money:book.currency }}</td><td class="col-num">{{ row.closing|money:book.currency }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhuma conta.") %}{% endfor %}</tbody>
+  <tfoot><tr><th scope="row" colspan="3">{% translate "Total das contas analíticas" %}</th><td class="col-num">{{ trial.total_debit|money:book.currency }}</td><td class="col-num">{{ trial.total_credit|money:book.currency }}</td><td></td></tr></tfoot>
+</table></div>
+{% elif income %}
+<dl class="stat-grid">
+  {% include "skeleton/web/components/stat.html" with label=_("Receitas") value=income.revenue|money:book.currency key="revenue" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Despesas") value=income.expense|money:book.currency key="expense" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Resultado") value=income.result|money:book.currency key="result" %}
+</dl>
+<div class="table-scroll"><table><caption>{% translate "Resultado" %}</caption>
+  <thead><tr><th scope="col">{% translate "Código" %}</th><th scope="col">{% translate "Conta" %}</th><th scope="col" class="col-num">{% translate "Movimento" %}</th></tr></thead>
+  <tbody>{% for row in income.rows %}<tr><td>{% if row.is_group %}<strong>{{ row.code }}</strong>{% else %}{{ row.code }}{% endif %}</td><td>{% if row.is_group %}<strong>{{ row.name }}</strong>{% else %}{{ row.name }}{% endif %}</td><td class="col-num">{{ row.closing|money:book.currency }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=3 message=_("Nenhuma conta.") %}{% endfor %}</tbody>
+</table></div>
+{% elif flow %}
+<dl class="stat-grid">
+  {% include "skeleton/web/components/stat.html" with label=_("Saldo inicial") value=flow.opening|money:book.currency key="opening" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Entradas realizadas") value=flow.realized_in|money:book.currency key="in" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Saídas realizadas") value=flow.realized_out|money:book.currency key="out" %}
+  {% include "skeleton/web/components/stat.html" with label=_("Saldo final") value=flow.closing|money:book.currency key="closing" %}
+</dl>
+<div class="table-scroll"><table><caption>{% translate "Fluxo de caixa por mês" %}</caption>
+  <thead><tr><th scope="col">{% translate "Mês" %}</th><th scope="col" class="col-num">{% translate "Entradas" %}</th><th scope="col" class="col-num">{% translate "Saídas" %}</th><th scope="col" class="col-num">{% translate "A receber previsto" %}</th><th scope="col" class="col-num">{% translate "A pagar previsto" %}</th></tr></thead>
+  <tbody>{% for month in flow.months %}<tr><td><time datetime="{{ month.month|date:'Y-m' }}">{{ month.month|date:"YEAR_MONTH_FORMAT" }}</time></td><td class="col-num">{{ month.realized_in|money:book.currency }}</td><td class="col-num">{{ month.realized_out|money:book.currency }}</td><td class="col-num">{{ month.forecast_in|money:book.currency }}</td><td class="col-num">{{ month.forecast_out|money:book.currency }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum movimento no período.") %}{% endfor %}</tbody>
+</table></div>
+{% elif statement %}
+<p class="mb-2">{% translate "Saldo inicial" %}: <strong>{{ statement.opening|money:book.currency }}</strong></p>
+<div class="table-scroll"><table><caption>{% translate "Razão por conta" %}</caption>
+  <thead><tr><th scope="col" class="col-date">{% translate "Data" %}</th><th scope="col" class="col-num">{% translate "Número" %}</th><th scope="col">{% translate "Descrição" %}</th><th scope="col" class="col-num">{% translate "Débito" %}</th><th scope="col" class="col-num">{% translate "Crédito" %}</th><th scope="col" class="col-num">{% translate "Saldo" %}</th></tr></thead>
+  <tbody>{% for line in statement.page.items %}<tr><td class="col-date"><time datetime="{{ line.date|date:'Y-m-d' }}">{{ line.date|date:"SHORT_DATE_FORMAT" }}</time></td><td class="col-num"><a href="{% url 'skeleton_ledger:entry' organization_id line.entry_id %}">{{ line.year }}/{{ line.number }}</a></td><td>{{ line.description }}{% if line.memo %} · {{ line.memo }}{% endif %}</td><td class="col-num">{% if line.debit %}{{ line.debit|money:book.currency }}{% endif %}</td><td class="col-num">{% if line.credit %}{{ line.credit|money:book.currency }}{% endif %}</td><td class="col-num">{{ line.balance|money:book.currency }}</td></tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=6 message=_("Nenhuma partida no período.") %}{% endfor %}</tbody>
+</table></div>
+{% if statement.page.next_cursor %}<nav class="pagination" aria-label="{% translate "Paginação" %}"><div class="pagination-links"><a class="pagination-next" rel="next" href="?start={{ start|date:'Y-m-d' }}&amp;end={{ end|date:'Y-m-d' }}&amp;account={{ account }}&amp;cursor={{ statement.page.next_cursor|urlencode }}">{% translate "Próxima página" %}</a></div></nav>{% endif %}
+{% elif current == "statement" %}<p>{% translate "Escolha uma conta." %}</p>
+{% endif %}
+{% endif %}
+{% endblock %}

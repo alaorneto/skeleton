@@ -102,7 +102,7 @@ Todos com leitura do livro, só leitura, só lançamentos selados; `NotFound` pa
 - `StatementInfo`: `account_id`, `start`, `end`, `opening`, `page` (`Page[StatementLine]`: `line_id`, `entry_id`, `date`, `year`, `number`, `description`, `memo`, `debit`, `credit`, `balance`).
 - `CashFlowInfo`: `start`, `end`, `opening`, `realized_in`, `realized_out`, `closing`, `forecast_in`, `forecast_out`, `months` (`CashFlowMonth`: `month`, `realized_in`, `realized_out`, `forecast_in`, `forecast_out`).
 - `AgingInfo`: `as_of`, `direction`, `total`, `buckets` (`AgingBucket`: `name`, `amount`, `count`).
-- `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest` e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
+- `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest`, `revision` (a esperada por `reverse`) e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Histórico de versões
 - 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547); saldos e relatórios (#548).

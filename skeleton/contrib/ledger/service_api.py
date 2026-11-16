@@ -160,6 +160,7 @@ class EntryInfo:
     sealed: bool
     digest: str
     lines: tuple[EntryLineInfo, ...]
+    revision: int = 0
 
 
 def entry_info(entry: Entry) -> EntryInfo:
@@ -195,6 +196,7 @@ def entry_info(entry: Entry) -> EntryInfo:
         sealed=entry.sealed_at is not None,
         digest=entry.seal_digest,
         lines=lines,
+        revision=entry.revision,
     )
 
 
@@ -1133,6 +1135,16 @@ class LedgerService(ServiceAPI):
             "due_date", "installment_number", "sysid"
         )[:200]
         return tuple(title_info(row) for row in rows)
+
+    @service_method(read_only=True, since="0.6.0")
+    def title(self, *, actor: Any, title_id: UUID) -> TitleInfo:
+        """One title, for its page.
+
+        Autorização: leitura do livro, ou do registro de origem quando há origem.
+        Erros: NotFound para inexistente, ilegível ou de outra organização.
+        Efeitos: nenhum.
+        """
+        return title_info(_title_to_read(actor, title_id))
 
     @service_method(read_only=True, since="0.6.0")
     def settlements(self, *, actor: Any, title_id: UUID) -> tuple[SettlementInfo, ...]:
