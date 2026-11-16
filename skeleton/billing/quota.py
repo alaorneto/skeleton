@@ -41,8 +41,12 @@ _metrics: dict[str, Callable[[Any], int]] = {}
 
 def register_quota_metric(code: str, counter: Callable[[Any], int]) -> None:
     """Declare a metric a price can limit; ``code`` is ``members`` or ``<app_label>.<name>``."""
+    from .usage import is_meter
+
     if not _METRIC.match(code):
         raise ValueError(f"Invalid quota metric code: {code!r}.")
+    if is_meter(code):
+        raise ValueError(f"{code} is already a usage meter; a code is either a metric or a meter.")
     if code in _metrics and _metrics[code] is not counter:
         raise ValueError(f"Quota metric {code} is already registered.")
     _metrics[code] = counter

@@ -125,6 +125,42 @@ Sem assinatura, ou com franquia zero, vale o padrão da instância (`SKELETON_FI
 
 **Limites de plano.** Uma métrica é registrada em código com `skeleton.billing.quota.register_quota_metric(código, contador)`, em que `contador(organization_id)` devolve a quantidade atual no contexto da organização. O núcleo registra `members` (vínculos ativos), conferida ao admitir ou reativar um vínculo (`admit_member`, `update_membership`, pelo gancho `check_limit` de `skeleton.common.entitlements`). Uma app registra as suas como `<app_label>.<nome>`. O `limits` de um preço dá o máximo de cada métrica; os limites dos itens ativos se somam (um pacote de assentos soma ao plano); uma métrica que nenhum item limita é ilimitada. Passar do limite levanta `QuotaLimitExceeded`, que as superfícies e a API de serviços tratam como conflito `quota_exceeded`.
 
+### Medidores de uso
+
+Um **medidor** conta o que se gasta dentro de um período de cobrança (mensagens enviadas, documentos assinados), ao contrário da métrica de limite, que conta o estado atual e sobe e desce (#513). A app o registra no `ready()` pela superfície pública, nunca importando `skeleton.billing`:
+
+```python
+from skeleton.service_api.billing import register_usage_meter
+
+register_usage_meter("acme_reminders.messages", label=gettext_lazy("Mensagens"), unit_label=gettext_lazy("mensagem"))
+```
+
+O código é `<app_label>.<nome>`, com o ponto obrigatório; um código é métrica de limite ou medidor, nunca os dois (`ValueError` no registro, como para código repetido com outros rótulos). `registered_usage_meters()` lista os registrados.
+
+**Termos no preço.** `Price.usage` mapeia cada medidor aos termos daquele preço e, como todo termo, nunca muda (imutável no ORM e no guard do banco):
+
+```json
+{"acme_reminders.messages": {"included": 1000, "overage": "bill", "unit": 100, "unit_amount": 900, "hard_cap": 20000}}
+```
+
+| Chave | Regra |
+|---|---|
+| `included` | inteiro ≥ 0; franquia por período, multiplicada pela quantidade do item |
+| `overage` | `block` (padrão) ou `bill`; `bill` só em preço de produto `base_plan` ou `app` |
+| `unit`, `unit_amount` | obrigatórios e ≥ 1 com `bill`; proibidos com `block`. O excedente é cobrado em blocos de `unit` a `unit_amount` (menor unidade da moeda) |
+| `hard_cap` | opcional com `bill`: o total máximo no período (≥ `included`); sem ele, não há teto |
+
+O produto `usage_pack` vende franquia recorrente, como o `storage_pack` vende armazenamento: o preço dele só traz `included`. Um medidor que não está registrado é recusado ao criar o preço, com a lista dos registrados; o formulário de preço da plataforma tem o campo **Termos de uso por medidor** (JSON) e volta com o que foi digitado quando há erro.
+
+**Resolução dos termos** de um medidor `M` da app `a` numa assinatura (`skeleton/billing/usage.py`, `resolve_terms`, uma função pura sobre os itens vivos):
+
+1. A franquia é a soma de `included × quantity` dos itens que citam `M`.
+2. A política é a do item `app` de `a` que cobra `M` (`bill`); senão, a do plano base que cobra; senão, `block`.
+3. Enquanto a assinatura está em trial ou com o cancelamento agendado para o fim do período, a política é `block`: não há fatura seguinte para cobrar o excedente.
+4. Nenhum item vivo cita `M`: o medidor é ilimitado naquela organização, e o consumo é gravado mesmo assim (relatório, e base para a plataforma precificar depois).
+
+O limite efetivo é a franquia com `block`, o `hard_cap` com `bill` (sem teto, nenhum) e nenhum quando ilimitado.
+
 ### Inadimplência
 
 O estado de acesso da organização é **derivado**, nunca digitado: da fatura em aberto mais antiga, dos prazos da instância e de uma prorrogação da plataforma. O `billing.cycle` (de hora em hora) o recalcula depois das renovações, e cada fatura paga o recalcula na hora (`skeleton/billing/dunning.py`).

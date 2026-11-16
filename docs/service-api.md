@@ -420,6 +420,8 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 | `update_account(*, actor, legal_name, billing_email, tax_id, country) -> None` | `billing.manage` | `InvalidInput` |
 | `checkout(*, actor, invoice_id, return_url) -> CheckoutLink` | `billing.manage` | `NotFound` (fatura de outra organização); `InvalidInput` (fatura não aberta, sem provedor) |
 
+**Medidores de uso** (#522). O módulo também expõe `register_usage_meter(code, *, label, unit_label)`, que a app chama no `ready()` para declarar um consumo por período (`<app_label>.<nome>`), e `registered_usage_meters()`, com `(código, rótulo, unidade)` de cada um; os termos de cada preço estão em [cobrança](billing.md#medidores-de-uso).
+
 `AccessState` tem `level` e `since`; `StorageAllowance`, `quota_bytes` (`None`: ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Os DTOs de assinatura, item, fatura e oferta trazem só identificadores, valores na menor unidade da moeda e datas; dados de contato da conta nunca saem por eles.
 
 ### FlowService

@@ -33,12 +33,13 @@ class Interval(models.TextChoices):
 
 
 class Product(SystemRecord):
-    """Something the platform sells: a base plan, an app or a storage pack."""
+    """Something the platform sells: a base plan, an app, a storage pack or a usage pack."""
 
     class Kind(models.TextChoices):
         BASE_PLAN = "base_plan", gettext_lazy("Plano base")
         APP = "app", gettext_lazy("App")
         STORAGE_PACK = "storage_pack", gettext_lazy("Pacote de armazenamento")
+        USAGE_PACK = "usage_pack", gettext_lazy("Pacote de uso")
 
     code = models.CharField(max_length=64)
     kind = models.CharField(max_length=16, choices=Kind.choices)
@@ -58,7 +59,8 @@ class Product(SystemRecord):
                 violation_error_code="unique",
             ),
             models.CheckConstraint(
-                condition=Q(kind__in=("base_plan", "app", "storage_pack")), name="sk_billing_product_kind"
+                condition=Q(kind__in=("base_plan", "app", "storage_pack", "usage_pack")),
+                name="sk_billing_product_kind",
             ),
             models.CheckConstraint(
                 condition=(Q(kind="app") & ~Q(app_label="")) | (~Q(kind="app") & Q(app_label="")),
@@ -99,6 +101,8 @@ class Price(SystemRecord):
     overage_unit_bytes = models.PositiveBigIntegerField(null=True, blank=True)
     overage_unit_amount = models.PositiveBigIntegerField(null=True, blank=True)
     overage_hard_cap_bytes = models.PositiveBigIntegerField(null=True, blank=True)
+    # {"<app_label>.<meter>": {"included": N, "overage": "block"|"bill", ...}}: see skeleton/billing/usage.py.
+    usage = models.JSONField(default=dict, blank=True)
     # The only terms the platform changes: an inactive price is not offered to new subscriptions,
     # and the default base-plan price of a currency is what a new organization starts on (#396).
     is_active = models.BooleanField(default=True)
@@ -117,6 +121,7 @@ class Price(SystemRecord):
         "overage_unit_bytes",
         "overage_unit_amount",
         "overage_hard_cap_bytes",
+        "usage",
     )
 
     class Meta(SystemRecord.Meta):
@@ -156,8 +161,12 @@ class Price(SystemRecord):
             raise ValidationError({"limits": gettext("Use métricas com limites inteiros não negativos.")})
         if self.storage_overage == self.Overage.BILL and not (self.overage_unit_bytes and self.overage_unit_amount):
             raise ValidationError({"storage_overage": gettext("Informe o bloco e o valor do excedente.")})
+        kind = Product.all_objects.filter(pk=self.product_id).values_list("kind", flat=True).first()
+        if self._state.adding:  # The terms never change, so they are validated once.
+            from .usage import validate_usage
+
+            validate_usage(self.usage, product_kind=kind)
         if self.is_default and self.product_id:
-            kind = Product.all_objects.filter(pk=self.product_id).values_list("kind", flat=True).first()
             if kind != Product.Kind.BASE_PLAN:
                 raise ValidationError({"is_default": gettext("Só um preço de plano base pode ser o padrão.")})
 

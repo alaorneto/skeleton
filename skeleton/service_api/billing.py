@@ -493,3 +493,23 @@ class BillingService(ServiceAPI):
         if not attempt.url:
             raise Forbidden()
         return CheckoutLink(url=attempt.url)
+
+
+def register_usage_meter(code: str, *, label: object, unit_label: object) -> None:
+    """Declare a usage meter from the ``ready()`` of an app (#522): ``code`` is ``<app_label>.<name>``.
+
+    A meter counts what is spent within a billing period (messages sent, documents signed); prices
+    give it an allowance and say whether the excess is blocked or billed. A thin public surface over
+    the billing's registry: apps never import ``skeleton.billing``. ``ValueError`` for a code without
+    the app prefix, already a quota metric, or registered with other labels.
+    """
+    from skeleton.billing.usage import register_usage_meter as register
+
+    register(code, label=label, unit_label=unit_label)
+
+
+def registered_usage_meters() -> tuple[tuple[str, str, str], ...]:
+    """``(code, label, unit label)`` of every registered usage meter, by code (#522)."""
+    from skeleton.billing.usage import registered_usage_meters as meters
+
+    return tuple((meter.code, str(meter.label), str(meter.unit_label)) for meter in meters())
