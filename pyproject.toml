@@ -55,7 +55,7 @@ exclude = ["config*", "applications*", "examples*", "deployment_agent*", "tests*
 [tool.setuptools.package-data]
 "*" = ["templates/**/*", "static/**/*", "*.json", "*.sql", "docs/**/*"]
 "skeleton" = ["py.typed"]
-"skeleton.system" = ["app_template/*"]  # modelos do skeleton_startapp (*.py-tpl não são módulos)
+"skeleton.system" = ["app_template/*", "app_template/standalone/*"]  # modelos do skeleton_startapp (*-tpl não são módulos)
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.test"

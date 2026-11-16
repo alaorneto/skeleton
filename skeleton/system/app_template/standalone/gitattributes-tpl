@@ -1,0 +1,7 @@
+# Arquivos do repositório que não fazem parte do pacote: package build/doctor --git-ref
+# exportam com git archive, que respeita export-ignore.
+.gitattributes export-ignore
+.gitignore export-ignore
+.github export-ignore
+pyproject.toml export-ignore
+README.md export-ignore

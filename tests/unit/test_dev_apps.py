@@ -194,3 +194,19 @@ def test_the_host_project_runs_without_the_config_package(tmp_path):
     )
     assert result.returncode == 0, result.stderr[-3000:]
     assert result.stdout.split()[-3:] == ["skeleton.testing.host.urls", "/accounts/login/", "False"]
+
+
+def test_test_modules_of_a_checkout_map_to_the_managed_name(tmp_path):
+    from skeleton.conf.dev_apps import managed_module_name, registered_checkouts
+
+    root = checkout(tmp_path)
+    dev_app_configs([root])
+    assert registered_checkouts()["acme_devapp"] == root.resolve()
+    assert (
+        managed_module_name(root / "tests" / "test_service_api.py") == "applications.acme_devapp.tests.test_service_api"
+    )
+    assert managed_module_name(root / "tests" / "__init__.py") == "applications.acme_devapp.tests"
+    (root / "loose").mkdir()
+    assert managed_module_name(root / "loose" / "test_x.py") is None  # not a package
+    assert managed_module_name(tmp_path / "elsewhere.py") is None
+    assert managed_module_name(root / "README.md") is None

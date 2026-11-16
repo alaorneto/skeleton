@@ -1,0 +1,77 @@
+# CI de ${verbose_name}: testes no PostgreSQL com a role runtime e diagnóstico do pacote.
+# O núcleo vem do wheel publicado na release (SKELETON_VERSION); o repositório não contém cópia dele.
+# As senhas abaixo são de um container descartável do próprio job, não segredos.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  SKELETON_VERSION: "${skeleton_version}"
+  SKELETON_REPOSITORY: alaorneto/skeleton
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_PASSWORD: ci-superuser-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DJANGO_SETTINGS_MODULE: skeleton.testing.host.settings
+      SKELETON_DEV_APPS: $${{ github.workspace }}/${package_name}
+      SKELETON_TEST_ALLOW_SCHEMA_RESET: "1"
+      SKELETON_TEST_ADMIN_DATABASE_URL: postgres://postgres:ci-superuser-only@127.0.0.1:5432/postgres
+      SKELETON_TEST_OWNER_PASSWORD: ci-owner
+      SKELETON_TEST_RUNTIME_PASSWORD: ci-runtime
+      TEST_DATABASE_URL: postgres://skeleton_runtime:ci-runtime@127.0.0.1:5432/ci_skeleton_test
+      TEST_MIGRATION_DATABASE_URL: postgres://skeleton_owner:ci-owner@127.0.0.1:5432/ci_skeleton_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # O diretório tem o nome do pacote: SKELETON_DEV_APPS exige.
+          path: ${package_name}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+      - name: Instalar o núcleo da release
+        run: |
+          python -m pip install pytest pytest-django
+          python -m pip install "https://github.com/$${SKELETON_REPOSITORY}/releases/download/v$${SKELETON_VERSION}/django_skeleton-$${SKELETON_VERSION}-py3-none-any.whl"
+      - name: Provisionar o banco de teste
+        run: python -m skeleton.testing.database provision --database ci_skeleton_test
+      - name: Testes
+        working-directory: ${package_name}
+        run: python -m pytest -q
+      - name: Diagnóstico do pacote na revisão commitada
+        run: python -m skeleton.system.packages doctor ${package_name} --git-ref HEAD
+
+  # Publicação assinada na tag: a chave do publicador é decisão do operador (segredo do
+  # repositório ou de um ambiente protegido). Descomente e ajuste depois de decidir.
+  # publish:
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #   needs: test
+  #   runs-on: ubuntu-latest
+  #   environment: release
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+  #       with:
+  #         path: ${package_name}
+  #     - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+  #       with:
+  #         python-version: "3.14"
+  #     - run: python -m pip install "https://github.com/$${SKELETON_REPOSITORY}/releases/download/v$${SKELETON_VERSION}/django_skeleton-$${SKELETON_VERSION}-py3-none-any.whl"
+  #     - run: >-
+  #         python -m skeleton.system.packages build --app-root ${package_name} --git-ref "$${GITHUB_REF_NAME}"
+  #         --output "${package_name}-$${GITHUB_REF_NAME}.skapp" --private-key /caminho/da/chave/privada.pem

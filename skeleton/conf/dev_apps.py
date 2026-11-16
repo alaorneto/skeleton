@@ -134,6 +134,32 @@ def dev_app_configs(paths) -> list[str]:
     return configs
 
 
+def registered_checkouts() -> dict[str, Path]:
+    """Package name -> checkout of the apps loaded by :func:`dev_app_configs` in this process."""
+    for finder in sys.meta_path:
+        if isinstance(finder, DevAppFinder):
+            return dict(finder.packages)
+    return {}
+
+
+def managed_module_name(path) -> str | None:
+    """``applications.<package>.<module>`` of a ``.py`` file inside a loaded checkout, or ``None``."""
+    path = Path(path).resolve()
+    for package, root in registered_checkouts().items():
+        if not path.is_relative_to(root) or path.suffix != ".py":
+            continue
+        parts = list(path.relative_to(root).with_suffix("").parts)
+        if parts and parts[-1] == "__init__":
+            parts.pop()
+        directory = root
+        for part in parts[:-1]:
+            directory = directory / part
+            if not (directory / "__init__.py").is_file():
+                return None
+        return ".".join([NAMESPACE, package, *parts])
+    return None
+
+
 def refuse_dev_apps(base) -> None:
     """Called by every profile but development and test."""
     if tuple(base.get("SKELETON_DEV_APPS", ())):

@@ -1,0 +1,24 @@
+# Só configuração de ferramentas: a app não é um pacote pip; o núcleo publica a app em .skapp.
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "skeleton.testing.host.settings"
+testpaths = ["tests"]
+# Importa os testes como applications.${package_name}.tests.*, o nome com que o Django carregou a app.
+addopts = "-p skeleton.testing.host.pytest_plugin"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["F", "E9", "B", "UP", "DJ", "I", "DTZ", "BLE", "S"]
+ignore = ["DJ012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["DJ008", "DTZ", "BLE001", "S101", "S105", "S106"]
+"migrations/**" = ["I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["applications", "skeleton"]
+
+[tool.ruff.format]
+exclude = ["migrations/**"]

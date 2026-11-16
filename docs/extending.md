@@ -52,6 +52,8 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 9. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
 10. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
+**Repositório próprio (`--standalone`, #520).** Com `--standalone`, o gerador cria a raiz de um repositório git em que a app é o próprio pacote, em `<directory>/<package>/`: os mesmos arquivos acima e mais `.gitattributes` (`export-ignore` de `.gitattributes`, `.gitignore`, `.github`, `pyproject.toml` e `README.md`, para `package build --git-ref` empacotar só a app), `.gitignore` (caches, `.venv/`, `dist/`, `*.skapp`, `*.pem`, `*.key`, `.env`), `pyproject.toml` só com a configuração do pytest (`DJANGO_SETTINGS_MODULE = "skeleton.testing.host.settings"` e o plugin `skeleton.testing.host.pytest_plugin`, que importa os testes como `applications.<package>.tests.*`) e do ruff, sem `[project]`, `.github/workflows/ci.yml` (PostgreSQL de serviço, checkout num diretório com o nome do pacote, núcleo instalado pelo wheel da release em `SKELETON_VERSION`, `provision`, `pytest` e `doctor --git-ref HEAD`; o job de publicação fica comentado, porque a chave de assinatura é decisão do operador) e um `README.md` com os passos locais. Os próximos passos impressos trocam `PROJECT_APPS` por `SKELETON_DEV_APPS`. Sem a opção, a saída é a de sempre.
+
 O código gerado é um começo, não uma app aprovada: revise allowlists e `sensitive_fields` a cada campo novo e escreva os testes de isolamento, autorização e concorrência do checklist do `AGENTS.md`.
 
 ### Manifest, ativação e superfícies próprias

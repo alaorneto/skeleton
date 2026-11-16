@@ -14,6 +14,5 @@ from skeleton.conf.profiles import test_settings  # noqa: E402
 
 globals().update(test_settings(globals()))
 ROOT_URLCONF = "skeleton.testing.host.urls"
-# runserver falls back to django.core.wsgi.get_wsgi_application() when unset.
-WSGI_APPLICATION = None
-ASGI_APPLICATION = None
+WSGI_APPLICATION = "skeleton.testing.host.wsgi.application"
+ASGI_APPLICATION = "skeleton.testing.host.asgi.application"
