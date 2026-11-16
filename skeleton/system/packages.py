@@ -48,6 +48,9 @@ from .packaging.build import (
     _role, build_artifact, _literal_dependencies, static_migration_leaves, check_migration_leaves,
     _scan_application_root, build_package, sign_package,
 )
+from .packaging.gitref import (
+    GIT_REF, export_git_tree, exported_git_tree,
+)
 from .packaging.release import (
     VerifiedRelease, build_release, inspect_release, match_release_target, package_kind, read_release_member,
     validate_release, validate_release_manifest,
@@ -67,14 +70,14 @@ from .packaging.cli import (
 # fmt: off
 __all__ = [
     "AGENT_DISTRIBUTION", "BUILD_EXCLUDED_DIRECTORIES", "BUNDLED_KIND", "BUNDLED_LABEL_PREFIX", "BUNDLED_PACKAGE",
-    "CATALOG_VERSIONS", "DOCUMENT_HEADINGS", "IDENTIFIER", "INTERPRETER_LAUNCHER", "MAX_ARCHIVE_BYTES",
+    "CATALOG_VERSIONS", "DOCUMENT_HEADINGS", "GIT_REF", "IDENTIFIER", "INTERPRETER_LAUNCHER", "MAX_ARCHIVE_BYTES",
     "MAX_EXPANSION_RATIO", "MAX_FILE_BYTES", "MAX_MEMBERS", "MAX_METADATA_BYTES", "MAX_RELEASE_TARGETS",
     "MAX_SERVICE_CLASSES", "MAX_TOTAL_BYTES", "MAX_WHEELHOUSE_MEMBERS", "MAX_WHEEL_MEMBERS", "PackageError",
     "RELEASE_FORMATS", "RELEASE_KIND", "RESERVED_LAUNCHERS", "RESERVED_NAMES", "SERVICE_API_CORE_MINIMUM",
     "SERVICE_API_DOCUMENT", "SERVICE_API_HEADINGS", "SERVICE_CLASS", "SHA256", "STABLE_ID",
     "SUGGESTIBLE_PROBLEM_CODES", "TARGET_ENVIRONMENT_KEYS", "TARGET_ID", "VerifiedPackage", "VerifiedRelease",
     "build_artifact", "build_catalog", "build_package", "build_release", "canonical_json", "catalog_entry",
-    "check_migration_leaves", "configure_parser", "default_service_class", "doctor", "extract_package",
+    "check_migration_leaves", "configure_parser", "default_service_class", "doctor", "export_git_tree", "exported_git_tree", "extract_package",
     "initialize_keys", "inspect_package", "inspect_release", "load_manifest", "load_trust_store", "main",
     "manifest_template", "match_release_target", "package_kind", "read_release_member", "release_catalog_entry", "required_documents",
     "run_command", "sign_package", "static_migration_leaves", "validate_catalog", "validate_dependency_graph",

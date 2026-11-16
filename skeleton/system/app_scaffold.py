@@ -102,8 +102,20 @@ def scaffold_manifest(scaffold):
     return validate_manifest(manifest)
 
 
-def render_files(scaffold):
+# Repository files of --standalone (#520): the app checkout is the root of its own git repository.
+STANDALONE_LAYOUT = {
+    ".gitattributes": "standalone/gitattributes-tpl",
+    ".gitignore": "standalone/gitignore-tpl",
+    ".github/workflows/ci.yml": "standalone/ci.yml-tpl",
+    "pyproject.toml": "standalone/pyproject.toml-tpl",
+    "README.md": "standalone/README.md-tpl",
+}
+
+
+def render_files(scaffold, *, standalone=False):
     """Map each relative path of the new app to its rendered text."""
+    from skeleton.versioning import core_version
+
     values = {
         "app_label": scaffold.app_label,
         "app_id": scaffold.app_id,
@@ -113,6 +125,8 @@ def render_files(scaffold):
         "model_lower": scaffold.model_lower,
         "table_key": scaffold.table_key,
         "verbose_name": scaffold.verbose_name,
+        "package_name": scaffold.package_name,
+        "skeleton_version": core_version(),
     }
     layout = {
         "__init__.py": "__init__.py-tpl",
@@ -131,6 +145,8 @@ def render_files(scaffold):
         "tests/conftest.py": "conftest.py-tpl",
         "tests/test_service_api.py": "test_service_api.py-tpl",
     }
+    if standalone:
+        layout.update(STANDALONE_LAYOUT)
     files = {
         target: Template((TEMPLATE_ROOT / source).read_text(encoding="utf-8")).substitute(values)
         for target, source in layout.items()
@@ -139,9 +155,12 @@ def render_files(scaffold):
     return files
 
 
-def create_application(scaffold, directory):
-    """Write the app under ``directory/<package_name>``; refuse an existing target."""
-    files = render_files(scaffold)
+def create_application(scaffold, directory, *, standalone=False):
+    """Write the app under ``directory/<package_name>``; refuse an existing target.
+
+    ``standalone`` adds the files of a git repository whose root is the app (#520).
+    """
+    files = render_files(scaffold, standalone=standalone)
     target = Path(directory) / scaffold.package_name
     if target.exists() or target.is_symlink():
         raise PackageError(f"Target directory already exists: {target}")
@@ -158,7 +177,41 @@ def create_application(scaffold, directory):
     return target, sorted(files)
 
 
-def next_steps(scaffold):
+def standalone_next_steps(scaffold):
+    """Steps of an app generated as the root of its own repository (#520)."""
+    label, package = scaffold.app_label, scaffold.package_name
+    return [
+        gettext("Inicie o repositório: git init, git add -A, git commit (no diretório %(package)s).")
+        % {"package": package},
+        gettext(
+            "Exporte SKELETON_DEV_APPS com o caminho do checkout (o diretório precisa se chamar %(package)s) "
+            "e use o manage.py de um projeto do Skeleton."
+        )
+        % {"package": package},
+        f"python manage.py makemigrations {label}",
+        f"python manage.py record_infrastructure {label} --write",
+        "python manage.py migrate",
+        "python manage.py check_skeleton_schema",
+        gettext(
+            "Atualize migrations.leaves no manifest.json (ex.: 0001_initial) e revise docs/spec.md, docs/adr.md "
+            "e docs/service-api.md."
+        ),
+        gettext(
+            "Rode os testes com DJANGO_SETTINGS_MODULE=skeleton.testing.host.settings num banco *_skeleton_test "
+            "(python -m skeleton.testing.database provision prepara um banco descartável)."
+        ),
+        f"python -m skeleton.system.packages doctor {package} --git-ref HEAD",
+        gettext(
+            "Publique a partir de uma tag: python -m skeleton.system.packages build --app-root %(package)s "
+            "--git-ref <tag> --output <fora da app>.skapp --private-key <chave privada>"
+        )
+        % {"package": package},
+    ]
+
+
+def next_steps(scaffold, *, standalone=False):
+    if standalone:
+        return standalone_next_steps(scaffold)
     label = scaffold.app_label
     return [
         gettext('Adicione "%(app_config)s" a PROJECT_APPS em config/settings/project.py.')

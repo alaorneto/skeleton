@@ -17,6 +17,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "release-artifacts.yml"
 ASSETS = {
     "django-skeleton-0.6.0.skapp",
     "skeleton-0.6.0.release.skapp",
+    "django_skeleton-0.6.0-py3-none-any.whl",
     "skeleton_deployment_agent-0.6.0-py3-none-any.whl",
     "skeleton-index.json",
     "SHA256SUMS",
@@ -76,7 +77,7 @@ def build(inputs, version="0.6.0", *, out=None, extra=(), key=None, publisher="s
 pytestmark = pytest.mark.posix
 
 
-def test_rehearsal_builds_the_five_assets_and_they_verify(inputs, capsys):
+def test_rehearsal_builds_the_six_assets_and_they_verify(inputs, capsys):
     assert build(inputs) == 0
     result = json.loads(capsys.readouterr().out)
     out = inputs["tmp"] / "out-0.6.0"
@@ -93,6 +94,9 @@ def test_rehearsal_builds_the_five_assets_and_they_verify(inputs, capsys):
     assert set(sums) == ASSETS - {"SHA256SUMS"}
     assert sums["skeleton-index.json"] == hashlib.sha256((out / "skeleton-index.json").read_bytes()).hexdigest()
     assert result["release"].endswith("skeleton-0.6.0.release.skapp")
+    wheel = out / "django_skeleton-0.6.0-py3-none-any.whl"
+    assert result["core_wheel"] == str(wheel)
+    assert sums[wheel.name] == hashlib.sha256(wheel.read_bytes()).hexdigest()
     assert "PRIVATE KEY" not in json.dumps(result)
 
 
@@ -217,6 +221,13 @@ def test_workflow_keeps_least_privilege_and_no_input_interpolation():
     assert blocks and not [block for block in blocks if "${{" in block]
     assert "persist-credentials: false" in text and 'rm -f "$RUNNER_TEMP/release.key"' in text
     assert text.count("if: always()") == 2
+
+
+def test_the_core_wheel_is_attached_with_its_hash_in_the_release_body():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert '"$RUNNER_TEMP"/out/*.whl' in text
+    (block,) = [block for block in run_blocks(text) if "gh release edit" in block]
+    assert "django_skeleton-" in block and "SHA256SUMS" in block and "--notes-file" in block
 
 
 def test_release_dispatches_the_artifacts_workflow():

@@ -165,3 +165,76 @@ def skeleton_db(request: pytest.FixtureRequest, tmp_path: Path, django_db_blocke
         finally:
             connections.close_all()
             _configure(original)
+
+
+# Provisioning of a disposable test database (#520): the wheel ships a byte-for-byte copy of
+# deploy/postgres/bootstrap.sql, so the CI of an app in its own repository needs only the wheel.
+BOOTSTRAP_SQL = Path(__file__).resolve().with_name("bootstrap.sql")
+ADMIN_URL_ENV = "SKELETON_TEST_ADMIN_DATABASE_URL"
+OWNER_PASSWORD_ENV = "SKELETON_TEST_OWNER_PASSWORD"  # noqa: S105 - name of a variable, not a password
+RUNTIME_PASSWORD_ENV = "SKELETON_TEST_RUNTIME_PASSWORD"  # noqa: S105 - name of a variable, not a password
+_DATABASE_NAME = r"[a-z_][a-z0-9_]{0,62}"
+
+
+def provision(admin_url: str, database: str, *, passwords: dict[str, str] | None = None) -> bool:
+    """Create ``database`` if missing, apply the bootstrap SQL and grant CREATE to the owner.
+
+    Idempotent. ``admin_url`` is an operator connection allowed to create databases and roles; it is
+    never printed or stored. ``passwords`` maps ``skeleton_owner``/``skeleton_runtime`` to the
+    passwords of the disposable roles. Returns whether the database was created.
+    """
+    import re
+
+    import psycopg
+    from psycopg import sql
+    from psycopg.conninfo import make_conninfo
+
+    if not re.fullmatch(_DATABASE_NAME, database) or not database.endswith(SUFFIX):
+        raise RuntimeError(f"The test database name must be a plain identifier ending with {SUFFIX}.")
+    if not admin_url:
+        raise RuntimeError(f"An administrative URL is required (--admin-url or {ADMIN_URL_ENV}).")
+    with psycopg.connect(admin_url, autocommit=True) as connection:
+        exists = connection.execute("SELECT 1 FROM pg_database WHERE datname = %s", (database,)).fetchone()
+        if not exists:
+            connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    with psycopg.connect(make_conninfo(admin_url, dbname=database), autocommit=True) as connection:
+        connection.execute(BOOTSTRAP_SQL.read_text(encoding="utf-8"))
+        connection.execute(sql.SQL("GRANT CREATE ON DATABASE {} TO skeleton_owner").format(sql.Identifier(database)))
+        for role, password in (passwords or {}).items():
+            if role not in ("skeleton_owner", "skeleton_runtime"):
+                raise RuntimeError(f"Unknown role {role!r}.")
+            if password:
+                connection.execute(
+                    sql.SQL("ALTER ROLE {} PASSWORD {}").format(sql.Identifier(role), sql.Literal(password))
+                )
+    return not exists
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m skeleton.testing.database provision --database <name>_skeleton_test``."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="python -m skeleton.testing.database", description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    command = commands.add_parser("provision", help="Create and bootstrap a disposable *_skeleton_test database.")
+    command.add_argument("--admin-url", help=f"Operator connection URL (default: ${ADMIN_URL_ENV}). Never printed.")
+    command.add_argument("--database", required=True, help=f"Database name; must end with {SUFFIX}.")
+    options = parser.parse_args(argv)
+    passwords = {
+        "skeleton_owner": os.environ.get(OWNER_PASSWORD_ENV, ""),
+        "skeleton_runtime": os.environ.get(RUNTIME_PASSWORD_ENV, ""),
+    }
+    try:
+        created = provision(
+            options.admin_url or os.environ.get(ADMIN_URL_ENV, ""), options.database, passwords=passwords
+        )
+    except RuntimeError as exc:
+        parser.error(str(exc))
+    except Exception as exc:  # noqa: BLE001 - a driver error must not echo the administrative URL
+        parser.exit(1, f"provision failed: {exc.__class__.__name__}\n")
+    print(f"{options.database}: {'created' if created else 'already existed'}, bootstrap applied")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -54,6 +54,8 @@ O comando valida label, package, IDs e nome do modelo com os mesmos validadores 
 9. `python manage.py package doctor applications/<package>` (seção [Diagnosticar antes de empacotar](#diagnosticar-antes-de-empacotar));
 10. publicar com `package build` (seção [Publicar apps e releases assinados](#publicar-apps-e-releases-assinados)).
 
+**Repositório próprio (`--standalone`, #520).** Com `--standalone`, o gerador cria a raiz de um repositório git em que a app é o próprio pacote, em `<directory>/<package>/`: os mesmos arquivos acima e mais `.gitattributes` (`export-ignore` de `.gitattributes`, `.gitignore`, `.github`, `pyproject.toml` e `README.md`, para `package build --git-ref` empacotar só a app), `.gitignore` (caches, `.venv/`, `dist/`, `*.skapp`, `*.pem`, `*.key`, `.env`), `pyproject.toml` só com a configuração do pytest (`DJANGO_SETTINGS_MODULE = "skeleton.testing.host.settings"` e o plugin `skeleton.testing.host.pytest_plugin`, que importa os testes como `applications.<package>.tests.*`) e do ruff, sem `[project]`, `.github/workflows/ci.yml` (PostgreSQL de serviço, checkout num diretório com o nome do pacote, núcleo instalado pelo wheel da release em `SKELETON_VERSION`, `provision`, `pytest` e `doctor --git-ref HEAD`; o job de publicação fica comentado, porque a chave de assinatura é decisão do operador) e um `README.md` com os passos locais. Os próximos passos impressos trocam `PROJECT_APPS` por `SKELETON_DEV_APPS`. Sem a opção, a saída é a de sempre.
+
 O código gerado é um começo, não uma app aprovada: revise allowlists e `sensitive_fields` a cada campo novo e escreva os testes de isolamento, autorização e concorrência do checklist do `AGENTS.md`.
 
 ### Manifest, ativação e superfícies próprias
@@ -178,6 +180,26 @@ O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` pr
 
 **Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
 
+### Carregar uma app em desenvolvimento (`SKELETON_DEV_APPS`)
+
+Uma app que vive no próprio repositório git (veja [Desenvolver uma app em repositório próprio](#desenvolver-uma-app-em-repositório-próprio)) entra num projeto de desenvolvimento sem editar arquivo versionado (#518): `SKELETON_DEV_APPS` lista, separados por vírgula, os diretórios de checkout das apps.
+
+```sh
+export SKELETON_DEV_APPS=/home/dev/src/acme_clientes
+python manage.py check
+python manage.py makemigrations acme_clientes   # grava em /home/dev/src/acme_clientes/migrations/
+```
+
+| Regra | Comportamento |
+|---|---|
+| Perfis | Só os de desenvolvimento e teste aceitam a variável. Os perfis de produção, migração, build e setup param o startup com `ImproperlyConfigured` quando ela não é vazia: em produção uma app só entra por pacote assinado |
+| Checkout | O diretório é o próprio pacote da app, com `manifest.json` na raiz, e tem de se chamar como o `package_name` do manifesto (clone o repositório num diretório com esse nome) |
+| Manifesto | Validado como o de qualquer app, com `kind: "app"`; labels `skeleton_*`/`sk_*` e AppConfig em `skeleton.` são recusados |
+| Import | A app é importada como `applications.<pacote>`, o mesmo nome de uma release, por um *finder* que mapeia só esse módulo para o checkout. O `sys.path` não muda: um diretório vizinho nunca fica importável e o núcleo nunca é sombreado |
+| Colisão | Um pacote `applications.<pacote>` que já é importável de outro lugar (por exemplo, uma cópia em `applications/` do projeto), ou o mesmo pacote vindo de dois checkouts, é recusado |
+
+Toda recusa é `ImproperlyConfigured` com o caminho do checkout na mensagem. As apps de `SKELETON_DEV_APPS` entram em `INSTALLED_APPS` depois das first-party e antes de `PROJECT_APPS`. Para rodar a suíte de uma app sem o pacote `config` de um projeto, use o projeto hospedeiro `skeleton.testing.host` ([testing](testing.md#projeto-hospedeiro-para-apps-em-repositório-próprio)).
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.
@@ -227,6 +249,19 @@ Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e n
 .venv/bin/python manage.py package versions --manifest applications/tasks/manifest.json
 ```
 
+**Empacotar a partir de uma revisão git** (#519). Numa app que vive no próprio repositório, `--git-ref <revisão>` faz `build` e `doctor` trabalharem sobre a árvore commitada naquela revisão, exportada por `git archive`, e não sobre o diretório de trabalho:
+
+```sh
+.venv/bin/python -m skeleton.system.packages doctor ../acme_clientes --git-ref HEAD
+.venv/bin/python -m skeleton.system.packages build --app-root ../acme_clientes --git-ref v1.2.0   --output /private/artifacts/acme_clientes-1.2.0.skapp --private-key /private/publisher.pem
+```
+
+- **Só o que está commitado entra no pacote.** Arquivo modificado ou não rastreado no diretório de trabalho não muda o `.skapp`.
+- **`export-ignore` decide o que fica de fora.** Os arquivos do repositório que não são da app (`.gitattributes`, `.gitignore`, `.github/`, `pyproject.toml`, `README.md`) levam `export-ignore` no `.gitattributes`. Um dotfile commitado sem a marca continua recusado como `private_file`, e o `doctor --git-ref HEAD` no CI da app acusa o esquecimento. Sem `--git-ref`, a regra de sempre vale: todo dotfile é `private_file`.
+- O manifesto é lido da árvore exportada (`manifest.json` da raiz, ou o `--manifest` informado, que precisa estar dentro de `--app-root`). A saída traz `commit`, o hash completo da revisão; o manifesto não o grava (esquema fechado).
+- `--app-root` pode ser um subdiretório do repositório (por exemplo `applications/tasks` de um projeto): só aquela subárvore é exportada.
+- A revisão aceita só letras, dígitos e `. _ / @ -`, nunca começando por hífen; o `git` roda com lista de argumentos, sem shell. A extração usa `tarfile` com o filtro `data` num diretório temporário privado e recusa links simbólicos, hard links, arquivos especiais e caminhos fora do destino. `git` fora do `PATH`, diretório fora de um repositório e revisão inexistente são erros de pacote, sem traceback.
+
 Apps continuam publicadas em pacote de componente (`kind: "app"`), com os próprios wheels em `python_dependencies`. O pacote de release (`kind: "release"`, [Pacote de release](deployment.md#pacote-de-release)) é só do core: leva o pacote do core, o lock e os wheels de cada alvo e o wheel do agente.
 
 O trust store, ou lista de chaves de publicadores confiáveis, é um JSON administrado pelo operador, por exemplo `{"example-publisher": "/private/publisher.pub.pem"}`. A chave do mapa é o `publisher` do manifesto; valores aceitam PEM público literal, caminho PEM ou `{"public_key": "/private/publisher.pub.pem", "publisher": "example-publisher"}`. Caminhos relativos do CLI são relativos ao arquivo de configuração. A API também aceita objetos `Ed25519PublicKey`. A chave pública pode verificar assinaturas; a privada deve ficar somente com quem está autorizado a publicar. Chaves públicas trazidas pelo próprio pacote nunca são âncoras de confiança. Revogação/rotação exige alterar explicitamente esse arquivo privado. `inspect` sem trust store mostra `"trusted": false`, mesmo quando os hashes são íntegros.
@@ -273,6 +308,36 @@ O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON ca
 O exemplo pode ser publicado de verdade com `package build --app-root examples/notes --manifest examples/notes/manifest.json --output /private/notes.skapp --private-key /private/publisher.pem`; autorize o publisher `skeleton-examples` no trust store correspondente. Ativação/configuração tenant permanece independente da instalação física global.
 
 
+
+## Desenvolver uma app em repositório próprio
+
+Uma app de negócio pode viver no próprio repositório git, fora de qualquer projeto derivado (epic #512). O repositório **é** o pacote Python da app; ele nunca contém cópia do núcleo, que vem sempre do wheel de uma release ou de um checkout do Skeleton ao lado.
+
+```text
+acme_clientes/            <- checkout; o nome do diretório é o nome do pacote
+  .gitattributes          <- export-ignore do que não vai no pacote
+  .gitignore
+  .github/workflows/ci.yml
+  pyproject.toml          <- só configuração de pytest/ruff (export-ignore)
+  README.md               <- (export-ignore)
+  manifest.json
+  __init__.py  apps.py  models.py  service_api.py  views.py  urls.py  api_urls.py
+  migrations/  templates/  docs/  tests/
+```
+
+| Passo | Como |
+|---|---|
+| Criar | `python manage.py skeleton_startapp acme_clientes --standalone --directory ../ --app-id com.example.clientes --publisher example-publisher` gera essa árvore ([Começar uma app](#começar-uma-app-com-skeleton_startapp)); depois `git init`, `git add -A`, `git commit` |
+| Carregar no desenvolvimento | `SKELETON_DEV_APPS=/caminho/acme_clientes` num projeto do Skeleton; `makemigrations`, `record_infrastructure --write`, `migrate` e `runserver` como sempre ([Carregar uma app em desenvolvimento](#carregar-uma-app-em-desenvolvimento-skeleton_dev_apps)). Só nos perfis de desenvolvimento e teste |
+| Testar sem projeto | `DJANGO_SETTINGS_MODULE=skeleton.testing.host.settings`, o projeto hospedeiro do wheel, com o plugin de pytest ligado no `pyproject.toml` gerado ([testing](testing.md#projeto-hospedeiro-para-apps-em-repositório-próprio)) |
+| Banco de teste | `python -m skeleton.testing.database provision --database <nome>_skeleton_test`, a partir do SQL distribuído no wheel |
+| Diagnosticar e empacotar | `package doctor --git-ref HEAD` no CI; `package build --git-ref <tag>` na publicação: só o que está commitado e não marcado `export-ignore` entra no `.skapp` ([Publicar](#publicar-apps-e-releases-assinados)) |
+
+**Fixar a versão do núcleo no CI da app.** Cada release do núcleo traz o wheel `django_skeleton-<versão>-py3-none-any.whl` como asset, com o SHA-256 no corpo da release e em `SHA256SUMS` ([workflow](workflow.md#artefatos-de-cada-release-496)). O `ci.yml` gerado lê a versão de `SKELETON_VERSION` e baixa o asset de `https://github.com/<repositório do núcleo>/releases/download/v<versão>/`; como o repositório do núcleo é público, o download não exige token. Suba `SKELETON_VERSION` numa mudança própria da app, junto com a faixa `compatibility.skeleton` do manifesto. Para conferir o hash, compare `sha256sum` do arquivo baixado com a linha de `SHA256SUMS` da mesma release.
+
+**Depender de uma app first-party.** Declare a dependência pelo `app_id` dela em `dependencies` (por exemplo `"org.skeleton.calendar": ">=0.5.0,<0.6.0"`, veja [Apps first-party](#apps-first-party-do-núcleo-skeletoncontrib)) e ligue a app no CI com `SKELETON_BUNDLED_APPS` no `env` do job (por exemplo `SKELETON_BUNDLED_APPS: calendar`): sem ela instalada, o startup recusa a dependência. Importe só o `service_api` dela.
+
+**Regras.** O repositório da app nunca contém cópia do núcleo nem arquivo de `config/`; `SKELETON_DEV_APPS` nunca é definido em produção, onde a app entra pelo pacote assinado instalado pelo agente; a chave de assinatura do publicador fica fora do repositório (o job de publicação do `ci.yml` gerado vem comentado justamente para o operador decidir onde ela fica).
 
 ## Exemplo completo existente: Note
 

@@ -1,0 +1,50 @@
+# ${verbose_name}
+
+App `${app_label}` (`${app_id}`) para o Skeleton, desenvolvida no próprio repositório. A raiz do
+repositório é o pacote Python da app; o núcleo nunca é copiado para cá.
+
+## Desenvolvimento local
+
+1. Clone este repositório num diretório chamado `${package_name}` (o nome do pacote), ao lado de um
+   checkout do Skeleton ou de um ambiente com o wheel do núcleo instalado.
+2. No projeto do Skeleton, aponte para o checkout e use o `manage.py` normalmente:
+
+   ```sh
+   export SKELETON_DEV_APPS=/caminho/para/${package_name}
+   python manage.py makemigrations ${app_label}
+   python manage.py record_infrastructure ${app_label} --write
+   python manage.py migrate
+   python manage.py runserver
+   ```
+
+   `SKELETON_DEV_APPS` só é aceito nos perfis de desenvolvimento e teste.
+
+## Testes
+
+Com um PostgreSQL descartável provisionado pelo wheel (ou, num checkout do Skeleton,
+`python tools/dev_postgres.py start`):
+
+```sh
+python -m skeleton.testing.database provision --admin-url <url administrativa> --database local_skeleton_test
+export DJANGO_SETTINGS_MODULE=skeleton.testing.host.settings
+export SKELETON_DEV_APPS=$$PWD
+export SKELETON_TEST_ALLOW_SCHEMA_RESET=1
+export TEST_DATABASE_URL=postgres://skeleton_runtime:<senha>@127.0.0.1:5432/local_skeleton_test
+export TEST_MIGRATION_DATABASE_URL=postgres://skeleton_owner:<senha>@127.0.0.1:5432/local_skeleton_test
+python -m pytest
+```
+
+As senhas das roles descartáveis vêm de `SKELETON_TEST_OWNER_PASSWORD` e
+`SKELETON_TEST_RUNTIME_PASSWORD` no `provision`.
+
+## Pacote
+
+Só o que está commitado entra no pacote; o `.gitattributes` tira do pacote os arquivos do repositório.
+
+```sh
+python -m skeleton.system.packages doctor . --git-ref HEAD
+python -m skeleton.system.packages build --app-root . --git-ref v0.1.0 \
+  --output ../${package_name}-0.1.0.skapp --private-key /caminho/da/chave/privada.pem
+```
+
+Atualize `migrations.leaves` no `manifest.json` a cada migration nova e mantenha `docs/` em dia.

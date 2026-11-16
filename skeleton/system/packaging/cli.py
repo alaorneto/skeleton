@@ -12,6 +12,7 @@ from .build import build_package, sign_package
 from .catalog import build_catalog, catalog_entry, release_catalog_entry, validate_catalog
 from .doctor import doctor
 from .errors import _fail
+from .gitref import exported_git_tree
 from .manifest import load_manifest
 from .primitives import _json, _object, canonical_json
 from .release import build_release, inspect_release, package_kind, validate_release
@@ -37,7 +38,11 @@ def configure_parser(parser):
     )
     build = commands.add_parser("build", help="Build a complete signed .skapp, checking docs and wheels.")
     build.add_argument("--app-root", required=True)
-    build.add_argument("--manifest", required=True)
+    build.add_argument("--manifest", help="Manifest path (default: manifest.json of the app root).")
+    build.add_argument(
+        "--git-ref",
+        help="Build from the committed tree at this git revision (git archive, honours export-ignore).",
+    )
     build.add_argument("--output", required=True)
     build.add_argument("--private-key", required=True)
     build.add_argument("--wheel", action="append", default=[])
@@ -83,6 +88,7 @@ def configure_parser(parser):
     )
     diagnose.add_argument("app_root")
     diagnose.add_argument("--manifest")
+    diagnose.add_argument("--git-ref", help="Diagnose the committed tree at this git revision (git archive).")
     diagnose.add_argument("--inventory", help="Target deployment inventory.json to resolve dependencies against.")
     diagnose.add_argument("--catalog", help="Signed release catalogue to look up dependency releases.")
     diagnose.add_argument("--trust-store", help="Trust store verifying --catalog.")
@@ -123,9 +129,32 @@ def _run_init(options):
     return value
 
 
+def _git_manifest(root, manifest, export):
+    """The manifest inside the export: the same path relative to the app root."""
+    if not manifest:
+        return export / "manifest.json"
+    source = Path(manifest).resolve()
+    if not source.is_relative_to(Path(root).resolve()):
+        _fail("With --git-ref the manifest must be inside the application root.")
+    return export / source.relative_to(Path(root).resolve())
+
+
 def _run_build(options):
+    root, manifest, ref = options["app_root"], options.get("manifest"), options.get("git_ref")
+    if ref:
+        if Path(options["output"]).resolve().is_relative_to(Path(root).resolve()):
+            _fail("Build output must be outside the application root.")
+        with exported_git_tree(root, ref) as (export, commit):
+            path = build_package(
+                export,
+                _git_manifest(root, manifest, export),
+                options["output"],
+                options["private_key"],
+                options["wheel"],
+            )
+        return {"artifact": str(path), "commit": commit}
     path = build_package(
-        options["app_root"], options["manifest"], options["output"], options["private_key"], options["wheel"]
+        root, manifest or Path(root) / "manifest.json", options["output"], options["private_key"], options["wheel"]
     )
     return {"artifact": str(path)}
 
@@ -273,14 +302,20 @@ def _run_doctor(options):
 
     if options.get("catalog") and not options.get("trust_store"):
         _fail("--catalog requires --trust-store.")
-    return doctor(
-        options["app_root"],
-        options.get("manifest"),
-        inventory=document("inventory"),
-        catalog=document("catalog"),
-        trust_store=_optional_trust(options),
-        bundled_apps=options.get("bundled_app") or (),
-    )
+    arguments = {
+        "inventory": document("inventory"),
+        "catalog": document("catalog"),
+        "trust_store": _optional_trust(options),
+        "bundled_apps": options.get("bundled_app") or (),
+    }
+    root, ref = options["app_root"], options.get("git_ref")
+    if ref:
+        with exported_git_tree(root, ref) as (export, commit):
+            return {
+                **doctor(export, _git_manifest(root, options.get("manifest"), export), **arguments),
+                "commit": commit,
+            }
+    return doctor(root, options.get("manifest"), **arguments)
 
 
 def _run_versions(options):

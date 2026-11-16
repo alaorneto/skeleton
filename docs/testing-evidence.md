@@ -2,6 +2,22 @@
 
 Registro do que rodou em cada rodada, com os comandos da época. As rodadas anteriores a [#144](https://github.com/alaorneto/skeleton/issues/144) citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Nada aqui é procedimento: para verificar hoje, use [testes](testing.md).
 
+## Apps em repositório próprio (epic #512)
+
+Rodada de 2026-11-16 na branch `feat/512-apps-own-repo`. Windows 11, Python 3.14 do `.venv` (o venv limpo do roteiro manual usou Python 3.13), PostgreSQL 16 de `tools/dev_postgres.py`, com as assertions como `skeleton_runtime`. Somente o que rodou.
+
+- **#518:** `SKELETON_DEV_APPS` carrega o checkout como `applications.<pacote>` por um *finder*, sem mexer no `sys.path`; um caso por recusa (caminho inexistente, sem manifesto, JSON inválido, `kind` diferente de `app`, label/AppConfig reservado, manifesto inválido, diretório com outro nome, pacote já importável, o mesmo pacote de dois checkouts); os perfis de produção, migração, build e setup recusam a variável; o hospedeiro `skeleton.testing.host` sobe o Django e resolve as URLs do núcleo sem importar `config` (subprocesso) (`tests/unit/test_dev_apps.py`). Smoke: `skeleton_startapp` fora do repositório, `manage.py check` sem problemas e `makemigrations` gravou `0001_initial.py` no checkout; `config.settings.production` parou com a mensagem da issue.
+- **#519:** `doctor --git-ref HEAD` responde `ok` num repositório com dotfiles `export-ignore`; dotfile sem a marca é `private_file`; arquivo não commitado não entra na exportação; subdiretório exporta só a subárvore; revisões inválidas, desconhecidas, diretório fora de repositório e `git` ausente são erros de pacote; tar com link simbólico, hard link, `..` ou caminho absoluto não é extraído (`tests/unit/test_package_git_ref.py`). Os dois testes de `build` exigem `O_NOFOLLOW` e só rodam no Linux (CI).
+- **#520:** árvore de `--standalone` (e regressão sem a opção), `ci.yml` sem segredo nem menção, sem sobrescrever app existente, `doctor --git-ref HEAD` `ok` depois do commit; cópia do SQL idêntica byte a byte; `provision` recusa nome fora do sufixo, exige a URL administrativa e não a imprime numa falha (`tests/unit/test_skeleton_startapp.py`, `tests/unit/test_testing_provision.py`). Com `SKELETON_TEST_ADMIN_DATABASE_URL` apontando para o cluster local, o teste de integração do `provision` rodou (criou, repetiu sem falhar, conferiu schema e `GRANT CREATE`). O `ci.yml` renderizado foi carregado com o ruamel do hook `check-yaml` (o PyYAML não é dependência; o trecho do teste que o usa foi pulado).
+- **#521:** o wheel do núcleo entra nos assets e no `SHA256SUMS` de `release_artifacts.py`, e o workflow acrescenta o hash ao corpo da release (as funções do teste do workflow rodaram direto; o restante de `test_release_artifacts_tool.py` exige `O_NOFOLLOW` e roda no CI). Roteiro manual: wheel construído com `pip wheel --no-deps --no-build-isolation .` (os arquivos novos estão dentro), instalado num venv limpo com `pytest` e `pytest-django`; com esse venv e sem checkout do núcleo no caminho, `skeleton_startapp acme_wheel --standalone`, `provision`, `makemigrations`, `record_infrastructure --write`, `pytest` da app (7 passed) e `doctor . --git-ref HEAD` (`ok: true`). O `package build --git-ref` não rodou localmente (exige `O_NOFOLLOW`); a primeira release depois do merge prova o asset.
+
+| Execução observada | Resultado |
+|---|---|
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` | 3356 passed, 167 skipped (O_NOFOLLOW/fcntl/SIGHUP só em POSIX, PyYAML ausente, URL administrativa ausente), 255 subtests, 0 falhas, 14 min 28 s |
+| `python -m pytest tests/unit -q -n auto` | 1639 passed, 163 skipped |
+| `SKELETON_BUNDLED_APPS=calendar python -m mypy` | sem problemas |
+| `uvx ruff@0.17.4 check .` e `format --check .` | ok |
+
 ## Fluxos de processo: evoluções (epic #208)
 
 Rodada de 2026-11-13 na branch `feat/208-flows-evolutions`. Windows 11, Python 3.14, PostgreSQL 16 de `tools/dev_postgres.py` num cluster dedicado (6 workers), com as assertions como `skeleton_runtime`. Somente o que rodou.

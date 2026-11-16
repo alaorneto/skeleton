@@ -146,6 +146,30 @@ O perfil de teste (`skeleton.conf.profiles.test_settings`) usa `skeleton.testing
 
 Browser SSO tem fixture de sessão com DB isolado e servidor real, preservando commits até fim do cenário. Não use TestCase com atomic externa como prova de COMMIT/SET LOCAL; os testes transacionais precisam de commits verdadeiros.
 
+### Projeto hospedeiro para apps em repositório próprio
+
+Uma app desenvolvida no próprio repositório não tem o pacote `config` de um projeto. O wheel distribui um projeto hospedeiro mínimo, `skeleton.testing.host` (#518): `settings.py` aplica `test_settings` sobre os defaults do núcleo e troca as referências a `config.*` (`ROOT_URLCONF` vira `skeleton.testing.host.urls`, com as rotas do núcleo, e WSGI/ASGI apontam para `skeleton.testing.host.wsgi` e `asgi`). A raiz do projeto é o diretório corrente, ou `SKELETON_PROJECT_ROOT`. A app entra por `SKELETON_DEV_APPS` ([extending](extending.md#carregar-uma-app-em-desenvolvimento-skeleton_dev_apps)):
+
+```sh
+export DJANGO_SETTINGS_MODULE=skeleton.testing.host.settings
+export SKELETON_DEV_APPS=$PWD
+python -m pytest tests
+```
+
+O `pyproject.toml` gerado por `skeleton_startapp --standalone` liga o plugin `skeleton.testing.host.pytest_plugin`: sem ele, o pytest importaria `<checkout>/tests/test_x.py` como `<pacote>.tests.test_x`, uma segunda cópia da app ao lado de `applications.<pacote>`, e os modelos seriam registrados duas vezes.
+
+**Provisionar o banco pelo wheel** (#520). O wheel leva uma cópia byte a byte de `deploy/postgres/bootstrap.sql` (`skeleton/testing/bootstrap.sql`; `tests/unit/test_testing_provision.py` compara os dois arquivos) e o subcomando que faz os passos de [Isolamento da suíte](#isolamento-da-suíte) num servidor descartável:
+
+```sh
+export SKELETON_TEST_ADMIN_DATABASE_URL=postgres://postgres:<senha>@127.0.0.1:5432/postgres
+export SKELETON_TEST_OWNER_PASSWORD=<senha do owner> SKELETON_TEST_RUNTIME_PASSWORD=<senha do runtime>
+python -m skeleton.testing.database provision --database ci_skeleton_test
+```
+
+Ele cria o banco se não existir, aplica o SQL, dá `GRANT CREATE ON DATABASE` ao `skeleton_owner` e, quando as variáveis existem, define as senhas das duas roles. É idempotente. Recusa nome de banco que não seja um identificador simples terminado em `_skeleton_test`. A URL administrativa vem de `--admin-url` ou de `SKELETON_TEST_ADMIN_DATABASE_URL` e nunca é impressa nem gravada; uma falha do driver só mostra o tipo do erro. O teste de integração do subcomando roda só quando `SKELETON_TEST_ADMIN_DATABASE_URL` existe.
+
+O fluxo completo de uma app em repositório próprio, com o CI gerado, está em [extending](extending.md#desenvolver-uma-app-em-repositório-próprio). O hospedeiro só serve para testes; nunca é entrypoint de produção. `tests/unit/test_dev_apps.py` prova que ele sobe o Django e resolve as URLs do núcleo sem importar `config`.
+
 ## PostgreSQL runtime real
 
 **Pré-requisitos:** PostgreSQL iniciado, banco descartável criado e provisionado pelo operador, duas roles/URLs do mesmo banco e marcador de reset. Os comandos seguintes usam arquivos privados da instalação de integração (`. .private/runtime/services.env`) ou, no desenvolvimento local, `eval "$(python tools/dev_postgres.py env)"`; em outra máquina, provisione equivalentes antes de carregá-los. Não há secrets de produção nesses exemplos.

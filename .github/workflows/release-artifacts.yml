@@ -95,6 +95,16 @@ jobs:
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             "$RUNNER_TEMP"/out/*.skapp "$RUNNER_TEMP"/out/*.whl \
             "$RUNNER_TEMP/out/skeleton-index.json" "$RUNNER_TEMP/out/SHA256SUMS"
+      - name: Hash do wheel do núcleo no corpo da release
+        # O CI de uma app em repositório próprio instala este wheel numa versão fixa (#521).
+        run: |
+          sum=$(grep ' django_skeleton-' "$RUNNER_TEMP/out/SHA256SUMS")
+          body=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          if ! grep -qF "$sum" <<< "$body"; then
+            printf '%s\n\n### Wheel do núcleo\n\nSHA-256 (o mesmo de SHA256SUMS):\n\n    %s\n' "$body" "$sum" \
+              > "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
       - name: Índice também na release mais recente
         # Um hotfix numa linha antiga não é a release "latest": o agente lê o índice de releases/latest.
         run: |

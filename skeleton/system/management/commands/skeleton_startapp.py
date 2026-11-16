@@ -21,6 +21,11 @@ class Command(BaseCommand):
         parser.add_argument("--package-name", help="Python package under applications/ (default: app_label).")
         parser.add_argument("--name", dest="display_name", help="Display name (default: app_label).")
         parser.add_argument("--directory", default="applications", help="Parent directory (default: applications).")
+        parser.add_argument(
+            "--standalone",
+            action="store_true",
+            help="Generate the root of the app's own git repository (.gitattributes, .gitignore, CI, README).",
+        )
 
     def handle(self, *args, **options):
         try:
@@ -32,12 +37,12 @@ class Command(BaseCommand):
                 package_name=options["package_name"],
                 verbose_name=options["display_name"],
             )
-            target, files = create_application(scaffold, options["directory"])
+            target, files = create_application(scaffold, options["directory"], standalone=options["standalone"])
         except (PackageError, OSError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(self.style.SUCCESS(f"Created {target}"))
         for name in files:
             self.stdout.write(f"  {name}")
         self.stdout.write("\nPróximos passos:")
-        for number, step in enumerate(next_steps(scaffold), start=1):
+        for number, step in enumerate(next_steps(scaffold, standalone=options["standalone"]), start=1):
             self.stdout.write(f"  {number}. {step}")
