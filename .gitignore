@@ -21,3 +21,5 @@ dist/
 frontend/node_modules/
 var/
 .env.instance
+applications/*
+!applications/__init__.py

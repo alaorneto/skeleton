@@ -27,6 +27,8 @@ O ponto de partida recomendado para uma app nova é o gerador do núcleo, em vez
 python manage.py skeleton_startapp project_tasks --app-id com.example.tasks --publisher example-publisher --model Task
 ```
 
+O `.gitignore` deste repositório ignora tudo que estiver dentro de `applications/`, menos o `applications/__init__.py`: assim o checkout de uma app desenvolvida em repositório próprio não aparece no `git status` do núcleo. O projeto derivado que versiona as apps no mesmo repositório remove do `.gitignore` as linhas `applications/*` e `!applications/__init__.py`; sem isso, a app criada pelo gerador não é listada pelo git.
+
 Ele cria `applications/<package>/` (por padrão o package é o label; mude com `--package-name`, e o diretório-pai com `--directory`) com:
 
 - `apps.py`: `AppConfig` com `name = __package__` e o label informado; `ready()` registra o manifesto com `register_app` e um `TableSpec` com `read_fields`, `write_fields` e `sensitive_fields` explícitos (tuplas de nomes; uma lista é aceita e convertida, uma string solta ou um item que não é nome levanta `TypeError` na construção, #310). O check E008 exige declarar como sensível todo campo não relacional chamado `password`, `token`, `token_digest`, `secret`, `private_key` ou `recovery_codes`, os mesmos nomes que a auditoria redige;
