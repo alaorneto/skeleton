@@ -44,8 +44,10 @@ def active_user_ids(user_ids: Any) -> set[UUID]:
 def invite(*, actor: Any, event_id: Any, user_ids: tuple[UUID, ...], optional: bool = False) -> list[EventAttendee]:
     """Invite members to an event the actor may write; existing invitations are kept."""
     from .policies import require_writable_event
+    from .services import refuse_managed
 
     event = require_writable_event(actor, event_id)
+    refuse_managed(event)  # The app that owns a managed event decides its attendees (#537).
     created = []
     invited = []
     for user_id in dict.fromkeys(user_ids):
@@ -71,7 +73,9 @@ def remove(*, actor: Any, attendee_id: Any, expected_revision: int) -> None:
     attendee = EventAttendee.objects.filter(pk=attendee_id).first()
     if attendee is None:
         raise PermissionDenied(gettext("Participante indisponível."))
-    require_writable_event(actor, attendee.event_id)
+    from .services import refuse_managed
+
+    refuse_managed(require_writable_event(actor, attendee.event_id))
     if type(expected_revision) is not int or attendee.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O convite mudou."))  # #344
     attendee.delete()
@@ -88,12 +92,42 @@ def respond(*, actor: Any, event_id: Any, response: str, expected_revision: int)
     ).first()
     if attendee is None:
         raise PermissionDenied(gettext("Convite indisponível."))
+    from .services import refuse_managed
+
+    refuse_managed(attendee.event)  # The presence of a managed event is decided by its app (#537).
     if type(expected_revision) is not int or attendee.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O convite mudou."))  # #344
     if attendee.response != response:
         attendee.response = response
         attendee.save(update_fields={"response"})
     return attendee
+
+
+def sync_managed_attendees(event: Any, user_ids: Any, *, actor: Any) -> None:
+    """Make the attendees exactly ``user_ids``, all accepted, without any notification (#537)."""
+    from skeleton.service_api.organizations import OrganizationService
+
+    identifiers = tuple(dict.fromkeys(user_ids))
+    refs = OrganizationService().member_refs(actor=actor, user_ids=identifiers) if identifiers else ()
+    if len(refs) != len(identifiers):
+        raise ValidationError(
+            {"attendee_user_ids": gettext("Convide só pessoas ativas desta organização (não contas de serviço).")}
+        )
+    wanted = {ref.membership_id for ref in refs}
+    for attendee in EventAttendee.objects.filter(event=event):
+        if attendee.membership_id not in wanted:
+            attendee.delete()
+        elif attendee.response != EventAttendee.Response.ACCEPTED:
+            attendee.response = EventAttendee.Response.ACCEPTED
+            attendee.save(update_fields={"response"})
+    present = set(EventAttendee.objects.filter(event=event).values_list("membership_id", flat=True))
+    for membership_id in sorted(wanted - present, key=str):
+        EventAttendee(
+            organization_id=event.organization_id,
+            event=event,
+            membership_id=membership_id,
+            response=EventAttendee.Response.ACCEPTED,
+        ).save()
 
 
 def attendee_users(event: Any) -> tuple[UUID, ...]:

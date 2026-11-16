@@ -122,7 +122,15 @@ class Event(OrganizationRecord):
     series = models.ForeignKey("self", on_delete=models.PROTECT, null=True, blank=True, related_name="overrides")
     recurrence_id = models.DateTimeField(null=True, blank=True)
     is_cancelled = models.BooleanField(default=False)
-    immutable_fields = ("calendar_id", "uid", "organizer_id")
+    # Managed events (#537): the projection of a record of another app, written only by its service.
+    source_app = models.CharField(max_length=100, blank=True, default="")
+    source_key = models.CharField(max_length=200, blank=True, default="")
+    source_path = models.CharField(max_length=300, blank=True, default="")
+    immutable_fields = ("calendar_id", "uid", "organizer_id", "source_app", "source_key", "source_path")
+
+    @property
+    def is_managed(self) -> bool:
+        return bool(self.source_app)
 
     class Meta(OrganizationRecord.Meta):
         constraints = OrganizationRecord.Meta.constraints + [
@@ -161,6 +169,21 @@ class Event(OrganizationRecord):
                 condition=Q(deleted_at__isnull=True, series__isnull=False),
                 name="skeleton_calendar_event_one_override",
                 violation_error_code="unique",
+            ),
+            # Managed events (#537): app and key together, one live event per key, no recurrence.
+            models.CheckConstraint(
+                condition=Q(source_app="", source_key="", source_path="") | (~Q(source_app="") & ~Q(source_key="")),
+                name="skeleton_calendar_event_source_pair",
+            ),
+            models.UniqueConstraint(
+                fields=("organization", "source_app", "source_key"),
+                condition=Q(deleted_at__isnull=True) & ~Q(source_app=""),
+                name="skeleton_calendar_event_live_source",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(source_app="") | Q(rrule="", series__isnull=True),
+                name="skeleton_calendar_event_managed_single",
             ),
         ]
         indexes = [
@@ -225,6 +248,10 @@ class Event(OrganizationRecord):
                     raise ValidationError({name: message})
                 normalized.append(moment.isoformat())  # Stored as ISO 8601 in UTC (#236).
             setattr(self, name, normalized)
+        if self.source_app:
+            self._clean_source()
+        elif self.source_key or self.source_path:
+            raise ValidationError({"source_app": gettext("Informe a app de origem.")})
         if self.series_id and self.series_id == self.pk:
             raise ValidationError({"series": gettext("Um evento não substitui a si mesmo.")})
         if self.calendar_id and self.organization_id and self.calendar.organization_id != self.organization_id:
@@ -238,6 +265,25 @@ class Event(OrganizationRecord):
                 ends = [event_end(row) for row in type(self).objects.filter(series_id=self.pk)]
                 end = max([end, *ends]) if end is not None else end
             self.recurrence_end = end
+
+    def _clean_source(self) -> None:
+        """A managed event: no recurrence, no description, a relative path inside its app (#537)."""
+        if not self.source_key:
+            raise ValidationError({"source_key": gettext("Informe a chave de origem.")})
+        if self.rrule or self.rdates or self.series_id:
+            raise ValidationError({"rrule": gettext("Um evento gerenciado não é recorrente.")})
+        if self.description:
+            raise ValidationError({"description": gettext("Um evento gerenciado não tem descrição.")})
+        path = self.source_path
+        if path and (
+            not path.startswith(f"apps/{self.source_app}/")
+            or ".." in path.split("/")
+            or "\\" in path
+            or ":" in path
+            or "//" in path
+            or any(ord(char) < 32 for char in path)
+        ):
+            raise ValidationError({"source_path": gettext("Use um caminho relativo dentro de apps/<app de origem>/.")})
 
     def __str__(self) -> str:
         return self.title

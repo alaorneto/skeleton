@@ -20,6 +20,10 @@ A agenda (`skeleton_calendar`) é a primeira app first-party do núcleo ([extens
 - Título, descrição e local são redigidos na auditoria, para que o histórico não revele o que a tela esconde.
 - Fim igual ou anterior ao início responde 400, no modelo e por restrição no banco. Alterações usam CAS pela revisão.
 
+### Eventos gerenciados (#537)
+
+Outra app projeta um compromisso dela na agenda como evento gerenciado: `source_app` (label da app), `source_key` (chave opaca, o `sysid` do registro dela) e `source_path` (caminho relativo dentro da organização para o registro de origem, `apps/<source_app>/...`). As três colunas são imutáveis; `source_app` e `source_key` são vazios juntos ou preenchidos juntos, e há um só evento vivo por `(organização, source_app, source_key)` (restrição no banco). Um evento gerenciado não tem recorrência, descrição nem lembrete, é privado por padrão e muda só pelo `put_managed_event`/`remove_managed_event` do serviço; os métodos gerais respondem `Conflict("managed_event")`.
+
 ### Recorrência (#70)
 O evento mestre guarda a regra (`rrule`), `rdates` e `exdates`; uma linha de substituição aponta para o mestre (`series`) e nomeia a ocorrência que substitui (`recurrence_id`, o início original, como o RECURRENCE-ID do iCalendar, com o mesmo `uid`).
 

@@ -378,6 +378,103 @@ class CalendarService(ServiceAPI):
         _writable_event(actor, reminder.event_id)
         reminders.remove_reminder(actor=actor, reminder_id=reminder.pk, expected_revision=expected_revision)
 
+    # ----------------------------------------------------------- managed events (#537)
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def put_managed_event(
+        self,
+        *,
+        actor: Any,
+        source_app: str,
+        source_key: str,
+        calendar_id: UUID,
+        data: dict[str, Any],
+        attendee_user_ids: tuple[UUID, ...] = (),
+        source_path: str = "",
+    ) -> EventInfo:
+        """Create or update the event that projects a record of ``source_app`` (idempotent, silent).
+
+        Only the app that owns the record passes its own label (the API is in process: checked by
+        code review). The title names the kind of appointment, never a third party; the details
+        stay in the source app, reached by ``source_path``.
+        Autorização: update no calendário (``can_write``); em ``system_context`` da organização
+        (``actor=None``), aceito, e o organizador é o dono do calendário.
+        Erros: NotFound para calendário inexistente, ilegível ou de outra organização; Forbidden se
+        for só legível; InvalidInput para ``description``, campo desconhecido, app de origem
+        desconhecida, inativa ou a própria agenda, chave inválida, caminho fora de
+        ``apps/<source_app>/``, horários inválidos ou participante que não é membro ativo.
+        Efeitos: cria ou atualiza o único evento vivo da chave (privado por padrão, sem
+        recorrência) e deixa os participantes exatamente em ``attendee_user_ids``, todos
+        ``accepted``, sem notificar ninguém; repetir com os mesmos dados não muda revisão nem
+        ``sequence``; outro ``calendar_id`` exclui o evento antigo e cria outro.
+        """
+        from skeleton.service_api import InvalidInput, as_uuid
+
+        from . import services
+
+        _require_source(source_app, source_key)
+        if not isinstance(source_path, str):
+            raise InvalidInput({"source_path": [gettext("Use um caminho relativo.")]})
+        calendar = _managed_calendar(actor, calendar_id)
+        if not isinstance(attendee_user_ids, tuple) or len(attendee_user_ids) > MAX_INVITES:
+            raise InvalidInput(
+                {"attendee_user_ids": [gettext("Informe até %(value1)s pessoas.") % {"value1": MAX_INVITES}]}
+            )
+        identifiers = tuple(as_uuid(value, field="attendee_user_ids") for value in attendee_user_ids)
+        event = services.put_managed_event(
+            actor=actor,
+            calendar=calendar,
+            source_app=source_app,
+            source_key=source_key,
+            source_path=source_path,
+            data=dict(data) if isinstance(data, dict) else data,
+            attendee_user_ids=identifiers,
+        )
+        return event_info(actor, event)
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def remove_managed_event(self, *, actor: Any, source_app: str, source_key: str) -> None:
+        """Delete the event of ``(source_app, source_key)`` with its attendees; idempotent and silent.
+
+        Autorização: update no calendário do evento; em ``system_context`` da organização, aceito.
+        Erros: Forbidden se o evento for só legível; InvalidInput para app de origem desconhecida,
+        inativa ou a própria agenda, ou chave inválida. Sem evento (ou ilegível): nada muda.
+        Efeitos: exclusão lógica do evento e dos participantes, sem notificação.
+        """
+        from skeleton.service_api import Forbidden
+
+        from . import services
+        from .policies import can_write
+
+        _require_source(source_app, source_key)
+        with transaction.atomic(using=current_context().using):
+            event = services.managed_event_row(source_app, source_key, lock=True)
+            if event is None:
+                return
+            if actor is not None:
+                if not _readable_ids(actor, event):
+                    return
+                if not can_write(actor, event.calendar):
+                    raise Forbidden()
+            services.remove_event_rows(event)
+
+    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    def managed_event(self, *, actor: Any, source_app: str, source_key: str) -> EventInfo | None:
+        """The live event of ``(source_app, source_key)`` as the actor may see it, or ``None``.
+
+        Autorização: leitura do calendário ou convite; em ``system_context`` da organização, aceito.
+        Erros: InvalidInput para app de origem desconhecida, inativa ou a própria agenda, ou chave
+        inválida.
+        Efeitos: nenhum.
+        """
+        from . import services
+
+        _require_source(source_app, source_key)
+        event = services.managed_event_row(source_app, source_key)
+        if event is None or (actor is not None and not _readable_ids(actor, event)):
+            return None
+        return event_info(actor, event)
+
     @service_method(read_only=True, since="0.5.0")
     def free_busy(
         self, *, actor: Any, user_ids: tuple[UUID, ...], start: datetime, end: datetime
@@ -442,12 +539,16 @@ class EventInfo:
     status: str
     organizer_id: UUID
     revision: int
+    # Managed events (#537): the owning app and the path of its record, empty for a busy block.
+    source_app: str = ""
+    source_path: str = ""
 
 
 def event_info(actor: Any, event: Any) -> EventInfo:
     from .policies import BUSY_TITLE, sees_details
 
-    details = sees_details(actor, event)
+    # ``actor=None`` is the owning app in a system context (#537): it wrote the content.
+    details = actor is None or sees_details(actor, event)
     return EventInfo(
         sysid=event.pk,
         calendar_id=event.calendar_id,
@@ -464,6 +565,8 @@ def event_info(actor: Any, event: Any) -> EventInfo:
         status=event.status,
         organizer_id=event.organizer_id,
         revision=event.revision,
+        source_app=event.source_app if details else "",
+        source_path=event.source_path if details else "",
     )
 
 
@@ -482,6 +585,8 @@ class EventOccurrence:
     status: str
     start_date: date | None = None  # All-day only: the first day (#312).
     end_date: date | None = None  # All-day only: the day after the last one (exclusive).
+    source_app: str = ""  # Managed events (#537); empty for a busy block.
+    source_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -663,6 +768,8 @@ def occurrences_in(actor: Any, events: Any, start: datetime, end: datetime) -> l
                 status=target.status,
                 start_date=occurrence.starts_at.date() if target.all_day else None,
                 end_date=occurrence.ends_at.date() if target.all_day else None,
+                source_app=event.source_app if details else "",
+                source_path=event.source_path if details else "",
             )
         )
     rows.sort(key=lambda row: (row.starts_at, str(row.event_id)))
@@ -677,3 +784,50 @@ def _idempotent_uid(actor: Any, key: str) -> str:
     if not isinstance(key, str) or not 1 <= len(key) <= 200:
         raise InvalidInput({"idempotency_key": [gettext("Chave de 1 a 200 caracteres.")]})
     return hashlib.sha256(f"{actor.pk}:{key}".encode()).hexdigest() + "@idempotent"
+
+
+def _require_source(source_app: Any, source_key: Any) -> None:
+    """A registered, active app other than the calendar, and an opaque key (#537)."""
+    import re
+
+    from skeleton.service_api import InvalidInput
+    from skeleton.system.applications import application_state, require_application_enabled
+
+    if (
+        not isinstance(source_app, str)
+        or not re.fullmatch(r"[a-z][a-z0-9_]{0,99}", source_app)
+        or source_app == APP_LABEL
+    ):
+        raise InvalidInput({"source_app": [gettext("Informe o label de outra app.")]})
+    try:
+        application_state(source_app)
+        require_application_enabled(source_app)
+    except (KeyError, PermissionDenied):
+        raise InvalidInput({"source_app": [gettext("A app de origem não está ativa nesta organização.")]}) from None
+    from .services import MANAGED_KEY
+
+    if not isinstance(source_key, str) or not re.fullmatch(MANAGED_KEY, source_key):
+        raise InvalidInput({"source_key": [gettext("Use de 1 a 200 letras, dígitos e : . _ -.")]})
+
+
+def _managed_calendar(actor: Any, calendar_id: Any) -> Calendar:
+    """The calendar a managed event goes to: writable by the actor, or any of the tenant for the system."""
+    from skeleton.service_api import Forbidden, NotFound, as_uuid
+
+    from .policies import can_write
+
+    if actor is None:
+        calendar = Calendar.objects.filter(pk=as_uuid(calendar_id, field="calendar_id")).first()
+        if calendar is None:
+            raise NotFound()
+        return calendar
+    calendar = _readable_calendar(actor, calendar_id)
+    if not can_write(actor, calendar):
+        raise Forbidden()
+    return calendar
+
+
+def _readable_ids(actor: Any, event: Any) -> bool:
+    from .policies import readable_events
+
+    return readable_events(actor).filter(pk=event.pk).exists()

@@ -143,6 +143,14 @@ def create_event(*, actor: Any, calendar_id: Any, data: dict[str, Any], uid: str
     return event
 
 
+def refuse_managed(event: Any) -> None:
+    """A managed event (#537) changes only through the service of the app that owns it."""
+    if event is not None and event.source_app:
+        from skeleton.service_api import Conflict
+
+        raise Conflict("managed_event", gettext("Este evento é gerenciado por outra app; altere-o na origem."))
+
+
 def update_event(*, actor: Any, event_id: Any, data: dict[str, Any], expected_revision: int) -> Any:
     """Change an event with CAS; every change bumps the iCalendar ``sequence``."""
     from skeleton.service_api import Conflict
@@ -150,6 +158,7 @@ def update_event(*, actor: Any, event_id: Any, data: dict[str, Any], expected_re
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
+    refuse_managed(event)
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O evento mudou."))
     values = _event_values(data)
@@ -186,6 +195,7 @@ def delete_event(*, actor: Any, event_id: Any, expected_revision: int) -> None:
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
+    refuse_managed(event)
     if type(expected_revision) is not int or event.revision != expected_revision:
         raise Conflict("stale_revision", gettext("O evento mudou."))
     with transaction.atomic(using=current_context().using):
@@ -212,6 +222,7 @@ def _master(actor: Any, event_id: Any, expected_revision: int) -> Any:
     from .policies import require_writable_event
 
     event = require_writable_event(actor, event_id)
+    refuse_managed(event)
     if event.series_id is not None or not event.rrule:
         raise ValidationError({"event": gettext("Use o evento mestre de uma série recorrente.")})
     if type(expected_revision) is not int or event.revision != expected_revision:
@@ -324,3 +335,125 @@ def cancel_occurrence(*, actor: Any, event_id: Any, recurrence_id: Any, expected
         master.sequence += 1
         master.save(update_fields={"exdates", "sequence", "recurrence_end"})
     return master
+
+
+# --------------------------------------------------------------------------- managed events (#537)
+
+MANAGED_FIELDS = (
+    "title",
+    "location",
+    "all_day",
+    "starts_at",
+    "ends_at",
+    "start_date",
+    "end_date",
+    "tzid",
+    "status",
+    "is_private",
+)
+MANAGED_KEY = r"[A-Za-z0-9:._-]{1,200}"
+
+
+def managed_values(data: Any) -> dict[str, Any]:
+    """The accepted fields of a managed event; ``description`` is always refused (#537)."""
+    if not isinstance(data, dict):
+        raise ValidationError({"data": gettext("Envie os campos do evento.")})
+    if "description" in data:
+        raise ValidationError(
+            {"description": gettext("Um evento gerenciado não tem descrição; o detalhe fica na origem.")}
+        )
+    unknown = set(data) - set(MANAGED_FIELDS)
+    if unknown:
+        raise ValidationError({"__all__": gettext("Campos não aceitos: %(value1)s.") % {"value1": sorted(unknown)}})
+    return _event_values(data)
+
+
+def managed_uid(source_app: str, source_key: str, calendar_id: Any) -> str:
+    import hashlib
+
+    return hashlib.sha256(f"{source_app}:{source_key}:{calendar_id}".encode()).hexdigest() + "@managed"
+
+
+def managed_event_row(source_app: str, source_key: str, *, lock: bool = False) -> Any:
+    from .models import Event
+
+    rows = Event.objects.select_related("calendar").filter(source_app=source_app, source_key=source_key)
+    return (rows.select_for_update(of=("self",)) if lock else rows).first()
+
+
+def remove_event_rows(event: Any) -> None:
+    """Soft delete a managed event with its attendees and reminders, silently (#537)."""
+    from .models import EventAttendee, EventReminder
+
+    for reminder in EventReminder.objects.filter(event=event):
+        reminder.delete()
+    for attendee in EventAttendee.objects.filter(event=event):
+        attendee.delete()
+    event.delete()
+
+
+def _create_managed(
+    actor: Any, calendar: Any, source_app: str, source_key: str, source_path: str, values: dict[str, Any]
+) -> tuple[Any, bool]:
+    """Insert the managed event; a concurrent insert of the same key is read back instead (#537)."""
+    from .models import Event
+
+    event = Event(  # type: ignore[misc]  # The organization is set: this runs in a tenant context.
+        organization_id=current_context().organization_id,
+        calendar=calendar,
+        organizer_id=actor.pk if actor is not None else calendar.owner_id,
+        uid=managed_uid(source_app, source_key, calendar.pk),
+        source_app=source_app,
+        source_key=source_key,
+        source_path=source_path,
+        **{"is_private": True, "tzid": calendar.timezone, **values},
+    )
+    try:
+        with transaction.atomic(using=current_context().using):
+            event.save()
+    except (IntegrityError, ValidationError):
+        winner = managed_event_row(source_app, source_key, lock=True)
+        if winner is None or winner.calendar_id != calendar.pk or winner.source_path != source_path:
+            raise
+        return winner, False
+    return event, True
+
+
+def put_managed_event(
+    *,
+    actor: Any,
+    calendar: Any,
+    source_app: str,
+    source_key: str,
+    source_path: str,
+    data: dict[str, Any],
+    attendee_user_ids: tuple[Any, ...],
+) -> Any:
+    """Create or update the one live event of ``(source_app, source_key)``; idempotent, never notifies.
+
+    The caller has authorized the calendar. Moving to another calendar deletes the old event and
+    creates a new one (the calendar is immutable). A repeat with the same data changes nothing.
+    """
+    from .attendees import sync_managed_attendees
+
+    values = managed_values(data)
+    using = current_context().using
+    with transaction.atomic(using=using):
+        event = managed_event_row(source_app, source_key, lock=True)
+        if event is not None and (event.calendar_id != calendar.pk or event.source_path != source_path):
+            # Calendar and path are immutable: a new projection of the record replaces the old one.
+            remove_event_rows(event)
+            event = None
+        if event is None:
+            event, created = _create_managed(actor, calendar, source_app, source_key, source_path, values)
+        else:
+            created = False
+        if not created:
+            changed = {name: value for name, value in values.items() if getattr(event, name) != value}
+            if changed:
+                for name, value in changed.items():
+                    setattr(event, name, value)
+                event.sequence += 1
+                event.save(update_fields={*changed, "sequence", "recurrence_end"})
+        sync_managed_attendees(event, attendee_user_ids, actor=actor)
+    return event
