@@ -18,7 +18,7 @@ from skeleton.service_api.dto import DEFAULT_PAGE_SIZE, Page, paginate
 
 from .models import Account, AccountBinding, Book, CostCenter, Entry, EntryLine
 from .posting import LineDraft as PostingLine
-from .registry import AccountKey, register_account_key
+from .registry import AccountKey, Key, Param, PostingRule, RuleLine, register_account_key, register_posting_rule
 
 APP_LABEL = "skeleton_ledger"
 __all__ = [
@@ -30,7 +30,12 @@ __all__ = [
     "EntryInfo",
     "EntryLineInfo",
     "LedgerService",
+    "Key",
+    "Param",
     "PostingLine",
+    "PostingRule",
+    "RuleLine",
+    "register_posting_rule",
     "register_account_key",
 ]
 
@@ -454,20 +459,33 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
     def reverse(
-        self, *, actor: Any, entry_id: UUID, date: date, reason: str = "", idempotency_key: str = ""
+        self,
+        *,
+        actor: Any,
+        entry_id: UUID,
+        date: date,
+        reason: str = "",
+        idempotency_key: str = "",
+        expected_revision: int | None = None,
     ) -> EntryInfo:
         """Reverse an entry once: the inverse entry, linked by ``reverses``; a reversal is not reversible.
 
-        Autorização: gestão do livro do lançamento; o de uma regra também pelo registro de origem (#545).
+        Autorização: gestão do livro do lançamento; um lançamento com origem (#545) também pela ação
+        da regra no registro de origem, sem ler o livro; ``actor=None`` só em ``system_context``.
         Erros: NotFound; Forbidden; Conflict("already_reversed"); Conflict("period_locked");
-        InvalidInput para estornar um estorno.
+        Conflict("stale_revision") com ``expected_revision`` divergente; InvalidInput para estornar
+        um estorno.
         Efeitos: grava o estorno selado na transação do chamador.
         """
+        from skeleton.service_api import Conflict
+
         from . import posting
 
-        entry = _entry(actor, entry_id, manage=True)
+        entry = _entry_to_change(actor, entry_id)
+        if expected_revision is not None and entry.revision != expected_revision:
+            raise Conflict("stale_revision")
         return _post(
             lambda: posting.reverse_entry(
                 entry=entry,
@@ -477,6 +495,77 @@ class LedgerService(ServiceAPI):
                 idempotency_key=_key(idempotency_key, required=False),
             )
         )
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def post(
+        self,
+        *,
+        actor: Any,
+        rule: str,
+        amounts: dict[str, int],
+        date: date,
+        description: str,
+        source_id: UUID,
+        idempotency_key: str,
+        accounts: dict[str, UUID] | None = None,
+        book_id: UUID | None = None,
+        cost_center_id: UUID | None = None,
+        party_ref: str = "",
+        party_kind: str = "",
+    ) -> EntryInfo:
+        """Post an entry by a rule declared in code, authorized by the source record (#545).
+
+        Whoever may act on the source record (an appointment, a sale) posts without reading the book.
+        The description cites the number of the source document, never the name of a person.
+        Autorização: a ação da regra (``source_action``) no registro ``source_id`` da tabela de origem
+        dela; ``actor=None`` só em ``system_context`` (a origem precisa existir na organização).
+        Erros: NotFound para origem inexistente, ilegível ou de outra organização, ou sem livro
+        padrão; Forbidden sem a ação na origem; Unavailable com a app da origem desativada;
+        Conflict("account_not_bound") com a chave sem vínculo no livro; Conflict("period_locked");
+        InvalidInput para regra desconhecida, valores inválidos, ``Param`` ausente ou de outro livro e
+        resultado desbalanceado.
+        Efeitos: cria, parte e sela o lançamento na transação do chamador; a mesma chave da mesma
+        app de origem devolve o lançamento já criado.
+        """
+        from . import posting
+
+        definition = _rule(rule)
+        _authorize_source(actor, definition.source_table_key, source_id, definition.source_action)
+        book = _posting_book(book_id)
+        key = _key(idempotency_key)
+        found = posting.existing_entry(definition.app_label, key)
+        if found is not None:
+            return entry_info(found)
+        lines = _rule_lines(book, definition, amounts, accounts or {}, cost_center_id, party_ref, party_kind)
+        return _post(
+            lambda: _create(
+                book=book,
+                lines=lines,
+                date=date,
+                description=description,
+                kind=Entry.Kind.RULE,
+                actor=actor,
+                rule=definition.code,
+                source_app=definition.app_label,
+                source_table=definition.source_table_key,
+                source_id=_uuid(source_id, "source_id"),
+                idempotency_key=key,
+            )
+        )
+
+    @service_method(read_only=True, since="0.6.0")
+    def entries_for_source(self, *, actor: Any, table_key: str, record_id: UUID) -> tuple[EntryInfo, ...]:
+        """The sealed entries of one source record (at most 200), for the app to show them next to it.
+
+        Autorização: leitura do registro de origem (não exige leitura do livro).
+        Erros: NotFound para origem inexistente, ilegível ou de outra organização; InvalidInput.
+        Efeitos: nenhum.
+        """
+        _authorize_source(actor, table_key, record_id, "read")
+        rows = Entry.objects.filter(
+            source_table=table_key, source_id=_uuid(record_id, "record_id"), sealed_at__isnull=False
+        ).order_by("date", "number", "sysid")[:200]
+        return tuple(entry_info(row) for row in rows)
 
     @service_method(read_only=True, since="0.6.0")
     def entry(self, *, actor: Any, entry_id: UUID) -> EntryInfo:
@@ -676,3 +765,123 @@ def _entry(actor: Any, entry_id: Any, *, manage: bool = False) -> Entry:
     if manage and not can_manage(actor, entry.book):
         raise Forbidden()
     return entry
+
+
+def _rule(code: Any) -> PostingRule:
+    from skeleton.service_api import InvalidInput
+
+    from .registry import get_rule
+
+    try:
+        return get_rule(code)
+    except (KeyError, TypeError):
+        raise InvalidInput({"rule": ["Regra de lançamento desconhecida."]}) from None
+
+
+def _authorize_source(actor: Any, table_key: str, record_id: Any, action: str) -> None:
+    """The actor may ``action`` the source record; the system context needs the record in the tenant."""
+    from django.apps import apps
+
+    from skeleton.service_api import NotFound, Unavailable
+    from skeleton.service_api.access import AccessService
+    from skeleton.system.applications import require_application_enabled
+
+    try:
+        model = apps.get_model(table_key)
+    except (LookupError, ValueError, TypeError, AttributeError):
+        raise NotFound() from None
+    try:
+        require_application_enabled(model._meta.app_label)
+    except PermissionDenied:
+        raise Unavailable() from None
+    identifier = _uuid(record_id, "record_id")
+    if actor is None:
+        if not model.objects.filter(pk=identifier).exists():
+            raise NotFound()
+        return
+    AccessService().require(actor=actor, action=action, table_key=table_key, record_id=identifier)
+
+
+def _posting_book(book_id: Any) -> Book:
+    """The book an authorized posting goes to, read without the poster's book permission (#545)."""
+    from skeleton.service_api import NotFound
+
+    rows = Book.objects.all()
+    book = (
+        rows.filter(is_default=True).first() if book_id is None else rows.filter(pk=_uuid(book_id, "book_id")).first()
+    )
+    if book is None:
+        raise NotFound()
+    return book
+
+
+def _rule_lines(
+    book: Book,
+    rule: PostingRule,
+    amounts: Any,
+    accounts: Any,
+    cost_center_id: Any,
+    party_ref: Any,
+    party_kind: Any,
+) -> tuple[PostingLine, ...]:
+    """Resolve the accounts and amounts of a rule; a zero component drops its lines."""
+    from skeleton.service_api import Conflict, InvalidInput
+
+    if not isinstance(amounts, dict) or not all(type(value) is int and value >= 0 for value in amounts.values()):
+        raise InvalidInput({"amounts": ["Valores são inteiros não negativos da menor unidade da moeda."]})
+    if not isinstance(accounts, dict):
+        raise InvalidInput({"accounts": ["Informe as contas por nome de parâmetro."]})
+    if (
+        not isinstance(party_ref, str)
+        or len(party_ref) > 100
+        or not isinstance(party_kind, str)
+        or len(party_kind) > 50
+    ):
+        raise InvalidInput({"party_ref": ["Referência opaca de até 100 caracteres."]})
+    bindings = dict(AccountBinding.objects.filter(book=book).values_list("key", "account_id"))
+    center = _uuid(cost_center_id, "cost_center_id") if cost_center_id is not None else None
+    lines = []
+    for line in rule.lines:
+        amount = amounts.get(line.amount, 0)
+        if amount == 0:
+            continue
+        if isinstance(line.account, Key):
+            account_id = bindings.get(line.account.code)
+            if account_id is None:
+                raise Conflict("account_not_bound", f"Vincule a chave {line.account.code} a uma conta do livro.")
+        else:
+            if line.account.name not in accounts:
+                raise InvalidInput({"accounts": [f"Informe a conta {line.account.name}."]})
+            account_id = _uuid(accounts[line.account.name], "accounts")
+        lines.append(
+            PostingLine(
+                account_id=account_id,
+                debit=amount if line.side == "debit" else 0,
+                credit=amount if line.side == "credit" else 0,
+                cost_center_id=center,
+                party_ref=party_ref,
+                party_kind=party_kind,
+            )
+        )
+    return tuple(lines)
+
+
+def _entry_to_change(actor: Any, entry_id: Any) -> Entry:
+    """An entry to reverse: by the source record of its rule, or by the management of its book."""
+    from skeleton.service_api import NotFound
+
+    from .registry import get_rule
+
+    entry = Entry.objects.select_related("book").filter(pk=_uuid(entry_id, "entry_id"), sealed_at__isnull=False).first()
+    if entry is None:
+        raise NotFound()
+    if entry.source_table and entry.source_id is not None:
+        try:
+            action = get_rule(entry.rule).source_action
+        except KeyError:
+            action = "update"
+        _authorize_source(actor, entry.source_table, entry.source_id, action)
+        return entry
+    if actor is None:
+        raise NotFound()
+    return _entry(actor, entry.pk, manage=True)

@@ -45,9 +45,14 @@ O livro padrão da organização, criado na primeira chamada.
 | `entries(*, actor, start, end, book_id=None, cursor=None, page_size=25) -> Page[EntryInfo]` | leitura do livro; até cinco anos | `NotFound`; `InvalidInput` |
 | `set_lock(*, actor, locked_until, expected_revision, book_id=None) -> BookInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `InvalidInput` |
 
+| `post(*, actor, rule, amounts, date, description, source_id, idempotency_key, accounts=None, book_id=None, cost_center_id=None, party_ref="", party_kind="") -> EntryInfo` | a ação da regra no registro de origem (sem leitura do livro); `system_context` aceito | `NotFound` (origem ilegível ou de outra organização, sem livro); `Forbidden` (sem a ação na origem); `Unavailable` (app da origem desativada); `Conflict("account_not_bound")` com a chave; `Conflict("period_locked")`; `InvalidInput` (regra, valores, `Param` ausente ou de outro livro, resultado desbalanceado) |
+| `entries_for_source(*, actor, table_key, record_id) -> tuple[EntryInfo, ...]` | leitura do registro de origem | `NotFound`; `InvalidInput` |
+
+`reverse` também aceita `expected_revision` (CAS) e `system_context`; um lançamento com origem é estornado com a ação da regra na origem. `amounts` mapeia o nome de cada componente a um inteiro da menor unidade da moeda; `accounts` mapeia o nome de cada `Param` ao `sysid` de uma conta do livro.
+
 `lines` é uma tupla de `PostingLine(account_id, debit=0, credit=0, memo="", cost_center_id=None, party_ref="", party_kind="")`, reexportado pelo módulo. A contraparte é identificada só por `party_ref` (referência opaca), nunca por nome.
 
-**Registro em código.** `skeleton.contrib.ledger.service_api` reexporta `AccountKey` e `register_account_key`: a app chama `register_account_key(AccountKey(code="acme_services.service_revenue", label=..., kind="revenue"))` no `ready()`. Código fora do formato ou duplicado é `ValueError`.
+**Registro em código.** `skeleton.contrib.ledger.service_api` reexporta `AccountKey`, `register_account_key`, `PostingRule`, `RuleLine`, `Key`, `Param` e `register_posting_rule`: a app chama `register_account_key(AccountKey(code="acme_services.service_revenue", label=..., kind="revenue"))` no `ready()`. Código fora do formato ou duplicado é `ValueError`.
 
 ## DTOs
 - `BookInfo`: `sysid`, `name`, `currency`, `basis`, `is_default`, `locked_until`, `revision` e `writable` (se o ator gere o livro).
@@ -57,4 +62,4 @@ O livro padrão da organização, criado na primeira chamada.
 - `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest` e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Histórico de versões
-- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544).
+- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545).

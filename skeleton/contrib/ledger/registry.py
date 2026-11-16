@@ -74,3 +74,86 @@ def register_base_keys() -> None:
 
     for name, label, kind in BASE_KEYS:
         register_account_key(AccountKey(code=f"{BASE_PREFIX}.{name}", label=gettext_lazy(label), kind=kind))
+
+
+# --------------------------------------------------------------------------- posting rules (#545)
+
+SIDES = ("debit", "credit")
+ACTIONS = ("read", "update", "create", "delete")
+_NAME = re.compile(r"[a-z][a-z0-9_]{0,49}\Z")
+
+
+@dataclass(frozen=True)
+class Key:
+    """An account key resolved through the book's binding."""
+
+    code: str
+
+
+@dataclass(frozen=True)
+class Param:
+    """An account the caller passes (``accounts={name: account_id}``), such as which cash or bank."""
+
+    name: str
+
+
+@dataclass(frozen=True)
+class RuleLine:
+    side: str
+    account: Key | Param
+    amount: str  # Name of the component in ``amounts``.
+
+
+@dataclass(frozen=True)
+class PostingRule:
+    """How a record of an app becomes an entry: declared in code, authorized by the source record."""
+
+    code: str
+    label: Any
+    source_table_key: str
+    source_action: str
+    lines: tuple[RuleLine, ...]
+
+    @property
+    def app_label(self) -> str:
+        return self.code.split(".", 1)[0]
+
+
+_rules: dict[str, PostingRule] = {}
+
+
+def register_posting_rule(rule: PostingRule) -> PostingRule:
+    """Register a rule; the source table is checked at the end of app loading (check E041)."""
+    if not isinstance(rule, PostingRule) or not _CODE.fullmatch(rule.code or ""):
+        raise ValueError(f"Invalid posting rule: {getattr(rule, 'code', rule)!r}.")
+    if not isinstance(rule.source_table_key, str) or not _CODE.fullmatch(rule.source_table_key):
+        raise ValueError(f"{rule.code}: source_table_key must be <app_label>.<model>.")
+    if rule.source_table_key.split(".", 1)[0] != rule.app_label:
+        raise ValueError(f"{rule.code}: the source table belongs to the app that registers the rule.")
+    if rule.source_action not in ACTIONS:
+        raise ValueError(f"{rule.code}: source_action must be one of {', '.join(ACTIONS)}.")
+    if not isinstance(rule.lines, tuple) or len(rule.lines) < 2:
+        raise ValueError(f"{rule.code}: a rule has at least two lines.")
+    for line in rule.lines:
+        if not isinstance(line, RuleLine) or line.side not in SIDES:
+            raise ValueError(f"{rule.code}: each line is a RuleLine with side debit or credit.")
+        if not isinstance(line.amount, str) or not _NAME.fullmatch(line.amount):
+            raise ValueError(f"{rule.code}: each line names its amount component.")
+        if isinstance(line.account, Key):
+            if not _CODE.fullmatch(line.account.code or ""):
+                raise ValueError(f"{rule.code}: invalid account key {line.account.code!r}.")
+        elif not isinstance(line.account, Param) or not _NAME.fullmatch(line.account.name or ""):
+            raise ValueError(f"{rule.code}: each line takes a Key or a Param.")
+    current = _rules.get(rule.code)
+    if current is not None and current != rule:
+        raise ValueError(f"Posting rule {rule.code} is already registered.")
+    _rules[rule.code] = rule
+    return rule
+
+
+def get_rule(code: str) -> PostingRule:
+    return _rules[code]
+
+
+def all_rules() -> tuple[PostingRule, ...]:
+    return tuple(_rules[code] for code in sorted(_rules))
