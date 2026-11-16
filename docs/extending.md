@@ -454,7 +454,68 @@ Isso vale tanto para app nova quanto para alteração de coluna ou relação aud
 
 ## Registros que não mudam depois de um ato
 
-Um registro que vira definitivo num ato de negócio (assinar, lançar) deriva de `SealableMixin` e declara `seal_fields` (#526): depois do selo, o banco recusa mudança nessas colunas, no selo e, por padrão, na exclusão lógica. O modelo e as regras estão em [modelo de dados](data-model.md#registros-selados-526). Correção nunca é edição: o padrão é o **adendo**, um registro novo, também selável, com uma FK `PROTECT` para o original; os dois aparecem juntos na tela da app.
+Um registro que vira definitivo num ato de negócio (assinar, lançar) deriva de `SealableMixin` e declara `seal_fields` (#526): depois do selo, o banco recusa mudança nessas colunas, no selo e, por padrão, na exclusão lógica. As regras completas estão em [modelo de dados](data-model.md#registros-selados-526). O roteiro de uma app:
+
+```python
+# models.py
+from django.db import models
+
+from skeleton.common.models import SealableMixin, SecuredRecord
+
+
+class Document(SealableMixin, SecuredRecord):
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    delivered = models.BooleanField(default=False)  # Fora de seal_fields: continua editável.
+    corrects = models.ForeignKey("self", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    seal_fields = ("title", "body", "corrects")
+    immutable_fields = ("corrects_id",)
+
+
+class DocumentSection(SecuredRecord):
+    document = models.ForeignKey(Document, on_delete=models.PROTECT, related_name="sections")
+    text = models.TextField()
+    seal_parent = "document"  # Congelada com o documento (#528).
+    immutable_fields = ("document_id",)
+```
+
+```python
+# apps.py, em ready()
+from skeleton.system.registry import AttachmentPolicy, SealPolicy, TableSpec, register
+
+register(
+    TableSpec(
+        model=Document,
+        description="Documentos assinados",
+        read_fields=("title", "body", "delivered", "corrects"),
+        write_fields=("title", "body", "delivered"),  # Nunca sealed_at, sealed_by nem seal_digest (E040).
+        expose_api=True,
+        attachments=AttachmentPolicy(max_bytes=5_000_000, types=("application/pdf",)),
+        seal=SealPolicy(attachments="frozen", comments="open"),
+    )
+)
+```
+
+```sh
+python manage.py makemigrations acme_docs
+python manage.py record_infrastructure acme_docs --write   # congela a chave seal e o guard
+```
+
+```python
+# services.py: o ato de assinar, autorizado e com CAS
+from skeleton.common.sealing import digest
+from skeleton.records.sealing import seal_record
+
+
+def sign(document, *, user, expected_revision):
+    sections = [{"sysid": s.pk, "text": s.text} for s in document.sections.order_by("sysid")]
+    return seal_record(document, user=user, expected_revision=expected_revision, extra={"sections": sections})
+```
+
+- `seal_record` exige `update` no documento, trava a linha, confere a revisão e grava o selo. O resumo (`seal_digest`) cobre os campos congelados, os anexos congelados e o `extra`: é o que uma app de assinatura digital assina. Outra app usa o `RecordSealService`, passando o `extra_digest` que calculou com `digest(...)`.
+- Uma condição que dependa de outras linhas (por exemplo, "o documento tem pelo menos uma seção") vai em `seal_condition_sql`, uma expressão sobre `NEW` congelada na migration, conferida pelo banco na transição. Ela só lê tabelas da própria app; `;`, comentários e `$` são recusados.
+- **Correção é sempre por adendo**, nunca por edição: um documento novo com `corrects` apontando para o original, também selado. O original continua íntegro e os dois aparecem juntos na tela da app. Não existe desselar.
+- Teste o contrato com `skeleton.testing.sealing.assert_sealed_contract` ([testes](testing.md#kit-do-selo)).
 
 ## Permissões e fluxo HTML
 
