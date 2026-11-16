@@ -168,7 +168,7 @@ python -m skeleton.testing.database provision --database ci_skeleton_test
 
 Ele cria o banco se não existir, aplica o SQL, dá `GRANT CREATE ON DATABASE` ao `skeleton_owner` e, quando as variáveis existem, define as senhas das duas roles. É idempotente. Recusa nome de banco que não seja um identificador simples terminado em `_skeleton_test`. A URL administrativa vem de `--admin-url` ou de `SKELETON_TEST_ADMIN_DATABASE_URL` e nunca é impressa nem gravada; uma falha do driver só mostra o tipo do erro. O teste de integração do subcomando roda só quando `SKELETON_TEST_ADMIN_DATABASE_URL` existe.
 
-O hospedeiro só serve para testes; nunca é entrypoint de produção. `tests/unit/test_dev_apps.py` prova que ele sobe o Django e resolve as URLs do núcleo sem importar `config`.
+O fluxo completo de uma app em repositório próprio, com o CI gerado, está em [extending](extending.md#desenvolver-uma-app-em-repositório-próprio). O hospedeiro só serve para testes; nunca é entrypoint de produção. `tests/unit/test_dev_apps.py` prova que ele sobe o Django e resolve as URLs do núcleo sem importar `config`.
 
 ## PostgreSQL runtime real
 

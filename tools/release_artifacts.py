@@ -1,8 +1,10 @@
 """Build, sign and verify the release assets of a core version (#496).
 
-``build`` produces, in a new directory, the five assets every GitHub release carries:
+``build`` produces, in a new directory, the six assets every GitHub release carries:
 
 - ``django-skeleton-<version>.skapp``: the core package (not an index entry);
+- ``django_skeleton-<version>-py3-none-any.whl``: the core wheel, which the CI of an app in its own
+  repository installs at a fixed version (#521); its SHA-256 is also written in the release body;
 - ``skeleton-<version>.release.skapp``: the release package, the core entry of the index;
 - ``skeleton_deployment_agent-<version>-py3-none-any.whl``: the agent wheel, for manual installs;
 - ``skeleton-index.json``: the signed, accumulated index (``artifact`` is ``<tag>/<asset>``);
@@ -337,15 +339,18 @@ def build(options: argparse.Namespace) -> dict:
         )
         agent_copy = out / agent_wheel.name
         shutil.copyfile(agent_wheel, agent_copy)
+        core_wheel_copy = out / core_wheel.name
+        shutil.copyfile(core_wheel, core_wheel_copy)
         _verify(out, version=version, tag=options.tag, publisher=publisher, trust=trust, release=release, core=core)
         if options.verify_install:
             _verify_install(recipe, targets, core_wheel, agent_wheel, work)
-    assets = [core, release, agent_copy, out / INDEX]
+    assets = [core, release, core_wheel_copy, agent_copy, out / INDEX]
     sums = out / "SHA256SUMS"
     sums.write_text("".join(f"{_sha256(path)}  {path.name}\n" for path in assets), encoding="utf-8")
     result = {
         "core": str(core),
         "release": str(release),
+        "core_wheel": str(core_wheel_copy),
         "agent": str(agent_copy),
         "index": str(out / INDEX),
         "sha256sums": str(sums),

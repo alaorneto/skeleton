@@ -180,7 +180,7 @@ O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` pr
 
 ### Carregar uma app em desenvolvimento (`SKELETON_DEV_APPS`)
 
-Uma app que vive no próprio repositório git entra num projeto de desenvolvimento sem editar arquivo versionado (#518): `SKELETON_DEV_APPS` lista, separados por vírgula, os diretórios de checkout das apps.
+Uma app que vive no próprio repositório git (veja [Desenvolver uma app em repositório próprio](#desenvolver-uma-app-em-repositório-próprio)) entra num projeto de desenvolvimento sem editar arquivo versionado (#518): `SKELETON_DEV_APPS` lista, separados por vírgula, os diretórios de checkout das apps.
 
 ```sh
 export SKELETON_DEV_APPS=/home/dev/src/acme_clientes
@@ -306,6 +306,36 @@ O índice é `{catalog: {...}, signature: "<base64>"}`; assinatura cobre JSON ca
 O exemplo pode ser publicado de verdade com `package build --app-root examples/notes --manifest examples/notes/manifest.json --output /private/notes.skapp --private-key /private/publisher.pem`; autorize o publisher `skeleton-examples` no trust store correspondente. Ativação/configuração tenant permanece independente da instalação física global.
 
 
+
+## Desenvolver uma app em repositório próprio
+
+Uma app de negócio pode viver no próprio repositório git, fora de qualquer projeto derivado (epic #512). O repositório **é** o pacote Python da app; ele nunca contém cópia do núcleo, que vem sempre do wheel de uma release ou de um checkout do Skeleton ao lado.
+
+```text
+acme_clientes/            <- checkout; o nome do diretório é o nome do pacote
+  .gitattributes          <- export-ignore do que não vai no pacote
+  .gitignore
+  .github/workflows/ci.yml
+  pyproject.toml          <- só configuração de pytest/ruff (export-ignore)
+  README.md               <- (export-ignore)
+  manifest.json
+  __init__.py  apps.py  models.py  service_api.py  views.py  urls.py  api_urls.py
+  migrations/  templates/  docs/  tests/
+```
+
+| Passo | Como |
+|---|---|
+| Criar | `python manage.py skeleton_startapp acme_clientes --standalone --directory ../ --app-id com.example.clientes --publisher example-publisher` gera essa árvore ([Começar uma app](#começar-uma-app-com-skeleton_startapp)); depois `git init`, `git add -A`, `git commit` |
+| Carregar no desenvolvimento | `SKELETON_DEV_APPS=/caminho/acme_clientes` num projeto do Skeleton; `makemigrations`, `record_infrastructure --write`, `migrate` e `runserver` como sempre ([Carregar uma app em desenvolvimento](#carregar-uma-app-em-desenvolvimento-skeleton_dev_apps)). Só nos perfis de desenvolvimento e teste |
+| Testar sem projeto | `DJANGO_SETTINGS_MODULE=skeleton.testing.host.settings`, o projeto hospedeiro do wheel, com o plugin de pytest ligado no `pyproject.toml` gerado ([testing](testing.md#projeto-hospedeiro-para-apps-em-repositório-próprio)) |
+| Banco de teste | `python -m skeleton.testing.database provision --database <nome>_skeleton_test`, a partir do SQL distribuído no wheel |
+| Diagnosticar e empacotar | `package doctor --git-ref HEAD` no CI; `package build --git-ref <tag>` na publicação: só o que está commitado e não marcado `export-ignore` entra no `.skapp` ([Publicar](#publicar-apps-e-releases-assinados)) |
+
+**Fixar a versão do núcleo no CI da app.** Cada release do núcleo traz o wheel `django_skeleton-<versão>-py3-none-any.whl` como asset, com o SHA-256 no corpo da release e em `SHA256SUMS` ([workflow](workflow.md#artefatos-de-cada-release-496)). O `ci.yml` gerado lê a versão de `SKELETON_VERSION` e baixa o asset de `https://github.com/<repositório do núcleo>/releases/download/v<versão>/`; como o repositório do núcleo é público, o download não exige token. Suba `SKELETON_VERSION` numa mudança própria da app, junto com a faixa `compatibility.skeleton` do manifesto. Para conferir o hash, compare `sha256sum` do arquivo baixado com a linha de `SHA256SUMS` da mesma release.
+
+**Depender de uma app first-party.** Declare a dependência pelo `app_id` dela em `dependencies` (por exemplo `"org.skeleton.calendar": ">=0.5.0,<0.6.0"`, veja [Apps first-party](#apps-first-party-do-núcleo-skeletoncontrib)) e ligue a app no CI com `SKELETON_BUNDLED_APPS` no `env` do job (por exemplo `SKELETON_BUNDLED_APPS: calendar`): sem ela instalada, o startup recusa a dependência. Importe só o `service_api` dela.
+
+**Regras.** O repositório da app nunca contém cópia do núcleo nem arquivo de `config/`; `SKELETON_DEV_APPS` nunca é definido em produção, onde a app entra pelo pacote assinado instalado pelo agente; a chave de assinatura do publicador fica fora do repositório (o job de publicação do `ci.yml` gerado vem comentado justamente para o operador decidir onde ela fica).
 
 ## Exemplo completo existente: Note
 

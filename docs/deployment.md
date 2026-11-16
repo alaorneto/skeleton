@@ -495,6 +495,7 @@ Cada GitHub Release recebe, sem intervenção, os artefatos assinados (#496). De
 |---|---|
 | `django-skeleton-<versão>.skapp` | Pacote do core (pacote de componente). Não entra no índice. |
 | `skeleton-<versão>.release.skapp` | [Pacote de release](#pacote-de-release): a entrada do core no índice. |
+| `django_skeleton-<versão>-py3-none-any.whl` | Wheel do núcleo, que o CI de uma app em repositório próprio instala numa versão fixa (#521); o SHA-256 também vai para o corpo da release. |
 | `skeleton_deployment_agent-<versão>-py3-none-any.whl` | Wheel do agente, para a instalação manual. |
 | `skeleton-index.json` | Índice assinado e acumulado, com validade; `artifact` é `<tag>/<asset>`, por exemplo `v0.6.0/skeleton-0.6.0.release.skapp`. |
 | `SHA256SUMS` | SHA-256 de cada asset (conveniência; a confiança vem das assinaturas). |

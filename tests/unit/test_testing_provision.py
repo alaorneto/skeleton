@@ -59,3 +59,14 @@ def test_provision_is_idempotent_against_postgresql():
     finally:
         with psycopg.connect(admin, autocommit=True) as connection:
             connection.execute(f'DROP DATABASE IF EXISTS "{database}"')
+
+
+def test_the_bootstrap_copy_and_the_host_project_are_package_data():
+    import tomllib
+    from fnmatch import fnmatch
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    setuptools = pyproject["tool"]["setuptools"]
+    assert any(fnmatch("bootstrap.sql", pattern) for pattern in setuptools["package-data"]["*"])
+    assert "skeleton.*" in setuptools["packages"]["find"]["include"]  # skeleton.testing.host is a package
+    assert (ROOT / "skeleton" / "testing" / "host" / "__init__.py").is_file()
