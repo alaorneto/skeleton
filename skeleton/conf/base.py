@@ -407,6 +407,12 @@ if SKELETON_PACKAGE_MAX_BYTES < 1:
 from skeleton.conf.bundled import bundled_app_configs
 
 INSTALLED_APPS += bundled_app_configs(SKELETON_BUNDLED_APPS)
+# Apps under development in their own checkout (#518): development and test profiles only;
+# every other profile refuses a non-empty value. Never a code path in production.
+from skeleton.conf.dev_apps import dev_app_configs
+
+SKELETON_DEV_APPS = tuple(env.list("SKELETON_DEV_APPS", default=[]))
+INSTALLED_APPS += dev_app_configs(SKELETON_DEV_APPS)
 INSTALLED_APPS += list(SKELETON_DEPLOYMENT_STATE.installed_apps)
 # Opted out after migrating (#67): the tables stay, checked against the snapshot in the wheel.
 from skeleton.conf.bundled import retained_snapshot_paths

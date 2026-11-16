@@ -176,6 +176,26 @@ O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` pr
 
 **Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
 
+### Carregar uma app em desenvolvimento (`SKELETON_DEV_APPS`)
+
+Uma app que vive no próprio repositório git entra num projeto de desenvolvimento sem editar arquivo versionado (#518): `SKELETON_DEV_APPS` lista, separados por vírgula, os diretórios de checkout das apps.
+
+```sh
+export SKELETON_DEV_APPS=/home/dev/src/acme_clientes
+python manage.py check
+python manage.py makemigrations acme_clientes   # grava em /home/dev/src/acme_clientes/migrations/
+```
+
+| Regra | Comportamento |
+|---|---|
+| Perfis | Só os de desenvolvimento e teste aceitam a variável. Os perfis de produção, migração, build e setup param o startup com `ImproperlyConfigured` quando ela não é vazia: em produção uma app só entra por pacote assinado |
+| Checkout | O diretório é o próprio pacote da app, com `manifest.json` na raiz, e tem de se chamar como o `package_name` do manifesto (clone o repositório num diretório com esse nome) |
+| Manifesto | Validado como o de qualquer app, com `kind: "app"`; labels `skeleton_*`/`sk_*` e AppConfig em `skeleton.` são recusados |
+| Import | A app é importada como `applications.<pacote>`, o mesmo nome de uma release, por um *finder* que mapeia só esse módulo para o checkout. O `sys.path` não muda: um diretório vizinho nunca fica importável e o núcleo nunca é sombreado |
+| Colisão | Um pacote `applications.<pacote>` que já é importável de outro lugar (por exemplo, uma cópia em `applications/` do projeto), ou o mesmo pacote vindo de dois checkouts, é recusado |
+
+Toda recusa é `ImproperlyConfigured` com o caminho do checkout na mensagem. As apps de `SKELETON_DEV_APPS` entram em `INSTALLED_APPS` depois das first-party e antes de `PROJECT_APPS`. Para rodar a suíte de uma app sem o pacote `config` de um projeto, use o projeto hospedeiro `skeleton.testing.host` ([testing](testing.md#projeto-hospedeiro-para-apps-em-repositório-próprio)).
+
 ### Documentação obrigatória por app
 
 `documentation_root` aponta para um diretório versionado com `spec.md` (`## Contract`, `## Acceptance`) e `adr.md` (`## Context`, `## Decision`, `## Consequences`). Especifique persistência, autorização, ativação/configuração, endpoints, sensibilidade, concorrência e aceites observáveis; registre decisões e tradeoffs no ADR. Checks rejeitam documentação faltante. Veja `examples/notes/docs/`.

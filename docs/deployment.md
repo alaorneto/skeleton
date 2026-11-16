@@ -735,6 +735,8 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 `check_skeleton_schema` aponta `bundled_divergence` quando a app sai de `SKELETON_BUNDLED_APPS` sem entrar em `SKELETON_BUNDLED_RETAINED` (as tabelas ficariam sem classificação), quando volta sem `sync_bundled_apps` ou quando está instalada sem registro (falta `migrate`). Um nome fora do mapa fixo, ou o mesmo nome nas duas listas, para o startup.
 
+**Apps em desenvolvimento** (#518). `SKELETON_DEV_APPS` carrega apps de um checkout local e só existe nos perfis de desenvolvimento e teste: os perfis de produção, migração, build e setup param o startup quando a variável não está vazia. Em produção uma app só entra por pacote assinado instalado pelo agente, ou em `PROJECT_APPS`; não defina a variável no ambiente de uma instalação.
+
 **Apps gerenciadas que dependem de uma first-party** (#254). A dependência (`"org.skeleton.calendar": ">=0.5.0,<0.6.0"`) só é satisfeita quando a first-party está em `SKELETON_BUNDLED_APPS`, na versão do core. O agente lê `SKELETON_BUNDLED_APPS` do arquivo de ambiente runtime (ou do SQLite da instância) e recusa o plano com `dependency_unsatisfied` quando ela falta; um nome fora do mapa é `unknown_bundled_app`. A ordem segue a dependência:
 
 - **Instalar:** primeiro a first-party (nome em `SKELETON_BUNDLED_APPS`, reinício, `migrate`), depois o plano com a app que depende dela.

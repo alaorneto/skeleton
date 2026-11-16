@@ -19,6 +19,9 @@ def development_settings(base):
 
 
 def production_settings(base):
+    from skeleton.conf.dev_apps import refuse_dev_apps
+
+    refuse_dev_apps(base)
     env = base["env"]
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
@@ -87,6 +90,9 @@ def production_settings(base):
 
 
 def migrate_settings(base):
+    from skeleton.conf.dev_apps import refuse_dev_apps
+
+    refuse_dev_apps(base)
     env = base["env"]
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
@@ -148,6 +154,9 @@ def test_settings(base):
 
 
 def build_settings(base):
+    from skeleton.conf.dev_apps import refuse_dev_apps
+
+    refuse_dev_apps(base)
     env = base["env"]
     BASE_DIR = base["BASE_DIR"]
     DEBUG = base["DEBUG"]
@@ -170,10 +179,12 @@ def setup_settings(base):
     import hashlib
     import hmac
 
+    from skeleton.conf.dev_apps import refuse_dev_apps
     from skeleton.instance import crypto
     from skeleton.instance.writer import open_store
     from skeleton.setup.tokens import issue_token
 
+    refuse_dev_apps(base)
     env = base["env"]
     BASE_DIR = base["BASE_DIR"]
     DEBUG = env.bool("DJANGO_DEBUG", default=False)
