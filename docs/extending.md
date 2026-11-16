@@ -245,6 +245,19 @@ Uma app usa `name = __package__` em seu AppConfig para funcionar no checkout e n
 .venv/bin/python manage.py package versions --manifest applications/tasks/manifest.json
 ```
 
+**Empacotar a partir de uma revisão git** (#519). Numa app que vive no próprio repositório, `--git-ref <revisão>` faz `build` e `doctor` trabalharem sobre a árvore commitada naquela revisão, exportada por `git archive`, e não sobre o diretório de trabalho:
+
+```sh
+.venv/bin/python -m skeleton.system.packages doctor ../acme_clientes --git-ref HEAD
+.venv/bin/python -m skeleton.system.packages build --app-root ../acme_clientes --git-ref v1.2.0   --output /private/artifacts/acme_clientes-1.2.0.skapp --private-key /private/publisher.pem
+```
+
+- **Só o que está commitado entra no pacote.** Arquivo modificado ou não rastreado no diretório de trabalho não muda o `.skapp`.
+- **`export-ignore` decide o que fica de fora.** Os arquivos do repositório que não são da app (`.gitattributes`, `.gitignore`, `.github/`, `pyproject.toml`, `README.md`) levam `export-ignore` no `.gitattributes`. Um dotfile commitado sem a marca continua recusado como `private_file`, e o `doctor --git-ref HEAD` no CI da app acusa o esquecimento. Sem `--git-ref`, a regra de sempre vale: todo dotfile é `private_file`.
+- O manifesto é lido da árvore exportada (`manifest.json` da raiz, ou o `--manifest` informado, que precisa estar dentro de `--app-root`). A saída traz `commit`, o hash completo da revisão; o manifesto não o grava (esquema fechado).
+- `--app-root` pode ser um subdiretório do repositório (por exemplo `applications/tasks` de um projeto): só aquela subárvore é exportada.
+- A revisão aceita só letras, dígitos e `. _ / @ -`, nunca começando por hífen; o `git` roda com lista de argumentos, sem shell. A extração usa `tarfile` com o filtro `data` num diretório temporário privado e recusa links simbólicos, hard links, arquivos especiais e caminhos fora do destino. `git` fora do `PATH`, diretório fora de um repositório e revisão inexistente são erros de pacote, sem traceback.
+
 Apps continuam publicadas em pacote de componente (`kind: "app"`), com os próprios wheels em `python_dependencies`. O pacote de release (`kind: "release"`, [Pacote de release](deployment.md#pacote-de-release)) é só do core: leva o pacote do core, o lock e os wheels de cada alvo e o wheel do agente.
 
 O trust store, ou lista de chaves de publicadores confiáveis, é um JSON administrado pelo operador, por exemplo `{"example-publisher": "/private/publisher.pub.pem"}`. A chave do mapa é o `publisher` do manifesto; valores aceitam PEM público literal, caminho PEM ou `{"public_key": "/private/publisher.pub.pem", "publisher": "example-publisher"}`. Caminhos relativos do CLI são relativos ao arquivo de configuração. A API também aceita objetos `Ed25519PublicKey`. A chave pública pode verificar assinaturas; a privada deve ficar somente com quem está autorizado a publicar. Chaves públicas trazidas pelo próprio pacote nunca são âncoras de confiança. Revogação/rotação exige alterar explicitamente esse arquivo privado. `inspect` sem trust store mostra `"trusted": false`, mesmo quando os hashes são íntegros.
