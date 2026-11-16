@@ -188,3 +188,236 @@ def subscription_terms(meter: str, subscription: Any, *, now: Any) -> UsageTerms
         trialing=subscription.status == "trialing",
         cancel_scheduled=bool(subscription.cancel_at_period_end),
     )
+
+
+# --------------------------------------------------------------------------- consumption (#523)
+
+KEY = re.compile(r"[A-Za-z0-9:._-]{1,200}\Z")
+MAX_QUANTITY = 1_000_000
+
+
+class UsageVoided(Exception):
+    """The idempotency key belongs to a consumption that was given back."""
+
+
+class UsagePeriodClosed(Exception):
+    """The consumption belongs to a period that already closed."""
+
+
+class UsageNotFound(Exception):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class Receipt:
+    meter: str
+    metered: bool
+    created: bool
+    used: int
+    included: int
+    limit: int | None
+    overage: str
+
+
+@dataclass(frozen=True, slots=True)
+class Status:
+    meter: str
+    used: int
+    included: int
+    limit: int | None
+    overage: str
+    period_start: Any
+    period_end: Any
+
+
+def _validate(meter: Any, *, quantity: Any = 1, key: Any = None) -> None:
+    errors: dict[str, str] = {}
+    if not isinstance(meter, str) or meter not in _meters:
+        errors["meter"] = gettext("Medidor não registrado.")
+    if type(quantity) is not int or not 1 <= quantity <= MAX_QUANTITY:
+        errors["quantity"] = gettext("Use um inteiro de 1 a 1.000.000.")
+    if key is not None and (not isinstance(key, str) or not KEY.match(key)):
+        errors["idempotency_key"] = gettext("Use até 200 letras, dígitos, dois-pontos, ponto, sublinhado ou hífen.")
+    if errors:
+        raise ValidationError(errors)
+
+
+def attribution_start(subscription: Any, now: Any) -> Any:
+    """The period a consumption at ``now`` belongs to: the next one once the current period ended."""
+    if now < subscription.current_period_end:
+        return subscription.current_period_start
+    return subscription.current_period_end
+
+
+def _months(subscription: Any) -> int:
+    return subscription.interval_count * (12 if subscription.interval == "year" else 1)
+
+
+def _period_end(subscription: Any, start: Any) -> Any:
+    from .periods import add_months
+
+    if start == subscription.current_period_start:
+        return subscription.current_period_end
+    return add_months(start, _months(subscription))
+
+
+def _balance(meter: str, start: Any, *, lock: bool) -> Any:
+    """The counter row of ``meter`` in the period; with ``lock``, created when missing and locked."""
+    from django.db import IntegrityError, transaction
+
+    from skeleton.tenancy.context import current_context
+
+    from .engine import _organization_id
+    from .models import UsageBalance
+
+    queryset = UsageBalance.objects.filter(meter=meter, period_start=start)
+    if not lock:
+        return queryset.first()
+    row = queryset.select_for_update().first()
+    if row is not None:
+        return row
+    try:
+        with transaction.atomic(using=current_context().using):
+            UsageBalance(organization_id=_organization_id(), meter=meter, period_start=start).save()
+    except IntegrityError:
+        pass  # Another transaction created it first: lock theirs.
+    return queryset.select_for_update().get()
+
+
+def _receipt(meter: str, terms: UsageTerms, used: int, *, created: bool) -> Receipt:
+    return Receipt(meter, True, created, used, terms.included, terms.limit, terms.overage)
+
+
+def _unmetered(meter: str) -> Receipt:
+    return Receipt(meter, False, False, 0, 0, None, "unlimited")
+
+
+def record(meter: str, *, quantity: int = 1, idempotency_key: str, now: Any = None) -> Receipt:
+    """Count ``quantity`` of ``meter`` in the current organization, in the caller's transaction.
+
+    Billing off or no subscription: nothing is recorded (``metered=False``). A repeated key returns
+    the receipt of the first call (``created=False``); a key that was voided raises ``UsageVoided``.
+    Above the limit (the allowance with ``block``, the hard cap with ``bill``) it raises
+    ``QuotaLimitExceeded`` and records nothing.
+    """
+    from django.db import IntegrityError, transaction
+
+    from skeleton.common.exceptions import QuotaLimitExceeded
+    from skeleton.tenancy.context import current_context
+
+    from . import engine
+    from .models import UsageEvent
+
+    _validate(meter, quantity=quantity, key=idempotency_key)
+    if not engine.billing_enabled():
+        return _unmetered(meter)
+    subscription = engine.current_subscription()
+    if subscription is None:
+        return _unmetered(meter)
+    now = engine._now(now)
+    start = attribution_start(subscription, now)
+    terms = subscription_terms(meter, subscription, now=now)
+    existing = UsageEvent.objects.filter(meter=meter, idempotency_key=idempotency_key).first()
+    if existing is not None:
+        return _repeat(meter, existing, terms)
+    try:
+        with transaction.atomic(using=current_context().using):
+            UsageEvent(
+                organization_id=subscription.organization_id,
+                meter=meter,
+                quantity=quantity,
+                occurred_at=now,
+                period_start=start,
+                idempotency_key=idempotency_key,
+                source_app=meter.split(".", 1)[0],
+            ).save()
+            balance = _balance(meter, start, lock=True)
+            limit = terms.limit
+            if limit is not None and balance.used + quantity > limit:
+                raise QuotaLimitExceeded(meter, limit)
+            balance.used += quantity
+            balance.save(update_fields={"used", "updated_at"})
+    except IntegrityError:
+        # The same key won a race: answer like the repeated call.
+        return _repeat(meter, UsageEvent.objects.get(meter=meter, idempotency_key=idempotency_key), terms)
+    return _receipt(meter, terms, balance.used, created=True)
+
+
+def _repeat(meter: str, event: Any, terms: UsageTerms) -> Receipt:
+    if event.voided_at is not None:
+        raise UsageVoided(meter)
+    balance = _balance(meter, event.period_start, lock=False)
+    return _receipt(meter, terms, balance.used if balance else 0, created=False)
+
+
+def void(meter: str, *, idempotency_key: str, now: Any = None) -> Receipt:
+    """Give back a consumption of the open period; voiding twice returns the same receipt."""
+    from . import engine
+    from .models import UsageEvent
+
+    _validate(meter, key=idempotency_key)
+    subscription = engine.current_subscription() if engine.billing_enabled() else None
+    if subscription is None:
+        raise UsageNotFound(meter)
+    event = UsageEvent.objects.select_for_update().filter(meter=meter, idempotency_key=idempotency_key).first()
+    if event is None:
+        raise UsageNotFound(meter)
+    now = engine._now(now)
+    terms = subscription_terms(meter, subscription, now=now)
+    balance = _balance(meter, event.period_start, lock=True)
+    if event.voided_at is None:
+        if event.period_start < subscription.current_period_start:
+            raise UsagePeriodClosed(meter)
+        event.voided_at = now
+        event.save(update_fields={"voided_at", "updated_at"})
+        balance.used = max(balance.used - event.quantity, 0)
+        balance.save(update_fields={"used", "updated_at"})
+    return _receipt(meter, terms, balance.used, created=False)
+
+
+def status(meter: str, *, now: Any = None) -> Status:
+    """Used, allowance and limit of ``meter`` in the period a consumption at ``now`` goes to."""
+    from . import engine
+
+    _validate(meter)
+    subscription = engine.current_subscription() if engine.billing_enabled() else None
+    if subscription is None:
+        return Status(meter, 0, 0, None, "unlimited", None, None)
+    now = engine._now(now)
+    start = attribution_start(subscription, now)
+    terms = subscription_terms(meter, subscription, now=now)
+    balance = _balance(meter, start, lock=False)
+    used = balance.used if balance else 0
+    return Status(meter, used, terms.included, terms.limit, terms.overage, start, _period_end(subscription, start))
+
+
+def check(meter: str, *, quantity: int = 1, now: Any = None) -> Status:
+    """``status``, raising ``QuotaLimitExceeded`` when ``quantity`` more would not fit; records nothing."""
+    from skeleton.common.exceptions import QuotaLimitExceeded
+
+    _validate(meter, quantity=quantity)
+    found = status(meter, now=now)
+    if found.limit is not None and found.used + quantity > found.limit:
+        raise QuotaLimitExceeded(meter, found.limit)
+    return found
+
+
+def purge_usage(*, now: Any = None) -> int:
+    """Delete events and counters of periods older than the retention, never the current or previous one."""
+    from datetime import timedelta
+
+    from django.conf import settings
+
+    from . import engine
+    from .models import UsageBalance, UsageEvent
+    from .periods import add_months
+
+    now = engine._now(now)
+    days = int(getattr(settings, "SKELETON_BILLING_USAGE_RETENTION_DAYS", 400))
+    cutoff = now - timedelta(days=days)
+    subscription = engine.current_subscription()
+    if subscription is not None:
+        cutoff = min(cutoff, add_months(subscription.current_period_start, -_months(subscription)))
+    events, _ = UsageEvent.objects.filter(period_start__lt=cutoff).delete()
+    balances, _ = UsageBalance.objects.filter(period_start__lt=cutoff).delete()
+    return events + balances

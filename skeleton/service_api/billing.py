@@ -9,9 +9,10 @@ how the account is settled.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -494,6 +495,80 @@ class BillingService(ServiceAPI):
             raise Forbidden()
         return CheckoutLink(url=attempt.url)
 
+    # ------------------------------------------------------------------ usage meters (#523)
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def record_usage(
+        self,
+        *,
+        actor: AbstractBaseUser | None,
+        meter: str,
+        idempotency_key: str,
+        quantity: int = 1,
+        occurred_at: datetime | None = None,
+    ) -> UsageReceipt:
+        """Count ``quantity`` of a usage meter in the current period.
+
+        Use the business record's identifier as ``idempotency_key`` (never a phone, email or
+        name), in the same transaction that enqueues the external effect.
+        Autorização: qualquer membro, ou ``system_context``; a app do prefixo do medidor ativa.
+        Erros: ``Conflict("quota_exceeded")`` acima do limite; ``Conflict("usage_voided")`` para
+        chave anulada; ``Unavailable`` com a app desativada; ``InvalidInput``.
+        Efeitos: grava o consumo e o contador na transação do chamador; cobrança desligada ou sem
+        assinatura não grava nada (``metered=False``); a mesma chave devolve o primeiro recibo.
+        """
+        from skeleton.billing import usage
+
+        _meter_app(meter)
+        return _usage_call(
+            lambda: _receipt(
+                usage.record(meter, quantity=quantity, idempotency_key=idempotency_key, now=_moment(occurred_at))
+            )
+        )
+
+    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    def void_usage(self, *, actor: AbstractBaseUser | None, meter: str, idempotency_key: str) -> UsageReceipt:
+        """Give back a consumption of the open period (the effect failed for good after it was counted).
+
+        Autorização: qualquer membro, ou ``system_context``; a app do prefixo do medidor ativa.
+        Erros: ``NotFound`` para chave desconhecida; ``Conflict("usage_period_closed")`` para
+        consumo de período fechado; ``Unavailable``; ``InvalidInput``.
+        Efeitos: marca o consumo como anulado e devolve a unidade; anular de novo não muda nada.
+        """
+        from skeleton.billing import usage
+
+        _meter_app(meter)
+        return _usage_call(lambda: _receipt(usage.void(meter, idempotency_key=idempotency_key)))
+
+    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    def check_usage(self, *, actor: AbstractBaseUser | None, meter: str, quantity: int = 1) -> UsageStatus:
+        """Whether ``quantity`` more of a meter fits in the period, without recording it.
+
+        Autorização: qualquer membro, ou ``system_context``; a app do prefixo do medidor ativa.
+        Erros: ``Conflict("quota_exceeded")`` quando não cabe; ``Unavailable``; ``InvalidInput``.
+        Efeitos: nenhum.
+        """
+        from skeleton.billing import usage
+
+        _meter_app(meter)
+        return _usage_call(lambda: _status(usage.check(meter, quantity=quantity)))
+
+    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    def usage(self, *, actor: AbstractBaseUser | None) -> tuple[UsageStatus, ...]:
+        """The period's use of every registered meter of an active app.
+
+        Autorização: qualquer membro, ou ``system_context``.
+        Erros: nenhum além do contrato do contexto.
+        Efeitos: nenhum.
+        """
+        from skeleton.billing import usage
+
+        return tuple(
+            _status(usage.status(meter.code))
+            for meter in usage.registered_usage_meters()
+            if _app_enabled(meter.app_label)
+        )
+
 
 def register_usage_meter(code: str, *, label: object, unit_label: object) -> None:
     """Declare a usage meter from the ``ready()`` of an app (#522): ``code`` is ``<app_label>.<name>``.
@@ -513,3 +588,112 @@ def registered_usage_meters() -> tuple[tuple[str, str, str], ...]:
     from skeleton.billing.usage import registered_usage_meters as meters
 
     return tuple((meter.code, str(meter.label), str(meter.unit_label)) for meter in meters())
+
+
+@dataclass(frozen=True, slots=True)
+class UsageReceipt:
+    """The outcome of recording or voiding a consumption (#523); ``limit`` ``None`` is no limit."""
+
+    meter: str
+    metered: bool  # False: billing off or no subscription, nothing recorded.
+    created: bool  # False: the key was already recorded (or this was a void).
+    used: int
+    included: int
+    limit: int | None
+    overage: str  # block, bill or unlimited.
+
+
+@dataclass(frozen=True, slots=True)
+class UsageStatus:
+    """A meter in the period a consumption now goes to (#523)."""
+
+    meter: str
+    label: str
+    unit_label: str
+    used: int
+    included: int
+    limit: int | None
+    overage: str
+    period_start: datetime | None
+    period_end: datetime | None
+
+
+def _receipt(receipt: Any) -> UsageReceipt:
+    return UsageReceipt(
+        receipt.meter,
+        receipt.metered,
+        receipt.created,
+        receipt.used,
+        receipt.included,
+        receipt.limit,
+        receipt.overage,
+    )
+
+
+def _status(found: Any) -> UsageStatus:
+    from skeleton.billing.usage import get_meter
+
+    meter = get_meter(found.meter)
+    return UsageStatus(
+        meter.code,
+        str(meter.label),
+        str(meter.unit_label),
+        found.used,
+        found.included,
+        found.limit,
+        found.overage,
+        found.period_start,
+        found.period_end,
+    )
+
+
+def _moment(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise InvalidInput({"occurred_at": ("Use uma data e hora com fuso.",)})
+    return value
+
+
+def _app_enabled(app_label: str) -> bool:
+    from django.core.exceptions import PermissionDenied
+
+    from skeleton.system.applications import require_application_enabled
+
+    try:
+        require_application_enabled(app_label)
+    except PermissionDenied:
+        return False
+    return True
+
+
+def _meter_app(meter: object) -> None:
+    """The app of the meter's prefix must be enabled in the organization; unknown meters are ``InvalidInput``."""
+    from skeleton.billing.usage import is_meter
+
+    from .errors import Unavailable
+
+    if not isinstance(meter, str) or not is_meter(meter):
+        raise InvalidInput({"meter": ("Medidor não registrado.",)})
+    if not _app_enabled(meter.split(".", 1)[0]):
+        raise Unavailable()
+
+
+def _usage_call(function: Callable[[], Any]) -> Any:
+    from skeleton.billing import usage
+    from skeleton.common.exceptions import QuotaLimitExceeded
+
+    try:
+        return function()
+    except QuotaLimitExceeded:
+        raise Conflict("quota_exceeded") from None
+    except usage.UsageVoided:
+        raise Conflict("usage_voided") from None
+    except usage.UsagePeriodClosed:
+        raise Conflict("usage_period_closed") from None
+    except usage.UsageNotFound:
+        raise NotFound() from None
+    except ValidationError as error:
+        raise InvalidInput(
+            error.message_dict if hasattr(error, "error_dict") else {"__all__": error.messages}
+        ) from None

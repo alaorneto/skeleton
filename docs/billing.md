@@ -161,6 +161,17 @@ O produto `usage_pack` vende franquia recorrente, como o `storage_pack` vende ar
 
 O limite efetivo é a franquia com `block`, o `hard_cap` com `bill` (sem teto, nenhum) e nenhum quando ilimitado.
 
+**Gravar consumo** (#523). `BillingService().record_usage(actor=..., meter=..., idempotency_key=..., quantity=1)` grava, na transação de quem chama, um `UsageEvent` (a evidência, uma linha por consumo) e soma no `UsageBalance` do período (o contador). As duas tabelas são `OperationalRecord`, fora do gateway:
+
+- A chave de idempotência é única por organização e medidor: a mesma chave devolve o recibo da primeira chamada (`created=False`), inclusive numa corrida.
+- O contador do período é travado (`select_for_update`) antes de somar, então a disputa pela última unidade tem um vencedor; acima do limite, `Conflict("quota_exceeded")`, e nada é gravado.
+- O consumo vai para o período corrente; depois do fim do período e antes de a renovação rodar, já vai para o seguinte.
+- Cobrança desligada ou organização sem assinatura: nada é gravado e tudo é permitido (`metered=False`).
+- `void_usage` devolve a unidade de um consumo do período aberto (o envio que falhou de vez depois de contado); anular de novo não muda nada, consumo de período fechado é `Conflict("usage_period_closed")`, e uma chave anulada não volta a ser gravada (`Conflict("usage_voided")`). `check_usage` diz se cabe sem gravar, e `usage` lista o período de cada medidor das apps ativas.
+- A retenção do job diário `billing.usage_snapshot` apaga eventos e contadores de períodos que começaram antes de `SKELETON_BILLING_USAGE_RETENTION_DAYS`, nunca os do período corrente nem do anterior; é o único caminho de exclusão física.
+
+**Regra para as apps.** Grave o consumo na mesma transação que enfileira o efeito externo (o job de envio), com a chave igual ao identificador do registro de negócio (o `sysid` da mensagem), nunca telefone, email ou nome. Se o efeito falhar em definitivo, o job chama `void_usage`. Nos testes, `skeleton.testing.billing.subscribe_with_usage(organization, {meter: termos}, now=...)` monta e paga uma assinatura com os termos.
+
 ### Inadimplência
 
 O estado de acesso da organização é **derivado**, nunca digitado: da fatura em aberto mais antiga, dos prazos da instância e de uma prorrogação da plataforma. O `billing.cycle` (de hora em hora) o recalcula depois das renovações, e cada fatura paga o recalcula na hora (`skeleton/billing/dunning.py`).

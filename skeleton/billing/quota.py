@@ -197,8 +197,11 @@ def snapshot_job(**payload: object) -> None:
 
     if not engine.billing_enabled():
         return
+    from .usage import purge_usage
+
     snapshot_usage()
     purge_snapshots()
+    purge_usage()  # Usage events and counters of old periods (#523).
 
 
 def register_quota() -> None:

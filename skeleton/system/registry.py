@@ -537,6 +537,18 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_billing.usageevent": (
+            gettext_lazy("Consumo de medidores"),
+            gettext_lazy("Uma unidade de consumo de um medidor de uso, com a chave de idempotência; operacional."),
+            "organization",
+            (),
+        ),
+        "sk_billing.usagebalance": (
+            gettext_lazy("Uso por período"),
+            gettext_lazy("Quanto uma organização usou de um medidor num período de cobrança; operacional."),
+            "organization",
+            (),
+        ),
         "sk_billing.provideraccount": (
             gettext_lazy("Contas de provedor de pagamento"),
             gettext_lazy("Credenciais da plataforma num provedor de pagamento; chave e segredo cifrados."),

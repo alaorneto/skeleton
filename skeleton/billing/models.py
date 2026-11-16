@@ -790,6 +790,64 @@ class UsageSnapshot(OperationalRecord):
         return f"{self.organization_id} {self.day} {self.bytes_used}"
 
 
+class UsageEvent(OperationalRecord):
+    """One consumption of a usage meter (#523), the evidence behind ``UsageBalance``.
+
+    The idempotency key is unique per organization and meter, so a repeated call never counts
+    twice. Only ``voided_at`` changes, when the consumption is given back (``void_usage``);
+    retention deletes the events of old periods.
+    """
+
+    organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_billing_usage_events"
+    )
+    meter = models.CharField(max_length=100)
+    quantity = models.PositiveIntegerField()
+    occurred_at = models.DateTimeField()
+    period_start = models.DateTimeField()
+    idempotency_key = models.CharField(max_length=200)
+    source_app = models.CharField(max_length=100)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("meter", "quantity", "occurred_at", "period_start", "idempotency_key", "source_app")
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "meter", "idempotency_key"), name="sk_billing_usage_event_key"
+            ),
+            models.CheckConstraint(condition=Q(quantity__gte=1), name="sk_billing_usage_event_quantity"),
+        ]
+        indexes = [models.Index(fields=("organization", "meter", "period_start"), name="sk_billing_usage_event_period")]
+
+    def __str__(self):
+        return f"{self.meter} {self.quantity}"
+
+
+class UsageBalance(OperationalRecord):
+    """What an organization used of a meter in one period (#523): the counter that decides in constant time.
+
+    The row is locked (``select_for_update``) for every change, so the last unit has one winner.
+    """
+
+    organization = models.ForeignKey(
+        "sk_tenancy.Organization", on_delete=models.PROTECT, related_name="sk_billing_usage_balances"
+    )
+    meter = models.CharField(max_length=100)
+    period_start = models.DateTimeField()
+    used = models.PositiveBigIntegerField(default=0)
+    immutable_fields = ("meter", "period_start")
+
+    class Meta(OperationalRecord.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=("organization", "meter", "period_start"), name="sk_billing_usage_balance_period"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.meter} {self.period_start} {self.used}"
+
+
 class CheckoutAttempt(OrganizationRecord):
     """A hosted payment page opened for an invoice (#400); its sysid is the idempotency key."""
 
