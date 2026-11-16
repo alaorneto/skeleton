@@ -17,8 +17,7 @@ from django.utils.translation import gettext, gettext_lazy
 from skeleton.common.crypto import EncryptedTextField
 from skeleton.common.exceptions import ImmutableRecord
 from skeleton.common.models import OperationalRecord, OrganizationRecord, SystemRecord
-
-from .money import validate_currency
+from skeleton.common.money import validate_currency
 
 _CODE = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _APP_LABEL = re.compile(r"[a-z][a-z0-9_]*\Z")

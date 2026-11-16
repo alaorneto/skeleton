@@ -28,7 +28,8 @@ from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 
-from .. import money
+from skeleton.common import money
+
 from . import http
 from .base import (
     Capability,

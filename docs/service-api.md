@@ -192,6 +192,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
+| `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` (#541) |
 | `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
 | `skeleton.records.sealing` | `seal_record`, `seal_payload` e `verify_seal`: selar e verificar os modelos da própria app em processo ([modelo de dados](data-model.md#registros-selados-526)) |
 | `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
