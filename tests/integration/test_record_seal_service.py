@@ -9,12 +9,8 @@ import hashlib
 from types import SimpleNamespace
 
 import pytest
-from django.apps import apps
-from django.db import models
 from django.test import Client
 
-from skeleton.common.migration_operations import InstallRecordInfrastructure, build_infrastructure_specification
-from skeleton.common.models import SealableMixin, SecuredRecord
 from skeleton.common.sealing import digest
 from skeleton.records.sealing import seal_payload, seal_record, verify_seal
 from skeleton.service_api import Conflict, Forbidden, InvalidInput
@@ -28,44 +24,16 @@ from skeleton.testing.service_api import (
     assert_unavailable_when_disabled,
     build_service_scenario,
 )
+from tests.integration.sealing_support import TABLE, sealed_document_table
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
-TABLE = "example_notes.sealeddocument"
 EXTRA = hashlib.sha256(b"child rows").hexdigest()
 
 
 @pytest.fixture
 def document_model(owner_schema_editor):
-    attributes = {
-        "__module__": "examples.notes.models",
-        "title": models.CharField(max_length=100, blank=True, default=""),
-        "body": models.TextField(blank=True, default=""),
-        "status": models.CharField(max_length=20, blank=True, default="draft"),
-        "seal_fields": ("body",),
-        "Meta": type(
-            "Meta", (SecuredRecord.Meta,), {"app_label": "example_notes", "db_table": "sk_test_sealeddocument"}
-        ),
-    }
-    model = type("SealedDocument", (SealableMixin, SecuredRecord), attributes)
-    try:
-        spec = registry.TableSpec(
-            model=model,
-            description="Documento selável de teste",
-            read_fields=("title", "body", "status"),
-            write_fields=("title", "body", "status"),
-            expose_api=True,
-            seal=registry.SealPolicy(),
-        )
-        registry.register(spec)
-        specification = build_infrastructure_specification(model, spec)
-        with owner_schema_editor() as editor:
-            editor.create_model(model)
-            InstallRecordInfrastructure("example_notes", "sealeddocument", specification)._postgres(editor, model)
+    with sealed_document_table(owner_schema_editor) as model:
         yield model
-    finally:
-        registry._registry.pop(TABLE, None)
-        apps.all_models["example_notes"].pop("sealeddocument", None)
-        apps.clear_cache()
 
 
 @pytest.fixture

@@ -19,7 +19,7 @@ from skeleton.common.exceptions import ConcurrentUpdate, RecordSealed
 from skeleton.common.models import SEAL_FIELD_NAMES, SealableMixin, SecuredRecord
 from skeleton.common.sealing import digest
 
-__all__ = ["attachment_fingerprints", "seal_payload", "seal_record", "verify_seal"]
+__all__ = ["attachment_fingerprints", "require_open", "seal_payload", "seal_record", "verify_seal"]
 
 
 def _policy(model: type) -> Any:
@@ -29,6 +29,22 @@ def _policy(model: type) -> Any:
         return get_spec(model._meta.label_lower).seal
     except KeyError:
         return None
+
+
+def require_open(spec: Any, record: Any, part: str) -> Any:
+    """Refuse changing the ``part`` ("attachments" or "comments") of a sealed record when its policy freezes it.
+
+    The target row is locked (``FOR NO KEY UPDATE``) and re-read, so a concurrent seal either
+    waits for this change, and covers it, or comes first and this change is refused (#529).
+    Returns the record, re-read when locked.
+    """
+    policy = getattr(spec, "seal", None)
+    if policy is None or getattr(policy, part) != "frozen" or not isinstance(record, SealableMixin):
+        return record
+    locked = type(record).objects.select_for_update(no_key=True).filter(pk=record.pk).first() or record
+    if locked.sealed_at is not None:
+        raise RecordSealed(f"The record is sealed: its {part} cannot change.")
+    return locked
 
 
 def attachment_fingerprints(record: Any) -> list[dict[str, Any]]:
