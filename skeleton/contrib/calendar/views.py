@@ -42,6 +42,9 @@ PRESETS = {
 }
 
 
+MANAGED = gettext_lazy("Este evento é gerenciado por outra app; altere-o na origem.")
+
+
 def _zone(user: Any) -> ZoneInfo:
     from skeleton.service_api.identity import IdentityService
 
@@ -51,13 +54,39 @@ def _zone(user: Any) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def _bad_request(request: HttpRequest, organization_id: UUID, detail: str) -> HttpResponse:
+def _bad_request(request: HttpRequest, organization_id: UUID, detail: str, *, status: int = 400) -> HttpResponse:
     return render(
         request,
         "skeleton_calendar/bad_request.html",
         {"organization_id": organization_id, "detail": detail},
-        status=400,
+        status=status,
     )
+
+
+def _managed_sources(organization_id: UUID, occurrences: Iterable[Any]) -> dict[str, dict[str, Any]]:
+    """Name and whether each source app of the managed events is active here (#540), read once."""
+    from skeleton.system.applications import application_state
+
+    sources: dict[str, dict[str, Any]] = {}
+    for label in {item.source_app for item in occurrences if item.source_app}:
+        try:
+            state = application_state(label)
+        except KeyError:
+            sources[label] = {"name": label, "active": False}
+            continue
+        sources[label] = {"name": state["label"], "active": bool(state["effective"])}
+    return sources
+
+
+def managed_view(organization_id: UUID, occurrence: Any, sources: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """The "managed by" mark of an occurrence and its link to the source record, when the app is active."""
+    if not occurrence.source_app:
+        return None
+    source = sources.get(occurrence.source_app, {"name": occurrence.source_app, "active": False})
+    url = None
+    if source["active"] and occurrence.source_path:
+        url = reverse("web:dashboard", kwargs={"organization_id": organization_id}) + occurrence.source_path
+    return {"name": source["name"], "url": url}
 
 
 def _window(view: str, day: date) -> tuple[date, date]:
@@ -109,6 +138,7 @@ def home(request: HttpRequest, organization_id: UUID) -> HttpResponse:
     except InvalidInput:
         return _bad_request(request, organization_id, gettext("Há eventos demais neste período; use uma visão menor."))
     days: dict[date, list[Any]] = {first + timedelta(days=index): [] for index in range((last - first).days)}
+    sources = _managed_sources(organization_id, occurrences)
     for occurrence in occurrences:
         local = occurrence.starts_at.date() if occurrence.all_day else occurrence.starts_at.astimezone(zone).date()
         if local in days:
@@ -117,6 +147,7 @@ def home(request: HttpRequest, organization_id: UUID) -> HttpResponse:
                     "occurrence": occurrence,
                     "start": None if occurrence.all_day else occurrence.starts_at.astimezone(zone),
                     "end": None if occurrence.all_day else occurrence.ends_at.astimezone(zone),
+                    "managed": managed_view(organization_id, occurrence, sources),
                 }
             )
     base = reverse("skeleton_calendar:home", kwargs={"organization_id": organization_id})
@@ -265,7 +296,10 @@ def event_cancel(request: HttpRequest, organization_id: UUID, sysid: UUID) -> Ht
         CalendarService().cancel_event(actor=request.user, event_id=sysid, expected_revision=revision)
     except (ValueError, NotFound, Forbidden):
         raise Http404 from None
-    except Conflict:
+    except Conflict as error:
+        if error.code == "managed_event":
+            # A managed event (#540) changes only in its source app; a forged POST gets 409.
+            return _bad_request(request, organization_id, str(MANAGED), status=409)
         messages.error(request, gettext("O evento mudou. Atualize a página antes de tentar novamente."))
     else:
         messages.success(request, gettext("Evento cancelado."))
