@@ -50,6 +50,16 @@ Uma app lança pelos registros dela com uma **regra declarada em código** (`Pos
 - Com origem, o título e as baixas são autorizados pelo registro de origem (`update`), como as regras; sem origem, pela gestão do livro.
 - Os eventos de domínio previstos (`ledger.title_created`, `ledger.title_settled`, `ledger.title_cancelled`, `ledger.entry_posted`) não foram publicados nesta versão: a API de eventos do núcleo publica só sobre tabelas expostas e legíveis pelo ator, e títulos e lançamentos ficam fora do gateway. Publicá-los pede uma extensão do núcleo.
 
+### Títulos recorrentes (#547)
+`RecurringTitle` gera um título por ocorrência: direção, descrição, contraparte (`counterparty_name` em `personal_fields`), categoria, centro de custo, valor, `frequency` (`weekly`, `monthly`, `yearly`) a cada `interval`, `day_of_month` (só mensal), `start_date`, `end_date`, `max_occurrences`, `days_ahead` (0 a 366), `next_due`, `generated_count` e `is_active`. Livro, direção, início e a forma da repetição são imutáveis.
+
+- Datas: a primeira ocorrência é `start_date` (na mensal com `day_of_month`, esse dia no mês do início, ou no seguinte se já passou); dias além do fim de um mês curto caem no último dia e voltam no mês seguinte (31/01, 28/02, 31/03); anual a partir de 29/02 cai em 28/02 nos anos comuns.
+- O job `ledger.recurrences` roda todo dia (03:00) por organização, em contexto de sistema, com a app ativa (desativada, ele não gera; o worker cancela o job de organização inativa ou suspensa, como em qualquer app). Ele cria cada título que vence até `days_ahead` dias à frente com a chave `recurrence:<sysid>:<vencimento>` e emissão no vencimento (a competência da ocorrência): reexecutar não duplica, e um agendador atrasado recupera as ocorrências que faltam.
+- Cada execução cria no máximo 500 títulos por organização; o resto fica para a execução seguinte.
+- Um título que falha (categoria inativa, chave sem vínculo, período travado) vai ao log só com identificadores (`ledger.recurrence_failed`, `target_sysid`, `reason_code`), para a regra naquele ciclo sem desfazer as demais e é tentado de novo na execução seguinte.
+- `end_date` e `max_occurrences` encerram a geração; estender um deles retoma a regra. Pausar interrompe; retomar pula as ocorrências que venceram durante a pausa e volta a gerar a partir de hoje.
+- Alterar valor, descrição, contraparte ou centro de custo vale para as próximas ocorrências; os títulos já gerados não mudam.
+
 ## Acceptance
 - `SKELETON_BUNDLED_APPS=ledger` instala a app; sem a variável, nada do ledger é importado.
 - Um livro padrão por organização, inclusive com criação concorrente; moeda e regime imutáveis no banco; moeda fora da tabela recusada.

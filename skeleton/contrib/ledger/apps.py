@@ -17,4 +17,7 @@ class LedgerConfig(AppConfig):
         from .registration import register_ledger_tables
 
         register_ledger_tables()
+        from .recurrence import register_recurrences
+
+        register_recurrences()
         from . import checks  # noqa: F401 - registers the system checks

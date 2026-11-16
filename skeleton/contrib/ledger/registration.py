@@ -109,7 +109,38 @@ def register_ledger_tables() -> None:
             expose_api=False,
         )
     )
-    from .models import Settlement, Title
+    from .models import RecurringTitle, Settlement, Title
+
+    register(
+        TableSpec(
+            model=RecurringTitle,
+            description=gettext_lazy("Recorrências que geram títulos a pagar e a receber, por um job diário."),
+            label=gettext_lazy("Recorrências"),
+            scope="organization",
+            read_fields=(
+                "book",
+                "direction",
+                "description",
+                "category_account",
+                "cost_center",
+                "amount",
+                "frequency",
+                "interval",
+                "day_of_month",
+                "start_date",
+                "end_date",
+                "max_occurrences",
+                "next_due",
+                "generated_count",
+                "days_ahead",
+                "is_active",
+            ),
+            write_fields=(),
+            sensitive_fields=(),
+            personal_fields=("counterparty_name",),
+            expose_api=False,
+        )
+    )
 
     register(
         TableSpec(

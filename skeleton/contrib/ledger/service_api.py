@@ -16,7 +16,7 @@ from django.core.exceptions import PermissionDenied
 from skeleton.service_api import ServiceAPI, service_method
 from skeleton.service_api.dto import DEFAULT_PAGE_SIZE, Page, paginate
 
-from .models import Account, AccountBinding, Book, CostCenter, Entry, EntryLine, Settlement, Title
+from .models import Account, AccountBinding, Book, CostCenter, Entry, EntryLine, RecurringTitle, Settlement, Title
 from .posting import LineDraft as PostingLine
 from .registry import AccountKey, Key, Param, PostingRule, RuleLine, register_account_key, register_posting_rule
 
@@ -34,6 +34,7 @@ __all__ = [
     "Param",
     "PostingLine",
     "PostingRule",
+    "RecurrenceInfo",
     "RuleLine",
     "SettlementInfo",
     "TitleInfo",
@@ -266,6 +267,57 @@ def settlement_info(settlement: Settlement) -> SettlementInfo:
         settlement.entry_id,
         settlement.reversal_entry_id,
         settlement.revision,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class RecurrenceInfo:
+    sysid: UUID
+    book_id: UUID
+    direction: str
+    description: str
+    counterparty_name: str
+    category_account_id: UUID
+    cost_center_id: UUID | None
+    amount: int
+    frequency: str
+    interval: int
+    day_of_month: int | None
+    start_date: date
+    end_date: date | None
+    max_occurrences: int | None
+    next_due: date | None
+    generated_count: int
+    days_ahead: int
+    is_active: bool
+    ended: bool
+    revision: int
+
+
+def recurrence_info(rule: RecurringTitle) -> RecurrenceInfo:
+    from .recurrence import ended
+
+    return RecurrenceInfo(
+        sysid=rule.pk,
+        book_id=rule.book_id,
+        direction=rule.direction,
+        description=rule.description,
+        counterparty_name=rule.counterparty_name,
+        category_account_id=rule.category_account_id,
+        cost_center_id=rule.cost_center_id,
+        amount=rule.amount,
+        frequency=rule.frequency,
+        interval=rule.interval,
+        day_of_month=rule.day_of_month,
+        start_date=rule.start_date,
+        end_date=rule.end_date,
+        max_occurrences=rule.max_occurrences,
+        next_due=None if ended(rule, rule.next_due) else rule.next_due,
+        generated_count=rule.generated_count,
+        days_ahead=rule.days_ahead,
+        is_active=rule.is_active,
+        ended=ended(rule, rule.next_due),
+        revision=rule.revision,
     )
 
 
@@ -992,6 +1044,198 @@ class LedgerService(ServiceAPI):
         return paginate(rows, convert=entry_info, page_size=page_size, cursor=cursor)
 
     @service_method(read_only=False, since="0.6.0")
+    def create_recurrence(
+        self,
+        *,
+        actor: Any,
+        direction: str,
+        amount: int,
+        description: str,
+        category_key: str,
+        frequency: str,
+        start_date: date,
+        idempotency_key: str,
+        interval: int = 1,
+        day_of_month: int | None = None,
+        end_date: date | None = None,
+        max_occurrences: int | None = None,
+        days_ahead: int = 30,
+        counterparty_name: str = "",
+        party_ref: str = "",
+        party_kind: str = "",
+        cost_center_id: UUID | None = None,
+        book_id: UUID | None = None,
+    ) -> RecurrenceInfo:
+        """Create a rule that generates a title per occurrence, ``days_ahead`` days before it falls due.
+
+        ``frequency`` is ``weekly``, ``monthly`` or ``yearly``, every ``interval``; a monthly rule may fix
+        ``day_of_month`` (days past the end of a shorter month fall on its last day). The rule ends at
+        ``end_date`` or after ``max_occurrences`` titles. The job ``ledger.recurrences`` generates the
+        titles daily.
+        Autorização: gestão do livro.
+        Erros: NotFound; Forbidden; Conflict("account_not_bound"); InvalidInput.
+        Efeitos: grava a recorrência na transação do chamador; a mesma ``idempotency_key`` devolve a
+        recorrência já criada.
+        """
+        from .recurrence import first_due
+
+        values = _title_values(
+            actor,
+            direction=direction,
+            amount=amount,
+            due_date=start_date,
+            description=description,
+            issue_date=start_date,
+            counterparty_name=counterparty_name,
+            party_ref=party_ref,
+            party_kind=party_kind,
+            source_table=None,
+            source_id=None,
+            cost_center_id=cost_center_id,
+        )
+        book = _managed_book(actor, book_id)
+        key = _key(idempotency_key)
+        existing = RecurringTitle.objects.filter(idempotency_key=key).first()
+        if existing is not None:
+            return recurrence_info(existing)
+        schedule = _schedule(
+            frequency=frequency,
+            interval=interval,
+            day_of_month=day_of_month,
+            start_date=start_date,
+            end_date=end_date,
+            max_occurrences=max_occurrences,
+            days_ahead=days_ahead,
+        )
+        rule = RecurringTitle(
+            organization_id=book.organization_id,
+            book=book,
+            direction=values["direction"],
+            description=values["description"],
+            counterparty_name=values["counterparty_name"],
+            party_ref=values["party_ref"],
+            party_kind=values["party_kind"],
+            category_account=_category(book, category_key),
+            cost_center_id=_book_cost_center(book, values["cost_center_id"]),
+            amount=values["amount"],
+            idempotency_key=key,
+            **schedule,
+        )
+        rule.next_due = first_due(rule)
+        rule.save()
+        return recurrence_info(rule)
+
+    @service_method(read_only=False, since="0.6.0")
+    def update_recurrence(
+        self, *, actor: Any, recurrence_id: UUID, data: dict[str, Any], expected_revision: int
+    ) -> RecurrenceInfo:
+        """Change the next occurrences of a rule, with CAS; the titles already generated stay as they are.
+
+        ``data`` accepts ``amount``, ``description``, ``counterparty_name``, ``party_ref``,
+        ``party_kind``, ``cost_center_id``, ``end_date``, ``max_occurrences`` and ``days_ahead``.
+        Extending the end date or the occurrence limit of a rule that ended resumes it.
+        Autorização: gestão do livro.
+        Erros: NotFound; Forbidden; Conflict("stale_revision"); InvalidInput.
+        Efeitos: grava a alteração (auditada) na transação do chamador.
+        """
+        from skeleton.service_api import InvalidInput
+
+        allowed = {
+            "amount",
+            "description",
+            "counterparty_name",
+            "party_ref",
+            "party_kind",
+            "cost_center_id",
+            "end_date",
+            "max_occurrences",
+            "days_ahead",
+        }
+        if not isinstance(data, dict) or not data or set(data) - allowed:
+            raise InvalidInput({"data": [f"Campos aceitos: {', '.join(sorted(allowed))}."]})
+        rule = _recurrence_to_change(actor, recurrence_id, expected_revision)
+        merged = {
+            "direction": rule.direction,
+            "amount": data.get("amount", rule.amount),
+            "due_date": rule.start_date,
+            "issue_date": rule.start_date,
+            "description": data.get("description", rule.description),
+            "counterparty_name": data.get("counterparty_name", rule.counterparty_name),
+            "party_ref": data.get("party_ref", rule.party_ref),
+            "party_kind": data.get("party_kind", rule.party_kind),
+            "source_table": None,
+            "source_id": None,
+            "cost_center_id": data.get("cost_center_id", rule.cost_center_id),
+        }
+        values = _title_values(actor, **merged)
+        schedule = _schedule(
+            frequency=rule.frequency,
+            interval=rule.interval,
+            day_of_month=rule.day_of_month,
+            start_date=rule.start_date,
+            end_date=data.get("end_date", rule.end_date),
+            max_occurrences=data.get("max_occurrences", rule.max_occurrences),
+            days_ahead=data.get("days_ahead", rule.days_ahead),
+        )
+        rule.amount = values["amount"]
+        rule.description = values["description"]
+        rule.counterparty_name = values["counterparty_name"]
+        rule.party_ref = values["party_ref"]
+        rule.party_kind = values["party_kind"]
+        rule.cost_center_id = _book_cost_center(rule.book, values["cost_center_id"])
+        rule.end_date = schedule["end_date"]
+        rule.max_occurrences = schedule["max_occurrences"]
+        rule.days_ahead = schedule["days_ahead"]
+        rule.save()
+        return recurrence_info(rule)
+
+    @service_method(read_only=False, since="0.6.0")
+    def pause(self, *, actor: Any, recurrence_id: UUID, expected_revision: int) -> RecurrenceInfo:
+        """Stop generating the titles of a rule, with CAS.
+
+        Autorização: gestão do livro.
+        Erros: NotFound; Forbidden; Conflict("stale_revision").
+        Efeitos: grava a pausa; os títulos já gerados ficam.
+        """
+        rule = _recurrence_to_change(actor, recurrence_id, expected_revision)
+        if rule.is_active:
+            rule.is_active = False
+            rule.save(update_fields={"is_active"})
+        return recurrence_info(rule)
+
+    @service_method(read_only=False, since="0.6.0")
+    def resume(self, *, actor: Any, recurrence_id: UUID, expected_revision: int) -> RecurrenceInfo:
+        """Generate the titles of a paused rule again, with CAS.
+
+        The occurrences that fell due while it was paused are skipped: the job generates from today
+        on, up to ``days_ahead`` days ahead.
+        Autorização: gestão do livro.
+        Erros: NotFound; Forbidden; Conflict("stale_revision").
+        Efeitos: grava a retomada.
+        """
+        from django.utils import timezone
+
+        from .recurrence import skip_past
+
+        rule = _recurrence_to_change(actor, recurrence_id, expected_revision)
+        if not rule.is_active:
+            rule.is_active = True
+            rule.next_due = skip_past(rule, timezone.localdate())
+            rule.save(update_fields={"is_active", "next_due"})
+        return recurrence_info(rule)
+
+    @service_method(read_only=True, since="0.6.0")
+    def recurrences(self, *, actor: Any, book_id: UUID | None = None) -> tuple[RecurrenceInfo, ...]:
+        """The recurring titles of a book.
+
+        Autorização: leitura do livro.
+        Erros: NotFound.
+        Efeitos: nenhum.
+        """
+        book = _readable_book(actor, book_id)
+        return tuple(recurrence_info(rule) for rule in RecurringTitle.objects.filter(book=book))
+
+    @service_method(read_only=False, since="0.6.0")
     def set_lock(
         self, *, actor: Any, locked_until: date | None, expected_revision: int, book_id: UUID | None = None
     ) -> BookInfo:
@@ -1405,3 +1649,78 @@ def _title_to_read(actor: Any, title_id: Any) -> Title:
             pass
     _readable_book(actor, title.book_id)
     return title
+
+
+_FREQUENCIES = ("weekly", "monthly", "yearly")
+
+
+def _schedule(
+    *,
+    frequency: Any,
+    interval: Any,
+    day_of_month: Any,
+    start_date: Any,
+    end_date: Any,
+    max_occurrences: Any,
+    days_ahead: Any,
+) -> dict[str, Any]:
+    """Validated schedule fields of a recurring title."""
+    from datetime import datetime
+
+    from skeleton.service_api import InvalidInput
+
+    def integer(value: Any, low: int, high: int) -> bool:
+        return type(value) is int and low <= value <= high
+
+    errors: dict[str, list[str]] = {}
+    if frequency not in _FREQUENCIES:
+        errors["frequency"] = ["Use weekly, monthly ou yearly."]
+    if not integer(interval, 1, 52):
+        errors["interval"] = ["Use de 1 a 52."]
+    if day_of_month is not None and (frequency != "monthly" or not integer(day_of_month, 1, 31)):
+        errors["day_of_month"] = ["Só em recorrência mensal, de 1 a 31."]
+    for name, value in (("start_date", start_date), ("end_date", end_date)):
+        if value is not None and (not isinstance(value, date) or isinstance(value, datetime)):
+            errors[name] = ["Use uma data."]
+    if start_date is None:
+        errors["start_date"] = ["Use uma data."]
+    if "start_date" not in errors and "end_date" not in errors and end_date is not None and end_date < start_date:
+        errors["end_date"] = ["O fim vem depois do início."]
+    if max_occurrences is not None and not integer(max_occurrences, 1, 100000):
+        errors["max_occurrences"] = ["Use um inteiro positivo."]
+    if not integer(days_ahead, 0, 366):
+        errors["days_ahead"] = ["Use de 0 a 366 dias."]
+    if errors:
+        raise InvalidInput(errors)
+    return {
+        "frequency": frequency,
+        "interval": interval,
+        "day_of_month": day_of_month,
+        "start_date": start_date,
+        "end_date": end_date,
+        "max_occurrences": max_occurrences,
+        "days_ahead": days_ahead,
+    }
+
+
+def _book_cost_center(book: Book, cost_center_id: Any) -> Any:
+    from skeleton.service_api import InvalidInput
+
+    if cost_center_id is None:
+        return None
+    if not CostCenter.objects.filter(pk=cost_center_id, book=book, is_active=True).exists():
+        raise InvalidInput({"cost_center_id": ["Use um centro de custo ativo do livro."]})
+    return cost_center_id
+
+
+def _recurrence_to_change(actor: Any, recurrence_id: Any, expected_revision: Any) -> RecurringTitle:
+    from skeleton.service_api import Conflict, NotFound
+
+    rule = RecurringTitle.objects.filter(pk=_uuid(recurrence_id, "recurrence_id")).first()
+    if rule is None:
+        raise NotFound()
+    _managed_book(actor, rule.book_id)
+    rule = RecurringTitle.objects.select_related("book").select_for_update(of=("self",)).get(pk=rule.pk)
+    if type(expected_revision) is not int or rule.revision != expected_revision:
+        raise Conflict("stale_revision", "A recorrência mudou.")
+    return rule

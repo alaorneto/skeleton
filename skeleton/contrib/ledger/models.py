@@ -310,6 +310,88 @@ class EntryLine(OrganizationRecord):
         return f"{self.entry_id} {self.account_id}"
 
 
+class RecurringTitle(OrganizationRecord):
+    """A rule that generates titles (#547): one per occurrence, ``days_ahead`` days before it falls due."""
+
+    class Frequency(models.TextChoices):
+        WEEKLY = "weekly", gettext_lazy("Semanal")
+        MONTHLY = "monthly", gettext_lazy("Mensal")
+        YEARLY = "yearly", gettext_lazy("Anual")
+
+    book = models.ForeignKey(Book, on_delete=models.PROTECT, related_name="recurrences")
+    direction = models.CharField(max_length=16, choices=[("receivable", "receivable"), ("payable", "payable")])
+    description = models.CharField(max_length=300)
+    counterparty_name = models.CharField(max_length=200, blank=True, default="")
+    party_ref = models.CharField(max_length=100, blank=True, default="")
+    party_kind = models.CharField(max_length=50, blank=True, default="")
+    category_account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="recurrences")
+    cost_center = models.ForeignKey(
+        CostCenter, on_delete=models.PROTECT, null=True, blank=True, related_name="recurrences"
+    )
+    amount = models.PositiveBigIntegerField()
+    frequency = models.CharField(max_length=16, choices=Frequency.choices)
+    interval = models.PositiveSmallIntegerField(default=1)
+    day_of_month = models.PositiveSmallIntegerField(null=True, blank=True)
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    max_occurrences = models.PositiveIntegerField(null=True, blank=True)
+    # The next occurrence to generate; it stays after the end date or the limit (extending them resumes).
+    next_due = models.DateField(null=True, blank=True)
+    generated_count = models.PositiveIntegerField(default=0)
+    days_ahead = models.PositiveSmallIntegerField(default=30)
+    is_active = models.BooleanField(default=True)
+    idempotency_key = models.CharField(max_length=200, blank=True, default="")
+    immutable_fields = (
+        "book_id",
+        "direction",
+        "start_date",
+        "frequency",
+        "interval",
+        "day_of_month",
+        "idempotency_key",
+    )
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(amount__gt=0), name="skeleton_ledger_recurrence_amount_positive"),
+            models.CheckConstraint(
+                condition=Q(direction__in=("receivable", "payable")), name="skeleton_ledger_recurrence_direction"
+            ),
+            models.CheckConstraint(
+                condition=Q(frequency__in=("weekly", "monthly", "yearly")), name="skeleton_ledger_recurrence_frequency"
+            ),
+            models.CheckConstraint(
+                condition=Q(interval__gte=1) & Q(interval__lte=52), name="skeleton_ledger_recurrence_interval"
+            ),
+            models.CheckConstraint(
+                condition=Q(day_of_month__isnull=True) | (Q(day_of_month__gte=1) & Q(day_of_month__lte=31)),
+                name="skeleton_ledger_recurrence_day_of_month",
+            ),
+            models.CheckConstraint(condition=Q(days_ahead__lte=366), name="skeleton_ledger_recurrence_days_ahead"),
+            models.CheckConstraint(
+                condition=Q(end_date__isnull=True) | Q(end_date__gte=models.F("start_date")),
+                name="skeleton_ledger_recurrence_end_after_start",
+            ),
+            models.CheckConstraint(
+                condition=Q(max_occurrences__isnull=True) | Q(max_occurrences__gte=1),
+                name="skeleton_ledger_recurrence_max_positive",
+            ),
+            models.UniqueConstraint(
+                fields=("organization", "idempotency_key"),
+                condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
+                name="skeleton_ledger_recurrence_live_key",
+                violation_error_code="unique",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("organization", "is_active", "next_due"), name="skeleton_ledger_recurrence_due")
+        ]
+        ordering = ("description", "sysid")
+
+    def __str__(self) -> str:
+        return self.description
+
+
 class Title(OrganizationRecord):
     """A receivable or payable (#546); ``amount`` is the principal, ``amount_settled`` what was received or paid."""
 
@@ -343,6 +425,9 @@ class Title(OrganizationRecord):
     installment_number = models.PositiveSmallIntegerField(null=True, blank=True)
     installment_count = models.PositiveSmallIntegerField(null=True, blank=True)
     accrual_entry = models.ForeignKey(Entry, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    recurrence = models.ForeignKey(
+        RecurringTitle, on_delete=models.PROTECT, null=True, blank=True, related_name="titles"
+    )
     immutable_fields = (
         "book_id",
         "direction",
@@ -355,6 +440,7 @@ class Title(OrganizationRecord):
         "idempotency_key",
         "installment_number",
         "installment_count",
+        "recurrence_id",
     )
 
     class Meta(OrganizationRecord.Meta):

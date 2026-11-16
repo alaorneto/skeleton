@@ -60,6 +60,17 @@ O livro padrão da organização, criado na primeira chamada.
 | `titles_for_source(*, actor, table_key, record_id) -> tuple[TitleInfo, ...]` | leitura do registro de origem | `NotFound` |
 | `settlements(*, actor, title_id) -> tuple[SettlementInfo, ...]` | leitura do livro ou da origem | `NotFound` |
 
+#### Títulos recorrentes (#547)
+| Método | Autorização | Erros |
+|---|---|---|
+| `create_recurrence(*, actor, direction, amount, description, category_key, frequency, start_date, idempotency_key, interval=1, day_of_month=None, end_date=None, max_occurrences=None, days_ahead=30, counterparty_name="", party_ref="", party_kind="", cost_center_id=None, book_id=None) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("account_not_bound")`; `InvalidInput` |
+| `update_recurrence(*, actor, recurrence_id, data, expected_revision) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `InvalidInput` (campo fora de `amount`, `description`, `counterparty_name`, `party_ref`, `party_kind`, `cost_center_id`, `end_date`, `max_occurrences`, `days_ahead`) |
+| `pause(*, actor, recurrence_id, expected_revision) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")` |
+| `resume(*, actor, recurrence_id, expected_revision) -> RecurrenceInfo` | gestão do livro | `NotFound`; `Forbidden`; `Conflict("stale_revision")` |
+| `recurrences(*, actor, book_id=None) -> tuple[RecurrenceInfo, ...]` | leitura do livro | `NotFound` |
+
+Os títulos são gerados pelo job diário `ledger.recurrences`, não pelos métodos.
+
 `reverse` também aceita `expected_revision` (CAS) e `system_context`; um lançamento com origem é estornado com a ação da regra na origem. `amounts` mapeia o nome de cada componente a um inteiro da menor unidade da moeda; `accounts` mapeia o nome de cada `Param` ao `sysid` de uma conta do livro.
 
 `lines` é uma tupla de `PostingLine(account_id, debit=0, credit=0, memo="", cost_center_id=None, party_ref="", party_kind="")`, reexportado pelo módulo. A contraparte é identificada só por `party_ref` (referência opaca), nunca por nome.
@@ -73,7 +84,8 @@ O livro padrão da organização, criado na primeira chamada.
 - `CostCenterInfo`: `sysid`, `book_id`, `code`, `name`, `is_active`, `revision`.
 - `TitleInfo`: `sysid`, `book_id`, `direction`, `description`, `counterparty_name`, `party_ref`, `party_kind`, `category_account_id`, `cost_center_id`, `amount`, `amount_settled`, `balance`, `issue_date`, `due_date`, `status`, `source_table`, `source_id`, `installment_number`, `installment_count`, `revision`. `counterparty_name` sai para quem lê o livro e, em `titles_for_source`, para quem lê a origem.
 - `SettlementInfo`: `sysid`, `title_id`, `date`, `amount`, `discount`, `interest`, `fee`, `payment_account_id`, `method`, `entry_id`, `reversal_entry_id`, `revision`.
+- `RecurrenceInfo`: `sysid`, `book_id`, `direction`, `description`, `counterparty_name`, `category_account_id`, `cost_center_id`, `amount`, `frequency`, `interval`, `day_of_month`, `start_date`, `end_date`, `max_occurrences`, `next_due` (`None` quando encerrada), `generated_count`, `days_ahead`, `is_active`, `ended`, `revision`.
 - `EntryInfo`: `sysid`, `book_id`, `year`, `number`, `date`, `description`, `kind`, `rule`, `source_app`, `source_table`, `source_id`, `reverses_id`, `reversed_by_id`, `total`, `sealed`, `digest` e `lines` (`EntryLineInfo`: `sysid`, `account_id`, `debit`, `credit`, `memo`, `cost_center_id`, `party_ref`, `party_kind`).
 
 ## Histórico de versões
-- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546).
+- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547).
