@@ -421,6 +421,8 @@ acme_clientes/            <- checkout; o nome do diretório é o nome do pacote
 
 **Depender de uma app first-party.** Declare a dependência pelo `app_id` dela em `dependencies` (por exemplo `"org.skeleton.calendar": ">=0.5.0,<0.6.0"`, veja [Apps first-party](#apps-first-party-do-núcleo-skeletoncontrib)) e ligue a app no CI com `SKELETON_BUNDLED_APPS` no `env` do job (por exemplo `SKELETON_BUNDLED_APPS: calendar`): sem ela instalada, o startup recusa a dependência. Importe só o `service_api` dela.
 
+**`AGENTS.md` da app.** Instruções próprias da app para agentes ficam num `AGENTS.md` na raiz do repositório. Ele aponta para o `AGENTS.md` do núcleo na versão de `compatibility.skeleton`, não repete regra do núcleo e traz só o que é da app ([contrato](../AGENTS.md#contrato-de-agentes-em-apps-e-projetos-derivados)). O gerador não cria esse arquivo: ao criá-lo, acrescente `AGENTS.md export-ignore` ao `.gitattributes`.
+
 **Regras.** O repositório da app nunca contém cópia do núcleo nem arquivo de `config/`; `SKELETON_DEV_APPS` nunca é definido em produção, onde a app entra pelo pacote assinado instalado pelo agente; a chave de assinatura do publicador fica fora do repositório (o job de publicação do `ci.yml` gerado vem comentado justamente para o operador decidir onde ela fica).
 
 ## Exemplo completo existente: Note
