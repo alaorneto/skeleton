@@ -177,17 +177,24 @@ jobs:
           # report of the "coverage" job, never to a slice (#329).
           .venv/bin/python -m pytest tests -q -n "$TEST_WORKERS" --shard "${{ matrix.shard }}" --cov --cov-report= --cov-fail-under=0
       - name: Agenda (app first-party, SKELETON_BUNDLED_APPS=calendar)
-        # Its own suite and checks with the app installed; the core slices run without it.
+        # Its own suite and checks with the app installed; the core slices run without it. The
+        # first-party suites add to the slice's coverage data: their code is part of the package.
         if: matrix.slug == 'calendar'
-        run: .venv/bin/python -m pytest tests/contrib/calendar -q -n "$TEST_WORKERS"
+        env:
+          COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
+        run: |
+          mkdir -p coverage-data
+          .venv/bin/python -m pytest tests/contrib/calendar -q -n "$TEST_WORKERS" --cov --cov-append --cov-report= --cov-fail-under=0
       - name: Livro contábil (app first-party, SKELETON_BUNDLED_APPS=calendar,ledger)
         if: matrix.slug == 'calendar'
-        run: .venv/bin/python -m pytest tests/contrib/ledger -q -n "$TEST_WORKERS"
+        env:
+          COVERAGE_FILE: coverage-data/coverage.py${{ matrix.python }}.${{ matrix.slug }}
+        run: .venv/bin/python -m pytest tests/contrib/ledger -q -n "$TEST_WORKERS" --cov --cov-append --cov-report= --cov-fail-under=0
       - name: Smoke de segurança do runtime
         if: matrix.python == '3.14' && matrix.slug == 'core-1'
         run: .venv/bin/python tools/smoke_postgres.py
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: matrix.shard
+        if: matrix.shard || matrix.slug == 'calendar'
         with:
           name: coverage-data-py${{ matrix.python }}-${{ matrix.slug }}
           path: coverage-data/
