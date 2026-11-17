@@ -2,7 +2,7 @@ from django.urls import path
 
 from skeleton.api.health import probe_response
 from skeleton.tenancy.routing import ORG
-from skeleton.web import admission_views, identity_views, privacy_views, site_domain_views, views
+from skeleton.web import admission_views, external_views, identity_views, privacy_views, site_domain_views, views
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import (
     favicon,
@@ -39,6 +39,18 @@ urlpatterns = [
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
     path(ORG, views.dashboard, name="dashboard"),
     path(f"{ORG}admission/", admission_views.admission_policy, name="admission"),
+    # External people of the portal (#532).
+    path(f"{ORG}admin/external/", external_views.external_admin, name="external"),
+    path(
+        f"{ORG}admin/external/accesses/<uuid:sysid>/revoke/",
+        external_views.external_access_revoke,
+        name="external-access-revoke",
+    ),
+    path(
+        f"{ORG}admin/external/invitations/<uuid:sysid>/revoke/",
+        external_views.external_invitation_revoke,
+        name="external-invitation-revoke",
+    ),
     path(f"{ORG}identity/", identity_views.identity, name="identity"),
     path(
         f"{ORG}identity/<uuid:sysid>/",

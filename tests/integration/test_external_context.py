@@ -164,7 +164,7 @@ def test_service_methods_refuse_the_external_context_unless_marked(scenario):
     assert Portal.service_methods()["hello"].allow_external is True
 
 
-def test_no_core_service_method_is_open_to_external_people_yet():
+def test_only_the_expected_core_service_methods_are_open_to_external_people():
     from skeleton.service_api.base import ServiceAPI
 
     marked = []
@@ -176,7 +176,7 @@ def test_no_core_service_method_is_open_to_external_people_yet():
                 marked += [
                     f"{name}.{method}" for method, spec in value.service_methods().items() if spec.allow_external
                 ]
-    assert marked == []
+    assert marked == ["ExternalAccessService.me"]  # The person's own access (#532).
 
 
 def test_self_discovery_lists_only_the_persons_own_accesses(scenario):
@@ -214,7 +214,7 @@ def test_seats_never_count_external_people(scenario):
     from skeleton.tenancy.models import ExternalAccess
 
     with system_context(reason="test:external-metrics", organization_id=scenario.a.pk):
-        assert _members(scenario.a.pk) == 2  # The owner and the dual administrator.
+        assert _members(scenario.a.pk) == 3  # The owner, the dual administrator and the member.
         assert _external_people(scenario.a.pk) == 2
         access = ExternalAccess.objects.get(user=scenario.external)
         access.is_active = False

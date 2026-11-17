@@ -327,7 +327,7 @@ def test_system_reasons_open_to_http_are_a_closed_list():
         request_context,
     )
 
-    assert VALIDATED_IDENTITY_REASONS == {"invitation:validated", "sso:validated"}
+    assert VALIDATED_IDENTITY_REASONS == {"invitation:validated", "sso:validated", "external:validated"}
     assert PLATFORM_ADMIN_REASONS == {
         "organization:create",
         "organization:bootstrap",

@@ -165,6 +165,12 @@ def register_core_specs():
             "organization",
             (),
         ),
+        "sk_tenancy.externalinvitation": (
+            gettext_lazy("Convites do portal externo"),
+            gettext_lazy("Convite de uma pessoa externa ao portal, emitido para um registro de uma app."),
+            "organization",
+            ("token_digest",),
+        ),
         "sk_tenancy.organizationadmissionpolicy": (
             "Política de admissão",
             "Como pessoas de fora pedem para entrar na organização; sem linha, tudo desligado.",
@@ -582,6 +588,8 @@ def register_core_specs():
         "sk_flows.flowinstance": ("data",),
         "sk_flows.flowsubmission": ("values",),
         "sk_billing.billingaccount": ("legal_name", "billing_email", "tax_id"),
+        # The invited address of an external person (#532).
+        "sk_tenancy.externalinvitation": ("email",),
     }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
     read_fields = {

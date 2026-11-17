@@ -144,6 +144,7 @@ def _admission_links(organization_id: Any, capabilities: frozenset[str], path: s
         ("admission.configure", "web:admission", gettext("Admissão")),
         ("admission.configure", "web:verified-domains", gettext("Domínios verificados")),
         ("identity.configure", "web:identity", gettext("Identidade")),
+        ("external.manage", "web:external", gettext("Pessoas externas")),
     ):
         if capability in capabilities:
             url = reverse(name, kwargs={"organization_id": organization_id})

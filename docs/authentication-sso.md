@@ -21,6 +21,8 @@ O administrador da organização emite um convite com email, papel e organizaç�
 
 Conta nova usa o cadastro allauth com email fixado. A posse de um convite validado pode servir de prova de acesso àquele email; não serve de prova da senha ou da identidade de uma conta existente. Para uma conta existente, são necessários login/reautenticação e email verificado igual ao convidado. Reconvidar reativa a Membership existente, sem duplicar o vínculo. Convite inválido, expirado ou consumido apresenta uma página neutra ou o código de API `invalid_invitation`, sem revelar se a conta existe.
 
+O convite para o **portal** de pessoas externas (#532) segue o mesmo desenho, sem papel nem `Membership`: resumo SHA-256, link `/portal/invite/<org_uuid>/<token>/`, aceite só com o email verificado da conta igual ao convidado, recusas neutras e tentativas limitadas por pessoa e IP ([portal](portal.md#convite-e-aceite-532)).
+
 A sessão armazena apenas UUIDs de organização/convite e o digest, nunca o token original. Na criação, a prova de email validada continua disponível somente na requisição corrente depois do consumo, para configurar `EmailAddress` no allauth. Ela não pode autenticar uma conta existente nem ser reutilizada em outra requisição.
 
 ### Solicitação de ingresso

@@ -25,6 +25,7 @@ class ExternalScenario:
     external: Any  # Portal access to A, no membership anywhere.
     dual: Any  # Administrator of A with portal access to A too.
     outsider: Any
+    member: Any = None  # A plain member of A, without external.manage.
     password: str = FIXTURE_PASSWORD
 
 
@@ -58,20 +59,23 @@ def external_scenario(slug: str = "external") -> ExternalScenario:
     with system_context(reason="test:external-identities"):
         people = {
             name: create_identity(email=f"{name}@{slug}.example.test", password=FIXTURE_PASSWORD)
-            for name in ("admin-a", "admin-b", "external", "dual", "outsider")
+            for name in ("admin-a", "admin-b", "external", "dual", "outsider", "member")
         }
     a = create_organization(owner=people["admin-a"], slug=f"{slug}-a", name=f"{slug} A")
     b = create_organization(owner=people["admin-b"], slug=f"{slug}-b", name=f"{slug} B")
-    _admit(a, people["dual"], admin=people["admin-a"])
+    _admit(a, people["dual"], role="organization_admin")
+    _admit(a, people["member"], role="member")
     for organization in (a, b):
         enable_portal(organization)
     grant_external_access(a, people["external"])
     grant_external_access(a, people["dual"])
-    return ExternalScenario(a, b, people["admin-a"], people["external"], people["dual"], people["outsider"])
+    return ExternalScenario(
+        a, b, people["admin-a"], people["external"], people["dual"], people["outsider"], member=people["member"]
+    )
 
 
-def _admit(organization: Any, user: Any, *, admin: Any) -> None:
-    """``user`` becomes an active member of ``organization`` with the builtin administrator role."""
+def _admit(organization: Any, user: Any, *, role: str) -> None:
+    """``user`` becomes an active member of ``organization`` with the builtin ``role``."""
     from skeleton.access.models import MemberRole, Role
     from skeleton.tenancy.context import system_context
     from skeleton.tenancy.models import Membership
@@ -79,8 +83,8 @@ def _admit(organization: Any, user: Any, *, admin: Any) -> None:
     with system_context(reason="test:external-member", organization_id=organization.pk):
         membership = Membership(organization_id=organization.pk, user=user)
         membership.save()
-        role = Role.objects.get(code="organization_admin", is_builtin=True)
-        MemberRole(organization_id=organization.pk, membership=membership, role=role).save()
+        builtin = Role.objects.get(code=role, is_builtin=True)
+        MemberRole(organization_id=organization.pk, membership=membership, role=builtin).save()
 
 
 @contextmanager

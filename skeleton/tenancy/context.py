@@ -30,7 +30,8 @@ IdentityRef = HasSysid | UUID | str | None
 
 # The only system contexts an HTTP request may open (docs/access-control.md). Each is chosen by
 # server code after its own validation, never by a body or header value.
-VALIDATED_IDENTITY_REASONS = frozenset({"invitation:validated", "sso:validated"})
+# ``external:validated`` (#532): the acceptance of an external invitation, after the token and the verified email.
+VALIDATED_IDENTITY_REASONS = frozenset({"invitation:validated", "sso:validated", "external:validated"})
 PLATFORM_ADMIN_REASONS = frozenset(
     {
         "organization:create",
