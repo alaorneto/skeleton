@@ -39,6 +39,37 @@ def invitation_view(request, organization_id, token):
     return render(request, "account/invitation.html", {"invitation_email": proof.email})
 
 
+@require_http_methods(["GET", "POST"])
+def external_invitation_view(request, organization_id, token):
+    """Accept an invitation to an organization's portal (#532): sign in (or sign up) with the invited email."""
+    from skeleton.tenancy import external
+
+    try:
+        proof = external.validate(organization_id, token)
+    except ValidationError:
+        return render(request, "account/invitation_invalid.html", status=400)
+    if request.method == "POST":
+        if not request.user.is_authenticated:
+            return redirect(reverse_login(request.path))
+        try:
+            external.accept(
+                user=request.user, organization_id=organization_id, token=token, ip=request.META.get("REMOTE_ADDR")
+            )
+        except external.TooManyAttempts:
+            return render(request, "account/invitation_invalid.html", status=429)
+        except ValidationError:
+            # Another email, an unverified one, a plan limit: the same neutral answer.
+            return render(request, "account/invitation_invalid.html", status=400)
+        return render(request, "account/external_invitation_accepted.html", {"organization_id": organization_id})
+    return render(request, "account/external_invitation.html", {"invitation_email": proof.email})
+
+
+def reverse_login(next_path):
+    from django.urls import reverse
+
+    return reverse("account_login") + "?" + urlencode({"next": next_path})
+
+
 @method_decorator(login_not_required, name="dispatch")
 class ProviderLogoutView(LogoutView):
     """End the local allauth session before a reviewed browser logout redirect."""

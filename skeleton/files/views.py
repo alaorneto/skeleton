@@ -6,12 +6,12 @@ from django.contrib import messages
 from django.db import transaction
 from django.shortcuts import redirect
 from django.utils.translation import gettext
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_safe
 
 from skeleton.common.exceptions import ConcurrentUpdate, RecordSealed
 from skeleton.records.services import exposed_spec
 from skeleton.web.errors import error_response
-from skeleton.web.views import tenant_page
+from skeleton.web.views import portal_page, tenant_page
 
 from . import services
 
@@ -132,6 +132,18 @@ def download(request, organization_id, table_key, sysid, attachment_id):
     attachment = rows.filter(pk=attachment_id, state=Attachment.State.AVAILABLE).first()
     if attachment is None:
         raise Http404  # Missing, deleted, pending, quarantined and unauthorized look the same.
+    return DetachedFileResponse(
+        storage_key=attachment.storage_key, filename=attachment.filename, content_type=attachment.content_type
+    )
+
+
+@portal_page
+@require_safe
+def portal_download(request, organization_id, attachment_id):
+    """An attachment for an external person (#534): the table's external reader decides, on every request."""
+    from skeleton.common.responses import DetachedFileResponse
+
+    attachment = services.external_attachment(attachment_id, user=request.user)
     return DetachedFileResponse(
         storage_key=attachment.storage_key, filename=attachment.filename, content_type=attachment.content_type
     )

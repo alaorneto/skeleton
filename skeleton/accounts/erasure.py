@@ -214,6 +214,19 @@ def forget_in_organization(*, user_id: str) -> None:
     forget_person(UUID(user_id))
     disable_endpoints_of_principal(UUID(user_id))
     forget_in_flows(UUID(user_id))
+    _close_external_accesses(UUID(user_id))
+
+
+def _close_external_accesses(user_id: UUID) -> None:
+    """The person's portal access in this organization is turned off and kept as history (#536).
+
+    A later invitation needs a new acceptance, which reactivates it.
+    """
+    from skeleton.tenancy.models import ExternalAccess
+
+    for access in ExternalAccess.objects.filter(user_id=user_id, is_active=True).order_by("sysid"):
+        access.is_active = False
+        access.save(update_fields={"is_active"})
 
 
 def register_erasure_jobs() -> None:

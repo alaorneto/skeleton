@@ -74,6 +74,8 @@ MAX_SERVICE_CLASSES = 32
 
 # runtime.service_api (docs/service-api.md) is unknown to older cores, so declaring it raises the floor.
 SERVICE_API_CORE_MINIMUM = "0.4.0"
+# runtime.portal_urls and runtime.portal_api_urls (docs/portal.md, #533): the portal of external people.
+PORTAL_CORE_MINIMUM = "0.6.0"
 
 
 SERVICE_API_DOCUMENT = "service-api.md"

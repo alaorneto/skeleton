@@ -19,7 +19,7 @@ from skeleton.system.presentation import (
 from . import archive as artifacts
 from . import limits
 from .errors import PackageError, _fail
-from .limits import BUILD_EXCLUDED_DIRECTORIES, SERVICE_API_CORE_MINIMUM
+from .limits import BUILD_EXCLUDED_DIRECTORIES, PORTAL_CORE_MINIMUM, SERVICE_API_CORE_MINIMUM
 from .manifest import load_manifest, validate_manifest
 from .primitives import _path, _specifier, _stable_id, canonical_json
 from .signing import _private_key
@@ -53,6 +53,8 @@ def build_artifact(manifest, payloads, output_path, private_key_path):
         minimum = required_presentation_core(m["runtime"])
         if "service_api" in m["runtime"]:
             minimum = max(minimum, SERVICE_API_CORE_MINIMUM, key=Version)
+        if any(m["runtime"].get(key) for key in ("portal_urls", "portal_api_urls")):
+            minimum = max(minimum, PORTAL_CORE_MINIMUM, key=Version)
         m["compatibility"]["skeleton"] = _specifier(m["compatibility"]["skeleton"] + ",>=" + minimum)
     m["files"] = []
     contents = {}

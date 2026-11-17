@@ -235,3 +235,37 @@ def attachment_schema() -> dict[str, Any]:
 def attachment_data(attachment) -> dict[str, Any]:
     """Public metadata; ``storage_key`` never leaves the server."""
     return {name: getattr(attachment, name) for name in ATTACHMENT_FIELDS}
+
+
+def external_attachment(attachment_id, *, user):
+    """The available attachment an external person may download in the portal (#534); otherwise 404.
+
+    The table's ``AttachmentPolicy.external_reader`` decides from the live target record; a deleted,
+    purged, pending or quarantined attachment, one of a table without the reader, or of another
+    organization looks the same as a missing one.
+    """
+    from skeleton.system.registry import get_spec
+    from skeleton.tenancy.context import current_context
+
+    from .models import Attachment
+
+    if not current_context().external:
+        raise Http404
+    attachment = (
+        Attachment.objects.select_related("target_table")
+        .filter(pk=attachment_id, state=Attachment.State.AVAILABLE)
+        .first()
+    )
+    if attachment is None or not attachment.target_table.model_label:
+        raise Http404
+    try:
+        spec = get_spec(attachment.target_table.model_label)
+    except (KeyError, LookupError):
+        raise Http404 from None
+    reader = getattr(spec.attachments, "external_reader", None) if spec and spec.attachments else None
+    if reader is None:
+        raise Http404
+    record = spec.model.objects.filter(pk=attachment.target_sysid).first()
+    if record is None or not reader(record, user):
+        raise Http404
+    return attachment

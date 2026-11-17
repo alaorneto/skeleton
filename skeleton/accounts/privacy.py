@@ -112,6 +112,29 @@ def _organization_part(user: Any):
     return collect
 
 
+def _external_accesses(user: Any) -> list[dict[str, Any]]:
+    """The person's portal accesses (#536): organization, app, state and dates; nothing of third parties."""
+    from skeleton.tenancy.context import own_rows, request_context
+    from skeleton.tenancy.models import ExternalAccess
+
+    with request_context(actor=user, request_id=None, source="privacy:export"):
+        rows = (
+            own_rows(ExternalAccess, user)
+            .order_by("created_at", "sysid")
+            .values("organization_id", "organization__name", "app_label", "is_active", "created_at", "last_seen_at")
+        )
+        return [
+            {
+                "organization": {"sysid": row["organization_id"], "name": row["organization__name"]},
+                "app_label": row["app_label"],
+                "is_active": row["is_active"],
+                "created_at": row["created_at"],
+                "last_seen_at": row["last_seen_at"],
+            }
+            for row in rows
+        ]
+
+
 def export_my_data(user: Any) -> bytes:
     """The ZIP with ``dados.json`` (call outside any context: an ``aggregate_route`` view)."""
     from skeleton.tenancy.aggregate import for_each_organization
@@ -123,6 +146,7 @@ def export_my_data(user: Any) -> bytes:
             user, _organization_part(user), source="privacy:export", all_organizations=True
         )
     ]
+    data["external_accesses"] = _external_accesses(user)
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("dados.json", json.dumps(data, ensure_ascii=False, indent=2, default=_json))

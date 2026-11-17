@@ -68,6 +68,9 @@ class AppManifest:
     # First-party app shipped inside the core wheel (#66) and its global user routes (/me/apps/<label>/).
     bundled: bool = False
     user_urls: str | None = None
+    # The portal of external people (#533): /portal/<org>/apps/<label>/ and its API twin.
+    portal_urls: str | None = None
+    portal_api_urls: str | None = None
 
     @classmethod
     def from_json(cls, path, *, app_config):
@@ -147,6 +150,8 @@ class AppManifest:
             service_api=service_api,
             bundled=bundled,
             user_urls=module(runtime.get("user_urls")),
+            portal_urls=module(runtime.get("portal_urls")),
+            portal_api_urls=module(runtime.get("portal_api_urls")),
         )
 
 

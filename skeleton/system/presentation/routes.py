@@ -2,11 +2,11 @@
 
 import re
 
-RESERVED_ROOTS = ("admin", "platform", "notifications")
+RESERVED_ROOTS = ("admin", "platform", "notifications", "portal")
 
 
 def _validate_reserved_routes(patterns, prefix=""):
-    """Apps cannot capture core-owned roots: platform/ (administration) and the retired admin/."""
+    """Apps cannot capture core-owned roots: platform/ (administration), portal/ (#533) and the retired admin/."""
     from django.core.exceptions import ValidationError
     from django.urls import URLResolver
     from django.urls.resolvers import RoutePattern
@@ -46,7 +46,9 @@ def _validate_reserved_routes(patterns, prefix=""):
                 or any(f"{root}/".startswith(route) or route.startswith(f"{root}/") for root in RESERVED_ROOTS)
                 or "|" in expression
             ):
-                raise ValidationError("Application regex URLs may capture a reserved prefix (admin/, platform/).")
+                raise ValidationError(
+                    "Application regex URLs may capture a reserved prefix (admin/, platform/, portal/)."
+                )
 
 
 def _validate_owned_routes(patterns, package):

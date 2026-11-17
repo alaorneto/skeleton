@@ -102,8 +102,9 @@ O serviço **não abre** contexto. Ele roda dentro do contexto do chamador:
 | View ou endpoint tenant | `tenant_context` aberto pelo middleware a partir da URL | `request.user` |
 | Job `run_as="actor"` ([#77](https://github.com/alaorneto/skeleton/issues/77)) | `tenant_context` aberto pelo worker | ator do job |
 | Job `run_as="system"` | `system_context(reason=...)` da organização | `None`, só em métodos `@service_method(allow_system=True)` |
+| View do portal (#515) | `external_context` da pessoa externa | `request.user`, só em métodos `@service_method(allow_external=True)` |
 
-O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
+Em contexto externo, um método sem `allow_external=True` responde `Forbidden(code="external_not_allowed")`; a marca aparece em `ServiceMethodSpec.allow_external` e o método marcado autoriza pela ligação da app à pessoa, nunca por `authorized_queryset` ([acesso externo](access-control.md#acesso-externo-portal)). O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
 
 ## Autorização
 
@@ -239,12 +240,13 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 |---|---|---|---|
 | `IdentityService` | `skeleton.service_api.identity` | `me`, `get_person`, `people`, `update_my_preferences`, `update_my_profile` | [#102](https://github.com/alaorneto/skeleton/issues/102), [#475](https://github.com/alaorneto/skeleton/issues/475) |
 | `OrganizationService` | `skeleton.service_api.organizations` | `current`, `my_organizations`, `members`, `groups`, `is_member`, `member_refs`, `settings`, `update_settings` | [#103](https://github.com/alaorneto/skeleton/issues/103), [#167](https://github.com/alaorneto/skeleton/issues/167) |
+| `ExternalAccessService` | `skeleton.service_api.external` | `invite`, `revoke_invitation`, `resend_invitation`, `accesses`, `invitations`, `access_for`, `revoke`, `me` | [#532](https://github.com/alaorneto/skeleton/issues/532) |
 | `AccessService` | `skeleton.service_api.access` | `can`, `require`, `capabilities`, `granted_record_ids`, `my_groups`, `grant_member_table_access`, `grant_record_access`, `revoke_record_access` | [#104](https://github.com/alaorneto/skeleton/issues/104) |
 | `ApplicationService`, `ApplicationAdministrationService` | `skeleton.service_api.applications` | `is_enabled`, `require_enabled`, `my_configuration`; administração: `applications`, `application`, `configure` | [#105](https://github.com/alaorneto/skeleton/issues/105) |
 | `AuditService`, `AuditLogService` | `skeleton.service_api.audit` | `history`; log das superfícies do núcleo: `events`, `event`, `related_domain_events` | [#106](https://github.com/alaorneto/skeleton/issues/106), [#110](https://github.com/alaorneto/skeleton/issues/110) |
 | `NotificationService` | `skeleton.service_api.notifications` | `notify`, `unread_count`, `inbox`, `mark_read`, `archive` | [#107](https://github.com/alaorneto/skeleton/issues/107) |
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
-| `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
+| `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `external_download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 | `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
@@ -376,6 +378,7 @@ Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden
 | `attach(*, actor, table_key, record_id, filename, stream, content_type=None) -> AttachmentInfo` | update no registro alvo; o tipo é provado pelo conteúdo (`content_type` é só indicativo) | `NotFound` (tabela sem opt-in, alvo inexistente, de outra organização ou ilegível); `Forbidden` (lê sem update); `InvalidInput` (tipo, nome ou tamanho); `Conflict("quota_exceeded")` |
 | `list(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AttachmentInfo]` | leitura do alvo | `NotFound`, `InvalidInput` |
 | `download_url(*, actor, attachment_id) -> str` | leitura do alvo e anexo `available`; a URL é interna e a view reautoriza a cada pedido | `NotFound` (inclusive pendente ou em quarentena) |
+| `external_download_url(*, actor, attachment_id) -> str` | só no portal (`allow_external=True`, #534): o `external_reader` do `AttachmentPolicy` decide pelo registro alvo vivo | `NotFound`; `Forbidden` fora do portal |
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
 Apps não acessam o armazenamento diretamente.

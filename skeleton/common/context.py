@@ -24,6 +24,8 @@ class Context:
     credential_scopes: frozenset[str] | None = None
     # Global audit reading by the platform auditor (#34); only inside ``platform_audit_scope``.
     platform_auditor: bool = False
+    # An external person in the organization's portal (#531): no member power applies.
+    external: bool = False
 
 
 _context: ContextVar[Context | None] = ContextVar("skeleton_context", default=None)

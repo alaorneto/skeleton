@@ -9,7 +9,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 3. `docs/table-catalog.md` e `docs/extending.md` antes de criar tabelas.
 4. `docs/service-api.md` antes de criar uma app ou integrar apps; o procedimento é o skill `service-api`.
 5. `docs/jobs.md`, `docs/events.md`, `docs/notifications.md`, `docs/files.md`, `docs/webhooks.md`, `docs/sequences.md`, `docs/flows.md`, `docs/comments.md`, `docs/data-transfer.md`, `docs/billing.md` e `docs/organization-sites.md` antes de usar ou alterar o subsistema correspondente.
-6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas.
+6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/portal.md` para pessoas externas; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas.
 7. `docs/testing.md`, `docs/checks.md`, `docs/deployment.md`, `docs/maintenance.md` e `docs/updates.md` antes de verificar/operar.
 8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
 
@@ -110,7 +110,7 @@ Apps interagem com o núcleo e entre si pela API de serviços: classes em proces
 
 ## Contexto, autorização e concorrência
 
-Use `request_context`, `tenant_context` e `system_context` de `skeleton.tenancy.context`. Em jobs, materialize IDs e abra uma transação independente por organização. `system_context(reason=...)` é infraestrutura/CLI, nunca escolhido por body/header, e não concede BYPASSRLS. `on_commit` não herda consulta tenant: passe valores prontos ou abra novo contexto. O escopo de site (`skeleton.tenancy.routing.site_scope`) vem só do host validado por `ALLOWED_HOSTS`, nunca de header, body ou query, e nunca abre `system_context`.
+Use `request_context`, `tenant_context`, `system_context` e, só no portal, `external_context` de `skeleton.tenancy.context`. Em contexto externo nenhum poder de membro vale (policies, capacidades e gateway negam) e só métodos `@service_method(allow_external=True)` executam; eles autorizam pela ligação da app à pessoa, nunca por `authorized_queryset` ([acesso externo](docs/access-control.md#acesso-externo-portal)). Em jobs, materialize IDs e abra uma transação independente por organização. `system_context(reason=...)` é infraestrutura/CLI, nunca escolhido por body/header, e não concede BYPASSRLS. `on_commit` não herda consulta tenant: passe valores prontos ou abra novo contexto. O escopo de site (`skeleton.tenancy.routing.site_scope`) vem só do host validado por `ALLOWED_HOSTS`, nunca de header, body ou query, e nunca abre `system_context`.
 
 Para negócio use `authorized_queryset(model, user=..., action=...)` e `require_record_action(record, user=..., action=...)`; admin de tenant usa serviços de `skeleton.access.services`. Não use `_base_manager`, `all_objects`, raw SQL, relações reversas não filtradas ou permissões Django globais como atalho em endpoints. `with_deleted()` remove só o filtro de tombstone, nunca tenant/autorização. Seleção de FK/picker tem de ser legível para o ator e da mesma organização.
 

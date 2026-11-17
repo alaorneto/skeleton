@@ -3,7 +3,9 @@ from django.db import transaction
 from django.http import JsonResponse
 from django.urls import Resolver404, resolve
 
-from .context import InvalidContext, current_context, request_context, tenant_context
+from .context import InvalidContext, current_context, external_context, request_context, tenant_context
+
+PORTAL_PREFIXES = ("/portal/", "/api/v1/portal/")
 
 
 class TenantContextMiddleware:
@@ -50,6 +52,12 @@ class TenantContextMiddleware:
 
                 if iscoroutinefunction(match.func):
                     raise InvalidContext("Async views cannot use transactional tenant middleware.")
+            portal_org = match.kwargs.get("organization_id") if match else None
+            if portal_org and request.path_info.startswith(
+                tuple(f"{prefix}{portal_org}/" for prefix in PORTAL_PREFIXES)
+            ):
+                # The portal of external people (#533): never a member context, never a token.
+                return self._portal(request, portal_org, token)
             organization_id = (
                 match.kwargs.get("organization_id")
                 if match and request.path_info.startswith(("/o/", "/api/v1/o/"))
@@ -87,6 +95,31 @@ class TenantContextMiddleware:
                 transaction.set_rollback(True)
             response["X-Request-ID"] = str(request.request_id)
             return response
+
+    def _portal(self, request, organization_id, token):
+        """Open ``external_context`` for ``/portal/<org>/`` and ``/api/v1/portal/<org>/``; any refusal is a 404."""
+        from django.http import HttpResponseNotFound
+
+        user = request.user
+        try:
+            if token is not None or not user.is_authenticated:
+                raise PermissionDenied
+            with external_context(organization_id=organization_id, actor=user, source="http:portal"):
+                response = portal_access_response(request, organization_id) or self._handle(request)
+                request._skeleton_log_context = current_context()
+        except PermissionDenied:
+            if not user.is_authenticated and not request.path.startswith("/api/"):
+                from django.contrib.auth.views import redirect_to_login
+
+                response = redirect_to_login(request.get_full_path())
+            elif request.path.startswith("/api/"):
+                response = JsonResponse({"code": "not_found", "detail": "Not found."}, status=404)
+            else:
+                response = HttpResponseNotFound("Not found.")
+        if response.status_code >= 400:
+            transaction.set_rollback(True)
+        response["X-Request-ID"] = str(request.request_id)
+        return response
 
     def process_exception(self, request, exception):
         """An app withdrawn by the platform looks like a missing route, not a forbidden one."""
@@ -166,6 +199,31 @@ def limited_access_response(request, organization_id, user):
     if level is AccessLevel.RESTRICTED and request.method in SAFE_METHODS:
         return None
     return _limited_response(request, limited_code(level))
+
+
+def portal_access_response(request, organization_id):
+    """The portal under a limited billing standing (#533): suspended closes it, restricted only reads."""
+    from django.shortcuts import render
+    from django.utils.translation import gettext
+
+    from skeleton.common.entitlements import AccessLevel, organization_access, writes_allowed
+
+    level = organization_access(organization_id)
+    request.skeleton_access_level = level
+    if writes_allowed(level):
+        return None
+    if level is AccessLevel.RESTRICTED and request.method in SAFE_METHODS:
+        return None
+    code = "portal_unavailable" if level is AccessLevel.SUSPENDED else "portal_read_only"
+    detail = (
+        gettext("Este serviço está indisponível no momento.")
+        if level is AccessLevel.SUSPENDED
+        else gettext("Este serviço está disponível só para consulta no momento.")
+    )
+    status = 503 if level is AccessLevel.SUSPENDED else 403
+    if request.path.startswith("/api/"):
+        return JsonResponse({"code": code, "detail": detail}, status=status)
+    return render(request, "skeleton/portal/unavailable.html", {"detail": detail}, status=status)
 
 
 def _limited_response(request, code):

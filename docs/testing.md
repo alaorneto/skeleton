@@ -204,6 +204,10 @@ Os dois primeiros usam MIGRATION_DATABASE_URL owner; o terceiro DATABASE_URL run
 
 Assertions esperadas: runtime sem super/BYPASS/ownership/SET ROLE privilegiado; policies/RLS/FORCE/grants exatos; sem contexto SELECT=0/INSERT42501; A lê A, UPDATE de B (incluindo soft delete) afeta zero, INSERT B42501; DELETE físico é recusado com 42501 por ausência de grant, proteção mais restrita que uma operação filtrada por RLS. FK A→B23503; tenant reassignment guard; UUID GUC malformed22P02; COMMIT/ROLLBACK restaura contexto vazio; duas conexões intercaladas não cruzam tenant; discovery Membership própria só SELECT; runtime não TRUNCATE/ALTER/INSERT audit/UPDATE audit/DELETE audit (42501). Guard de identidade é exercitado separadamente por owner, não usado como prova de RLS. Negativos de deploy removem trigger/acrescentam policy permissiva e exigem falha específica.
 
+## Kit do portal
+
+`skeleton.testing.external` (#531, #536) monta e prova o portal de pessoas externas: `external_scenario(slug)` cria as organizações A e B com o portal ligado, a administração de A, um membro comum, uma pessoa externa de A, uma administradora de A que também é externa e uma pessoa de fora; `acting_external(user, organization)` abre o contexto externo; `grant_external_access` e `enable_portal` ajustam o cenário. `assert_external_contract(service_class, method, scenario=..., call=lambda actor: ..., unlinked=..., disabled=...)` prova, para um método `allow_external` de uma app, que ele tem a marca, funciona no portal certo, recusa outro ator, nega em contexto de membro sem acesso externo, não devolve nada de A a uma pessoa externa de outra organização e fica indisponível com a app desligada.
+
 ## Permissões de tabela em fixtures
 
 `skeleton.testing.applications.grant_table_actions(organization_id, role_code=..., table_key=..., actions=...)` dá a um papel as ações numa tabela, em contexto de sistema de fixture e depois de sincronizar o catálogo (#545). Serve a kits de apps, como `skeleton.contrib.ledger.testing.enable_ledger`, que precisam de um administrador com acesso ao livro sem dar acesso a quem testa a origem.
