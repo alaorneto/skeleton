@@ -1767,7 +1767,11 @@ def _rule(code: Any) -> PostingRule:
 
 
 def _authorize_source(actor: Any, table_key: str, record_id: Any, action: str) -> None:
-    """The actor may ``action`` the source record; the system context needs the record in the tenant."""
+    """The actor may ``action`` the source record; the system context needs the record in the tenant.
+
+    ``AccessService.require`` decides as ``require_record_action`` does, so a source of a derived
+    table (``TableSpec.access_parent``) is authorized through its anchor (#565).
+    """
     from django.apps import apps
 
     from skeleton.service_api import NotFound, Unavailable

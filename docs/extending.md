@@ -191,7 +191,7 @@ O livro contábil (#517) é a app first-party de partidas dobradas: livros, plan
    "dependencies": {"org.skeleton.ledger": ">=0.6.0,<0.7.0"}
    ```
 
-2. **Registro no `ready()`.** Chaves de conta e regras de lançamento são código da app, com o prefixo do `app_label` dela; a organização vincula cada chave a uma conta do plano. A regra diz a tabela de origem e a ação que o ator precisa ter no registro (o check E041 confere a tabela, a ação e as linhas):
+2. **Registro no `ready()`.** Chaves de conta e regras de lançamento são código da app, com o prefixo do `app_label` dela; a organização vincula cada chave a uma conta do plano. A regra diz a tabela de origem e a ação que o ator precisa ter no registro (o check E041 confere a tabela, a ação e as linhas). A origem é uma tabela exposta ou uma [tabela derivada](access-control.md#tabelas-derivadas), como as linhas de um documento, autorizada pela âncora com a ação mapeada (#565):
 
    ```python
    from skeleton.contrib.ledger.service_api import (

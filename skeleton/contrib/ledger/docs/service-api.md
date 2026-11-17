@@ -83,6 +83,8 @@ Todos com leitura do livro, só leitura, só lançamentos selados; `NotFound` pa
 | `cash_flow(*, actor, start, end, book_id=None) -> CashFlowInfo` | realizado e previsto, por mês |
 | `aging(*, actor, as_of, direction="receivable", book_id=None) -> AgingInfo` | faixas `current`, `1-30`, `31-60`, `61-90`, `90+` |
 
+A origem de uma regra ou de um título pode ser uma tabela exposta ou uma [tabela derivada](../../../../docs/access-control.md#tabelas-derivadas) do núcleo (#565): a ação pedida no filho é decidida pelo registro âncora (`update` para lançar e criar título, `read` para `entries_for_source` e `titles_for_source`).
+
 `reverse` também aceita `expected_revision` (CAS) e `system_context`; um lançamento com origem é estornado com a ação da regra na origem. `amounts` mapeia o nome de cada componente a um inteiro da menor unidade da moeda; `accounts` mapeia o nome de cada `Param` ao `sysid` de uma conta do livro.
 
 `lines` é uma tupla de `PostingLine(account_id, debit=0, credit=0, memo="", cost_center_id=None, party_ref="", party_kind="")`, reexportado pelo módulo. A contraparte é identificada só por `party_ref` (referência opaca), nunca por nome.
