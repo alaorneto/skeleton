@@ -34,6 +34,7 @@ from skeleton.system.packages import (
     validate_wheel_set,
 )
 from skeleton.versioning import version_satisfies
+from tests.unit.floor_helpers import raised_floors  # noqa: F401 - fixture
 
 pytestmark = pytest.mark.posix
 
@@ -271,6 +272,7 @@ def test_published_history_keeps_signed_bytes_inventory_and_digest(signed_app, t
     assert historical.read_bytes() == original
 
 
+@pytest.mark.usefixtures("raised_floors")
 def test_new_build_upgrades_v1_source_without_rewriting_it(signed_app, tmp_path):
     source = load_manifest(signed_app["manifest"])
     source["manifest_version"] = 1
@@ -302,6 +304,7 @@ def published_payloads(signed_app, tmp_path):
     return payloads
 
 
+@pytest.mark.usefixtures("raised_floors")
 def test_service_api_build_requires_module_reference_and_floor(signed_app, tmp_path):
     published = validate_package(signed_app["package"], signed_app["trust"]).manifest
     assert published["runtime"]["service_api"] == {
@@ -769,6 +772,7 @@ def dimension_layout(**dimensions):
 
 
 @pytest.mark.parametrize("dimensions", [{"col_span": 4, "rows": 8}, {"rows": None}])
+@pytest.mark.usefixtures("raised_floors")
 def test_dimension_source_requires_floor_but_artifact_adds_it_without_mutation(signed_app, tmp_path, dimensions):
     manifest = load_manifest(signed_app["manifest"])
     manifest["runtime"]["model_ui"] = dimension_layout(**dimensions)
