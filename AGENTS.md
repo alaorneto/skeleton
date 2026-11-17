@@ -12,6 +12,7 @@ Este arquivo é o contrato normativo de implementação, tanto para agentes quan
 6. `docs/authentication-sso.md` e `docs/privacy.md` para identidade e dados pessoais; `docs/portal.md` para pessoas externas; `docs/api.md` para endpoints; `docs/ui-design.md` para páginas.
 7. `docs/testing.md`, `docs/checks.md`, `docs/deployment.md`, `docs/maintenance.md` e `docs/updates.md` antes de verificar/operar.
 8. Antes de planejar, abrir issue, commitar ou abrir PR: o skill `dev-workflow` ([Rastreabilidade](#rastreabilidade-plano-issue-commit-versão-e-fechamento)); `docs/workflow.md` para o que é próprio deste repositório.
+9. Ao trabalhar numa app que tem `AGENTS.md` próprio: este arquivo primeiro, depois o da app ([Contrato de agentes em apps e projetos derivados](#contrato-de-agentes-em-apps-e-projetos-derivados)).
 
 ## Rastreabilidade: plano, issue, commit, versão e fechamento
 
@@ -82,6 +83,17 @@ Fora do wheel do núcleo (`pyproject.toml` só empacota `skeleton`):
 Direção das dependências entre pacotes do núcleo ([docs/architecture.md](docs/architecture.md#direção-das-dependências-entre-pacotes)), conferida por `tests/unit/test_core_layering.py`: (R1) `skeleton/common` não importa outro pacote `skeleton.*`; (R2) `accounts`, `tenancy`, `access`, `system` e `audit` não importam `web`, `api`, `service_api` nem `contrib`; (R3) `web` e `api` não importam uma à outra; (R4) `service_api` não importa `web` nem `api`; (R5) nos demais subsistemas, só arquivos de `views`/`urls` importam as superfícies (`setup`, `conf`, `contrib` e `testing` ficam livres). As violações históricas estão em `KNOWN_EXCEPTIONS`, cada uma com motivo; não acrescente exceção nova: a lista só diminui.
 
 **Não adicione regras de negócio em `skeleton`. Não renomeie os app labels do núcleo.** Adicione apps a `PROJECT_APPS` em `config/settings/project.py` e URLs a `config/urls_project.py`. O núcleo não importa `applications` ou `examples`.
+
+## Contrato de agentes em apps e projetos derivados
+
+Este arquivo é o único lugar das regras do núcleo. Uma app pode ter um `AGENTS.md` próprio, na raiz do pacote dela, seja onde for que ela viva: em `applications/` de um projeto derivado, em repositório próprio ou em `skeleton/contrib`. Esse arquivo segue estas regras:
+
+- **Aponta para o núcleo e não o copia.** Ele começa dizendo que as regras do núcleo estão neste `AGENTS.md`, que vale integralmente, e indica onde lê-lo. No mesmo repositório (projeto derivado, que traz este arquivo na raiz, ou app first-party), por caminho relativo. Em repositório próprio, pelo endereço deste arquivo na tag da versão mínima do núcleo que a app declara em `compatibility.skeleton` (`https://github.com/<repositório do núcleo>/blob/v<versão>/AGENTS.md`); ao subir a faixa, atualize o endereço na mesma mudança.
+- **Não repete, resume nem reescreve regra do núcleo.** Bases de modelo, `TableSpec`, autorização, contexto, auditoria, exclusão, API de serviços, migrations, testes e rastreabilidade ficam só aqui. Regra copiada envelhece a cada release do núcleo e passa a contradizer o original. Se os dois arquivos divergirem, vale este.
+- **Guarda só o que é próprio da app:** propósito e limites (o que ela não faz); as tabelas e quais campos são pessoais ou sensíveis; os serviços e pontos de extensão que oferece e os que consome; as invariantes do domínio que um agente não pode quebrar; como rodar os testes dela; onde está a especificação (`documentation_root`).
+- **Pode restringir, nunca afrouxar.** Uma regra da app mais rígida que a do núcleo vale. Uma regra que dispense ou relaxe uma obrigação deste contrato não tem efeito.
+- **Repositório com várias apps:** um `AGENTS.md` na raiz, com as regras comuns ao conjunto e o apontamento para o núcleo, e um por app, só com o que é dela, apontando para o da raiz.
+- **Não substitui a documentação da app nem vai no pacote.** A especificação continua em `documentation_root`. O arquivo orienta quem desenvolve: em repositório próprio, marque-o `export-ignore` no `.gitattributes` da app.
 
 ## API de serviços entre apps
 
