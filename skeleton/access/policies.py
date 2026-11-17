@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
@@ -281,7 +281,8 @@ def require_parent_action(model: type[Model], parent: Any, *, user: User, action
     from skeleton.system.applications import require_application_enabled
 
     require_application_enabled(model._meta.app_label)
-    return require_record_action(parent, user=user, action=mapped)
+    # ``type(parent) is ...`` narrows to Model; the parent is a record of an authorizable table.
+    return require_record_action(cast(Any, parent), user=user, action=mapped)
 
 
 def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User, action: str) -> RecordT:
