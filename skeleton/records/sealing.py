@@ -90,8 +90,8 @@ def seal_record(record: Any, *, user: Any, expected_revision: int, extra: Any = 
     """Seal ``record`` once, after the ``update`` check for an authorizable table, with CAS.
 
     The row is locked (``select_for_update``) before the payload is read, so a child written
-    concurrently is either in the payload or refused by the guard (#528). An exposed table or a
-    derived one (``update`` through its anchor, #564) is checked here; other tables are
+    concurrently is either in the payload or refused by the guard (#528). A SecuredRecord and a
+    derived table (``update`` through its anchor, #564) are checked here; other tables are
     authorized by the app before calling. Raises ``RecordSealed`` for a sealed or deleted record
     and ``ConcurrentUpdate`` for a stale revision. Returns the sealed record.
     """
@@ -101,8 +101,11 @@ def seal_record(record: Any, *, user: Any, expected_revision: int, extra: Any = 
     if record.deleted_at is not None:
         raise RecordSealed("A deleted record cannot be sealed.")
     from skeleton.access.derivation import is_authorizable
+    from skeleton.common.models import SecuredRecord
 
-    if is_authorizable(model):
+    # A SecuredRecord always goes through the check (an unexposed one fails closed), as does a
+    # derived table, through its anchor (#564).
+    if issubclass(model, SecuredRecord) or is_authorizable(model):
         from skeleton.access.policies import require_record_action
 
         require_record_action(record, user=user, action="update")
