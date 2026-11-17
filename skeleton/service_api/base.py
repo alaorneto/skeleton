@@ -40,6 +40,8 @@ class ServiceMethodSpec:
     allow_system: bool
     tenant: bool
     since: str
+    # Callable by an external person in the portal (#531); every other method refuses that context.
+    allow_external: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +95,8 @@ def _validate_signature(function: Callable[..., Any]) -> None:
 
 def _check_caller(spec: ServiceMethodSpec, actor: object) -> None:
     context = current_context()
+    if context.external and not spec.allow_external:
+        raise Forbidden(gettext("Operação indisponível no portal."), code="external_not_allowed")
     if spec.tenant and context.organization_id is None:
         raise ContextRequired()
     if actor is None:
@@ -204,7 +208,7 @@ def _run_command[T](function: Callable[..., T], args: tuple[Any, ...], kwargs: d
 
 
 def service_method(
-    *, read_only: bool, since: str, allow_system: bool = False, tenant: bool = True
+    *, read_only: bool, since: str, allow_system: bool = False, tenant: bool = True, allow_external: bool = False
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Mark a public service method and enforce the caller contract on every call.
 
@@ -212,8 +216,16 @@ def service_method(
       only with ``allow_system=True`` inside ``system_context``.
     - ``tenant=True`` (default) requires an organization in the context (``ContextRequired``).
     - ``read_only`` and ``since`` are contract metadata for checks and documentation.
+    - ``allow_external=True`` lets an external person in the portal call it (#531); without it, an
+      external context gets ``Forbidden("external_not_allowed")``. Such a method authorizes by the
+      app's own link to the person (``ExternalAccessService().me``), never by ``authorized_queryset``.
     """
-    if type(read_only) is not bool or type(allow_system) is not bool or type(tenant) is not bool:
+    if (
+        type(read_only) is not bool
+        or type(allow_system) is not bool
+        or type(tenant) is not bool
+        or type(allow_external) is not bool
+    ):
         raise TypeError("service_method flags must be booleans.")
     if not isinstance(since, str) or not since:
         raise TypeError("service_method requires the version that introduced it (since=...).")
@@ -221,7 +233,12 @@ def service_method(
     def decorate(function: Callable[P, R]) -> Callable[P, R]:
         _validate_signature(function)
         spec = ServiceMethodSpec(
-            name=function.__name__, read_only=read_only, allow_system=allow_system, tenant=tenant, since=since
+            name=function.__name__,
+            read_only=read_only,
+            allow_system=allow_system,
+            tenant=tenant,
+            since=since,
+            allow_external=allow_external,
         )
 
         @functools.wraps(function)

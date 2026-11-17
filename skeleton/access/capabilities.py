@@ -37,6 +37,8 @@ FLOWS_MANAGE = "flows.manage"
 # The organization's billing (#404): read the subscription and invoices; contract, pay and cancel.
 BILLING_VIEW = "billing.view"
 BILLING_MANAGE = "billing.manage"
+# The organization's external people (#531): invite, list and revoke portal accesses.
+EXTERNAL_MANAGE = "external.manage"
 
 CAPABILITIES: frozenset[str] = frozenset(
     {
@@ -52,6 +54,7 @@ CAPABILITIES: frozenset[str] = frozenset(
         FLOWS_MANAGE,
         BILLING_VIEW,
         BILLING_MANAGE,
+        EXTERNAL_MANAGE,
     }
 )
 
@@ -108,10 +111,10 @@ def capabilities_for(user: User) -> frozenset[str]:
 
     A request authenticated by an API token has none (#46): tokens never administer.
     """
-    from .policies import credential_scopes, effective_roles
+    from .policies import credential_scopes, effective_roles, external
 
-    if credential_scopes() is not None:
-        return frozenset()
+    if credential_scopes() is not None or external():
+        return frozenset()  # Tokens never administer; nor does an external person (#531).
 
     try:
         rows = effective_roles(user).filter(is_builtin=True).values_list("code", flat=True)

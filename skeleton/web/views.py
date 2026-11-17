@@ -112,6 +112,33 @@ def _cell(value):
     return {"value": str(value), "kind": "text"}
 
 
+def portal_page(view):
+    """A page of the organization's portal for an external person (#533): login, no cache, external context.
+
+    The tenant middleware opened ``external_context`` from the URL; outside it (a member, a token,
+    another organization) the page does not exist. The view calls only services marked
+    ``allow_external``; their refusals answer like a missing page.
+    """
+
+    @never_cache
+    @login_required
+    @wraps(view)
+    def wrapper(request, *args, **kwargs):
+        context = current_context()
+        if not context.external or context.organization_id is None:
+            raise Http404
+        try:
+            return view(request, *args, **kwargs)
+        except (service_errors.NotFound, service_errors.Unavailable, service_errors.Forbidden):
+            raise Http404 from None
+        except (ValidationError, service_errors.InvalidInput):
+            return error_response(request, gettext("Verifique os campos informados."), status=400)
+        except (IntegrityError, service_errors.Conflict):
+            return error_response(request, gettext("A operação conflita com os dados existentes."), status=409)
+
+    return wrapper
+
+
 def tenant_page(*, admin=False, capability=None):
     """Tenant HTML page; ``admin`` requires the administrator, ``capability`` a delegated capability.
 

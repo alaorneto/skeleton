@@ -5,5 +5,5 @@
 {% translate "Abrir:" %} {{ open_url }}
 {% translate "Recebido em" %} {{ created_at|date:"d/m/Y H:i" }}.
 
-{% translate "Você recebe este email pelas suas preferências de notificação:" %} {{ preferences_url }}
+{% if preferences_url %}{% translate "Você recebe este email pelas suas preferências de notificação:" %} {{ preferences_url }}{% endif %}
 {% endautoescape %}

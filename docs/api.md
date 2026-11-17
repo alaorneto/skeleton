@@ -176,6 +176,10 @@ Tarefas e instâncias dos [fluxos de processo](flows.md) ficam em `o/<org>/flows
 - Iniciar uma instância não tem rota aqui: é operação da app dona do fluxo.
 - Todas as rotas estão no [schema OpenAPI](#schema-openapi), cada ação com o próprio caminho literal. Os corpos de resposta são gerados dos DTOs do `FlowService` (`skeleton/flows/api_views.py`), e os comandos documentam `If-Match` (412/428) e `ETag`.
 
+## Portal
+
+A API do portal de pessoas externas fica em `/api/v1/portal/<org>/apps/<label>/` ([portal](portal.md#superfície-533)): só sessão (nunca token Bearer), contexto externo aberto pelo middleware, 404 fora dele e `Cache-Control: no-store`. As views derivam de `skeleton.api.views.PortalAPI` e chamam só serviços `allow_external`. Essas rotas não entram no esquema OpenAPI dos membros.
+
 ## Schema OpenAPI
 
 `GET /api/v1/openapi.json` devolve o contrato da API em [OpenAPI 3.1](https://spec.openapis.org/oas/v3.1.0), só em JSON e sem página interativa ([#178](https://github.com/alaorneto/skeleton/issues/178)). Ele aceita sessão ou [token](#autenticação-por-token); sem nenhum dos dois, a resposta é 401 ou 403. O documento é gerado do código a cada requisição (`skeleton/api/openapi.py`), nunca mantido à mão:

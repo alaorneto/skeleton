@@ -37,6 +37,9 @@ class NotificationType:
     # each person at fan-out time, so access revoked since the notification was created
     # stops the delivery (comment mentions, #188).
     authorize: Callable[[Any, Any], bool] | None = None
+    # ``"external"`` (#535): the recipients are external people of the portal (active ExternalAccess),
+    # named one by one, reached only by email with a link to the portal; no inbox row, no target.
+    audience: str = "members"
 
 
 _types: dict[str, NotificationType] = {}
@@ -65,6 +68,10 @@ def notification_problems() -> list[str]:
 
     problems = [f"{code}: duplicate notification type" for code in sorted(set(_duplicates))]
     for kind in all_notification_types():
+        if kind.audience not in ("members", "external"):
+            problems.append(f"{kind.code}: audience is members or external")
+        if kind.audience == "external" and (kind.target_table_key or tuple(kind.default_channels) != ("email",)):
+            problems.append(f"{kind.code}: an external type has no target and only the email channel")
         if not kind.target_table_key:
             if kind.snapshot_fields:
                 problems.append(f"{kind.code}: snapshot fields need a target table")

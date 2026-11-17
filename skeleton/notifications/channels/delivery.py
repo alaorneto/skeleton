@@ -102,6 +102,15 @@ def active_recipient(delivery: Any) -> Any | None:
     user = User.objects.filter(pk=delivery.user_id, is_active=True, account_type="human").first()
     if user is None:
         return None
+    notification = getattr(delivery, "notification", None)
+    if notification is not None and _external_type(notification.type_code):
+        from skeleton.tenancy.models import ExternalAccess
+
+        # An external recipient (#535): the access must still be active when the email goes out.
+        active = ExternalAccess.objects.filter(
+            user_id=user.pk, organization_id=delivery.organization_id, is_active=True
+        )
+        return user if active.exists() else None
     if not Membership.objects.filter(
         user_id=user.pk, organization_id=delivery.organization_id, is_active=True
     ).exists():
@@ -155,8 +164,24 @@ def preferences_url() -> str:
     return absolute(reverse("notifications:preferences"), organization_id=current_context().organization_id)
 
 
+def _external_type(type_code: str) -> bool:
+    from ..registry import get_notification_type
+
+    try:
+        return get_notification_type(type_code).audience == "external"
+    except KeyError:
+        return False
+
+
 def open_url(notification: Any, user_id: Any) -> str:
     from ..models import NotificationRecipient
+
+    if _external_type(notification.type_code):
+        # The portal of the organization (#535): an external person has no member inbox.
+        return absolute(
+            reverse("web:portal-organization", kwargs={"organization_id": notification.organization_id}),
+            organization_id=notification.organization_id,
+        )
 
     row = NotificationRecipient.objects.filter(notification_id=notification.pk, user_id=user_id).first()
     if row is None:

@@ -1,0 +1,2 @@
+{% extends "skeleton/portal/base.html" %}{% load i18n %}{% block title %}{% translate "Indisponível" %}{% endblock %}
+{% block content %}<div class="error-summary" role="alert"><h1>{% translate "Serviço indisponível" %}</h1><p class="mt-1">{{ detail }}</p></div>{% endblock %}

@@ -154,3 +154,52 @@ def for_each_organization(
             continue  # Membership inactive since the listing, the app is off, or access is denied here.
         results.append(OrganizationResult(organization_id, name, value))
     return results
+
+
+def for_each_external_organization(
+    user: Any,
+    fn: Callable[[Any], Any],
+    *,
+    source: str = "http:portal",
+    request_id: Any = None,
+    limit: int = DEFAULT_LIMIT,
+    using: str = "default",
+) -> list[OrganizationResult]:
+    """Run ``fn(organization_id)`` in the portal context of each organization where ``user`` is external (#533).
+
+    The listing reads the person's own ``ExternalAccess`` rows (self-discovery); each organization
+    runs in its own read-only ``external_context``, so an inactive access or a portal turned off
+    since the listing is skipped.
+    """
+    from .context import external_context
+    from .models import ExternalAccess
+
+    if in_context():
+        raise InvalidContext("for_each_external_organization runs outside any context (aggregate_route).")
+    if not getattr(user, "is_authenticated", False):
+        return []
+    with request_context(actor=user, request_id=request_id, source=source, using=using):
+        listed = list(
+            ExternalAccess.all_objects.using(using)
+            .filter(
+                user_id=user.pk,
+                is_active=True,
+                deleted_at__isnull=True,
+                organization__is_active=True,
+                organization__deleted_at__isnull=True,
+            )
+            .order_by("organization__name", "organization_id")
+            .values_list("organization_id", "organization__name")[:limit]
+        )
+    results = []
+    for organization_id, name in listed:
+        try:
+            with external_context(organization_id=organization_id, actor=user, source=source, using=using):
+                if connections[using].vendor == "postgresql":
+                    with connections[using].cursor() as cursor:
+                        cursor.execute("SET TRANSACTION READ ONLY")
+                value = _materialized(fn(organization_id))
+        except (PermissionDenied, ApplicationUnavailable, Forbidden, Unavailable):
+            continue
+        results.append(OrganizationResult(organization_id, name, value))
+    return results

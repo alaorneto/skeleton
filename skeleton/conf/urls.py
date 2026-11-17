@@ -4,7 +4,7 @@ from django.urls import include, path
 
 from skeleton.accounts import oidc
 from skeleton.accounts.ldap import views as ldap_views
-from skeleton.accounts.views import invitation_view, logout
+from skeleton.accounts.views import external_invitation_view, invitation_view, logout
 from skeleton.web.app_routing import application_urlpatterns
 
 
@@ -22,6 +22,12 @@ def application_urls(project_urls=()):
         path("accounts/", include("allauth.urls")),
         path("platform/", include("skeleton.web.platform.urls")),
         path("invite/<uuid:organization_id>/<str:token>/", invitation_view, name="invitation"),
+        # The acceptance of an invitation to an organization's portal (#532).
+        path(
+            "portal/invite/<uuid:organization_id>/<str:token>/",
+            external_invitation_view,
+            name="external-invitation",
+        ),
     ]
     if project_urls:
         routes.append(path("", include(project_urls)))

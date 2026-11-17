@@ -15,11 +15,39 @@ from django.utils import timezone
 BATCH_SIZE = 500  # Small enough to fit well inside the job's deadline (#296).
 
 
+def _external(notification) -> bool:
+    from .registry import get_notification_type
+
+    try:
+        return get_notification_type(getattr(notification, "type_code", "")).audience == "external"
+    except KeyError:
+        return False
+
+
+def resolve_external_people(notification) -> list[UUID]:
+    """The named external people whose access is still active (#535), minus the actor."""
+    from skeleton.tenancy.models import ExternalAccess
+
+    people = set(
+        ExternalAccess.objects.filter(
+            user_id__in=notification.recipients.get("users", []),
+            is_active=True,
+            user__is_active=True,
+            user__deleted_at__isnull=True,
+            user__account_type="human",
+        ).values_list("user_id", flat=True)
+    )
+    people.discard(notification.actor_id)
+    return sorted(people, key=str)
+
+
 def resolve_people(notification) -> list[UUID]:
     """Active members named directly or through groups, roles or the whole organization, minus the actor."""
     from skeleton.access.models import GroupMember, GroupRole, MemberRole
     from skeleton.tenancy.models import Membership
 
+    if _external(notification):
+        return resolve_external_people(notification)
     spec = notification.recipients
     # People only: a service account (#44) has no inbox.
     active = Membership.objects.filter(
@@ -113,7 +141,11 @@ def fan_out(*, notification_id: str, offset: int) -> int:
     people = resolve_people(notification)
     authorized = _authorized(people[offset : offset + BATCH_SIZE], _target(notification))
     authorized = _type_authorized(notification, authorized)
-    batch, channels = _channels(notification, authorized)
+    if _external(notification):
+        # External people (#535): no inbox row anywhere, only the email with the portal link.
+        batch, channels = [], {"email": authorized}
+    else:
+        batch, channels = _channels(notification, authorized)
     grouped = {}
     if notification.group_key:
         grouped = dict(

@@ -91,6 +91,12 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
         return shell
+    context = current_context()
+    if context.external and context.organization_id is not None:
+        # The portal (#533): only the organization's brand, never member navigation or counters.
+        shell["organization_brand"] = _brand(context.organization_id, site)
+        shell["portal_organization_id"] = context.organization_id
+        return shell
     shell.update(_signed_in_shell(request, user, site))
     return shell
 
@@ -144,6 +150,7 @@ def _admission_links(organization_id: Any, capabilities: frozenset[str], path: s
         ("admission.configure", "web:admission", gettext("Admissão")),
         ("admission.configure", "web:verified-domains", gettext("Domínios verificados")),
         ("identity.configure", "web:identity", gettext("Identidade")),
+        ("external.manage", "web:external", gettext("Pessoas externas")),
     ):
         if capability in capabilities:
             url = reverse(name, kwargs={"organization_id": organization_id})

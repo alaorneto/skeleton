@@ -64,6 +64,27 @@ class SessionAPI(APIView):
         return response
 
 
+class PortalAPI(APIView):
+    """An endpoint of the organization's portal (#533): session only (never a token) and the external context."""
+
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        context = current_context()
+        if not context.external or context.organization_id is None:
+            raise Http404
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        response["Cache-Control"] = "no-store"
+        request_id = current_context().request_id
+        if request_id:
+            response["X-Request-ID"] = str(request_id)
+        return response
+
+
 class TenantAPI(SessionAPI):
     def check_permissions(self, request):
         super().check_permissions(request)

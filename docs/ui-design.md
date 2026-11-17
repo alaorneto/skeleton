@@ -78,6 +78,10 @@ Segue `prefers-color-scheme`, sem script e sem flash, compatível com CSP.
 - A barra de ações do cabeçalho é `<nav class="toolbar" aria-label="Ações">`; o botão principal é `btn btn-primary` (`.button` continua só como alias legado).
 - O título da aba é `<título da tela> · Skeleton`; nas telas da plataforma, `<título> · Plataforma · Skeleton` (#476).
 
+### Portal de pessoas externas
+
+As páginas do [portal](portal.md) estendem `skeleton/portal/base.html`: cabeçalho com a marca da organização (logo, nome e cores, como em [marca por organização](#marca-por-organização)), o botão de sair e o conteúdo, sem barra lateral, menus de membro ou contadores, e sem JavaScript. Os componentes de sempre (`link-card`, tabelas, formulários, `error-summary`) valem ali.
+
 ## Navegação
 
 A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu lateral:

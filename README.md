@@ -196,7 +196,7 @@ O [perfil global gov.br](docs/authentication-sso.md#perfil-global-govbr) reutili
 - [AGENTS.md](AGENTS.md): regras para agentes e projetos derivados.
 - [Guia dos conceitos](docs/concepts.md): significado dos termos, diferenças importantes e ligação com os guias de referência.
 - [Arquitetura](docs/architecture.md), [modelo de dados](docs/data-model.md) e [catálogo](docs/table-catalog.md).
-- [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
+- [Controle de acesso](docs/access-control.md), [autenticação/SSO/MFA](docs/authentication-sso.md), [portal de pessoas externas](docs/portal.md) e [auditoria/soft delete](docs/audit-soft-delete.md).
 - [API e concorrência](docs/api.md), [extensão](docs/extending.md), [deployment](docs/deployment.md), [testes](docs/testing.md) e a [evidência histórica das rodadas](docs/testing-evidence.md).
 - [Jobs](docs/jobs.md), [eventos](docs/events.md), [notificações](docs/notifications.md), [arquivos](docs/files.md), [webhooks](docs/webhooks.md) e [sequências](docs/sequences.md): subsistemas do núcleo.
 - [Exportação e importação CSV](docs/data-transfer.md) e [direitos do titular](docs/privacy.md): transferência de dados autorizada e LGPD.

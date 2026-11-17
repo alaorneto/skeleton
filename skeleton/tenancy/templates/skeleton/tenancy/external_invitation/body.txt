@@ -1,0 +1,6 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate trimmed with name=organization_name %}{{ name }} convidou você para acessar o portal.{% endblocktranslate %}
+
+{{ url }}
+
+{% blocktranslate trimmed count hours=hours %}O convite expira em {{ hours }} hora.{% plural %}O convite expira em {{ hours }} horas.{% endblocktranslate %}
+{% endautoescape %}

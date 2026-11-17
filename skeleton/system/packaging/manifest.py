@@ -22,6 +22,7 @@ from .limits import (
     BUNDLED_LABEL_PREFIX,
     BUNDLED_PACKAGE,
     DOCUMENT_HEADINGS,
+    PORTAL_CORE_MINIMUM,
     RESERVED_NAMES,
     SERVICE_API_CORE_MINIMUM,
     SERVICE_API_DOCUMENT,
@@ -156,7 +157,7 @@ def _runtime_fields(m, bundled):
         "documentation_root",
     )
     if m["manifest_version"] == 2:
-        runtime_fields += ("administration", "model_ui", "service_api")
+        runtime_fields += ("administration", "model_ui", "service_api", "portal_urls", "portal_api_urls")
         if not _core_floor_at_least(m["compatibility"]["skeleton"], MANIFEST_V2_CORE_MINIMUM):
             _fail("Manifest v2 requires a core minimum of " + MANIFEST_V2_CORE_MINIMUM + ".")
     if bundled:
@@ -216,6 +217,10 @@ def _validate_presentation(m, r, label, prefix):
         _validate_service_api(r["service_api"], prefix)
         if not _core_floor_at_least(m["compatibility"]["skeleton"], SERVICE_API_CORE_MINIMUM):
             _fail("runtime.service_api requires a core minimum of " + SERVICE_API_CORE_MINIMUM + ".")
+    if any(r.get(key) is not None for key in ("portal_urls", "portal_api_urls")) and not _core_floor_at_least(
+        m["compatibility"]["skeleton"], PORTAL_CORE_MINIMUM
+    ):
+        _fail("runtime.portal_urls requires a core minimum of " + PORTAL_CORE_MINIMUM + ".")
 
 
 def _validate_runtime(m, label, prefix, bundled):
@@ -226,7 +231,7 @@ def _validate_runtime(m, label, prefix, bundled):
     )
     if type(r["default_enabled"]) is not bool:
         _fail("default_enabled must be boolean.")
-    for key in ("urls", "api_urls", "user_urls"):
+    for key in ("urls", "api_urls", "user_urls", "portal_urls", "portal_api_urls"):
         if r.get(key) is not None and (not isinstance(r[key], str) or not _owned_module(r[key], prefix)):
             _fail("Runtime module must belong to the application.")
     _path(r["documentation_root"])

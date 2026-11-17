@@ -558,3 +558,95 @@ class SiteDomainClaim(SystemRecord):
 
     def __str__(self):
         return self.domain
+
+
+class ExternalAccessPolicy(OrganizationRecord):
+    """Whether the organization opens its portal to external people (#531); without a row it is off."""
+
+    enabled = models.BooleanField(default=False)
+    invitation_ttl_hours = models.PositiveSmallIntegerField(default=72)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization",), name="sk_tenancy_external_policy_one_per_org", violation_error_code="unique"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(invitation_ttl_hours__gte=1) & models.Q(invitation_ttl_hours__lte=720),
+                name="sk_tenancy_external_policy_ttl",
+            ),
+        ]
+
+
+class ExternalAccess(OrganizationRecord):
+    """A person who reaches the organization's portal without being a member (#531).
+
+    Separate from ``Membership`` on purpose: member lists, pickers, roles, seats and the last
+    administrator never see it. The core only knows the person has external access; what the
+    person sees is decided by the app (``app_label``) that admitted them, through its services
+    marked for external use.
+    """
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="external_accesses")
+    is_active = models.BooleanField(default=True)
+    app_label = models.CharField(max_length=100)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("user_id", "app_label")
+    # Frozen as self_discovery_column: the portal lists the person's organizations via own_rows().
+    self_discovery_field = "user"
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "user"),
+                condition=models.Q(deleted_at__isnull=True),
+                name="sk_tenancy_external_access_live",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def __str__(self):
+        return str(self.user_id)
+
+
+class ExternalInvitation(OrganizationRecord):
+    """An invitation of an external person to the portal (#532), issued for one record of an app.
+
+    ``subject_ref`` is an opaque identifier the app chooses (its customer, for example); the app's
+    admission handler links it to the access on acceptance. Only the token digest is stored.
+    """
+
+    email = models.EmailField()
+    app_label = models.CharField(max_length=100)
+    subject_ref = models.UUIDField()
+    token_digest = models.CharField(max_length=64, unique=True, editable=False)
+    expires_at = models.DateTimeField()
+    idempotency_key = models.CharField(max_length=200, blank=True, default="")
+    accepted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    accepted_by = models.UUIDField(null=True, blank=True, editable=False)
+    access = models.ForeignKey(ExternalAccess, on_delete=models.PROTECT, null=True, blank=True, related_name="+")
+    immutable_fields = ("email", "app_label", "subject_ref", "token_digest", "expires_at", "idempotency_key")
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=(
+                    Q(accepted_at__isnull=True, accepted_by__isnull=True, access__isnull=True)
+                    | Q(accepted_at__isnull=False, accepted_by__isnull=False, access__isnull=False)
+                ),
+                name="sk_tenancy_external_invitation_acceptance",
+            ),
+            models.UniqueConstraint(
+                fields=("organization", "idempotency_key"),
+                condition=Q(deleted_at__isnull=True) & ~Q(idempotency_key=""),
+                name="sk_tenancy_external_invitation_key",
+                violation_error_code="unique",
+            ),
+        ]
+
+    def clean_fields(self, exclude=None):
+        self.email = normalize_email(self.email)
+        super().clean_fields(exclude=exclude)
+
+    def __str__(self):
+        return self.email

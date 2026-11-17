@@ -13,7 +13,15 @@ SYSTEM_FIELDS = SYSTEM_FIELD_NAMES  # Single source in skeleton.common.models (#
 ACCESS_FIELDS = ACCESS_FIELD_NAMES
 
 
+def refuse_external():
+    """The generic gateway never serves an external person (#531): portal access goes through app services."""
+    from skeleton.access.policies import refuse_external as refuse
+
+    refuse()
+
+
 def exposed_spec(key):
+    refuse_external()
     try:
         spec = get_spec(key)
     except (KeyError, LookupError):
@@ -30,6 +38,7 @@ def readable_specs(user):
     availability and token scopes) and the app check once per app, instead of a whole
     authorization per table (#302). Nothing is cached beyond this call.
     """
+    refuse_external()
     from skeleton.access.policies import table_permissions
     from skeleton.system.applications import require_application_enabled
 
@@ -154,6 +163,7 @@ def records_data(records, fields, *, user):
 
 
 def record_queryset(spec, *, user, action="read", include_deleted=False):
+    refuse_external()
     if action in {"create", "update", "delete", "restore"}:
         from skeleton.system.record_operations import require_operation
 
@@ -193,6 +203,7 @@ def filter_records(queryset, spec, params, *, ignore_empty=False):
 
 @transaction.atomic
 def create_record(spec, *, user, data):
+    refuse_external()
     require_writable()
     assert_fields(data, spec.write_fields)
     record_queryset(spec, user=user, action="create")
@@ -218,6 +229,7 @@ def create_record(spec, *, user, data):
 
 @transaction.atomic
 def update_record(record, spec, *, user, data):
+    refuse_external()
     require_writable()
     assert_fields(data, spec.write_fields)
     require_record_action(record, user=user, action="update")
@@ -266,6 +278,7 @@ def record_permissions(record, spec, *, user):
 
 @transaction.atomic
 def change_record_access(record, *, user, data):
+    refuse_external()
     require_writable()
     assert_fields(data, ACCESS_FIELDS)
     require_access_management(record, user=user)
@@ -278,11 +291,13 @@ def change_record_access(record, *, user, data):
 
 @transaction.atomic
 def delete_record(record, *, user):
+    refuse_external()
     return _record_lifecycle(record, user=user, action="delete")
 
 
 @transaction.atomic
 def restore_record(record, *, user):
+    refuse_external()
     return _record_lifecycle(record, user=user, action="restore")
 
 

@@ -54,6 +54,20 @@ def _scalar(name: str, value: Any) -> Any:
     raise ValidationError({"payload": f"{name}: use valores escalares."})
 
 
+def _validate_external_recipients(recipients: Recipients) -> Recipients:
+    """An external type names people one by one, each with an active ExternalAccess here (#535)."""
+    from skeleton.tenancy.models import ExternalAccess
+
+    if not isinstance(recipients, Recipients):
+        raise ValidationError({"recipients": gettext("Use Recipients.")})
+    users = _uuids(recipients.users, "users")
+    if recipients.groups or recipients.roles or recipients.organization or not users:
+        raise ValidationError({"recipients": gettext("Pessoas externas são indicadas uma a uma.")})
+    if len(set(users)) != ExternalAccess.objects.filter(user_id__in=users, is_active=True).count():
+        raise ValidationError({"recipients": gettext("Pessoa sem acesso externo ativo nesta organização.")})
+    return Recipients(users, (), (), False)
+
+
 def _validate_recipients(recipients: Recipients) -> Recipients:
     from skeleton.access.models import AccessGroup, Role
     from skeleton.tenancy.models import Membership
@@ -124,7 +138,10 @@ def notify(
         target_sysid = target.pk
     elif target is not None:
         raise ValidationError({"target": gettext("Este tipo não tem alvo.")})
-    resolved = _validate_recipients(recipients)
+    external = getattr(kind, "audience", "members") == "external"
+    if external and target is not None:
+        raise ValidationError({"target": gettext("Este tipo não tem alvo.")})
+    resolved = _validate_external_recipients(recipients) if external else _validate_recipients(recipients)
     if dedupe_key is not None and (not isinstance(dedupe_key, str) or not 1 <= len(dedupe_key) <= 200):
         raise ValidationError({"dedupe_key": gettext("Chave de 1 a 200 caracteres.")})
     group_key = ""

@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.utils.translation import gettext_lazy
 
@@ -9,10 +10,16 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class AttachmentPolicy:
-    """Opt-in to attachments on a table: size limit and allowed MIME types (checked by content)."""
+    """Opt-in to attachments on a table: size limit and allowed MIME types (checked by content).
+
+    ``external_reader(record, user) -> bool`` (#534), declared in code, lets an external person
+    download the attachments of a record from the portal when it answers true; without it, no
+    attachment of the table ever leaves through the portal.
+    """
 
     max_bytes: int
     types: tuple[str, ...]
+    external_reader: Callable[[Any, Any], bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -152,6 +159,24 @@ def register_core_specs():
             gettext_lazy("Nome de exibição, idioma e fuso padrão e marca da organização, editados pelo administrador."),
             "organization",
             ("logo_key", "icon_key"),
+        ),
+        "sk_tenancy.externalaccesspolicy": (
+            gettext_lazy("Política do portal externo"),
+            gettext_lazy("Se a organização abre o portal a pessoas externas; sem linha, desligado."),
+            "organization",
+            (),
+        ),
+        "sk_tenancy.externalaccess": (
+            gettext_lazy("Acessos externos"),
+            gettext_lazy("Pessoa que acessa o portal da organização sem ser membro; não conta como assento."),
+            "organization",
+            (),
+        ),
+        "sk_tenancy.externalinvitation": (
+            gettext_lazy("Convites do portal externo"),
+            gettext_lazy("Convite de uma pessoa externa ao portal, emitido para um registro de uma app."),
+            "organization",
+            ("token_digest",),
         ),
         "sk_tenancy.organizationadmissionpolicy": (
             "Política de admissão",
@@ -582,6 +607,8 @@ def register_core_specs():
         "sk_flows.flowinstance": ("data",),
         "sk_flows.flowsubmission": ("values",),
         "sk_billing.billingaccount": ("legal_name", "billing_email", "tax_id"),
+        # The invited address of an external person (#532).
+        "sk_tenancy.externalinvitation": ("email",),
     }
     # Identifiers the core lifecycle events carry (#43); everything else stays unreadable.
     read_fields = {

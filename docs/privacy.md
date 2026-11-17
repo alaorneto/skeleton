@@ -16,9 +16,13 @@ Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://g
 - os metadados dos tokens de API: prefixo, nome, escopos, validade e revogação, nunca o digest;
 - em cada organização em que a pessoa tem vínculo ativo, o vínculo, as notificações recebidas (tipo, datas, alvo e snapshot), os metadados dos anexos que ela enviou e os formulários de fluxo que ela enviou (`flow_submissions`: fluxo, instância, etapa, data e valores, inclusive os sensíveis, que são dela; [#422](https://github.com/alaorneto/skeleton/issues/422)).
 
+- os acessos externos ao [portal](portal.md) (#536): organização, app que admitiu a pessoa, situação, criação e último acesso; nada sobre terceiros (os dados que uma app guarda sobre a pessoa são responsabilidade da app).
+
 A exportação é montada na própria requisição. Ela é uma rota agregada que lê cada organização num contexto só de leitura, com o vínculo revalidado. O ZIP sai como anexo e com `no-store`, então não há arquivo guardado para proteger ou expirar. O download exige autenticação recente e grava o evento de segurança `privacy.export`. Nunca aparecem dados de outra pessoa, segredos ou registros de negócio.
 
 ## Eliminação da identidade
+
+Os acessos externos ao portal (#536) são desativados pelo job de cada organização e ficam como histórico, como os vínculos; um convite posterior exige um novo aceite, que reativa a mesma linha.
 
 A pessoa pede a eliminação na mesma página, `/profile/privacy/` ([#191](https://github.com/alaorneto/skeleton/issues/191)). O pedido exige autenticação recente e só cria um `ErasureRequest` (`sk_accounts.erasurerequest`, global e auditado) em `pending`: nada mais muda. Enquanto está pendente, a pessoa pode retirá-lo. Há no máximo um pedido pendente por pessoa, e contas de serviço são recusadas (elas se desativam pela organização).
 

@@ -23,9 +23,21 @@ if TYPE_CHECKING:
 ACTIONS = {"read", "create", "update", "delete", "restore", "manage_access", "audit"}
 
 
+def external() -> bool:
+    """Whether the current context is an external person in the portal (#531)."""
+    return current_context().external
+
+
+def refuse_external() -> None:
+    """No member power applies in an external context, even to a person who is also a member (#531)."""
+    if external():
+        raise PermissionDenied("External access has no member powers.")
+
+
 def active_membership(user: User) -> Membership:
     from skeleton.tenancy.models import Membership
 
+    refuse_external()  # Before any membership lookup.
     context = current_context()
     if context.organization_id is None:
         raise MissingTenantContext("Authorization requires a tenant context.")
@@ -85,14 +97,24 @@ class _Subject:
 
 
 def group_ids(user: User) -> QuerySet[Any, UUID]:
+    if external():
+        from .models import GroupMember
+
+        return GroupMember.objects.none().values_list("group_id", flat=True)
     return _Subject(user).group_ids()
 
 
 def effective_roles(user: User) -> QuerySet[Role]:
+    if external():
+        from .models import Role
+
+        return Role.objects.none()
     return _Subject(user).roles()
 
 
 def is_organization_admin(user: User) -> bool:
+    if external():
+        return False
     try:
         return _Subject(user).is_admin()
     except PermissionDenied:
@@ -120,6 +142,8 @@ def require_credential_scope(scope: str) -> None:
 
 
 def has_table_permission(model: type[Model], *, user: User, action: str) -> bool:
+    if external():
+        return False
 
     if action not in ACTIONS or not _scope_allows(model, action):
         return False
@@ -150,6 +174,8 @@ def table_permissions(user: User) -> frozenset[tuple[str, str]]:
     """
     from .models import TablePermission
 
+    if external():
+        return frozenset()
     try:
         rows = TablePermission.objects.filter(
             role__in=effective_roles(user), table__available=True, action__in=ACTIONS
@@ -197,6 +223,7 @@ def authorized_queryset[RecordT: SecuredRecord](
 ) -> QuerySet[RecordT]:
     from skeleton.common.models import SecuredRecord
 
+    refuse_external()
     spec = get_spec(model._meta.label_lower)
     if not issubclass(model, SecuredRecord) or not spec.expose_api:
         raise PermissionDenied("This table is not a business resource.")
@@ -215,6 +242,7 @@ def authorized_queryset[RecordT: SecuredRecord](
 
 
 def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User, action: str) -> RecordT:
+    refuse_external()
     if record.deleted_at is not None and action != "restore":
         raise PermissionDenied("Deleted records require the restore action.")
     if (
@@ -332,6 +360,7 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
     from skeleton.audit.models import AuditEvent
     from skeleton.system.registry import all_specs
 
+    refuse_external()
     organization_id = current_context().organization_id
     if organization_id is None:
         from skeleton.accounts.platform import AUDIT_READ, has_platform_capability
