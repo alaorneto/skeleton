@@ -29,6 +29,8 @@ register_event_type(
 
 O check `skeleton.E022` reprova tipo duplicado, tabela sem `TableSpec`, campo de payload fora de `read_fields` e campo de `sensitive_fields`. A versão do payload existe antes de expor o evento a webhooks.
 
+A tabela do evento pode ser uma [tabela derivada](access-control.md#tabelas-derivadas) (#562): o filho de um contêiner publica eventos como qualquer tabela. `EventService.publish` exige que o ator leia o filho, o que se decide pela âncora; o consumidor recebe o `table_key` e o `record_sysid` do filho; e a entrega por webhook reautoriza a leitura do filho pelo principal do endpoint, com a mesma regra.
+
 ## Publicar
 
 Apps publicam pelo `EventService` ([API de serviços](service-api.md#jobservice-e-eventservice)), que exige que a app chamadora seja a dona do tipo e que o ator leia o registro. Um tipo registrado sem `owner_app` não pertence a ninguém: o serviço o recusa (`Forbidden`) para qualquer chamador (#272).

@@ -31,7 +31,7 @@ register_notification_type(
 
 O check `skeleton.E023` reprova tipo duplicado, tabela-alvo desconhecida e campo de snapshot fora de `read_fields`, e também reprova campo de snapshot ou de payload que esteja em `sensitive_fields`.
 
-Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abrir a notificação, a função reautoriza a pessoa e devolve o endereço, ou `None` (página genérica). Os tipos dos [fluxos de processo](flows.md#integrações) (`flows.task_assigned`, `flows.task_reminder` e `flows.task_overdue`) usam isso para levar à tarefa só quem ainda pode vê-la; o payload deles tem o rótulo do fluxo e da etapa, o número do processo e o identificador da tarefa, nunca dados de formulário.
+Um tipo **sem tabela-alvo** pode declarar `open_url=função(user, row)`: ao abrir a notificação, a função reautoriza a pessoa e devolve o endereço, ou `None` (página genérica). O alvo pode ser uma [tabela derivada](access-control.md#tabelas-derivadas) (#562): quem recebe e quem abre é quem lê a âncora. Como tabela derivada não tem página genérica, a notificação abre só no `open_url` do tipo, chamado depois que o núcleo reautorizou a leitura do alvo; sem ele, abre na página genérica sem link, nunca num endereço que responde 404. Os tipos dos [fluxos de processo](flows.md#integrações) (`flows.task_assigned`, `flows.task_reminder` e `flows.task_overdue`) usam isso para levar à tarefa só quem ainda pode vê-la; o payload deles tem o rótulo do fluxo e da etapa, o número do processo e o identificador da tarefa, nunca dados de formulário.
 
 Um tipo sem tabela-alvo também pode declarar `authorize=função(user, notification) -> bool`: o fan-out a chama para cada pessoa e só cria a linha de quem ela aprova, de modo que um acesso revogado entre a notificação e o fan-out impede a entrega. O tipo `comments.mention` ([menções](comments.md#menções), [#188](https://github.com/alaorneto/skeleton/issues/188)) usa os dois ganchos: `authorize` confere que o comentário segue vivo e que a pessoa ainda lê o registro, e `open_url` leva à página do registro só nessa condição. O payload tem só os identificadores do comentário, da tabela e do registro; o texto do comentário nunca vai na notificação.
 
@@ -86,7 +86,7 @@ Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem
 | `/o/<org>/notifications/` | Caixa da organização atual |
 | `POST /o/<org>/notifications/<id>/read/`, `unread/`, `archive/` | Marca lida, não lida ou arquivada; idempotente, com CSRF |
 | `POST /o/<org>/notifications/read-all/` | Marca todas como lidas na organização |
-| `/o/<org>/notifications/<id>/open/` | Marca lida e reautoriza o alvo (`require_record_action(..., "read")`): com acesso, redireciona ao registro; sem acesso ou alvo removido, mostra uma página genérica, sem título nem snapshot |
+| `/o/<org>/notifications/<id>/open/` | Marca lida e reautoriza o alvo (`require_record_action(..., "read")`): com acesso, redireciona ao registro (alvo de tabela derivada: ao `open_url` do tipo, se houver); sem acesso ou alvo removido, mostra uma página genérica, sem título nem snapshot |
 | `GET /api/v1/notifications/` | API de sessão: página da caixa global (`page`, `page_size`, `archived=0/1`) mais `unread` |
 | `POST /api/v1/o/<org>/notifications/actions/` | `{"action": "read" \| "unread" \| "archive" \| "read_all", "ids": [...]}` (1 a 100 ids) |
 

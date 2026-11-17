@@ -121,6 +121,17 @@ def open_target(user, row_id) -> str | None:
         require_record_action(record, user=user, action="read")
     except (KeyError, PermissionDenied):
         return None
+    from skeleton.access.derivation import is_derived
+
+    if is_derived(model):
+        # A derived table has no generic page (#562): only the type's own link, never one that 404s.
+        from .registry import get_notification_type
+
+        try:
+            resolver = get_notification_type(row.type_code).open_url
+        except KeyError:
+            return None
+        return resolver(user, row) if resolver is not None else None
     return reverse(
         "web:record",
         kwargs={"organization_id": row.organization_id, "table_key": row.target_table_key, "sysid": record.pk},

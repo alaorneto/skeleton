@@ -14,13 +14,15 @@ children frozen by that seal (``seal_parent="item"``), for the seal tests (#564)
 
 from contextlib import contextmanager
 from types import SimpleNamespace
+from uuid import uuid4
 
 from django.apps import apps
-from django.db import models
+from django.db import connection, models
 
 from skeleton.common.migration_operations import InstallRecordInfrastructure, build_infrastructure_specification
 from skeleton.common.models import OrganizationRecord, SealableMixin, SecuredRecord
 from skeleton.system import registry
+from skeleton.tenancy.context import system_context
 
 APP = "example_notes"
 TABLES = (f"{APP}.workspace", f"{APP}.workitem", f"{APP}.workitemline")
@@ -106,3 +108,56 @@ def derived_tables(owner_schema_editor, *, item_spec=None, sealable=False):
             registry._registry.pop(key, None)
             apps.all_models[APP].pop(key.split(".")[1], None)
         apps.clear_cache()
+
+
+def grant(scenario, workspace, *, user, action, organization=None):
+    from skeleton.access.models import RecordGrant
+    from skeleton.system.models import TableDefinition
+    from skeleton.tenancy.models import Membership
+
+    organization = organization or scenario.a
+    with system_context(reason="fixture:derived-grant", organization_id=organization.pk):
+        membership = Membership.objects.get(user=user, organization=organization)
+        table = TableDefinition.objects.get(model_label=workspace._meta.label_lower)
+        RecordGrant(
+            organization=organization, table=table, record_sysid=workspace.pk, membership=membership, action=action
+        ).save()
+
+
+def reader_only(scenario, model):
+    """A member of A whose role has only the read permission on the anchor table."""
+    from allauth.account.models import EmailAddress
+
+    from skeleton.access.models import Role, TablePermission
+    from skeleton.access.services import provision_membership
+    from skeleton.accounts.services import create_identity
+    from skeleton.system.models import TableDefinition
+
+    with system_context(reason="fixture:derived-identity"):
+        user = create_identity(email=f"read-only-{uuid4().hex[:8]}@derived.example.test", password=scenario.password)
+        EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
+    with system_context(reason="fixture:derived-role", organization_id=scenario.a.pk):
+        role = Role(organization=scenario.a, code="derived-reader", name="Derived reader")
+        role.save()
+        table = TableDefinition.objects.get(model_label=model._meta.label_lower)
+        TablePermission(organization=scenario.a, role=role, table=table, action="read").save()
+        provision_membership(organization=scenario.a, user=user, role=Role.objects.get(code="member"))
+        provision_membership(organization=scenario.a, user=user, role=role)
+    return user
+
+
+def child(model, organization, **values):
+    with system_context(reason="fixture:derived-child", organization_id=organization.pk):
+        record = model(organization=organization, **values)
+        record.save()
+    return record
+
+
+def tombstone(model, record, organization):
+    """Tombstone a parent that still has live children, as only SQL can (the invariant is defensive)."""
+    with system_context(reason="fixture:derived-tombstone", organization_id=organization.pk):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"UPDATE skeleton.{model._meta.db_table} SET deleted_at=now(), revision=revision+1 WHERE sysid=%s",
+                [record.pk],
+            )

@@ -14,7 +14,7 @@ Sistemas externos recebem eventos de domínio da organização por HTTPS, sem co
 | `principal` que não é conta de serviço ativa desta organização | 400 em `principal` |
 | `PATCH`, `DELETE` e rotação sem `If-Match` / com revisão antiga | 428 / 412 (409 no HTML) |
 
-O **principal** é uma [conta de serviço](access-control.md#contas-de-serviço) da organização: as entregas agem como ela e só falam de registros que ela pode ler.
+O **principal** é uma [conta de serviço](access-control.md#contas-de-serviço) da organização: as entregas agem como ela e só falam de registros que ela pode ler (o filho de uma [tabela derivada](access-control.md#tabelas-derivadas) é lido pela âncora, #562).
 
 ### Segredo de assinatura
 

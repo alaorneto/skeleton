@@ -9,7 +9,6 @@ from uuid import uuid4
 
 import pytest
 from django.core.exceptions import PermissionDenied
-from django.db import connection
 
 from skeleton.access.derivation import access_route, is_authorizable, is_derived
 from skeleton.access.policies import (
@@ -20,62 +19,9 @@ from skeleton.access.policies import (
 )
 from skeleton.tenancy.context import request_context, system_context, tenant_context
 from skeleton.testing.service_api import acting_as, build_service_scenario
-from tests.integration.derived_support import derived_tables
+from tests.integration.derived_support import child, derived_tables, grant, reader_only, tombstone
 
 pytestmark = [pytest.mark.usefixtures("skeleton_db"), pytest.mark.needs_example_app]
-
-
-def _grant(scenario, workspace, *, user, action, organization=None):
-    from skeleton.access.models import RecordGrant
-    from skeleton.system.models import TableDefinition
-    from skeleton.tenancy.models import Membership
-
-    organization = organization or scenario.a
-    with system_context(reason="fixture:derived-grant", organization_id=organization.pk):
-        membership = Membership.objects.get(user=user, organization=organization)
-        table = TableDefinition.objects.get(model_label=workspace._meta.label_lower)
-        RecordGrant(
-            organization=organization, table=table, record_sysid=workspace.pk, membership=membership, action=action
-        ).save()
-
-
-def _reader_only(scenario, model):
-    """A member of A whose role has only the read permission on the anchor table."""
-    from allauth.account.models import EmailAddress
-
-    from skeleton.access.models import Role, TablePermission
-    from skeleton.access.services import provision_membership
-    from skeleton.accounts.services import create_identity
-    from skeleton.system.models import TableDefinition
-
-    with system_context(reason="fixture:derived-identity"):
-        user = create_identity(email="read-only@derived.example.test", password=scenario.password)
-        EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
-    with system_context(reason="fixture:derived-role", organization_id=scenario.a.pk):
-        role = Role(organization=scenario.a, code="derived-reader", name="Derived reader")
-        role.save()
-        table = TableDefinition.objects.get(model_label=model._meta.label_lower)
-        TablePermission(organization=scenario.a, role=role, table=table, action="read").save()
-        provision_membership(organization=scenario.a, user=user, role=Role.objects.get(code="member"))
-        provision_membership(organization=scenario.a, user=user, role=role)
-    return user
-
-
-def _child(model, organization, **values):
-    with system_context(reason="fixture:derived-child", organization_id=organization.pk):
-        record = model(organization=organization, **values)
-        record.save()
-    return record
-
-
-def _tombstone(model, record, organization):
-    """Tombstone a parent that still has live children, as only SQL can (the invariant is defensive)."""
-    with system_context(reason="fixture:derived-tombstone", organization_id=organization.pk):
-        with connection.cursor() as cursor:
-            cursor.execute(
-                f"UPDATE skeleton.{model._meta.db_table} SET deleted_at=now(), revision=revision+1 WHERE sysid=%s",
-                [record.pk],
-            )
 
 
 @pytest.fixture
@@ -91,15 +37,15 @@ def world(owner_schema_editor):
             "update_grant": scenario.create(scenario.a, owner=admin, visibility="private", title="update grant"),
             "gone": scenario.create(scenario.a, owner=scenario.member, visibility="private", title="gone"),
         }
-        _grant(scenario, spaces["read_grant"], user=scenario.member, action="read")
-        _grant(scenario, spaces["update_grant"], user=scenario.member, action="read")
-        _grant(scenario, spaces["update_grant"], user=scenario.member, action="update")
-        items = {name: _child(tables.item, scenario.a, workspace=space, title=name) for name, space in spaces.items()}
-        lines = {name: _child(tables.line, scenario.a, item=item, text=name) for name, item in items.items()}
-        _tombstone(tables.workspace, spaces["gone"], scenario.a)
+        grant(scenario, spaces["read_grant"], user=scenario.member, action="read")
+        grant(scenario, spaces["update_grant"], user=scenario.member, action="read")
+        grant(scenario, spaces["update_grant"], user=scenario.member, action="update")
+        items = {name: child(tables.item, scenario.a, workspace=space, title=name) for name, space in spaces.items()}
+        lines = {name: child(tables.line, scenario.a, item=item, text=name) for name, item in items.items()}
+        tombstone(tables.workspace, spaces["gone"], scenario.a)
         foreign_space = scenario.create(scenario.b, owner=scenario.member, visibility="organization", title="beta")
-        foreign_item = _child(tables.item, scenario.b, workspace=foreign_space, title="beta item")
-        foreign_line = _child(tables.line, scenario.b, item=foreign_item, text="beta line")
+        foreign_item = child(tables.item, scenario.b, workspace=foreign_space, title="beta item")
+        foreign_line = child(tables.line, scenario.b, item=foreign_item, text="beta line")
         yield tables, scenario, spaces, items, lines, (foreign_space, foreign_item, foreign_line)
 
 
@@ -165,8 +111,8 @@ def test_the_anchor_decides_reading_and_writing_of_every_hop(world, subtests):
 def test_table_permission_of_the_anchor_is_required(world, subtests):
     tables, scenario, spaces, items, lines, _ = world
     owned = scenario.create(scenario.a, owner=scenario.denied, visibility="private", title="denied own")
-    _child(tables.item, scenario.a, workspace=owned, title="denied item")
-    reader = _reader_only(scenario, tables.workspace)
+    child(tables.item, scenario.a, workspace=owned, title="denied item")
+    reader = reader_only(scenario, tables.workspace)
     with subtests.test("no permission at all, even as the owner"):
         with acting_as(scenario.denied, scenario.a), pytest.raises(PermissionDenied, match="Table permission"):
             authorized_queryset(tables.item, user=scenario.denied, action="read")
@@ -186,7 +132,7 @@ def test_table_permission_of_the_anchor_is_required(world, subtests):
                 require_parent_action(tables.workspace, spaces["own"], user=scenario.member)
 
 
-def test_a_token_scope_of_the_anchor_narrows_the_child(world):
+def test_a_token_scope_of_the_anchor_narrows_thechild(world):
     tables, scenario, spaces, items, *_ = world
     member = scenario.member
     scopes = frozenset({f"{tables.workspace._meta.label_lower}:read"})
@@ -215,12 +161,12 @@ def test_tombstones_of_the_anchor_and_of_a_link_hide_the_children(world, subtest
     with subtests.test("a tombstoned anchor hides its live children"):
         assert items["gone"].pk not in _visible(tables.item, member, scenario.a, "read")
         assert lines["gone"].pk not in _visible(tables.line, member, scenario.a, "update")
-    _tombstone(tables.item, items["own"], scenario.a)
+    tombstone(tables.item, items["own"], scenario.a)
     with subtests.test("a tombstoned item hides its lines"):
         assert lines["own"].pk not in _visible(tables.line, member, scenario.a, "read")
     with subtests.test("restore sees deleted children of live parents only"):
         space = spaces["update_grant"]
-        doomed = _child(tables.item, scenario.a, workspace=space, title="doomed")
+        doomed = child(tables.item, scenario.a, workspace=space, title="doomed")
         with system_context(reason="fixture:derived-delete", organization_id=scenario.a.pk):
             doomed.delete()
         restorable = _visible(tables.item, member, scenario.a, "restore", include_deleted=True)
