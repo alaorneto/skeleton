@@ -216,6 +216,12 @@ Assertions esperadas: runtime sem super/BYPASS/ownership/SET ROLE privilegiado; 
 
 `skeleton.testing.sealing.assert_sealed_contract(model, make_record=..., seal=..., acting=..., foreign=None, make_child=None, extra=None)` prova, na role runtime, o contrato de um modelo selável de uma app (#530): coluna congelada não muda pelo modelo nem por SQL, o próprio selo também não, uma coluna livre continua editável, a exclusão é recusada (salvo `seal_allows_delete`), um filho (`make_child`) é recusado, os anexos ficam congelados quando a política manda e entram no resumo, `verify_seal` vale logo depois de selar e a organização de `foreign()` não lê nem alcança o registro. `acting()` e `foreign()` abrem os contextos das organizações A e B (por exemplo `scenario.as_member` e `lambda: scenario.acting(scenario.admin_b, scenario.b)` de `build_service_scenario`). Todos os problemas saem juntos num `AssertionError`. `tests/integration/test_sealing_kit.py` roda o kit num modelo de fixture do núcleo, num modelo de teste da app de exemplo e contra um guard instalado sem o selo, que ele reprova.
 
+## Kit de tabelas derivadas
+
+`skeleton.testing.derived.assert_derived_access_contract(child_model=..., make_anchor=..., make_child=..., scenario=...)` prova, na role runtime, o contrato de uma [tabela derivada](access-control.md#tabelas-derivadas) de uma app (#566): sem concessão numa âncora privada o filho é invisível; concessão de leitura na âncora lê o filho e não o altera; concessão de escrita o altera; o filho de outra organização é invisível; o filho de uma âncora com tombstone some, inclusive para `restore`; sem a permissão de tabela da âncora o filho é recusado, mesmo ao dono; com a app desativada, recusado; e `manage_access` no filho, sempre recusado. `make_anchor(organization=..., owner=...)` cria uma âncora com `visibility="private"`; `make_child(anchor)` cria o filho (e os elos de uma cadeia mais longa). O `scenario` vem de `build_service_scenario`, que, para uma tabela derivada, dá as permissões na tabela âncora (`scenario.anchor_model`) e faz `create` criar âncoras. Todos os problemas saem juntos num `AssertionError`.
+
+`grant_anchor(scenario, anchor, action=..., user=... | group=...)` e `create_group(scenario, name, members)` preparam concessões e grupos pelos serviços de gestão de acesso do núcleo, como o administrador faria, para que o teste de uma app não importe `skeleton.access.models`. `tests/integration/test_derived_kit.py` roda o kit nas tabelas da [receita](extending.md#contêiner-e-tabelas-derivadas), com um e com dois saltos.
+
 ## OIDC e SAML reais
 
 **OIDC** e **SAML** são protocolos de login entre a aplicação e um provedor de identidade (IdP). O navegador precisa percorrer os redirecionamentos reais e terminar com sessão Django; receber claims isoladas não prova esse percurso. Consulte [login e protocolos](concepts.md#login-e-protocolos).
@@ -307,6 +313,7 @@ Esta **matriz** cruza atores, organizações e operações para encontrar vazame
 - A/B/Alice/Bob/admin/sem Membership: list/detail/count/lookup/FK picker/audit/restore não vazam tenant ou privado.
 - Tenant ausente/nested tenant diferente/streaming/async proibido falham fechado; renderização dentro do contexto.
 - TablePermission obrigatória, default deny; grant não pula tabela/tenant; visibility org/grupo dá leitura, não escrita.
+- Tabela derivada (`access_parent`): `assert_derived_access_contract` com cada filho, inclusive o de mais saltos.
 - Revogar papel/grupo/grant perde efeito no próximo request; org/is_staff/owner escondidos não aceitos em mass assignment.
 - Último administrador protegido, inclusive GroupRole e lifecycle global de User.
 - Tombstones invisíveis; restore conflito preserva linhas/sysids; referências cross-tenant falham INSERT/UPDATE.

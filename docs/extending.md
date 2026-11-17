@@ -603,6 +603,126 @@ def sign(document, *, user, expected_revision):
 - **Correção é sempre por adendo**, nunca por edição: um documento novo com `corrects` apontando para o original, também selado. O original continua íntegro e os dois aparecem juntos na tela da app. Não existe desselar.
 - Teste o contrato com `skeleton.testing.sealing.assert_sealed_contract` ([testes](testing.md#kit-do-selo)).
 
+## Contêiner e tabelas derivadas
+
+Quando a equipe escreve no que é de outro (os itens de uma área de trabalho, as linhas de um documento), só o contêiner é um `SecuredRecord` exposto; os filhos são `OrganizationRecord` não expostos que declaram `access_parent` e são autorizados pelo contêiner, a **âncora** ([tabelas derivadas](access-control.md#tabelas-derivadas), epic #560). Os nomes abaixo são os das tabelas de teste do núcleo (`tests/integration/derived_support.py`).
+
+```python
+# models.py
+from django.db import models
+
+from skeleton.common.models import OrganizationRecord, SecuredRecord
+
+
+class Workspace(SecuredRecord):  # A âncora: dono, visibilidade e concessões valem aqui.
+    title = models.CharField(max_length=100)
+
+
+class WorkItem(OrganizationRecord):  # Derivada: sem dono, visibilidade nem concessão próprios.
+    workspace = models.ForeignKey(Workspace, on_delete=models.PROTECT, related_name="items")
+    title = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, default="open")
+    immutable_fields = ("workspace_id",)  # Um filho nunca muda de pai (E042).
+
+
+class WorkItemLine(OrganizationRecord):  # Dois saltos: linha -> item -> área.
+    item = models.ForeignKey(WorkItem, on_delete=models.PROTECT, related_name="lines")
+    text = models.TextField(default="")
+    immutable_fields = ("item_id",)
+```
+
+```python
+# apps.py, em ready()
+from skeleton.system.registry import TableSpec, register
+
+register(
+    TableSpec(
+        model=Workspace,
+        description="Área de trabalho.",
+        read_fields=("title",),
+        write_fields=("title",),
+        expose_api=True,
+    )
+)
+register(
+    TableSpec(
+        model=WorkItem,
+        description="Item de uma área de trabalho.",
+        read_fields=("workspace", "title", "status"),
+        write_fields=(),
+        expose_api=False,
+        access_parent="workspace",
+    )
+)
+register(
+    TableSpec(
+        model=WorkItemLine,
+        description="Linha de um item.",
+        read_fields=("item", "text"),
+        write_fields=(),
+        expose_api=False,
+        access_parent="item",
+    )
+)
+```
+
+```sh
+python manage.py makemigrations acme_work
+python manage.py record_infrastructure acme_work --write   # a infraestrutura de sempre; access_parent não muda o banco
+```
+
+```python
+# services.py: o serviço autoriza o filho como qualquer tabela
+from skeleton.access.policies import authorized_queryset, require_parent_action, require_record_action
+
+
+def open_items(*, user, workspace_id):
+    return authorized_queryset(WorkItem, user=user, action="read").filter(workspace_id=workspace_id, status="open")
+
+
+def add_item(*, user, workspace, title):
+    require_parent_action(WorkItem, workspace, user=user, action="create")  # update na área
+    item = WorkItem(organization=workspace.organization, workspace=workspace, title=title)
+    item.save()
+    return item
+
+
+def close_item(item, *, user, expected_revision):
+    require_record_action(item, user=user, action="update")  # update na área
+    item.status = "closed"
+    item.revision = expected_revision
+    item.save(update_fields={"status"})
+    return item
+```
+
+```python
+# tests/test_work_items.py (PostgreSQL com a role runtime)
+from skeleton.testing.derived import assert_derived_access_contract
+from skeleton.testing.service_api import build_service_scenario
+
+
+def test_items_follow_the_workspace(isolated_db):
+    scenario = build_service_scenario(WorkItem, slug="work")  # As permissões vão para a tabela âncora.
+
+    def make_anchor(*, organization, owner):
+        workspace = Workspace(organization=organization, owner=owner, visibility="private", title="Área")
+        workspace.save()
+        return workspace
+
+    def make_item(workspace):
+        item = WorkItem(organization=workspace.organization, workspace=workspace, title="Item")
+        item.save()
+        return item
+
+    assert_derived_access_contract(
+        child_model=WorkItem, make_anchor=make_anchor, make_child=make_item, scenario=scenario
+    )
+```
+
+- `TablePermission`, escopo de token e concessões são os da área, com a ação mapeada: `read` no filho pede `read` na área; criar, alterar, excluir e restaurar pedem `update`; `manage_access` no filho é sempre negado.
+- Eventos de domínio, notificações, anexos, comentários, selo, `AccessService.can/require`, o histórico de auditoria e a origem de lançamento do livro contábil aceitam o filho, sempre pela área.
+- Continuam fechados para o filho: o gateway genérico de registros, a API REST genérica e o OpenAPI, o seletor de referências, as operações de registro, a concessão de `TablePermission`/`RecordGrant`, o CSV, a interface declarativa e o sujeito de fluxo. A app mostra os filhos nas próprias páginas.
+
 ## Permissões e fluxo HTML
 
 Bootstrap/sync reconcilia TablePermission de organization_admin para a tabela exposta. Member não recebe grants automaticamente. Em `/o/<org>/access/roles/` crie role e atribua read/create/update/delete/restore e, se desejado, manage_access/audit via table-permissions. Atribua MemberRole ou GroupRole + GroupMember. Tudo exige org admin e, em produção, MFA.
