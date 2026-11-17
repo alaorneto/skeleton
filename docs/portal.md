@@ -46,6 +46,24 @@ register_external_admission("acme_customers", link_customer)
 
 `ExternalAccessInfo` tem `sysid`, `user_id`, `display_name`, `app_label`, `is_active` e `revision`; `ExternalInvitationInfo` tem `sysid`, `email`, `app_label`, `subject_ref`, `expires_at`, `accepted` e `revision`.
 
+## Superfície (#533)
+
+| Rota | O que é |
+|---|---|
+| `/portal/` | As organizações onde a pessoa tem acesso externo ativo e o portal ligado (autodescoberta, uma transação externa só de leitura por organização) |
+| `/portal/<org>/` | As apps com portal ativas na organização |
+| `/portal/<org>/apps/<label>/...` | As páginas de portal da app (`runtime.portal_urls`), no namespace `<label>_portal` |
+| `/api/v1/portal/<org>/apps/<label>/...` | A API de portal da app (`runtime.portal_api_urls`), no namespace `<label>_portal_api`, só por sessão |
+| `/portal/invite/<org>/<token>/` | O aceite de um convite |
+
+- **Contexto.** Para `/portal/<org>/` e `/api/v1/portal/<org>/`, o middleware de tenant abre `external_context` em vez de `tenant_context`; qualquer falta (sem acesso, membro sem acesso externo, portal desligado, outra organização, token Bearer) responde 404 (a página pede login a quem não entrou). A raiz `portal/` é reservada: uma app não a captura, como `platform/` e `admin/`.
+- **Estado da cobrança.** Organização `suspended`: o portal mostra uma página neutra de serviço indisponível (503); `restricted`: só leitura (`GET` funciona, métodos não seguros respondem 403).
+- **Rotas da app.** Antes de cada view, o núcleo exige login, contexto externo e a app ativa e disponível (com a cobrança ligada, contratada); sem isso, 404. As páginas saem sem cache e com CSRF; a API responde `Cache-Control: no-store`. Uma rota de portal nunca é alcançável por `/o/<org>/` e o contrário também vale.
+- **Decoradores.** `skeleton.web.views.portal_page` (login, sem cache, contexto externo; as recusas dos serviços viram 404) e `skeleton.api.views.PortalAPI` (só sessão, contexto externo) para as views da app.
+- **Layout.** `skeleton/portal/base.html`, com a marca da organização e sem a navegação de membros; páginas sem JavaScript.
+- **Manifesto.** `runtime.portal_urls` e `runtime.portal_api_urls` (módulos da própria app, em manifesto v2) exigem `compatibility.skeleton` com piso `>=0.6.0` (`PORTAL_CORE_MINIMUM`), e o `package build` o garante no artefato. O gerador de apps não cria portal por padrão.
+- **OpenAPI.** As rotas `/api/v1/portal/` ficam fora do esquema dos membros (`/api/v1/openapi.json`); `skeleton.api.openapi.api_routes(portal=True)` lista só elas.
+
 ## Regra para as apps
 
 No portal, um serviço de app marcado `@service_method(..., allow_external=True)` autoriza pela **ligação da app** à pessoa, nunca por `authorized_queryset` (que nega em contexto externo):

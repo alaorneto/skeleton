@@ -91,6 +91,12 @@ def organization_shell(request: HttpRequest) -> dict[str, Any]:
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
         return shell
+    context = current_context()
+    if context.external and context.organization_id is not None:
+        # The portal (#533): only the organization's brand, never member navigation or counters.
+        shell["organization_brand"] = _brand(context.organization_id, site)
+        shell["portal_organization_id"] = context.organization_id
+        return shell
     shell.update(_signed_in_shell(request, user, site))
     return shell
 

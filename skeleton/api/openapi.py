@@ -372,8 +372,12 @@ class Route:
     application: str | None
 
 
-def api_routes(urlconf: str | None = None) -> tuple[Route, ...]:
-    """Every ``/api/v1/`` URL pattern of the URL tree, in resolution order."""
+def api_routes(urlconf: str | None = None, *, portal: bool = False) -> tuple[Route, ...]:
+    """Every ``/api/v1/`` URL pattern of the URL tree, in resolution order.
+
+    The portal of external people (``/api/v1/portal/``, #533) is a separate surface: its routes
+    never enter the members' schema, and ``portal=True`` lists only them.
+    """
     from django.urls import get_resolver
     from django.urls.resolvers import RoutePattern, URLResolver
 
@@ -392,6 +396,8 @@ def api_routes(urlconf: str | None = None) -> tuple[Route, ...]:
                     walk(pattern.url_patterns, route)
                 continue
             if not route.startswith(API_PREFIX):
+                continue
+            if route.startswith(f"{API_PREFIX}portal/") != portal:
                 continue
             callback = pattern.callback
             view = getattr(callback, "view_class", None) or getattr(callback, "cls", None)

@@ -1,0 +1,5 @@
+{% extends "skeleton/portal/base.html" %}{% load i18n %}{% block title %}{% translate "Portal" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><h1>{% translate "Portal" %}</h1><p class="page-description">{% translate "Organizações que abriram o portal para você." %}</p></div></div>
+<ul class="flex flex-col gap-3">{% for item in organizations %}<li><a class="link-card" href="{% url 'web:portal-organization' item.organization_id %}"><span class="link-card-text"><span class="link-card-title">{{ item.name }}</span></span></a></li>{% empty %}<li class="text-body-subtle">{% translate "Nenhuma organização abriu o portal para você." %}</li>{% endfor %}</ul>
+{% endblock %}

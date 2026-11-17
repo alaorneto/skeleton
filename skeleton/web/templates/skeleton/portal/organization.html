@@ -1,0 +1,5 @@
+{% extends "skeleton/portal/base.html" %}{% load i18n %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><h1>{% firstof organization_brand.display_name _("Portal") %}</h1><p class="page-description">{% translate "Serviços disponíveis para você." %}</p></div></div>
+<ul class="flex flex-col gap-3">{% for app in apps %}<li><a class="link-card" href="{{ app.url }}"><span class="link-card-text"><span class="link-card-title">{{ app.name }}</span></span></a></li>{% empty %}<li class="text-body-subtle">{% translate "Nenhum serviço disponível no momento." %}</li>{% endfor %}</ul>
+{% endblock %}

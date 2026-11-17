@@ -2,7 +2,15 @@ from django.urls import path
 
 from skeleton.api.health import probe_response
 from skeleton.tenancy.routing import ORG
-from skeleton.web import admission_views, external_views, identity_views, privacy_views, site_domain_views, views
+from skeleton.web import (
+    admission_views,
+    external_views,
+    identity_views,
+    portal_views,
+    privacy_views,
+    site_domain_views,
+    views,
+)
 from skeleton.web.invitation_views import resend
 from skeleton.web.organization_settings_views import (
     favicon,
@@ -20,6 +28,9 @@ app_name = "web"
 urlpatterns = [
     path("", views.home, name="home"),
     path("profile/", views.profile, name="profile"),
+    # The portal of external people (#533); its app routes are mounted by app_routing.
+    path("portal/", portal_views.portal, name="portal"),
+    path("portal/<uuid:organization_id>/", portal_views.portal_organization, name="portal-organization"),
     path("profile/privacy/", privacy_views.privacy, name="privacy"),
     path("profile/privacy/export/", privacy_views.privacy_export, name="privacy-export"),
     path("profile/privacy/erasure/", privacy_views.privacy_erasure, name="privacy-erasure"),

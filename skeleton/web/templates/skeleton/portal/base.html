@@ -1,0 +1,28 @@
+{% load static i18n %}{% get_current_language as CURRENT_LANGUAGE %}<!doctype html>
+<html lang="{{ CURRENT_LANGUAGE }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+{% if organization_brand.color %}<meta name="theme-color" content="{{ organization_brand.color }}">{% endif %}
+<title>{% block title %}{% firstof organization_brand.display_name site_name "Skeleton" %}{% endblock %}</title>
+<link rel="preload" href="{% static 'skeleton/web/vendor/inter-5.3.0/inter-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
+<link rel="icon" type="image/svg+xml" href="{% static 'skeleton/web/favicon.svg' %}">
+<link rel="stylesheet" href="{% static 'skeleton/web/site.css' %}">
+{% if organization_brand.css %}<style nonce="{{ csp_nonce }}">{{ organization_brand.css|safe }}</style>{% endif %}
+</head>
+<body>
+<a href="#conteudo" class="sr-only z-50 rounded-base bg-brand px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:fixed focus:start-4 focus:top-3">{% translate "Ir para o conteúdo" %}</a>
+<header class="app-header">
+  <div class="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4 sm:px-6">
+    <a class="brand flex shrink-0 items-center gap-2.5 rounded-base text-heading no-underline" href="{% if portal_organization_id %}{% url 'web:portal-organization' portal_organization_id %}{% else %}{% url 'web:portal' %}{% endif %}">
+      {% if organization_brand.logo_url %}<img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ organization_brand.logo_url }}" alt="">{% endif %}
+      <span class="text-base font-semibold tracking-tight">{% firstof organization_brand.display_name _("Portal") %}</span>
+    </a>
+    <nav aria-label="{% translate "Conta" %}" class="ms-auto">{% if user.is_authenticated %}<form method="post" action="{% url 'account_logout' %}">{% csrf_token %}<button type="submit" class="btn btn-secondary btn-sm">{% translate "Sair" %}</button></form>{% endif %}</nav>
+  </div>
+</header>
+<main id="conteudo" tabindex="-1" class="mx-auto w-full max-w-5xl min-w-0 px-4 py-6 focus:outline-none sm:px-6 sm:py-8">
+{% include "skeleton/web/components/messages.html" %}
+{% block content %}{% endblock %}
+</main>
+</body></html>
