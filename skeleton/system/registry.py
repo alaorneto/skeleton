@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.utils.translation import gettext_lazy
 
@@ -9,10 +10,16 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class AttachmentPolicy:
-    """Opt-in to attachments on a table: size limit and allowed MIME types (checked by content)."""
+    """Opt-in to attachments on a table: size limit and allowed MIME types (checked by content).
+
+    ``external_reader(record, user) -> bool`` (#534), declared in code, lets an external person
+    download the attachments of a record from the portal when it answers true; without it, no
+    attachment of the table ever leaves through the portal.
+    """
 
     max_bytes: int
     types: tuple[str, ...]
+    external_reader: Callable[[Any, Any], bool] | None = None
 
 
 @dataclass(frozen=True)

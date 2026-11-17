@@ -64,6 +64,10 @@ register_external_admission("acme_customers", link_customer)
 - **Manifesto.** `runtime.portal_urls` e `runtime.portal_api_urls` (módulos da própria app, em manifesto v2) exigem `compatibility.skeleton` com piso `>=0.6.0` (`PORTAL_CORE_MINIMUM`), e o `package build` o garante no artefato. O gerador de apps não cria portal por padrão.
 - **OpenAPI.** As rotas `/api/v1/portal/` ficam fora do esquema dos membros (`/api/v1/openapi.json`); `skeleton.api.openapi.api_routes(portal=True)` lista só elas.
 
+## Anexos (#534)
+
+Uma tabela abre os anexos ao portal declarando `AttachmentPolicy(max_bytes=..., types=(...), external_reader=pode_ler)`, em que `pode_ler(record, user)` confere a ligação da app (o registro é do cliente ligado à pessoa, e foi liberado). O download fica em `/portal/<org>/files/<attachment_id>/`, e `FileService().external_download_url` dá o endereço ([arquivos](files.md#download-pelo-portal-534)). Não há upload, remoção nem link público.
+
 ## Regra para as apps
 
 No portal, um serviço de app marcado `@service_method(..., allow_external=True)` autoriza pela **ligação da app** à pessoa, nunca por `authorized_queryset` (que nega em contexto externo):

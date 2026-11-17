@@ -71,6 +71,10 @@ O middleware tenant recusa respostas em streaming dentro do contexto do banco. A
 
 Toda resposta leva `Content-Disposition: attachment` (nome em RFC 5987), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, `Cache-Control: no-store` e `Referrer-Policy: no-referrer`. Nada é servido inline, nem imagens nesta fase; um tipo fora da lista segura (HTML, SVG) sai como `application/octet-stream`.
 
+### Download pelo portal (#534)
+
+Uma pessoa externa baixa um anexo só pelo [portal](portal.md), em `/portal/<org>/files/<attachment_id>/`, e só quando a tabela declara em código `AttachmentPolicy(..., external_reader=função)`: a função recebe o registro alvo vivo e a pessoa e devolve se ela pode ler. Sem a função, nenhum anexo da tabela sai pelo portal. Anexo excluído, expurgado, pendente, em quarentena, de outra organização ou negado pela função responde 404, como no download de membro; a view reautoriza a cada requisição e serve os bytes depois da transação. O portal não faz upload, remoção nem restauração (só `GET`). `FileService().external_download_url(actor=..., attachment_id=...)` (`allow_external=True`) dá o endereço a uma view de portal da app. Como o download de membro, o do portal não grava auditoria nem log próprio.
+
 ## Cota por organização
 
 O contador fica em `StorageUsage` ([tabela operacional](data-model.md#tabelas-operacionais-adr), uma linha por organização, RLS tenant) e a exceção da plataforma em `StorageQuota` (`SystemRecord` global, auditado, campo `quota_organization`). A cota efetiva é a `StorageQuota` da organização (`quota_bytes` vazio significa ilimitada); sem ela, a franquia da assinatura (ou o teto de excedente, num plano que cobra o excesso) quando a [cobrança](billing.md#cotas) está ligada; e, sem nenhuma das duas, `SKELETON_FILES_ORG_QUOTA_BYTES`.

@@ -176,7 +176,7 @@ def test_only_the_expected_core_service_methods_are_open_to_external_people():
                 marked += [
                     f"{name}.{method}" for method, spec in value.service_methods().items() if spec.allow_external
                 ]
-    assert marked == ["ExternalAccessService.me"]  # The person's own access (#532).
+    assert sorted(marked) == ["ExternalAccessService.me", "FileService.external_download_url"]  # #532, #534.
 
 
 def test_self_discovery_lists_only_the_persons_own_accesses(scenario):

@@ -12,7 +12,7 @@ from django.utils.translation import gettext
 
 from .base import ServiceAPI, service_method
 from .dto import DEFAULT_PAGE_SIZE, Page, as_utc, as_uuid, paginate
-from .errors import Conflict, InvalidInput, NotFound
+from .errors import Conflict, Forbidden, InvalidInput, NotFound
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +164,33 @@ class FileService(ServiceAPI):
                 "sysid": attachment.target_sysid,
                 "attachment_id": attachment.pk,
             },
+        )
+
+    @service_method(read_only=True, since="0.6.0", allow_external=True)
+    def external_download_url(self, *, actor: AbstractBaseUser, attachment_id: UUID) -> str:
+        """The portal download URL of an attachment, for an external person (#534); the view re-checks it.
+
+        Autorização: só no portal; o ``external_reader`` do ``AttachmentPolicy`` da tabela decide pelo
+        registro alvo vivo, e o anexo precisa estar ``available``.
+        Erros: NotFound para anexo inexistente, de outra organização, de tabela sem leitor externo, ou
+        quando o leitor nega; Forbidden fora do portal.
+        Efeitos: nenhum.
+        """
+        from django.http import Http404
+        from django.urls import reverse
+
+        from skeleton.files import services
+        from skeleton.tenancy.context import current_context
+
+        if not current_context().external:
+            raise Forbidden(code="external_only")
+        try:
+            attachment = services.external_attachment(as_uuid(attachment_id, field="attachment_id"), user=actor)
+        except Http404:
+            raise NotFound() from None
+        return reverse(
+            "files:portal-download",
+            kwargs={"organization_id": attachment.organization_id, "attachment_id": attachment.pk},
         )
 
     @service_method(read_only=False, since="0.5.0")
