@@ -55,7 +55,8 @@ def _info(record: Any) -> SealInfo:
 
 
 def _model(table_key: object) -> Any:
-    from skeleton.common.models import SealableMixin, SecuredRecord
+    from skeleton.access.derivation import is_authorizable
+    from skeleton.common.models import SealableMixin
     from skeleton.system.registry import get_spec
 
     if not isinstance(table_key, str):
@@ -66,8 +67,7 @@ def _model(table_key: object) -> Any:
         spec = None
     if (
         spec is None
-        or not spec.expose_api
-        or not issubclass(spec.model, SecuredRecord)
+        or not is_authorizable(spec.model)  # Exposed or derived (#564).
         or not issubclass(spec.model, SealableMixin)
         or spec.seal is None
     ):
@@ -102,7 +102,7 @@ def _extra(extra_digest: object) -> dict[str, str] | None:
 
 
 class RecordSealService(ServiceAPI):
-    """The seal of SecuredRecord tables that declare ``TableSpec.seal``; the core signs nothing."""
+    """The seal of exposed or derived tables that declare ``TableSpec.seal``; the core signs nothing."""
 
     @service_method(read_only=False, since="0.6.0")
     def seal(

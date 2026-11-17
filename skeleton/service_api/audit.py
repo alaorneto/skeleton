@@ -84,6 +84,17 @@ def _record_visible(model: Any, actor: Any, record_id: UUID) -> bool:
     return False
 
 
+def _anchor_visible(route: Any, actor: Any, record_id: UUID) -> bool:
+    """The derived row exists (alive or deleted) and the actor reads its live anchor."""
+    from skeleton.access.policies import authorized_queryset
+
+    try:
+        anchors = authorized_queryset(route.anchor, user=actor, action="read").values("sysid")
+    except PermissionDenied:
+        return False
+    return route.model.objects.with_deleted().filter(pk=record_id, **{f"{route.path}__in": anchors}).exists()
+
+
 class AuditService(ServiceAPI):
     """Same rules as ``authorized_audit_queryset``: filtered before paginating."""
 
@@ -100,13 +111,14 @@ class AuditService(ServiceAPI):
         """Return the history of one record, most recent first.
 
         Autorização: administrador da organização, ou TablePermission ``audit`` mais leitura do
-        registro atual (se excluído, restauração autorizada). Só eventos da organização atual.
+        registro atual (se excluído, restauração autorizada). Numa tabela derivada (#564),
+        ``audit`` na tabela âncora e leitura do registro âncora. Só eventos da organização atual.
         Erros: NotFound sem essas permissões, para tabela desconhecida e para registro de outra
         organização; InvalidInput para identificador, cursor ou tamanho de página inválidos.
         Efeitos: nenhum.
         """
+        from skeleton.access.derivation import access_route
         from skeleton.access.policies import authorized_audit_queryset, has_table_permission, is_organization_admin
-        from skeleton.common.models import SecuredRecord
         from skeleton.system.registry import get_spec
 
         if not isinstance(table_key, str):
@@ -116,14 +128,22 @@ class AuditService(ServiceAPI):
             spec = get_spec(table_key)
         except KeyError:
             raise NotFound() from None
-        if not spec.expose_api or not issubclass(spec.model, SecuredRecord):
+        route = access_route(spec.model)
+        if route is None:
             raise NotFound()
         if not is_organization_admin(_user(actor)):
+            # A derived row (#564): audit on the anchor table and read on its anchor record.
+            audited = route.anchor if route.path else spec.model
             try:
-                allowed = has_table_permission(spec.model, user=_user(actor), action="audit")
+                allowed = has_table_permission(audited, user=_user(actor), action="audit")
             except PermissionDenied:
                 allowed = False
-            if not allowed or not _record_visible(spec.model, _user(actor), identifier):
+            visible = (
+                _anchor_visible(route, _user(actor), identifier)
+                if route.path
+                else _record_visible(spec.model, _user(actor), identifier)
+            )
+            if not allowed or not visible:
                 raise NotFound()
         events = authorized_audit_queryset(_user(actor)).filter(
             model_label=spec.model._meta.label_lower, record_sysid=identifier

@@ -16,7 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from skeleton.common.exceptions import ConcurrentUpdate, RecordSealed
-from skeleton.common.models import SEAL_FIELD_NAMES, SealableMixin, SecuredRecord
+from skeleton.common.models import SEAL_FIELD_NAMES, SealableMixin
 from skeleton.common.sealing import digest
 
 __all__ = ["attachment_fingerprints", "require_open", "seal_payload", "seal_record", "verify_seal"]
@@ -87,10 +87,11 @@ def seal_payload(record: Any, *, extra: Any = None) -> dict[str, Any]:
 
 @transaction.atomic
 def seal_record(record: Any, *, user: Any, expected_revision: int, extra: Any = None) -> Any:
-    """Seal ``record`` once, after the ``update`` check for a SecuredRecord, with CAS.
+    """Seal ``record`` once, after the ``update`` check for an authorizable table, with CAS.
 
     The row is locked (``select_for_update``) before the payload is read, so a child written
-    concurrently is either in the payload or refused by the guard (#528). Other bases are
+    concurrently is either in the payload or refused by the guard (#528). An exposed table or a
+    derived one (``update`` through its anchor, #564) is checked here; other tables are
     authorized by the app before calling. Raises ``RecordSealed`` for a sealed or deleted record
     and ``ConcurrentUpdate`` for a stale revision. Returns the sealed record.
     """
@@ -99,7 +100,9 @@ def seal_record(record: Any, *, user: Any, expected_revision: int, extra: Any = 
         raise TypeError(f"{model._meta.label} is not sealable.")
     if record.deleted_at is not None:
         raise RecordSealed("A deleted record cannot be sealed.")
-    if isinstance(record, SecuredRecord):
+    from skeleton.access.derivation import is_authorizable
+
+    if is_authorizable(model):
         from skeleton.access.policies import require_record_action
 
         require_record_action(record, user=user, action="update")

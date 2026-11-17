@@ -440,6 +440,20 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
     allowed = Q(pk__in=[])
     for spec in all_specs():
         model = spec.model
+        route = access_route(model)
+        if route is not None and route.path:
+            # A derived row (#564): audit on the anchor table and read on its anchor record.
+            anchor = route.anchor
+            if not allows(anchor, "audit") or not allows(anchor, "read"):
+                continue
+            try:
+                require_application_enabled(model._meta.app_label)
+            except PermissionDenied:
+                continue
+            anchors = _authorized(anchor, subject, "read", False).values("sysid")
+            rows = model.objects.with_deleted().filter(**{f"{route.path}__in": anchors}).values_list("sysid", flat=True)
+            allowed |= Q(model_label=model._meta.label_lower, record_sysid__in=rows)
+            continue
         if not spec.expose_api or not issubclass(model, SecuredRecord) or not allows(model, "audit"):
             continue
         try:
