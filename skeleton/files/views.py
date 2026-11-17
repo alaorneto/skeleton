@@ -128,7 +128,8 @@ def download(request, organization_id, table_key, sysid, attachment_id):
 
     from .models import Attachment
 
-    rows = services.attachments_for(exposed_spec(table_key), sysid, user=request.user)
+    # Any authorizable table: an app shows the attachments of a derived table on its own pages (#563).
+    rows = services.attachments_for(services.attachment_spec(table_key), sysid, user=request.user)
     attachment = rows.filter(pk=attachment_id, state=Attachment.State.AVAILABLE).first()
     if attachment is None:
         raise Http404  # Missing, deleted, pending, quarantined and unauthorized look the same.

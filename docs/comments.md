@@ -14,6 +14,8 @@ TableSpec(..., expose_api=True, comments=CommentPolicy())
 
 Sem a política, a tabela não tem superfície de comentários: a lista, a criação e as demais rotas respondem 404, e o painel não aparece.
 
+Uma [tabela derivada](access-control.md#tabelas-derivadas) (`access_parent`, #563) também aceita `CommentPolicy`: comentar e ler os comentários exigem leitura do filho, decidida pela âncora, e uma menção só alcança quem lê a âncora. A app usa o `CommentService` e mostra os comentários nas próprias páginas; a notificação da menção num filho não leva à página genérica, que a tabela derivada não tem.
+
 ## Regras
 
 | Ação | Quem | Sem permissão |

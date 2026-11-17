@@ -2,7 +2,8 @@
 
 - Reading a record's comments needs read on the record; so does commenting, on a table whose
   ``TableSpec.comments`` opts in. A target of another organization, unreadable, deleted or
-  on a table without the policy answers 404.
+  on a table without the policy answers 404. A derived table (``TableSpec.access_parent``, #563)
+  is authorized through its anchor, like any other.
 - Only the author edits. The author and the organization administrator delete (moderation)
   and restore. Deleted comments appear only to them, to be restored.
 - Changes require the revision the person saw (CAS); the database audits every write.
@@ -22,10 +23,10 @@ from .text import clean_body
 
 
 def policy(spec: Any) -> Any:
-    from skeleton.common.models import SecuredRecord
+    from skeleton.access.derivation import is_authorizable
 
-    if getattr(spec, "comments", None) is None or not spec.expose_api or not issubclass(spec.model, SecuredRecord):
-        raise Http404  # Tables without opt-in have no comment surface at all.
+    if getattr(spec, "comments", None) is None or not is_authorizable(spec.model):
+        raise Http404  # Tables without opt-in (or not authorizable) have no comment surface at all.
     return spec.comments
 
 

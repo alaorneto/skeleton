@@ -36,12 +36,15 @@ TableSpec(..., attachments=AttachmentPolicy(max_bytes=5 * 1024 * 1024, types=("a
 | Regra | Resultado |
 |---|---|
 | Tabela sem opt-in | 404 |
+| Tabela que não é exposta nem [derivada](access-control.md#tabelas-derivadas) | 404 |
 | Alvo de outra organização, inexistente, excluído ou não legível | 404 (um alvo excluído esconde os anexos) |
 | Listar | exige leitura do alvo |
 | Enviar, remover, restaurar | exigem update do alvo; quem só lê recebe 403 |
 | Tipo pelo conteúdo fora da política, ou extensão incoerente | 400 |
 | Acima de `max_bytes` ou de `SKELETON_UPLOAD_MAX_BYTES` | 413 |
 | Remover e restaurar | exigem `If-Match` (428 sem ele, 412 com revisão antiga) |
+
+Uma [tabela derivada](access-control.md#tabelas-derivadas) (#563) aceita anexos com a mesma política: a autorização é a do registro âncora, com a ação mapeada (ler e baixar pedem `read`; enviar e remover, `update`). A app usa o `FileService` e mostra os anexos nas próprias páginas: as rotas genéricas de envio e remoção e o painel da página de registro continuam só para tabelas expostas. A rota de download aceita os dois tipos de tabela e reautoriza a cada pedido, de modo que revogar a concessão na âncora corta o download seguinte. O expurgo `files.purge` trata o anexo de um filho como qualquer outro, e um filho selado com anexos congelados recusa anexo novo.
 
 O tipo é detectado pelos primeiros bytes (PDF, PNG, JPEG, GIF, WebP, ZIP/DOCX/XLSX e texto UTF-8 para `.txt`/`.csv`), numa tabela de assinaturas no código, e precisa coincidir com a extensão; o `Content-Type` enviado pelo cliente é ignorado. A tabela própria substituiu a dependência `filetype` prevista no plano: reconhece só os tipos que uma política pode permitir e não acrescenta pacote aos locks. HTML e SVG nunca são aceitos.
 

@@ -32,16 +32,14 @@ class AttachmentInfo:
 
 
 def _spec(table_key: str) -> Any:
-    from skeleton.common.models import SecuredRecord
-    from skeleton.system.registry import get_spec
+    from django.http import Http404
+
+    from skeleton.files.services import attachment_spec
 
     try:
-        spec = get_spec(table_key)
-    except (KeyError, TypeError):
+        return attachment_spec(table_key)
+    except Http404:
         raise NotFound() from None
-    if not spec.expose_api or not issubclass(spec.model, SecuredRecord) or spec.attachments is None:
-        raise NotFound()
-    return spec
 
 
 def _info(attachment: Any) -> AttachmentInfo:

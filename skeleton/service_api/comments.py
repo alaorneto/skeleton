@@ -45,7 +45,7 @@ def _info(comment: Any) -> CommentInfo:
 
 
 def _spec(table_key: object) -> Any:
-    from skeleton.common.models import SecuredRecord
+    from skeleton.access.derivation import is_authorizable
     from skeleton.system.registry import get_spec
 
     if not isinstance(table_key, str):
@@ -54,7 +54,7 @@ def _spec(table_key: object) -> Any:
         spec = get_spec(table_key)
     except KeyError:
         raise NotFound() from None
-    if not spec.expose_api or not issubclass(spec.model, SecuredRecord) or spec.comments is None:
+    if not is_authorizable(spec.model) or spec.comments is None:
         raise NotFound()
     return spec
 
