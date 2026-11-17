@@ -94,3 +94,64 @@ def acting_external(user: Any, organization: Any) -> Iterator[Any]:
 
     with external_context(organization_id=organization.pk, actor=user, source="http:portal"):
         yield user
+
+
+def assert_external_contract(
+    service_class: Any,
+    method: str,
+    *,
+    scenario: ExternalScenario,
+    call: Any,
+    unlinked: Any = None,
+    disabled: Any = None,
+) -> None:
+    """Prove the portal contract of one ``allow_external`` service method (#536).
+
+    ``call(actor)`` invokes the method for ``actor`` in the current context. The kit checks that:
+    the method is marked ``allow_external``; it works for the external person of A in A's portal;
+    it is refused in a member context (a member without external access); an external access of
+    another organization reaches nothing of A (``unlinked(result) -> bool`` says the result holds
+    nothing, for a person external in B calling in B's portal); with the app off (``disabled()``,
+    a context manager that turns it off in A) it is unavailable; and an actor other than the
+    context's is refused. A refusal is any ``ServiceError``.
+    """
+    from skeleton.service_api import Forbidden, ServiceError
+
+    from .service_api import acting_as
+
+    spec = service_class.service_methods().get(method)
+    if spec is None or not spec.allow_external:
+        raise AssertionError(f"{service_class.__name__}.{method} is not marked allow_external.")
+    with acting_external(scenario.external, scenario.a) as actor:
+        call(actor)
+        try:
+            call(scenario.dual)
+        except Forbidden as error:
+            if error.code != "actor_mismatch":
+                raise AssertionError(f"Another actor was refused with {error.code}, not actor_mismatch.") from None
+        else:
+            raise AssertionError("An actor other than the context's was accepted.")
+    with acting_as(scenario.member, scenario.a) as member:
+        try:
+            call(member)
+        except ServiceError:
+            pass
+        else:
+            raise AssertionError("A member context without external access reached the method.")
+    if unlinked is not None:
+        grant_external_access(scenario.b, scenario.outsider)
+        with acting_external(scenario.outsider, scenario.b) as stranger:
+            try:
+                result = call(stranger)
+            except ServiceError:
+                result = None
+            if result is not None and not unlinked(result):
+                raise AssertionError("An external person of another organization reached A's records.")
+    if disabled is not None:
+        with disabled(), acting_external(scenario.external, scenario.a) as actor:
+            try:
+                call(actor)
+            except ServiceError:
+                pass
+            else:
+                raise AssertionError("The method answered with its app turned off.")

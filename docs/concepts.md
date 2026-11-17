@@ -54,6 +54,10 @@ Veja [modelo de dados](data-model.md) e [controle de acesso](access-control.md).
 
 ## Registros e banco de dados
 
+### Pessoa externa e portal
+
+Uma **pessoa externa** (um cliente, por exemplo) acessa o que uma app da organização expõe para ela sem ser membro: não ocupa assento, não aparece nas listas de membros e não tem nenhum poder de membro. O vínculo dela é um **acesso externo** (`ExternalAccess`), separado do vínculo de membro, criado só por **convite** e aceito com o email verificado da conta. Ela usa o **portal** (`/portal/<org>/`), onde o contexto é **externo**: as políticas de acesso, as capacidades e o gateway de registros negam, e só os serviços marcados para uso externo respondem, autorizando pela ligação que a app mantém entre a pessoa e os registros dela ([portal](portal.md)).
+
 ### Entidade, modelo, tabela e registro
 
 Uma **entidade** é um conceito que precisa ser persistido, como uma anotação. Um **modelo Django** é a classe Python que descreve seus campos e comportamento. Uma **tabela** é a estrutura física no banco. Um **registro**, ou linha, é uma ocorrência: a anotação escrita por Ana.

@@ -84,4 +84,17 @@ def my_documents(self, *, actor) -> tuple[DocumentSummary, ...]:
     return tuple(summary(r) for r in Document.objects.filter(customer_id__in=customer_ids, released=True))
 ```
 
-O método só devolve registros alcançados pela ligação; inexistente e não ligado respondem igual; nunca recebe identificador de cliente do cliente sem conferir a ligação; efeitos externos vão por job.
+O método só devolve registros alcançados pela ligação; inexistente e não ligado respondem igual; nunca recebe identificador de cliente do cliente sem conferir a ligação; efeitos externos vão por job. Teste cada método com `skeleton.testing.external.assert_external_contract` ([testes](testing.md#kit-do-portal)).
+
+## Privacidade e ciclo de vida (#536)
+
+A exportação de dados da pessoa lista os acessos externos (organização, app, situação e datas); a eliminação os desativa e os mantém como histórico, e um convite posterior exige novo aceite. Desativar a pessoa, o acesso ou a organização, ou desligar o portal, fecha o portal na requisição seguinte ([privacidade](privacy.md)).
+
+## O que não existe
+
+- **Autoinscrição externa**: só há convite.
+- **Token Bearer para pessoa externa**: o portal é só por sessão; um token nunca abre o contexto externo.
+- **Upload, remoção ou restauração de anexos pelo portal**, link público ou assinado de arquivo.
+- **Central de notificações no portal**: o aviso a uma pessoa externa é só por email.
+- **Gateway genérico de registros no portal** e qualquer poder de membro, mesmo para quem também é membro.
+- **MFA obrigatória por organização para pessoas externas**: vale a preferência da pessoa.
