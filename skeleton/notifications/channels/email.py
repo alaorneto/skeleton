@@ -53,7 +53,10 @@ def build_message(user: Any, *, type_code: str, context: dict[str, Any]) -> Emai
     profile = getattr(user, "profile", None)
     preferences = preferences_for(user)
     language, zone = preferences.language, preferences.timezone
-    unsubscribe = preferences_url()
+    from .delivery import _external_type
+
+    # The member preference page means nothing to an external person (#535).
+    unsubscribe = "" if _external_type(type_code) else preferences_url()
     # Name, colour and logo of the organization whose job renders the email (#173).
     brand = email_brand()
     context = {
@@ -96,9 +99,12 @@ def _notification_context(delivery: Any, notification: Any) -> dict[str, Any]:
 
 def _still_wanted(user: Any, type_code: str) -> bool:
     from ..preferences import effective, known_type
+    from .delivery import _external_type
 
     if known_type(type_code) is None:
         return False
+    if _external_type(type_code):
+        return True  # An external person has no preference page: the type sends by email (#535).
     return effective(user, type_code, "email").mode == "immediate"
 
 

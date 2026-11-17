@@ -2,4 +2,4 @@
 {% block content %}<p><strong>{{ label }}</strong></p>
 {% for key, value in snapshot.items %}<p>{{ value }}</p>{% endfor %}
 <p><a href="{{ open_url }}">Open</a> · received on {{ created_at|date:"Y-m-d H:i" }}</p>
-<p style="margin:16px 0 0 0;color:#6b7280;font-size:12px">You receive this email because of your <a href="{{ preferences_url }}">notification preferences</a>.</p>{% endblock %}
+{% if preferences_url %}<p style="margin:16px 0 0 0;color:#6b7280;font-size:12px">You receive this email because of your <a href="{{ preferences_url }}">notification preferences</a>.</p>{% endif %}{% endblock %}
