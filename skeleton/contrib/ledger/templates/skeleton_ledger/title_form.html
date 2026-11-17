@@ -1,0 +1,10 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "Novo título" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Novo título" %}</h1><p class="page-description">{% translate "Com mais de uma parcela, o valor total é dividido e o resto do arredondamento vai para a última." %}</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="titles" %}
+<form method="post" class="card max-w-3xl">{% csrf_token %}
+  <input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+  {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Registrar título" %}</button><a class="btn btn-secondary" href="{% url 'skeleton_ledger:titles' organization_id %}">{% translate "Cancelar" %}</a></div>
+</form>
+{% endblock %}

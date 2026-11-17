@@ -192,6 +192,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 |---|---|
 | `skeleton.service_api` e submódulos | Base, erros, DTOs e serviços do núcleo |
 | `skeleton.common.models` | Bases `SystemRecord`, `OrganizationRecord`, `SecuredRecord` e o `SealableMixin` dos registros selados |
+| `skeleton.common.money` | Dinheiro em inteiros da menor unidade: `parse`, `format_amount`, `scale`, `percent`, `exponent`, `validate_currency` e a tabela `CURRENCY_EXPONENTS` (#541) |
 | `skeleton.common.sealing` | `canonical_bytes` e `digest`: o resumo SHA-256 das partes da app que entram no selo (`extra_digest`) |
 | `skeleton.records.sealing` | `seal_record`, `seal_payload` e `verify_seal`: selar e verificar os modelos da própria app em processo ([modelo de dados](data-model.md#registros-selados-526)) |
 | `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
@@ -426,7 +427,7 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 
 **Medidores de uso** (#522). O módulo também expõe `register_usage_meter(code, *, label, unit_label)`, que a app chama no `ready()` para declarar um consumo por período (`<app_label>.<nome>`), e `registered_usage_meters()`, com `(código, rótulo, unidade)` de cada um. `UsageReceipt` tem `meter`, `metered` (falso sem cobrança ou sem assinatura: nada gravado), `created` (falso para chave repetida ou anulação), `used`, `included`, `limit` (`None`: sem limite) e `overage` (`block`, `bill` ou `unlimited`); `UsageStatus` tem `meter`, `label`, `unit_label`, `used`, `included`, `limit`, `overage`, `period_start` e `period_end`; os termos de cada preço estão em [cobrança](billing.md#medidores-de-uso).
 
-`AccessState` tem `level` e `since`; `StorageAllowance`, `quota_bytes` (`None`: ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Os DTOs de assinatura, item, fatura e oferta trazem só identificadores, valores na menor unidade da moeda e datas; dados de contato da conta nunca saem por eles.
+`AccessState` tem `level` e `since`; `StorageAllowance`, `quota_bytes` (`None`: ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Uma app declara as métricas de estado que um preço pode limitar com a função `skeleton.service_api.billing.register_quota_metric("<app_label>.<nome>", contador)` no `ready()`, sem importar `skeleton.billing` (#542; o livro contábil registra `skeleton_ledger.books`). Os DTOs de assinatura, item, fatura e oferta trazem só identificadores, valores na menor unidade da moeda e datas; dados de contato da conta nunca saem por eles.
 
 ### FlowService
 

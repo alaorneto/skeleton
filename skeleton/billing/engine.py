@@ -36,9 +36,9 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext
 
+from skeleton.common import money
 from skeleton.tenancy.context import current_context, request_cache
 
-from . import money
 from .periods import period_end, require_aware, seconds_between
 
 logger = logging.getLogger("skeleton.billing")

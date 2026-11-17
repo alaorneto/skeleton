@@ -22,7 +22,21 @@ from .dto import Page, as_utc, paginate
 from .errors import Conflict, Forbidden, InvalidInput, NotFound
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from typing import Any
+
     from django.contrib.auth.base_user import AbstractBaseUser
+
+
+def register_quota_metric(code: str, counter: Callable[[Any], int]) -> None:
+    """Declare a state metric a price can limit, from the ``ready()`` of an app (#542).
+
+    ``code`` is ``<app_label>.<name>``; ``counter(organization_id)`` returns the current quantity.
+    A thin public surface over the billing's registry: apps never import ``skeleton.billing``.
+    """
+    from skeleton.billing.quota import register_quota_metric as register
+
+    register(code, counter)
 
 
 @dataclass(frozen=True, slots=True)

@@ -24,8 +24,8 @@ from django.utils.translation import gettext
 from django.views.decorators.http import require_POST, require_safe
 
 from skeleton.accounts.reauthentication import recent_authentication_required
-from skeleton.billing import money
 from skeleton.billing import platform as operations
+from skeleton.common import money
 from skeleton.common.exceptions import ConcurrentUpdate
 
 from .guards import platform_page

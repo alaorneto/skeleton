@@ -1,0 +1,19 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "A receber e a pagar" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "A receber e a pagar" %}</h1><p class="page-description">{% translate "Títulos do livro padrão, por vencimento." %}</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="titles" %}
+{% if book.writable %}<p class="mb-4"><a class="btn btn-primary" href="{% url 'skeleton_ledger:title-new' organization_id %}">{% translate "Novo título" %}</a></p>{% endif %}
+<form method="get" class="filter-bar" aria-label="{% translate "Filtros" %}">
+  <div class="field"><label for="direction">{% translate "Tipo" %}</label><select id="direction" name="direction"><option value="">{% translate "Todos" %}</option>{% for code, label in directions %}<option value="{{ code }}"{% if code == filters.direction %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field"><label for="status">{% translate "Situação" %}</label><select id="status" name="status"><option value="">{% translate "Todas" %}</option>{% for code, label in statuses %}<option value="{{ code }}"{% if code == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field"><label for="due_until">{% translate "Vence até" %}</label><input id="due_until" type="date" name="due_until" value="{{ filters.due_until|date:'Y-m-d' }}"></div>
+  <div class="filter-actions"><button type="submit" class="btn btn-secondary">{% translate "Filtrar" %}</button></div>
+</form>
+<div class="table-scroll"><table>
+  <caption class="sr-only">{% translate "Títulos" %}</caption>
+  <thead><tr><th scope="col" class="col-date">{% translate "Vencimento" %}</th><th scope="col">{% translate "Descrição" %}</th><th scope="col">{% translate "Contraparte" %}</th><th scope="col">{% translate "Tipo" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th><th scope="col" class="col-num">{% translate "Saldo" %}</th></tr></thead>
+  <tbody>{% for title in page.items %}<tr><td class="col-date"><time datetime="{{ title.due_date|date:'Y-m-d' }}">{{ title.due_date|date:"SHORT_DATE_FORMAT" }}</time></td><td><a class="cell-primary" href="{% url 'skeleton_ledger:title' organization_id title.sysid %}">{{ title.description }}</a></td><td>{{ title.counterparty_name|default:"—" }}</td><td>{% if title.direction == "receivable" %}{% translate "A receber" %}{% else %}{% translate "A pagar" %}{% endif %}</td><td>{{ title.status }}</td><td class="col-num">{{ title.amount|money:book.currency }}</td><td class="col-num">{{ title.balance|money:book.currency }}</td></tr>
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhum título.") %}{% endfor %}</tbody>
+</table></div>
+{% if page.next_cursor %}<nav class="pagination" aria-label="{% translate "Paginação" %}"><div class="pagination-links"><a class="pagination-next" rel="next" href="?direction={{ filters.direction }}&amp;status={{ filters.status }}&amp;due_until={{ filters.due_until|date:'Y-m-d' }}&amp;cursor={{ page.next_cursor|urlencode }}">{% translate "Próxima página" %}</a></div></nav>{% endif %}
+{% endblock %}

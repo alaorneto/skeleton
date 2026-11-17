@@ -119,3 +119,27 @@ def activation_revision(app_label: str) -> int:
     from skeleton.system.applications import application_state
 
     return int(application_state(app_label)["revision"])
+
+
+def grant_table_actions(
+    organization_id: UUID, *, role_code: str, table_key: str, actions: Iterable[str], using: str = "default"
+) -> None:
+    """Fixture: give the role ``role_code`` the ``actions`` on ``table_key`` in the organization (#545).
+
+    Synchronizes the table catalog first, so a table of an app installed for the test exists in it.
+    Written in the system context of a fixture, never of the service under test.
+    """
+    from skeleton.access.models import Role, TablePermission
+    from skeleton.system.models import TableDefinition
+    from skeleton.system.synchronization import sync_table_catalog
+    from skeleton.tenancy.context import system_context
+
+    sync_table_catalog(using=using)
+    with system_context(reason="fixture:table-actions", organization_id=organization_id, using=using):
+        role = Role.objects.using(using).get(code=role_code)
+        table = TableDefinition.objects.using(using).get(model_label=table_key)
+        for action in actions:
+            if not TablePermission.objects.using(using).filter(role=role, table=table, action=action).exists():
+                TablePermission(organization_id=organization_id, role=role, table=table, action=action).save(
+                    using=using
+                )
