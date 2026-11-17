@@ -79,7 +79,7 @@ def _active_members(*, include_service_accounts: bool = False) -> Any:
 class OrganizationService(ServiceAPI):
     """Organization context and directory; managing memberships stays in the access services."""
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def current(self, *, actor: AbstractBaseUser) -> OrganizationInfo:
         """Return the organization of the current context.
 
@@ -93,7 +93,7 @@ class OrganizationService(ServiceAPI):
         organization = Organization.objects.get(pk=active_membership(_user(actor)).organization_id)
         return OrganizationInfo(organization.pk, organization.name, organization.slug)
 
-    @service_method(read_only=True, since="0.5.0", tenant=False)
+    @service_method(read_only=True, since="0.1.0", tenant=False)
     def my_organizations(self, *, actor: AbstractBaseUser) -> tuple[OrganizationInfo, ...]:
         """Return the active organizations where the actor has an active membership.
 
@@ -111,7 +111,7 @@ class OrganizationService(ServiceAPI):
             for row in rows
         )
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def members(
         self,
         *,
@@ -164,7 +164,7 @@ class OrganizationService(ServiceAPI):
 
         return paginate(rows, convert=convert, page_size=page_size, cursor=cursor, key=("user__sysid",))
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def groups(
         self, *, actor: AbstractBaseUser, cursor: str | None = None, page_size: int = DEFAULT_PAGE_SIZE
     ) -> Page[GroupSummary]:
@@ -186,7 +186,7 @@ class OrganizationService(ServiceAPI):
             key=("code", "sysid"),
         )
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def is_member(self, *, actor: AbstractBaseUser, user_id: UUID) -> bool:
         """Whether a person has an active membership in the current organization.
 
@@ -199,7 +199,7 @@ class OrganizationService(ServiceAPI):
         active_membership(_user(actor))
         return _active_members().filter(user_id=as_uuid(user_id, field="user_id")).exists()
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def member_refs(
         self, *, actor: AbstractBaseUser | None, user_ids: tuple[UUID, ...], include_service_accounts: bool = False
     ) -> tuple[MemberRef, ...]:
@@ -228,7 +228,7 @@ class OrganizationService(ServiceAPI):
             MemberRef(user_id, membership_id) for user_id, membership_id in sorted(rows, key=lambda row: str(row[0]))
         )
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def settings(self, *, actor: AbstractBaseUser) -> OrganizationSettingsInfo:
         """Return the settings of the current organization (revision 0 while never written).
 
@@ -242,7 +242,7 @@ class OrganizationService(ServiceAPI):
         active_membership(_user(actor))
         return _settings_info(current_settings())
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def update_settings(
         self,
         *,

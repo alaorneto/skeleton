@@ -26,7 +26,7 @@ class SequenceNumber:
 class SequenceService(ServiceAPI):
     """Sequences stay declared by each app; only the owning app draws numbers from its own."""
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def next_number(self, *, actor: AbstractBaseUser, key: str, at: datetime | None = None) -> SequenceNumber:
         """The next number of ``key`` in the actor's organization and the period of ``at`` (now).
 

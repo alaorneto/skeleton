@@ -34,7 +34,7 @@ class IssuedFeedToken:
 class FeedTokenService(ServiceAPI):
     """Issue feed tokens of the actor for a named feed scope."""
 
-    @service_method(read_only=False, since="0.5.0", tenant=False)
+    @service_method(read_only=False, since="0.1.0", tenant=False)
     def issue(self, *, actor: AbstractBaseUser, name: str, scope: str, expires_at: datetime) -> IssuedFeedToken:
         """Issue a feed token of the actor for ``scope``; the text is returned only here.
 

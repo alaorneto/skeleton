@@ -86,7 +86,7 @@ def notify(spec: Any, record: Any, comment: Any, people: list[UUID]) -> None:
 
 def _target(notification: Any) -> tuple[Any, Any] | None:
     """The spec and the live comment of a mention notification, or None."""
-    from skeleton.common.models import SecuredRecord
+    from skeleton.access.derivation import is_authorizable
     from skeleton.system.registry import get_spec
 
     from .models import Comment
@@ -97,7 +97,7 @@ def _target(notification: Any) -> tuple[Any, Any] | None:
         comment = Comment.objects.filter(pk=payload.get("comment"), target_sysid=payload.get("record")).first()
     except (KeyError, ValidationError, ValueError):
         return None
-    if comment is None or spec.comments is None or not issubclass(spec.model, SecuredRecord):
+    if comment is None or spec.comments is None or not is_authorizable(spec.model):
         return None
     return spec, comment
 
@@ -112,9 +112,13 @@ def open_url(user: Any, row: Any) -> str | None:
     """Where the notification leads: the record page, only while the person reads it."""
     from django.urls import NoReverseMatch, reverse
 
+    from skeleton.access.derivation import is_derived
+
     target = _target(row)
     if target is None or not reads(target[0], target[1].target_sysid, user):
         return None
+    if is_derived(target[0].model):
+        return None  # A derived table has no generic page (#563); the app shows its comments.
     try:
         return reverse(
             "web:record",

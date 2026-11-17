@@ -31,8 +31,9 @@ from .types import JSON, StrPath
 if TYPE_CHECKING:
     from .service import DeploymentService
 
-# First core release whose apps are closed by default and that ships ``upgrade_app_activation`` (#22).
-APP_ACTIVATION_UPGRADE_CORE = Version("0.5.0")
+# First core release whose apps are closed by default and that ships ``upgrade_app_activation`` (#22):
+# the first published release (#569).
+APP_ACTIVATION_UPGRADE_CORE = Version("0.1.0")
 
 
 def graph_matches(graph: JSON, plan: JSON) -> bool:

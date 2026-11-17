@@ -384,5 +384,5 @@ Confirmadas em 2026-11-12, como recomendado no desenho:
 5. **Quem administra fluxos é o administrador da organização**; desde [#407](https://github.com/alaorneto/skeleton/issues/407), também quem tem `flows.manage` (papel "Gestor de processos").
 6. **Um aprovador vê os dados de formulário da instância mesmo sem ler o registro de negócio.**
 7. **Nada é apagado**: sem retenção na primeira entrega.
-8. **A versão do core não muda neste epic**; os métodos novos declaram `since="0.6.0"`, e o piso de core do Notes sobe quando essa versão for cortada.
+8. **A versão do core não muda neste epic**; os métodos novos declaravam `since="0.6.0"`; com a renumeração para a primeira release (#569), todo método do núcleo declara `since="0.1.0"`.
 9. **Quem perde a corrida numa tarefa de fila recebe conflito (409), não "não encontrado"**: a tarefa encerrada continua legível para quem está na fila.

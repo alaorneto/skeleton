@@ -31,7 +31,9 @@ class NotificationType:
     # Web push carries only the type label and a link; True also sends the snapshot (#56).
     push_snapshot: bool = False
     # For a type without a target table: ``open_url(user, row) -> str | None`` re-authorizes the
-    # person and returns where the notification leads (the flow task page, #204).
+    # person and returns where the notification leads (the flow task page, #204). For a target of a
+    # derived table (#562), which has no generic page, it is the only link, given after the core
+    # re-authorized the read of the target; without it the notification opens nowhere.
     open_url: Callable[[Any, Any], str | None] | None = None
     # For a type without a target table: ``authorize(user, notification) -> bool`` re-checks
     # each person at fan-out time, so access revoked since the notification was created

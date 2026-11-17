@@ -1,4 +1,4 @@
-"""Record contract checks of the TableSpecs and models (E001–E013, E017, E020) and identifier length (E033)."""
+"""Record contract checks of the TableSpecs and models (E001–E013, E017, E020, E042) and identifier length (E033)."""
 
 from django.apps import apps
 from django.conf import settings
@@ -110,6 +110,20 @@ def record_contract_checks(app_configs=None, **kwargs):
                     id="skeleton.E020",
                 )
             )
+        if getattr(spec, "access_parent", None):
+            from skeleton.access.derivation import access_parent_problems
+
+            for problem in access_parent_problems(model, spec):
+                errors.append(
+                    Error(
+                        problem,
+                        hint="A derived table is an unexposed OrganizationRecord whose access_parent names a "
+                        "non-null PROTECT foreign key, listed in immutable_fields, to a table of the same app that "
+                        "is an exposed SecuredRecord or another derived table, with no cycle and at most 3 hops. "
+                        "See docs/access-control.md and docs/checks.md.",
+                        id="skeleton.E042",
+                    )
+                )
         if issubclass(model, OrganizationRecord) and model._meta.get_field("organization").null:
             errors.append(
                 Error(

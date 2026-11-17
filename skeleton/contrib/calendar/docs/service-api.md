@@ -4,7 +4,7 @@
 `CalendarService` é o contrato em processo da agenda (#111). Outras apps o usam para ler calendários e ocorrências, criar, alterar e cancelar eventos e consultar horários ocupados, sempre com a autorização do ator que está no contexto. As páginas da própria agenda usam o mesmo serviço.
 
 ## Dependência
-`app_id`: `org.skeleton.calendar`. Faixa recomendada: `{"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Importe só `skeleton.contrib.calendar.service_api`.
+`app_id`: `org.skeleton.calendar`. Faixa recomendada: `{"org.skeleton.calendar": ">=0.0.0,<0.1.0"}`. Importe só `skeleton.contrib.calendar.service_api`.
 
 ## Serviços
 
@@ -153,5 +153,5 @@ Os métodos gerais (`update_event`, `cancel_event`, `delete_event`, `edit_occurr
 - `ReminderInfo`: `sysid`, `event_id`, `minutes_before`, `channel_hint`, `revision`.
 
 ## Histórico de versões
-- 0.5.0: `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
-- 0.6.0 (próxima *minor*, com o núcleo): `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`. Calendários de atendimento (#539): `calendars` e `create_shared_calendar`.
+- 0.1.0 (primeira versão do núcleo, #569): `my_calendars`, `upcoming`, `create_event`, `update_event`, `cancel_event`, `free_busy`.
+- 0.1.0, também: `EventOccurrence.start_date` e `end_date` (#312) e `CalendarInfo.writable`, campos com valor padrão; `event`, `delete_event`, `edit_occurrence`, `cancel_occurrence`, `attendees`, `invite`, `remove_attendee`, `respond`, `reminders`, `add_reminder` e `remove_reminder`, com `AttendeeInfo` e `ReminderInfo` (#344). Uma `idempotency_key` repetida em corrida devolve o evento já criado. Eventos gerenciados (#537): `put_managed_event`, `remove_managed_event`, `managed_event`, `EventInfo.source_app`/`source_path` e `EventOccurrence.source_app`/`source_path` (campos com valor padrão), `Conflict("managed_event")` nos métodos gerais. Disponibilidade (#538): `free_busy(include_attending=...)`, com padrão compatível, e `calendar_busy` com `CalendarBusyBlock`. Calendários de atendimento (#539): `calendars` e `create_shared_calendar`.

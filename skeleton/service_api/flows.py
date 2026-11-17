@@ -317,7 +317,7 @@ def _owned_flow(flow_key: str) -> None:
 class FlowService(ServiceAPI):
     """Start, read and operate instances and tasks of the flows declared by the apps."""
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def start(
         self,
         *,
@@ -353,7 +353,7 @@ class FlowService(ServiceAPI):
             )
         return StartReceipt(instance.pk, instance.number, instance.status, instance.revision, created)
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def signal(
         self, *, actor: AbstractBaseUser | None, instance_id: UUID, name: str, data: FormData = ()
     ) -> SignalReceipt:
@@ -378,7 +378,7 @@ class FlowService(ServiceAPI):
         with _flow_errors():
             return SignalReceipt(services.send_signal(identifier, name, actor=actor, data=_data(data)))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def instance(self, *, actor: AbstractBaseUser, instance_id: UUID) -> InstanceInfo:
         """One instance the actor may read.
 
@@ -391,7 +391,7 @@ class FlowService(ServiceAPI):
         with _flow_errors():
             return _instance(_readable_instance(actor, instance_id))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def instances(
         self,
         *,
@@ -424,7 +424,7 @@ class FlowService(ServiceAPI):
             rows = rows.filter(status=status)
         return paginate(rows.order_by("-created_at", "sysid"), convert=_instance, cursor=cursor, page_size=page_size)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def history(
         self,
         *,
@@ -464,7 +464,7 @@ class FlowService(ServiceAPI):
         rows = FlowActivity.objects.filter(instance=row).order_by("sequence")
         return paginate(rows, convert=convert, cursor=cursor, page_size=page_size)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def tasks(
         self,
         *,
@@ -497,7 +497,7 @@ class FlowService(ServiceAPI):
         rows = rows.select_related("instance__definition").order_by("-created_at", "sysid")
         return paginate(rows, convert=_task, cursor=cursor, page_size=page_size)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def open_task_count(self, *, actor: AbstractBaseUser) -> int:
         """How many open tasks are assigned to the actor in the current organization.
 
@@ -509,7 +509,7 @@ class FlowService(ServiceAPI):
 
         return int(policies.actionable_tasks(actor).filter(assignee_id=actor.pk).count())
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def task(self, *, actor: AbstractBaseUser, task_id: UUID) -> TaskDetail:
         """One task with what is needed to act on it: form fields, actions and the instance data.
 
@@ -551,7 +551,7 @@ class FlowService(ServiceAPI):
             can_reassign=live and (policies.is_flow_admin(actor) or (mine and step.delegable)),
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def claim_task(self, *, actor: AbstractBaseUser, task_id: UUID, expected_revision: int) -> TaskSummary:
         """Take a queue task for the actor.
 
@@ -565,7 +565,7 @@ class FlowService(ServiceAPI):
         with _flow_errors():
             return _task(tasks.claim_task(task_id, actor=actor, expected_revision=expected_revision))
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def release_task(self, *, actor: AbstractBaseUser, task_id: UUID, expected_revision: int) -> TaskSummary:
         """Give a claimed queue task back to its queue.
 
@@ -578,7 +578,7 @@ class FlowService(ServiceAPI):
         with _flow_errors():
             return _task(tasks.release_task(task_id, actor=actor, expected_revision=expected_revision))
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def reassign_task(
         self, *, actor: AbstractBaseUser, task_id: UUID, expected_revision: int, to_user_id: UUID, comment: str = ""
     ) -> TaskSummary:
@@ -602,7 +602,7 @@ class FlowService(ServiceAPI):
             )
         return _task(row)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def complete_task(
         self,
         *,
@@ -635,7 +635,7 @@ class FlowService(ServiceAPI):
             )
         return _task(row)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def decide_task(
         self,
         *,
@@ -667,7 +667,7 @@ class FlowService(ServiceAPI):
             )
         return _task(row)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def cancel(
         self, *, actor: AbstractBaseUser, instance_id: UUID, expected_revision: int, reason: str = ""
     ) -> InstanceInfo:
@@ -688,7 +688,7 @@ class FlowService(ServiceAPI):
             )
         return _instance(row)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def suspend(
         self, *, actor: AbstractBaseUser, instance_id: UUID, expected_revision: int, reason: str = ""
     ) -> InstanceInfo:
@@ -709,7 +709,7 @@ class FlowService(ServiceAPI):
             )
         return _instance(row)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def resume(self, *, actor: AbstractBaseUser, instance_id: UUID, expected_revision: int) -> InstanceInfo:
         """Resume a suspended instance and reschedule what its steps were waiting for.
 
@@ -725,7 +725,7 @@ class FlowService(ServiceAPI):
             )
         return _instance(row)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def retry(self, *, actor: AbstractBaseUser, instance_id: UUID, expected_revision: int) -> InstanceInfo:
         """Put a failed instance back to work from the step that failed.
 

@@ -61,7 +61,7 @@ register_external_admission("acme_customers", link_customer)
 - **Rotas da app.** Antes de cada view, o núcleo exige login, contexto externo e a app ativa e disponível (com a cobrança ligada, contratada); sem isso, 404. As páginas saem sem cache e com CSRF; a API responde `Cache-Control: no-store`. Uma rota de portal nunca é alcançável por `/o/<org>/` e o contrário também vale.
 - **Decoradores.** `skeleton.web.views.portal_page` (login, sem cache, contexto externo; as recusas dos serviços viram 404) e `skeleton.api.views.PortalAPI` (só sessão, contexto externo) para as views da app.
 - **Layout.** `skeleton/portal/base.html`, com a marca da organização e sem a navegação de membros; páginas sem JavaScript.
-- **Manifesto.** `runtime.portal_urls` e `runtime.portal_api_urls` (módulos da própria app, em manifesto v2) exigem `compatibility.skeleton` com piso `>=0.6.0` (`PORTAL_CORE_MINIMUM`), e o `package build` o garante no artefato. O gerador de apps não cria portal por padrão.
+- **Manifesto.** `runtime.portal_urls` e `runtime.portal_api_urls` (módulos da própria app, em manifesto v2) exigem `compatibility.skeleton` com piso de pelo menos `PORTAL_CORE_MINIMUM` (0.0.0: todo núcleo publicado tem o portal, #569), e o `package build` o garante no artefato. O gerador de apps não cria portal por padrão.
 - **OpenAPI.** As rotas `/api/v1/portal/` ficam fora do esquema dos membros (`/api/v1/openapi.json`); `skeleton.api.openapi.api_routes(portal=True)` lista só elas.
 
 ## Anexos (#534)

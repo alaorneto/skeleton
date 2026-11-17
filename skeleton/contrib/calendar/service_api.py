@@ -54,7 +54,7 @@ class CalendarService(ServiceAPI):
 
     app_label = APP_LABEL
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def my_calendars(self, *, actor: Any) -> tuple[CalendarInfo, ...]:
         """Calendars the actor reads in the current organization, the default personal one first.
 
@@ -71,7 +71,7 @@ class CalendarService(ServiceAPI):
         rows = authorized_queryset(Calendar, user=actor, action="read").order_by("-is_default", "name", "sysid")
         return tuple(calendar_info(calendar, writable=can_write(actor, calendar)) for calendar in rows)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def calendars(self, *, actor: Any) -> tuple[CalendarInfo, ...]:
         """Every calendar the actor reads in the current organization, without creating any (#539).
 
@@ -89,7 +89,7 @@ class CalendarService(ServiceAPI):
         except PermissionDenied:
             raise Forbidden() from None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def create_shared_calendar(
         self,
         *,
@@ -164,7 +164,7 @@ class CalendarService(ServiceAPI):
                         )
         return calendar_info(calendar, writable=True)
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def upcoming(
         self, *, actor: Any, start: datetime, end: datetime, calendar_ids: tuple[UUID, ...] | None = None
     ) -> tuple[EventOccurrence, ...]:
@@ -184,7 +184,7 @@ class CalendarService(ServiceAPI):
             events = events.filter(calendar_id__in=[_readable_calendar(actor, value).pk for value in calendar_ids])
         return tuple(occurrences_in(actor, events, start, end))
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def create_event(
         self, *, actor: Any, calendar_id: UUID, data: dict[str, Any], idempotency_key: str | None = None
     ) -> EventInfo:
@@ -221,7 +221,7 @@ class CalendarService(ServiceAPI):
             return event_info(actor, existing)
         return event_info(actor, event)
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def update_event(self, *, actor: Any, event_id: UUID, data: dict[str, Any], expected_revision: int) -> EventInfo:
         """Change an event the actor writes, with CAS.
 
@@ -243,7 +243,7 @@ class CalendarService(ServiceAPI):
         )
         return event_info(actor, changed)
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def cancel_event(self, *, actor: Any, event_id: UUID, expected_revision: int) -> EventInfo:
         """Mark an event cancelled, with CAS.
 
@@ -264,7 +264,7 @@ class CalendarService(ServiceAPI):
 
     # ----------------------------------------------------------- events and occurrences (#344)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def event(self, *, actor: Any, event_id: UUID) -> EventInfo:
         """One event as the actor may see it (a busy block for what it only sees as "Ocupado").
 
@@ -274,7 +274,7 @@ class CalendarService(ServiceAPI):
         """
         return event_info(actor, _readable_event(actor, event_id))
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def delete_event(self, *, actor: Any, event_id: UUID, expected_revision: int) -> None:
         """Soft delete an event with its reminders, attendees and overrides, with CAS.
 
@@ -287,7 +287,7 @@ class CalendarService(ServiceAPI):
         event = _writable_event(actor, event_id)
         services.delete_event(actor=actor, event_id=event.pk, expected_revision=expected_revision)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def edit_occurrence(
         self,
         *,
@@ -318,7 +318,7 @@ class CalendarService(ServiceAPI):
         )
         return event_info(actor, changed)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def cancel_occurrence(
         self, *, actor: Any, event_id: UUID, recurrence_id: datetime, expected_revision: int
     ) -> EventInfo:
@@ -338,7 +338,7 @@ class CalendarService(ServiceAPI):
 
     # ----------------------------------------------------------- attendees (#344)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def attendees(self, *, actor: Any, event_id: UUID) -> tuple[AttendeeInfo, ...]:
         """Invitations of an event (at most 500); empty for an event the actor only sees as "Ocupado".
 
@@ -359,7 +359,7 @@ class CalendarService(ServiceAPI):
         )
         return tuple(attendee_info(row) for row in rows)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def invite(
         self, *, actor: Any, event_id: UUID, user_ids: tuple[UUID, ...], optional: bool = False
     ) -> tuple[AttendeeInfo, ...]:
@@ -381,7 +381,7 @@ class CalendarService(ServiceAPI):
         created = attendees.invite(actor=actor, event_id=event.pk, user_ids=identifiers, optional=bool(optional))
         return tuple(attendee_info(row) for row in created)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def remove_attendee(self, *, actor: Any, attendee_id: UUID, expected_revision: int) -> None:
         """Remove an invitation, with CAS; the person stops reading the event.
 
@@ -399,7 +399,7 @@ class CalendarService(ServiceAPI):
         _writable_event(actor, attendee.event_id)
         attendees.remove(actor=actor, attendee_id=attendee.pk, expected_revision=expected_revision)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def respond(self, *, actor: Any, event_id: UUID, response: str, expected_revision: int) -> AttendeeInfo:
         """RSVP of the actor's own invitation, with CAS.
 
@@ -423,7 +423,7 @@ class CalendarService(ServiceAPI):
 
     # ----------------------------------------------------------- reminders (#344)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def reminders(self, *, actor: Any, event_id: UUID) -> tuple[ReminderInfo, ...]:
         """Reminders of an event; empty for an event the actor only sees as "Ocupado".
 
@@ -440,7 +440,7 @@ class CalendarService(ServiceAPI):
         rows = EventReminder.objects.filter(event=event).order_by("minutes_before", "sysid")[:MAX_LIST]
         return tuple(reminder_info(row) for row in rows)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def add_reminder(self, *, actor: Any, event_id: UUID, minutes_before: int) -> ReminderInfo:
         """Add a reminder (0 to 40320 minutes); an existing one with the same lead is returned.
 
@@ -453,7 +453,7 @@ class CalendarService(ServiceAPI):
         event = _writable_event(actor, event_id)
         return reminder_info(reminders.add_reminder(actor=actor, event_id=event.pk, minutes_before=minutes_before))
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def remove_reminder(self, *, actor: Any, reminder_id: UUID, expected_revision: int) -> None:
         """Remove a reminder, with CAS.
 
@@ -473,7 +473,7 @@ class CalendarService(ServiceAPI):
 
     # ----------------------------------------------------------- managed events (#537)
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def put_managed_event(
         self,
         *,
@@ -525,7 +525,7 @@ class CalendarService(ServiceAPI):
         )
         return event_info(actor, event)
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def remove_managed_event(self, *, actor: Any, source_app: str, source_key: str) -> None:
         """Delete the event of ``(source_app, source_key)`` with its attendees; idempotent and silent.
 
@@ -551,7 +551,7 @@ class CalendarService(ServiceAPI):
                     raise Forbidden()
             services.remove_event_rows(event)
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def managed_event(self, *, actor: Any, source_app: str, source_key: str) -> EventInfo | None:
         """The live event of ``(source_app, source_key)`` as the actor may see it, or ``None``.
 
@@ -568,7 +568,7 @@ class CalendarService(ServiceAPI):
             return None
         return event_info(actor, event)
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def free_busy(
         self,
         *,
@@ -637,7 +637,7 @@ class CalendarService(ServiceAPI):
         blocks.sort(key=lambda block: (str(block.user_id), block.starts_at, block.ends_at))
         return tuple(blocks)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def calendar_busy(
         self, *, actor: Any, calendar_ids: tuple[UUID, ...], start: datetime, end: datetime
     ) -> tuple[CalendarBusyBlock, ...]:

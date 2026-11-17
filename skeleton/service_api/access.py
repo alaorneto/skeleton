@@ -57,6 +57,7 @@ def _grant_target(
 
     if action not in GRANT_ACTIONS:
         raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(GRANT_ACTIONS)}]})
+    _refuse_derived(table_key)
     model = _model(table_key)
     if model is None:
         raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
@@ -94,8 +95,9 @@ def _grant_target(
     return model, table, {name: subject}
 
 
-def _model(table_key: str) -> Any:
-    from skeleton.common.models import SecuredRecord
+def _model(table_key: str, *, derived: bool = False) -> Any:
+    """The exposed table of ``table_key``; with ``derived``, also a derived table (#564). Else ``None``."""
+    from skeleton.access.derivation import access_route
     from skeleton.system.registry import get_spec
 
     if not isinstance(table_key, str):
@@ -104,9 +106,16 @@ def _model(table_key: str) -> Any:
         spec = get_spec(table_key)
     except KeyError:
         return None
-    if not spec.expose_api or not issubclass(spec.model, SecuredRecord):
+    route = access_route(spec.model)
+    if route is None or (route.path and not derived):
         return None
     return spec.model
+
+
+def _refuse_derived(table_key: str) -> None:
+    """Access to a derived table is managed on its anchor: grants on its rows are refused (#564)."""
+    if _model(table_key) is None and _model(table_key, derived=True) is not None:
+        raise InvalidInput({"table_key": [gettext("O acesso a esta tabela é gerido na tabela âncora.")]})
 
 
 def _action(action: str) -> str:
@@ -122,7 +131,7 @@ def _decide(actor: Any, action: str, table_key: str, record_id: Any) -> tuple[bo
     from skeleton.access.policies import authorized_queryset
 
     action = _action(action)
-    model = _model(table_key)
+    model = _model(table_key, derived=True)  # A derived table answers as its anchor decides (#564).
     if model is None:
         return False, False
     if record_id is None:
@@ -148,19 +157,20 @@ def _decide(actor: Any, action: str, table_key: str, record_id: Any) -> tuple[bo
 class AccessService(ServiceAPI):
     """Consistent with ``authorized_queryset``/``require_record_action``; no cache between calls."""
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def can(self, *, actor: AbstractBaseUser, action: str, table_key: str, record_id: UUID | None = None) -> bool:
         """Whether the actor may perform ``action`` on the table or on one record.
 
         Autorização: as mesmas camadas de ``authorized_queryset`` (vínculo, TablePermission,
-        visibilidade, concessões, ativação da app), recalculadas a cada chamada.
+        visibilidade, concessões, ativação da app), recalculadas a cada chamada; numa tabela
+        derivada, as da âncora com a ação mapeada, e ``manage_access`` é sempre ``False`` (#564).
         Erros: InvalidInput para ação ou identificador inválidos. Tabela desconhecida, registro
         inexistente ou de outra organização respondem ``False``, como um registro sem acesso.
         Efeitos: nenhum.
         """
         return _decide(actor, action, table_key, record_id)[1]
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def require(self, *, actor: AbstractBaseUser, action: str, table_key: str, record_id: UUID | None = None) -> None:
         """Raise unless the actor may perform ``action``.
 
@@ -175,7 +185,7 @@ class AccessService(ServiceAPI):
         if not allowed:
             raise Forbidden()
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def grant_record_access(
         self,
         *,
@@ -192,8 +202,9 @@ class AccessService(ServiceAPI):
         Autorização: a mesma das telas de gestão de acesso: leitura do registro e a capacidade
         ``access.manage`` (administrador ou papel que a carrega).
         Erros: NotFound para registro inexistente, ilegível ou de outra organização; Forbidden sem a
-        capacidade; InvalidInput para tabela não exposta, ação fora de read/update/delete, nenhum ou
-        mais de um destinatário, ou grupo, papel ou pessoa de outra organização ou inativos.
+        capacidade; InvalidInput para tabela não exposta ou derivada (o acesso desta é gerido na
+        âncora, #564), ação fora de read/update/delete, nenhum ou mais de um destinatário, ou grupo,
+        papel ou pessoa de outra organização ou inativos.
         Efeitos: grava a concessão (auditada) na transação do chamador; uma concessão viva igual é
         devolvida sem gravar.
         """
@@ -212,7 +223,7 @@ class AccessService(ServiceAPI):
         )
         return _grant_info(grant, model._meta.label_lower)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def revoke_record_access(
         self,
         *,
@@ -242,14 +253,16 @@ class AccessService(ServiceAPI):
         if grant is not None:
             revoke_link(grant, user=_user(actor))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def granted_record_ids(
         self, *, actor: AbstractBaseUser, table_key: str, record_ids: tuple[UUID, ...], action: str = "read"
     ) -> tuple[UUID, ...]:
         """Which of ``record_ids`` the actor holds an explicit record grant for (membership, group or role).
 
         Autorização: vínculo ativo do ator; só as concessões do próprio ator, na organização do
-        contexto; não dispensa a TablePermission nem diz se o registro existe (#343).
+        contexto; não dispensa a TablePermission nem diz se o registro existe (#343). Numa tabela
+        derivada (#564), as linhas cuja âncora tem concessão ao ator, entre as que ele pode tocar
+        com a ação.
         Erros: InvalidInput para tabela desconhecida ou não exposta, ação fora de read/update/delete,
         identificador inválido ou mais de 500 identificadores.
         Efeitos: nenhum.
@@ -258,7 +271,7 @@ class AccessService(ServiceAPI):
 
         if action not in GRANT_ACTIONS:
             raise InvalidInput({"action": [gettext("Use uma de: %(value1)s.") % {"value1": ", ".join(GRANT_ACTIONS)}]})
-        model = _model(table_key)
+        model = _model(table_key, derived=True)
         if model is None:
             raise InvalidInput({"table_key": [gettext("Tabela desconhecida ou não exposta.")]})
         if not isinstance(record_ids, tuple) or len(record_ids) > MAX_RECORD_IDS:
@@ -268,13 +281,38 @@ class AccessService(ServiceAPI):
         identifiers = [as_uuid(value, field="record_ids") for value in record_ids]
         if not identifiers:
             return ()
+        from skeleton.access.derivation import is_derived
+
+        if is_derived(model):
+            # Grants live on the anchor (#564): a row is granted when its anchor is, among the rows the
+            # actor may act on.
+            try:
+                return tuple(sorted(self._derived_grants(model, _user(actor), action, identifiers), key=str))
+            except PermissionDenied:
+                return ()
         try:
             granted = set(_grant_ids(model, _user(actor), action).filter(record_sysid__in=identifiers))
         except PermissionDenied:
             return ()
         return tuple(sorted(granted, key=str))
 
-    @service_method(read_only=True, since="0.5.0")
+    @staticmethod
+    def _derived_grants(model: Any, actor: Any, action: str, identifiers: list[UUID]) -> set[UUID]:
+        """Rows of a derived table whose anchor carries a grant to the actor, among those it may act on."""
+        from skeleton.access.derivation import DERIVED_ACTION_MAP, access_route
+        from skeleton.access.policies import _grant_ids, authorized_queryset
+
+        route = access_route(model)
+        if route is None:
+            return set()
+        mapped = DERIVED_ACTION_MAP[action]
+        anchors = _grant_ids(route.anchor, actor, mapped)
+        rows = authorized_queryset(model, user=actor, action=action).filter(
+            pk__in=identifiers, **{f"{route.path}__in": anchors}
+        )
+        return set(rows.values_list("sysid", flat=True))
+
+    @service_method(read_only=True, since="0.1.0")
     def capabilities(self, *, actor: AbstractBaseUser) -> tuple[str, ...]:
         """Return the actor's organizational capabilities, sorted.
 
@@ -286,7 +324,7 @@ class AccessService(ServiceAPI):
 
         return tuple(sorted(capabilities_for(_user(actor))))
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def my_groups(self, *, actor: AbstractBaseUser) -> tuple[GroupSummary, ...]:
         """Return the live groups the actor belongs to in the current organization.
 
@@ -300,7 +338,7 @@ class AccessService(ServiceAPI):
         groups = AccessGroup.objects.filter(pk__in=group_ids(_user(actor))).order_by("code", "sysid")
         return tuple(GroupSummary(group.pk, group.code, group.name) for group in groups)
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def grant_member_table_access(
         self, *, actor: AbstractBaseUser, table_key: str, actions: tuple[str, ...]
     ) -> tuple[str, ...]:

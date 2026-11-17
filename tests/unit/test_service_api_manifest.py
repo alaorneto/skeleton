@@ -19,6 +19,7 @@ from skeleton.system.packages import (
     manifest_template,
     validate_manifest,
 )
+from tests.unit.floor_helpers import raised_floors  # noqa: F401 - fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 NOTES = ROOT / "examples" / "notes"
@@ -73,12 +74,13 @@ def test_service_api_is_resolved_only_inside_the_app_package(service):
         validate_manifest(manifest)
 
 
+@pytest.mark.usefixtures("raised_floors")
 def test_declaring_service_api_requires_the_core_floor():
     manifest = with_service(template())
     assert ">=0.3.0" in manifest["compatibility"]["skeleton"].split(",")
     with pytest.raises(PackageError, match="core minimum"):
         validate_manifest(manifest)
-    manifest["compatibility"]["skeleton"] = f">={SERVICE_API_CORE_MINIMUM},<1.0.0"
+    manifest["compatibility"]["skeleton"] = ">=0.4.0,<1.0.0"  # The raised service API floor.
     assert validate_manifest(manifest)["runtime"]["service_api"]["classes"] == ["DemoService"]
 
 

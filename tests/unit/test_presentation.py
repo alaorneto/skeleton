@@ -13,8 +13,6 @@ from django.urls import include, path, re_path
 from skeleton.system.app_registry import AppManifest, get_app, register_app, unregister_app
 from skeleton.system.packages import PackageError, manifest_template, validate_manifest
 from skeleton.system.presentation import (
-    FIELD_DIMENSIONS_CORE_MINIMUM,
-    MANIFEST_V2_CORE_MINIMUM,
     AdministrationSpec,
     AdminScreenSpec,
     AdminSectionSpec,
@@ -31,6 +29,7 @@ from skeleton.system.presentation import (
     validate_presentation,
     validate_runtime_presentation,
 )
+from tests.unit.floor_helpers import raised_floors  # noqa: F401 - fixture
 
 
 def manifest_v2():
@@ -190,10 +189,9 @@ def test_rows_pure_validation_accepts_textarea_or_deferred_widget(widget):
 
 
 @pytest.mark.parametrize("dimension", ["col_span", "rows"])
+@pytest.mark.usefixtures("raised_floors")
 def test_required_core_depends_on_json_key_presence_including_null(dimension):
     runtime = manifest_v2()["runtime"]
-    assert MANIFEST_V2_CORE_MINIMUM == "0.2.0"
-    assert FIELD_DIMENSIONS_CORE_MINIMUM == "0.3.0"
     assert required_presentation_core(runtime) == "0.2.0"
     field = runtime["model_ui"][0]["form"]["sections"][0]["fields"][0]
     field[dimension] = None
@@ -380,6 +378,7 @@ def test_code_owned_admin_screen_cannot_accept_table_metadata(removed):
         "v1-new-runtime",
     ],
 )
+@pytest.mark.usefixtures("raised_floors")
 def test_v2_rejects_unsafe_specs_before_import(attack):
     manifest = manifest_v2()
     runtime = manifest["runtime"]

@@ -464,7 +464,7 @@ class LedgerService(ServiceAPI):
 
     app_label = APP_LABEL
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def books(self, *, actor: Any) -> tuple[BookInfo, ...]:
         """Books the actor reads in the current organization, the default one first.
 
@@ -483,7 +483,7 @@ class LedgerService(ServiceAPI):
             raise Forbidden() from None
         return tuple(book_info(book, writable=book.pk in writable) for book in rows)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def create_default_book(self, *, actor: Any, basis: str = "cash", currency: str = "BRL") -> BookInfo:
         """The organization's default book, created on the first call (one per organization).
 
@@ -510,7 +510,7 @@ class LedgerService(ServiceAPI):
 
     # ----------------------------------------------------------- chart of accounts (#543)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def accounts(
         self, *, actor: Any, book_id: UUID | None = None, cursor: str | None = None, page_size: int = DEFAULT_PAGE_SIZE
     ) -> Page[AccountInfo]:
@@ -529,7 +529,7 @@ class LedgerService(ServiceAPI):
             cursor=cursor,
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def apply_chart(self, *, actor: Any, book_id: UUID | None = None, template: str = "services") -> int:
         """Create the accounts and the base key bindings of a chart template in a book; idempotent.
 
@@ -545,7 +545,7 @@ class LedgerService(ServiceAPI):
             raise InvalidInput({"template": ["Modelo de plano de contas desconhecido."]})
         return apply_chart(_managed_book(actor, book_id), template)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def create_account(
         self,
         *,
@@ -579,7 +579,7 @@ class LedgerService(ServiceAPI):
         account.save()
         return account_info(account)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def update_account(
         self,
         *,
@@ -610,7 +610,7 @@ class LedgerService(ServiceAPI):
         account.save(update_fields=changed)
         return account_info(account)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def delete_account(self, *, actor: Any, account_id: UUID, expected_revision: int) -> None:
         """Soft delete an account without children, bindings or lines (live references), with CAS.
 
@@ -625,7 +625,7 @@ class LedgerService(ServiceAPI):
             raise Conflict("stale_revision")
         account.delete()
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def account_keys(self, *, actor: Any, book_id: UUID | None = None) -> tuple[AccountKeyInfo, ...]:
         """Registered account keys of active apps with the account the book binds each to.
 
@@ -643,7 +643,7 @@ class LedgerService(ServiceAPI):
             if _app_active(key.app_label)
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def bind_key(self, *, actor: Any, key: str, account_id: UUID, book_id: UUID | None = None) -> AccountKeyInfo:
         """Bind an account key to an analytic, active account of the book of the key's kind.
 
@@ -674,7 +674,7 @@ class LedgerService(ServiceAPI):
             binding.save(update_fields={"account"})
         return AccountKeyInfo(declared.code, str(declared.label), declared.kind, account.pk)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def cost_centers(self, *, actor: Any, book_id: UUID | None = None) -> tuple[CostCenterInfo, ...]:
         """Cost centers of a book (at most 500).
 
@@ -685,7 +685,7 @@ class LedgerService(ServiceAPI):
         book = _readable_book(actor, book_id)
         return tuple(cost_center_info(row) for row in CostCenter.objects.filter(book=book)[:500])
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def create_cost_center(self, *, actor: Any, code: str, name: str, book_id: UUID | None = None) -> CostCenterInfo:
         """Create a cost center in a book.
 
@@ -700,7 +700,7 @@ class LedgerService(ServiceAPI):
 
     # ----------------------------------------------------------- entries (#544)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def post_manual(
         self,
         *,
@@ -733,7 +733,7 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def reverse(
         self,
         *,
@@ -770,7 +770,7 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def post(
         self,
         *,
@@ -827,7 +827,7 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def entries_for_source(self, *, actor: Any, table_key: str, record_id: UUID) -> tuple[EntryInfo, ...]:
         """The sealed entries of one source record (at most 200), for the app to show them next to it.
 
@@ -843,7 +843,7 @@ class LedgerService(ServiceAPI):
 
     # ----------------------------------------------------------- titles and settlements (#546)
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def create_title(
         self,
         *,
@@ -895,7 +895,7 @@ class LedgerService(ServiceAPI):
         values["category_account"] = _category(book, category_key)
         return _title_call(lambda: _create_titles(actor, book, [{**values, "idempotency_key": key}])[0])
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def create_installments(
         self,
         *,
@@ -967,7 +967,7 @@ class LedgerService(ServiceAPI):
             )
         return tuple(_title_call(lambda: _create_titles(actor, book, rows)))
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def settle_title(
         self,
         *,
@@ -1028,7 +1028,7 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def reverse_settlement(
         self, *, actor: Any, settlement_id: UUID, date: date, expected_revision: int, reason: str = ""
     ) -> TitleInfo:
@@ -1061,7 +1061,7 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def cancel_title(
         self, *, actor: Any, title_id: UUID, expected_revision: int, reason: str = "", date: date | None = None
     ) -> TitleInfo:
@@ -1088,7 +1088,7 @@ class LedgerService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def titles(
         self,
         *,
@@ -1122,7 +1122,7 @@ class LedgerService(ServiceAPI):
             rows = rows.filter(due_date__lte=due_until)
         return paginate(rows.order_by("due_date", "sysid"), convert=title_info, page_size=page_size, cursor=cursor)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def titles_for_source(self, *, actor: Any, table_key: str, record_id: UUID) -> tuple[TitleInfo, ...]:
         """Titles of one source record (at most 200): whoever reads the source knows its counterparty.
 
@@ -1136,7 +1136,7 @@ class LedgerService(ServiceAPI):
         )[:200]
         return tuple(title_info(row) for row in rows)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def title(self, *, actor: Any, title_id: UUID) -> TitleInfo:
         """One title, for its page.
 
@@ -1146,7 +1146,7 @@ class LedgerService(ServiceAPI):
         """
         return title_info(_title_to_read(actor, title_id))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def settlements(self, *, actor: Any, title_id: UUID) -> tuple[SettlementInfo, ...]:
         """Settlements of a title, oldest first.
 
@@ -1157,7 +1157,7 @@ class LedgerService(ServiceAPI):
         title = _title_to_read(actor, title_id)
         return tuple(settlement_info(row) for row in Settlement.objects.filter(title=title).order_by("date", "sysid"))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def entry(self, *, actor: Any, entry_id: UUID) -> EntryInfo:
         """One sealed entry with its lines.
 
@@ -1167,7 +1167,7 @@ class LedgerService(ServiceAPI):
         """
         return entry_info(_entry(actor, entry_id))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def entries(
         self,
         *,
@@ -1191,7 +1191,7 @@ class LedgerService(ServiceAPI):
         )
         return paginate(rows, convert=entry_info, page_size=page_size, cursor=cursor)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def create_recurrence(
         self,
         *,
@@ -1273,7 +1273,7 @@ class LedgerService(ServiceAPI):
         rule.save()
         return recurrence_info(rule)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def update_recurrence(
         self, *, actor: Any, recurrence_id: UUID, data: dict[str, Any], expected_revision: int
     ) -> RecurrenceInfo:
@@ -1337,7 +1337,7 @@ class LedgerService(ServiceAPI):
         rule.save()
         return recurrence_info(rule)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def pause(self, *, actor: Any, recurrence_id: UUID, expected_revision: int) -> RecurrenceInfo:
         """Stop generating the titles of a rule, with CAS.
 
@@ -1351,7 +1351,7 @@ class LedgerService(ServiceAPI):
             rule.save(update_fields={"is_active"})
         return recurrence_info(rule)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def resume(self, *, actor: Any, recurrence_id: UUID, expected_revision: int) -> RecurrenceInfo:
         """Generate the titles of a paused rule again, with CAS.
 
@@ -1372,7 +1372,7 @@ class LedgerService(ServiceAPI):
             rule.save(update_fields={"is_active", "next_due"})
         return recurrence_info(rule)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def recurrences(self, *, actor: Any, book_id: UUID | None = None) -> tuple[RecurrenceInfo, ...]:
         """The recurring titles of a book.
 
@@ -1385,7 +1385,7 @@ class LedgerService(ServiceAPI):
 
     # ----------------------------------------------------------- balances and reports (#548)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def balance(
         self,
         *,
@@ -1437,7 +1437,7 @@ class LedgerService(ServiceAPI):
             node.closing,
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def trial_balance(self, *, actor: Any, start: date, end: date, book_id: UUID | None = None) -> TrialBalanceInfo:
         """Trial balance of ``[start, end]`` (at most five years): every account, groups summing descendants.
 
@@ -1457,7 +1457,7 @@ class LedgerService(ServiceAPI):
             start, end, rows, sum(row.debit for row in analytic), sum(row.credit for row in analytic)
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def income_statement(
         self, *, actor: Any, start: date, end: date, book_id: UUID | None = None
     ) -> IncomeStatementInfo:
@@ -1487,7 +1487,7 @@ class LedgerService(ServiceAPI):
                     expense += movement
         return IncomeStatementInfo(start, end, revenue, expense, revenue - expense, tuple(rows))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def account_statement(
         self,
         *,
@@ -1537,7 +1537,7 @@ class LedgerService(ServiceAPI):
         page = paginate(rows, convert=convert, page_size=page_size, cursor=cursor)
         return StatementInfo(account.pk, start, end, opening, page)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def cash_flow(self, *, actor: Any, start: date, end: date, book_id: UUID | None = None) -> CashFlowInfo:
         """Realized cash flow (accounts bound to ``ledger.cash`` and ``ledger.bank``) and the forecast.
 
@@ -1566,7 +1566,7 @@ class LedgerService(ServiceAPI):
             months,
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def aging(
         self, *, actor: Any, as_of: date, direction: str = "receivable", book_id: UUID | None = None
     ) -> AgingInfo:
@@ -1589,7 +1589,7 @@ class LedgerService(ServiceAPI):
         buckets = tuple(AgingBucket(name, *found[name]) for name in reports.AGING_BUCKETS)
         return AgingInfo(as_of, direction, sum(bucket.amount for bucket in buckets), buckets)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def set_lock(
         self, *, actor: Any, locked_until: date | None, expected_revision: int, book_id: UUID | None = None
     ) -> BookInfo:
@@ -1767,7 +1767,11 @@ def _rule(code: Any) -> PostingRule:
 
 
 def _authorize_source(actor: Any, table_key: str, record_id: Any, action: str) -> None:
-    """The actor may ``action`` the source record; the system context needs the record in the tenant."""
+    """The actor may ``action`` the source record; the system context needs the record in the tenant.
+
+    ``AccessService.require`` decides as ``require_record_action`` does, so a source of a derived
+    table (``TableSpec.access_parent``) is authorized through its anchor (#565).
+    """
     from django.apps import apps
 
     from skeleton.service_api import NotFound, Unavailable

@@ -53,7 +53,7 @@ applications/tasks/
 
 Uma app grande pode transformar `service_api.py` em pacote (`service_api/__init__.py` reexportando as classes). O nome do módulo declarado continua sendo o ponto de importação.
 
-Declaração no manifesto (`manifest_version` 2, core `>=0.4.0`):
+Declaração no manifesto (`manifest_version` 2):
 
 ```json
 "runtime": {
@@ -66,7 +66,7 @@ Declaração no manifesto (`manifest_version` 2, core `>=0.4.0`):
 
 - `module` fica dentro do pacote da app (`applications.<package_name>.…`); qualquer outro caminho é recusado pelo validador do manifesto.
 - `classes` são nomes simples e únicos (1 a 32), definidos no módulo declarado (ou num submódulo dele).
-- Declarar o campo exige `compatibility.skeleton` com piso `>=0.4.0`: um core mais antigo não conhece o campo. `package build` acrescenta o piso ao artefato publicado.
+- Declarar o campo exige `compatibility.skeleton` com piso de pelo menos `SERVICE_API_CORE_MINIMUM`. Todo núcleo publicado (0.1.0 em diante) entende o campo: o piso é 0.0.0 e o mecanismo fica para os campos de releases futuras (#569). `package build` acrescenta o piso ao artefato publicado.
 - Manifestos históricos sem o campo continuam carregando, com o aviso `skeleton.W018`, até a versão do core que tornar o campo obrigatório. `package build` e `package doctor` já exigem o campo, o módulo e `docs/service-api.md`.
 - `skeleton.service_api.registry.service_registry()` devolve `app_id → classes` resolvidas, para introspecção e documentação; a página `/platform/apps/<app_label>/documentation/` mostra o `service-api.md` da app.
 
@@ -121,6 +121,7 @@ Em contexto externo, um método sem `allow_external=True` responde `Forbidden(co
 - DTOs são `@dataclass(frozen=True, slots=True)` declarados em `service_api.py` (ou num módulo `service_api/dto.py`) e documentados como parte do contrato.
 - Campos permitidos: UUID, `str`, `int`, `bool`, `Decimal`, `date`, `datetime` com fuso, enums de texto, tuplas e outros DTOs. Datas e horas saem em UTC com `tzinfo`. Converter para o fuso da pessoa é trabalho da superfície.
 - Só entram campos que estão em `read_fields` do `TableSpec` e fora de `sensitive_fields`, salvo campo sensível documentado na seção **Autorização** do método.
+- Um serviço de app pode devolver DTO de uma [tabela derivada](access-control.md#tabelas-derivadas) (#566): as mesmas regras de campos valem, e o serviço autoriza o filho com `authorized_queryset`/`require_record_action` (criar, com `require_parent_action`), que decidem pela âncora. Teste com [`assert_derived_access_contract`](testing.md#kit-de-tabelas-derivadas).
 - Listas usam `Page[T]` (`items`, `next_cursor`, `page_size`, máximo de 100). Nunca devolva lista ilimitada. Um cursor ou uma página que endereça um deslocamento além de `MAX_OFFSET` (1 000 000 de linhas) é `InvalidInput`: leituras mais fundas usam filtros (#271). Exceção: coleção limitada por natureza e documentada no método pode sair como tupla (as organizações do próprio ator, os grupos do ator, as apps instaladas).
 - `paginate(rows, convert=..., page_size=..., cursor=..., key=(...))` pagina por chave (keyset, #305) quando recebe `key`: os campos da ordenação, `-` para decrescente, o último único e nenhum nulo, como `("code", "sysid")` ou `("-created_at", "-record_revision", "sysid")`. Cada página começa depois da última linha vista: uma linha que entra ou sai entre chamadas não faz o percurso pular nem repetir outra, e a página custa o mesmo em qualquer profundidade. Use só sobre colunas imutáveis; uma coluna que muda (como `updated_at` da caixa de entrada) fica no modo por deslocamento. O cursor continua opaco, não concede acesso (só posiciona dentro do queryset já autorizado) e cursores antigos por deslocamento continuam aceitos. `OrganizationService.members`/`groups`, `AuditService.history` e `FileService.list` usam a chave.
 - Retornar instância de modelo, `QuerySet` ou `dict` mutável é violação: `@service_method` recusa o valor na execução, e `assert_service_contract` reprova a anotação de retorno. A checagem na execução é uma lista de permitidos, a mesma do contrato: `None`, `bool`, `int`, `str`, `Decimal`, `date`/`datetime`, `UUID`, enum de texto, tupla e dataclass congelada (inclusive `Page`), em profundidade. Gerador, iterador, `float`, `bytes`, `frozenset`, objeto comum, dataclass não congelada e enum que não seja de texto são `TypeError` (#272).
@@ -183,7 +184,7 @@ def open_followup_task(invoice, *, actor):
 
 O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não há dependência opcional: se a integração só funciona com a outra app presente, ela é declarada, e a ausência por organização é tratada com `Unavailable`.
 
-Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
+Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.1.0,<0.2.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
 
 ## Superfícies públicas do núcleo para apps
 
@@ -200,7 +201,8 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.system.app_registry` | `AppManifest`, `register_app` em `ready()` |
 | `skeleton.system.registry` | `TableSpec`, `register` em `ready()`, e as políticas `AttachmentPolicy`, `CommentPolicy` e `SealPolicy` |
 | `skeleton.system.record_operations` | `RecordOperations`, `register_record_operations` |
-| `skeleton.access.policies` | `authorized_queryset`, `require_record_action` e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
+| `skeleton.access.policies` | `authorized_queryset`, `require_record_action`, `require_parent_action` (criar filho de tabela derivada) e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
+| `skeleton.access.derivation` | `is_authorizable` e `is_derived`: se uma tabela é autorizada direto ou pelo `access_parent` ([tabelas derivadas](access-control.md#tabelas-derivadas)) |
 | `skeleton.tenancy.context` | `current_context` (leitura). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
 | `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
@@ -263,7 +265,7 @@ me = IdentityService().me(actor=request.user)  # UserProfileInfo
 person = IdentityService().get_person(actor=request.user, user_id=assignee_id)  # PersonSummary
 names = IdentityService().people(
     actor=request.user, user_ids=(author_id, assignee_id)
-)  # tuple[PersonSummary, ...]: só os membros ativos da organização atual, até 200 ids, uma consulta (desde 0.6.0)
+)  # tuple[PersonSummary, ...]: só os membros ativos da organização atual, até 200 ids, uma consulta (desde 0.1.0)
 IdentityService().update_my_preferences(actor=request.user, expected_revision=me.revision, timezone="America/Sao_Paulo")
 ```
 
@@ -298,14 +300,14 @@ O diretório traz só vínculos ativos de identidades ativas da organização at
 
 | Método | Comportamento | Erros |
 |---|---|---|
-| `can(*, actor, action, table_key, record_id=None) -> bool` | Exatamente `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro, quando informado); tabela desconhecida ou não exposta, registro inexistente ou de outra organização: `False` | `InvalidInput` (ação ou UUID inválidos) |
+| `can(*, actor, action, table_key, record_id=None) -> bool` | Exatamente `authorized_queryset(model, user=actor, action=action)` (filtrado pelo registro, quando informado); uma [tabela derivada](access-control.md#tabelas-derivadas) responde pela âncora com a ação mapeada, e `manage_access` nela é sempre `False` (#564); tabela desconhecida ou não autorizável, registro inexistente ou de outra organização: `False` | `InvalidInput` (ação ou UUID inválidos) |
 | `require(*, actor, action, table_key, record_id=None) -> None` | Igual a `can`, mas levanta | `NotFound` se não for legível (inclusive de outra organização); `Forbidden` se for legível e a ação for negada |
 | `capabilities(*, actor) -> tuple[str, ...]` | Capacidades dos papéis internos do ator, ordenadas (tupla: o contrato não admite `frozenset`) | — |
-| `granted_record_ids(*, actor, table_key, record_ids, action="read") -> tuple[UUID, ...]` | Quais de `record_ids` têm concessão de registro viva ao vínculo do ator, a um grupo dele ou a um papel efetivo, na organização do contexto; não dispensa a `TablePermission` nem diz se o registro existe (inexistente e de outra organização simplesmente não aparecem) (#343) | `InvalidInput` (tabela não exposta, ação fora de `read`/`update`/`delete`, identificador inválido, mais de 500) |
+| `granted_record_ids(*, actor, table_key, record_ids, action="read") -> tuple[UUID, ...]` | Quais de `record_ids` têm concessão de registro viva ao vínculo do ator, a um grupo dele ou a um papel efetivo, na organização do contexto; não dispensa a `TablePermission` nem diz se o registro existe (inexistente e de outra organização simplesmente não aparecem) (#343). Numa tabela derivada, as linhas cuja âncora tem a concessão, entre as que o ator pode tocar com a ação (#564) | `InvalidInput` (tabela não exposta, ação fora de `read`/`update`/`delete`, identificador inválido, mais de 500) |
 | `my_groups(*, actor) -> tuple[GroupSummary, ...]` | Grupos vivos do ator na organização | `Forbidden` sem vínculo |
 | `grant_member_table_access(*, actor, table_key, actions) -> tuple[str, ...]` | Dá ao papel interno `member` as ações numa tabela exposta, pelo serviço de concessão da gestão de acesso (lock e auditoria); devolve só as ações acrescentadas, então repetir não muda nada. Usado pela ação "acesso básico" da agenda (#68) | `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta, ação inválida, catálogo ou papel indisponível) |
 
-| `grant_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> RecordGrantInfo` | Concede `read`, `update` ou `delete` num registro a exatamente um grupo, papel ou pessoa (pelo `user_id` do vínculo ativo), pelo mesmo serviço das telas de gestão de acesso (lock, auditoria); uma concessão viva igual é devolvida sem gravar (#539) | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta, ação inválida, nenhum ou mais de um destinatário, destinatário de outra organização ou inativo) |
+| `grant_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> RecordGrantInfo` | Concede `read`, `update` ou `delete` num registro a exatamente um grupo, papel ou pessoa (pelo `user_id` do vínculo ativo), pelo mesmo serviço das telas de gestão de acesso (lock, auditoria); uma concessão viva igual é devolvida sem gravar (#539) | `NotFound` (registro inexistente, ilegível ou de outra organização); `Forbidden` sem `access.manage`; `InvalidInput` (tabela não exposta; tabela derivada, cujo acesso é gerido na âncora, #564; ação inválida, nenhum ou mais de um destinatário, destinatário de outra organização ou inativo) |
 | `revoke_record_access(*, actor, table_key, record_id, action, group_id=None, role_id=None, membership_user_id=None) -> None` | Revoga a concessão desse destinatário e dessa ação; sem concessão, nada muda | Os de `grant_record_access` |
 
 `RecordGrantInfo` tem `sysid`, `table_key`, `record_id`, `action`, `group_id`, `role_id` e `membership_user_id`. Não há cache entre chamadas: uma revogação vale na chamada seguinte. Alterar ACL continua nos serviços de gestão de acesso.
@@ -322,7 +324,7 @@ A app chamadora é identificada pelo módulo do primeiro frame fora da API de se
 
 ### AuditService
 
-`history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro, do mais recente ao mais antigo, com as mesmas regras de `authorized_audit_queryset`: administrador da organização, ou `TablePermission audit` mais leitura do registro atual (se excluído, restauração autorizada). Filtra antes de paginar. Sem essas permissões, para tabela desconhecida e para registro de outra organização, responde `NotFound`; eventos de outra organização nunca aparecem.
+`history(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[AuditEntry]` devolve o histórico de um registro, do mais recente ao mais antigo, com as mesmas regras de `authorized_audit_queryset`: administrador da organização, ou `TablePermission audit` mais leitura do registro atual (se excluído, restauração autorizada); numa [tabela derivada](access-control.md#tabelas-derivadas), `audit` na tabela âncora e leitura do registro âncora (#564). Filtra antes de paginar. Sem essas permissões, para tabela desconhecida e para registro de outra organização, responde `NotFound`; eventos de outra organização nunca aparecem.
 
 `AuditEntry` tem `sysid`, `occurred_at` (UTC), `operation`, `record_revision`, `actor_id`, `request_id`, `source` e `changes`, uma tupla de `FieldChange(name, old, new, redacted)` restrita aos `read_fields` da tabela. Valores sensíveis chegam como `[REDACTED]`; valores não escalares chegam como JSON em texto. A auditoria global da plataforma não passa por este serviço.
 
@@ -345,7 +347,7 @@ NotificationService().notify(
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo; cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
+| `notify(*, actor, type_code, recipients, payload=(), target_table_key=None, target_id=None, dedupe_key=None) -> NotificationReceipt` | a app chamadora é a dona do tipo (`owner_app`); o ator lê o alvo (de tabela derivada: pela âncora, #562); cada destinatário é reautorizado no fan-out; `actor=None` só em `system_context` (consumidores de eventos) | `Forbidden` (tipo de outra app), `NotFound` (alvo ilegível ou de outra organização), `InvalidInput` |
 | `unread_count(*, actor) -> int` | linhas do ator em organizações com vínculo ativo | — |
 | `inbox(*, actor, cursor=None, include_archived=False, page_size=25) -> Page[NotificationItem]` | linhas do ator: o tenant atual, ou todas as organizações ativas sem tenant | `InvalidInput` |
 | `mark_read(*, actor, ids, read=True) -> int`, `archive(*, actor, ids) -> int` | linhas do ator no tenant atual; idempotentes | `NotFound` (linha de outra pessoa), `InvalidInput` |
@@ -357,7 +359,7 @@ NotificationService().notify(
 | Método | Autorização | Erros |
 |---|---|---|
 | `JobService.enqueue(*, actor, job_type, payload=(), idempotency_key=None, run_after=None) -> JobReceipt` | o tipo pertence à app chamadora (`JobType.owner_app`); a organização é a do contexto; `actor=None` em `system_context` | `Forbidden` (tipo alheio), `InvalidInput` (tipo desconhecido, payload inválido, `run_after` sem fuso) |
-| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
+| `EventService.publish(*, actor, event_type, record_id, data=()) -> EventReceipt` | o tipo pertence à app chamadora (`EventType.owner_app`); o ator lê o registro (de tabela derivada: pela âncora, #562) | `Forbidden`, `NotFound` (registro ilegível ou de outra organização), `InvalidInput` |
 
 Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden` para qualquer chamador, app ou não (#272). Isso vale também para `NotificationService.notify` e `SequenceService.next_number`.
 
@@ -381,11 +383,11 @@ Tipo registrado sem `owner_app` não pode ser usado pelo serviço: é `Forbidden
 | `external_download_url(*, actor, attachment_id) -> str` | só no portal (`allow_external=True`, #534): o `external_reader` do `AttachmentPolicy` decide pelo registro alvo vivo | `NotFound`; `Forbidden` fora do portal |
 | `remove(*, actor, attachment_id, expected_revision) -> None` | update no alvo | `NotFound`, `Forbidden`, `Conflict("stale_revision")` |
 
-Apps não acessam o armazenamento diretamente.
+Apps não acessam o armazenamento diretamente. A tabela pode ser exposta ou [derivada](access-control.md#tabelas-derivadas) (#563): num filho, ler e baixar exigem leitura e anexar e remover exigem `update`, decididos pela âncora; a URL de `download_url` serve também para o filho e reautoriza a cada pedido, mas a página genérica do registro e as rotas genéricas de envio continuam só para tabelas expostas.
 
 ### CommentService
 
-[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`. `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres, com caracteres de controle ou com menção a quem não é membro ou não lê o registro ([menções](comments.md#menções)). Métodos com `since="0.6.0"`.
+[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`, inclusive de [tabela derivada](access-control.md#tabelas-derivadas) (#563). `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres, com caracteres de controle ou com menção a quem não é membro ou não lê o registro ([menções](comments.md#menções)). Métodos com `since="0.1.0"`.
 
 ### SequenceService
 
@@ -399,7 +401,7 @@ Apps não acessam o armazenamento diretamente.
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `seal(*, actor, table_key, record_id, expected_revision, extra_digest="") -> SealInfo` | `update` no registro | `NotFound` (inexistente, de outra organização ou ilegível); `Forbidden` (lê e não altera); `Conflict("record_sealed")`; `Conflict("stale_revision")`; `InvalidInput` (tabela sem `TableSpec.seal`, revisão ou `extra_digest` inválidos) |
+| `seal(*, actor, table_key, record_id, expected_revision, extra_digest="") -> SealInfo` | `update` no registro (tabela exposta ou derivada, pela âncora, #564) | `NotFound` (inexistente, de outra organização ou ilegível); `Forbidden` (lê e não altera); `Conflict("record_sealed")`; `Conflict("stale_revision")`; `InvalidInput` (tabela sem `TableSpec.seal`, revisão ou `extra_digest` inválidos) |
 | `status(*, actor, table_key, record_id) -> SealInfo` | leitura do registro | `NotFound`; `InvalidInput` |
 | `verify(*, actor, table_key, record_id, extra_digest="") -> SealVerification` | leitura do registro | `NotFound`; `InvalidInput` |
 
@@ -407,7 +409,7 @@ Apps não acessam o armazenamento diretamente.
 
 ### BillingService
 
-A [cobrança](billing.md) da organização. As apps leem a situação dela e conferem os próprios limites; as páginas e a API de cobrança do núcleo usam o resto. O serviço continua usável com o acesso limitado (`access_exempt = True`): é por ele que a conta é regularizada. Métodos com `since="0.6.0"`.
+A [cobrança](billing.md) da organização. As apps leem a situação dela e conferem os próprios limites; as páginas e a API de cobrança do núcleo usam o resto. O serviço continua usável com o acesso limitado (`access_exempt = True`): é por ele que a conta é regularizada. Métodos com `since="0.1.0"`.
 
 | Método | Autorização | Erros |
 |---|---|---|
@@ -434,7 +436,7 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 
 ### FlowService
 
-Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Métodos com `since="0.6.0"`.
+Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Métodos com `since="0.1.0"`.
 
 ```python
 from skeleton.service_api.flows import FlowService

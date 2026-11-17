@@ -196,7 +196,7 @@ class BillingService(ServiceAPI):
 
     access_exempt = True
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def access_state(self, *, actor: AbstractBaseUser | None) -> AccessState:
         """How far the organization's access goes, from its billing standing.
 
@@ -213,7 +213,7 @@ class BillingService(ServiceAPI):
         since = as_utc(account.access_state_since) if account is not None and level.value != "active" else None
         return AccessState(level=level.value, since=since)
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def entitlement(self, *, actor: AbstractBaseUser | None, app_label: str) -> bool:
         """Whether the organization may use ``app_label`` (an app without a price always may).
 
@@ -226,7 +226,7 @@ class BillingService(ServiceAPI):
 
         return entitled_apps(current_context().organization_id, [app_label])[app_label]  # type: ignore[arg-type]
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def storage_allowance(self, *, actor: AbstractBaseUser | None) -> StorageAllowance:
         """The storage quota in force and the bytes in use.
 
@@ -249,7 +249,7 @@ class BillingService(ServiceAPI):
             overage=storage_terms(items)[1],
         )
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def check_quota(self, *, actor: AbstractBaseUser | None, metric: str, increment: int = 1) -> None:
         """Refuse ``increment`` more of ``metric`` above the plan limit.
 
@@ -270,7 +270,7 @@ class BillingService(ServiceAPI):
         except ValueError:
             raise InvalidInput({"metric": ("Métrica não registrada.",)}) from None
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def subscription(self, *, actor: AbstractBaseUser) -> SubscriptionSummary | None:
         """The current subscription and its live items.
 
@@ -284,7 +284,7 @@ class BillingService(ServiceAPI):
         subscription = engine.current_subscription()
         return _summary(subscription) if subscription is not None else None
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def list_invoices(
         self, *, actor: AbstractBaseUser, page_size: int = 20, cursor: str | None = None
     ) -> Page[InvoiceSummary]:
@@ -300,7 +300,7 @@ class BillingService(ServiceAPI):
         queryset = Invoice.objects.order_by("-number")
         return paginate(queryset, convert=_invoice, page_size=page_size, cursor=cursor, key=("-number",))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def offers(self, *, actor: AbstractBaseUser) -> tuple[PriceOffer, ...]:
         """Public active prices the organization can contract (its currency and cycle).
 
@@ -337,7 +337,7 @@ class BillingService(ServiceAPI):
             for price in prices.order_by("product__kind", "unit_amount", "sysid")
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def contract(self, *, actor: AbstractBaseUser, price_id: UUID, terms_version: str = "") -> SubscriptionSummary:
         """Contract ``price_id``: a plan starts or switches the subscription, an app or pack is added.
 
@@ -378,7 +378,7 @@ class BillingService(ServiceAPI):
             account.terms_accepted_at = engine.clock()
             account.save(update_fields={"terms_version_accepted", "terms_accepted_at"})
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def remove_item(self, *, actor: AbstractBaseUser, item_id: UUID) -> SubscriptionSummary | None:
         """End an app or storage pack at the period end (at once while unpaid).
 
@@ -400,7 +400,7 @@ class BillingService(ServiceAPI):
         subscription = engine.current_subscription()
         return _summary(subscription) if subscription is not None else None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def cancel(self, *, actor: AbstractBaseUser, at_period_end: bool = True) -> SubscriptionSummary | None:
         """Cancel at the period end (at once during a trial); ``resume`` undoes it before the end.
 
@@ -418,7 +418,7 @@ class BillingService(ServiceAPI):
         subscription = engine.current_subscription()
         return _summary(subscription) if subscription is not None else None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def resume(self, *, actor: AbstractBaseUser) -> SubscriptionSummary | None:
         """Undo a cancellation scheduled for the period end.
 
@@ -432,7 +432,7 @@ class BillingService(ServiceAPI):
         subscription = engine.resume()
         return _summary(subscription) if subscription is not None else None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def redeem_voucher(self, *, actor: AbstractBaseUser, code: str) -> SubscriptionSummary | None:
         """Redeem a voucher code for the subscription.
 
@@ -451,7 +451,7 @@ class BillingService(ServiceAPI):
         subscription = engine.current_subscription()
         return _summary(subscription) if subscription is not None else None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def update_account(
         self,
         *,
@@ -482,7 +482,7 @@ class BillingService(ServiceAPI):
         except ValidationError as error:
             raise _invalid(error) from None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def checkout(self, *, actor: AbstractBaseUser, invoice_id: UUID, return_url: str) -> CheckoutLink:
         """A hosted payment page for one open invoice of the organization.
 
@@ -511,7 +511,7 @@ class BillingService(ServiceAPI):
 
     # ------------------------------------------------------------------ usage meters (#523)
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def record_usage(
         self,
         *,
@@ -540,7 +540,7 @@ class BillingService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def void_usage(self, *, actor: AbstractBaseUser | None, meter: str, idempotency_key: str) -> UsageReceipt:
         """Give back a consumption of the open period (the effect failed for good after it was counted).
 
@@ -554,7 +554,7 @@ class BillingService(ServiceAPI):
         _meter_app(meter)
         return _usage_call(lambda: _receipt(usage.void(meter, idempotency_key=idempotency_key)))
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def check_usage(self, *, actor: AbstractBaseUser | None, meter: str, quantity: int = 1) -> UsageStatus:
         """Whether ``quantity`` more of a meter fits in the period, without recording it.
 
@@ -567,7 +567,7 @@ class BillingService(ServiceAPI):
         _meter_app(meter)
         return _usage_call(lambda: _status(usage.check(meter, quantity=quantity)))
 
-    @service_method(read_only=True, since="0.6.0", allow_system=True)
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def usage(self, *, actor: AbstractBaseUser | None) -> tuple[UsageStatus, ...]:
         """The period's use of every registered meter of an active app.
 

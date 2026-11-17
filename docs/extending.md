@@ -39,7 +39,7 @@ Ele cria `applications/<package>/` (por padrão o package é o label; mude com `
 - `tests/conftest.py`: a fixture `skeleton_db` distribuída no wheel (`skeleton.testing.database`), que recria e migra o schema a cada teste e roda as asserções na role runtime;
 - `templates/<app_label>/home.html`, `migrations/__init__.py`;
 - `docs/spec.md`, `docs/adr.md` e `docs/service-api.md` com as seções exigidas pela check E012 (texto inicial a substituir);
-- `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls`, `runtime.service_api` e uma entrada de navegação apontando para os módulos gerados. A compatibilidade começa em `>=0.4.0,<1.0.0` e `default_enabled` começa `false`: o campo é obsoleto e ignorado (#22), e `package doctor` avisa quando ele é `true`.
+- `manifest.json` v2 gerado por `manifest_template`, com `runtime.urls`, `runtime.api_urls`, `runtime.service_api` e uma entrada de navegação apontando para os módulos gerados. A compatibilidade começa no piso de `runtime.service_api` (`SERVICE_API_CORE_MINIMUM`, 0.0.0) e vai até `<1.0.0` e `default_enabled` começa `false`: o campo é obsoleto e ignorado (#22), e `package doctor` avisa quando ele é `true`.
 
 O comando valida label, package, IDs e nome do modelo com os mesmos validadores de `skeleton.system.packages`. Ele recusa namespaces reservados (`sk_*`, `skeleton`, `config`…) e diretório existente. Também não edita settings. Os modelos de código ficam em `skeleton/system/app_template/` e são distribuídos no wheel do core. Ao final, o comando imprime os próximos passos:
 
@@ -76,7 +76,7 @@ Desativar bloqueia endpoints próprios, gateway e políticas e remove o menu, ma
 
 Não há editor genérico do Django admin: modelos registrados com `@admin.register` não são roteados, porque um ModelAdmin contornaria os serviços de lifecycle, CAS e auditoria. Telas globais de uma app são declaradas no manifesto como `administration.screens` de escopo `platform` e `kind: custom`, com handler registrado por `register_admin_handler`; elas aparecem em `/platform/apps/<app_label>/` sob o mesmo guard da plataforma (e reautenticação quando `sensitive`). Negócio tenant fica no viewer: `/o/<org>/catalog/` e `/o/<org>/tables/<table_key>/`.
 
-O [contrato de administração e interfaces](application-admin-ui-plan.md) documenta grupos automáticos, telas de parâmetros, listas/layouts e serviços próprios. Novos manifestos usam `manifest_version=2` e compatibilidade inicial `>=0.4.0,<1.0.0` (piso exigido por `runtime.service_api`); o piso histórico v2 sem dimensões permanece 0.2.0, e v1/v2 assinados continuam legíveis sem normalizar JSON ou alterar bytes/digest. A presença de `col_span`/`rows`, inclusive `null`, exige piso 0.3.0 declarado na fonte antes de construir o pacote. Atualize primeiro agente e core para 0.3.0. `administration.screens` admite somente `configuration` ou `custom` de parâmetros, nunca `model_list`/metadados de tabela. `TableSpec`, não o layout, autoriza leitura/escrita/sensibilidade.
+O [contrato de administração e interfaces](application-admin-ui-plan.md) documenta grupos automáticos, telas de parâmetros, listas/layouts e serviços próprios. Novos manifestos usam `manifest_version=2` e compatibilidade inicial a partir do piso exigido por `runtime.service_api` até `<1.0.0`; v1/v2 assinados continuam legíveis sem normalizar JSON ou alterar bytes/digest. A presença de `col_span`/`rows`, inclusive `null`, exige o piso `FIELD_DIMENSIONS_CORE_MINIMUM` declarado na fonte antes de construir o pacote; como todo núcleo publicado entende o manifesto v2 e as dimensões, esses pisos são 0.0.0 (#569). `administration.screens` admite somente `configuration` ou `custom` de parâmetros, nunca `model_list`/metadados de tabela. `TableSpec`, não o layout, autoriza leitura/escrita/sensibilidade.
 
 O core 0.3.0 distribui `django-crispy-forms==2.7` e o pack SSR `skeleton_crud` no wheel. Customize somente `runtime.model_ui` do manifesto canônico, sem arquivo UI paralelo nem editor no admin. Notes 0.2.0 demonstra abas Identificação/Conteúdo, labels Código/Título/Texto e spans `code:4`, `title:8`, `body:12` com `rows:8`; o [exemplo JSON completo](application-admin-ui-plan.md#3-manifesto-canônico-v2) mantém IDs, seções e ordem. `col_span` aceita inteiro exato 1..12, `rows` inteiro exato 1..40; omissão/`null` mantém defaults, mas bool/string/float são recusados. Rows exige textarea editável efetivo (ou override `textarea`/`json` compatível), nunca readonly/input/select/relação, sem mudar validators. Seção `columns:1/2` define largura padrão 12/6, campos largos usam 12 e spans explícitos prevalecem. A grade preserva DOM/foco e, até 600px, todos os campos ocupam a linha inteira.
 
@@ -161,7 +161,7 @@ A declaração no manifesto é obrigatória para novos releases:
 "runtime": {"service_api": {"module": "applications.tasks.service_api", "classes": ["TaskService"]}}
 ```
 
-O módulo tem de estar dentro do pacote da app, e as classes são nomes simples. Declarar o campo exige `compatibility.skeleton` com piso `>=0.4.0`, a primeira versão do core que o lê; `package build` acrescenta o piso ao artefato. Os checks E018/E019 e o `package doctor` verificam o contrato; o [kit de testes](service-api.md#kit-de-testes-de-contrato) prova autorização, isolamento e CAS. O exemplo Notes (`examples/notes/service_api.py`) e o gerador já seguem o contrato. A análise de imports não alcança imports dinâmicos (`importlib`, `__import__`), que continuam questão de revisão.
+O módulo tem de estar dentro do pacote da app, e as classes são nomes simples. Declarar o campo exige `compatibility.skeleton` com piso de pelo menos `SERVICE_API_CORE_MINIMUM` (todo núcleo publicado o lê, #569); `package build` acrescenta o piso ao artefato. Os checks E018/E019 e o `package doctor` verificam o contrato; o [kit de testes](service-api.md#kit-de-testes-de-contrato) prova autorização, isolamento e CAS. O exemplo Notes (`examples/notes/service_api.py`) e o gerador já seguem o contrato. A análise de imports não alcança imports dinâmicos (`importlib`, `__import__`), que continuam questão de revisão.
 
 ### Apps first-party do núcleo (`skeleton/contrib`)
 
@@ -173,13 +173,13 @@ Algumas apps genéricas (a agenda, #84, e o livro contábil, #542) vêm **dentro
 | Local e versão | O manifest só é aceito dentro do pacote `skeleton` instalado, e a versão tem de ser **igual** à do core: uma divergência para o startup (`ImproperlyConfigured`) |
 | Prefixo reservado | Uma app de terceiro com label `skeleton_*`, ou com AppConfig em `skeleton.contrib`, é recusada; `package build` recusa um manifest `bundled_app` |
 | Instalação | Opt-in pelo operador: `SKELETON_BUNDLED_APPS=calendar,ledger` (lista de nomes do mapa fixo de `skeleton/conf/bundled.py`: `calendar` e `ledger`; nome desconhecido é `ImproperlyConfigured`). O ambiente nunca fornece import path |
-| Rotas do portal | Qualquer app em manifesto v2: `runtime.portal_urls` e `runtime.portal_api_urls` montam `/portal/<org>/apps/<label>/` e `/api/v1/portal/<org>/apps/<label>/` para pessoas externas, com piso de núcleo `>=0.6.0` ([portal](portal.md#superfície-533)) |
+| Rotas do portal | Qualquer app em manifesto v2: `runtime.portal_urls` e `runtime.portal_api_urls` montam `/portal/<org>/apps/<label>/` e `/api/v1/portal/<org>/apps/<label>/` para pessoas externas, com piso de núcleo `PORTAL_CORE_MINIMUM` ([portal](portal.md#superfície-533)) |
 | Rotas do usuário | Só first-party: `runtime.user_urls` monta rotas globais da pessoa em `/me/apps/<label>/`, com login obrigatório e sem cache, no namespace `app_name` do módulo (diferente do `app_name` das rotas da organização). Como não há organização na URL, cada view lê as organizações da pessoa uma transação por vez (`for_each_organization`, #74) e pula as que não ativaram a app |
 | Ciclo de vida | Igual ao das demais apps ([#67](https://github.com/alaorneto/skeleton/issues/67)): recém-instalada, fica indisponível (`selected` sem concessão) e desativada em todas as organizações. Retirar com dados preservados e reinstalar estão em [deployment](deployment.md#apps-first-party) |
 
 O núcleo nunca importa `skeleton.contrib` (`tests/unit/test_bundled_apps.py` prova no CI), e a suíte do núcleo roda sem nenhuma app first-party instalada.
 
-**Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
+**Depender de uma app first-party** (#254). Uma app de terceiro, gerenciada ou do projeto, declara a first-party em `dependencies` pelo `app_id` do manifest dela (`org.skeleton.calendar`), com uma faixa que contenha a versão do core, porque a versão de uma first-party é sempre a do core: `"dependencies": {"org.skeleton.calendar": ">=0.1.0,<0.2.0"}`. Só a first-party **instalada nesta instância** (nome em `SKELETON_BUNDLED_APPS`) satisfaz a dependência; o mapa `nome → app_id` é fixo em `skeleton/conf/bundled.py` (`BUNDLED_APP_IDS`). O startup (`load_deployment_inventory`), o plano do agente e `package doctor --bundled-app` dão o mesmo veredito: sem a first-party instalada, `missing_dependency`; com o core fora da faixa, `incompatible_dependency_version`. Uma app de terceiro nunca pode usar o `app_id` de uma first-party instalada (`identity_collision`). As first-party entram em `INSTALLED_APPS` antes das apps gerenciadas.
 
 #### Depender do livro contábil (`org.skeleton.ledger`)
 
@@ -188,10 +188,10 @@ O livro contábil (#517) é a app first-party de partidas dobradas: livros, plan
 1. **Manifesto.** Declare a dependência e instale a first-party (`SKELETON_BUNDLED_APPS=ledger`, também no `env` do job de CI):
 
    ```json
-   "dependencies": {"org.skeleton.ledger": ">=0.6.0,<0.7.0"}
+   "dependencies": {"org.skeleton.ledger": ">=0.1.0,<0.2.0"}
    ```
 
-2. **Registro no `ready()`.** Chaves de conta e regras de lançamento são código da app, com o prefixo do `app_label` dela; a organização vincula cada chave a uma conta do plano. A regra diz a tabela de origem e a ação que o ator precisa ter no registro (o check E041 confere a tabela, a ação e as linhas):
+2. **Registro no `ready()`.** Chaves de conta e regras de lançamento são código da app, com o prefixo do `app_label` dela; a organização vincula cada chave a uma conta do plano. A regra diz a tabela de origem e a ação que o ator precisa ter no registro (o check E041 confere a tabela, a ação e as linhas). A origem é uma tabela exposta ou uma [tabela derivada](access-control.md#tabelas-derivadas), como as linhas de um documento, autorizada pela âncora com a ação mapeada (#565):
 
    ```python
    from skeleton.contrib.ledger.service_api import (
@@ -419,7 +419,7 @@ acme_clientes/            <- checkout; o nome do diretório é o nome do pacote
 
 **Fixar a versão do núcleo no CI da app.** Cada release do núcleo traz o wheel `django_skeleton-<versão>-py3-none-any.whl` como asset, com o SHA-256 no corpo da release e em `SHA256SUMS` ([workflow](workflow.md#artefatos-de-cada-release-496)). O `ci.yml` gerado lê a versão de `SKELETON_VERSION` e baixa o asset de `https://github.com/<repositório do núcleo>/releases/download/v<versão>/`; como o repositório do núcleo é público, o download não exige token. Suba `SKELETON_VERSION` numa mudança própria da app, junto com a faixa `compatibility.skeleton` do manifesto. Para conferir o hash, compare `sha256sum` do arquivo baixado com a linha de `SHA256SUMS` da mesma release.
 
-**Depender de uma app first-party.** Declare a dependência pelo `app_id` dela em `dependencies` (por exemplo `"org.skeleton.calendar": ">=0.5.0,<0.6.0"`, veja [Apps first-party](#apps-first-party-do-núcleo-skeletoncontrib)) e ligue a app no CI com `SKELETON_BUNDLED_APPS` no `env` do job (por exemplo `SKELETON_BUNDLED_APPS: calendar`): sem ela instalada, o startup recusa a dependência. Importe só o `service_api` dela.
+**Depender de uma app first-party.** Declare a dependência pelo `app_id` dela em `dependencies` (por exemplo `"org.skeleton.calendar": ">=0.1.0,<0.2.0"`, veja [Apps first-party](#apps-first-party-do-núcleo-skeletoncontrib)) e ligue a app no CI com `SKELETON_BUNDLED_APPS` no `env` do job (por exemplo `SKELETON_BUNDLED_APPS: calendar`): sem ela instalada, o startup recusa a dependência. Importe só o `service_api` dela.
 
 **`AGENTS.md` da app.** Instruções próprias da app para agentes ficam num `AGENTS.md` na raiz do repositório. Ele aponta para o `AGENTS.md` do núcleo na versão de `compatibility.skeleton`, não repete regra do núcleo e traz só o que é da app ([contrato](../AGENTS.md#contrato-de-agentes-em-apps-e-projetos-derivados)). O gerador não cria esse arquivo: ao criá-lo, acrescente `AGENTS.md export-ignore` ao `.gitattributes`.
 
@@ -602,6 +602,126 @@ def sign(document, *, user, expected_revision):
 - Uma condição que dependa de outras linhas (por exemplo, "o documento tem pelo menos uma seção") vai em `seal_condition_sql`, uma expressão sobre `NEW` congelada na migration, conferida pelo banco na transição. Ela só lê tabelas da própria app; `;`, comentários e `$` são recusados.
 - **Correção é sempre por adendo**, nunca por edição: um documento novo com `corrects` apontando para o original, também selado. O original continua íntegro e os dois aparecem juntos na tela da app. Não existe desselar.
 - Teste o contrato com `skeleton.testing.sealing.assert_sealed_contract` ([testes](testing.md#kit-do-selo)).
+
+## Contêiner e tabelas derivadas
+
+Quando a equipe escreve no que é de outro (os itens de uma área de trabalho, as linhas de um documento), só o contêiner é um `SecuredRecord` exposto; os filhos são `OrganizationRecord` não expostos que declaram `access_parent` e são autorizados pelo contêiner, a **âncora** ([tabelas derivadas](access-control.md#tabelas-derivadas), epic #560). Os nomes abaixo são os das tabelas de teste do núcleo (`tests/integration/derived_support.py`).
+
+```python
+# models.py
+from django.db import models
+
+from skeleton.common.models import OrganizationRecord, SecuredRecord
+
+
+class Workspace(SecuredRecord):  # A âncora: dono, visibilidade e concessões valem aqui.
+    title = models.CharField(max_length=100)
+
+
+class WorkItem(OrganizationRecord):  # Derivada: sem dono, visibilidade nem concessão próprios.
+    workspace = models.ForeignKey(Workspace, on_delete=models.PROTECT, related_name="items")
+    title = models.CharField(max_length=100)
+    status = models.CharField(max_length=20, default="open")
+    immutable_fields = ("workspace_id",)  # Um filho nunca muda de pai (E042).
+
+
+class WorkItemLine(OrganizationRecord):  # Dois saltos: linha -> item -> área.
+    item = models.ForeignKey(WorkItem, on_delete=models.PROTECT, related_name="lines")
+    text = models.TextField(default="")
+    immutable_fields = ("item_id",)
+```
+
+```python
+# apps.py, em ready()
+from skeleton.system.registry import TableSpec, register
+
+register(
+    TableSpec(
+        model=Workspace,
+        description="Área de trabalho.",
+        read_fields=("title",),
+        write_fields=("title",),
+        expose_api=True,
+    )
+)
+register(
+    TableSpec(
+        model=WorkItem,
+        description="Item de uma área de trabalho.",
+        read_fields=("workspace", "title", "status"),
+        write_fields=(),
+        expose_api=False,
+        access_parent="workspace",
+    )
+)
+register(
+    TableSpec(
+        model=WorkItemLine,
+        description="Linha de um item.",
+        read_fields=("item", "text"),
+        write_fields=(),
+        expose_api=False,
+        access_parent="item",
+    )
+)
+```
+
+```sh
+python manage.py makemigrations acme_work
+python manage.py record_infrastructure acme_work --write   # a infraestrutura de sempre; access_parent não muda o banco
+```
+
+```python
+# services.py: o serviço autoriza o filho como qualquer tabela
+from skeleton.access.policies import authorized_queryset, require_parent_action, require_record_action
+
+
+def open_items(*, user, workspace_id):
+    return authorized_queryset(WorkItem, user=user, action="read").filter(workspace_id=workspace_id, status="open")
+
+
+def add_item(*, user, workspace, title):
+    require_parent_action(WorkItem, workspace, user=user, action="create")  # update na área
+    item = WorkItem(organization=workspace.organization, workspace=workspace, title=title)
+    item.save()
+    return item
+
+
+def close_item(item, *, user, expected_revision):
+    require_record_action(item, user=user, action="update")  # update na área
+    item.status = "closed"
+    item.revision = expected_revision
+    item.save(update_fields={"status"})
+    return item
+```
+
+```python
+# tests/test_work_items.py (PostgreSQL com a role runtime)
+from skeleton.testing.derived import assert_derived_access_contract
+from skeleton.testing.service_api import build_service_scenario
+
+
+def test_items_follow_the_workspace(isolated_db):
+    scenario = build_service_scenario(WorkItem, slug="work")  # As permissões vão para a tabela âncora.
+
+    def make_anchor(*, organization, owner):
+        workspace = Workspace(organization=organization, owner=owner, visibility="private", title="Área")
+        workspace.save()
+        return workspace
+
+    def make_item(workspace):
+        item = WorkItem(organization=workspace.organization, workspace=workspace, title="Item")
+        item.save()
+        return item
+
+    assert_derived_access_contract(
+        child_model=WorkItem, make_anchor=make_anchor, make_child=make_item, scenario=scenario
+    )
+```
+
+- `TablePermission`, escopo de token e concessões são os da área, com a ação mapeada: `read` no filho pede `read` na área; criar, alterar, excluir e restaurar pedem `update`; `manage_access` no filho é sempre negado.
+- Eventos de domínio, notificações, anexos, comentários, selo, `AccessService.can/require`, o histórico de auditoria e a origem de lançamento do livro contábil aceitam o filho, sempre pela área.
+- Continuam fechados para o filho: o gateway genérico de registros, a API REST genérica e o OpenAPI, o seletor de referências, as operações de registro, a concessão de `TablePermission`/`RecordGrant`, o CSV, a interface declarativa e o sujeito de fluxo. A app mostra os filhos nas próprias páginas.
 
 ## Permissões e fluxo HTML
 

@@ -72,10 +72,13 @@ SERVICE_CLASS = re.compile(r"[A-Z][A-Za-z0-9_]{0,99}\Z")
 MAX_SERVICE_CLASSES = 32
 
 
-# runtime.service_api (docs/service-api.md) is unknown to older cores, so declaring it raises the floor.
-SERVICE_API_CORE_MINIMUM = "0.4.0"
+# Manifest fields unknown to an older core raise the floor of compatibility.skeleton. Every published core
+# (0.1.0 on, #569) understands the fields below, so their floor is 0.0.0; a field of a later release gets
+# the version that publishes it.
+# runtime.service_api (docs/service-api.md).
+SERVICE_API_CORE_MINIMUM = "0.0.0"
 # runtime.portal_urls and runtime.portal_api_urls (docs/portal.md, #533): the portal of external people.
-PORTAL_CORE_MINIMUM = "0.6.0"
+PORTAL_CORE_MINIMUM = "0.0.0"
 
 
 SERVICE_API_DOCUMENT = "service-api.md"

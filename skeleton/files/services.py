@@ -45,6 +45,22 @@ class UnsupportedFileType(ValidationError):
         )
 
 
+def attachment_spec(key):
+    """The spec of an authorizable table (exposed or derived, #563) that opted in to attachments; else 404."""
+    from skeleton.access.derivation import is_authorizable
+    from skeleton.access.policies import refuse_external
+    from skeleton.system.registry import get_spec
+
+    refuse_external()
+    try:
+        spec = get_spec(key)
+    except (KeyError, LookupError, TypeError):
+        raise Http404 from None
+    if spec.attachments is None or not is_authorizable(spec.model):
+        raise Http404
+    return spec
+
+
 def policy(spec):
     if spec.attachments is None:
         raise Http404  # Tables without opt-in have no attachment surface at all.

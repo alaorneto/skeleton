@@ -93,7 +93,7 @@ def _enabled(app_label: str) -> bool:
 class ApplicationService(ServiceAPI):
     """Whether an app can be used in the organization; configuration only for the app itself."""
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def is_enabled(self, *, actor: AbstractBaseUser, app_id: str) -> bool:
         """Whether an app is installed, available to the organization and enabled, with its dependencies.
 
@@ -107,7 +107,7 @@ class ApplicationService(ServiceAPI):
         manifest = _manifest_for(app_id)
         return manifest is not None and _enabled(manifest.app_label)
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def require_enabled(self, *, actor: AbstractBaseUser, app_id: str) -> None:
         """Raise the standard ``Unavailable`` unless the app can be used in the organization.
 
@@ -118,7 +118,7 @@ class ApplicationService(ServiceAPI):
         if not self.is_enabled(actor=actor, app_id=app_id):
             raise Unavailable()
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def my_configuration(self, *, actor: AbstractBaseUser, app_label: str) -> AppConfiguration:
         """Return the organization's configuration of the calling app.
 
@@ -197,7 +197,7 @@ def _visible(state: ApplicationState) -> bool:
 class ApplicationAdministrationService(ServiceAPI):
     """Activation and configuration of apps by the app manager (surfaces of /o/<org>/apps/)."""
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def applications(self, *, actor: AbstractBaseUser) -> tuple[ApplicationState, ...]:
         """The apps the organization can choose from, with availability, activation and configuration.
 
@@ -213,7 +213,7 @@ class ApplicationAdministrationService(ServiceAPI):
         states = (_state(manifest.app_label) for manifest in all_apps())
         return tuple(state for state in states if _visible(state))
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def application(self, *, actor: AbstractBaseUser, app_label: str) -> ApplicationState:
         """One app the organization can choose.
 
@@ -234,7 +234,7 @@ class ApplicationAdministrationService(ServiceAPI):
             raise NotFoundError()
         return state
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def configure(
         self,
         *,

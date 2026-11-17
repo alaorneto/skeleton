@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
@@ -10,6 +10,8 @@ from django.db.models import Model, Q, QuerySet
 from skeleton.accounts.platform import is_platform_admin
 from skeleton.system.registry import get_spec
 from skeleton.tenancy.context import MissingTenantContext, current_context
+
+from .derivation import DERIVED_ACTION_MAP, AccessRoute, access_route, anchor_record
 
 if TYPE_CHECKING:
     from skeleton.accounts.models import User
@@ -221,11 +223,10 @@ def _authorized[RecordT: SecuredRecord](
 def authorized_queryset[RecordT: SecuredRecord](
     model: type[RecordT], *, user: User, action: str = "read", include_deleted: bool = False
 ) -> QuerySet[RecordT]:
-    from skeleton.common.models import SecuredRecord
-
     refuse_external()
-    spec = get_spec(model._meta.label_lower)
-    if not issubclass(model, SecuredRecord) or not spec.expose_api:
+    get_spec(model._meta.label_lower)  # An unregistered table raises KeyError, as before.
+    route = access_route(model)
+    if route is None:
         raise PermissionDenied("This table is not a business resource.")
     from skeleton.system.applications import require_application_enabled
 
@@ -233,12 +234,55 @@ def authorized_queryset[RecordT: SecuredRecord](
     if include_deleted and action != "restore":
         # Reading a tombstone also requires the restore authorization (docs/access-control.md, #229).
         raise PermissionDenied("Deleted records require the restore action.")
+    if route.path:
+        return _derived(route, user=user, action=action, include_deleted=include_deleted)
     if action not in ACTIONS or not _scope_allows(model, action):
         raise PermissionDenied("Table permission required.")
     subject = _Subject(user)
     if not _permits(subject, model, action):
         raise PermissionDenied("Table permission required.")
     return _authorized(model, subject, action, include_deleted)
+
+
+def _derived(route: AccessRoute, *, user: User, action: str, include_deleted: bool) -> QuerySet[Any]:
+    """Rows of a derived table whose anchor the user may act on with the mapped action (#561).
+
+    The anchor's table permission, token scope, grants and visibility decide; the anchor and every
+    intermediate link must be alive, even for ``restore`` (restore the parent first).
+    """
+    mapped = DERIVED_ACTION_MAP.get(action)
+    if mapped is None:
+        raise PermissionDenied("Access to this table is managed on its parent.")
+    anchors = authorized_queryset(route.anchor, user=user, action=mapped)
+    rows = route.model.objects.with_deleted() if include_deleted else route.model.objects.all()
+    rows = rows.filter(**{f"{route.path}__in": anchors.values("sysid")})
+    for link in route.links:
+        rows = rows.filter(**{f"{link}__deleted_at__isnull": True})
+    return rows
+
+
+def require_parent_action(model: type[Model], parent: Any, *, user: User, action: str = "create") -> Any:
+    """Authorize an action on a new row of the derived ``model`` under ``parent`` (#561).
+
+    Creating a child needs the write action on its anchor: ``parent`` must be the record that the
+    ``access_parent`` foreign key of ``model`` points to, and the user must be able to update it
+    (through its own anchor when ``parent`` is itself derived). Returns ``parent``.
+    """
+    refuse_external()
+    route = access_route(model)
+    if route is None or not route.path:
+        raise PermissionDenied("This table is not a derived table.")
+    mapped = DERIVED_ACTION_MAP.get(action)
+    if mapped is None:
+        raise PermissionDenied("Access to this table is managed on its parent.")
+    field = model._meta.get_field(get_spec(model._meta.label_lower).access_parent)
+    if type(parent) is not field.related_model:
+        raise PermissionDenied("The parent is not the access parent of this table.")
+    from skeleton.system.applications import require_application_enabled
+
+    require_application_enabled(model._meta.app_label)
+    # ``type(parent) is ...`` narrows to Model; the parent is a record of an authorizable table.
+    return require_record_action(cast(Any, parent), user=user, action=mapped)
 
 
 def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User, action: str) -> RecordT:
@@ -254,7 +298,7 @@ def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User
     return record
 
 
-def users_who_can_read(record: SecuredRecord, user_ids: Iterable[UUID]) -> set[UUID]:
+def users_who_can_read(record: Any, user_ids: Iterable[UUID]) -> set[UUID]:
     """The subset of ``user_ids`` for whom ``require_record_action(record, user=..., action="read")`` passes.
 
     The same layers as ``authorized_queryset``, decided in memory from a fixed number of
@@ -262,8 +306,9 @@ def users_who_can_read(record: SecuredRecord, user_ids: Iterable[UUID]) -> set[U
     an active user, effective roles (direct and through live groups), the table's read
     permission, then the organization administrator, the owner, the visibility and the read
     grants. Requires a tenant context; an unexposed table, a disabled app, a token without
-    the table's read scope or a deleted record give the empty set. Never raises
-    ``PermissionDenied``.
+    the table's read scope or a deleted record give the empty set. A row of a derived table
+    answers as its live anchor does, and empty when a link or the anchor has a tombstone (#561).
+    Never raises ``PermissionDenied``.
     """
     from skeleton.common.models import SecuredRecord
     from skeleton.system.applications import require_application_enabled
@@ -275,13 +320,16 @@ def users_who_can_read(record: SecuredRecord, user_ids: Iterable[UUID]) -> set[U
         raise MissingTenantContext("Authorization requires a tenant context.")
     wanted = set(user_ids)
     model = type(record)
-    if not wanted or record.deleted_at is not None or not issubclass(model, SecuredRecord):
+    if not wanted or record.deleted_at is not None:
         return set()
-    try:
-        spec = get_spec(model._meta.label_lower)
-    except KeyError:
+    route = access_route(model)
+    if route is None:
         return set()
-    if not spec.expose_api or not _scope_allows(model, "read"):
+    if route.path:
+        # A derived row is read by whoever reads its live anchor (#561).
+        anchor = anchor_record(record)
+        return set() if anchor is None else users_who_can_read(anchor, wanted)
+    if not issubclass(model, SecuredRecord) or not _scope_allows(model, "read"):
         return set()
     try:
         require_application_enabled(model._meta.app_label)
@@ -393,6 +441,20 @@ def authorized_audit_queryset(user: User) -> QuerySet[AuditEvent]:
     allowed = Q(pk__in=[])
     for spec in all_specs():
         model = spec.model
+        route = access_route(model)
+        if route is not None and route.path:
+            # A derived row (#564): audit on the anchor table and read on its anchor record.
+            anchor = route.anchor
+            if not allows(anchor, "audit") or not allows(anchor, "read"):
+                continue
+            try:
+                require_application_enabled(model._meta.app_label)
+            except PermissionDenied:
+                continue
+            anchors = _authorized(anchor, subject, "read", False).values("sysid")
+            rows = model.objects.with_deleted().filter(**{f"{route.path}__in": anchors}).values_list("sysid", flat=True)
+            allowed |= Q(model_label=model._meta.label_lower, record_sysid__in=rows)
+            continue
         if not spec.expose_api or not issubclass(model, SecuredRecord) or not allows(model, "audit"):
             continue
         try:

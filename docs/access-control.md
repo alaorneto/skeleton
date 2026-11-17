@@ -51,6 +51,46 @@ Em Beta, Alice pode ter outro papel e Bob pode nem ter vínculo. Nada do que foi
 
 Criar exige `table.create`; o proprietário inicial é o ator e a visibilidade é `private`. Alterar `owner`, `visibility`, `owning_group` ou a lista de concessões (ACL, lista de controle de acesso) exige `manage_access` **e** condição de proprietário ou administrador da organização. Esses campos nunca são aceitos pelo PATCH comum. O servidor valida proprietário ativo e grupo vivo da mesma organização.
 
+## Tabelas derivadas
+
+Uma app com um contêiner que a equipe edita (uma área de trabalho e seus itens, um documento e suas linhas) não precisa de autorização própria nas tabelas-filho. O filho é um `OrganizationRecord` não exposto que declara no `TableSpec` a chave estrangeira para o registro que decide o acesso (epic #560, #561):
+
+```python
+register(
+    TableSpec(
+        model=WorkItem,  # OrganizationRecord, não exposto
+        description="Item de uma área de trabalho.",
+        read_fields=("workspace", "title", "status"),
+        write_fields=(),
+        expose_api=False,
+        access_parent="workspace",  # FK para a tabela que decide o acesso
+    )
+)
+```
+
+Uma tabela com `access_parent` é uma **tabela derivada**. A **âncora** é o `SecuredRecord` exposto no fim da cadeia de `access_parent`, a no máximo 3 chaves estrangeiras (um `WorkItemLine` com `access_parent="item"` chega à área pelo item). A app passa a usar `authorized_queryset` e `require_record_action` no filho como em qualquer tabela; a decisão é a da âncora, com a ação mapeada:
+
+| Ação pedida no filho | Ação exigida na âncora |
+|---|---|
+| `read` | `read` |
+| `create`, `update`, `delete`, `restore` | `update` |
+| `manage_access` | sempre negada: o acesso é gerido na âncora |
+| `audit` | `audit` na tabela âncora e `read` no registro âncora ([histórico](#auditoria-autorizada)) |
+
+Regras (as estruturais são o check [`skeleton.E042`](checks.md)):
+
+1. Só um `OrganizationRecord` que não é `SecuredRecord` nem `OperationalRecord`, com `expose_api=False` e escopo de organização, declara `access_parent`.
+2. `access_parent` nomeia uma `ForeignKey` concreta do próprio modelo, `null=False`, `on_delete=PROTECT`, listada em `immutable_fields`: um filho nunca muda de pai.
+3. O alvo é da mesma app e é a âncora (um `SecuredRecord` com `expose_api=True`) ou outra tabela derivada, sem ciclo e a no máximo 3 saltos.
+4. `TablePermission`, escopo de token e concessões são os da **tabela âncora**, com a ação mapeada. A tabela derivada não recebe `TablePermission` nem `RecordGrant`: a gestão de acesso recusa a tabela.
+5. A app da tabela derivada precisa estar ativa, como em qualquer tabela.
+6. Âncora ou elo intermediário com tombstone torna o filho invisível, inclusive para `restore`: restaure o pai antes.
+7. A autorização é só em Python: nada muda no banco, na RLS, nos triggers ou na especificação congelada da infraestrutura. O isolamento entre organizações continua sendo o da RLS e do contexto.
+
+Criar um filho não tem registro para revalidar: `require_parent_action(WorkItem, workspace, user=..., action="create")` (de `skeleton.access.policies`) confere que `workspace` é o alvo do `access_parent` e que o ator pode alterá-lo (pela âncora, se o pai também é derivado). `users_who_can_read(filho, ids)` responde como a âncora viva, e vazio quando a âncora ou um elo tem tombstone. `skeleton.access.derivation.is_authorizable(model)` e `is_derived(model)` dizem se uma tabela é autorizável e se é derivada; todo serviço do núcleo que autoriza por tabela pergunta a eles.
+
+Continuam fechados para tabela derivada: o gateway genérico de registros, a API REST genérica e o OpenAPI, o seletor de referências, as operações de registro, o catálogo e a concessão de `TablePermission`/`RecordGrant`, a exportação e a importação CSV, a interface declarativa e o sujeito de fluxo. Cada app mostra os filhos nas próprias páginas e serviços.
+
 ## Capacidades e papéis internos
 
 Uma **capacidade** é um direito administrativo da organização, como gerir pessoas ou apps. Capacidades vêm só de **papéis internos** declarados em código (`skeleton/access/capabilities.py`, registry `BUILTIN_ROLES`). Um papel customizado nunca carrega capacidade, mesmo que reutilize um código interno: editar papéis não vira escalada de privilégio.

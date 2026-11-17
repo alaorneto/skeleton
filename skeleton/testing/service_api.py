@@ -206,6 +206,10 @@ class ServiceScenario:
     - ``denied``: member of A with no TablePermission on the table (default deny).
     - ``outsider``: active identity without membership.
     - ``admin_a``/``admin_b``: organization owners, used to configure the app.
+
+    For a derived table (``TableSpec.access_parent``, #566) ``model`` is the derived table and
+    ``anchor_model`` the exposed table that decides its access: the permissions are granted on the
+    anchor table and ``create`` makes anchor records. For an exposed table both are the same.
     """
 
     model: Any
@@ -218,6 +222,11 @@ class ServiceScenario:
     denied: Any
     outsider: Any
     password: str = ""  # The identities' password, for tests that log in (#321).
+    anchor_model: Any = None  # The table whose permissions decide (#566); ``model`` when None.
+
+    def __post_init__(self) -> None:
+        if self.anchor_model is None:
+            self.anchor_model = self.model
 
     def acting(self, user: Any, organization: Any | None = None) -> Any:
         return acting_as(user, organization or self.a)
@@ -231,11 +240,13 @@ class ServiceScenario:
     def create(
         self, organization: Any, *, owner: Any | None = None, visibility: str = "organization", **values: Any
     ) -> Any:
-        """Persist one record in organization (system context of fixtures, never of the service)."""
+        """Persist one record of the anchor table in organization (system context of fixtures, never of the service)."""
         from skeleton.tenancy.context import system_context
 
         with system_context(reason="fixture:service-api-record", organization_id=organization.pk):
-            record = self.model(organization=organization, owner=owner or self.member, visibility=visibility, **values)
+            record = self.anchor_model(
+                organization=organization, owner=owner or self.member, visibility=visibility, **values
+            )
             record.save()
         return record
 
@@ -281,9 +292,13 @@ def _set_enabled(app_label: str, admin: Any, *, enabled: bool) -> None:
 
 
 def build_service_scenario(model: Any, *, slug: str = "service-contract") -> ServiceScenario:
-    """Create identities, organizations A/B, grants and enable the app of model in both."""
+    """Create identities, organizations A/B, grants and enable the app of model in both.
+
+    A derived table (#566) receives its permissions on its anchor table, never on itself.
+    """
     from allauth.account.models import EmailAddress
 
+    from skeleton.access.derivation import access_route
     from skeleton.access.models import Action, Role, TablePermission
     from skeleton.access.services import provision_membership
     from skeleton.accounts.services import create_identity
@@ -300,8 +315,10 @@ def build_service_scenario(model: Any, *, slug: str = "service-contract") -> Ser
             users[name] = user
     a = create_organization(owner=users["admin-a"], slug=f"{slug}-a", name="Service contract A")
     b = create_organization(owner=users["admin-b"], slug=f"{slug}-b", name="Service contract B")
+    route = access_route(model)
+    anchor: Any = route.anchor if route is not None else model
     sync_table_catalog()
-    table = TableDefinition.objects.get(model_label=model._meta.label_lower)
+    table = TableDefinition.objects.get(model_label=anchor._meta.label_lower)
     for organization in (a, b):
         with system_context(reason="fixture:service-api-grants", organization_id=organization.pk):
             builtin = Role.objects.get(code="member")
@@ -327,4 +344,5 @@ def build_service_scenario(model: Any, *, slug: str = "service-contract") -> Ser
         denied=users["denied"],
         outsider=users["outsider"],
         password=FIXTURE_PASSWORD,
+        anchor_model=anchor,
     )

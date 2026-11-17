@@ -83,7 +83,7 @@ def _ids(ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
 class NotificationService(ServiceAPI):
     """Types stay registered by each app; only the owning app may notify with its type."""
 
-    @service_method(read_only=False, since="0.5.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def notify(
         self,
         *,
@@ -143,7 +143,7 @@ class NotificationService(ServiceAPI):
             raise NotFound()
         return record
 
-    @service_method(read_only=True, since="0.5.0", tenant=False)
+    @service_method(read_only=True, since="0.1.0", tenant=False)
     def unread_count(self, *, actor: AbstractBaseUser) -> int:
         """Unread, unarchived notifications of the actor in every organization with an active membership.
 
@@ -155,7 +155,7 @@ class NotificationService(ServiceAPI):
 
         return unread_count(actor)
 
-    @service_method(read_only=True, since="0.5.0", tenant=False)
+    @service_method(read_only=True, since="0.1.0", tenant=False)
     def inbox(
         self,
         *,
@@ -177,7 +177,7 @@ class NotificationService(ServiceAPI):
         rows = inbox_queryset(actor, include_archived=include_archived)
         return paginate(rows, convert=_item, page_size=page_size, cursor=cursor)
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def mark_read(self, *, actor: AbstractBaseUser, ids: tuple[UUID, ...], read: bool = True) -> int:
         """Mark the actor's rows as read (or unread with ``read=False``); idempotent.
 
@@ -189,7 +189,7 @@ class NotificationService(ServiceAPI):
 
         return mark_read(actor, _ids(ids), read=read)
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def archive(self, *, actor: AbstractBaseUser, ids: tuple[UUID, ...]) -> int:
         """Archive the actor's rows; idempotent.
 
