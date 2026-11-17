@@ -123,8 +123,9 @@ type_mismatch = "warning"
 [versioning]
 enabled = true
 tag_prefix = "v"
-# Vale só enquanto não existe tag de versão; depois a fonte é a última tag.
-initial_version = "0.5.0"
+# Vale só enquanto não existe tag de versão; depois a fonte é a última tag. Nada foi publicado
+# antes da primeira release, 0.1.0 (#569): o ponto de partida é 0.0.0 e a release soma o minor.
+initial_version = "0.0.0"
 # Em 0.x a quebra de compatibilidade sobe o minor; 1.0.0 só por sobreposição explícita.
 zero_major = "breaking-is-minor"
 require_analysis = false
