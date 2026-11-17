@@ -60,6 +60,9 @@ class TableSpec:
     comments: CommentPolicy | None = None
     # Sealable tables (#527): required for a SealableMixin model, refused for any other (E040).
     seal: SealPolicy | None = None
+    # Derived table (#561): the foreign key to the record that decides access to this one. Only an
+    # unexposed OrganizationRecord declares it; the chain ends at an exposed SecuredRecord (E042).
+    access_parent: str | None = None
     # ((field, sequence key), ...): filled by the generic creation, never written by clients (#156).
     sequence_fields: tuple = ()
     # Text columns of the full-text search (#180): read_fields, text, never sensitive; the table's

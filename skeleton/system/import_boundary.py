@@ -31,7 +31,11 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.system.app_registry": frozenset({"AppManifest", "register_app"}),
     "skeleton.system.registry": frozenset({"TableSpec", "register", "AttachmentPolicy", "CommentPolicy", "SealPolicy"}),
     "skeleton.system.record_operations": frozenset({"RecordOperations", "register_record_operations"}),
-    "skeleton.access.policies": frozenset({"authorized_queryset", "require_record_action", "has_table_permission"}),
+    "skeleton.access.policies": frozenset(
+        {"authorized_queryset", "require_record_action", "require_parent_action", "has_table_permission"}
+    ),
+    # Derived tables (#561): whether a table is authorized directly or through its access_parent.
+    "skeleton.access.derivation": frozenset({"is_authorizable", "is_derived"}),
     "skeleton.tenancy.context": frozenset({"current_context"}),
     "skeleton.web.views": frozenset({"tenant_page"}),
     "skeleton.api.views": frozenset({"TenantAPI", "request_fields"}),

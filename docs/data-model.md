@@ -21,6 +21,8 @@ As bases são **abstratas**: Django copia seus campos para cada modelo concreto,
 | Dado de negócio com proprietário e acesso por registro | `SecuredRecord` | Tudo acima e proprietário/visibilidade/grupo; base para negócio organizacional e gateway genérico |
 | Tabela de Django ou allauth | Modelo oficial da biblioteca | Não adaptar às bases próprias; registrar a exceção técnica nominal no catálogo |
 
+Um `OrganizationRecord` não exposto que pertence a um registro de negócio (o item de uma área de trabalho, a linha de um documento) pode ser uma **tabela derivada**: declara `TableSpec.access_parent` e é autorizado pelo `SecuredRecord` exposto do pai, sem autorização própria ([tabelas derivadas](access-control.md#tabelas-derivadas), #561).
+
 Há uma quarta base, **`OperationalRecord`**, reservada ao estado de pipeline do núcleo (jobs, outbox, entregas, leitura de notificações). Ela não é para negócio: veja a decisão abaixo.
 
 Herdar a base não instala sozinho a proteção no banco: são necessários `TableSpec` e a migration com `InstallRecordInfrastructure`. Veja [catálogo](table-catalog.md#migration-e-checks) e [extensão](extending.md).
