@@ -125,6 +125,59 @@ Sem assinatura, ou com franquia zero, vale o padrão da instância (`SKELETON_FI
 
 **Limites de plano.** Uma métrica é registrada em código com `skeleton.billing.quota.register_quota_metric(código, contador)`, em que `contador(organization_id)` devolve a quantidade atual no contexto da organização. O núcleo registra `members` (vínculos ativos; pessoas externas do portal nunca contam) e `external_people` (acessos externos ativos, #531), conferida ao admitir ou reativar um vínculo (`admit_member`, `update_membership`, pelo gancho `check_limit` de `skeleton.common.entitlements`). Uma app registra as suas como `<app_label>.<nome>`. O `limits` de um preço dá o máximo de cada métrica; os limites dos itens ativos se somam (um pacote de assentos soma ao plano); uma métrica que nenhum item limita é ilimitada. Passar do limite levanta `QuotaLimitExceeded`, que as superfícies e a API de serviços tratam como conflito `quota_exceeded`.
 
+### Medidores de uso
+
+Um **medidor** conta o que se gasta dentro de um período de cobrança (mensagens enviadas, documentos assinados), ao contrário da métrica de limite, que conta o estado atual e sobe e desce (#513). A app o registra no `ready()` pela superfície pública, nunca importando `skeleton.billing`:
+
+```python
+from skeleton.service_api.billing import register_usage_meter
+
+register_usage_meter("acme_reminders.messages", label=gettext_lazy("Mensagens"), unit_label=gettext_lazy("mensagem"))
+```
+
+O código é `<app_label>.<nome>`, com o ponto obrigatório; um código é métrica de limite ou medidor, nunca os dois (`ValueError` no registro, como para código repetido com outros rótulos). `registered_usage_meters()` lista os registrados.
+
+**Termos no preço.** `Price.usage` mapeia cada medidor aos termos daquele preço e, como todo termo, nunca muda (imutável no ORM e no guard do banco):
+
+```json
+{"acme_reminders.messages": {"included": 1000, "overage": "bill", "unit": 100, "unit_amount": 900, "hard_cap": 20000}}
+```
+
+| Chave | Regra |
+|---|---|
+| `included` | inteiro ≥ 0; franquia por período, multiplicada pela quantidade do item |
+| `overage` | `block` (padrão) ou `bill`; `bill` só em preço de produto `base_plan` ou `app` |
+| `unit`, `unit_amount` | obrigatórios e ≥ 1 com `bill`; proibidos com `block`. O excedente é cobrado em blocos de `unit` a `unit_amount` (menor unidade da moeda) |
+| `hard_cap` | opcional com `bill`: o total máximo no período (≥ `included`); sem ele, não há teto |
+
+O produto `usage_pack` vende franquia recorrente, como o `storage_pack` vende armazenamento: o preço dele só traz `included`. Um medidor que não está registrado é recusado ao criar o preço, com a lista dos registrados; o formulário de preço da plataforma tem o campo **Termos de uso por medidor** (JSON) e volta com o que foi digitado quando há erro.
+
+**Resolução dos termos** de um medidor `M` da app `a` numa assinatura (`skeleton/billing/usage.py`, `resolve_terms`, uma função pura sobre os itens vivos):
+
+1. A franquia é a soma de `included × quantity` dos itens que citam `M`.
+2. A política é a do item `app` de `a` que cobra `M` (`bill`); senão, a do plano base que cobra; senão, `block`.
+3. Enquanto a assinatura está em trial ou com o cancelamento agendado para o fim do período, a política é `block`: não há fatura seguinte para cobrar o excedente.
+4. Nenhum item vivo cita `M`: o medidor é ilimitado naquela organização, e o consumo é gravado mesmo assim (relatório, e base para a plataforma precificar depois).
+
+O limite efetivo é a franquia com `block`, o `hard_cap` com `bill` (sem teto, nenhum) e nenhum quando ilimitado.
+
+**Gravar consumo** (#523). `BillingService().record_usage(actor=..., meter=..., idempotency_key=..., quantity=1)` grava, na transação de quem chama, um `UsageEvent` (a evidência, uma linha por consumo) e soma no `UsageBalance` do período (o contador). As duas tabelas são `OperationalRecord`, fora do gateway:
+
+- A chave de idempotência é única por organização e medidor: a mesma chave devolve o recibo da primeira chamada (`created=False`), inclusive numa corrida.
+- O contador do período é travado (`select_for_update`) antes de somar, então a disputa pela última unidade tem um vencedor; acima do limite, `Conflict("quota_exceeded")`, e nada é gravado.
+- O consumo vai para o período corrente; depois do fim do período e antes de a renovação rodar, já vai para o seguinte.
+- Cobrança desligada ou organização sem assinatura: nada é gravado e tudo é permitido (`metered=False`).
+- `void_usage` devolve a unidade de um consumo do período aberto (o envio que falhou de vez depois de contado); anular de novo não muda nada, consumo de período fechado é `Conflict("usage_period_closed")`, e uma chave anulada não volta a ser gravada (`Conflict("usage_voided")`). `check_usage` diz se cabe sem gravar, e `usage` lista o período de cada medidor das apps ativas.
+- A retenção do job diário `billing.usage_snapshot` apaga eventos e contadores de períodos que começaram antes de `SKELETON_BILLING_USAGE_RETENTION_DAYS`, nunca os do período corrente nem do anterior; é o único caminho de exclusão física.
+
+**Uso na página** (#525). A página de cobrança da organização (`billing.view`) tem a seção **Uso neste período**, com cada medidor citado pela assinatura das apps ativas: usado, incluído, a política e a barra de uso do limite (elemento `<progress>`, sem script). Medidor ilimitado não aparece, e sem nenhum a seção some. O `GET` de `/api/v1/o/<org>/billing/` traz a mesma lista em `usage`, e a página da organização na administração da plataforma mostra os números do período.
+
+**Faturar o excedente** (#524). Na renovação, a fonte de linhas `usage_lines` (ordem 510: depois do armazenamento, antes dos descontos) lê o `UsageBalance` de cada medidor no período que fecha. Os termos são os dos itens vivos no último instante do período, então um pacote de uso contratado no meio dele conta. Com `bill` e `used > included`, sai uma linha `overage` com `quantity = ceil((used - included) / unit)`, `amount = quantity × unit_amount`, o `app_label` do prefixo e o código do medidor em `InvoiceLine.metric` (imutável, como toda a linha); a descrição traz o rótulo e o código do medidor. Dois medidores dão duas linhas, pela ordem do código. Período em trial ou com `block` não gera linha, e renovar de novo o mesmo período não duplica nada (a trava da assinatura). O desconto de voucher continua limitado ao total das cobranças, linhas de uso incluídas.
+
+**Limitação: o último período de uma assinatura cancelada não é faturado.** Com o cancelamento agendado para o fim do período, a renovação encerra a assinatura sem emitir fatura, então nenhuma fonte de linhas roda: nem o excedente de uso nem o de armazenamento daquele período são cobrados. Por isso, enquanto o cancelamento está agendado, a política de uso é `block` (o consumo para na franquia); o armazenamento não tem essa trava e pode passar da franquia até o teto sem cobrança no último período.
+
+**Regra para as apps.** Grave o consumo na mesma transação que enfileira o efeito externo (o job de envio), com a chave igual ao identificador do registro de negócio (o `sysid` da mensagem), nunca telefone, email ou nome. Se o efeito falhar em definitivo, o job chama `void_usage`. Nos testes, `skeleton.testing.billing.subscribe_with_usage(organization, {meter: termos}, now=...)` monta e paga uma assinatura com os termos.
+
 ### Inadimplência
 
 O estado de acesso da organização é **derivado**, nunca digitado: da fatura em aberto mais antiga, dos prazos da instância e de uma prorrogação da plataforma. O `billing.cycle` (de hora em hora) o recalcula depois das renovações, e cada fatura paga o recalcula na hora (`skeleton/billing/dunning.py`).
@@ -142,7 +195,7 @@ O estado de acesso da organização é **derivado**, nunca digitado: da fatura e
 - Assinaturas `auto_charge` têm novas tentativas `SKELETON_BILLING_RETRY_SCHEDULE_DAYS` dias depois do vencimento (`1,3,5`), pelos cobradores que o provedor registra (`dunning.register_collector`, [#400](https://github.com/alaorneto/skeleton/issues/400)).
 - O evento `billing.access_state_changed` (com `access_state`) sai a cada mudança.
 
-**Avisos.** Notificações obrigatórias, por email e na aplicação, para o papel de administrador da organização, sem tabela-alvo (a entrega reconfere que a pessoa ainda administra a organização). Cada etapa sai uma vez (`dedupe_key`), mesmo com o job rodando de novo: `billing.trial_ending` (três dias antes do fim do trial), `billing.invoice_issued`, `billing.invoice_overdue`, `billing.payment_failed`, `billing.payment_received`, `billing.access_restricted` e `billing.access_suspended`.
+**Avisos.** Notificações obrigatórias, por email e na aplicação, para o papel de administrador da organização, sem tabela-alvo (a entrega reconfere que a pessoa ainda administra a organização). Cada etapa sai uma vez (`dedupe_key`), mesmo com o job rodando de novo: `billing.trial_ending` (três dias antes do fim do trial), `billing.invoice_issued`, `billing.invoice_overdue`, `billing.payment_failed`, `billing.payment_received`, `billing.access_restricted` e `billing.access_suspended`. O aviso de uso `billing.usage_threshold` (#525) não é obrigatório: sai ao cruzar 80% e 100% do limite efetivo de um medidor (a franquia com `block`, o teto com `bill`; sem teto, não há aviso), uma vez por medidor, período e limiar (`usage:<medidor>:<início do período>:<80|100>`), mesmo com consumo concorrente, porque o cruzamento é visto sob a trava do contador. O payload leva só o código do medidor, `used`, `limit`, `threshold` e o início do período: nunca a chave de idempotência nem dado de pessoa.
 
 ### Impostos
 

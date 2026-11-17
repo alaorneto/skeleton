@@ -40,7 +40,7 @@ def _webhook_url(request, account):
     return f"{origin}{path}" if origin else request.build_absolute_uri(path)
 
 
-def _catalog_page(request, *, status=200, error=None):
+def _catalog_page(request, *, status=200, error=None, draft=None):
     from skeleton.billing.models import Price, Product, ProviderAccount, Voucher
     from skeleton.billing.providers.base import all_providers
 
@@ -58,6 +58,9 @@ def _catalog_page(request, *, status=200, error=None):
             "accounts": [(account, _webhook_url(request, account)) for account in accounts],
             "providers": all_providers(),
             "error": error,
+            # What was typed in the price form, kept when it comes back with an error (#522).
+            "draft": draft or {},
+            "meters": _meters(),
         },
         status=status,
     )
@@ -105,7 +108,13 @@ def _json(data, name, default):
         raise ValidationError({name: gettext("Use JSON válido.")}) from None
 
 
-def _catalog_action(request, action):
+def _meters():
+    from skeleton.billing.usage import registered_usage_meters
+
+    return registered_usage_meters()
+
+
+def _catalog_action(request, action, *, draft=None):
     try:
         with transaction.atomic():
             action()
@@ -115,7 +124,7 @@ def _catalog_action(request, action):
             if isinstance(error, ValidationError) and hasattr(error, "error_dict")
             else gettext("Os dados mudaram ou são inválidos. Revise e tente de novo.")
         )
-        return _catalog_page(request, status=400, error=detail)
+        return _catalog_page(request, status=400, error=detail, draft=draft)
     messages.success(request, gettext("Catálogo de cobrança atualizado."))
     return redirect("platform:billing")
 
@@ -165,9 +174,10 @@ def billing_price(request):
             if data.get("overage_unit_amount")
             else None,
             overage_hard_cap_bytes=_gigabytes(data, "overage_hard_cap_gb") or None,
+            usage=_json(data, "usage", {}),
         )
 
-    return _catalog_action(request, create)
+    return _catalog_action(request, create, draft=data)
 
 
 @platform_page(capability=CAPABILITY, writes=True)

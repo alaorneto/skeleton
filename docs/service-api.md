@@ -251,7 +251,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
 | `FeedTokenService` | `skeleton.service_api.tokens` | `issue` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
-| `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
+| `BillingService` | `skeleton.service_api.billing` | `access_state`, `entitlement`, `storage_allowance`, `check_quota`, `record_usage`, `void_usage`, `check_usage`, `usage`, `subscription`, `list_invoices`, `offers`, `contract`, `remove_item`, `cancel`, `resume`, `redeem_voucher`, `update_account`, `checkout` | [#404](https://github.com/alaorneto/skeleton/issues/404) |
 | `FlowService` | `skeleton.service_api.flows` | `start`, `signal`, `instance`, `instances`, `history`, `tasks`, `open_task_count`, `task`, `claim_task`, `release_task`, `reassign_task`, `complete_task`, `decide_task`, `cancel`, `suspend`, `resume`, `retry` | [#205](https://github.com/alaorneto/skeleton/issues/205) |
 
 ### IdentityService
@@ -415,6 +415,10 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 | `entitlement(*, actor, app_label) -> bool` | qualquer membro, ou `system_context`; uma app sem preço sempre tem direito | — |
 | `storage_allowance(*, actor) -> StorageAllowance` | qualquer membro, ou `system_context` | — |
 | `check_quota(*, actor, metric, increment=1) -> None` | qualquer membro, ou `system_context` | `Conflict("quota_exceeded")` acima do limite; `InvalidInput` para métrica não registrada |
+| `record_usage(*, actor, meter, idempotency_key, quantity=1, occurred_at=None) -> UsageReceipt` | qualquer membro, ou `system_context`; a app do prefixo do medidor ativa | `Conflict("quota_exceeded")`; `Conflict("usage_voided")`; `Unavailable`; `InvalidInput` |
+| `void_usage(*, actor, meter, idempotency_key) -> UsageReceipt` | idem | `NotFound` (chave desconhecida); `Conflict("usage_period_closed")`; `Unavailable`; `InvalidInput` |
+| `check_usage(*, actor, meter, quantity=1) -> UsageStatus` | idem; não grava | `Conflict("quota_exceeded")`; `Unavailable`; `InvalidInput` |
+| `usage(*, actor) -> tuple[UsageStatus, ...]` | qualquer membro, ou `system_context`; medidores das apps ativas | — |
 | `subscription(*, actor) -> SubscriptionSummary \| None` | `billing.view` | `NotFound` sem a capacidade |
 | `list_invoices(*, actor, page_size=20, cursor=None) -> Page[InvoiceSummary]` | `billing.view` | `NotFound` sem a capacidade |
 | `offers(*, actor) -> tuple[PriceOffer, ...]` | `billing.view`; preços públicos e ativos na moeda e no ciclo da organização | `NotFound` sem a capacidade |
@@ -423,6 +427,8 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 | `redeem_voucher(*, actor, code)` | `billing.manage` | `InvalidInput` com o código do motivo (`invalid_voucher`, `already_redeemed`, `not_trialing`, `too_many_attempts`) |
 | `update_account(*, actor, legal_name, billing_email, tax_id, country) -> None` | `billing.manage` | `InvalidInput` |
 | `checkout(*, actor, invoice_id, return_url) -> CheckoutLink` | `billing.manage` | `NotFound` (fatura de outra organização); `InvalidInput` (fatura não aberta, sem provedor) |
+
+**Medidores de uso** (#522). O módulo também expõe `register_usage_meter(code, *, label, unit_label)`, que a app chama no `ready()` para declarar um consumo por período (`<app_label>.<nome>`), e `registered_usage_meters()`, com `(código, rótulo, unidade)` de cada um. `UsageReceipt` tem `meter`, `metered` (falso sem cobrança ou sem assinatura: nada gravado), `created` (falso para chave repetida ou anulação), `used`, `included`, `limit` (`None`: sem limite) e `overage` (`block`, `bill` ou `unlimited`); `UsageStatus` tem `meter`, `label`, `unit_label`, `used`, `included`, `limit`, `overage`, `period_start` e `period_end`; os termos de cada preço estão em [cobrança](billing.md#medidores-de-uso).
 
 `AccessState` tem `level` e `since`; `StorageAllowance`, `quota_bytes` (`None`: ilimitada), `used_bytes` e `overage` (`block` ou `bill`). Uma app declara as métricas de estado que um preço pode limitar com a função `skeleton.service_api.billing.register_quota_metric("<app_label>.<nome>", contador)` no `ready()`, sem importar `skeleton.billing` (#542; o livro contábil registra `skeleton_ledger.books`). Os DTOs de assinatura, item, fatura e oferta trazem só identificadores, valores na menor unidade da moeda e datas; dados de contato da conta nunca saem por eles.
 

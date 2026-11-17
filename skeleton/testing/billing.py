@@ -169,3 +169,36 @@ def use_fake_provider(*, currencies: tuple[str, ...] = ()) -> Iterator[tuple[Fak
             base._providers.pop(provider.code, None)
         else:
             base._providers[provider.code] = previous
+
+
+def subscribe_with_usage(
+    organization: Any,
+    usage: Mapping[str, Mapping[str, Any]],
+    *,
+    now: datetime,
+    kind: str = "base_plan",
+    app_label: str = "",
+    unit_amount: int = 1000,
+    currency: str = "BRL",
+) -> Any:
+    """Start and settle a subscription of ``organization`` to a new price with ``usage`` terms (#523).
+
+    For the tests of an app that records consumption: register the meter first
+    (``skeleton.service_api.billing.register_usage_meter``), turn billing on
+    (``SKELETON_BILLING_ENABLED``) and pin the billing clock if the test depends on the period.
+    Returns the subscription.
+    """
+    from skeleton.billing import engine
+    from skeleton.billing.models import Price, Product
+    from skeleton.tenancy.context import system_context
+
+    with system_context(reason="test:billing-usage-plan"):
+        product = Product(code=f"plan-{uuid4().hex[:12]}", kind=kind, name="Plano de teste", app_label=app_label)
+        product.save()
+        price = Price(product=product, currency=currency, unit_amount=unit_amount, usage=dict(usage))
+        price.save()
+    with system_context(reason="test:billing-usage-subscribe", organization_id=organization.pk):
+        engine.start_subscription(price, now=now)
+        subscription = engine.current_subscription()
+        engine.settle_invoice(subscription.invoices.get(), now=now)
+        return engine.current_subscription()

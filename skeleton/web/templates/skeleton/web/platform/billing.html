@@ -12,7 +12,7 @@
 <form method="post" class="record-form mt-4" action="{% url 'platform:billing-product' %}">{% csrf_token %}
 <p><label for="product-code">{% translate "Código" %}</label><input id="product-code" name="code" required maxlength="64"></p>
 <p><label for="product-name">{% translate "Nome" %}</label><input id="product-name" name="name" required maxlength="200"></p>
-<p><label for="product-kind">{% translate "Tipo" %}</label><select id="product-kind" name="kind"><option value="base_plan">{% translate "Plano base" %}</option><option value="app">{% translate "App" %}</option><option value="storage_pack">{% translate "Pacote de armazenamento" %}</option></select></p>
+<p><label for="product-kind">{% translate "Tipo" %}</label><select id="product-kind" name="kind"><option value="base_plan">{% translate "Plano base" %}</option><option value="app">{% translate "App" %}</option><option value="storage_pack">{% translate "Pacote de armazenamento" %}</option><option value="usage_pack">{% translate "Pacote de uso" %}</option></select></p>
 <p><label for="product-app">{% translate "App vendida (só para o tipo App)" %}</label><input id="product-app" name="app_label" maxlength="100"></p>
 <p><label><input type="checkbox" name="is_public" checked> {% translate "Visível para as organizações" %}</label></p>
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar produto" %}</button></div></form></section>
@@ -25,18 +25,20 @@
 </tbody></table></div>
 <form method="post" class="record-form mt-4" action="{% url 'platform:billing-price' %}">{% csrf_token %}
 <p><label for="price-product">{% translate "Produto" %}</label><select id="price-product" name="product">{% for product in products %}<option value="{{ product.pk }}">{{ product.code }}</option>{% endfor %}</select></p>
-<p><label for="price-currency">{% translate "Moeda (ISO 4217)" %}</label><input id="price-currency" name="currency" value="BRL" maxlength="3" required></p>
-<p><label for="price-amount">{% translate "Valor (decimal, como 49.90)" %}</label><input id="price-amount" name="amount" required></p>
+<p><label for="price-currency">{% translate "Moeda (ISO 4217)" %}</label><input id="price-currency" name="currency" value="{{ draft.currency|default:'BRL' }}" maxlength="3" required></p>
+<p><label for="price-amount">{% translate "Valor (decimal, como 49.90)" %}</label><input id="price-amount" name="amount" value="{{ draft.amount|default:'' }}" required></p>
 <p><label for="price-interval">{% translate "Ciclo" %}</label><select id="price-interval" name="interval"><option value="month">{% translate "Mês" %}</option><option value="year">{% translate "Ano" %}</option></select></p>
-<p><label for="price-count">{% translate "Ciclos por período" %}</label><input id="price-count" name="interval_count" value="1"></p>
-<p><label for="price-trial">{% translate "Dias de trial" %}</label><input id="price-trial" name="trial_days" value="0"></p>
-<p><label for="price-storage">{% translate "Armazenamento incluído (GB)" %}</label><input id="price-storage" name="included_storage_gb" value="0"></p>
-<p><label for="price-apps">{% translate "Apps incluídas (JSON, só plano base)" %}</label><input id="price-apps" name="included_apps" placeholder='["notes"]'></p>
-<p><label for="price-limits">{% translate "Limites (JSON)" %}</label><input id="price-limits" name="limits" placeholder='{"members": 10}'></p>
+<p><label for="price-count">{% translate "Ciclos por período" %}</label><input id="price-count" name="interval_count" value="{{ draft.interval_count|default:'1' }}"></p>
+<p><label for="price-trial">{% translate "Dias de trial" %}</label><input id="price-trial" name="trial_days" value="{{ draft.trial_days|default:'0' }}"></p>
+<p><label for="price-storage">{% translate "Armazenamento incluído (GB)" %}</label><input id="price-storage" name="included_storage_gb" value="{{ draft.included_storage_gb|default:'0' }}"></p>
+<p><label for="price-apps">{% translate "Apps incluídas (JSON, só plano base)" %}</label><input id="price-apps" name="included_apps" value="{{ draft.included_apps|default:'' }}" placeholder='["notes"]'></p>
+<p><label for="price-limits">{% translate "Limites (JSON)" %}</label><input id="price-limits" name="limits" value="{{ draft.limits|default:'' }}" placeholder='{"members": 10}'></p>
 <p><label for="price-overage">{% translate "Acima da franquia" %}</label><select id="price-overage" name="storage_overage"><option value="block">{% translate "Bloquear" %}</option><option value="bill">{% translate "Cobrar o excedente" %}</option></select></p>
 <p><label for="price-unit-gb">{% translate "Bloco de excedente (GB)" %}</label><input id="price-unit-gb" name="overage_unit_gb"></p>
 <p><label for="price-unit-amount">{% translate "Valor do bloco (decimal)" %}</label><input id="price-unit-amount" name="overage_unit_amount"></p>
-<p><label for="price-cap">{% translate "Teto de armazenamento (GB, vazio é ilimitado)" %}</label><input id="price-cap" name="overage_hard_cap_gb"></p>
+<p><label for="price-cap">{% translate "Teto de armazenamento (GB, vazio é ilimitado)" %}</label><input id="price-cap" name="overage_hard_cap_gb" value="{{ draft.overage_hard_cap_gb|default:'' }}"></p>
+<p><label for="price-usage">{% translate "Termos de uso por medidor (JSON)" %}</label><textarea id="price-usage" name="usage" rows="3" aria-describedby="price-usage-help" placeholder='{"app.medidor": {"included": 1000, "overage": "bill", "unit": 100, "unit_amount": 900}}'>{{ draft.usage|default:'' }}</textarea>
+<span id="price-usage-help" class="helptext">{% translate "Medidores registrados:" %} {% for meter in meters %}<code>{{ meter.code }}</code> ({{ meter.label }}){% if not forloop.last %}, {% endif %}{% empty %}{% translate "nenhum" %}{% endfor %}.</span></p>
 <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Criar preço" %}</button></div></form></section>
 
 <section class="mb-8" aria-labelledby="vouchers-heading"><h2 id="vouchers-heading" class="section-heading">{% translate "Vouchers" %}</h2>

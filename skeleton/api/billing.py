@@ -64,6 +64,8 @@ class BillingAPI(TenantAPI):
                 "invoices": [_dto(item) for item in service.list_invoices(actor=actor).items],
                 "offers": [_dto(item) for item in service.offers(actor=actor)],
                 "storage": _dto(service.storage_allowance(actor=actor)),
+                # The contracted meters of the period (#525); unlimited ones are left out, as on the page.
+                "usage": [_dto(item) for item in service.usage(actor=actor) if item.overage != "unlimited"],
             }
         )
 

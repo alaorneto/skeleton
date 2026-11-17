@@ -76,7 +76,7 @@ O job `notifications.fanout` (sistema, por organização) cria uma linha `Notifi
 
 **Pessoas externas** (#535). Um tipo com `audience="external"` notifica pessoas externas do [portal](portal.md): os destinatários são indicados um a um (`Recipients(users=...)`; grupos, papéis e a organização inteira são recusados) e cada um precisa de `ExternalAccess` ativo na organização. O tipo não tem alvo nem snapshot, só os campos declarados do payload, e usa só o canal `email` (`notification_problems` acusa outro canal, um alvo ou uma audiência desconhecida). O fan-out, por job como sempre, não cria linha de caixa de entrada: só agenda o email, que leva o link do portal da organização e nenhum link de preferências, e é pulado (`recipient_inactive`) se o acesso foi revogado antes do envio. A deduplicação pela chave vale igual. Um tipo sem a declaração continua recusando quem não é membro.
 
-Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem tabela-alvo, obrigatórios, por email e na aplicação: `authorize` reconfere no fan-out que a pessoa ainda administra a organização, e `dedupe_key` faz cada etapa sair uma vez.
+Os avisos da [cobrança](billing.md#inadimplência) (`billing.*`) são tipos sem tabela-alvo, obrigatórios, por email e na aplicação: `authorize` reconfere no fan-out que a pessoa ainda administra a organização, e `dedupe_key` faz cada etapa sair uma vez. A exceção é `billing.usage_threshold` (#525), o aviso de 80% e 100% do limite de um medidor de uso: não é obrigatório (a pessoa pode desligar o canal) e leva só o código do medidor e os números ([medidores de uso](billing.md#medidores-de-uso)).
 
 ## Caixa de notificações
 

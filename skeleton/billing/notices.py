@@ -14,6 +14,10 @@ from typing import Any
 from django.utils.translation import gettext_lazy
 
 FIELDS = ("number", "total", "currency", "due_at", "state", "trial_end")
+# The usage threshold (#525): only the meter code and the numbers, never a key or a person.
+USAGE_THRESHOLD = "billing.usage_threshold"
+USAGE_FIELDS = ("meter", "used", "limit", "threshold", "period_start")
+THRESHOLDS = (80, 100)
 TYPES = {
     "billing.trial_ending": gettext_lazy("Período de avaliação terminando"),
     "billing.invoice_issued": gettext_lazy("Nova fatura"),
@@ -53,6 +57,17 @@ def register_notices() -> None:
     register_after_issue(invoice_issued)
     register_after_payment(payment_received)
 
+    register_notification_type(
+        NotificationType(
+            USAGE_THRESHOLD,
+            str(gettext_lazy("Uso de medidor perto do limite")),
+            payload_fields=USAGE_FIELDS,
+            default_channels=("in_app", "email"),
+            owner_app="sk_billing",
+            open_url=_open_url,
+            authorize=_authorize,
+        )
+    )
     for code, label in TYPES.items():
         register_notification_type(
             NotificationType(
@@ -127,4 +142,25 @@ def trial_ending(*, now: datetime, days: int) -> None:
             "billing.trial_ending",
             dedupe_key=f"subscription:{subscription.pk}:trial:{subscription.trial_end.date().isoformat()}",
             trial_end=subscription.trial_end.isoformat(),
+        )
+
+
+def crossed(before: int, after: int, limit: int | None) -> tuple[int, ...]:
+    """The thresholds (percent of ``limit``) that a change from ``before`` to ``after`` crossed upward."""
+    if not limit or after <= before:
+        return ()
+    return tuple(step for step in THRESHOLDS if before * 100 < step * limit <= after * 100)
+
+
+def usage_threshold(meter: str, *, before: int, after: int, limit: int | None, period_start: datetime) -> None:
+    """Tell the organization's administrators once per meter, period and threshold crossed (#525)."""
+    for step in crossed(before, after, limit):
+        _notify(
+            USAGE_THRESHOLD,
+            dedupe_key=f"usage:{meter}:{period_start.isoformat()}:{step}",
+            meter=meter,
+            used=after,
+            limit=limit,
+            threshold=step,
+            period_start=period_start.isoformat(),
         )

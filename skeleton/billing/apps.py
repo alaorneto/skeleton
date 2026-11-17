@@ -24,6 +24,7 @@ class BillingConfig(AppConfig):
         from .payments import register_payment_jobs
         from .providers import asaas, mercadopago, stripe
         from .quota import register_quota
+        from .usage import register_usage
         from .vouchers import register_voucher_lines
 
         # The policy is always registered and answers "allow everything" while billing is off,
@@ -34,6 +35,7 @@ class BillingConfig(AppConfig):
         register_billing_events()
         register_voucher_lines()
         register_quota()
+        register_usage()
         register_dunning()
         register_notices()
         register_payment_jobs(enabled=bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)))
