@@ -153,6 +153,18 @@ def register_core_specs():
             "organization",
             ("logo_key", "icon_key"),
         ),
+        "sk_tenancy.externalaccesspolicy": (
+            gettext_lazy("Política do portal externo"),
+            gettext_lazy("Se a organização abre o portal a pessoas externas; sem linha, desligado."),
+            "organization",
+            (),
+        ),
+        "sk_tenancy.externalaccess": (
+            gettext_lazy("Acessos externos"),
+            gettext_lazy("Pessoa que acessa o portal da organização sem ser membro; não conta como assento."),
+            "organization",
+            (),
+        ),
         "sk_tenancy.organizationadmissionpolicy": (
             "Política de admissão",
             "Como pessoas de fora pedem para entrar na organização; sem linha, tudo desligado.",

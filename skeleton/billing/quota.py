@@ -58,8 +58,16 @@ def _members(organization_id: Any) -> int:
     return Membership.objects.filter(organization_id=organization_id, is_active=True).count()
 
 
+def _external_people(organization_id: Any) -> int:
+    from skeleton.tenancy.models import ExternalAccess
+
+    return ExternalAccess.objects.filter(organization_id=organization_id, is_active=True).count()
+
+
 def register_core_metrics() -> None:
     register_quota_metric("members", _members)
+    # External people of the portal (#531): never counted in ``members``.
+    register_quota_metric("external_people", _external_people)
 
 
 def plan_limit(subscription: Any, metric: str, *, now: datetime) -> int | None:

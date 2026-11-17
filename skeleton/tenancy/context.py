@@ -55,7 +55,7 @@ _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", defa
 # Per-request memo (#24): created by request_context, gone when the request ends. Never an
 # authorization cache across requests: a revocation still applies on the next request.
 _request_cache: ContextVar[dict[Any, Any] | None] = ContextVar("skeleton_request_cache", default=None)
-_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor")
+_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor", "external")
 # One statement per context entry (#237); the names are constants, the values parameters.
 _SET_GUCS = "SELECT " + ", ".join(f"set_config('skeleton.{name}', %s, true)" for name in _GUCS)
 
@@ -85,6 +85,7 @@ def _apply(context: Context) -> None:
             context.source,
             "on" if context.platform_admin else "off",
             "on" if context.platform_auditor else "off",
+            "on" if context.external else "off",
         )
         assert len(values) == len(_GUCS)  # noqa: S101 - invariant between the GUC list and its values
         with connection.cursor() as cursor:
@@ -192,6 +193,8 @@ def tenant_context(
         return
     if tenant_id is None:
         raise MissingTenantContext("Organization is required.")
+    if prior and prior.external:
+        raise InvalidContext("An external context never opens a member context.")
     if prior and prior.actor != actor_id:
         raise InvalidContext("Actor may change only through the authentication hook.")
     if prior and prior.organization_id not in (None, tenant_id):
@@ -206,6 +209,76 @@ def tenant_context(
         _selected.set(tenant_id)
     context = replace(prior or Context(using=using), actor=actor_id, organization_id=tenant_id, source=source)
     with _enter(context) as active:
+        yield active
+
+
+def _validate_external_access(organization_id: UUID, actor_id: UUID | None, using: str) -> None:
+    """A live, active external access of an active person in an active organization."""
+    from skeleton.tenancy.models import ExternalAccess
+
+    if actor_id is None:
+        raise PermissionDenied("Organization is unavailable.")
+    access = (
+        ExternalAccess.all_objects.using(using)
+        .filter(
+            organization_id=organization_id,
+            user_id=actor_id,
+            is_active=True,
+            deleted_at__isnull=True,
+            organization__is_active=True,
+            organization__deleted_at__isnull=True,
+            user__is_active=True,
+            user__deleted_at__isnull=True,
+        )
+        .exists()
+    )
+    if not access:
+        raise PermissionDenied("Organization is unavailable.")  # The same answer as a missing membership.
+
+
+def _require_portal_enabled(using: str) -> None:
+    """Inside the organization's context (the policy has no self-discovery): the portal must be on."""
+    from skeleton.tenancy.models import ExternalAccessPolicy
+
+    if not ExternalAccessPolicy.objects.using(using).filter(enabled=True).exists():
+        raise PermissionDenied("Organization is unavailable.")
+
+
+@contextmanager
+def external_context(
+    *, organization_id: IdentityRef, actor: IdentityRef, source: str = "http:portal", using: str = "default"
+) -> Iterator[Context]:
+    """The organization's portal for an external person (#531): ``external=True``, no member power.
+
+    Validates a live ``ExternalAccess`` instead of a ``Membership``; a member context and an
+    external one never nest in each other (``InvalidContext``), so a person who is both member and
+    external has, inside the portal, only what the apps expose for external use.
+    """
+    tenant_id, actor_id = _uuid(organization_id), _uuid(actor)
+    prior = _context.get()
+    if prior is None:
+        with request_context(actor=actor, request_id=None, source=source, using=using):
+            with external_context(organization_id=tenant_id, actor=actor, source=source, using=using) as active:
+                yield active
+        return
+    if tenant_id is None:
+        raise MissingTenantContext("Organization is required.")
+    if prior.system or prior.organization_id is not None:
+        raise InvalidContext("An external context opens only at the top of a request.")
+    if prior.actor != actor_id:
+        raise InvalidContext("Actor may change only through the authentication hook.")
+    if prior.credential_scopes is not None:
+        raise InvalidContext("An API token never opens an external context.")
+    if _selected.get() not in (None, tenant_id):
+        raise InvalidContext("A request may select only one tenant.")
+    # ExternalAccess has the same restricted self-discovery SELECT policy as Membership.
+    _validate_external_access(tenant_id, actor_id, using)
+    _selected.set(tenant_id)
+    context = replace(
+        prior, actor=actor_id, organization_id=tenant_id, source=source, external=True, platform_admin=False
+    )
+    with _enter(context) as active:
+        _require_portal_enabled(using)
         yield active
 
 

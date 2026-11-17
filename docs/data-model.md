@@ -6,7 +6,7 @@ Este documento descreve **o que uma linha representa e quais regras ela deve con
 
 Alice trabalha nas organizações Alfa e Beta. Existe **um `User` de Alice**, com seu email e credenciais, e **um `UserProfile`**, com nome de exibição, idioma e fuso horário. `Profile` é a ideia de perfil; o nome concreto do modelo é `UserProfile`. Nenhum dos dois representa o cargo de Alice em uma organização.
 
-Cada `Organization` representa um espaço organizacional separado. Dois `Membership` ligam o mesmo usuário a Alfa e Beta; cada vínculo pode estar ativo ou inativo e receber papéis diferentes. Desativar o vínculo em Alfa não desativa a identidade nem o vínculo em Beta. Já desativar o `User` impede login e exige verificar os administradores de todas as organizações afetadas.
+Cada `Organization` representa um espaço organizacional separado. Dois `Membership` ligam o mesmo usuário a Alfa e Beta; cada vínculo pode estar ativo ou inativo e receber papéis diferentes. Desativar o vínculo em Alfa não desativa a identidade nem o vínculo em Beta. Uma pessoa externa (portal, #531) não tem `Membership`: o vínculo dela é `ExternalAccess` ([acesso externo](access-control.md#acesso-externo-portal)). Já desativar o `User` impede login e exige verificar os administradores de todas as organizações afetadas.
 
 Uma nota de Alfa pertence a Alfa, mesmo se Alice também trabalha em Beta. Sua organização não pode ser trocada depois da criação. Para uma relação entre dois registros organizacionais, ambos devem pertencer à mesma organização: conhecer o UUID de uma nota de Beta não permite associá-la a um registro de Alfa.
 

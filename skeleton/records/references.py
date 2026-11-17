@@ -22,6 +22,9 @@ CORE_REFERENCE_LABELS = frozenset(
 
 def target_queryset(field, *, user, source_model, access=False):
     """Fail closed for a target without a readable policy; never list global identities."""
+    from skeleton.records.services import refuse_external
+
+    refuse_external()
     related = field.remote_field.model
     if issubclass(related, SecuredRecord):
         return authorized_queryset(related, user=user)
@@ -65,6 +68,9 @@ def _invitation_roles(model, *, user):
 
 
 def reference_queryset(spec, field_name, *, user, record=None, access=False):
+    from skeleton.records.services import refuse_external
+
+    refuse_external()
     from skeleton.records.services import ACCESS_FIELDS, record_queryset, require_access_management
 
     if access:

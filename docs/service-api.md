@@ -102,8 +102,9 @@ O serviço **não abre** contexto. Ele roda dentro do contexto do chamador:
 | View ou endpoint tenant | `tenant_context` aberto pelo middleware a partir da URL | `request.user` |
 | Job `run_as="actor"` ([#77](https://github.com/alaorneto/skeleton/issues/77)) | `tenant_context` aberto pelo worker | ator do job |
 | Job `run_as="system"` | `system_context(reason=...)` da organização | `None`, só em métodos `@service_method(allow_system=True)` |
+| View do portal (#515) | `external_context` da pessoa externa | `request.user`, só em métodos `@service_method(allow_external=True)` |
 
-O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
+Em contexto externo, um método sem `allow_external=True` responde `Forbidden(code="external_not_allowed")`; a marca aparece em `ServiceMethodSpec.allow_external` e o método marcado autoriza pela ligação da app à pessoa, nunca por `authorized_queryset` ([acesso externo](access-control.md#acesso-externo-portal)). O decorador confere que `actor` é o mesmo de `current_context().actor` (`skeleton/tenancy/context.py`) e que existe organização quando o método exige tenant. Uma app não consegue agir em nome de outra pessoa passando outro `actor`. Um serviço nunca chama `system_context` para ampliar o que o ator pode fazer, e nunca troca de organização no meio da chamada.
 
 ## Autorização
 
