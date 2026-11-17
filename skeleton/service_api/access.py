@@ -157,7 +157,7 @@ def _decide(actor: Any, action: str, table_key: str, record_id: Any) -> tuple[bo
 class AccessService(ServiceAPI):
     """Consistent with ``authorized_queryset``/``require_record_action``; no cache between calls."""
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def can(self, *, actor: AbstractBaseUser, action: str, table_key: str, record_id: UUID | None = None) -> bool:
         """Whether the actor may perform ``action`` on the table or on one record.
 
@@ -170,7 +170,7 @@ class AccessService(ServiceAPI):
         """
         return _decide(actor, action, table_key, record_id)[1]
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def require(self, *, actor: AbstractBaseUser, action: str, table_key: str, record_id: UUID | None = None) -> None:
         """Raise unless the actor may perform ``action``.
 
@@ -185,7 +185,7 @@ class AccessService(ServiceAPI):
         if not allowed:
             raise Forbidden()
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def grant_record_access(
         self,
         *,
@@ -223,7 +223,7 @@ class AccessService(ServiceAPI):
         )
         return _grant_info(grant, model._meta.label_lower)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def revoke_record_access(
         self,
         *,
@@ -253,7 +253,7 @@ class AccessService(ServiceAPI):
         if grant is not None:
             revoke_link(grant, user=_user(actor))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def granted_record_ids(
         self, *, actor: AbstractBaseUser, table_key: str, record_ids: tuple[UUID, ...], action: str = "read"
     ) -> tuple[UUID, ...]:
@@ -312,7 +312,7 @@ class AccessService(ServiceAPI):
         )
         return set(rows.values_list("sysid", flat=True))
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def capabilities(self, *, actor: AbstractBaseUser) -> tuple[str, ...]:
         """Return the actor's organizational capabilities, sorted.
 
@@ -324,7 +324,7 @@ class AccessService(ServiceAPI):
 
         return tuple(sorted(capabilities_for(_user(actor))))
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def my_groups(self, *, actor: AbstractBaseUser) -> tuple[GroupSummary, ...]:
         """Return the live groups the actor belongs to in the current organization.
 
@@ -338,7 +338,7 @@ class AccessService(ServiceAPI):
         groups = AccessGroup.objects.filter(pk__in=group_ids(_user(actor))).order_by("code", "sysid")
         return tuple(GroupSummary(group.pk, group.code, group.name) for group in groups)
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def grant_member_table_access(
         self, *, actor: AbstractBaseUser, table_key: str, actions: tuple[str, ...]
     ) -> tuple[str, ...]:

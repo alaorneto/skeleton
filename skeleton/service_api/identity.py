@@ -104,7 +104,7 @@ def _me(user: Any) -> UserProfileInfo:
 class IdentityService(ServiceAPI):
     """Identity and profile of people; never passwords, MFA state or ``auth_version``."""
 
-    @service_method(read_only=True, since="0.5.0", tenant=False)
+    @service_method(read_only=True, since="0.1.0", tenant=False)
     def me(self, *, actor: AbstractBaseUser) -> UserProfileInfo:
         """Return the actor's own identity and preferences.
 
@@ -114,7 +114,7 @@ class IdentityService(ServiceAPI):
         """
         return _me(actor)
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def get_person(self, *, actor: AbstractBaseUser, user_id: UUID) -> PersonSummary:
         """Return a member of the current organization.
 
@@ -146,7 +146,7 @@ class IdentityService(ServiceAPI):
             kind=_kind(person),
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def people(self, *, actor: AbstractBaseUser, user_ids: tuple[UUID, ...]) -> tuple[PersonSummary, ...]:
         """Return the active members of the current organization among ``user_ids``.
 
@@ -183,7 +183,7 @@ class IdentityService(ServiceAPI):
             if (person := found.get(identifier)) is not None
         )
 
-    @service_method(read_only=False, since="0.5.0", tenant=False)
+    @service_method(read_only=False, since="0.1.0", tenant=False)
     def update_my_preferences(
         self,
         *,
@@ -209,7 +209,7 @@ class IdentityService(ServiceAPI):
         update_profile(actor, data=data, profile_revision=expected_revision)
         return _me(actor)
 
-    @service_method(read_only=False, since="0.5.0", tenant=False)
+    @service_method(read_only=False, since="0.1.0", tenant=False)
     def update_my_profile(
         self,
         *,

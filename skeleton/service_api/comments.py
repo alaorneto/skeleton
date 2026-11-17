@@ -73,7 +73,7 @@ def _call(function: Any, *args: Any, **kwargs: Any) -> Any:
 class CommentService(ServiceAPI):
     """Who reads a record reads its comments; only the author edits; author and admin delete."""
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def comments(
         self,
         *,
@@ -95,7 +95,7 @@ class CommentService(ServiceAPI):
         rows = _call(services.comments_for, _spec(table_key), as_uuid(record_id, field="record_id"), user=actor)
         return paginate(rows.select_related("target_table"), convert=_info, page_size=page_size, cursor=cursor)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def add_comment(self, *, actor: AbstractBaseUser, table_key: str, record_id: UUID, body: str) -> CommentInfo:
         """Comment a record with plain text (up to 5,000 characters; no Markdown or HTML).
 
@@ -111,7 +111,7 @@ class CommentService(ServiceAPI):
         comment = _call(services.add, _spec(table_key), as_uuid(record_id, field="record_id"), user=actor, body=body)
         return _info(comment)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def edit_comment(
         self,
         *,
@@ -143,7 +143,7 @@ class CommentService(ServiceAPI):
         )
         return _info(comment)
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def delete_comment(
         self, *, actor: AbstractBaseUser, table_key: str, record_id: UUID, comment_id: UUID, expected_revision: int
     ) -> None:
@@ -164,7 +164,7 @@ class CommentService(ServiceAPI):
             revision=expected_revision,
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def restore_comment(
         self, *, actor: AbstractBaseUser, table_key: str, record_id: UUID, comment_id: UUID, expected_revision: int
     ) -> CommentInfo:

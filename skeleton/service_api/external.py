@@ -122,7 +122,7 @@ def _translate(function: Callable[[], Any]) -> Any:
 class ExternalAccessService(ServiceAPI):
     """Invitations and accesses of the organization's external people (the portal)."""
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def invite(
         self,
         *,
@@ -174,7 +174,7 @@ class ExternalAccessService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def revoke_invitation(self, *, actor: AbstractBaseUser, invitation_id: UUID, expected_revision: int) -> None:
         """Revoke a pending invitation, with CAS; its link stops working.
 
@@ -194,7 +194,7 @@ class ExternalAccessService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def resend_invitation(
         self, *, actor: AbstractBaseUser, invitation_id: UUID, expected_revision: int
     ) -> ExternalInvitationInfo:
@@ -218,7 +218,7 @@ class ExternalAccessService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def accesses(
         self,
         *,
@@ -243,7 +243,7 @@ class ExternalAccessService(ServiceAPI):
             rows = rows.filter(app_label=app_label)
         return paginate(rows, convert=access_info, page_size=page_size, cursor=cursor)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def invitations(self, *, actor: AbstractBaseUser) -> tuple[ExternalInvitationInfo, ...]:
         """The pending invitations of the organization (at most 200), newest first.
 
@@ -257,7 +257,7 @@ class ExternalAccessService(ServiceAPI):
         rows = ExternalInvitation.objects.filter(accepted_at__isnull=True).order_by("-created_at")[:200]
         return tuple(invitation_info(row) for row in rows)
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def access_for(self, *, actor: AbstractBaseUser, app_label: str, subject_ref: UUID) -> ExternalAccessInfo | None:
         """The access linked to an app's record by an accepted invitation, if any.
 
@@ -281,7 +281,7 @@ class ExternalAccessService(ServiceAPI):
         access = ExternalAccess.objects.select_related("user", "user__profile").filter(pk=accepted).first()
         return access_info(access) if access else None
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def revoke(self, *, actor: AbstractBaseUser, access_id: UUID, expected_revision: int) -> ExternalAccessInfo:
         """Turn an external access off, with CAS; the portal closes on the next request and nothing is deleted.
 
@@ -305,7 +305,7 @@ class ExternalAccessService(ServiceAPI):
             )
         )
 
-    @service_method(read_only=True, since="0.6.0", allow_external=True)
+    @service_method(read_only=True, since="0.1.0", allow_external=True)
     def me(self, *, actor: AbstractBaseUser) -> ExternalAccessInfo:
         """The external person's own access, inside the portal.
 

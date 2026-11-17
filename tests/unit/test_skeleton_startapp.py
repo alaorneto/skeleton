@@ -12,7 +12,7 @@ from django.core.management.base import CommandError
 
 from skeleton.system.app_registry import validate_documentation
 from skeleton.system.app_scaffold import TEMPLATE_ROOT
-from skeleton.system.packages import load_manifest, validate_manifest
+from skeleton.system.packages import SERVICE_API_CORE_MINIMUM, load_manifest, validate_manifest
 
 EXPECTED_FILES = {
     "__init__.py",
@@ -61,7 +61,7 @@ def test_generates_complete_application(tmp_path):
         "module": "applications.project_tasks.service_api",
         "classes": ["TaskItemService"],
     }
-    assert ">=0.4.0" in manifest["compatibility"]["skeleton"].split(",")
+    assert f">={SERVICE_API_CORE_MINIMUM}" in manifest["compatibility"]["skeleton"].split(",")
 
     validate_documentation(SimpleNamespace(documentation_root=str(root / "docs"), service_api=object()))
 

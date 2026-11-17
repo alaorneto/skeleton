@@ -4,7 +4,7 @@
 `LedgerService` é o contrato em processo do livro contábil. Outras apps o usam para lançar pelos registros delas, criar e baixar títulos e consultar saldos, sempre com a autorização do ator que está no contexto. As páginas do próprio livro usam o mesmo serviço.
 
 ## Dependência
-`app_id`: `org.skeleton.ledger`. Faixa recomendada: `{"org.skeleton.ledger": ">=0.5.0,<0.6.0"}` (a versão é a do núcleo e a faixa é atualizada pela release; a primeira versão publicada com o livro é a 0.6.0, ver [histórico](#histórico-de-versões)). Instale com `SKELETON_BUNDLED_APPS=ledger` e veja o guia de consumo em `docs/extending.md` ("Depender do livro contábil"). Importe só `skeleton.contrib.ledger.service_api`.
+`app_id`: `org.skeleton.ledger`. Faixa recomendada: `{"org.skeleton.ledger": ">=0.0.0,<0.1.0"}` (a versão é a do núcleo e a faixa é atualizada pela release; a primeira versão publicada com o livro é a 0.1.0, a primeira do núcleo, ver [histórico](#histórico-de-versões)). Instale com `SKELETON_BUNDLED_APPS=ledger` e veja o guia de consumo em `docs/extending.md` ("Depender do livro contábil"). Importe só `skeleton.contrib.ledger.service_api`.
 
 ## Serviços
 
@@ -110,4 +110,4 @@ A origem de uma regra ou de um título pode ser uma tabela exposta ou uma [tabel
 `skeleton.contrib.ledger.testing` traz `enable_ledger(organization)`, `prepare_book(actor, basis=..., bindings=...)` e `account_id(actor, code)`. O teste mínimo de uma app que lança no livro: a regra registrada passa no check E041; o ator com a ação da regra na origem lança, e o lançamento aparece em `entries_for_source`; o ator sem essa ação recebe `Forbidden` (legível) ou `NotFound`; a mesma `idempotency_key` devolve o mesmo lançamento; a organização B não vê o lançamento de A; com o ledger desativado, `Unavailable`. O cenário completo está em `tests/contrib/ledger/test_scenario.py`.
 
 ## Histórico de versões
-- 0.6.0 (próxima *minor*, com o núcleo): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547); saldos e relatórios (#548); `title` e `EntryInfo.revision` para as telas (#549).
+- 0.1.0 (primeira versão do núcleo, #569): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547); saldos e relatórios (#548); `title` e `EntryInfo.revision` para as telas (#549).

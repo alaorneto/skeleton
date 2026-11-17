@@ -74,7 +74,7 @@ def _attachment(attachment_id: UUID) -> Any:
 class FileService(ServiceAPI):
     """No direct storage access for apps: bytes go in and out only through these methods and views."""
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def attach(
         self,
         *,
@@ -108,7 +108,7 @@ class FileService(ServiceAPI):
             raise InvalidInput({"file": [gettext("Tipo de arquivo não permitido.")]}) from None
         return _info(attachment)
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def list(
         self,
         *,
@@ -136,7 +136,7 @@ class FileService(ServiceAPI):
             key=("created_at", "sysid"),
         )
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def download_url(self, *, actor: AbstractBaseUser, attachment_id: UUID) -> str:
         """Return the internal download URL; the view re-authorizes on every request.
 
@@ -164,7 +164,7 @@ class FileService(ServiceAPI):
             },
         )
 
-    @service_method(read_only=True, since="0.6.0", allow_external=True)
+    @service_method(read_only=True, since="0.1.0", allow_external=True)
     def external_download_url(self, *, actor: AbstractBaseUser, attachment_id: UUID) -> str:
         """The portal download URL of an attachment, for an external person (#534); the view re-checks it.
 
@@ -191,7 +191,7 @@ class FileService(ServiceAPI):
             kwargs={"organization_id": attachment.organization_id, "attachment_id": attachment.pk},
         )
 
-    @service_method(read_only=False, since="0.5.0")
+    @service_method(read_only=False, since="0.1.0")
     def remove(self, *, actor: AbstractBaseUser, attachment_id: UUID, expected_revision: int) -> None:
         """Remove (soft delete) an attachment with CAS.
 

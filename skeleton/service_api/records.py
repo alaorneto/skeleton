@@ -104,7 +104,7 @@ def _extra(extra_digest: object) -> dict[str, str] | None:
 class RecordSealService(ServiceAPI):
     """The seal of exposed or derived tables that declare ``TableSpec.seal``; the core signs nothing."""
 
-    @service_method(read_only=False, since="0.6.0")
+    @service_method(read_only=False, since="0.1.0")
     def seal(
         self,
         *,
@@ -143,7 +143,7 @@ class RecordSealService(ServiceAPI):
         except ConcurrentUpdate:
             raise Conflict("stale_revision") from None
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def status(self, *, actor: AbstractBaseUser, table_key: str, record_id: UUID) -> SealInfo:
         """Whether the record is sealed, by whom, when, and its digest.
 
@@ -154,7 +154,7 @@ class RecordSealService(ServiceAPI):
         """
         return _info(_readable(actor, _model(table_key), record_id))
 
-    @service_method(read_only=True, since="0.6.0")
+    @service_method(read_only=True, since="0.1.0")
     def verify(
         self, *, actor: AbstractBaseUser, table_key: str, record_id: UUID, extra_digest: str = ""
     ) -> SealVerification:

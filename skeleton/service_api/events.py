@@ -30,7 +30,7 @@ class EventReceipt:
 class EventService(ServiceAPI):
     """Event types are registered in ``ready()``; only the owning app publishes them."""
 
-    @service_method(read_only=False, since="0.5.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def publish(
         self,
         *,

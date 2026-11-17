@@ -98,7 +98,7 @@ def _anchor_visible(route: Any, actor: Any, record_id: UUID) -> bool:
 class AuditService(ServiceAPI):
     """Same rules as ``authorized_audit_queryset``: filtered before paginating."""
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def history(
         self,
         *,
@@ -244,7 +244,7 @@ class AuditLogService(ServiceAPI):
     (``/platform/audit/``) it lists the global events, for platform administrators only.
     """
 
-    @service_method(read_only=True, since="0.5.0", tenant=False)
+    @service_method(read_only=True, since="0.1.0", tenant=False)
     def events(
         self,
         *,
@@ -313,7 +313,7 @@ class AuditLogService(ServiceAPI):
             page_size=size,
         )
 
-    @service_method(read_only=True, since="0.5.0", tenant=False)
+    @service_method(read_only=True, since="0.1.0", tenant=False)
     def event(self, *, actor: AbstractBaseUser, event_id: UUID | str) -> AuditLogEvent:
         """Return one event of the log.
 
@@ -327,7 +327,7 @@ class AuditLogService(ServiceAPI):
             raise NotFound()
         return _log_event(event, infrastructure=_sees_infrastructure(actor))
 
-    @service_method(read_only=True, since="0.5.0")
+    @service_method(read_only=True, since="0.1.0")
     def related_domain_events(
         self, *, actor: AbstractBaseUser, request_id: UUID | str
     ) -> tuple[DomainEventSummary, ...]:

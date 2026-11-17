@@ -44,7 +44,7 @@ gh api repos/alaorneto/skeleton/private-vulnerability-reporting --jq .enabled
 
 ### De onde vem o número
 
-A versão do projeto é a versão do core (`django-skeleton`). A fonte é a **última tag `vX.Y.Z` alcançável**; enquanto não há tag, vale `versioning.initial_version` (0.5.0). Os arquivos abaixo repetem o número e são escritos pelo workflow de release, nunca à mão:
+A versão do projeto é a versão do core (`django-skeleton`). A fonte é a **última tag `vX.Y.Z` alcançável**; enquanto não há tag, vale `versioning.initial_version` (0.0.0: nada foi publicado antes da primeira release, a 0.1.0, #569). Os arquivos abaixo repetem o número e são escritos pelo workflow de release, nunca à mão:
 
 | Arquivo | O que muda |
 |---|---|
@@ -61,7 +61,7 @@ Uma app first-party nova em `skeleton/contrib` acrescenta as entradas dela em `[
 São duas coisas diferentes:
 
 - **Versão do core**: o número acima. Sobe a cada release.
-- **Piso de funcionalidade**: "disponível desde a versão X". São as constantes `*_CORE_MINIMUM` e `*_UPGRADE_CORE`, o `since="X"` dos métodos da API de serviços e o `compatibility.skeleton` dos manifestos de apps de terceiros (`>=0.4.0,<1.0.0`). **Não acompanham o bump**: `>=0.4.0` continua verdadeiro em 0.7.0.
+- **Piso de funcionalidade**: "disponível desde a versão X". São as constantes `*_CORE_MINIMUM` e `*_UPGRADE_CORE`, o `since="X"` dos métodos da API de serviços e o `compatibility.skeleton` dos manifestos de apps de terceiros (`>=0.1.0,<1.0.0`). **Não acompanham o bump**: `>=0.1.0` continua verdadeiro em 0.7.0. Tudo que existia antes da primeira release nasce nela: `since="0.1.0"`, e os pisos de campos de manifesto ficam em 0.0.0, porque todo núcleo publicado os entende (#569).
 
 Ao criar uma capacidade com piso, escreva nele a versão em que ela será publicada. Uma capacidade nova é uma `feature`, então é o próximo minor: `python3 S/release.py next --level minor`. A automação confere o inverso: se o código declara um piso maior que a versão que sairia, o nível sobe até alcançá-lo, e isso fica nas notas; se nem assim alcança, a release para.
 
@@ -69,9 +69,9 @@ Apps de terceiros (`applications/`, `examples/notes`) têm versão própria, no 
 
 ### Superfícies públicas e 0.x
 
-As superfícies públicas declaradas em `[[versioning.public_surfaces]]` são a API de serviços e o kit de testes, as bases de modelo, contexto e autorização, o manifesto e os pacotes de apps, a API HTTP e as migrations do núcleo. Enquanto o core está em `0.y.z`, quebra de compatibilidade sobe o minor (0.5.x → 0.6.0), que é o que a faixa `>=0.5.0,<0.6.0` das apps first-party espera; `1.0.0` só sai com `semver:major` no PR de release, com o motivo.
+As superfícies públicas declaradas em `[[versioning.public_surfaces]]` são a API de serviços e o kit de testes, as bases de modelo, contexto e autorização, o manifesto e os pacotes de apps, a API HTTP e as migrations do núcleo. Enquanto o core está em `0.y.z`, quebra de compatibilidade sobe o minor (0.1.x → 0.2.0), que é o que a faixa `>=0.1.0,<0.2.0` das apps first-party espera; `1.0.0` só sai com `semver:major` no PR de release, com o motivo.
 
-Ressalva para pré-releases: a faixa `>=0.6.0,<0.7.0` da agenda não aceita o core `0.6.0rc1`. Antes da primeira pré-release, ajuste a entrada da faixa em `[[versioning.files]]`.
+Ressalva para pré-releases: a faixa `>=0.2.0,<0.3.0` da agenda não aceita o core `0.2.0rc1`. Antes da primeira pré-release, ajuste a entrada da faixa em `[[versioning.files]]`.
 
 ### Artefatos de cada release (#496)
 
@@ -108,7 +108,7 @@ Prefira `uv tool install` a `uvx pre-commit install`: o hook gravado em `.git/ho
 
 ## Passos únicos do responsável
 
-1. **Tag de base**, depois que este fluxo estiver na `main`: `python3 S/release.py baseline --push` cria `v0.5.0` na ponta da `main`. Ela declara que tudo até ali é a 0.5.0; a primeira release automática cobre o que vier depois.
+1. **Sem tag de base** (#569): a primeira release, a 0.1.0, cobre todo o histórico; ela sai do primeiro PR `release` mesclado, calculada a partir de `initial_version = "0.0.0"`. Até o PR de release dela ser mesclado, os arquivos de versão ficam em 0.0.0. Números de versão anteriores a ela que aparecem em notas históricas ("core/agente 0.4.0", por exemplo) são marcos de desenvolvimento, nunca publicados.
 2. **Ruleset da `main`** (#249, acima). As versões saem por PR (`release.mode = "pull-request"`), compatível com o ruleset: depois do merge de um PR `release`, o workflow "Versão e release" escreve a versão, o `CHANGELOG.md` e os arquivos de versão na branch `release/next` e abre o PR `chore(release): vX.Y.Z`; a tag, a GitHub Release e os comentários saem quando esse PR é mesclado. Para isso, uma vez:
    - marque "Allow GitHub Actions to create and approve pull requests" em Settings → Actions → General (`bootstrap.py doctor` mostra a pendência enquanto estiver desligado);
    - um PR aberto pelo `GITHUB_TOKEN` não dispara os checks obrigatórios (`CI`, `Verificação do PR`). Crie o segredo `RELEASE_TOKEN` (fine-grained PAT ou GitHub App com `contents` e `pull-requests` de escrita) para que eles rodem; sem ele, feche e reabra o PR de release antes de mesclar.

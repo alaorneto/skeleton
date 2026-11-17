@@ -53,7 +53,7 @@ applications/tasks/
 
 Uma app grande pode transformar `service_api.py` em pacote (`service_api/__init__.py` reexportando as classes). O nome do módulo declarado continua sendo o ponto de importação.
 
-Declaração no manifesto (`manifest_version` 2, core `>=0.4.0`):
+Declaração no manifesto (`manifest_version` 2):
 
 ```json
 "runtime": {
@@ -66,7 +66,7 @@ Declaração no manifesto (`manifest_version` 2, core `>=0.4.0`):
 
 - `module` fica dentro do pacote da app (`applications.<package_name>.…`); qualquer outro caminho é recusado pelo validador do manifesto.
 - `classes` são nomes simples e únicos (1 a 32), definidos no módulo declarado (ou num submódulo dele).
-- Declarar o campo exige `compatibility.skeleton` com piso `>=0.4.0`: um core mais antigo não conhece o campo. `package build` acrescenta o piso ao artefato publicado.
+- Declarar o campo exige `compatibility.skeleton` com piso de pelo menos `SERVICE_API_CORE_MINIMUM`. Todo núcleo publicado (0.1.0 em diante) entende o campo: o piso é 0.0.0 e o mecanismo fica para os campos de releases futuras (#569). `package build` acrescenta o piso ao artefato publicado.
 - Manifestos históricos sem o campo continuam carregando, com o aviso `skeleton.W018`, até a versão do core que tornar o campo obrigatório. `package build` e `package doctor` já exigem o campo, o módulo e `docs/service-api.md`.
 - `skeleton.service_api.registry.service_registry()` devolve `app_id → classes` resolvidas, para introspecção e documentação; a página `/platform/apps/<app_label>/documentation/` mostra o `service-api.md` da app.
 
@@ -184,7 +184,7 @@ def open_followup_task(invoice, *, actor):
 
 O manifesto de `billing` declara `com.example.tasks` em `dependencies`. Não há dependência opcional: se a integração só funciona com a outra app presente, ela é declarada, e a ausência por organização é tratada com `Unavailable`.
 
-Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
+Uma app first-party, como a agenda, é declarada do mesmo modo, pelo `app_id` e com a faixa da versão do core: `"dependencies": {"org.skeleton.calendar": ">=0.1.0,<0.2.0"}`. A dependência só é satisfeita quando a instância instala a agenda (`SKELETON_BUNDLED_APPS=calendar`); vale para apps do projeto e para apps empacotadas ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib), #254).
 
 ## Superfícies públicas do núcleo para apps
 
@@ -265,7 +265,7 @@ me = IdentityService().me(actor=request.user)  # UserProfileInfo
 person = IdentityService().get_person(actor=request.user, user_id=assignee_id)  # PersonSummary
 names = IdentityService().people(
     actor=request.user, user_ids=(author_id, assignee_id)
-)  # tuple[PersonSummary, ...]: só os membros ativos da organização atual, até 200 ids, uma consulta (desde 0.6.0)
+)  # tuple[PersonSummary, ...]: só os membros ativos da organização atual, até 200 ids, uma consulta (desde 0.1.0)
 IdentityService().update_my_preferences(actor=request.user, expected_revision=me.revision, timezone="America/Sao_Paulo")
 ```
 
@@ -387,7 +387,7 @@ Apps não acessam o armazenamento diretamente. A tabela pode ser exposta ou [der
 
 ### CommentService
 
-[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`, inclusive de [tabela derivada](access-control.md#tabelas-derivadas) (#563). `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres, com caracteres de controle ou com menção a quem não é membro ou não lê o registro ([menções](comments.md#menções)). Métodos com `since="0.6.0"`.
+[Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`, inclusive de [tabela derivada](access-control.md#tabelas-derivadas) (#563). `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres, com caracteres de controle ou com menção a quem não é membro ou não lê o registro ([menções](comments.md#menções)). Métodos com `since="0.1.0"`.
 
 ### SequenceService
 
@@ -409,7 +409,7 @@ Apps não acessam o armazenamento diretamente. A tabela pode ser exposta ou [der
 
 ### BillingService
 
-A [cobrança](billing.md) da organização. As apps leem a situação dela e conferem os próprios limites; as páginas e a API de cobrança do núcleo usam o resto. O serviço continua usável com o acesso limitado (`access_exempt = True`): é por ele que a conta é regularizada. Métodos com `since="0.6.0"`.
+A [cobrança](billing.md) da organização. As apps leem a situação dela e conferem os próprios limites; as páginas e a API de cobrança do núcleo usam o resto. O serviço continua usável com o acesso limitado (`access_exempt = True`): é por ele que a conta é regularizada. Métodos com `since="0.1.0"`.
 
 | Método | Autorização | Erros |
 |---|---|---|
@@ -436,7 +436,7 @@ A [cobrança](billing.md) da organização. As apps leem a situação dela e con
 
 ### FlowService
 
-Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Métodos com `since="0.6.0"`.
+Opera os [fluxos de processo](flows.md) que as apps declaram com `skeleton.flows.registry`. É um serviço do núcleo (sem `app_label`), mas toda chamada exige a **app dona do fluxo** ativa na organização e responde `Unavailable` sem ela; as listas omitem o que é de apps desativadas. Métodos com `since="0.1.0"`.
 
 ```python
 from skeleton.service_api.flows import FlowService

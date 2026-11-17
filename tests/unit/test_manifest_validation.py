@@ -14,6 +14,7 @@ from skeleton.system.packages import (
     validate_manifest,
 )
 from skeleton.versioning import version_satisfies
+from tests.unit.floor_helpers import raised_floors  # noqa: F401 - fixture
 
 
 @pytest.fixture
@@ -156,6 +157,7 @@ def test_dependency_graph_compares_only_target_active_wheel_pins(app_manifest, t
 
 @pytest.mark.parametrize("dimensions", [{"col_span": 4}, {"rows": 8}, {"col_span": None}, {"rows": None}])
 @pytest.mark.parametrize("bound", [">=0.3.0,<1.0.0", ">0.3.0,<1.0.0", "==0.3.0", "~=0.3.0"])
+@pytest.mark.usefixtures("raised_floors")
 def test_dimensions_require_explicit_new_floor(app_manifest, dimensions, bound):
     manifest = app_manifest
     manifest["runtime"].pop("service_api")  # Its own, higher floor is covered separately.
@@ -167,6 +169,7 @@ def test_dimensions_require_explicit_new_floor(app_manifest, dimensions, bound):
     assert validate_manifest(manifest)["runtime"]["model_ui"] == dimension_layout(**dimensions)
 
 
+@pytest.mark.usefixtures("raised_floors")
 def test_new_manifest_template_requires_current_presentation_core(app_manifest):
     manifest = app_manifest
     assert version_satisfies("0.4.0", manifest["compatibility"]["skeleton"])

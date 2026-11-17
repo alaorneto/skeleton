@@ -31,7 +31,7 @@ class JobReceipt:
 class JobService(ServiceAPI):
     """Job types are registered in ``ready()``; only the app that registered a type may use it."""
 
-    @service_method(read_only=False, since="0.5.0", allow_system=True)
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
     def enqueue(
         self,
         *,

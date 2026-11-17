@@ -10,8 +10,9 @@ MAX_MODEL_UI = 200
 MAX_LAYOUT_FIELDS = 200
 MAX_LABEL_LENGTH = 200
 MAX_HELP_TEXT_LENGTH = 2000
-MANIFEST_V2_CORE_MINIMUM = "0.2.0"
-FIELD_DIMENSIONS_CORE_MINIMUM = "0.3.0"
+# Manifest v2 and field dimensions: understood by every published core (0.1.0 on, #569).
+MANIFEST_V2_CORE_MINIMUM = "0.0.0"
+FIELD_DIMENSIONS_CORE_MINIMUM = "0.0.0"
 WIDGETS = frozenset(
     {"text", "textarea", "number", "checkbox", "select", "date", "datetime", "time", "uuid", "json", "reference"}
 )

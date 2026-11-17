@@ -181,7 +181,7 @@ def test_inventory_lists_apps_dependency_first_and_rejects_broken_graphs(tmp_pat
 
 def _calendar_consumer():
     consumer = manifest("billing_notes", "billing_notes")
-    consumer["dependencies"] = {"org.skeleton.calendar": ">=0.5.0,<0.6.0"}
+    consumer["dependencies"] = {"org.skeleton.calendar": ">=0.0.0,<1.0.0"}  # Any 0.x calendar, 0.0.0 unreleased.
     return consumer
 
 

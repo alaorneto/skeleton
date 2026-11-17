@@ -6,6 +6,7 @@ import pytest
 
 from skeleton.system.packages import PackageError, canonical_json, manifest_template, validate_manifest
 from skeleton.versioning import version_satisfies
+from tests.unit.floor_helpers import raised_floors  # noqa: F401 - fixture
 
 
 @pytest.fixture
@@ -20,6 +21,7 @@ def manifest():
     )
 
 
+@pytest.mark.usefixtures("raised_floors")
 def test_portal_modules_must_belong_to_the_app_and_need_the_portal_floor(manifest):
     manifest["runtime"]["portal_urls"] = "applications.package_demo.portal_urls"
     manifest["compatibility"]["skeleton"] = ">=0.4.0,<1.0.0"
