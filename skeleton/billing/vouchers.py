@@ -26,7 +26,8 @@ from typing import Any
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext
 
-from . import money
+from skeleton.common import money
+
 from .engine import LineDraft, _invalid, _now, current_subscription, forget, register_line_source
 
 ATTEMPTS_PER_HOUR = 10

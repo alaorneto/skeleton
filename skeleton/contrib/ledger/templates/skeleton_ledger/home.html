@@ -1,0 +1,36 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% translate "Livros" %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% translate "Livros" %}</h1><p class="page-description">{% translate "Livros da organização, cada um numa moeda e num regime." %}</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="home" %}
+{% if books %}
+<div class="table-scroll"><table>
+  <caption class="sr-only">{% translate "Livros" %}</caption>
+  <thead><tr><th scope="col">{% translate "Livro" %}</th><th scope="col">{% translate "Moeda" %}</th><th scope="col">{% translate "Regime" %}</th><th scope="col" class="col-date">{% translate "Travado até" %}</th></tr></thead>
+  <tbody>{% for item in books %}<tr><td>{{ item.name }}{% if item.is_default %} <span class="badge">{% translate "padrão" %}</span>{% endif %}</td><td>{{ item.currency }}</td><td>{% if item.basis == "cash" %}{% translate "Caixa" %}{% else %}{% translate "Competência" %}{% endif %}</td><td class="col-date">{% if item.locked_until %}<time datetime="{{ item.locked_until|date:'Y-m-d' }}">{{ item.locked_until|date:"SHORT_DATE_FORMAT" }}</time>{% else %}—{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% if book and book.writable %}
+<section class="card mt-6 max-w-xl" aria-labelledby="lock-heading">
+  <h2 id="lock-heading">{% translate "Trava de período" %}</h2>
+  <p class="mt-1 text-sm text-body-subtle">{% translate "Lançamentos com data até a trava são recusados. Deixe em branco para destravar." %}</p>
+  <form method="post" action="{% url 'skeleton_ledger:lock' organization_id %}" class="mt-3 flex flex-col gap-3">{% csrf_token %}
+    <input type="hidden" name="revision" value="{{ book.revision }}">
+    <div class="field"><label for="locked_until">{% translate "Travado até" %}</label><input id="locked_until" type="date" name="locked_until" value="{{ book.locked_until|date:'Y-m-d' }}"></div>
+    <div><button type="submit" class="btn btn-primary">{% translate "Salvar trava" %}</button></div>
+  </form>
+</section>
+{% endif %}
+{% if not has_default %}
+<section class="card mt-6 max-w-xl" aria-labelledby="new-book">
+  <h2 id="new-book">{% translate "Criar o livro padrão" %}</h2>
+  <p class="mt-1 text-sm text-body-subtle">{% translate "A moeda e o regime não mudam depois. Caixa reconhece receitas e despesas no pagamento; competência, no fato gerador." %}</p>
+  <form method="post" action="{% url 'skeleton_ledger:default-book' organization_id %}" class="mt-3 flex flex-col gap-3">{% csrf_token %}
+    <fieldset><legend class="text-sm font-semibold">{% translate "Regime" %}</legend>
+      <label class="flex items-center gap-2"><input type="radio" name="basis" value="cash" checked> {% translate "Caixa" %}</label>
+      <label class="flex items-center gap-2"><input type="radio" name="basis" value="accrual"> {% translate "Competência" %}</label>
+    </fieldset>
+    <div><button type="submit" class="btn btn-primary">{% translate "Criar livro" %}</button></div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

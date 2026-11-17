@@ -1,0 +1,37 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{{ title.description }} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{{ title.description }}</h1></div></div>
+{% include "skeleton_ledger/_nav.html" with section="titles" %}
+<dl class="meta-list mb-6">
+  <dt>{% translate "Tipo" %}</dt><dd>{% if title.direction == "receivable" %}{% translate "A receber" %}{% else %}{% translate "A pagar" %}{% endif %}</dd>
+  <dt>{% translate "Contraparte" %}</dt><dd>{{ title.counterparty_name|default:"—" }}</dd>
+  <dt>{% translate "Situação" %}</dt><dd>{{ title.status }}</dd>
+  <dt>{% translate "Emissão" %}</dt><dd><time datetime="{{ title.issue_date|date:'Y-m-d' }}">{{ title.issue_date|date:"SHORT_DATE_FORMAT" }}</time></dd>
+  <dt>{% translate "Vencimento" %}</dt><dd><time datetime="{{ title.due_date|date:'Y-m-d' }}">{{ title.due_date|date:"SHORT_DATE_FORMAT" }}</time></dd>
+  {% if title.installment_count %}<dt>{% translate "Parcela" %}</dt><dd>{{ title.installment_number }}/{{ title.installment_count }}</dd>{% endif %}
+  <dt>{% translate "Valor" %}</dt><dd>{{ title.amount|money:currency }}</dd>
+  <dt>{% translate "Baixado" %}</dt><dd>{{ title.amount_settled|money:currency }}</dd>
+  <dt>{% translate "Saldo" %}</dt><dd>{{ title.balance|money:currency }}</dd>
+</dl>
+<h2 class="section-heading">{% translate "Baixas" %}</h2>
+<div class="table-scroll mb-6"><table>
+  <caption class="sr-only">{% translate "Baixas" %}</caption>
+  <thead><tr><th scope="col" class="col-date">{% translate "Data" %}</th><th scope="col">{% translate "Forma" %}</th><th scope="col" class="col-num">{% translate "Valor" %}</th><th scope="col" class="col-num">{% translate "Desconto" %}</th><th scope="col" class="col-num">{% translate "Juros" %}</th><th scope="col" class="col-num">{% translate "Tarifa" %}</th><th scope="col">{% translate "Lançamento" %}</th></tr></thead>
+  <tbody>{% for settlement in settlements %}<tr><td class="col-date"><time datetime="{{ settlement.date|date:'Y-m-d' }}">{{ settlement.date|date:"SHORT_DATE_FORMAT" }}</time></td><td>{{ settlement.method }}</td><td class="col-num">{{ settlement.amount|money:currency }}</td><td class="col-num">{{ settlement.discount|money:currency }}</td><td class="col-num">{{ settlement.interest|money:currency }}</td><td class="col-num">{{ settlement.fee|money:currency }}</td>
+  <td>{% if book.writable %}<a href="{% url 'skeleton_ledger:entry' organization_id settlement.entry_id %}">{% translate "ver" %}</a>{% endif %}{% if settlement.reversal_entry_id %} <span class="badge badge-neutral">{% translate "estornada" %}</span>{% elif book.writable %}
+  <form method="post" action="{% url 'skeleton_ledger:settlement-reverse' organization_id title.sysid settlement.sysid %}" class="inline">{% csrf_token %}<input type="hidden" name="revision" value="{{ title.revision }}"><input type="hidden" name="date" value="{{ today|date:'Y-m-d' }}"><button type="submit" class="btn btn-secondary">{% translate "Estornar baixa" %}</button></form>{% endif %}</td></tr>
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhuma baixa.") %}{% endfor %}</tbody>
+</table></div>
+{% if can_settle %}
+<section class="card max-w-3xl mb-6" aria-labelledby="settle-heading"><h2 id="settle-heading">{% if title.direction == "receivable" %}{% translate "Receber" %}{% else %}{% translate "Pagar" %}{% endif %}</h2>
+  <form method="post" class="mt-3">{% csrf_token %}<input type="hidden" name="revision" value="{{ title.revision }}"><input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+  {% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Registrar baixa" %}</button></div></form></section>
+{% endif %}
+{% if book.writable and title.status == "open" %}
+<section class="card max-w-xl" aria-labelledby="cancel-heading"><h2 id="cancel-heading">{% translate "Cancelar título" %}</h2>
+  <form method="post" action="{% url 'skeleton_ledger:title-cancel' organization_id title.sysid %}" class="mt-3 flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="revision" value="{{ title.revision }}">
+  <div class="field"><label for="cancel-reason">{% translate "Motivo" %}</label><input id="cancel-reason" name="reason" maxlength="300"></div>
+  <div><button type="submit" class="btn btn-secondary">{% translate "Cancelar título" %}</button></div></form></section>
+{% endif %}
+{% endblock %}

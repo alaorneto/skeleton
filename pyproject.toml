@@ -161,6 +161,7 @@ files = [
     "skeleton/accounts/services.py",
     "skeleton/accounts/adapters.py",
     "skeleton/contrib/calendar",
+    "skeleton/contrib/ledger",
 ]
 # The deployment agent is POSIX only (fcntl, O_DIRECTORY): checking for Linux everywhere makes a
 # local run on Windows see what the typecheck job sees (#347).
@@ -205,6 +206,7 @@ module = [
     "skeleton.accounts.services",
     "skeleton.accounts.adapters",
     "skeleton.contrib.calendar.*",
+    "skeleton.contrib.ledger.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
