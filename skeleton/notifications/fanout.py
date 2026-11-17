@@ -19,7 +19,7 @@ def _external(notification) -> bool:
     from .registry import get_notification_type
 
     try:
-        return get_notification_type(notification.type_code).audience == "external"
+        return get_notification_type(getattr(notification, "type_code", "")).audience == "external"
     except KeyError:
         return False
 
