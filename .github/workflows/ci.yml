@@ -89,7 +89,7 @@ jobs:
         python: ["3.12", "3.14"]
         # A suíte do núcleo é dividida em fatias de arquivos (tools/suite_shards.py): juntas, as
         # fatias são a suíte inteira. Para mudar o número de fatias, troque N aqui em todas elas.
-        suite: ["núcleo 1/2", "núcleo 2/2", "agenda"]
+        suite: ["núcleo 1/2", "núcleo 2/2", "agenda e livro contábil"]
         include:
           - suite: "núcleo 1/2"
             shard: "1/2"
