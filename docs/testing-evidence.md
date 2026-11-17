@@ -2,6 +2,27 @@
 
 Registro do que rodou em cada rodada, com os comandos da época. As rodadas anteriores a [#144](https://github.com/alaorneto/skeleton/issues/144) citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Nada aqui é procedimento: para verificar hoje, use [testes](testing.md).
 
+## Tabelas derivadas e primeira release 0.1.0 (epic #560, #569)
+
+Rodada de 2026-11-17 na branch `feat/560-derived-access`, a partir da `main` com #557, #558 e #568. Windows 11, Python 3.13 do `.venv`, PostgreSQL 16 de `tools/dev_postgres.py` num cluster dedicado, assertions como `skeleton_runtime`. Somente o que rodou.
+
+- **#561:** rotas, mapa de ações, ciclo, profundidade, cache que segue o registry e cada regra do E042 com specs falsas (`tests/unit/test_access_derivation.py`, 16); matriz leitura/escrita/negado de `Workspace`/`WorkItem`/`WorkItemLine` com A/B, `TablePermission` da âncora, escopo de token, app desativada, `manage_access`, tombstone da âncora e do elo, `include_deleted` só com `restore`, `require_parent_action` e `users_who_can_read` igual ao da âncora (`tests/integration/test_derived_authorization.py`, 7 com 25 subtests). `EXPLAIN` do `update` em `WorkItemLine` (dois saltos): nested loops com index scan nas FKs `item_id` e `workspace_id` e no `(organization, sysid)` da âncora, sem seq scan.
+- **#562:** `EventService.publish` num filho (legível, não legível e de outra organização respondem igual), consumidor recebe o envelope do filho, webhook assinado entrega só identificadores e marca `unauthorized` o filho que o principal não lê, notificação só para quem lê a âncora, abre só no `open_url` do tipo e para de abrir quando a concessão é revogada, rollback sem evento nem notificação (`tests/integration/test_derived_events_notifications.py`, 4).
+- **#563:** `FileService` (anexar, listar, `download_url`, remover com CAS; `Forbidden` para quem só lê; `NotFound` igual para ilegível e outra organização; filho sem opt-in), download reautorizado (revogar a concessão na âncora dá 404; outra organização com a URL não baixa), `files.purge`, filho selado recusa anexo, `CommentService` e menções (`tests/integration/test_derived_files_comments.py`, 5).
+- **#564:** `RecordSealService.seal/status` pela âncora, `verify` detecta adulteração do filho e das linhas feita pelo owner com os guards desligados, `AccessService.can/require/granted_record_ids`, `grant_record_access` recusado, histórico de auditoria com `audit` na âncora e só os `read_fields`, `assert_sealed_contract` numa tabela derivada selável (`tests/integration/test_derived_seal_access_audit.py`, 5 com 6 subtests).
+- **#565:** E041 aceita origem derivada e recusa a não autorizável, `post`/`entries_for_source`/`create_title`/`titles_for_source` pela âncora (`tests/contrib/ledger/test_ledger_derived_source.py`, 3, com `SKELETON_BUNDLED_APPS=calendar,ledger`).
+- **#566:** `assert_derived_access_contract` com `WorkItem` e `WorkItemLine`, concessão a grupo por `grant_anchor`/`create_group`, recusa de tabela não derivada (`tests/integration/test_derived_kit.py`, 3).
+- **#569:** `release.py bump --to 0.0.0` e `release.py check` (9 entradas coerentes com 0.0.0); os testes do mecanismo de pisos de manifesto rodam com os pisos elevados pelo fixture `raised_floors` (`tests/unit/floor_helpers.py`).
+
+| Execução observada | Resultado |
+|---|---|
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 12` (depois da #569) | 3551 passed, 168 skipped (O_NOFOLLOW/fcntl/SIGHUP só em POSIX, PyYAML ausente, URL administrativa ausente), 286 subtests, 0 falhas, 15 min 27 s |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m pytest tests/contrib -q -n 12` | 339 passed |
+| `python -m pytest tests/unit -q -n 12` | 1705 passed, 164 skipped |
+| `manage.py check --fail-level WARNING` (com e sem `calendar,ledger`) e `makemigrations --check --dry-run` | sem problemas; nenhuma migration nova |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m mypy` | sem problemas |
+| `uvx ruff@0.17.4 check` e `format` | ok |
+
 ## Apps em repositório próprio (epic #512)
 
 Rodada de 2026-11-16 na branch `feat/512-apps-own-repo`. Windows 11, Python 3.14 do `.venv` (o venv limpo do roteiro manual usou Python 3.13), PostgreSQL 16 de `tools/dev_postgres.py`, com as assertions como `skeleton_runtime`. Somente o que rodou.
