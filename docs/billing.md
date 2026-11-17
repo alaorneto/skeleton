@@ -14,7 +14,7 @@ A cobrança é **desligada por padrão** (`SKELETON_BILLING_ENABLED=false`). Des
 
 ## Dinheiro
 
-Valores são **inteiros na menor unidade da moeda** (centavos para BRL, ienes para JPY), nunca `float`. `skeleton.billing.money` traz:
+Valores são **inteiros na menor unidade da moeda** (centavos para BRL, ienes para JPY), nunca `float`. `skeleton.common.money` (#541; `skeleton.billing.money` continua como caminho histórico que só reexporta) traz:
 
 | Função | O que faz |
 |---|---|

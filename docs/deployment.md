@@ -730,11 +730,13 @@ As apps first-party (`skeleton/contrib`, como a agenda) vêm no wheel do núcleo
 
 | Passo | O que fazer | Resultado |
 |---|---|---|
-| Instalar | `SKELETON_BUNDLED_APPS=calendar` no ambiente ou em `/platform/instance/`, reinício e `manage.py migrate` | Depois do `migrate`, `ComponentInstallation` registra a app com `kind=bundled` e `state=bundled`. A disponibilidade nasce `selected` sem concessão: a app fica indisponível e desativada em todas as organizações até a plataforma liberar e cada organização ativar |
+| Instalar | `SKELETON_BUNDLED_APPS=calendar` (ou `calendar,ledger`, com o livro contábil, #542) no ambiente ou em `/platform/instance/`, reinício e `manage.py migrate` | Depois do `migrate`, `ComponentInstallation` registra a app com `kind=bundled` e `state=bundled`. A disponibilidade nasce `selected` sem concessão: a app fica indisponível e desativada em todas as organizações até a plataforma liberar e cada organização ativar |
 | Retirar com dados | Tire o nome de `SKELETON_BUNDLED_APPS`, ponha em `SKELETON_BUNDLED_RETAINED`, reinicie e rode `manage.py sync_bundled_apps` | O estado vira `schema_retained`; as tabelas ficam, validadas pelo snapshot congelado do wheel, e a ativação de cada organização é desligada. Nada é apagado |
 | Reinstalar | Volte o nome para `SKELETON_BUNDLED_APPS`, tire de `SKELETON_BUNDLED_RETAINED`, reinicie e rode `migrate` | O estado volta a `bundled` com os mesmos UUIDs, registros e configurações; cada organização reativa a app |
 
 `check_skeleton_schema` aponta `bundled_divergence` quando a app sai de `SKELETON_BUNDLED_APPS` sem entrar em `SKELETON_BUNDLED_RETAINED` (as tabelas ficariam sem classificação), quando volta sem `sync_bundled_apps` ou quando está instalada sem registro (falta `migrate`). Um nome fora do mapa fixo, ou o mesmo nome nas duas listas, para o startup.
+
+**Livro contábil** (#517). Instale com `ledger` em `SKELETON_BUNDLED_APPS`, reinício e `migrate`; libere a app na plataforma e ative por organização. O job diário `ledger.recurrences` gera os títulos recorrentes e precisa do worker e do agendador. Retirar com `SKELETON_BUNDLED_RETAINED=ledger` e `sync_bundled_apps` preserva livros, lançamentos selados, títulos e baixas (os selos e o guard continuam valendo nas tabelas retidas); reinstalar devolve os mesmos registros, e cada organização reativa a app. Nada do livro é apagado pela retirada.
 
 **Apps em desenvolvimento** (#518). `SKELETON_DEV_APPS` carrega apps de um checkout local e só existe nos perfis de desenvolvimento e teste: os perfis de produção, migração, build e setup param o startup quando a variável não está vazia. Em produção uma app só entra por pacote assinado instalado pelo agente, ou em `PROJECT_APPS`; não defina a variável no ambiente de uma instalação.
 

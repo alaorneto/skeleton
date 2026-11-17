@@ -68,6 +68,31 @@ Rodada de 2026-11-16 na branch `feat/514-sealed-records`. Windows 11, Python 3.1
 
 Limites: nenhuma tela nova; as recusas nas páginas foram provadas pelos testes HTTP, não por navegador.
 
+## Livro contábil first-party (epic #517)
+
+Rodada de 2026-11-16 na branch `feat/517-ledger`, a partir da `main` com #553 e #554. Windows 11, Python 3.14, PostgreSQL 16 de `tools/dev_postgres.py` num cluster dedicado, assertions como `skeleton_runtime`; o owner só migrou e montou DDL de fixture. Somente o que rodou.
+
+- **#541:** `skeleton/common/money.py` (moedas, `parse`, `format_amount`, `scale`, `percent`, sem `float`); `skeleton/billing/money.py` reexporta; `skeleton.common.money` entra nas superfícies públicas da fronteira de importação (`tests/unit/test_money.py`, 8).
+- **#542:** app `skeleton/contrib/ledger` (manifesto `bundled_app`, `retained_schema.json`, entradas de versão), `Book` `SecuredRecord` com moeda e regime imutáveis e um livro padrão por organização; métrica de plano registrada por `skeleton.service_api.billing.register_quota_metric`; job do CI da agenda passa a rodar `calendar,ledger` (`test_ledger_books.py`, 9).
+- **#543:** plano de contas com grupos, FKs compostas `(book, kind, parent)` e `(book, account)` no banco, chaves de conta registradas em código e vínculos, centros de custo, modelo "Prestação de serviços" (`test_ledger_accounts.py`, 12). Desvios na issue: código repetido é `Conflict("integrity_conflict")`; excluir conta com partidas pode responder `live_references` ou `record_sealed`.
+- **#544:** lançamentos selados (`SealableMixin`, condição do selo no guard: balanceado, contas analíticas, ativas, do livro, fora da trava), numeração sem lacunas por livro e ano sob lock do livro, estorno único, trava com CAS; provas por SQL na role runtime (`test_ledger_entries.py`, 13).
+- **#545:** regras de lançamento registradas em código, check E041, `post` autorizado pelo registro de origem sem leitura do livro, `entries_for_source`, estorno pela origem com CAS, `skeleton/contrib/ledger/testing.py` e `skeleton.testing.applications.grant_table_actions` (`test_ledger_rules.py`, 8). Desvio na issue: o check é E041 (E039 e E040 já existiam).
+- **#546:** `Title` e `Settlement` (migration `0004_titles`), as oito combinações de lançamento de caixa e competência com desconto, juros e tarifa, baixa parcial, CAS na baixa, estorno de baixa, cancelamento, parcelas, `counterparty_name` em `personal_fields` (`test_ledger_titles.py`, 10, e o título com origem em `test_ledger_rules.py`). Desvio na issue: os eventos de domínio não foram publicados (a API de eventos só publica tabelas expostas).
+- **#547:** `RecurringTitle` (migration `0005_recurrences`), datas semanais, mensais com fim de mês e anuais de 29/02, job diário `ledger.recurrences` com chave por ocorrência, fim, limite, pausa e retomada, limite de 500 por execução, falha isolada com log só de identificadores, app desativada e organização inativa (`test_ledger_recurrences.py`, 12).
+- **#548:** `reports.py` e `balance`, `trial_balance`, `income_statement`, `account_statement` (saldo corrente por função de janela), `cash_flow` e `aging`, contra um cálculo independente sobre um livro de exemplo fixo; lançamento sem selo criado na transação do teste fica fora de todos os números; número de consultas igual com mais dados (`test_ledger_reports.py`, 10).
+- **#549:** telas sobre o livro padrão (livros e trava, plano de contas, lançamentos, títulos, recorrências, relatórios), só pelo `LedgerService`, valores com vírgula decimal por `money.parse` e o filtro `ledger_money`, CAS legível, 400 e 404, sem script inline; `LedgerService.title` e `EntryInfo.revision` acrescentados para as telas; CSS recompilado (`test_ledger_pages.py`, 16).
+- **#550:** cenário de ponta a ponta com o exemplo Notes como app consumidora (`test_scenario.py`, 1); guia de consumo em `docs/extending.md`, operação em `docs/deployment.md`, conceitos em `docs/concepts.md`, revisão de `spec.md`, `adr.md` e `service-api.md` da app.
+
+| Execução observada | Resultado |
+|---|---|
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n 8` (sem apps first-party) | 3418 passed, 167 skipped, 255 subtests, 0 falhas, 14 min 35 s |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m pytest tests/contrib -q -n 8` | 291 passed (agenda e livro), 0 falhas |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m mypy` (174 arquivos); `manage.py check --fail-level WARNING` e `makemigrations --check --dry-run` com `calendar,ledger`; `uvx ruff@0.17.4 check .`/`format --check .` | sem problemas |
+| `tests/unit/test_documentation_references.py`, `tests/unit/test_check_reference.py` | 10 passed |
+| `cd frontend && npm run check` | ok |
+
+Limites: as telas foram provadas por testes HTTP, não num navegador; `tools/i18n_check.py` não rodou (sem GNU gettext nesta máquina; o CI roda).
+
 ## Cobrança: núcleo do ledger (epic #406)
 
 Rodada de 2026-11-13 na branch `feat/394-billing-core-ledger`, a partir de `origin/main` (`e5c3562`). Windows 11, 16 threads, Python 3.14.7, PostgreSQL 16.2 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.

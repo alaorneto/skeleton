@@ -1,10 +1,10 @@
-"""Money in integer minor units, half-up rounding and invoice number format (#394)."""
+"""Money in integer minor units, half-up rounding and invoice number format (#394, #541)."""
 
 import pytest
 from django.core.exceptions import ValidationError
 
-from skeleton.billing import money
 from skeleton.billing.numbering import format_number
+from skeleton.common import money
 
 
 def test_scale_rounds_half_up_away_from_zero(subtests):
@@ -83,3 +83,11 @@ def test_billing_check_requires_the_keyring_only_when_enabled(settings):
     assert error.id == "skeleton.E037" and "BILLING_ENCRYPTION_KEYS" in error.msg
     settings.BILLING_ENCRYPTION_KEYS = ["ZmFrZS1rZXktZm9yLWEtdGVzdC1vbmx5LTMyLWJ5dGU="]
     assert billing_checks() == []
+
+
+def test_the_historical_billing_path_reexports_the_same_objects():
+    from skeleton.billing import money as historical
+
+    for name in historical.__all__:
+        assert getattr(historical, name) is getattr(money, name), name
+    assert set(historical.__all__) >= {"parse", "format_amount", "scale", "percent", "validate_currency", "exponent"}

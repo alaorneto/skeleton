@@ -5,7 +5,7 @@ from decimal import Decimal
 from django import template
 from django.utils.formats import number_format
 
-from skeleton.billing.money import exponent, format_amount
+from skeleton.common.money import exponent, format_amount
 
 register = template.Library()
 

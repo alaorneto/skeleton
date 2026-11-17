@@ -1,0 +1,26 @@
+{% extends "skeleton/web/base.html" %}{% load i18n ledger_money %}{% block title %}{% blocktranslate with year=entry.year number=entry.number %}Lançamento {{ year }}/{{ number }}{% endblocktranslate %} · {% translate "Livro contábil" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Livro contábil" %}</p><h1>{% blocktranslate with year=entry.year number=entry.number %}Lançamento {{ year }}/{{ number }}{% endblocktranslate %}</h1><p class="page-description">{{ entry.description }}</p></div></div>
+{% include "skeleton_ledger/_nav.html" with section="entries" %}
+<dl class="meta-list mb-6">
+  <dt>{% translate "Data" %}</dt><dd><time datetime="{{ entry.date|date:'Y-m-d' }}">{{ entry.date|date:"SHORT_DATE_FORMAT" }}</time></dd>
+  <dt>{% translate "Tipo" %}</dt><dd>{{ entry.kind }}{% if entry.rule %} · <code>{{ entry.rule }}</code>{% endif %}</dd>
+  <dt>{% translate "Selo" %}</dt><dd>{% if entry.sealed %}<code>{{ entry.digest|truncatechars:20 }}</code>{% else %}—{% endif %}</dd>
+  {% if entry.reverses_id %}<dt>{% translate "Estorna" %}</dt><dd><a href="{% url 'skeleton_ledger:entry' organization_id entry.reverses_id %}">{% translate "lançamento original" %}</a></dd>{% endif %}
+  {% if entry.reversed_by_id %}<dt>{% translate "Estornado por" %}</dt><dd><a href="{% url 'skeleton_ledger:entry' organization_id entry.reversed_by_id %}">{% translate "estorno" %}</a></dd>{% endif %}
+</dl>
+<div class="table-scroll mb-6"><table>
+  <caption class="sr-only">{% translate "Partidas" %}</caption>
+  <thead><tr><th scope="col">{% translate "Conta" %}</th><th scope="col">{% translate "Histórico" %}</th><th scope="col" class="col-num">{% translate "Débito" %}</th><th scope="col" class="col-num">{% translate "Crédito" %}</th></tr></thead>
+  <tbody>{% for line, account in lines %}<tr><td>{% if account %}{{ account.code }} {{ account.name }}{% else %}—{% endif %}</td><td>{{ line.memo|default:"—" }}</td><td class="col-num">{% if line.debit %}{{ line.debit|money:book.currency }}{% endif %}</td><td class="col-num">{% if line.credit %}{{ line.credit|money:book.currency }}{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% if book.writable and not entry.reversed_by_id and entry.kind != "reversal" %}
+<section class="card max-w-xl" aria-labelledby="reverse-heading"><h2 id="reverse-heading">{% translate "Estornar" %}</h2>
+  <form method="post" action="{% url 'skeleton_ledger:entry-reverse' organization_id entry.sysid %}" class="mt-3 flex flex-col gap-3">{% csrf_token %}
+    <input type="hidden" name="revision" value="{{ entry.revision }}">
+    <div class="field"><label for="reverse-date">{% translate "Data do estorno" %}</label><input id="reverse-date" type="date" name="date" value="{{ today|date:'Y-m-d' }}"></div>
+    <div class="field"><label for="reverse-reason">{% translate "Motivo" %}</label><input id="reverse-reason" name="reason" maxlength="300"></div>
+    <div><button type="submit" class="btn btn-secondary">{% translate "Estornar lançamento" %}</button></div>
+  </form></section>
+{% endif %}
+{% endblock %}

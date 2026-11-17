@@ -220,7 +220,11 @@ A **instalação global** diz qual código existe no deployment. `ComponentInsta
 
 Todas as organizações usam a mesma versão de código por deployment. Reinstalar uma app preserva registros e exige ativação explícita, em vez de ressuscitar acesso só porque o pacote voltou.
 
-Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`; a agenda é a primeira). Elas seguem o mesmo ciclo de qualquer app, mas não chegam por `.skapp`: o operador as instala por nome com `SKELETON_BUNDLED_APPS`, e retirá-las preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
+Algumas apps genéricas vêm **dentro do wheel do núcleo** (apps first-party, em `skeleton/contrib`: a agenda e o livro contábil). Elas seguem o mesmo ciclo de qualquer app, mas não chegam por `.skapp`: o operador as instala por nome com `SKELETON_BUNDLED_APPS`, e retirá-las preserva os dados ([extensão](extending.md#apps-first-party-do-núcleo-skeletoncontrib)).
+
+### Livro, lançamento e título
+
+O **livro contábil** (app first-party `skeleton_ledger`) é a contabilidade de uma organização, separada da cobrança da plataforma. Um **livro** tem uma moeda e um regime (caixa ou competência) e um **plano de contas**; uma **chave de conta** é o nome estável que uma app usa (`ledger.cash`, `acme_services.revenue`) e que a organização vincula a uma conta. Um **lançamento** é um conjunto de partidas em que débitos e créditos fecham; ele nasce numerado e **selado**, e só se corrige por **estorno**. Um **título** é um valor a receber ou a pagar, com vencimento; a **baixa** registra o recebimento ou o pagamento e gera o lançamento. Uma app lança pelas **regras** que registra, com a autorização vinda do registro dela (o atendimento), não do livro.
 
 ### Produto, preço, assinatura e fatura
 

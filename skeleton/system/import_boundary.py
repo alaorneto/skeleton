@@ -22,6 +22,10 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.common.models": frozenset({"SystemRecord", "OrganizationRecord", "SecuredRecord", "SealableMixin"}),
     # Sealed records (#527): the digest of the app's own parts and the in-process sealing of its models.
     "skeleton.common.sealing": frozenset({"canonical_bytes", "digest"}),
+    # Money as integers of the minor unit (#541): shared by the billing and by apps that handle money.
+    "skeleton.common.money": frozenset(
+        {"CURRENCY_EXPONENTS", "exponent", "format_amount", "parse", "percent", "scale", "validate_currency"}
+    ),
     "skeleton.records.sealing": frozenset({"seal_record", "seal_payload", "verify_seal"}),
     "skeleton.common.migration_operations": frozenset({"InstallRecordInfrastructure", "InstallSearchIndex"}),
     "skeleton.system.app_registry": frozenset({"AppManifest", "register_app"}),
