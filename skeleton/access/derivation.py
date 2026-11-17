@@ -43,8 +43,8 @@ class AccessRoute:
     which must be alive for the row to be visible.
     """
 
-    model: type
-    anchor: type
+    model: type[Any]
+    anchor: type[Any]
     path: str
     links: tuple[str, ...]
 

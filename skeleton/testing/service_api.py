@@ -316,7 +316,7 @@ def build_service_scenario(model: Any, *, slug: str = "service-contract") -> Ser
     a = create_organization(owner=users["admin-a"], slug=f"{slug}-a", name="Service contract A")
     b = create_organization(owner=users["admin-b"], slug=f"{slug}-b", name="Service contract B")
     route = access_route(model)
-    anchor = route.anchor if route is not None else model
+    anchor: Any = route.anchor if route is not None else model
     sync_table_catalog()
     table = TableDefinition.objects.get(model_label=anchor._meta.label_lower)
     for organization in (a, b):

@@ -261,7 +261,7 @@ def _derived(route: AccessRoute, *, user: User, action: str, include_deleted: bo
     return rows
 
 
-def require_parent_action(model: type[Model], parent: Model, *, user: User, action: str = "create") -> Model:
+def require_parent_action(model: type[Model], parent: Any, *, user: User, action: str = "create") -> Any:
     """Authorize an action on a new row of the derived ``model`` under ``parent`` (#561).
 
     Creating a child needs the write action on its anchor: ``parent`` must be the record that the
@@ -297,7 +297,7 @@ def require_record_action[RecordT: SecuredRecord](record: RecordT, *, user: User
     return record
 
 
-def users_who_can_read(record: Model, user_ids: Iterable[UUID]) -> set[UUID]:
+def users_who_can_read(record: Any, user_ids: Iterable[UUID]) -> set[UUID]:
     """The subset of ``user_ids`` for whom ``require_record_action(record, user=..., action="read")`` passes.
 
     The same layers as ``authorized_queryset``, decided in memory from a fixed number of

@@ -303,6 +303,8 @@ class AccessService(ServiceAPI):
         from skeleton.access.policies import _grant_ids, authorized_queryset
 
         route = access_route(model)
+        if route is None:
+            return set()
         mapped = DERIVED_ACTION_MAP[action]
         anchors = _grant_ids(route.anchor, actor, mapped)
         rows = authorized_queryset(model, user=actor, action=action).filter(
