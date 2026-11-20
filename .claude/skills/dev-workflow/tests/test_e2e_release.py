@@ -465,6 +465,41 @@ class PullRequestModeTest(SandboxCase):
         self.assertEqual(len(_bodies(state, 10)), 1)
         self.assertIn("Nada a versionar", self.assertRan(box.release()))
 
+    def test_notes_longer_than_github_accepts_are_shortened_but_the_changelog_keeps_everything(self):
+        box = self.box
+        padding = " detalhe" * 500  # ~4 000 caracteres por entrada: 35 entradas passam dos dois limites
+        for number in range(1, 36):
+            box.issue(number, f"Corrigir o caso {number}{padding}", "bug")
+            labels = ["release"] if number == 35 else []
+            box.merge_pr(
+                100 + number, f"fix: case {number}", [(f"fix: case {number}", None)], labels=labels, closes=[number]
+            )
+
+        out = self.assertRan(box.release())
+        self.assertIn("PR de release #1001 aberto para v1.2.1.", out)
+        body = box.state()["pulls"]["1001"]["body"]
+        self.assertLessEqual(len(body), 65_536)
+        self.assertIn("dev-workflow:release-pr", body)
+        self.assertIn("não cabe aqui", body)
+        self.assertNotIn("| Mudança | Nível | Sinais |", body)
+        self.assertIn(
+            "a lista completa está no [CHANGELOG.md](https://github.com/acme/demo/blob/release/next/CHANGELOG.md)", body
+        )
+
+        box.git("fetch", "-q", "origin", "release/next")
+        box.git("merge", "-q", "--no-ff", "FETCH_HEAD", "-m", "Merge pull request #1001 from acme/release/next")
+        box.git("push", "-q", "origin", "main")
+        box.update_state(lambda state: state["pulls"]["1001"].update(state="closed", merged=True, merged_at="x"))
+        self.assertRan(box.release())
+        release = box.state()["releases"]["v1.2.1"]["body"]
+        self.assertLessEqual(len(release), 125_000)
+        self.assertIn("https://github.com/acme/demo/blob/v1.2.1/CHANGELOG.md", release)
+        changelog = box.read("CHANGELOG.md")
+        self.assertTrue(all(f"Corrigir o caso {number} " in changelog for number in range(1, 36)))
+        annotation = box.git("tag", "-l", "--format=%(contents)", "v1.2.1")
+        self.assertIn("| Mudança | Nível | Sinais |", annotation)
+        self.assertIn("Corrigir o caso 35 ", annotation)
+
     def test_a_squashed_release_pr_publishes_too(self):
         box = self._prepare()
         box.git("fetch", "-q", "origin", "release/next")
@@ -576,6 +611,23 @@ class SurroundingsTest(SandboxCase):
         comments = _bodies(box.state(), 11)
         self.assertEqual(len(comments), 1)
         self.assertIn("não publica versão", comments[0])
+
+    def test_a_preview_longer_than_a_comment_accepts_drops_the_table(self):
+        box = self.box
+        padding = " detalhe" * 500  # cada linha da tabela leva o título: 20 mudanças passam de 65 536
+        for number in range(10, 30):
+            box.merge_pr(number, f"fix: case {number}{padding}", [(f"fix: case {number}", None)])
+        branch = box.open_pr(40, "feat: add the export command", FEAT, labels=["release"])
+        args = ("release.py", "preview", "--pr", "40", "--base-ref", "main", "--head-ref", branch, "--comment")
+        out = self.assertRan(box.run(*args))
+        self.assertIn("| Mudança | Nível | Sinais |", out)  # a saída do check continua completa
+        self.assertNotIn("não consegui comentar", out)
+        comments = _bodies(box.state(), 40)
+        self.assertEqual(len(comments), 1)
+        self.assertLessEqual(len(comments[0]), 65_536)
+        self.assertIn("ao mesclar, este PR publica **v1.3.0** (minor)", comments[0])
+        self.assertIn("não cabe num comentário", comments[0])
+        self.assertNotIn("| Mudança | Nível | Sinais |", comments[0])
 
     def test_check_reads_the_pr_tree_with_the_base_configuration(self):
         box = self.box

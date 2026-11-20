@@ -5,7 +5,7 @@ import unittest
 import support  # noqa: F401  (põe scripts/ no sys.path antes de importar devflow)
 from devflow.config import Config, ConfigError
 from devflow.plan import validate_analysis
-from devflow.release import ReleaseError, rewrite, update_changelog
+from devflow.release import ReleaseError, fit_notes, rewrite, truncate_lines, update_changelog
 from devflow.semver import Version, effective_level, max_level, next_prerelease, next_version
 from devflow.text import (
     breaking_notes,
@@ -215,6 +215,35 @@ class ChangelogFileTest(unittest.TestCase):
         text = update_changelog(text, "1.1.1", "## [1.1.1] — d", "- one", self.cfg)
         self.assertIn("- ten", text)
         self.assertEqual(text.count("## ["), 2)
+
+
+class NotesLimitTest(unittest.TestCase):
+    def test_lines_are_cut_whole_and_the_note_counts_what_was_left_out(self):
+        text = "### Correções\n\n" + "\n".join(f"- item {n}" for n in range(10))
+        cut = truncate_lines(text, 60, "_e mais {omitted}_")
+        self.assertLessEqual(len(cut), 60)
+        kept = [line for line in cut.splitlines() if line.startswith("- ")]
+        self.assertEqual(cut.splitlines()[-1], f"_e mais {10 - len(kept)}_")
+        self.assertTrue(all(line in text.splitlines() for line in kept))
+        self.assertEqual(truncate_lines(text, len(text), "_x_"), text)
+
+    def test_notes_that_fit_are_untouched(self):
+        notes = fit_notes("- a", "tabela", "curta", "extra", 1000, full_list="no `CHANGELOG.md`")
+        self.assertEqual(notes, "- a\n\n### Por que este número\n\ntabela\n\nextra\n")
+        self.assertEqual(fit_notes("- a", "t", "c", "", None, full_list="x"), "- a\n\n### Por que este número\n\nt\n")
+
+    def test_the_table_goes_first_then_the_changelog_is_cut(self):
+        changelog = "\n".join(f"- entrada {n}" for n in range(50))
+        table = "| a |\n" * 200
+        only_table = fit_notes(changelog, table, "curta", "registro", len(changelog) + 100, full_list="no x")
+        self.assertIn(changelog, only_table)
+        self.assertNotIn("| a |", only_table)
+        self.assertNotIn("registro", only_table)
+        self.assertTrue(only_table.endswith("### Por que este número\n\ncurta\n"))
+        both = fit_notes(changelog, table, "curta", "", 200, full_list="no x")
+        self.assertLessEqual(len(both), 200)
+        self.assertIn("a lista completa está no x._", both)
+        self.assertTrue(both.endswith("curta\n"))
 
 
 class AnalysisFormatTest(unittest.TestCase):

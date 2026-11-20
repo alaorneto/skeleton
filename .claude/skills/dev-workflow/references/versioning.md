@@ -41,6 +41,7 @@ Regras de borda:
 - Uma release pedida em que nenhum sinal pede incremento (só documentação, por exemplo) sobe o patch: toda versão publicada tem número novo.
 - A análise por agente acrescenta um sinal por mudança. Como vale o maior, ela **eleva e nunca reduz**. Reduzir é decisão do dono, por sobreposição.
 - O relatório (`release.py plan`, o comentário de prévia no PR e as notas da release) lista cada mudança com os sinais que contaram. Leia-o antes de aceitar o número.
+- O GitHub limita o tamanho do texto: 65 536 caracteres no corpo do PR de release e no comentário de prévia, 125 000 no da GitHub Release. Uma release que acumula muitas mudanças (a primeira de um projeto antigo, por exemplo) não cabe inteira. Nesse caso a tabela por mudança sai do texto, e, se ainda faltar espaço, o changelog é cortado em linha inteira com um link para o `CHANGELOG.md`. Nada se perde: o arquivo de changelog, a mensagem do commit de release e a tag anotada continuam com tudo.
 
 ## Versões 0.x
 
