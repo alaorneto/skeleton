@@ -519,7 +519,13 @@ def _filters(spec: Any) -> tuple[tuple[str, Schema, str], ...]:
         schema = field_schema(spec.model._meta.get_field(name))
         result.append((name, schema, f"Igualdade em {name}."))
     if getattr(spec, "search_fields", ()):
-        result.append(("q", string(), f"Busca textual em {', '.join(spec.search_fields)} (2 a 200 caracteres)."))
+        result.append(
+            (
+                "q",
+                string(),
+                f"Busca textual em {', '.join(spec.search_fields)} (2 a 200 caracteres); a última palavra casa por prefixo.",
+            )
+        )
     return tuple(result)
 
 

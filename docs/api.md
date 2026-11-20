@@ -66,6 +66,7 @@ O gateway oferece CRUD genérico (criação, leitura, alteração e exclusão l�
 FKs de negócio usam UUID resolvido em queryset legível da mesma org, nunca nested representação que revele privado/deletado. Lista aceita filtros exatos sysid/owner/visibility e campos escalares read_fields elegíveis. Não aceita contains/regex/dot path/SQL/query DSL. Uma tabela com `search_fields` aceita também `q`, uma busca textual de 2 a 200 caracteres:
 
 - usa o dicionário `portuguese`, sem acentos e com variações ("contratos" acha "contrato");
+- a última palavra casa por prefixo (`contr` acha `contrato`; `contrato loc` acha "Contrato de locação"), e as demais só como palavra inteira (#580);
 - filtra depois da autorização e antes da paginação, então `count` só conta o que o ator lê;
 - ordena por relevância.
 

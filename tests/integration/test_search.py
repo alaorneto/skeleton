@@ -55,6 +55,21 @@ def test_search_never_crosses_the_authorization_or_the_organization(scenario):
     assert "S-1" in content and "S-2" not in content and "B-1" not in content
 
 
+def test_last_word_matches_as_a_prefix(scenario):
+    assert search(scenario.member, scenario.a, "contr") == ["S-1"]
+    assert search(scenario.member, scenario.a, "contrato loc") == ["S-1"]
+    assert search(scenario.member, scenario.a, "loc contrato") == []
+    assert search(scenario.member, scenario.a, "trabalh") == ["S-2"]
+    assert set(search(scenario.admin_a, scenario.a, "contr")) == {"S-1", "S-3"}
+    assert search(scenario.admin_b, scenario.b, "contr") == ["B-1"]
+
+
+def test_special_characters_and_stop_words_never_fail(scenario):
+    for term in ("contr:* & !x | (y)", "d'agua", "a\\b", "<-> contr", "100%"):
+        assert isinstance(search(scenario.member, scenario.a, term), list)
+    assert search(scenario.member, scenario.a, "de") == []
+
+
 def test_short_terms_and_tables_without_search_are_refused(scenario, monkeypatch):
     with pytest.raises(ValidationError):
         search(scenario.member, scenario.a, "a")
