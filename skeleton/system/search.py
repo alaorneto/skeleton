@@ -8,7 +8,10 @@ installs ``InstallSearchIndex``: a GIN index over the expression
 and, for the picker, an index over ``skeleton.immutable_unaccent(<label>)`` (trigram when
 ``pg_trgm`` is installed, ``text_pattern_ops`` for prefixes otherwise). The query applies the
 same expression with ``plainto_tsquery``, on top of ``authorized_queryset`` and before the
-pagination, so the count and the pages only ever hold what the reader may see.
+pagination, so the count and the pages only ever hold what the reader may see. The last word of
+the term matches as a prefix (#580): the text of the ``plainto_tsquery`` result gets ``:*`` on
+its last lexeme, so "contr" finds "contrato" while operators typed in the term stay inert; a
+term made only of stop words gives an empty query, turned into ``NULL``, that matches nothing.
 
 ``skeleton.immutable_unaccent`` is a plain SQL function created by ``sk_system`` migration
 0008 (``translate`` over the Latin accented letters): no extension is needed for the full-text
@@ -75,7 +78,7 @@ def apply_search(queryset: Any, spec: Any, term: Any) -> Any:
     term = clean_term(term)
     model = queryset.model
     vector = vector_sql(model, fields)
-    query = f"plainto_tsquery('{CONFIG}'::regconfig, {UNACCENT}(%s))"
+    query = f"(NULLIF(plainto_tsquery('{CONFIG}'::regconfig, {UNACCENT}(%s))::text, '') || ':*')::tsquery"
     return (
         queryset.alias(_sk_match=RawSQL(f"{vector} @@ {query}", (term,), output_field=BooleanField()))  # noqa: S611 - columns from model metadata of declared fields; the term is bound
         .filter(_sk_match=True)

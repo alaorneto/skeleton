@@ -2,6 +2,21 @@
 
 Registro do que rodou em cada rodada, com os comandos da época. As rodadas anteriores a [#144](https://github.com/alaorneto/skeleton/issues/144) citam a suíte SQLite que existia então (`tests/integration_sqlite`, hoje `tests/integration`). Nada aqui é procedimento: para verificar hoje, use [testes](testing.md).
 
+## Prefixo na última palavra da busca textual (#580)
+
+Rodada de 2026-11-20 na branch `feat/580-casar-a-ultima-palavra-da-busca-textual`, a partir da `main` em `v0.1.0`. Windows 11, Python 3.13 do `.venv` com `requirements-dev.txt`, PostgreSQL 16 de `tools/dev_postgres.py`, assertions como `skeleton_runtime`. Somente o que rodou.
+
+- A expressão principal da issue (`NULLIF(plainto_tsquery(...)::text, '') || ':*'` com cast para `tsquery`) foi aceita pelo PostgreSQL; a alternativa com `numnode` não foi necessária.
+- `test_last_word_matches_as_a_prefix`: `contr` e `contrato loc` acham "Contrato de locação", `loc contrato` não acha nada, `trabalh` acha "Ação judicial trabalhista", o registro privado de outra pessoa só aparece para o administrador e a outra organização só vê o próprio registro. `test_special_characters_and_stop_words_never_fail`: `:*`, `&`, `|`, `!`, parênteses, aspa simples, barra invertida, `<->` e `%` não falham, e `de` (só stop word) devolve lista vazia (`tests/integration/test_search.py`). Os quatro testes que já existiam no arquivo passaram sem alteração.
+
+| Execução observada | Resultado |
+|---|---|
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests/integration/test_search.py tests/integration/test_picker_search.py tests/integration_postgres/test_search_schema.py tests/integration/test_openapi.py tests/unit/test_openapi_schema.py -q` | 38 passed, 1 skipped (`pg_trgm` ausente no cluster local) |
+| `SKELETON_ENABLE_EXAMPLE_APP=true python -m pytest tests -q -n auto` | 3550 passed, 168 skipped (O_NOFOLLOW/fcntl/SIGHUP só em POSIX, PyYAML ausente, URL administrativa ausente), 286 subtests, 3 falhas de ambiente, 18 min 44 s |
+| as 3 falhas de ambiente, isoladas | `test_mailers.py::test_production_builds_the_smtp_mailer_and_refuses_anything_else` e `test_setup_mode.py::test_the_wsgi_entrypoint_issues_and_prints_the_token_in_a_fresh_process` decodificam a saída do subprocesso na página de código do Windows e passam com `PYTHONUTF8=1` (2 passed); `test_runtime_role_settings.py::test_runtime_role_has_bounded_lock_and_idle_waits` falha porque o cluster de `tools/dev_postgres.py` não aplica os `ALTER ROLE` de `deploy/postgres/bootstrap.sql` (`lock_timeout` e `idle_in_transaction_session_timeout` em 0) |
+| `SKELETON_BUNDLED_APPS=calendar,ledger python -m mypy` | sem problemas |
+| `uvx ruff@0.17.4 check .` e `format --check .` | ok |
+
 ## Tabelas derivadas e primeira release 0.1.0 (epic #560, #569)
 
 Rodada de 2026-11-17 na branch `feat/560-derived-access`, a partir da `main` com #557, #558 e #568. Windows 11, Python 3.13 do `.venv`, PostgreSQL 16 de `tools/dev_postgres.py` num cluster dedicado, assertions como `skeleton_runtime`. Somente o que rodou.
