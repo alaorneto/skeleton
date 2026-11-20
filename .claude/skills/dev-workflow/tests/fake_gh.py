@@ -27,8 +27,17 @@ def as_issue(number, state):
     not_found()
 
 
+def utf16_length(text):
+    return len(text.encode("utf-16-le")) // 2
+
+
 def handle(method, path, query, body, state):
     actor = state.get("actor", {"login": "github-actions[bot]", "association": "NONE"})
+    # Limites do GitHub: o corpo de release vai até 125 000 caracteres; PR, issue e comentário, 65 536.
+    limit = 125_000 if path == "releases" else 65_536
+    if method in ("POST", "PATCH") and utf16_length(str((body or {}).get("body") or "")) > limit:
+        sys.stderr.write(f"gh: Validation Failed: body is too long (maximum is {limit} characters) (HTTP 422)\n")
+        return SystemExit(1)
 
     def new_id():
         state["next_id"] = state.get("next_id", 1000) + 1

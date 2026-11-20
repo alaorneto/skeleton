@@ -654,8 +654,12 @@ def render_changelog_body(plan: Plan, cfg: Config, links: Links, *, hide: bool =
     return "\n\n".join(blocks) or "Sem mudanças visíveis para quem usa o projeto."
 
 
-def render_justification(plan: Plan, cfg: Config, links: Links) -> str:
-    """Por que este número: sinais de cada mudança, sobreposição e situação da análise por agente."""
+def render_justification(plan: Plan, cfg: Config, links: Links, *, table_note: str | None = None) -> str:
+    """Por que este número: sinais de cada mudança, sobreposição e situação da análise por agente.
+
+    Com ``table_note``, a tabela por mudança dá lugar a essa frase: é a forma compacta, para textos
+    que o GitHub limita em tamanho.
+    """
     lines = []
     origin = f"{plan.base_tag}" if plan.base_tag else f"{plan.base_version} (versão inicial, sem tag)"
     if plan.version:
@@ -666,7 +670,9 @@ def render_justification(plan: Plan, cfg: Config, links: Links) -> str:
             f"**{plan.natural}**. Motivo: {plan.override.reason}"
         )
     lines += plan.notes
-    if plan.changes:
+    if plan.changes and table_note is not None:
+        lines += ["", table_note]
+    elif plan.changes:
         lines += ["", "| Mudança | Nível | Sinais |", "|---|---|---|"]
         for change in plan.changes:
             signals = "; ".join(

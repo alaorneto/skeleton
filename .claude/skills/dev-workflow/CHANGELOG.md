@@ -2,6 +2,18 @@
 
 As versões depois da tag de base são escritas pelo workflow de release (`scripts/release.py run`): não edite as seções de versão à mão.
 
+## [1.0.2](https://github.com/alaorneto/dev-workflow/compare/v1.0.1...v1.0.2) — 2026-11-20
+
+### Manutenção
+
+- Formatar os testes de limite das notas em 120 colunas ([#3](https://github.com/alaorneto/dev-workflow/issues/3)) — PR [#4](https://github.com/alaorneto/dev-workflow/pull/4)
+
+## [1.0.1](https://github.com/alaorneto/dev-workflow/compare/v1.0.0...v1.0.1) — 2026-11-20
+
+### Correções
+
+- Limitar as notas de release ao tamanho que o GitHub aceita ([#1](https://github.com/alaorneto/dev-workflow/issues/1)) — PR [#2](https://github.com/alaorneto/dev-workflow/pull/2)
+
 ## 1.0.0
 
 Primeira versão publicada como repositório próprio, extraída do projeto Skeleton.

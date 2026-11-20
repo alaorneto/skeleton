@@ -50,6 +50,11 @@ REMOTE = "origin"
 BOT_NAME = "github-actions[bot]"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 MAX_ROUNDS = 4
+# Limites do GitHub, em caracteres: corpo de PR, issue e comentário; corpo de uma Release.
+BODY_LIMIT = 65_536
+RELEASE_BODY_LIMIT = 125_000
+# Folga para o que o GitHub conta diferente de ``len`` (caracteres fora do BMP contam dois).
+NOTES_MARGIN = 2_048
 
 
 class ReleaseError(RuntimeError):
@@ -167,14 +172,67 @@ def update_changelog(existing: str | None, version: str, heading: str, body: str
     return existing.rstrip("\n") + "\n\n" + block
 
 
-def release_notes(plan: Plan, cfg: Config, links: Links, extra: str = "") -> str:
-    parts = [
-        render_changelog_body(plan, cfg, links, hide=False),
-        "### Por que este número\n\n" + render_justification(plan, cfg, links),
-    ]
-    if extra:
-        parts.append(extra)
-    return "\n\n".join(parts) + "\n"
+def truncate_lines(text: str, limit: int, note: str) -> str:
+    """Corta ``text`` num fim de linha para caber em ``limit`` com ``note`` no fim.
+
+    ``note`` pode citar ``{omitted}``: quantos itens de lista (``- ``) ficaram de fora.
+    """
+    if len(text) <= limit:
+        return text
+    lines = text.split("\n")
+    budget = max(limit - len(note.format(omitted=len(lines))) - 2, 0)
+    kept, size = 0, 0
+    while kept < len(lines) and size + len(lines[kept]) + 1 <= budget:
+        size += len(lines[kept]) + 1
+        kept += 1
+    omitted = sum(1 for line in lines[kept:] if line.lstrip().startswith("- "))
+    head = "\n".join(lines[:kept]).rstrip()
+    return (head + "\n\n" if head else "") + note.format(omitted=omitted)
+
+
+def fit_notes(
+    changelog: str, justification: str, compact: str, extra: str, limit: int | None, *, full_list: str
+) -> str:
+    """Notas que cabem em ``limit`` caracteres (o GitHub recusa corpo maior; ``None`` não limita).
+
+    Primeiro a tabela por mudança sai (``compact`` diz onde ela continua inteira); se ainda não
+    couber, o changelog é cortado em linha inteira, com a indicação de ``full_list``.
+    """
+    why = "### Por que este número\n\n"
+    full = "\n\n".join(part for part in (changelog, why + justification, extra) if part) + "\n"
+    if limit is None or len(full) <= limit:
+        return full
+    tail = "\n\n" + why + compact + "\n"
+    note = f"_… e mais {{omitted}} entrada(s): a lista completa está {full_list}._"
+    body = truncate_lines(changelog, max(limit - len(tail), 0), note)
+    return truncate_lines(body + tail, limit, "_… texto cortado pelo limite do GitHub._")
+
+
+def release_notes(
+    plan: Plan, cfg: Config, links: Links, extra: str = "", *, limit: int | None = None, ref: str = ""
+) -> str:
+    """Notas da versão: changelog e o porquê do número, dentro de ``limit`` quando dado.
+
+    ``ref`` é a tag ou branch em que o ``CHANGELOG.md`` completo pode ser lido.
+    """
+    changelog = render_changelog_body(plan, cfg, links, hide=False)
+    path = cfg.changelog["path"]
+    if path and links.web and ref:
+        full_list = f"no [{path}]({links.web}/blob/{ref}/{path})"
+    elif path:
+        full_list = f"no `{path}`"
+    else:
+        full_list = "na mensagem da tag anotada"
+    compact = render_justification(
+        plan,
+        cfg,
+        links,
+        table_note=(
+            f"_A tabela com os sinais de cada uma das {len(plan.changes)} mudança(s) não cabe aqui: ela está "
+            "inteira na mensagem do commit de release e na da tag anotada._"
+        ),
+    )
+    return fit_notes(changelog, render_justification(plan, cfg, links), compact, extra, limit, full_list=full_list)
 
 
 # --- contexto de execução ----------------------------------------------------------------------
@@ -321,7 +379,7 @@ def publish(session: Session, tag: str, version: Version, target: str, plan: Pla
         bodies = [c.body for c in release_commit if cfg.release_subject_pattern().match(c.subject) and c.body]
         if bodies:
             extra = "### Registro do commit de release\n\n" + bodies[-1]
-    notes = release_notes(plan, cfg, session.links, extra)
+    notes = release_notes(plan, cfg, session.links, extra)  # tag anotada: sem limite, com tudo
     if tag not in session.repo.version_tags():
         path = _write_temp(f"{tag}\n\n{notes}")
         try:
@@ -340,7 +398,9 @@ def publish(session: Session, tag: str, version: Version, target: str, plan: Pla
                 {
                     "tag_name": tag,
                     "name": tag,
-                    "body": notes,
+                    "body": release_notes(
+                        plan, cfg, session.links, extra, limit=RELEASE_BODY_LIMIT - NOTES_MARGIN, ref=tag
+                    ),
                     "prerelease": version.is_prerelease,
                     "make_latest": "true" if latest else "false",
                 }
@@ -364,11 +424,12 @@ def open_release_pr(session: Session, plan: Plan) -> None:
     tag, branch = str(plan.tag(cfg)), cfg.release["pr_branch"]
     git("push", "--force", REMOTE, f"HEAD:refs/heads/{branch}")
     title = cfg.release_subject(tag)
-    body = (
+    header = (
         f"{RELEASE_PR_MARK}\nPR de release gerado pela automação. Ao ser mesclado, a tag `{tag}` e a GitHub Release "
         "são criadas. Não edite: ele é refeito a cada push na branch de destino.\n\n"
-        + release_notes(plan, cfg, session.links)
     )
+    limit = BODY_LIMIT - NOTES_MARGIN - len(header)
+    body = header + release_notes(plan, cfg, session.links, limit=limit, ref=branch)
     existing = github.open_pulls_from(branch)
     if existing:
         github.update_pull(int(existing[0]["number"]), {"title": title, "body": body})
@@ -470,7 +531,7 @@ def run(session: Session, args: argparse.Namespace) -> int:
 # --- relatórios --------------------------------------------------------------------------------
 
 
-def report(plan: Plan, cfg: Config, links: Links, *, pr: int | None = None) -> str:
+def report(plan: Plan, cfg: Config, links: Links, *, pr: int | None = None, table_note: str | None = None) -> str:
     lines: list[str] = []
     tag = plan.tag(cfg)
     release = cfg.label("release")
@@ -496,7 +557,7 @@ def report(plan: Plan, cfg: Config, links: Links, *, pr: int | None = None) -> s
         lines.append(f"### Próxima versão: **{tag}** ({plan.level}) — {state}")
         if plan.requested_by:
             lines.append(f"Versão pedida por: {', '.join(plan.requested_by)}.")
-    lines += ["", render_justification(plan, cfg, links)]
+    lines += ["", render_justification(plan, cfg, links, table_note=table_note)]
     if plan.problems:
         lines += ["", "**Problemas que impedem a release**", *(f"- {problem}" for problem in plan.problems)]
     return "\n".join(lines).strip() + "\n"
@@ -517,7 +578,15 @@ def preview(session: Session, args: argparse.Namespace) -> int:
         with open(summary, "a", encoding="utf-8") as file:
             file.write(text)
     if args.comment and session.github.enabled:
-        body = f"{PREVIEW_MARK}\n{text}\n<sub>Atualizado a cada push e a cada mudança de label.</sub>\n"
+        footer = "\n<sub>Atualizado a cada push e a cada mudança de label.</sub>\n"
+        if len(PREVIEW_MARK) + len(text) + len(footer) + 1 > BODY_LIMIT - NOTES_MARGIN:
+            note = (
+                f"_A tabela com os sinais de cada uma das {len(plan.changes)} mudança(s) não cabe num comentário: "
+                "ela está no resumo da execução deste check e em `release.py plan`._"
+            )
+            compact = report(plan, cfg, session.links, pr=args.pr, table_note=note)
+            text = truncate_lines(compact, BODY_LIMIT - NOTES_MARGIN - len(PREVIEW_MARK) - len(footer) - 1, note)
+        body = f"{PREVIEW_MARK}\n{text}{footer}"
         try:
             trusted = cfg.versioning["trusted_bots"]
             mine = [
