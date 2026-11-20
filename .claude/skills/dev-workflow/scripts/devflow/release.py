@@ -133,6 +133,20 @@ def apply_version_files(
     return changed
 
 
+def prepared_release(session: Session, tree: Path, current: Version) -> tuple[str, Version] | None:
+    """``(tag, versão)`` quando ``tree`` é o PR de release: a ponta é ``chore(release): <tag>`` de uma
+    versão acima da corrente e ainda sem tag. Os arquivos dele já trazem essa versão, não a corrente."""
+    cfg, tree_git = session.cfg, Git(tree)
+    if not tree_git.ok("rev-parse", "HEAD"):
+        return None
+    match = cfg.release_subject_pattern().match(tree_git("log", "-1", "--format=%s", "HEAD"))
+    tag = match.group("tag") if match else ""
+    version = Version.try_parse(tag[len(cfg.tag_prefix) :]) if tag.startswith(cfg.tag_prefix) else None
+    if version is None or version.key() <= current.key() or tag in session.repo.version_tags():
+        return None
+    return tag, version
+
+
 def check_version_files(cfg: Config, current: Version, *, root: Path | None = None) -> list[str]:
     """Divergências entre os arquivos e a versão corrente: reescrever para ela não pode mudar nada."""
     try:
@@ -744,10 +758,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             if tree is not None and not tree.is_dir():
                 print(f"ERRO: --tree {args.tree} não é um diretório.")
                 return 1
-            problems = check_version_files(cfg, current, root=tree)
+            prepared = prepared_release(session, tree, current) if tree is not None else None
+            problems = check_version_files(cfg, prepared[1] if prepared else current, root=tree)
             for problem in problems:
                 print(f"ERRO: {problem}")
-            if not problems:
+            if not problems and prepared:
+                print(
+                    f"PR de release ({prepared[0]}): {len(cfg.versioning['files'])} entrada(s) de arquivo coerentes "
+                    f"com a versão {prepared[1]}, que ele publica."
+                )
+            elif not problems:
                 origin = f"tag {latest[0]}" if latest else "versioning.initial_version (ainda não há tag)"
                 print(
                     f"{len(cfg.versioning['files'])} entrada(s) de arquivo coerentes com a versão {current} ({origin})."
