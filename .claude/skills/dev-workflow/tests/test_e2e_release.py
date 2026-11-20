@@ -13,6 +13,7 @@ from unittest import mock
 
 import support  # noqa: F401  (põe scripts/ no sys.path antes de importar devflow)
 from devflow.config import load
+from devflow.gh import Git
 from devflow.release import Session, run
 from support import BASE_FILES, PR_BODY, Sandbox, SandboxCase
 
@@ -464,6 +465,25 @@ class PullRequestModeTest(SandboxCase):
         self.assertIn("Corrigir a lista vazia", state["releases"]["v1.2.1"]["body"])
         self.assertEqual(len(_bodies(state, 10)), 1)
         self.assertIn("Nada a versionar", self.assertRan(box.release()))
+
+    def test_the_pr_check_accepts_the_release_pr_and_only_it(self):
+        box = self._prepare()
+        tree = box.base / "pr-head"
+        box.git("clone", "-q", "--branch", "release/next", str(box.remote), str(tree))
+        commit = ["-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-q"]
+        out = self.assertRan(box.run("release.py", "check", "--tree", str(tree)))
+        self.assertIn("PR de release (v1.2.1)", out)
+        self.assertIn("coerentes com a versão 1.2.1", out)
+
+        # um commit de release que não traz a versão nos arquivos continua reprovado
+        (tree / "pyproject.toml").write_bytes(BASE_FILES["pyproject.toml"].encode("utf-8"))
+        Git(tree)(*commit, "-am", "chore(release): v1.2.1")
+        self.assertEqual(box.run("release.py", "check", "--tree", str(tree)).returncode, 1)
+
+        # um PR comum com a versão nova nos arquivos não se passa por release: a ponta não é commit de release
+        Git(tree)("reset", "-q", "--hard", "HEAD~1")
+        Git(tree)(*commit, "--allow-empty", "-m", "fix: other")
+        self.assertEqual(box.run("release.py", "check", "--tree", str(tree)).returncode, 1)
 
     def test_notes_longer_than_github_accepts_are_shortened_but_the_changelog_keeps_everything(self):
         box = self.box

@@ -2,6 +2,12 @@
 
 As versões depois da tag de base são escritas pelo workflow de release (`scripts/release.py run`): não edite as seções de versão à mão.
 
+## [1.0.3](https://github.com/alaorneto/dev-workflow/compare/v1.0.2...v1.0.3) — 2026-11-20
+
+### Correções
+
+- Aceitar o PR de release na conferência dos arquivos de versão ([#5](https://github.com/alaorneto/dev-workflow/issues/5)) — PR [#6](https://github.com/alaorneto/dev-workflow/pull/6)
+
 ## [1.0.2](https://github.com/alaorneto/dev-workflow/compare/v1.0.1...v1.0.2) — 2026-11-20
 
 ### Manutenção
