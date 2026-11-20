@@ -4,7 +4,7 @@
 `CalendarService` é o contrato em processo da agenda (#111). Outras apps o usam para ler calendários e ocorrências, criar, alterar e cancelar eventos e consultar horários ocupados, sempre com a autorização do ator que está no contexto. As páginas da própria agenda usam o mesmo serviço.
 
 ## Dependência
-`app_id`: `org.skeleton.calendar`. Faixa recomendada: `{"org.skeleton.calendar": ">=0.0.0,<0.1.0"}`. Importe só `skeleton.contrib.calendar.service_api`.
+`app_id`: `org.skeleton.calendar`. Faixa recomendada: `{"org.skeleton.calendar": ">=0.1.0,<0.2.0"}`. Importe só `skeleton.contrib.calendar.service_api`.
 
 ## Serviços
 
