@@ -503,7 +503,7 @@ TableSpec(..., expose_api=True, search_fields=("code", "title"), global_search=G
 
 Requisitos (E043): `SecuredRecord` com `expose_api=True`, `search_fields` declarados e um campo de título legível (o `list.title_field` do `model_ui` ou, sem ele, `title`, `name` ou `code` em `read_fields`). `order` (inteiro de 0 a 9999, padrão 100) ordena os grupos de resultado; empates saem pelo rótulo da tabela. A marca **não** concede leitura: a busca roda a mesma busca textual da lista da tabela (`apply_search`) sobre `authorized_queryset`, só nas tabelas que a pessoa lê (`TablePermission`, escopos do token e app ativa), e devolve só o `sysid` e o título de cada registro, agrupados por tabela, porque o ranking de tabelas diferentes não é comparável. Cada tabela marcada custa uma consulta por busca: marque as tabelas em que as pessoas procuram por nome ou código. O gateway é `skeleton.records.search.global_search` ([#581](https://github.com/alaorneto/skeleton/issues/581)).
 
-Marcada a tabela, ela passa a aparecer em `GET /api/v1/o/<org>/search/` ([busca global na API](api.md#busca-global)).
+Marcada a tabela, ela passa a aparecer em `GET /api/v1/o/<org>/search/` ([busca global na API](api.md#busca-global)). Uma app que queira oferecer a busca na própria tela usa o `SearchService` da [API de serviços](service-api.md#searchservice).
 
 ### Migration de segurança
 

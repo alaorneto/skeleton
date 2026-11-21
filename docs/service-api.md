@@ -250,6 +250,7 @@ O núcleo publica a própria API de serviços em submódulos de `skeleton.servic
 | `JobService`, `EventService` | `skeleton.service_api.jobs`, `skeleton.service_api.events` | `enqueue`, `publish` | [#108](https://github.com/alaorneto/skeleton/issues/108) |
 | `FileService` | `skeleton.service_api.files` | `attach`, `list`, `download_url`, `external_download_url`, `remove` | [#109](https://github.com/alaorneto/skeleton/issues/109) |
 | `CommentService` | `skeleton.service_api.comments` | `comments`, `add_comment`, `edit_comment`, `delete_comment`, `restore_comment` | [#187](https://github.com/alaorneto/skeleton/issues/187) |
+| `SearchService` | `skeleton.service_api.search` | `search` | [#583](https://github.com/alaorneto/skeleton/issues/583) |
 | `SequenceService` | `skeleton.service_api.sequences` | `next_number` | [#155](https://github.com/alaorneto/skeleton/issues/155) |
 | `RecordSealService` | `skeleton.service_api.records` | `seal`, `status`, `verify` | [#527](https://github.com/alaorneto/skeleton/issues/527) |
 | `FeedTokenService` | `skeleton.service_api.tokens` | `issue` | [#76](https://github.com/alaorneto/skeleton/issues/76) |
@@ -388,6 +389,24 @@ Apps não acessam o armazenamento diretamente. A tabela pode ser exposta ou [der
 ### CommentService
 
 [Comentários](comments.md) em registros de tabelas com `CommentPolicy`, autorizados pelo registro alvo como no `FileService`, inclusive de [tabela derivada](access-control.md#tabelas-derivadas) (#563). `comments(*, actor, table_key, record_id, cursor=None, page_size=25) -> Page[CommentInfo]` lista os vivos, do mais antigo ao mais novo; `add_comment(*, actor, table_key, record_id, body)` exige leitura do alvo; `edit_comment(..., comment_id, body, expected_revision)` só para o autor; `delete_comment` e `restore_comment(..., comment_id, expected_revision)` para o autor ou o administrador da organização. `CommentInfo` traz o corpo como texto simples: renderize-o escapado (`skeleton.comments.text.linkify` faz o escape e os links). Erros: `NotFound` para tabela sem a política e alvo inexistente, de outra organização ou ilegível; `Forbidden` para quem não pode editar ou excluir; `Conflict("stale_revision")`; `InvalidInput` para corpo vazio, acima de 5.000 caracteres, com caracteres de controle ou com menção a quem não é membro ou não lê o registro ([menções](comments.md#menções)). Métodos com `since="0.1.0"`.
+
+### SearchService
+
+A [busca global](extending.md#busca-global) nas tabelas marcadas com `GlobalSearchPolicy`, para uma app que queira oferecê-la na própria tela (a REST e a página web chamam o mesmo gateway).
+
+```python
+from skeleton.service_api.search import SearchService
+
+results = SearchService().search(actor=request.user, query="contr", limit=5)  # SearchResults
+for group in results.groups:  # Um SearchGroup por tabela com resultado.
+    print(group.label, [hit.label for hit in group.hits], group.has_more)
+```
+
+| Método | Autorização | Erros |
+|---|---|---|
+| `search(*, actor, query, limit=5) -> SearchResults` | leitura de cada tabela (`TablePermission`, escopos do token e app ativa) e de cada registro (`authorized_queryset`); uma tabela ilegível não gera grupo, igual a uma sem resultado | `InvalidInput` (`query` fora de 2 a 200 caracteres ou que não é texto, `limit` fora de 1 a 20 ou que não é inteiro); `Forbidden` (ator divergente); `ContextRequired` (sem organização no contexto) |
+
+`SearchResults` tem `query` (o termo normalizado, espaços colapsados) e `groups`. `SearchGroup` tem `table_key`, `label` (rótulo da tabela), `hits` e `has_more` (a lista da tabela com o mesmo termo tem mais que `limit`). `SearchHit` tem `sysid` e `label` (o campo de título do registro, nunca `__str__`). Só lê: sem efeito, sem commit e sem contexto próprio. Método com `since="0.2.0"`.
 
 ### SequenceService
 
