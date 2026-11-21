@@ -18,6 +18,10 @@ gets 429 before its view runs, so nothing is written. Both answers carry ``Retry
 Otherwise the request runs as the token's user, without CSRF (a Bearer header is never sent by
 the browser on its own), and the tenant middleware records ``http:token:<prefix>`` as source
 and the token scopes in the context.
+
+A Bearer value that is not ``skt_...`` is an OIDC access token of a native client (#604,
+``skeleton.integrations.tokens.oidc``): the same steps and answers apply to it, with
+``http:oidc:<client_id>`` as source and the scopes mapped from the granted OIDC scopes.
 """
 
 from __future__ import annotations
@@ -123,6 +127,7 @@ class ApiTokenMiddleware:
         )
 
     def _authenticate(self, request: ApiRequest, text: str) -> JsonResponse | None:
+        from .oidc import verify_oidc_token
         from .services import verify_token
 
         if request.user.is_authenticated:
@@ -134,8 +139,8 @@ class ApiTokenMiddleware:
         if peek(failures, window_s=WINDOW_S) >= _limit("SKELETON_API_TOKEN_FAILURES_PER_MINUTE", 20):
             # Brute force of prefixes or secrets: refused before any database lookup.
             return _too_many(request, "failures", WINDOW_S)
-        token = verify_token(text)
-        if token is None or token.kind == token.Kind.FEED:
+        token = verify_token(text) if text.startswith("skt_") else verify_oidc_token(text)
+        if token is None or token.kind == "feed":
             # A feed token only opens the feed views that check its scope, never /api/v1/.
             return self._reject(request, "invalid_token")
         try:
@@ -153,9 +158,14 @@ class ApiTokenMiddleware:
         rate = hit(f"token:{token.pk}", limit=_limit("SKELETON_API_TOKEN_RATE_PER_MINUTE", 600), window_s=WINDOW_S)
         if not rate.allowed:
             return _too_many(request, "token", rate.retry_after)
-        from .activity import touch
+        if token.kind == "oidc":
+            from .oidc import touch as touch_oidc
 
-        touch(token)
+            touch_oidc(token)
+        else:
+            from .activity import touch
+
+            touch(token)
         request.user = token.user
         request.api_token = token
         # No browser attaches a Bearer header by itself, so CSRF does not apply to this request.

@@ -274,3 +274,5 @@ SELECT de AuditEvent pela conexão runtime limita-se ao tenant; eventos globais 
 ## Auditoria autorizada
 
 Administradores organizacionais veem auditoria da própria organização. Outros precisam de `table.audit` e leitura autorizada do registro atual; uma marca de exclusão exige autorização para `restore`. Filtre **antes** de paginar/contar. Se o registro foi removido offline e não há objeto atual, só administrador organizacional/plataforma pode ver os eventos: nunca reconstrua a ACL a partir do conteúdo histórico. Inventário técnico e eventos globais pertencem somente à plataforma: ao administrador e, para leitura, ao auditor de plataforma (#34).
+
+A origem de cada evento vem do GUC `skeleton.source` da transação e diz qual credencial escreveu: `http` para a sessão, `http:token:<prefixo>` para um [token de API](api.md#autenticação-por-token), `http:oidc:<client_id>` para o access token de um [cliente nativo](api.md#access-tokens-oidc-de-clientes-nativos) (#604) e `system:<motivo>` para um contexto de sistema, como `system:native-client:register`. Nenhuma delas leva o segredo do token.

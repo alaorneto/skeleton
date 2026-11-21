@@ -62,6 +62,11 @@ class ApiToken(SystemRecord):
     def __str__(self):
         return f"skt_{self.prefix}_… ({self.name})"
 
+    @property
+    def audit_source(self):
+        """The GUC ``skeleton.source`` of a request made with this token (never the secret)."""
+        return f"http:token:{self.prefix}"
+
 
 class ApiTokenActivity(OperationalRecord):
     """Last use of a token (#48), written at most once per window: operational, never audited."""

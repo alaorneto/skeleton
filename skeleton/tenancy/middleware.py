@@ -39,8 +39,9 @@ class TenantContextMiddleware:
     def _in_context(self, request, match):
         user = request.user
         token = getattr(request, "api_token", None)
-        # The GUC skeleton.source names the token prefix, so audit rows show which credential wrote.
-        source = f"http:token:{token.prefix}" if token is not None else "http"
+        # The GUC skeleton.source names the credential (token prefix or native client), so audit rows
+        # show which one wrote.
+        source = token.audit_source if token is not None else "http"
         with request_context(
             actor=user if user.is_authenticated else None,
             request_id=request.request_id,

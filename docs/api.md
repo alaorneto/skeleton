@@ -1,6 +1,6 @@
 # API REST
 
-Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML, por sessão ou por [token de API](#tokens-de-api). No endereço de uma organização (`<slug>.<domínio base>`, [#482](https://github.com/alaorneto/skeleton/issues/482)) a API tem os mesmos caminhos, inclusive `/api/v1/o/<uuid>/…`, mas só a organização do host responde: `/api/v1/o/<outra>/…` é 404. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` (`skeleton_session` quando o [domínio base](authentication-sso.md#sessão-entre-o-domínio-principal-e-os-endereços-de-organização) está configurado; o nome vem de `SESSION_COOKIE_NAME`) identifica essa sessão mantida no servidor. Os mecanismos são a sessão (`SessionAuthentication`) e, nas views que os aceitam, [tokens de API](#autenticação-por-token); não há Basic, JWT nem endpoint independente de senha. A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
+Esta API usa o prefixo `/api/v1/` e a mesma identidade das páginas HTML, por sessão ou por [token de API](#tokens-de-api). No endereço de uma organização (`<slug>.<domínio base>`, [#482](https://github.com/alaorneto/skeleton/issues/482)) a API tem os mesmos caminhos, inclusive `/api/v1/o/<uuid>/…`, mas só a organização do host responde: `/api/v1/o/<outra>/…` é 404. Faça login pelo allauth para obter uma sessão; o cookie `sessionid` (`skeleton_session` quando o [domínio base](authentication-sso.md#sessão-entre-o-domínio-principal-e-os-endereços-de-organização) está configurado; o nome vem de `SESSION_COOKIE_NAME`) identifica essa sessão mantida no servidor. Os mecanismos são a sessão (`SessionAuthentication`) e, nas views que os aceitam, [tokens de API](#autenticação-por-token); não há Basic nem JWT. Um cliente nativo (aplicativo de desktop) obtém um access token pelo [provedor OIDC do núcleo](authentication-sso.md#provedor-oidc-para-clientes-nativos-603), com login no navegador do sistema e PKCE, e o usa como Bearer ([access tokens OIDC](#access-tokens-oidc-de-clientes-nativos)). A autenticação identifica a pessoa, mas cada operação ainda verifica vínculo, organização e permissões. Veja [autorização e contexto](concepts.md#autorização-e-contexto).
 
 Esta é a API para clientes HTTP. Código de outra app, no mesmo processo, não chama esta API: usa a [API de serviços](service-api.md) da app ou do núcleo, que devolve DTOs e roda na transação de quem chama.
 
@@ -260,6 +260,27 @@ Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de a
 # TOKEN vem da tela de tokens e fica só no ambiente local; não o coloque em histórico ou log.
 curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
 curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'   -d '{"code":"n1","title":"Nota","body":"texto"}' "$BASE/api/v1/o/$ORG/tables/example_notes.note/records/"
+```
+
+## Access tokens OIDC de clientes nativos
+
+Um cliente nativo obtém access tokens do [provedor OIDC do núcleo](authentication-sso.md#provedor-oidc-para-clientes-nativos-603) e os envia como `Authorization: Bearer <access token>` (#604). O `ApiTokenMiddleware` continua o único ponto de autenticação Bearer: o que não começa com `skt_` é procurado pelo SHA-256 na tabela de tokens do allauth (índice único `(type, hash)`), como access token não vencido de um cliente nativo ativo, de pessoa ativa e com o `auth_version` carimbado na emissão. A partir daí valem as mesmas regras e respostas da [autenticação por token](#autenticação-por-token), na mesma ordem, para o cliente ter um só caminho de tratamento:
+
+| Situação | Resposta |
+|---|---|
+| Token válido numa view que aceita o método (`token_methods`) | Roda como a pessoa, sem CSRF; `skeleton.source` (GUC e auditoria) é `http:oidc:<client_id>` |
+| Sessão e Bearer juntos | 400 `ambiguous_credentials` |
+| Token vencido, revogado, de grant revogado, de cliente desativado ou revogado, de pessoa inativa ou com `auth_version` mudado | 401 `invalid_token` com `WWW-Authenticate: Bearer realm="api", error="invalid_token"`: renove com o refresh token; se a renovação responder `invalid_grant`, peça login de novo |
+| View sem o método em `token_methods` | 403 `token_not_allowed` |
+| Limites | Os mesmos de `SKELETON_API_TOKEN_RATE_PER_MINUTE` (por access token) e `SKELETON_API_TOKEN_FAILURES_PER_MINUTE` (por IP) |
+
+**Escopos.** Os escopos OIDC concedidos viram escopos do núcleo: `openid profile email`, sozinhos, dão um **token pessoal amplo**, com todas as ações de tabela e os escopos nomeados que não são de feed, sempre cruzados com o papel da pessoa em cada organização. Quando o operador registrou escopos do núcleo para o cliente (`native_client register --scope`) e o cliente os pediu, só eles valem. Em nenhum caso o escopo amplia o papel, e um token OIDC nunca administra: capacidades (`access.manage`, `apps.manage`, ...) ficam vazias sob qualquer credencial de token. O último uso fica no próprio token, gravado no máximo uma vez a cada 5 minutos, e aparece em [dispositivos conectados](authentication-sso.md#provedor-oidc-para-clientes-nativos-603).
+
+No [schema OpenAPI](#schema-openapi), com o provedor ligado, `components.securitySchemes` traz `openIdConnect` (`openIdConnectUrl` = discovery do issuer) ao lado de `bearerAuth`, e cada operação que aceita token lista os dois. `SKELETON_OIDC_API_TOKENS=false` desliga o reconhecimento na API (rollback) sem tocar no provedor.
+
+```sh
+# TOKEN é o access_token do fluxo OIDC; fica só no ambiente local.
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/organizations/"
 ```
 
 ## Gestão de tokens
