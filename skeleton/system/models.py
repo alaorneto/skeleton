@@ -182,3 +182,7 @@ class AppOrganizationGrant(SystemRecord):
                 violation_error_code="unique",
             ),
         ]
+
+
+# Native client distribution (#606): defined next to their services, registered in this app.
+from .native_clients.models import NativeClientChannel, NativeClientRelease, NativeClientSync  # noqa: E402, F401

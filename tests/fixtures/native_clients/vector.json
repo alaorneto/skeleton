@@ -1,0 +1,16 @@
+{
+  "description": "Fixed test vector of the native client envelope (#606), shared with the client: verify only, the private key was discarded.",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA/CQDn069RpXAw5ApKH6qnHzcNDnXhKZ94c2FQRpcgrA=\n-----END PUBLIC KEY-----\n",
+  "feed": "{\n  \"Assets\": [\n    {\n      \"PackageId\": \"AcmeDesktop\",\n      \"Version\": \"1.2.3\",\n      \"Type\": \"Full\",\n      \"FileName\": \"AcmeDesktop-1.2.3-full.nupkg\",\n      \"SHA256\": \"dd0ae9841ec120baad8ee15a167d51f5ea01c2be0dc0702c49d3658cb58f75b3\",\n      \"Size\": 18\n    }\n  ]\n}",
+  "canonical_payload": "{\"channel\":\"stable\",\"client_id\":\"acme-desktop\",\"expires_at\":\"2126-11-20T00:00:00Z\",\"feed_sha256\":\"03f5ffcb7a72ad95f092706bcd77e6fea2665005721b9d2025bb5902a60cd348\",\"signed_at\":\"2026-11-20T00:00:00Z\"}",
+  "envelope": {
+    "payload": {
+      "client_id": "acme-desktop",
+      "channel": "stable",
+      "feed_sha256": "03f5ffcb7a72ad95f092706bcd77e6fea2665005721b9d2025bb5902a60cd348",
+      "signed_at": "2026-11-20T00:00:00Z",
+      "expires_at": "2126-11-20T00:00:00Z"
+    },
+    "signature": "56cmmcHk06RndOp1cKIUY8RAkWDVcr6Xl2XAqZYm/wQPqp5gOXNlUBOfs508jXcBwL5vERDyzQE1wQyRJqM2CQ=="
+  }
+}

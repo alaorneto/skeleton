@@ -393,6 +393,15 @@ O exemplo pode ser publicado de verdade com `package build --app-root examples/n
 
 
 
+## Registrar um cliente nativo
+
+Um projeto derivado que tem um aplicativo nativo (desktop) registra-o em dois lugares, ambos operação do servidor, sem código no núcleo (epic #602):
+
+1. **Login e API.** Configure a chave do provedor OIDC e registre o cliente com `python manage.py native_client register --client-id acme-desktop --name "Acme Desktop" --redirect-uri http://127.0.0.1/callback` ([provedor OIDC](authentication-sso.md#provedor-oidc-para-clientes-nativos-603)). O aplicativo descobre o servidor por `GET /api/v1/server/`, entra pelo navegador do sistema com PKCE e chama `/api/v1/` com o access token ([API](api.md#access-tokens-oidc-de-clientes-nativos)). Para limitar o aplicativo a algumas tabelas, registre escopos do núcleo com `--scope`.
+2. **Atualizações.** Publique cada versão como GitHub Release com o feed do Velopack, os pacotes e o envelope assinado, e declare o cliente no arquivo `SKELETON_NATIVE_CLIENTS_CONFIG` ([clientes nativos](updates.md#clientes-nativos-606)).
+
+As views das apps do projeto que o aplicativo usa declaram `token_methods`, senão um token recebe 403 `token_not_allowed`.
+
 ## Desenvolver uma app em repositório próprio
 
 Uma app de negócio pode viver no próprio repositório git, fora de qualquer projeto derivado (epic #512). O repositório **é** o pacote Python da app; ele nunca contém cópia do núcleo, que vem sempre do wheel de uma release ou de um checkout do Skeleton ao lado.

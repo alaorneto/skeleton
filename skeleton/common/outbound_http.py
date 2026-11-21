@@ -288,3 +288,70 @@ def request(
     finally:
         timer.cancel()
         connection.close()
+
+
+DOWNLOAD_TOTAL_TIMEOUT = 600.0
+DOWNLOAD_CHUNK = 64 * 1024
+
+
+@dataclass(frozen=True)
+class OutboundDownload:
+    status: int
+    headers: Mapping[str, str]
+    size: int  # bytes written to the sink (none for a non-200 answer)
+    truncated: bool  # the body passed ``max_bytes``: the sink holds a partial copy, discard it
+
+
+def download(
+    url: str,
+    sink: Any,
+    *,
+    headers: Mapping[str, str] | None = None,
+    max_bytes: int,
+    resolver: Resolver | None = None,
+    total_timeout: float = DOWNLOAD_TOTAL_TIMEOUT,
+) -> OutboundDownload:
+    """Stream a large body (an installer, #606) into ``sink.write`` under the same destination rules.
+
+    The same validation, pinning and refusal of redirects as ``request``; only the body bound
+    (``max_bytes``) and the deadline of the whole exchange (``total_timeout``) are larger, because
+    a release file is megabytes. Only a 200 answer is written; the caller verifies the hash.
+    """
+    if max_bytes <= 0 or total_timeout <= 0:
+        raise ValueError("max_bytes and total_timeout must be positive.")
+    destination = validate_url(url, resolver=resolver)
+    connection: _PinnedHTTPSConnection | _PinnedHTTPConnection
+    if destination.scheme == "https":
+        connection = _PinnedHTTPSConnection(destination, _tls_context())
+    else:
+        connection = _PinnedHTTPConnection(destination)
+    timer = threading.Timer(total_timeout, connection.abort)
+    timer.daemon = True
+    timer.start()
+    try:
+        connection.request("GET", destination.target, headers=dict(headers or {}))
+        response = connection.getresponse()
+        received = {name.lower(): value for name, value in response.getheaders()}
+        size, truncated = 0, False
+        if response.status == 200:
+            while True:
+                chunk = response.read(DOWNLOAD_CHUNK)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    truncated = True
+                    break
+                sink.write(chunk)
+        if connection.aborted:
+            raise OutboundRequestFailed(gettext("Prazo total da requisição excedido."))
+        return OutboundDownload(status=response.status, headers=received, size=size, truncated=truncated)
+    except (OSError, http.client.HTTPException) as exc:
+        if connection.aborted:
+            raise OutboundRequestFailed(gettext("Prazo total da requisição excedido.")) from exc
+        raise OutboundRequestFailed(
+            gettext("Falha de rede com o destino: %(__name__)s.") % {"__name__": type(exc).__name__}
+        ) from exc
+    finally:
+        timer.cancel()
+        connection.close()

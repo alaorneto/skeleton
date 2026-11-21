@@ -150,7 +150,7 @@ def test_schedule_only_with_a_repository_and_without_agent(
     settings.SKELETON_UPDATE_REPOSITORY, settings.SKELETON_AGENT_SOCKET = repository, socket
     settings.SKELETON_UPDATE_CHECK_HOURS = 0
     jobs.register_system_jobs()
-    assert [job.code for job in registered] == [jobs.UPDATE_CHECK_JOB]
+    assert [job.code for job in registered] == [jobs.UPDATE_CHECK_JOB, jobs.NATIVE_CLIENTS_SYNC_JOB]  # #606 too.
     assert registered[0].scope == "global" and registered[0].max_attempts == 1 and registered[0].run_as == "system"
     planned = periodic.all_periodic()
     assert bool(planned) is scheduled

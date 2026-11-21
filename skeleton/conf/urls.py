@@ -22,6 +22,8 @@ def application_urls(project_urls=()):
         path("accounts/", include("allauth.urls")),
         # OIDC provider for native clients and the connected devices page (#603).
         path("", include("skeleton.accounts.idp.urls")),
+        # Anonymous download of native client updates, outside /api/v1/ (#606).
+        path("", include("skeleton.system.native_clients.urls")),
         path("platform/", include("skeleton.web.platform.urls")),
         path("invite/<uuid:organization_id>/<str:token>/", invitation_view, name="invitation"),
         # The acceptance of an invitation to an organization's portal (#532).

@@ -23,6 +23,7 @@
     <ul class="sidebar-list" aria-labelledby="platform-apps">
       {% if platform_admin %}<li><a class="sidebar-link" href="{% url 'platform:apps' %}"{% if platform_section == "apps" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="cube" %}{% translate "Aplicativos instalados" %}</a></li>{% endif %}
       {% if "updates.operate" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:updates' %}"{% if platform_section == "updates" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Versões e atualizações" %}</a></li>{% endif %}
+      {% if "updates.operate" in platform_capabilities %}<li><a class="sidebar-link" href="{% url 'platform:native-clients' %}"{% if platform_section == "native-clients" %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="refresh" %}{% translate "Clientes nativos" %}</a></li>{% endif %}
     </ul>
     <p class="sidebar-heading" id="platform-data">{% translate "Dados" %}</p>
     <ul class="sidebar-list" aria-labelledby="platform-data">

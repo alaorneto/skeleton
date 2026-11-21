@@ -419,6 +419,11 @@ SKELETON_AGENT_TOKEN_FILE = env("SKELETON_AGENT_TOKEN_FILE", default=None)
 SKELETON_UPDATE_REPOSITORY = env("SKELETON_UPDATE_REPOSITORY", default="")
 SKELETON_UPDATE_GITHUB_TOKEN_FILE = env("SKELETON_UPDATE_GITHUB_TOKEN_FILE", default=None)
 SKELETON_UPDATE_CHECK_HOURS = max(1, env.int("SKELETON_UPDATE_CHECK_HOURS", default=24))
+# Releases of native clients served by this server (#606): the operator's private JSON file
+# (sources, channels, publisher, trust store); empty keeps the distribution off.
+SKELETON_NATIVE_CLIENTS_CONFIG = env("SKELETON_NATIVE_CLIENTS_CONFIG", default="")
+SKELETON_NATIVE_CLIENTS_SYNC_HOURS = max(1, env.int("SKELETON_NATIVE_CLIENTS_SYNC_HOURS", default=1))
+SKELETON_NATIVE_CLIENT_MAX_FILE_BYTES = env.int("SKELETON_NATIVE_CLIENT_MAX_FILE_BYTES", default=1024 * 1024 * 1024)
 SKELETON_PACKAGE_MAX_BYTES = env.int("SKELETON_PACKAGE_MAX_BYTES", default=128 * 1024 * 1024)
 if SKELETON_PACKAGE_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured

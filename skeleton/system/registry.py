@@ -331,6 +331,24 @@ def register_core_specs():
             "global",
             ("plan", "result"),
         ),
+        "sk_system.nativeclientrelease": (
+            "Releases de clientes nativos",
+            "Feeds verificados (Ed25519 e SHA-256) de cada cliente nativo, por canal e sistema; bytes no storage.",
+            "global",
+            (),
+        ),
+        "sk_system.nativeclientchannel": (
+            "Canais de clientes nativos",
+            "Versão mínima exigida de cada canal de um cliente nativo, definida pelo operador de releases.",
+            "global",
+            (),
+        ),
+        "sk_system.nativeclientsync": (
+            "Sincronizações de clientes nativos",
+            "Resultado de cada feed sincronizado: publicado, recusado (código) ou falha da fonte.",
+            "global",
+            (),
+        ),
         "sk_jobs.job": (
             gettext_lazy("Jobs"),
             gettext_lazy("Fila de trabalho em segundo plano; payload só com identificadores, sem dados de negócio."),

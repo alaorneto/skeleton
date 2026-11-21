@@ -1,0 +1,34 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n skeleton_format %}{% block page_title %}{% translate "Clientes nativos" %}{% endblock %}
+{% block content %}
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Clientes nativos" %}</h1><p class="page-description">{% translate "Atualizações assinadas dos aplicativos nativos, servidas por este servidor depois de verificadas. A origem, os tokens e as chaves ficam no arquivo do operador; aqui se define a versão mínima de cada canal e se retira uma versão." %}</p></div></div>
+{% if problem %}<div class="message error mb-5" role="alert">{{ problem }}</div>{% endif %}
+{% for client in clients %}
+<section class="mt-6" aria-labelledby="client-{{ client.client_id }}">
+  <h2 id="client-{{ client.client_id }}">{{ client.client_id }} <span class="cell-secondary">{{ client.repository }}</span>{% if not client.enabled %} {{ "inactive"|status_badge }}{% endif %}</h2>
+  <div class="table-scroll mt-3"><table><thead><tr><th scope="col">{% translate "Canal" %}</th><th scope="col">{% translate "Versão mínima" %}</th></tr></thead><tbody>
+  {% for channel in client.channels %}<tr>
+    <td><span class="cell-primary">{{ channel.name }}</span></td>
+    <td><form method="post" action="{% url 'platform:native-client-minimum' client.client_id channel.name %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ channel.revision }}"><label class="sr-only" for="minimum-{{ client.client_id }}-{{ channel.name }}">{% translate "Versão mínima" %}</label><input id="minimum-{{ client.client_id }}-{{ channel.name }}" type="text" name="minimum_version" value="{{ channel.minimum_version }}" placeholder="1.0.0" maxlength="64"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Salvar" %}</button></form></td>
+  </tr>{% endfor %}
+  </tbody></table></div>
+  <h3 class="mt-4">{% translate "Versões publicadas" %}</h3>
+  <div class="table-scroll mt-2"><table><thead><tr><th scope="col">{% translate "Canal" %}</th><th scope="col">{% translate "Sistema" %}</th><th scope="col">{% translate "Versão" %}</th><th scope="col" class="col-date">{% translate "Assinado em" %}</th><th scope="col" class="col-date">{% translate "Expira em" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+  {% for release in client.releases %}<tr>
+    <td>{{ release.channel }}</td><td>{{ release.os }}</td><td><span class="cell-primary">{{ release.version }}</span><span class="cell-secondary">{{ release.tag }}</span></td>
+    <td class="col-date">{{ release.signed_at|moment }}</td><td class="col-date">{{ release.expires_at|moment }}</td>
+    <td>{% if release.withdrawn_at %}{{ "inactive"|status_badge:_("Retirada") }}{% else %}{{ "active"|status_badge:_("Publicada") }}{% endif %}</td>
+    <td class="col-actions">{% if not release.withdrawn_at %}<form method="post" action="{% url 'platform:native-client-withdraw' release.pk %}" class="row-actions">{% csrf_token %}<input type="hidden" name="revision" value="{{ release.revision }}"><button type="submit" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Retirar" %}</button></form>{% endif %}</td>
+  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=7 message=_("Nenhuma versão publicada.") icon="refresh" %}{% endfor %}
+  </tbody></table></div>
+  <h3 class="mt-4">{% translate "Histórico de sincronização" %}</h3>
+  <div class="table-scroll mt-2"><table><thead><tr><th scope="col" class="col-date">{% translate "Quando" %}</th><th scope="col">{% translate "Resultado" %}</th><th scope="col">{% translate "Release" %}</th><th scope="col">{% translate "Detalhe" %}</th></tr></thead><tbody>
+  {% for row in client.history %}<tr>
+    <td class="col-date">{{ row.created_at|moment }}</td><td>{{ row.outcome|status_badge:row.get_outcome_display }}</td>
+    <td>{{ row.tag|default:"—" }}{% if row.channel or row.os %}<span class="cell-secondary">{{ row.channel }} {{ row.os }}</span>{% endif %}</td>
+    <td>{{ row.reason_code|default:row.version|default:"—" }}</td>
+  </tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhuma sincronização.") icon="clock" %}{% endfor %}
+  </tbody></table></div>
+</section>
+{% empty %}<p class="mt-6 text-sm/6 text-body-subtle">{% translate "Nenhum cliente nativo configurado em SKELETON_NATIVE_CLIENTS_CONFIG." %}</p>{% endfor %}
+{% endblock %}

@@ -164,6 +164,59 @@ Com um pacote de release que traz o alvo do servidor, o lock e os wheels das dep
 
 **O agente não volta depois de se atualizar:** rode `agent-rollback` e `sudo systemctl restart skeleton-agent`; depois investigue o log do serviço.
 
+## Clientes nativos (#606)
+
+Um cliente nativo (aplicativo de desktop instalado com o Velopack) se atualiza a partir do **próprio servidor do núcleo**, não de um repositório público: o operador diz de onde vêm as releases, o servidor sincroniza, verifica a assinatura e serve feed e pacotes com os bytes exatos. O download é anônimo por desenho, porque um cliente velho demais para entrar ainda precisa se atualizar; o conteúdo não tem dado pessoal. O código fica em `skeleton/system/native_clients/`.
+
+**Configuração.** `SKELETON_NATIVE_CLIENTS_CONFIG` aponta para um JSON privado do operador (modo 0600, fora do repositório e do SQLite da instância); vazio, a distribuição fica desligada:
+
+```json
+{
+  "trust_store": "trust.json",
+  "clients": {
+    "acme-desktop": {"repository": "acme/desktop", "token_file": "acme-github-token",
+                     "channels": ["stable", "beta"], "publisher": "acme", "enabled": true}
+  }
+}
+```
+
+`trust_store` é o mesmo formato de trust store dos pacotes (publicador → chave pública Ed25519); caminhos relativos partem do diretório da configuração. `token_file` guarda um token do GitHub com leitura das releases (dispensável em repositório público). O publicador precisa estar no trust store, senão a configuração é recusada. `enabled: false` para a sincronização e a entrega daquele cliente; os clientes instalados continuam na versão que têm (rollback).
+
+**Protocolo de uma release.** Cada GitHub Release do repositório traz, por sistema (`<os>`, como `win`), o feed do Velopack `releases.<os>.json`, os arquivos que ele lista e o envelope `releases.<os>.sig.json`:
+
+```json
+{"payload": {"client_id": "acme-desktop", "channel": "stable", "feed_sha256": "<sha256 do feed>",
+             "signed_at": "2026-11-20T00:00:00Z", "expires_at": "2026-12-20T00:00:00Z"},
+ "signature": "<base64 Ed25519 do JSON canônico de payload>"}
+```
+
+O JSON canônico é o dos pacotes (`canonical_json`: chaves ordenadas, sem espaços, UTF-8). O vetor fixo `tests/fixtures/native_clients/vector.json` (chave pública, feed, payload canônico e envelope) serve para o cliente conferir a mesma verificação.
+
+**Sincronização.** `python manage.py native_client_releases sync --client-id acme-desktop` (sem `--client-id`, todos os clientes ativos) e o job periódico `native_clients.sync`, registrado a cada `SKELETON_NATIVE_CLIENTS_SYNC_HOURS` horas (padrão 1) quando a configuração existe. Para cada release, da mais antiga para a mais nova, e cada envelope:
+
+1. lê o feed e o envelope (até 1 MiB cada), só por `skeleton.common.outbound_http`, no host fixo da API do GitHub; o download dos arquivos segue o redirecionamento uma vez, só para `*.githubusercontent.com`, sem o token;
+2. verifica o envelope: assinatura do publicador configurado, `client_id`, canal configurado, validade (`expires_at` futura) e o SHA-256 do feed; recusa `signed_at` que não seja mais novo que o do feed já publicado no mesmo canal e sistema (anti-rollback); o mesmo feed de novo é só ignorado;
+3. baixa cada arquivo listado que ainda não está guardado, calculando o SHA-256 enquanto grava, e recusa hash ou tamanho diferentes do feed (até `SKELETON_NATIVE_CLIENT_MAX_FILE_BYTES`, padrão 1 GiB);
+4. só então guarda feed e envelope e publica a release no canal.
+
+Os bytes ficam no armazenamento privado do núcleo (`STORAGES["skeleton_files"]`), endereçados pelo SHA-256 verificado (`native-clients/<cliente>/<xx>/<sha256>`), e nunca são reescritos. Cada feed publicado ou recusado deixa uma linha `sk_system.NativeClientSync` com o código (`invalid_signature`, `untrusted_publisher`, `expired`, `stale_signature`, `feed_hash_mismatch`, `file_hash_mismatch`, `file_missing`, `invalid_feed`, `invalid_envelope`, `wrong_client`, `unknown_channel`), auditada pelos triggers; uma falha da fonte deixa uma linha `failed` e não publica nada.
+
+**Entrega, sem autenticação**, fora de `/api/v1/` (que só aceita JSON e limita o corpo):
+
+| Rota | Conteúdo |
+|---|---|
+| `GET /clients/<client_id>/<canal>/releases.<os>.json` | O feed vivo do canal e sistema: o mais novo não retirado e com envelope não vencido |
+| `GET /clients/<client_id>/<canal>/releases.<os>.sig.json` | O envelope desse feed |
+| `GET /clients/<client_id>/<canal>/<arquivo>` | Um arquivo listado por um feed vivo do canal |
+
+As respostas trazem os bytes verificados, `ETag` (o SHA-256), `Content-Length`, `X-Content-Type-Options: nosniff` e `Cache-Control` (`public, max-age=60, must-revalidate` nos feeds; `public, max-age=31536000, immutable` nos arquivos); `If-None-Match` responde 304. O resto é 404. Configure o Velopack do cliente com a URL `https://<servidor>/clients/<client_id>/<canal>/`. Um envelope vencido tira o feed do ar até o publicador assinar de novo: a expiração e o anti-rollback impedem servir um feed antigo indefinidamente.
+
+**Política de versão.** `GET /api/v1/clients/<client_id>/policy?version=<v>&os=<os>&channel=<canal>`, anônimo, responde `{"latest_version", "minimum_version", "update_required"}`: `update_required` é verdadeiro quando `version` está abaixo da versão mínima do canal. Versão inválida é 400; cliente ou canal desconhecido, 404.
+
+**Administração.** Em `/platform/native-clients/`, o administrador da plataforma e o operador de releases (`updates.operate`) veem o que cada canal serve e o histórico de sincronização, definem a versão mínima de cada canal e retiram uma versão (o canal volta ao feed vivo anterior daquele sistema, e os arquivos só dela deixam de ser servidos). Cada POST exige CSRF, autenticação recente e a revisão mostrada; as mudanças entram na auditoria. Origem, tokens e chaves nunca aparecem na tela.
+
+**Retenção.** Nesta versão nada é apagado: os instaladores ocupam o armazenamento até o operador limpá-los fora do núcleo. Planeje o espaço pelo número de versões por canal.
+
 ## Limites desta versão
 
 - Não há aplicação automática; cada passo tem a sua janela de manutenção.
