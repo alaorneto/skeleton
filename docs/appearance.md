@@ -59,7 +59,68 @@ Só dentro de um [pacote de tema](#pacote-de-tema) o logo e o logo para o modo e
 - atributos `on*` recusados; `href`/`xlink:href` só em `use`, gradientes e `pattern`, e só `#id`; nenhum valor com `javascript:`, `data:`, `vbscript:` ou `url(` que não seja `url(#id)`; `style` sem `@`, `expression`, `\` nem `<`; atributos só sem namespace, `xlink:href`, `xml:space` e `xml:lang`;
 - texto só em `title`, `desc`, `text` e `tspan`.
 
-O problema (`SvgProblem(code, item)`) cita o elemento ou o atributo, nunca o valor. Exporte o logo do editor como "SVG simples" ou "SVG otimizado". O SVG só aparece em `<img>` e é servido com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` e `nosniff`.
+O problema (`SvgProblem(code, item)`) cita o elemento ou o atributo, nunca o valor.
+
+## Pacote de tema
+
+Um tema pode ser entregue como **pacote**: um `.zip` (ou um diretório, dentro de uma app) num formato padronizado, que a instância valida e instala (epic [#629](https://github.com/alaorneto/skeleton/issues/629)). O leitor é `skeleton/appearance/package_format.py` (#633): `read_theme_archive(bytes)` e `read_theme_directory(caminho)` devolvem um `ThemePackage` imutável ou levantam `ThemePackageError(code, path, line, item)`. Ele não importa Django (roda também no build de apps) e nada grava: os bytes ficam em memória e nenhum nome de arquivo vira caminho de disco.
+
+Arquivos **na raiz** do zip, sem pasta de topo:
+
+```text
+theme.json                                obrigatório: o manifesto
+theme.css                                 opcional: CSS personalizado (o nome vem de "css")
+images/logo.(png|jpg|jpeg|webp|svg)       opcional
+images/logo-dark.(png|jpg|jpeg|webp|svg)  opcional, só junto com o logo
+images/icon.png                           opcional, PNG 512 × 512
+fonts/<nome>.woff2                        opcional, até 8
+README.md                                 opcional, ignorado
+LICENSES/<nome>.txt                       opcional, ignorado (licenças das fontes)
+```
+
+Os nomes dentro de `images/` e `fonts/` são livres (os de cima são a convenção): o que manda é o `theme.json`. Qualquer outro arquivo é erro `unexpected_file`, para um arquivo esquecido no zip não passar despercebido. Caminhos só com segmentos `[a-z0-9][a-z0-9._-]*` (as exceções de caixa são `README.md` e `LICENSES/`).
+
+`theme.json` é um esquema fechado (chave desconhecida em qualquer nível é `unknown_field`):
+
+```json
+{
+  "format": 1,
+  "id": "org.example.theme.aurora",
+  "version": "1.0.0",
+  "name": "Aurora",
+  "description": "Tema da marca Aurora.",
+  "publisher": "org.example",
+  "compatibility": {"skeleton": ">=0.3.0,<0.4.0"},
+  "tokens": {"brand_color": "#1d4ed8", "radius": "default", "font": "inter", "font_family": "Aurora Sans"},
+  "brand": {"product_name": "Aurora", "footer_text": "Aurora · atendimento ao cliente"},
+  "images": {"logo": "images/logo.svg", "logo_dark": "images/logo-dark.svg", "icon": "images/icon.png"},
+  "fonts": [{"family": "Aurora Sans", "file": "fonts/aurora-sans.woff2", "weight": "100 900", "style": "normal"}],
+  "css": "theme.css"
+}
+```
+
+| Campo | Regra | Código |
+|---|---|---|
+| `format` | obrigatório, inteiro `1` | `format` |
+| `id` | obrigatório; `[a-z][a-z0-9._-]{1,127}` (a regra dos ids de componente) | `id` |
+| `version` | obrigatório; versão semântica | `version` |
+| `name` | obrigatório; 1–80, uma linha | `name` |
+| `description` | até 300, uma linha | `text_field` |
+| `publisher` | mesma regra de `id` | `publisher` |
+| `compatibility.skeleton` | obrigatório; faixa de versões; na instalação, precisa conter a versão do núcleo instalado | `compatibility`, `incompatible_core` |
+| `tokens.brand_color` | `""` ou `#rrggbb`; na instalação, contraste AA com o branco | `brand_color` |
+| `tokens.radius` | `sharp`, `default` (padrão) ou `round` | `radius` |
+| `tokens.font` | `inter` (padrão), `system` ou `serif` | `font` |
+| `tokens.font_family` | `""` ou o `family` de uma entrada de `fonts` (vence `font`) | `font_family` |
+| `brand.product_name`, `brand.footer_text` | até 60 e 160, uma linha | `text_field` |
+| `images.logo`, `images.logo_dark` | em `images/`; PNG, JPEG ou WebP (provado pelo conteúdo) até 512 KB, ou [SVG validado](#logos-em-svg) até 256 KiB; o escuro exige o logo | `image_path`, `image_type`, `image_size`, `svg`, `logo_dark_without_logo` |
+| `images.icon` | em `images/`; PNG 512 × 512 até 256 KiB | `image_path`, `image_size`, `icon` |
+| `fonts` | até 8: `family` (`[A-Za-z][A-Za-z0-9 -]{0,62}[A-Za-z0-9]`, nunca um nome genérico do CSS nem `Inter Variable`), `file` (`fonts/*.woff2`, começa com `wOF2`, até 512 KiB), `weight` (`"400"`, padrão, ou faixa `"100 900"`), `style` (`normal` ou `italic`) | `too_many_fonts`, `font_family_name`, `font_file`, `font_weight`, `font_style` |
+| `css` | padrão `theme.css`, na raiz; declarado e ausente é erro; mesmas regras do [CSS personalizado](#css-personalizado) | `css_missing`, `css` (com a linha) |
+
+Limites do zip: até 4 MiB, 6 MiB descomprimido, 40 membros, razão de expansão até 100 por membro, `theme.json` até 16 KiB; links, arquivos especiais, criptografia, nomes duplicados (inclusive por caixa) e caminhos inseguros são `archive`. Outros códigos: `too_large`, `too_many_files`, `missing_manifest` (inclusive um zip da pasta, com `aurora/theme.json`), `manifest_json` (JSON inválido, chave repetida) e `manifest_field` (campo obrigatório ausente ou de tipo errado). A lista completa é `ERROR_CODES`.
+
+O `content_digest` do pacote é o SHA-256 do manifesto canônico seguido de `caminho\0sha256\n` de cada arquivo usado, em ordem: o mesmo conteúdo zipado por outra ferramenta dá o mesmo digest, e `README.md` e `LICENSES/` não entram. Exporte o logo do editor como "SVG simples" ou "SVG otimizado". O SVG só aparece em `<img>` e é servido com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` e `nosniff`.
 
 ## Rotas públicas
 
