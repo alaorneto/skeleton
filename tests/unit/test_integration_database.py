@@ -1,12 +1,17 @@
-"""Schema template helpers refuse anything but the validated disposable owner, without a database."""
+"""Schema template helpers refuse anything but the validated disposable owner, without a database.
+
+The worker databases and the template live in the distributed kit (#573), ``kit`` here; the core
+suite re-exports them from ``tools/integration_database.py`` (``idb``), which keeps only the cache.
+"""
 
 import pytest
 
+from skeleton.testing import database as kit
 from tools import integration_database as idb
 
 OWNER = "postgres://skeleton_owner:owner-secret@127.0.0.1:5432/ci_skeleton_test"
 RUNTIME = "postgres://skeleton_runtime:runtime-secret@127.0.0.1:5432/ci_skeleton_test"
-PAIR = idb.DatabasePair(RUNTIME, OWNER, "ci_skeleton_test")
+PAIR = kit.DatabasePair(RUNTIME, OWNER, "ci_skeleton_test")
 
 
 class FakeConnection:
@@ -48,7 +53,7 @@ def fake_connect(monkeypatch):
 
 
 def test_verify_owner_accepts_unprivileged_owner_of_validated_database():
-    idb._verify_owner(FakeConnection(), PAIR)
+    kit._verify_owner(FakeConnection(), PAIR)
 
 
 @pytest.mark.parametrize(
@@ -57,16 +62,16 @@ def test_verify_owner_accepts_unprivileged_owner_of_validated_database():
 )
 def test_verify_owner_rejects_connected_identity_divergent_from_pair(identity):
     with pytest.raises(RuntimeError, match="identity differs"):
-        idb._verify_owner(FakeConnection(identity=identity), PAIR)
+        kit._verify_owner(FakeConnection(identity=identity), PAIR)
 
 
 @pytest.mark.parametrize("role", [(True, False, False), (False, True, False), (False, False, True), None])
 def test_verify_owner_rejects_superuser_createdb_createrole_or_unknown_role(role):
     with pytest.raises(RuntimeError, match="must not be a PostgreSQL superuser"):
-        idb._verify_owner(FakeConnection(role=role), PAIR)
+        kit._verify_owner(FakeConnection(role=role), PAIR)
 
 
-@pytest.mark.parametrize("helper", [idb.reset_schema, idb.schema_fingerprint])
+@pytest.mark.parametrize("helper", [kit.reset_schema, kit.schema_fingerprint])
 def test_helpers_reject_pairs_not_built_by_disposable_database_pair(helper):
     forged = ("postgres://skeleton_owner@127.0.0.1/prod", OWNER, "prod")
     with pytest.raises(RuntimeError, match="disposable_database_pair"):
@@ -75,43 +80,43 @@ def test_helpers_reject_pairs_not_built_by_disposable_database_pair(helper):
 
 def test_restore_rejects_foreign_template_and_forged_pair():
     with pytest.raises(RuntimeError, match="SchemaTemplate"):
-        idb.restore_schema(PAIR, "DROP SCHEMA skeleton CASCADE;")
+        kit.restore_schema(PAIR, "DROP SCHEMA skeleton CASCADE;")
     with pytest.raises(RuntimeError, match="disposable_database_pair"):
-        idb.restore_schema(("x", OWNER, "ci_skeleton_test"), idb.SchemaTemplate(sql="", fingerprint={}))
+        kit.restore_schema(("x", OWNER, "ci_skeleton_test"), kit.SchemaTemplate(sql="", fingerprint={}))
 
 
 def test_restore_refuses_privileged_connection_before_any_ddl(fake_connect):
     made = fake_connect(role=(True, False, False))
     with pytest.raises(RuntimeError, match="superuser"):
-        idb.restore_schema(PAIR, idb.SchemaTemplate(sql="SELECT 1;", fingerprint={}))
+        kit.restore_schema(PAIR, kit.SchemaTemplate(sql="SELECT 1;", fingerprint={}))
     assert made[0].closed
     assert not any("DROP" in query or "SELECT 1" in query for query in made[0].executed)
 
 
 def test_dump_refuses_divergent_identity_before_running_pg_dump(fake_connect, monkeypatch):
     fake_connect(identity=("other_db", "skeleton_owner"))
-    monkeypatch.setattr(idb.shutil, "which", lambda name: "/usr/bin/pg_dump")
+    monkeypatch.setattr(kit.shutil, "which", lambda name: "/usr/bin/pg_dump")
 
     def forbidden(*args, **kwargs):
         raise AssertionError("pg_dump must not run for an unverified identity.")
 
-    monkeypatch.setattr(idb.subprocess, "run", forbidden)
+    monkeypatch.setattr(kit.subprocess, "run", forbidden)
     with pytest.raises(RuntimeError, match="identity differs"):
-        idb.dump_schema(PAIR)
+        kit.dump_schema(PAIR)
 
 
 def test_missing_pg_dump_names_both_ways_out(monkeypatch):
-    monkeypatch.setattr(idb.shutil, "which", lambda name: None)
+    monkeypatch.setattr(kit.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError) as error:
-        idb.dump_schema(PAIR)
-    assert idb.PG_DUMP_ENV in str(error.value)
-    assert f"{idb.TEMPLATE_DISABLE_ENV}=0" in str(error.value)
+        kit.dump_schema(PAIR)
+    assert kit.PG_DUMP_ENV in str(error.value)
+    assert f"{kit.TEMPLATE_DISABLE_ENV}=0" in str(error.value)
 
 
 def test_pg_dump_password_travels_in_environment_not_argv(monkeypatch):
-    monkeypatch.setattr(idb.shutil, "which", lambda name: "/usr/bin/pg_dump")
+    monkeypatch.setattr(kit.shutil, "which", lambda name: "/usr/bin/pg_dump")
     monkeypatch.setenv("PGPASSWORD", "stale")
-    argv, env = idb._pg_dump_command(PAIR)
+    argv, env = kit._pg_dump_command(PAIR)
     assert not any("owner-secret" in part for part in argv)
     assert env["PGPASSWORD"] == "owner-secret"
     assert "--schema=skeleton" in argv
@@ -121,10 +126,10 @@ def test_pg_dump_password_travels_in_environment_not_argv(monkeypatch):
 
 
 def test_template_can_be_disabled_explicitly(monkeypatch):
-    monkeypatch.delenv(idb.TEMPLATE_DISABLE_ENV, raising=False)
-    assert idb.template_enabled()
-    monkeypatch.setenv(idb.TEMPLATE_DISABLE_ENV, "0")
-    assert not idb.template_enabled()
+    monkeypatch.delenv(kit.TEMPLATE_DISABLE_ENV, raising=False)
+    assert kit.template_enabled()
+    monkeypatch.setenv(kit.TEMPLATE_DISABLE_ENV, "0")
+    assert not kit.template_enabled()
 
 
 DUMP = """\\restrict AbC123
@@ -137,7 +142,7 @@ CREATE TABLE skeleton.t (id integer);
 
 
 def test_prepare_dump_drops_restrict_lines_and_create_schema():
-    prepared = idb.prepare_dump(DUMP)
+    prepared = kit.prepare_dump(DUMP)
     assert "restrict" not in prepared
     assert "CREATE SCHEMA skeleton;" not in prepared
     assert "ALTER SCHEMA skeleton OWNER TO skeleton_owner;" in prepared
@@ -153,34 +158,34 @@ def test_prepare_dump_drops_restrict_lines_and_create_schema():
 )
 def test_prepare_dump_requires_exactly_one_create_schema(dump):
     with pytest.raises(RuntimeError, match="exactly one CREATE SCHEMA"):
-        idb.prepare_dump(dump)
+        kit.prepare_dump(dump)
 
 
 def test_prepare_dump_rejects_other_psql_meta_commands():
     with pytest.raises(RuntimeError, match="meta-command"):
-        idb.prepare_dump(DUMP + "\\connect production\n")
+        kit.prepare_dump(DUMP + "\\connect production\n")
 
 
 # One database per pytest-xdist worker: derived names keep every barrier of the base one.
 
 
 def test_worker_database_keeps_the_disposable_suffix_and_the_rest_of_the_url():
-    assert idb.worker_database_name("ci_skeleton_test", "gw0") == "ci_gw0_skeleton_test"
-    assert idb.worker_database_name("local_skeleton_test", "gw15") == "local_gw15_skeleton_test"
-    url = idb.worker_database_url(OWNER + "?sslmode=disable", "gw3")
+    assert kit.worker_database_name("ci_skeleton_test", "gw0") == "ci_gw0_skeleton_test"
+    assert kit.worker_database_name("local_skeleton_test", "gw15") == "local_gw15_skeleton_test"
+    url = kit.worker_database_url(OWNER + "?sslmode=disable", "gw3")
     assert url == "postgres://skeleton_owner:owner-secret@127.0.0.1:5432/ci_gw3_skeleton_test?sslmode=disable"
 
 
 @pytest.mark.parametrize("worker", ["", "master", "gw", "gw-1", "gw01", "gw1; DROP DATABASE x", "GW1", "gw1000", None])
 def test_worker_database_rejects_anything_but_an_xdist_worker_id(worker):
     with pytest.raises(RuntimeError, match="parallel worker id"):
-        idb.worker_database_name("ci_skeleton_test", worker)
+        kit.worker_database_name("ci_skeleton_test", worker)
 
 
 @pytest.mark.parametrize("database", ["production", "ci_skeleton_test_copy", "_skeleton_test", ""])
 def test_worker_database_is_derived_only_from_a_disposable_name(database):
     with pytest.raises(RuntimeError, match="_skeleton_test"):
-        idb.worker_database_name(database, "gw0")
+        kit.worker_database_name(database, "gw0")
 
 
 @pytest.mark.parametrize(
@@ -188,54 +193,54 @@ def test_worker_database_is_derived_only_from_a_disposable_name(database):
 )
 def test_worker_database_url_requires_a_postgres_url_with_a_database(url):
     with pytest.raises(RuntimeError):
-        idb.worker_database_url(url, "gw0")
+        kit.worker_database_url(url, "gw0")
 
 
 def test_select_worker_database_rewrites_both_variables_once():
-    environment = {idb.RUNTIME_ENV: RUNTIME, idb.OWNER_ENV: OWNER, idb.WORKER_ENV: "gw2"}
-    assert idb.select_worker_database(environment) == "ci_gw2_skeleton_test"
-    assert environment[idb.RUNTIME_ENV].endswith("@127.0.0.1:5432/ci_gw2_skeleton_test")
-    assert environment[idb.OWNER_ENV].endswith("@127.0.0.1:5432/ci_gw2_skeleton_test")
-    assert "skeleton_runtime:runtime-secret" in environment[idb.RUNTIME_ENV]
-    assert "skeleton_owner:owner-secret" in environment[idb.OWNER_ENV]
+    environment = {kit.RUNTIME_ENV: RUNTIME, kit.OWNER_ENV: OWNER, kit.WORKER_ENV: "gw2"}
+    assert kit.select_worker_database(environment) == "ci_gw2_skeleton_test"
+    assert environment[kit.RUNTIME_ENV].endswith("@127.0.0.1:5432/ci_gw2_skeleton_test")
+    assert environment[kit.OWNER_ENV].endswith("@127.0.0.1:5432/ci_gw2_skeleton_test")
+    assert "skeleton_runtime:runtime-secret" in environment[kit.RUNTIME_ENV]
+    assert "skeleton_owner:owner-secret" in environment[kit.OWNER_ENV]
     with pytest.raises(RuntimeError, match="already selected"):
-        idb.select_worker_database(environment)
-    assert environment[idb.RUNTIME_ENV].endswith("/ci_gw2_skeleton_test")
+        kit.select_worker_database(environment)
+    assert environment[kit.RUNTIME_ENV].endswith("/ci_gw2_skeleton_test")
 
 
 def test_select_worker_database_does_nothing_outside_a_worker_or_without_urls():
-    serial = {idb.RUNTIME_ENV: RUNTIME, idb.OWNER_ENV: OWNER}
-    assert idb.select_worker_database(serial) is None
-    assert serial == {idb.RUNTIME_ENV: RUNTIME, idb.OWNER_ENV: OWNER}
-    unit_only = {idb.WORKER_ENV: "gw0"}
-    assert idb.select_worker_database(unit_only) is None
-    assert unit_only == {idb.WORKER_ENV: "gw0"}
+    serial = {kit.RUNTIME_ENV: RUNTIME, kit.OWNER_ENV: OWNER}
+    assert kit.select_worker_database(serial) is None
+    assert serial == {kit.RUNTIME_ENV: RUNTIME, kit.OWNER_ENV: OWNER}
+    unit_only = {kit.WORKER_ENV: "gw0"}
+    assert kit.select_worker_database(unit_only) is None
+    assert unit_only == {kit.WORKER_ENV: "gw0"}
 
 
 def test_pair_refuses_the_shared_database_inside_a_worker(monkeypatch):
     """A worker that skipped the selection would recreate the schema under the other workers."""
     monkeypatch.setenv("SKELETON_TEST_ALLOW_SCHEMA_RESET", "1")
-    monkeypatch.setenv(idb.RUNTIME_ENV, RUNTIME)
-    monkeypatch.setenv(idb.OWNER_ENV, OWNER)
+    monkeypatch.setenv(kit.RUNTIME_ENV, RUNTIME)
+    monkeypatch.setenv(kit.OWNER_ENV, OWNER)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("MIGRATION_DATABASE_URL", raising=False)
-    monkeypatch.setenv(idb.WORKER_ENV, "gw1")
-    monkeypatch.delenv(idb._SELECTED_ENV, raising=False)
+    monkeypatch.setenv(kit.WORKER_ENV, "gw1")
+    monkeypatch.delenv(kit._SELECTED_ENV, raising=False)
     with pytest.raises(RuntimeError, match="select its own database"):
-        idb.disposable_database_pair()
-    idb.select_worker_database()
-    pair = idb.disposable_database_pair()
+        kit.disposable_database_pair()
+    kit.select_worker_database()
+    pair = kit.disposable_database_pair()
     assert pair.database == "ci_gw1_skeleton_test"
     assert pair.runtime.endswith("/ci_gw1_skeleton_test") and pair.owner.endswith("/ci_gw1_skeleton_test")
-    monkeypatch.delenv(idb.WORKER_ENV)
-    monkeypatch.delenv(idb._SELECTED_ENV)
-    monkeypatch.setenv(idb.RUNTIME_ENV, RUNTIME)
-    monkeypatch.setenv(idb.OWNER_ENV, OWNER)
-    assert idb.disposable_database_pair().database == "ci_skeleton_test"
+    monkeypatch.delenv(kit.WORKER_ENV)
+    monkeypatch.delenv(kit._SELECTED_ENV)
+    monkeypatch.setenv(kit.RUNTIME_ENV, RUNTIME)
+    monkeypatch.setenv(kit.OWNER_ENV, OWNER)
+    assert kit.disposable_database_pair().database == "ci_skeleton_test"
 
 
 def test_worker_database_urls_list_the_first_workers_in_order():
-    urls = idb.worker_database_urls(3, {idb.RUNTIME_ENV: RUNTIME, idb.OWNER_ENV: OWNER})
+    urls = kit.worker_database_urls(3, {kit.RUNTIME_ENV: RUNTIME, kit.OWNER_ENV: OWNER})
     assert [owner.rsplit("/", 1)[1] for _, owner in urls] == [
         "ci_gw0_skeleton_test",
         "ci_gw1_skeleton_test",
@@ -243,7 +248,7 @@ def test_worker_database_urls_list_the_first_workers_in_order():
     ]
     assert all("skeleton_runtime" in runtime and "skeleton_owner" in owner for runtime, owner in urls)
     with pytest.raises(RuntimeError, match="both required"):
-        idb.worker_database_urls(1, {idb.RUNTIME_ENV: RUNTIME})
+        kit.worker_database_urls(1, {kit.RUNTIME_ENV: RUNTIME})
 
 
 def test_missing_worker_databases_only_connects_and_reports_names(monkeypatch):
@@ -263,14 +268,14 @@ def test_missing_worker_databases_only_connects_and_reports_names(monkeypatch):
         return Connection()
 
     monkeypatch.setattr(psycopg, "connect", connect)
-    environment = {idb.RUNTIME_ENV: RUNTIME, idb.OWNER_ENV: OWNER}
-    assert idb.missing_worker_databases(3, environment) == ["ci_gw1_skeleton_test"]
+    environment = {kit.RUNTIME_ENV: RUNTIME, kit.OWNER_ENV: OWNER}
+    assert kit.missing_worker_databases(3, environment) == ["ci_gw1_skeleton_test"]
     assert opened == ["ci_gw0_skeleton_test", "closed", "ci_gw1_skeleton_test", "ci_gw2_skeleton_test", "closed"]
 
 
 # Template cache between local runs (#350).
 
-TEMPLATE = idb.SchemaTemplate(
+TEMPLATE = kit.SchemaTemplate(
     sql="CREATE TABLE skeleton.t (id integer);\n",
     fingerprint={"relations": [("t", "r", "skeleton_owner", True, True, ["skeleton_owner=arwdDxtm/skeleton_owner"])]},
 )
@@ -440,7 +445,7 @@ def test_cache_does_not_store_a_fingerprint_json_cannot_round_trip(tmp_path):
     import datetime
 
     for fingerprint in ({"data": [("t", datetime.date(2026, 1, 1))]}, {"data": [("t", (1, 2))]}):
-        assert not idb.save_cached_template(tmp_path, "a" * 64, idb.SchemaTemplate(sql="", fingerprint=fingerprint))
+        assert not idb.save_cached_template(tmp_path, "a" * 64, kit.SchemaTemplate(sql="", fingerprint=fingerprint))
     assert not list(tmp_path.iterdir())
 
 
@@ -485,7 +490,7 @@ def test_disposable_pair_requires_reset_marker_suffix_and_roles(monkeypatch, cha
         "TEST_MIGRATION_DATABASE_URL": OWNER,
         "DATABASE_URL": None,
         "MIGRATION_DATABASE_URL": None,
-        idb.WORKER_ENV: None,
+        kit.WORKER_ENV: None,
         **change,
     }
     for name, value in environment.items():
@@ -500,7 +505,24 @@ def test_disposable_pair_requires_reset_marker_suffix_and_roles(monkeypatch, cha
 def test_tools_module_reexports_the_distributed_functions():
     from skeleton.testing import database
 
-    for name in ("DatabasePair", "disposable_database_pair", "reset_schema", "_verify_owner", "_owner_connection"):
+    for name in (
+        "DatabasePair",
+        "disposable_database_pair",
+        "reset_schema",
+        "_verify_owner",
+        "_owner_connection",
+        # Worker databases and schema template (#573).
+        "SchemaTemplate",
+        "dump_schema",
+        "restore_schema",
+        "schema_fingerprint",
+        "template_enabled",
+        "select_worker_database",
+        "worker_database_name",
+        "worker_database_urls",
+        "missing_worker_databases",
+        "lock_table_shortfall",
+    ):
         assert getattr(idb, name) is getattr(database, name)
 
 
@@ -530,3 +552,148 @@ def test_distributed_fixture_stops_with_a_usage_error_before_touching_the_databa
     generator = database.skeleton_db.__wrapped__(None, None, Blocker())
     with pytest.raises(pytest.UsageError, match="SKELETON_TEST_ALLOW_SCHEMA_RESET=1"):
         next(generator)
+
+
+class _Blocker:
+    def unblock(self):
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+
+@pytest.fixture
+def fake_schema(monkeypatch):
+    """The distributed fixture with every database step replaced by a recorder (#573)."""
+    calls = []
+    monkeypatch.setattr(kit, "_TEMPLATES", {})
+    monkeypatch.setattr(kit, "SCHEMA_STATS", {"migrate": 0, "restore": 0})
+    monkeypatch.setattr(kit, "_use_worker_database", lambda: calls.append("select"))
+    monkeypatch.setattr(kit, "disposable_database_pair", lambda: PAIR)
+
+    def migrate(pair):
+        calls.append("migrate")
+        kit.SCHEMA_STATS["migrate"] += 1
+
+    monkeypatch.setattr(kit, "_migrate", migrate)
+    monkeypatch.setattr(kit, "dump_schema", lambda pair: calls.append("dump") or kit.SchemaTemplate("", {}))
+    monkeypatch.setattr(kit, "restore_schema", lambda pair, template: calls.append("restore"))
+    monkeypatch.setattr(kit, "_configure", lambda config: config)
+    monkeypatch.delenv(kit.TEMPLATE_DISABLE_ENV, raising=False)
+
+    def run_tests(count, tmp_path):
+        for _ in range(count):
+            generator = kit.skeleton_db.__wrapped__(None, tmp_path, _Blocker())
+            next(generator)
+            with pytest.raises(StopIteration):
+                next(generator)
+        return calls
+
+    return run_tests
+
+
+def test_distributed_fixture_migrates_once_and_restores_each_test_with_pg_dump(fake_schema, monkeypatch, tmp_path):
+    monkeypatch.setattr(kit, "pg_dump_executable", lambda: "/usr/bin/pg_dump")
+    calls = fake_schema(3, tmp_path)
+    assert [call for call in calls if call != "select"] == ["migrate", "dump", "restore", "restore", "restore"]
+    assert kit.SCHEMA_STATS == {"migrate": 1, "restore": 3}
+
+
+@pytest.mark.parametrize("disabled", ["pg_dump", "variable"])
+def test_distributed_fixture_migrates_each_test_without_a_template(fake_schema, monkeypatch, tmp_path, disabled):
+    if disabled == "pg_dump":
+        monkeypatch.setattr(kit, "pg_dump_executable", lambda: None)
+    else:
+        monkeypatch.setattr(kit, "pg_dump_executable", lambda: "/usr/bin/pg_dump")
+        monkeypatch.setenv(kit.TEMPLATE_DISABLE_ENV, "0")
+    calls = fake_schema(3, tmp_path)
+    assert [call for call in calls if call != "select"] == ["migrate", "migrate", "migrate"]
+    assert kit.SCHEMA_STATS == {"migrate": 3, "restore": 0}
+
+
+def test_distributed_fixture_turns_a_failed_dump_into_a_usage_error(fake_schema, monkeypatch, tmp_path):
+    monkeypatch.setattr(kit, "pg_dump_executable", lambda: "/usr/bin/pg_dump")
+
+    def failed(pair):
+        raise RuntimeError("pg_dump of schema skeleton failed: version mismatch")
+
+    monkeypatch.setattr(kit, "dump_schema", failed)
+    with pytest.raises(pytest.UsageError, match="version mismatch"):
+        fake_schema(1, tmp_path)
+
+
+def _worker_environment(monkeypatch, worker="gw1"):
+    monkeypatch.setenv(kit.RUNTIME_ENV, RUNTIME)
+    monkeypatch.setenv(kit.OWNER_ENV, OWNER)
+    monkeypatch.setenv(kit.WORKER_ENV, worker)
+    monkeypatch.delenv(kit._SELECTED_ENV, raising=False)
+
+
+def test_a_worker_that_only_imports_the_fixture_selects_its_database_once(monkeypatch):
+    """A derived project has no pytest_configure of its own: the fixture selects the worker database (#573)."""
+    import psycopg
+
+    _worker_environment(monkeypatch)
+    opened = []
+
+    class Connection:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(psycopg, "connect", lambda dsn, **kwargs: opened.append(dsn) or Connection())
+    kit._use_worker_database()
+    kit._use_worker_database()
+    assert os_environ(kit.OWNER_ENV).endswith("/ci_gw1_skeleton_test")
+    assert os_environ(kit.RUNTIME_ENV).endswith("/ci_gw1_skeleton_test")
+    assert opened == [os_environ(kit.OWNER_ENV)], "selected and probed once, never derived twice"
+
+
+def test_a_missing_worker_database_names_the_provisioning_command(monkeypatch):
+    import psycopg
+
+    _worker_environment(monkeypatch, "gw3")
+
+    def refuse(dsn, **kwargs):
+        raise psycopg.OperationalError('database "ci_gw3_skeleton_test" does not exist')
+
+    monkeypatch.setattr(psycopg, "connect", refuse)
+    for _ in range(2):  # Not selected after a failure: every test of the worker gets the same message.
+        with pytest.raises(RuntimeError, match="ci_gw3_skeleton_test.*--workers N"):
+            kit._use_worker_database()
+        assert os_environ(kit.OWNER_ENV) == OWNER
+        assert not kit.worker_database_selected()
+
+
+def test_the_plugin_checks_every_worker_database_in_the_controller(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(kit, "worker_databases_problem", lambda count: f"{count} workers, ci_gw1_skeleton_test missing")
+    controller = SimpleNamespace(option=SimpleNamespace(numprocesses=4, collectonly=False))
+    with pytest.raises(pytest.UsageError, match="4 workers"):
+        kit.pytest_configure(controller)
+    monkeypatch.setattr(kit, "worker_databases_problem", lambda count: pytest.fail("checked without -n"))
+    kit.pytest_configure(SimpleNamespace(option=SimpleNamespace(numprocesses=None, collectonly=False)))
+    _worker_environment(monkeypatch, "gw2")
+    kit.pytest_configure(SimpleNamespace(workerinput={}, option=SimpleNamespace()))
+    assert os_environ(kit.OWNER_ENV).endswith("/ci_gw2_skeleton_test")
+
+
+def test_worker_databases_problem_reports_missing_databases_before_the_lock_table(monkeypatch):
+    monkeypatch.setenv(kit.RUNTIME_ENV, RUNTIME)
+    monkeypatch.setenv(kit.OWNER_ENV, OWNER)
+    monkeypatch.setattr(kit, "missing_worker_databases", lambda count: ["ci_gw1_skeleton_test"])
+    monkeypatch.setattr(
+        kit, "lock_table_shortfall", lambda count: pytest.fail("lock table read with a missing database")
+    )
+    problem = kit.worker_databases_problem(2)
+    assert "ci_gw1_skeleton_test" in problem and "provision --database <base>_skeleton_test --workers 2" in problem
+    monkeypatch.setattr(kit, "missing_worker_databases", lambda count: [])
+    monkeypatch.setattr(kit, "lock_table_shortfall", lambda count: "raise max_locks_per_transaction")
+    assert kit.worker_databases_problem(2) == "pytest -n 2: raise max_locks_per_transaction"
+    monkeypatch.delenv(kit.OWNER_ENV)
+    assert kit.worker_databases_problem(2) is None
+
+
+def os_environ(name):
+    import os
+
+    return os.environ[name]

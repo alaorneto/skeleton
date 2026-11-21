@@ -1,24 +1,33 @@
-"""Disposable PostgreSQL database for the tests of a derived project (#334).
+"""Disposable PostgreSQL database for the tests of a derived project (#334, #573).
 
 The barriers are the core suite's own (``tools/integration_database.py`` re-exports them): a
 destructive reset runs only with ``SKELETON_TEST_ALLOW_SCHEMA_RESET=1``, on a database whose
 name ends with ``_skeleton_test``, distinct from ``DATABASE_URL``, through the dedicated
 ``skeleton_owner`` role; every assertion runs as ``skeleton_runtime``.
 
-``skeleton_db`` recreates schema ``skeleton`` and migrates it for each test (never a flush or a
-TRUNCATE). It is the simple path: the core suite keeps its faster schema template. This module
-imports pytest; the rest of ``skeleton.testing`` does not.
+``skeleton_db`` gives every test a recreated schema ``skeleton`` (never a flush or a TRUNCATE).
+Each process migrates once and keeps a ``pg_dump`` of the migrated schema, restored before each
+test; without ``pg_dump`` (or with ``SKELETON_TEST_POSTGRES_TEMPLATE=0``) it migrates for each
+test. Under pytest-xdist each worker uses its own database, ``<base>_gwN_skeleton_test``,
+provisioned beforehand (``provision --workers N``). Loaded as a plugin
+(``-p skeleton.testing.database``), the module also checks, once and before any worker starts,
+that every worker database exists. This module imports pytest; the rest of ``skeleton.testing``
+does not.
 """
 
 import os
-from collections.abc import Iterator
+import re
+import shutil
+import subprocess
+from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import environ  # type: ignore[import-untyped]
 import pytest
-from psycopg.conninfo import conninfo_to_dict
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 SUFFIX = "_skeleton_test"
 RUNTIME_ENV = "TEST_DATABASE_URL"
@@ -111,6 +120,389 @@ def reset_schema(pair: DatabasePair) -> None:
         _create_empty_schema(connection)
 
 
+# Parallel workers (#573): pytest-xdist worker gwN uses ``<base>_gwN_skeleton_test``, never the
+# base database, so two workers never recreate each other's schema.
+_WORKER = re.compile(r"gw(0|[1-9][0-9]{0,2})")
+
+
+def worker_database_name(database: str, worker: str) -> str:
+    """Database of one parallel worker: ``ci_skeleton_test`` and ``gw3`` give ``ci_gw3_skeleton_test``.
+
+    The name keeps the ``_skeleton_test`` suffix, so every barrier of
+    ``disposable_database_pair()`` applies to it unchanged.
+    """
+    if not _WORKER.fullmatch(worker or ""):
+        raise RuntimeError(f"Unexpected parallel worker id {worker!r}; expected gw0, gw1, ...")
+    if not database or not database.endswith(SUFFIX) or database == SUFFIX:
+        raise RuntimeError(f"Integration database name must end with {SUFFIX}.")
+    return f"{database[: -len(SUFFIX)]}_{worker}{SUFFIX}"
+
+
+def worker_database_url(url: str, worker: str) -> str:
+    """The same URL (role, password, host, port, options) pointing at the worker's database."""
+    parts = urlsplit(url)
+    if parts.scheme not in {"postgres", "postgresql"} or not parts.path.startswith("/"):
+        raise RuntimeError("Parallel workers require postgres:// URLs that name a database.")
+    return parts._replace(path="/" + worker_database_name(parts.path[1:], worker)).geturl()
+
+
+def worker_database_urls(count: int, environment: MutableMapping[str, str] | None = None) -> list[tuple[str, str]]:
+    """Runtime and owner URLs of the first ``count`` workers, from the two base variables."""
+    environment = os.environ if environment is None else environment
+    runtime, owner = environment.get(RUNTIME_ENV), environment.get(OWNER_ENV)
+    if not runtime or not owner:
+        raise RuntimeError(f"{RUNTIME_ENV} and {OWNER_ENV} are both required.")
+    return [
+        (worker_database_url(runtime, f"gw{index}"), worker_database_url(owner, f"gw{index}")) for index in range(count)
+    ]
+
+
+def select_worker_database(environment: MutableMapping[str, str] | None = None) -> str | None:
+    """Point this process (a pytest-xdist worker) at its own disposable database.
+
+    Rewrites both variables in place, so the settings, ``disposable_database_pair()``, tests
+    that read the variables and the subprocesses they start all agree. Returns the worker's
+    database name, or None outside a worker and when the variables are not set. Calling it
+    twice is refused: the second call would derive a database from an already derived name.
+    """
+    environment = os.environ if environment is None else environment
+    worker = environment.get(WORKER_ENV)
+    runtime, owner = environment.get(RUNTIME_ENV), environment.get(OWNER_ENV)
+    if not worker or not runtime or not owner:
+        return None
+    if environment.get(_SELECTED_ENV) == worker:
+        raise RuntimeError("The worker database was already selected for this process.")
+    environment[RUNTIME_ENV] = worker_database_url(runtime, worker)
+    environment[OWNER_ENV] = worker_database_url(owner, worker)
+    environment[_SELECTED_ENV] = worker
+    return str(_identity(environment[RUNTIME_ENV])[2])
+
+
+def worker_database_selected(environment: MutableMapping[str, str] | None = None) -> bool:
+    """Whether this process already points at its worker database (or is not a worker at all)."""
+    environment = os.environ if environment is None else environment
+    worker = environment.get(WORKER_ENV)
+    return not worker or environment.get(_SELECTED_ENV) == worker
+
+
+# restore_schema() drops and recreates every object of schema skeleton in one transaction and
+# holds one lock per object until the commit: about 2,100 for the core alone, counted with pg_locks.
+LOCKS_PER_RESTORE = 3000
+_LOCK_ADVICE = (
+    "raise max_locks_per_transaction and restart the server (`tools/dev_postgres.py start` does "
+    "it for the local one), or run fewer parallel workers"
+)
+
+
+def lock_table_shortfall(count: int, environment: MutableMapping[str, str] | None = None) -> str | None:
+    """None when ``count`` workers can restore at once; otherwise the message that says what to raise.
+
+    PostgreSQL shares one lock table of max_locks_per_transaction x (max_connections +
+    max_prepared_transactions) slots among all sessions; any role may read the three settings.
+    """
+    import psycopg
+
+    _, owner = worker_database_urls(1, environment)[0]
+    with psycopg.connect(owner, connect_timeout=10) as connection:
+        row = connection.execute(
+            "SELECT current_setting('max_locks_per_transaction')::int, "
+            "current_setting('max_connections')::int + current_setting('max_prepared_transactions')::int"
+        ).fetchone()
+    per_transaction, sessions = row if row is not None else (0, 1)
+    needed = count * LOCKS_PER_RESTORE
+    if per_transaction * sessions >= needed:
+        return None
+    return (
+        f"{count} workers recreating schema skeleton at once need about {needed} lock slots and the server "
+        f"has {per_transaction * sessions} (max_locks_per_transaction={per_transaction}): set it to at least "
+        f"{-(-needed // sessions)}. To fix it, {_LOCK_ADVICE}."
+    )
+
+
+def missing_worker_databases(count: int, environment: MutableMapping[str, str] | None = None) -> list[str]:
+    """Names of the worker databases that the owner cannot open, in worker order.
+
+    Read-only: it connects and disconnects. The fixture never creates a database or a role;
+    provisioning them is the operator's step (``provision --workers N``, ``tools/dev_postgres.py``
+    or the CI).
+    """
+    import psycopg
+
+    missing = []
+    for _, owner in worker_database_urls(count, environment):
+        try:
+            psycopg.connect(owner, connect_timeout=10).close()
+        except psycopg.OperationalError:
+            missing.append(str(_identity(owner)[2]))
+    return missing
+
+
+def worker_databases_problem(count: int) -> str | None:
+    """What stops ``pytest -n count`` before any worker starts, or None (also without the variables)."""
+    if not os.environ.get(RUNTIME_ENV) or not os.environ.get(OWNER_ENV):
+        return None  # Tests without a database still run; the others report the missing variables.
+    missing = missing_worker_databases(count)
+    if missing:
+        return (
+            f"pytest -n {count} needs one disposable database per worker, and {len(missing)} cannot be "
+            f"opened by skeleton_owner (first: {missing[0]}). Provision them with "
+            f"`python -m skeleton.testing.database provision --database <base>{SUFFIX} --workers {count}`, "
+            "check that the server is running, or lower -n. The fixtures never create databases."
+        )
+    shortfall = lock_table_shortfall(count)
+    return f"pytest -n {count}: {shortfall}" if shortfall else None
+
+
+@dataclass(frozen=True)
+class SchemaTemplate:
+    """Plain SQL of a migrated schema skeleton plus the catalog fingerprint it was taken from."""
+
+    sql: str
+    fingerprint: dict[str, list[tuple[Any, ...]]]
+
+
+# Template of the migrated schema: migrate once per process, restore it for each test. The
+# restore recreates schema skeleton from scratch as skeleton_owner, so every test still starts
+# from a fresh schema; nothing is flushed or truncated.
+
+TEMPLATE_DISABLE_ENV = "SKELETON_TEST_POSTGRES_TEMPLATE"
+PG_DUMP_ENV = "SKELETON_TEST_PG_DUMP"
+_CREATE_SCHEMA = "CREATE SCHEMA skeleton;"
+# pg_dump >= 16.10/17.6 brackets plain output in psql-only \restrict/\unrestrict lines.
+_RESTRICT = re.compile(r"^\\(un)?restrict [A-Za-z0-9]+$")
+
+
+def template_enabled() -> bool:
+    return os.environ.get(TEMPLATE_DISABLE_ENV, "1") != "0"
+
+
+def pg_dump_executable() -> str | None:
+    """The pg_dump of ``SKELETON_TEST_PG_DUMP`` (or of the PATH), or None when there is none."""
+    return shutil.which(os.environ.get(PG_DUMP_ENV, "pg_dump"))
+
+
+def _pg_dump_command(pair: DatabasePair) -> tuple[list[str], dict[str, str]]:
+    """Argv and env for pg_dump; the password travels in PGPASSWORD, never in argv."""
+    executable = pg_dump_executable()
+    if executable is None:
+        raise RuntimeError(
+            "pg_dump not found: install a PostgreSQL client matching the server, point "
+            f"{PG_DUMP_ENV} to it, or set {TEMPLATE_DISABLE_ENV}=0 to migrate for each test."
+        )
+    params = conninfo_to_dict(pair.owner)
+    password = params.pop("password", None)
+    env = dict(os.environ)
+    env.pop("PGPASSWORD", None)
+    if password is not None:
+        env["PGPASSWORD"] = str(password)
+    argv = [
+        executable,
+        "--dbname",
+        make_conninfo("", **params),
+        "--schema=skeleton",
+        "--format=plain",
+        # INSERTs run through psycopg; COPY FROM stdin would need psql.
+        "--column-inserts",
+        "--rows-per-insert=500",
+        "--no-password",
+    ]
+    return argv, env
+
+
+def prepare_dump(text: str) -> str:
+    """Strip psql meta-commands and the CREATE SCHEMA the restore issues itself."""
+    lines = [line for line in text.splitlines() if not _RESTRICT.match(line)]
+    meta = [line for line in lines if line.startswith("\\")]
+    if meta:
+        raise RuntimeError(f"Unexpected psql meta-command in schema dump: {meta[0][:40]!r}")
+    if lines.count(_CREATE_SCHEMA) != 1:
+        raise RuntimeError("Schema dump must contain exactly one CREATE SCHEMA skeleton statement.")
+    lines.remove(_CREATE_SCHEMA)
+    return "\n".join(lines) + "\n"
+
+
+def dump_schema(pair: DatabasePair) -> SchemaTemplate:
+    """Capture structure and data of the migrated schema skeleton, as skeleton_owner."""
+    argv, env = _pg_dump_command(pair)
+    with _owner_connection(pair) as connection:
+        fingerprint = _fingerprint(connection)
+    result = subprocess.run(argv, env=env, capture_output=True, text=True, encoding="utf-8", check=False)  # noqa: S603 - fixed argv
+    if result.returncode != 0:
+        raise RuntimeError(f"pg_dump of schema skeleton failed: {result.stderr.strip()}")
+    return SchemaTemplate(sql=prepare_dump(result.stdout), fingerprint=fingerprint)
+
+
+def restore_schema(pair: DatabasePair, template: SchemaTemplate) -> None:
+    """Recreate schema skeleton from the template in one transaction, as skeleton_owner."""
+    if not isinstance(template, SchemaTemplate):
+        raise RuntimeError("restore_schema() requires the SchemaTemplate returned by dump_schema().")
+    import psycopg
+
+    try:
+        with _owner_connection(pair) as connection, connection.transaction():
+            # A lost fixture schema is rebuilt by the next test: do not wait for the WAL flush.
+            connection.execute("SET LOCAL synchronous_commit = off")
+            _create_empty_schema(connection)
+            # Audit functions are owned by skeleton_audit_writer; like InstallRecordInfrastructure,
+            # the ownership transfer needs schema CREATE only for the duration of the DDL.
+            connection.execute("GRANT CREATE ON SCHEMA skeleton TO skeleton_audit_writer")
+            # No parameters: psycopg sends the whole script with the simple query protocol.
+            connection.execute(template.sql)
+            connection.execute("REVOKE CREATE ON SCHEMA skeleton FROM skeleton_audit_writer")
+    except psycopg.errors.OutOfMemory as exc:
+        # "out of shared memory": the lock table is full, usually with several workers restoring.
+        raise RuntimeError(
+            f"PostgreSQL ran out of lock slots while recreating schema skeleton: {_LOCK_ADVICE}."
+        ) from exc
+
+
+def schema_fingerprint(pair: DatabasePair) -> dict[str, list[tuple[Any, ...]]]:
+    with _owner_connection(pair) as connection:
+        return _fingerprint(connection)
+
+
+# A NULL ACL means the default privileges. REVOKE can leave an explicit ACL equal to that
+# default, which pg_dump omits, so the restore yields NULL again: compare acldefault() instead.
+_FINGERPRINT_QUERIES = {
+    "schema": """
+        SELECT pg_get_userbyid(nspowner), ARRAY(SELECT unnest(coalesce(nspacl, acldefault('n', nspowner)))::text ORDER BY 1)
+        FROM pg_namespace WHERE nspname='skeleton'""",
+    "relations": """
+        SELECT c.relname, c.relkind, pg_get_userbyid(c.relowner), c.relrowsecurity, c.relforcerowsecurity,
+               ARRAY(SELECT unnest(coalesce(c.relacl, CASE
+                   WHEN c.relkind = 'S' THEN acldefault('s', c.relowner)
+                   WHEN c.relkind IN ('r', 'p', 'v', 'm', 'f') THEN acldefault('r', c.relowner)
+               END))::text ORDER BY 1)
+        FROM pg_class c WHERE c.relnamespace='skeleton'::regnamespace ORDER BY 1""",
+    "columns": """
+        SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, a.attidentity,
+               a.attgenerated, pg_get_expr(d.adbin, d.adrelid), ARRAY(SELECT unnest(a.attacl)::text ORDER BY 1)
+        FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+        LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+        WHERE c.relnamespace='skeleton'::regnamespace AND a.attnum > 0 AND NOT a.attisdropped
+        ORDER BY 1, 2""",
+    "constraints": """
+        SELECT coalesce(c.relname, ''), k.conname, k.contype, pg_get_constraintdef(k.oid), k.condeferrable, k.condeferred
+        FROM pg_constraint k LEFT JOIN pg_class c ON c.oid=k.conrelid
+        WHERE k.connamespace='skeleton'::regnamespace ORDER BY 1, 2""",
+    "indexes": "SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname='skeleton' ORDER BY 1, 2",
+    "triggers": """
+        SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid), t.tgenabled
+        FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+        WHERE c.relnamespace='skeleton'::regnamespace AND NOT t.tgisinternal ORDER BY 1, 2""",
+    "policies": """
+        SELECT tablename, policyname, permissive, ARRAY(SELECT unnest(roles)::text ORDER BY 1), cmd, qual, with_check
+        FROM pg_policies WHERE schemaname='skeleton' ORDER BY 1, 2""",
+    "functions": """
+        SELECT p.proname, pg_get_function_identity_arguments(p.oid), pg_get_function_result(p.oid),
+               pg_get_userbyid(p.proowner), p.prokind, p.prosecdef, p.provolatile, p.proconfig,
+               ARRAY(SELECT unnest(coalesce(p.proacl, acldefault('f', p.proowner)))::text ORDER BY 1), md5(p.prosrc)
+        FROM pg_proc p WHERE p.pronamespace='skeleton'::regnamespace ORDER BY 1, 2""",
+    "sequences": "SELECT sequencename, last_value FROM pg_sequences WHERE schemaname='skeleton' ORDER BY 1",
+}
+
+
+def _fingerprint(connection: Any) -> dict[str, list[tuple[Any, ...]]]:
+    """Owner-side inventory of schema skeleton: DDL, ownership, ACLs, RLS flags and row data."""
+    from psycopg import sql
+
+    result = {name: connection.execute(query).fetchall() for name, query in _FINGERPRINT_QUERIES.items()}
+    result["constraints"] = _canonical_checks(connection, result["constraints"])
+    result["indexes"] = _canonical_indexes(connection, result["indexes"])
+    tables = connection.execute(
+        "SELECT relname FROM pg_class WHERE relnamespace='skeleton'::regnamespace AND relkind IN ('r','p') ORDER BY 1"
+    ).fetchall()
+    result["data"] = [
+        (
+            table,
+            *connection.execute(
+                sql.SQL(
+                    "SELECT count(*), md5(coalesce(string_agg(t::text, E'\\n' ORDER BY t::text), '')) FROM skeleton.{} AS t"
+                ).format(sql.Identifier(table))
+            ).fetchone(),
+        )
+        for (table,) in tables
+    ]
+    return result
+
+
+_CHECK_PROBE = "sk_fingerprint_probe"
+
+
+def _canonical_checks(connection: Any, rows: list[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+    """CHECK text as PostgreSQL deparses it after one dump/restore round trip.
+
+    pg_dump writes the deparsed CHECK and the restore parses it again, which can move casts
+    (``IN`` over varchar) without changing the expression. Re-adding each expression as a
+    NOT VALID probe inside a rolled-back transaction yields that same round-tripped text on
+    both sides; every other column is compared unchanged.
+    """
+    from psycopg import sql
+
+    canonical = []
+    with connection.transaction(force_rollback=True):
+        for table, name, kind, definition, deferrable, deferred in rows:
+            if kind == "c" and table:
+                expression = definition.removesuffix(" NOT VALID")
+                target = sql.Identifier("skeleton", table)
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} ADD CONSTRAINT {} {} NOT VALID").format(
+                        target, sql.Identifier(_CHECK_PROBE), sql.SQL(expression)
+                    )
+                )
+                (probe,) = connection.execute(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid=%s::regclass AND conname=%s",
+                    (target.as_string(connection), _CHECK_PROBE),
+                ).fetchone()
+                connection.execute(
+                    sql.SQL("ALTER TABLE {} DROP CONSTRAINT {}").format(target, sql.Identifier(_CHECK_PROBE))
+                )
+                suffix = definition[len(expression) :]
+                definition = probe.removesuffix(" NOT VALID") + suffix
+            canonical.append((table, name, kind, definition, deferrable, deferred))
+    return canonical
+
+
+_INDEX_NAME = re.compile(r"^(CREATE (?:UNIQUE )?INDEX )(\S+)( ON )")
+
+
+def _canonical_indexes(connection: Any, rows: list[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+    """Index definitions with predicates or expressions after the same round trip as CHECKs.
+
+    Partial indexes such as ``WHERE type IN (...)`` over varchar deparse differently once
+    restored. Each one is rebuilt under a probe name in a rolled-back transaction and its
+    definition is read back with the original name; plain column indexes are kept as they are.
+    """
+    from psycopg import sql
+
+    computed = {
+        name
+        for (name,) in connection.execute(
+            "SELECT c.relname FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid "
+            "WHERE c.relnamespace='skeleton'::regnamespace AND (i.indpred IS NOT NULL OR i.indexprs IS NOT NULL)"
+        ).fetchall()
+    }
+    canonical = []
+    with connection.transaction(force_rollback=True):
+        for table, name, definition in rows:
+            match = _INDEX_NAME.match(definition)
+            if name in computed and match:
+                probe_name = sql.Identifier(_CHECK_PROBE).as_string(connection)
+                connection.execute(sql.SQL(_INDEX_NAME.sub(rf"\g<1>{probe_name}\g<3>", definition, count=1)))
+                (probe,) = connection.execute(
+                    "SELECT pg_get_indexdef(%s::regclass)", (f"skeleton.{probe_name}",)
+                ).fetchone()
+                connection.execute(sql.SQL("DROP INDEX {}").format(sql.Identifier("skeleton", _CHECK_PROBE)))
+                original: str = match[2]
+
+                def renamed(found: re.Match[str], original: str = original) -> str:
+                    return found[1] + original + found[3]
+
+                definition = _INDEX_NAME.sub(renamed, probe, count=1)
+            canonical.append((table, name, definition))
+    return canonical
+
+
 def _configure(config: dict[str, Any]) -> dict[str, Any]:
     from django.conf import settings
     from django.db import connections
@@ -130,31 +522,99 @@ def _postgres_config(dsn: str) -> dict[str, Any]:
     return config
 
 
+# How the schemas of this process were built: ``migrate`` and ``restore`` count per test, so a
+# test (or whoever runs the suite) can see whether the template was used.
+SCHEMA_STATS = {"migrate": 0, "restore": 0}
+# One template per process and database: None when it is disabled or there is no pg_dump.
+_TEMPLATES: dict[str, SchemaTemplate | None] = {}
+
+
+def _use_worker_database() -> None:
+    """In a pytest-xdist worker, point this process at its own database once (#573).
+
+    The core suite selects it in ``pytest_configure``; a derived project that only imports
+    ``skeleton_db`` gets the same selection here, before the first test touches the database.
+    """
+    if worker_database_selected():
+        return
+    worker, owner = os.environ.get(WORKER_ENV, ""), os.environ.get(OWNER_ENV)
+    if not owner or not os.environ.get(RUNTIME_ENV):
+        return  # disposable_database_pair() reports the missing variables.
+    import psycopg
+
+    # Probe before selecting: a missing database fails every test of the worker the same way.
+    url = worker_database_url(owner, worker)
+    try:
+        psycopg.connect(url, connect_timeout=10).close()
+    except psycopg.OperationalError as exc:
+        database = _identity(url)[2]
+        raise RuntimeError(
+            f"The worker database {database} cannot be opened by skeleton_owner: provision one database per "
+            f"worker (`python -m skeleton.testing.database provision --database <base>{SUFFIX} --workers N`) "
+            "or lower -n."
+        ) from exc
+    select_worker_database()
+
+
+def _migrate(pair: DatabasePair) -> None:
+    """Fresh schema skeleton migrated by skeleton_owner; the caller restores the connection."""
+    from django.core.management import call_command
+    from django.db import connections
+
+    reset_schema(pair)
+    _configure(_postgres_config(pair.owner))
+    call_command("migrate", verbosity=0, interactive=False)
+    connections.close_all()
+    SCHEMA_STATS["migrate"] += 1
+
+
+def _schema_template(pair: DatabasePair) -> SchemaTemplate | None:
+    """The template of this process: migrate once and dump, or None to migrate for each test."""
+    if pair.database in _TEMPLATES:
+        return _TEMPLATES[pair.database]
+    template = None
+    if template_enabled() and pg_dump_executable() is not None:
+        _migrate(pair)
+        template = dump_schema(pair)
+    _TEMPLATES[pair.database] = template
+    return template
+
+
 @pytest.fixture
 def skeleton_db(request: pytest.FixtureRequest, tmp_path: Path, django_db_blocker: Any) -> Iterator[None]:
-    """Per-test database: schema skeleton recreated and migrated by skeleton_owner, assertions as skeleton_runtime.
+    """Per-test database: schema skeleton recreated by skeleton_owner, assertions as skeleton_runtime.
 
-    Apps start closed (#22): ``build_service_scenario`` makes the model's app available and active.
-    Missing variables or a database that is not disposable stop the run with a usage error.
+    The first test of a process migrates and keeps a ``pg_dump`` template, which every test
+    restores (without ``pg_dump`` or with ``SKELETON_TEST_POSTGRES_TEMPLATE=0``, every test
+    migrates). A pytest-xdist worker uses its own database. Apps start closed (#22):
+    ``build_service_scenario`` makes the model's app available and active. Missing variables, a
+    database that is not disposable or a missing worker database stop the run with a usage error.
     """
     from django.contrib.contenttypes.models import ContentType
-    from django.core.management import call_command
     from django.db import connections
     from django.test import override_settings
 
     original = connections["default"].settings_dict.copy()
     with django_db_blocker.unblock():
         try:
+            _use_worker_database()
             pair = disposable_database_pair()
         except RuntimeError as exc:
             raise pytest.UsageError(str(exc)) from exc
-        reset_schema(pair)
-        _configure(_postgres_config(pair.owner))
-        call_command("migrate", verbosity=0, interactive=False)
-        connections.close_all()
-        ContentType.objects.clear_cache()
-        _configure(_postgres_config(pair.runtime))
         try:
+            try:
+                template = _schema_template(pair)
+            except RuntimeError as exc:
+                raise pytest.UsageError(str(exc)) from exc
+            if template is None:
+                _migrate(pair)
+            else:
+                # Same starting point as migrate: a recreated schema, never a flushed one.
+                restore_schema(pair, template)
+                SCHEMA_STATS["restore"] += 1
+            # migrate's post_migrate handlers clear this cache; the restore does not run them.
+            ContentType.objects.clear_cache()
+            _configure(_postgres_config(pair.runtime))
             # A locmem cache per test: never clear a configured external cache or share rate limits.
             with override_settings(
                 CACHES={
@@ -165,6 +625,22 @@ def skeleton_db(request: pytest.FixtureRequest, tmp_path: Path, django_db_blocke
         finally:
             connections.close_all()
             _configure(original)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """With ``-p skeleton.testing.database``: a worker selects its database, the controller checks them all."""
+    if hasattr(config, "workerinput"):
+        if not worker_database_selected():
+            select_worker_database()
+        return
+    count = getattr(config.option, "numprocesses", None)
+    if isinstance(count, int) and count > 0 and not config.option.collectonly:
+        try:
+            problem = worker_databases_problem(count)
+        except RuntimeError as exc:
+            raise pytest.UsageError(str(exc)) from exc
+        if problem:
+            raise pytest.UsageError(problem)
 
 
 # Provisioning of a disposable test database (#520): the wheel ships a byte-for-byte copy of
@@ -183,11 +659,8 @@ def provision(admin_url: str, database: str, *, passwords: dict[str, str] | None
     never printed or stored. ``passwords`` maps ``skeleton_owner``/``skeleton_runtime`` to the
     passwords of the disposable roles. Returns whether the database was created.
     """
-    import re
-
     import psycopg
     from psycopg import sql
-    from psycopg.conninfo import make_conninfo
 
     if not re.fullmatch(_DATABASE_NAME, database) or not database.endswith(SUFFIX):
         raise RuntimeError(f"The test database name must be a plain identifier ending with {SUFFIX}.")
@@ -211,7 +684,7 @@ def provision(admin_url: str, database: str, *, passwords: dict[str, str] | None
 
 
 def main(argv: list[str] | None = None) -> int:
-    """``python -m skeleton.testing.database provision --database <name>_skeleton_test``."""
+    """``python -m skeleton.testing.database provision --database <name>_skeleton_test [--workers N]``."""
     import argparse
 
     parser = argparse.ArgumentParser(prog="python -m skeleton.testing.database", description=__doc__)
@@ -219,20 +692,34 @@ def main(argv: list[str] | None = None) -> int:
     command = commands.add_parser("provision", help="Create and bootstrap a disposable *_skeleton_test database.")
     command.add_argument("--admin-url", help=f"Operator connection URL (default: ${ADMIN_URL_ENV}). Never printed.")
     command.add_argument("--database", required=True, help=f"Database name; must end with {SUFFIX}.")
+    command.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        metavar="N",
+        help=f"Also provision the databases of N pytest-xdist workers (<base>_gw0{SUFFIX} ...).",
+    )
     options = parser.parse_args(argv)
+    if not 0 <= options.workers <= 1000:
+        parser.error("--workers must be between 0 and 1000.")
     passwords = {
         "skeleton_owner": os.environ.get(OWNER_PASSWORD_ENV, ""),
         "skeleton_runtime": os.environ.get(RUNTIME_PASSWORD_ENV, ""),
     }
+    admin_url = options.admin_url or os.environ.get(ADMIN_URL_ENV, "")
+    results = []
     try:
-        created = provision(
-            options.admin_url or os.environ.get(ADMIN_URL_ENV, ""), options.database, passwords=passwords
-        )
+        names = [options.database]
+        names += [worker_database_name(options.database, f"gw{index}") for index in range(options.workers)]
+        for name in names:
+            # Each worker database is bootstrapped like the base one; the passwords belong to the roles.
+            results.append((name, provision(admin_url, name, passwords=passwords)))
     except RuntimeError as exc:
         parser.error(str(exc))
     except Exception as exc:  # noqa: BLE001 - a driver error must not echo the administrative URL
         parser.exit(1, f"provision failed: {exc.__class__.__name__}\n")
-    print(f"{options.database}: {'created' if created else 'already existed'}, bootstrap applied")
+    for name, created in results:
+        print(f"{name}: {'created' if created else 'already existed'}, bootstrap applied")
     return 0
 
 

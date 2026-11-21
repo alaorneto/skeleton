@@ -11,7 +11,7 @@ from psycopg import sql
 
 from skeleton.access.models import Role
 from skeleton.system.checks import check_deployed_schema
-from tools.integration_database import disposable_database_pair, schema_fingerprint
+from skeleton.testing.database import disposable_database_pair, schema_fingerprint
 
 # The fingerprint includes rows: the test precondition must not open apps before comparing (#22).
 pytestmark = pytest.mark.closed_app_defaults

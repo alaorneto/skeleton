@@ -70,3 +70,24 @@ def test_the_bootstrap_copy_and_the_host_project_are_package_data():
     assert any(fnmatch("bootstrap.sql", pattern) for pattern in setuptools["package-data"]["*"])
     assert "skeleton.*" in setuptools["packages"]["find"]["include"]  # skeleton.testing.host is a package
     assert (ROOT / "skeleton" / "testing" / "host" / "__init__.py").is_file()
+
+
+def test_workers_provision_one_database_per_worker_after_the_base(monkeypatch, capsys):
+    """--workers N provisions <base>_gw0..N-1_skeleton_test the same way as the base (#573)."""
+    from skeleton.testing import database
+
+    provisioned = []
+    monkeypatch.setattr(database, "provision", lambda url, name, *, passwords: provisioned.append(name) or True)
+    assert (
+        main(
+            ["provision", "--admin-url", "postgres://x/postgres", "--database", "acme_skeleton_test", "--workers", "2"]
+        )
+        == 0
+    )
+    assert provisioned == ["acme_skeleton_test", "acme_gw0_skeleton_test", "acme_gw1_skeleton_test"]
+    assert "acme_gw1_skeleton_test: created" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as error:
+        main(
+            ["provision", "--admin-url", "postgres://x/postgres", "--database", "acme_skeleton_test", "--workers", "-1"]
+        )
+    assert error.value.code == 2
