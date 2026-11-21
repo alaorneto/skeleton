@@ -58,6 +58,10 @@ A mensagem de erro diz a linha ("Linha 3: o CSS não pode usar url(."). Duas reg
 
 O contrato estável para o CSS livre são os tokens `--color-*`, `--radius-*`, `--font-*` e as classes de componente listadas em [UI](ui-design.md#marca-e-tema-da-instância).
 
+## Temas trazidos por apps
+
+Uma app pode trazer temas da instância no próprio pacote, declarados em `runtime.instance_themes` do manifesto ([extensão](extending.md#manifest-ativação-e-superfícies-próprias), epic [#630](https://github.com/alaorneto/skeleton/issues/630)), no mesmo formato do [pacote de tema](#pacote-de-tema), como diretório dentro da app. O build e o doctor da app validam cada um com o leitor; na carga, um tema inválido é `skeleton.E047` e fica fora do catálogo.
+
 ## Imagens
 
 `skeleton/appearance/images.py` guarda o logo e o logo para o modo escuro (PNG, JPEG ou WebP até 512 KB) e o ícone (PNG quadrado de 512 × 512 até 256 KB), com os mesmos verificadores das imagens de organização (`checked_logo` e `checked_icon` de `skeleton.tenancy.branding`): o conteúdo decide o tipo, nunca o nome. SVG e GIF são recusados. A chave é `platform/branding/<uuid4>`, gerada pelo servidor, no armazenamento privado ([arquivos](files.md)). Os bytes são gravados antes da linha; falhar a linha apaga o objeto na hora, o objeto substituído sai depois do commit, e um rollback do chamador deixa um órfão que o job global `appearance.orphans` remove depois da carência ([jobs](jobs.md)). A variante escura só aparece junto com o logo. Os arquivos de um pacote de tema usam as mesmas chaves; o job considera referenciadas as de `package_files` dos temas vivos, então os arquivos de uma versão substituída ou de um pacote removido saem pelo job, depois da carência, e nunca dentro da transação.

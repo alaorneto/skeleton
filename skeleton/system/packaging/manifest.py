@@ -22,6 +22,10 @@ from .limits import (
     BUNDLED_LABEL_PREFIX,
     BUNDLED_PACKAGE,
     DOCUMENT_HEADINGS,
+    INSTANCE_THEME_RESERVED_DIRECTORIES,
+    INSTANCE_THEME_SLUG,
+    INSTANCE_THEMES_CORE_MINIMUM,
+    MAX_INSTANCE_THEMES,
     PORTAL_CORE_MINIMUM,
     RESERVED_NAMES,
     SERVICE_API_CORE_MINIMUM,
@@ -157,7 +161,14 @@ def _runtime_fields(m, bundled):
         "documentation_root",
     )
     if m["manifest_version"] == 2:
-        runtime_fields += ("administration", "model_ui", "service_api", "portal_urls", "portal_api_urls")
+        runtime_fields += (
+            "administration",
+            "model_ui",
+            "service_api",
+            "portal_urls",
+            "portal_api_urls",
+            "instance_themes",
+        )
         if not _core_floor_at_least(m["compatibility"]["skeleton"], MANIFEST_V2_CORE_MINIMUM):
             _fail("Manifest v2 requires a core minimum of " + MANIFEST_V2_CORE_MINIMUM + ".")
     if bundled:
@@ -223,6 +234,27 @@ def _validate_presentation(m, r, label, prefix):
         _fail("runtime.portal_urls requires a core minimum of " + PORTAL_CORE_MINIMUM + ".")
 
 
+def _validate_instance_themes(m, value):
+    """runtime.instance_themes (#642): up to four theme directories of the app, with the core floor."""
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_INSTANCE_THEMES:
+        _fail(f"runtime.instance_themes requires 1 to {MAX_INSTANCE_THEMES} entries.")
+    slugs, paths = set(), []
+    for entry in value:
+        _object(entry, ("slug", "path"), ("slug", "path"))
+        slug, path = entry["slug"], entry["path"]
+        if not isinstance(slug, str) or not INSTANCE_THEME_SLUG.fullmatch(slug) or slug in slugs:
+            _fail("runtime.instance_themes requires unique slugs of lowercase letters, digits and hyphens.")
+        _path(path)
+        if path.split("/")[0] in INSTANCE_THEME_RESERVED_DIRECTORIES:
+            _fail("runtime.instance_themes path cannot live in migrations, templates, static, docs or wheels.")
+        if any(path == other or path.startswith(other + "/") or other.startswith(path + "/") for other in paths):
+            _fail("runtime.instance_themes paths must be distinct and never nested.")
+        slugs.add(slug)
+        paths.append(path)
+    if not _core_floor_at_least(m["compatibility"]["skeleton"], INSTANCE_THEMES_CORE_MINIMUM):
+        _fail("runtime.instance_themes requires a core minimum of " + INSTANCE_THEMES_CORE_MINIMUM + ".")
+
+
 def _validate_runtime(m, label, prefix, bundled):
     r = _object(
         m["runtime"],
@@ -241,6 +273,8 @@ def _validate_runtime(m, label, prefix, bundled):
     _validate_navigation(r, label)
     if m["manifest_version"] == 2:
         _validate_presentation(m, r, label, prefix)
+    if "instance_themes" in r:
+        _validate_instance_themes(m, r["instance_themes"])
 
 
 def _validate_core_identity(m):

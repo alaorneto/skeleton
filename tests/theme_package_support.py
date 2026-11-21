@@ -90,3 +90,46 @@ def write_directory(root: Path, content: dict[str, bytes]) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
     return root
+
+
+APP_THEME_ID = "org.example.demo"
+
+
+def app_theme_manifest(**changes: Any) -> dict[str, Any]:
+    """The example manifest as the theme ``aurora`` of the app ``org.example.demo`` (epic #630)."""
+    values = {"id": f"{APP_THEME_ID}.theme.aurora", "compatibility": {"skeleton": ">=0.0.0"}}
+    return manifest(**{**values, **changes})
+
+
+def register_theme_app(root: Path, *, label: str = "theme_demo", themes: dict[str, dict[str, bytes]] | None = None):
+    """Register an in-memory app that ships ``themes`` (slug → files) written under ``root``.
+
+    Returns the manifest; pair with ``unregister_theme_app(label)`` in a ``finally`` or fixture.
+    """
+    from skeleton.system.app_registry import AppManifest, AppThemeDeclaration, register_app
+
+    declarations = []
+    for slug, content in (themes or {"aurora": files(manifest_value=app_theme_manifest())}).items():
+        directory = write_directory(root / label / "themes" / slug, content)
+        declarations.append(AppThemeDeclaration(slug, str(directory.resolve())))
+    return register_app(
+        AppManifest(
+            app_label=label,
+            label="Demo de temas",
+            description="Fixture",
+            app_id=APP_THEME_ID if label == "theme_demo" else f"org.example.{label}",
+            version="1.2.0",
+            instance_themes=tuple(declarations),
+        )
+    )
+
+
+def unregister_theme_app(label: str = "theme_demo") -> None:
+    from skeleton.system.app_registry import unregister_app
+
+    unregister_app(label)
+    try:
+        from skeleton.appearance.app_themes import reset_app_themes_cache
+    except ImportError:  # Before #643.
+        return
+    reset_app_themes_cache()

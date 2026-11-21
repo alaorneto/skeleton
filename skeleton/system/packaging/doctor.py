@@ -101,6 +101,14 @@ def _doctor_source(root, manifest, manifest_file, report):
         )
 
 
+def _doctor_instance_themes(root, manifest, report):
+    """Every problem of the instance themes the app ships (#642)."""
+    from .themes import instance_theme_problems
+
+    for slug, code, message, path, line in instance_theme_problems(root, manifest):
+        report("instance_theme_invalid", message, theme=slug, theme_code=code, path=path, line=line)
+
+
 def _doctor_documentation(root, manifest, report):
     documentation = root / manifest["runtime"]["documentation_root"]
     documents = {**required_documents(manifest), SERVICE_API_DOCUMENT: SERVICE_API_HEADINGS}
@@ -190,6 +198,7 @@ def doctor(app_root, manifest_path=None, *, inventory=None, catalog=None, trust_
         report("manifest_invalid", "doctor requires an application manifest.")
         return {"ok": False, "problems": problems}
     _doctor_source(root, manifest, manifest_file, report)
+    _doctor_instance_themes(root, manifest, report)
     _doctor_documentation(root, manifest, report)
     _doctor_import_boundary(root, manifest, inventory, report)
     _doctor_migrations(root, manifest, report)

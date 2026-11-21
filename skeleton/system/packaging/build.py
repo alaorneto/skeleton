@@ -201,6 +201,10 @@ def build_package(app_root, manifest_path, output_path, private_key_path, wheels
     payloads, violations = _scan_application_root(root, Path(manifest_path).resolve())
     if violations:
         _fail(violations[0][1])
+    from .themes import instance_theme_problems
+
+    for slug, code, message, path, _line in instance_theme_problems(root, manifest):
+        _fail(f"Instance theme {slug} is invalid ({code}{': ' + path if path else ''}): {message}")
     for wheel in wheels:
         wheel = Path(wheel)
         name = "wheels/" + wheel.name
