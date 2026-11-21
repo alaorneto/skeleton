@@ -123,6 +123,27 @@ def test_install_signal_handlers_requests_shutdown(monkeypatch):
     assert called.wait(5)
 
 
+def test_signal_before_the_server_exists_stops_it_once_attached(monkeypatch):
+    """#616: serve() installs the handlers before the socket; a signal in between is not lost."""
+    registered = {}
+    monkeypatch.setattr(server_module.signal, "signal", lambda signum, handler: registered.setdefault(signum, handler))
+    request = install_signal_handlers()
+    registered[signal.SIGTERM](signal.SIGTERM, None)  # No server yet: only remembered.
+    called = Event()
+    request.attach(SimpleNamespace(shutdown=called.set))
+    assert called.wait(5)
+
+
+def test_attach_without_a_signal_does_not_stop_the_server(monkeypatch):
+    monkeypatch.setattr(server_module.signal, "signal", lambda signum, handler: None)
+    request = install_signal_handlers()
+    called = Event()
+    request.attach(SimpleNamespace(shutdown=called.set))
+    assert not called.wait(0.2)
+    request(signal.SIGINT, None)
+    assert called.wait(5)
+
+
 def serving(tmp_path, token_file, *, worker=None):
     service = SimpleNamespace(
         config={"socket_path": str(tmp_path / "control" / "agent.sock"), "token_file": str(token_file)},
@@ -230,6 +251,34 @@ def test_sigterm_stops_idle_agent_and_removes_socket(tmp_path, token_file):
     try:
         wait_for(socket_path)
         process.send_signal(signal.SIGTERM)
+        assert process.wait(timeout=10) == 0
+        assert not socket_path.exists()
+    finally:
+        if process.poll() is None:
+            process.kill()
+
+
+def test_sigterm_while_the_socket_is_created_stops_in_order(tmp_path, token_file):
+    """#616: the signal lands right after bind(), before serve() finishes preparing the socket.
+
+    Before the fix the default action killed the agent (-15) and left the socket on disk.
+    """
+    socket_path = tmp_path / "control" / "agent.sock"
+    script = (
+        "import os, signal; from pathlib import Path; from types import SimpleNamespace; "
+        "from deployment_agent import server as module\n"
+        "class SignalledServer(module.UnixHTTPServer):\n"
+        "    def __init__(self, *args, **kwargs):\n"
+        "        super().__init__(*args, **kwargs)\n"
+        "        os.kill(os.getpid(), signal.SIGTERM)\n"
+        "module.UnixHTTPServer = SignalledServer\n"
+        f"module.serve(SimpleNamespace(config={{'socket_path': {str(socket_path)!r}, 'token_file': {str(token_file)!r}}}, "
+        f"reconcile_interrupted=lambda: None, worker=None, store=SimpleNamespace(root=Path({str(tmp_path / 'journal')!r}))))\n"
+    )
+    (tmp_path / "journal").mkdir(mode=0o700)
+    root = Path(__file__).resolve().parents[2]
+    process = subprocess.Popen([sys.executable, "-c", script], cwd=root, env={**os.environ, "PYTHONPATH": str(root)})
+    try:
         assert process.wait(timeout=10) == 0
         assert not socket_path.exists()
     finally:

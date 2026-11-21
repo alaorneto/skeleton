@@ -339,13 +339,42 @@ def run_update_checks(
         delay = interval
 
 
-def install_signal_handlers(server: Any) -> Callable[[int, FrameType | None], None]:
-    """SIGTERM/SIGINT stop accepting requests; serve() then waits for the running operation (#280)."""
+class ShutdownRequest:
+    """SIGTERM/SIGINT handler that also covers a signal received before the server exists (#616).
 
-    def request_shutdown(signum: int, frame: FrameType | None) -> None:
-        # shutdown() blocks until serve_forever() returns: it must run outside the main thread.
-        threading.Thread(target=server.shutdown, daemon=True, name="deployment-shutdown").start()
+    serve() installs it before the control socket is created and attaches the server right after: a
+    signal in between is remembered and stops the server as soon as it is attached, so the agent
+    never dies by the default action with the socket left on disk. The handler and attach() both run
+    in the main thread (Python runs signal handlers there), so no lock is needed; a signal between
+    the two steps of attach() only asks for shutdown() twice, which is harmless.
+    """
 
+    def __init__(self, server: Any = None) -> None:
+        self.server = server
+        self.requested = False
+
+    def __call__(self, signum: int, frame: FrameType | None) -> None:
+        self.requested = True
+        if self.server is not None:
+            self._shutdown()
+
+    def attach(self, server: Any) -> None:
+        self.server = server
+        if self.requested:
+            self._shutdown()
+
+    def _shutdown(self) -> None:
+        # shutdown() blocks until serve_forever() returns: it must run outside the main thread. Before
+        # serve_forever() starts, it only marks the request, and serve_forever() then returns at once.
+        threading.Thread(target=self.server.shutdown, daemon=True, name="deployment-shutdown").start()
+
+
+def install_signal_handlers(server: Any = None) -> ShutdownRequest:
+    """SIGTERM/SIGINT stop accepting requests; serve() then waits for the running operation (#280).
+
+    Without a server, the request waits for ShutdownRequest.attach() (#616).
+    """
+    request_shutdown = ShutdownRequest(server)
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, request_shutdown)
     return request_shutdown
@@ -383,11 +412,15 @@ def serve(service: "DeploymentService") -> int:
     if service.config.get("backend") == "compose":
         cast("ComposeBackend", service.backend).remove_stale_overrides()  # Abrupt stop overrides hold secrets (#245).
     tickets = StatusTickets(service)
+    # Handlers before the socket exists: a signal from now on stops the agent in order (#616).
+    shutdown_request = install_signal_handlers() if threading.current_thread() is threading.main_thread() else None
     previous_umask = os.umask(0o117)  # The socket is born at most 0660 (#280).
     try:
         server = UnixHTTPServer(str(path), ControlHandler)
     finally:
         os.umask(previous_umask)
+    if shutdown_request is not None:
+        shutdown_request.attach(server)
     server.service = service
     server.tickets = tickets
     os.chmod(path, 0o660)
@@ -404,8 +437,6 @@ def serve(service: "DeploymentService") -> int:
         status_server.service = service
         status_server.tickets = tickets
         threading.Thread(target=status_server.serve_forever, daemon=True, name="deployment-status").start()
-    if threading.current_thread() is threading.main_thread():
-        install_signal_handlers(server)
     stop_checks = threading.Event()
     interval = service.config.get("update_check_interval", 21600)
     if interval and interval > 0:
