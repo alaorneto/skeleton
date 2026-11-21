@@ -215,6 +215,11 @@ def update_theme(*, actor: Any, theme_id: Any, data: dict[str, Any], expected_re
     values = clean_theme_values(data)
     with transaction.atomic():
         record = _locked_theme(theme_id, expected_revision)
+        if record.source == "package":
+            raise ValidationError(
+                gettext("Temas de pacote não são editados aqui; envie uma versão nova do pacote."),
+                code="package_read_only",
+            )
         changed = {name for name, value in values.items() if getattr(record, name) != value}
         if "name" in changed and InstanceTheme.objects.filter(name=values["name"]).exclude(pk=record.pk).exists():
             raise _name_taken()

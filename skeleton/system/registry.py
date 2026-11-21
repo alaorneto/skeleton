@@ -648,9 +648,11 @@ def register_core_specs():
         ),
         "sk_appearance.instancetheme": (
             gettext_lazy("Temas da instância"),
-            gettext_lazy("Catálogo de temas (cor, raio, fonte e CSS personalizado) da instância inteira."),
+            gettext_lazy(
+                "Catálogo de temas da instância inteira: personalizados (cor, raio, fonte e CSS) e pacotes instalados."
+            ),
             "global",
-            (),
+            ("package_files",),
         ),
         "sk_appearance.instancebrand": (
             gettext_lazy("Marca da instância"),

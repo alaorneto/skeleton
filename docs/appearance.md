@@ -18,7 +18,7 @@ A folha de estilo do tema entra depois do `site.css` e antes do `<style>` da org
 
 O pacote `skeleton/appearance` (label `sk_appearance`) tem só dados, regras puras e serviços; as páginas ficam em `skeleton/web`. As duas tabelas são `SystemRecord` globais, com revisão/CAS, auditoria por trigger e infraestrutura congelada em `sk_appearance.0001_initial`:
 
-- `sk_appearance.instancetheme`: um tema do catálogo (`name` único entre os vivos, `brand_color` vazio ou `#rrggbb`, `radius` em `sharp|default|round`, `font` em `inter|system|serif`, `custom_css` até 32 KiB). O CSS personalizado **não** é sensível: a auditoria mostra quem mudou o quê.
+- `sk_appearance.instancetheme`: um tema do catálogo (`name` único entre os vivos, `brand_color` vazio ou `#rrggbb`, `radius` em `sharp|default|round`, `font` em `inter|system|serif`, `custom_css` até 32 KiB). O CSS personalizado **não** é sensível: a auditoria mostra quem mudou o quê. A origem fica em `source`: `form` (criado na tela) ou `package` (instalado de um [pacote de tema](#pacote-de-tema), #635). Um tema de pacote guarda também `package_id` (vivo uma vez só), `package_version`, `package_digest` (o `content_digest`), `package_manifest` (o `theme.json` validado), `font_family`, `product_name`, `footer_text` e `package_files`, o mapa das chaves de armazenamento das imagens e fontes (**sensível**, redigido na auditoria). Um tema `form` não tem nenhum desses campos (constraint), e a infraestrutura foi reinstalada com eles em `sk_appearance.0003_theme_packages`.
 - `sk_appearance.instancebrand`: a linha única (`slot = "instance"`) com `product_name` (vazio mostra "Skeleton"), `footer_text`, as chaves `logo_key`, `logo_dark_key` e `icon_key` (sensíveis, redigidas na auditoria) e o tema ativo: `builtin_theme` (um tema pronto) **ou** `active_theme` (um tema do catálogo), nunca os dois; os dois vazios são o tema do núcleo.
 
 Marca e tema não vão para o SQLite da instância: aquilo é configuração lida antes do Django e só vale depois do reinício (E025); estes são dados editados pela interface.
@@ -26,6 +26,18 @@ Marca e tema não vão para o SQLite da instância: aquilo é configuração lid
 ## Quem altera
 
 Só o administrador da plataforma, pelos serviços de `skeleton.appearance.services` e `skeleton.appearance.images` (todos keyword-only, com `actor`, dentro de `transaction.atomic()`): `update_brand`, `create_theme`, `update_theme`, `delete_theme`, `activate_theme`, `replace_image` e `remove_image`. Toda alteração leva `expected_revision` (a revisão da linha; 0 quando a linha da marca ainda não existe) e uma revisão diferente levanta `ConcurrentUpdate`; dados iguais não gravam nada. Campos fora da lista fechada são recusados ("Campo não permitido."). Qualquer outro usuário recebe `PermissionDenied`. `actor=None` é só do console (`manage.py appearance`), que abre o próprio `system_context` com motivo.
+
+**Pacotes** (`skeleton.appearance.packages.install_theme_package(actor=..., data=bytes)`, #635): o zip é lido inteiro pelo leitor antes de qualquer gravação; depois vêm o contraste AA da cor e a faixa do núcleo. Cada imagem e cada fonte vai para o armazenamento privado com chave própria `platform/branding/<uuid4>` e o tema é gravado com `source="package"`. O resultado (`InstallResult`) diz `installed`, `updated` (com a versão anterior) ou `unchanged`:
+
+| Situação | Resultado |
+|---|---|
+| `id` novo | instala (até 50 temas no catálogo; nome único entre os vivos) |
+| mesmo `id`, mesmo `content_digest` | `unchanged`, nada grava |
+| mesmo `id`, versão maior | `updated`: a mesma linha (mesmo `sysid`, revisão + 1); se é o tema ativo, continua ativo |
+| mesmo `id`, mesma versão, outro conteúdo | recusado: `same_version_changed` |
+| mesmo `id`, versão menor | recusado: `downgrade` |
+
+Instalar nunca ativa. Um tema de pacote é somente leitura para o formulário (`update_theme` recusa com `package_read_only`); remover é `delete_theme`, igual ao tema de formulário (exclusão lógica, nunca o ativo). As linhas de instalação e ativação se serializam pela linha da marca, e duas instalações paralelas do mesmo pacote novo têm um vencedor (a outra recebe `ConcurrentUpdate`).
 
 ## Leitura a cada requisição e cache
 
@@ -47,7 +59,7 @@ O contrato estável para o CSS livre são os tokens `--color-*`, `--radius-*`, `
 
 ## Imagens
 
-`skeleton/appearance/images.py` guarda o logo e o logo para o modo escuro (PNG, JPEG ou WebP até 512 KB) e o ícone (PNG quadrado de 512 × 512 até 256 KB), com os mesmos verificadores das imagens de organização (`checked_logo` e `checked_icon` de `skeleton.tenancy.branding`): o conteúdo decide o tipo, nunca o nome. SVG e GIF são recusados. A chave é `platform/branding/<uuid4>`, gerada pelo servidor, no armazenamento privado ([arquivos](files.md)). Os bytes são gravados antes da linha; falhar a linha apaga o objeto na hora, o objeto substituído sai depois do commit, e um rollback do chamador deixa um órfão que o job global `appearance.orphans` remove depois da carência ([jobs](jobs.md)). A variante escura só aparece junto com o logo.
+`skeleton/appearance/images.py` guarda o logo e o logo para o modo escuro (PNG, JPEG ou WebP até 512 KB) e o ícone (PNG quadrado de 512 × 512 até 256 KB), com os mesmos verificadores das imagens de organização (`checked_logo` e `checked_icon` de `skeleton.tenancy.branding`): o conteúdo decide o tipo, nunca o nome. SVG e GIF são recusados. A chave é `platform/branding/<uuid4>`, gerada pelo servidor, no armazenamento privado ([arquivos](files.md)). Os bytes são gravados antes da linha; falhar a linha apaga o objeto na hora, o objeto substituído sai depois do commit, e um rollback do chamador deixa um órfão que o job global `appearance.orphans` remove depois da carência ([jobs](jobs.md)). A variante escura só aparece junto com o logo. Os arquivos de um pacote de tema usam as mesmas chaves; o job considera referenciadas as de `package_files` dos temas vivos, então os arquivos de uma versão substituída ou de um pacote removido saem pelo job, depois da carência, e nunca dentro da transação.
 
 ### Logos em SVG
 
