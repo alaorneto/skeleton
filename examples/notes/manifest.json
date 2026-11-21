@@ -7,7 +7,7 @@
   "app_config": "applications.notes.apps.NotesConfig",
   "name": "Anotações",
   "description": "Anotações de demonstração do contrato de extensão",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "skeleton-examples",
   "compatibility": {"skeleton": ">=0.0.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
   "dependencies": {},
@@ -37,9 +37,9 @@
       }
     }]
   },
-  "migrations": {"leaves": ["0002_search_index"], "from_versions": ">=0.0.0", "labels": ["example_notes"]},
+  "migrations": {"leaves": ["0003_note_category"], "from_versions": ">=0.0.0", "labels": ["example_notes"]},
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},
-  "release_notes": "Fluxo de publicação de anotações (skeleton.flows): NoteService.request_publication e publication_status, página e endpoint do pedido. Sem mudança de schema."
+  "release_notes": "Catálogo global de categorias (NoteCategory), gravado só pelo comando do operador load_note_categories em command_context (#576). Migration 0003_note_category."
 }

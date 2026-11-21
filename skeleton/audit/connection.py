@@ -1,6 +1,6 @@
 """Fresh PostgreSQL connections start with empty skeleton.* context settings."""
 
-_NAMES = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor", "external")
+_NAMES = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor", "external", "system")
 _RESET = "SELECT " + ", ".join(f"set_config('skeleton.{name}', '', false)" for name in _NAMES)
 
 

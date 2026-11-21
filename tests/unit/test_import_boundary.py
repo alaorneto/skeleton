@@ -297,3 +297,31 @@ def test_public_names_match_the_documented_table():
         assert module in rows, module
         for name in names or ():
             assert f"`{name}`" in rows[module], (module, name)
+
+
+def test_command_context_is_accepted_only_in_management_commands(tmp_path):
+    """#576: the public system context of an app is for its operator commands; system_context stays refused."""
+    root = tmp_path / "billing"
+    opener = "from skeleton.tenancy.context import command_context\n"
+    write(root, "__init__.py", "")
+    write(root, "management/commands/load_catalog.py", opener)
+    write(root, "management/commands/helpers/shared.py", opener)
+    write(root, "service_api.py", opener)
+    write(
+        root, "views.py", "from skeleton.tenancy import context\nfrom skeleton.tenancy.context import command_context\n"
+    )
+    write(root, "jobs.py", opener)
+    write(root, "management/catalog.py", opener)
+    write(root, "services.py", "from skeleton.tenancy.context import system_context\n")
+    violations = scan_application(root, package="applications.billing", providers=[], dependencies=[])
+    found = sorted((item.path, item.line, item.code, item.is_error) for item in violations)
+    assert found == [
+        ("jobs.py", 1, "command_only_import", True),
+        ("management/catalog.py", 1, "command_only_import", True),
+        ("service_api.py", 1, "command_only_import", True),
+        ("services.py", 1, "core_import", False),
+        ("views.py", 2, "command_only_import", True),
+    ]
+    assert "system_context is not a public name" in next(
+        item.message for item in violations if item.code == "core_import"
+    )

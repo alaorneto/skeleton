@@ -9,13 +9,14 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext, gettext_lazy
 
-from .context import is_tenant_model
+from .context import is_app_global_table, is_tenant_model
 from .exceptions import (
     ConcurrentUpdate,
     ImmutableRecord,
     LiveReferencesExist,
     MissingTenantContext,
     RecordSealed,
+    SystemContextRequired,
     UnsafeBulkMutation,
 )
 
@@ -191,6 +192,13 @@ class SystemRecord(models.Model):
                 raise MissingTenantContext("An organizational write requires tenant context.")
             if self.organization_id != tenant:
                 raise ValidationError({"organization": "Organization does not match the current tenant."})
+        elif is_app_global_table(type(self)):
+            current = context()
+            if not current.system or current.organization_id is not None:
+                raise SystemContextRequired(
+                    "A global table of an app is written only in a system context without organization "
+                    "(command_context in a management command, or a global system job)."
+                )
 
     def clean(self) -> None:
         super().clean()

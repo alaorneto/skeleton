@@ -203,7 +203,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.system.record_operations` | `RecordOperations`, `register_record_operations` |
 | `skeleton.access.policies` | `authorized_queryset`, `require_record_action`, `require_parent_action` (criar filho de tabela derivada) e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
 | `skeleton.access.derivation` | `is_authorizable` e `is_derived`: se uma tabela é autorizada direto ou pelo `access_parent` ([tabelas derivadas](access-control.md#tabelas-derivadas)) |
-| `skeleton.tenancy.context` | `current_context` (leitura). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
+| `skeleton.tenancy.context` | `current_context` (leitura) e `command_context`, só em `management/commands/` da app (#576): abre o contexto de sistema sem organização de um comando do operador, o único em que uma [tabela global da app](table-catalog.md#tabelas-globais-de-apps) aceita escrita, e é recusado dentro de qualquer contexto já aberto (requisição, tenant, sistema, job, consumidor). `system_context`, `tenant_context` e `request_context` não: o contexto é aberto pelo middleware, pelo worker ou pelo kit de testes, nunca pela app |
 | `skeleton.web.views` | `tenant_page` |
 | `skeleton.api.views` | `TenantAPI` e `request_fields` (o objeto de campos do corpo) |
 | `skeleton.api.openapi` | `Operation` e construtores de schema para o atributo `openapi` das views de API da app ([OpenAPI](api.md#schema-openapi)) |
@@ -228,11 +228,12 @@ O check `skeleton.E019` analisa com `ast`, sem importar código, todos os `.py` 
 - `applications.<pacote>` desconhecido (app não registrada) só admite `applications.<pacote>.service_api`;
 - módulos fora das superfícies públicas do núcleo geram `skeleton.W019`;
 - nomes fora da lista fechada de um módulo público (`from skeleton.tenancy.context import system_context`, `from skeleton.common.models import OperationalRecord`) e nomes privados (`_x`) de qualquer módulo `skeleton.*` geram `skeleton.W019` (#300);
+- `command_context` importado fora de `management/commands/` da app (num serviço, view, job, consumidor ou qualquer outro módulo) é erro `command_only_import` (E019, #576): só um comando do operador abre o contexto de sistema da app. `system_context` continua fora da lista fechada (W019);
 - `apps.get_model("sk_...", ...)` com label literal do núcleo fora de `migrations/` gera `skeleton.W019`: chega a um modelo interno sem `import`. Em migrations, `apps.get_model` (modelo histórico) é obrigatório e não é acusado;
 - todos os diretórios importáveis são analisados, inclusive `build/`, `dist/` e `node_modules/`; só `__pycache__` e diretórios iniciados por `.` ficam de fora;
 - uma app first-party (`skeleton.contrib.<pacote>`) segue as regras de qualquer app: o `service_api` dela exige a dependência declarada (`org.skeleton.calendar`), e os demais módulos são `internal_import` (E019). Um `skeleton.contrib.<pacote>` que a análise não conhece (`package doctor` sem a first-party no inventário) só admite o `service_api`.
 
-`package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
+`package doctor` repete a análise antes do build: os provedores vêm do inventário alvo (`--inventory`); violações aparecem como `internal_import`, `undeclared_dependency`, `command_only_import` e `unreadable_source`, e o uso de módulo não público do núcleo como `core_import` com `"severity": "warning"`, que não reprova o doctor.
 
 ## Catálogo do núcleo
 

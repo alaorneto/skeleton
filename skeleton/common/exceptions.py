@@ -9,6 +9,10 @@ class MissingTenantContext(RecordError):
     pass
 
 
+class SystemContextRequired(RecordError):
+    """A global table declared by an app is written only in a system context without organization (#576)."""
+
+
 class ConcurrentUpdate(RecordError):
     pass
 

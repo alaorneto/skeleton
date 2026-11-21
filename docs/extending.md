@@ -532,11 +532,29 @@ python manage.py record_infrastructure <app_label>          # só lista
 python manage.py record_infrastructure <app_label> --write  # cria a migration
 ```
 
-Sem `--write`, o comando compara cada `TableSpec` da app com a última `InstallRecordInfrastructure` encontrada nas migrations em disco (sem consultar o banco) e lista os modelos com `missing` ou com a divergência encontrada (`columns`, `sensitive`, `scope`, `immutable_fields`, `append_only`). Com `--write`, ele cria uma migration **nova** (`NNNN_record_infrastructure.py`) que depende da folha atual da app e de `("sk_audit", "0002_record_infrastructure")` e contém só as operações pendentes. A especificação é gerada por `build_infrastructure_specification(model, spec)` a partir do modelo e do `TableSpec` no momento da autoria e fica congelada no arquivo; ao migrar, o DDL continua usando só essa especificação e o modelo histórico.
+Sem `--write`, o comando compara cada `TableSpec` da app com a última `InstallRecordInfrastructure` encontrada nas migrations em disco (sem consultar o banco) e lista os modelos com `missing` ou com a divergência encontrada (`columns`, `sensitive`, `scope`, `immutable_fields`, `append_only`, `seal`, `seal_parent`, `writes`). Com `--write`, ele cria uma migration **nova** (`NNNN_record_infrastructure.py`) que depende da folha atual da app e de `("sk_audit", "0002_record_infrastructure")` e contém só as operações pendentes. A especificação é gerada por `build_infrastructure_specification(model, spec)` a partir do modelo e do `TableSpec` no momento da autoria e fica congelada no arquivo; ao migrar, o DDL continua usando só essa especificação e o modelo histórico.
 
 O comando nunca altera migrations existentes e não cria arquivo quando nada falta. Ele recusa a escrita se a app tiver mais de uma folha, se ainda não houver migration para o modelo ou se as colunas do modelo histórico na folha forem diferentes das do modelo atual (rode `makemigrations` antes). Também recusa escrever nas apps do núcleo. Revise o arquivo gerado, sobretudo `sensitive`, antes do commit.
 
 Isso vale tanto para app nova quanto para alteração de coluna ou relação auditável: a operação nova vai depois da alteração, com a especificação atualizada. Ela não substitui `CreateModel`. Não use o catálogo editável nem imports do modelo atual em migrations.
+
+### Tabela global da app e comando do operador
+
+Uma tabela de referência compartilhada por todas as organizações (um catálogo) é um `SystemRecord` com `TableSpec(scope="global")`, sem gateway. Ela só aceita escrita num contexto de sistema sem organização, no modelo e no guard congelado com `"writes": "system"` ([tabelas globais de apps](table-catalog.md#tabelas-globais-de-apps), #576): uma view, um serviço ou um consumidor de evento não a gravam. O exemplo `examples/notes` traz `NoteCategory` (migration `0003_note_category`, criada com `makemigrations` e `record_infrastructure --write` e juntada num arquivo) e o comando que a carrega:
+
+```python
+# examples/notes/management/commands/load_note_categories.py
+from skeleton.tenancy.context import command_context
+
+with command_context(reason="example_notes:load_note_categories"):
+    NoteCategory(code=code, title=title).save()
+```
+
+```bash
+python manage.py load_note_categories ADM=Administrativa OPS=Operação
+```
+
+`command_context` é a única superfície pública que abre contexto de sistema para uma app: só em `management/commands/` (E019 recusa em qualquer outro módulo) e só no topo da execução (dentro de uma requisição, tenant, job, consumidor ou outro contexto, `InvalidContext`). O motivo vai para a auditoria como `source=system:command:<motivo>`. Uma app que já gravava uma tabela global de outro jeito segue a nota de migração do [catálogo](table-catalog.md#tabelas-globais-de-apps).
 
 ## Registros que não mudam depois de um ato
 

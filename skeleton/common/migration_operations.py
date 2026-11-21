@@ -5,7 +5,7 @@ Only historical migration models and the frozen specification determine DDL.
 
 from django.db.migrations.operations.base import Operation
 
-from .context import is_tenant_model
+from .context import is_app_global_table, is_tenant_model
 
 MECHANICAL = {"sysid", "created_at", "updated_at", "created_by", "updated_by", "deleted_by", "revision"}
 POLICY_NAMES = (
@@ -194,6 +194,9 @@ def build_infrastructure_specification(model, spec):
         specification["personal_fields"] = list(spec.personal_fields)
     if getattr(model, "lifecycle", None) == "operational":
         specification["lifecycle"] = "operational"
+    elif is_app_global_table(model):
+        # A global table of an app (#576): the guard refuses writes outside a system context.
+        specification["writes"] = "system"
     discovery = getattr(model, "self_discovery_field", None)
     if discovery:
         specification["self_discovery_column"] = model._meta.get_field(discovery).column
@@ -227,6 +230,8 @@ class InstallRecordInfrastructure(Operation):
 
     def __init__(self, app_label, model_name, specification, replaces=None):
         validate_seal_specification(specification)
+        if specification.get("writes", "system") != "system":
+            raise ValueError('writes, when present, must be "system" (#576).')
         self.app_label = app_label
         self.model_name = model_name
         self.specification = specification
@@ -413,7 +418,15 @@ class InstallRecordInfrastructure(Operation):
         # Seal and sealed parent (#526, #528): empty, and the body byte for byte the historical
         # one, for every table whose specification declares neither.
         insert_seal, update_seal = self._seal_guard(editor, model)
-        return f"IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF;{insert_seal} ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF;{update_seal} IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
+        # Empty, and the body byte for byte the historical one, without ``writes: "system"`` (#576).
+        system_writes = (
+            "IF current_setting('skeleton.system',true) IS DISTINCT FROM 'on' OR "
+            f"{tenant_guc} IS NOT NULL THEN RAISE EXCEPTION 'global table requires a system context' "
+            "USING ERRCODE='42501'; END IF; "
+            if self.specification.get("writes") == "system"
+            else ""
+        )
+        return f"{system_writes}IF TG_OP='DELETE' THEN RAISE EXCEPTION 'physical delete prohibited' USING ERRCODE='23514'; ELSIF TG_OP='INSERT' THEN IF NEW.revision <> 1 THEN RAISE EXCEPTION 'initial revision must be one' USING ERRCODE='23514'; END IF;{insert_seal} ELSE IF {immutable} THEN RAISE EXCEPTION 'immutable record identity' USING ERRCODE='23514'; END IF;{update_seal} IF NEW.revision <> OLD.revision+1 THEN RAISE EXCEPTION 'revision must increment' USING ERRCODE='23514'; END IF; END IF;"
 
     def _seal_columns(self, model):
         """Validate the frozen seal against the historical model; the frozen column names."""
