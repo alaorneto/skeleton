@@ -5,6 +5,12 @@ a frozen column changes neither by the model nor by SQL; a free column still cha
 refused unless the model allows it; a child (``make_child``) is refused; the attachments are
 frozen when the policy says so; ``verify_seal`` holds; another organization neither sees nor seals
 the record. Tests only.
+
+A frozen column that is also in ``immutable_fields`` (an FK fixed at creation, such as the record
+an addendum corrects) cannot change before the seal either: for it, ``ImmutableRecord`` from the
+model and the guard's ``immutable record identity`` count as the refusal (#575). The seal still
+covers it through the digest, which ``verify_seal`` checks. A ``NOT NULL`` column needs nothing
+special: the guard runs before the constraint, so ``SET <column> = NULL`` meets the seal first.
 """
 
 from __future__ import annotations
@@ -33,7 +39,11 @@ def _changed(field: Any, value: Any) -> Any:
     return None
 
 
-def _sql_refused(model: Any, assignment: str, pk: Any, message: str) -> bool:
+SEALED_MESSAGE = "sealed record"
+IMMUTABLE_MESSAGE = "immutable record identity"
+
+
+def _sql_refused(model: Any, assignment: str, pk: Any, *messages: str) -> bool:
     from django.db import DatabaseError, connection, transaction
 
     table = connection.ops.quote_name(model._meta.db_table)
@@ -41,7 +51,7 @@ def _sql_refused(model: Any, assignment: str, pk: Any, message: str) -> bool:
         with transaction.atomic(), connection.cursor() as cursor:
             cursor.execute(f"UPDATE skeleton.{table} SET {assignment}, revision = revision + 1 WHERE sysid = %s", [pk])  # noqa: S608 - test kit, quoted identifiers
     except DatabaseError as exc:
-        return message in str(exc)
+        return any(message in str(exc) for message in messages)
     return False
 
 
@@ -60,6 +70,12 @@ def _updated_rows(model: Any, pk: Any) -> int:
         statement = f"UPDATE skeleton.{table} SET updated_at = updated_at WHERE sysid = %s"  # noqa: S608 - quoted identifiers
         cursor.execute(statement, [pk])
         return int(cursor.rowcount)
+
+
+def _immutable_attnames(model: Any) -> set[str]:
+    """Attnames of the columns the model declares immutable (by name or attname)."""
+    names = set(getattr(model, "immutable_fields", ()))
+    return {field.attname for field in model._meta.concrete_fields if {field.name, field.attname} & names}
 
 
 def _free_field(model: Any) -> Any:
@@ -98,7 +114,7 @@ def assert_sealed_contract(
     """
     from django.db import transaction
 
-    from skeleton.common.exceptions import RecordSealed
+    from skeleton.common.exceptions import ImmutableRecord, RecordSealed
     from skeleton.common.models import SealableMixin
     from skeleton.records.sealing import seal_payload, verify_seal
     from skeleton.system.registry import get_spec
@@ -108,13 +124,21 @@ def assert_sealed_contract(
         raise AssertionError(f"{model!r} is not sealable.")
     records: Any = model  # The concrete record class: its managers are those of SystemRecord.
 
-    def refused(action: Callable[[], Any]) -> bool:
+    def refused(action: Callable[[], Any], *, immutable: bool = False) -> bool:
+        """Whether the seal refused ``action`` (or, for an immutable column, the immutability).
+
+        ``ImmutableRecord`` anywhere else is a failed check, never an error of the test (#575).
+        """
         try:
             with transaction.atomic():
                 action()
         except RecordSealed:
             return True
+        except ImmutableRecord:
+            return immutable
         return False
+
+    immutable = _immutable_attnames(model)
 
     with acting():
         record = make_record()
@@ -134,11 +158,12 @@ def assert_sealed_contract(
                     setattr(fresh, attname, value)
                     fresh.save()
 
-                if not refused(change):
+                if not refused(change, immutable=attname in immutable):
                     problems.append(f"Changing the frozen column {attname} through the model was not refused.")
-            if not _sql_refused(model, f"{_quoted(str(field.column))} = NULL", pk, "sealed record"):
+            accepted = (SEALED_MESSAGE, IMMUTABLE_MESSAGE) if attname in immutable else (SEALED_MESSAGE,)
+            if not _sql_refused(model, f"{_quoted(str(field.column))} = NULL", pk, *accepted):
                 problems.append(f"Changing the frozen column {field.column} by SQL was not refused by the guard.")
-        if not _sql_refused(model, "sealed_by = NULL", pk, "sealed record"):
+        if not _sql_refused(model, "sealed_by = NULL", pk, SEALED_MESSAGE):
             problems.append("Changing the seal itself by SQL was not refused by the guard.")
         free = _free_field(model)
         if free is not None:
@@ -147,7 +172,7 @@ def assert_sealed_contract(
             try:
                 with transaction.atomic():
                     fresh.save()
-            except RecordSealed:
+            except (RecordSealed, ImmutableRecord):
                 problems.append(f"The free column {free.attname} could not change after the seal.")
         if make_child is not None and not refused(lambda: make_child(records.objects.get(pk=pk))):
             problems.append("A child of the sealed record was written.")
@@ -169,7 +194,7 @@ def assert_sealed_contract(
         if not model.seal_allows_delete:
             if not refused(lambda: records.objects.get(pk=pk).delete()):
                 problems.append("Deleting a sealed record through the model was not refused.")
-            if not _sql_refused(model, "deleted_at = now()", pk, "sealed record"):
+            if not _sql_refused(model, "deleted_at = now()", pk, SEALED_MESSAGE):
                 problems.append("Deleting a sealed record by SQL was not refused by the guard.")
     if foreign is not None:
         with foreign():
