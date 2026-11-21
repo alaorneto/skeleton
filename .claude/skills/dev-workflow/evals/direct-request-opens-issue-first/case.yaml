@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: direct-request-opens-issue-first
+expected_outcome: |
+  Antes de editar reports/monthly.py, o agente carrega o skill e prepara a issue que falta: um corpo pelo
+  modelo de bug (Comportamento observado, esperado, Passos para reproduzir, Ambiente, Causa provável, com
+  teste de regressão no plano de testes) gravado num .md e um `gh issue create --label bug --body-file ...`
+  gravado num .txt. Só depois corrige monthly_total para ignorar os pedidos com status "cancelled". Ele
+  informa a issue em vez de perguntar se deve criá-la.
+context:
+  scaffold_script: place-files.sh

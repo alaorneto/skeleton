@@ -1,9 +1,10 @@
 name: Versão e release
 
 # Skill dev-workflow: a cada push nas branches de release, publica o que estiver pendente.
-# Só há versão quando um PR marcado com o label de release entrou desde a última tag (ou quando a
-# execução manual força). A execução é uma máquina de estados: rodar de novo depois de concluir
-# não faz nada, e rodar depois de uma falha conclui o que faltou.
+# Só há versão quando entrou um PR com label de versão que ainda não saiu em nenhuma: o label de
+# release pede a versão final e um label de canal (release:alpha, release:beta, release:rc), uma
+# pré-release. A execução manual também publica. É uma máquina de estados: rodar de novo depois de
+# concluir não faz nada, e rodar depois de uma falha conclui o que faltou.
 
 on:
   push:
@@ -24,7 +25,7 @@ on:
         type: string
         default: ""
       prerelease:
-        description: "Canal de pré-release (ex.: rc); vazio publica a versão final"
+        description: "Canal de pré-release (alpha, beta, rc): publica mesmo sem PR marcado. Vazio: versão final"
         type: string
         default: ""
       dry_run:
@@ -36,7 +37,7 @@ permissions:
   contents: write # commit de release, tag e GitHub Release
   issues: write # comentário e milestone nas issues incluídas
   pull-requests: write # comentário nos PRs incluídos; PR de release no modo pull-request
-  actions: write # só usado se release.dispatch_workflow estiver configurado
+  actions: write # dispara release.dispatch_workflow (só gerado quando ele está configurado)
 
 concurrency:
   group: release-${{ github.ref }}
@@ -46,10 +47,13 @@ jobs:
   release:
     name: Calcular e publicar a versão
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     outputs:
       released: ${{ steps.run.outputs.released }}
       version: ${{ steps.run.outputs.version }}
       tag: ${{ steps.run.outputs.tag }}
+      prerelease: ${{ steps.run.outputs.prerelease }} # "true" numa pré-release, "false" numa versão final
+      channel: ${{ steps.run.outputs.channel }} # alpha, beta, rc; vazio numa versão final
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

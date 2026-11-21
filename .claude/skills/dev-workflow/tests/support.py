@@ -4,11 +4,13 @@ Tudo aqui usa só a biblioteca padrão e ``git``. O repositório temporário fic
 com um remoto *bare* local, para que commit, push e tag aconteçam de verdade.
 """
 
+import atexit
 import contextlib
 import inspect
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -96,6 +98,48 @@ def function_suite(namespace):
     return suite
 
 
+# Um projeto inicial pronto por combinação de configuração, arquivos e tag, montado uma vez por
+# processo e copiado para cada teste.
+_TEMPLATES: dict[tuple, Path] = {}
+_TEMPLATE_ROOT: list[tempfile.TemporaryDirectory] = []
+
+
+def _template_dir() -> Path:
+    if not _TEMPLATE_ROOT:
+        root = tempfile.TemporaryDirectory(prefix="dev-workflow-templates-", ignore_cleanup_errors=True)
+        _TEMPLATE_ROOT.append(root)
+        atexit.register(root.cleanup)
+    path = Path(_TEMPLATE_ROOT[0].name) / str(len(_TEMPLATES))
+    (path / "work").mkdir(parents=True)
+    return path
+
+
+def _build(base: Path, config: str, files: dict, tag: str | None) -> None:
+    """O projeto inicial em ``base/work``, com remoto *bare* em ``base/remote.git``."""
+    work, remote = base / "work", base / "remote.git"
+
+    def git(*args):
+        subprocess.run(["git", *args], cwd=work, check=True, capture_output=True)
+
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)
+    git("init", "-q", "-b", "main")
+    git("config", "user.name", "Dev")
+    git("config", "user.email", "dev@example.com")
+    git("config", "commit.gpgsign", "false")
+    git("config", "tag.gpgsign", "false")
+    git("config", "core.autocrlf", "false")
+    git("remote", "add", "origin", str(remote))
+    for name, content in {".github/dev-workflow.toml": config, **files}.items():
+        path = work / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content.encode("utf-8"))
+    git("add", "-A")
+    git("commit", "-q", "-m", "chore: start the project")
+    if tag:
+        git("tag", "-a", tag, "-m", tag)
+    git("push", "-q", "--tags", "origin", "main")
+
+
 class Sandbox:
     """Projeto de mentira com git de verdade e ``gh`` simulado."""
 
@@ -119,20 +163,18 @@ class Sandbox:
         )
         if mode:
             config += f'\n[release]\nmode = "{mode}"\n'
-        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.remote)], check=True)
-        self.git("init", "-q", "-b", "main")
-        self.git("config", "user.name", "Dev")
-        self.git("config", "user.email", "dev@example.com")
-        self.git("config", "commit.gpgsign", "false")
-        self.git("config", "tag.gpgsign", "false")
-        self.git("config", "core.autocrlf", "false")
-        self.git("remote", "add", "origin", str(self.remote))
-        self.write({".github/dev-workflow.toml": config, **(BASE_FILES if files is None else files)})
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", "chore: start the project")
-        if tag:
-            self.git("tag", "-a", tag, "-m", tag)
-        self.git("push", "-q", "--tags", "origin", "main")
+        files = BASE_FILES if files is None else files
+        key = (config, tuple(sorted(files.items())), tag)
+        template = _TEMPLATES.get(key)
+        if template is None:
+            template = _template_dir()
+            _build(template, config, files, tag)
+            _TEMPLATES[key] = template
+        # Copiar o projeto pronto custa uma fração de refazê-lo: init, config, commit, tag e push.
+        self.work.rmdir()
+        shutil.copytree(template / "work", self.work, symlinks=True)
+        shutil.copytree(template / "remote.git", self.remote, symlinks=True)
+        self.git("config", "remote.origin.url", str(self.remote))
 
     def close(self):
         self._tmp.cleanup()
@@ -184,16 +226,39 @@ class Sandbox:
         mutate(state)
         self.write_state(state)
 
-    def issue(self, number, title, *labels, body=""):
+    def issue(self, number, title, *labels, body="", state="open"):
         issue = {
             "number": number,
             "title": title,
             "body": body,
-            "state": "open",
+            "state": state,
             "labels": [{"name": name} for name in labels],
             "milestone": None,
         }
-        self.update_state(lambda state: state["issues"].__setitem__(str(number), issue))
+        self.update_state(lambda data: data["issues"].__setitem__(str(number), issue))
+
+    def fill_comments(self, number, count, *, login="bob", association="NONE", body="+1"):
+        """``count`` comentários de uma vez, para passar das páginas da API (100 por página)."""
+
+        def mutate(state):
+            comments = state["comments"].setdefault(str(number), [])
+            start = 7000 + sum(len(items) for items in state["comments"].values())
+            for index in range(count):
+                comments.append(
+                    {
+                        "id": start + index,
+                        "body": f"{body} ({index})",
+                        "user": {"login": login},
+                        "author_association": association,
+                        "created_at": f"2028-01-01T00:{index // 60:02d}:{index % 60:02d}Z",
+                    }
+                )
+
+        self.update_state(mutate)
+
+    def head_of(self, number):
+        """O ``head.sha`` do PR simulado: o último commit que uma análise precisa ter visto."""
+        return self.state()["pulls"][str(number)]["head"]["sha"]
 
     def comment(self, number, body, *, login="alice", association="OWNER"):
         def mutate(state):
@@ -232,16 +297,37 @@ class Sandbox:
         author="alice",
         squash=False,
         base="main",
+        branch=None,
+        fork=None,
+        rebase=False,
     ):
-        """Cria a branch, commita, mescla em ``base`` como o GitHub faria e registra o PR."""
-        branch = f"work/{number}"
+        """Cria a branch, commita, mescla em ``base`` como o GitHub faria e registra o PR.
+
+        ``fork`` é o repositório de origem (``dono/nome``) quando o PR não sai deste. ``rebase``
+        imita "Rebase and merge": os commits entram um a um no primeiro pai, sem commit de merge,
+        e só a API (``commits/<sha>/pulls``) liga cada um ao PR.
+        """
+        branch = branch or f"work/{number}"
+        source = fork or REPOSITORY
         commit_list = self._commit_all(branch, commits, base)
         self.git("switch", "-q", base)
-        if squash:
+        rebased = []
+        if rebase:
+            before = self.git("rev-parse", "HEAD")
+            self.git("rebase", "-q", base, branch)
+            self.git("switch", "-q", base)
+            self.git("merge", "-q", "--ff-only", branch)
+            rebased = self.git("rev-list", "--reverse", f"{before}..HEAD").splitlines()
+            commit_list = [
+                {"sha": sha, "commit": {"message": self.git("log", "-1", "--format=%B", sha)}} for sha in rebased
+            ]
+        elif squash:
             self.git("merge", "-q", "--squash", branch)
             self.git("commit", "-q", "-m", f"{title} (#{number})")
         else:
-            self.git("merge", "-q", "--no-ff", branch, "-m", f"Merge pull request #{number} from acme/{branch}")
+            owner = source.split("/")[0]
+            self.git("merge", "-q", "--no-ff", branch, "-m", f"Merge pull request #{number} from {owner}/{branch}")
+        tip = self.git("rev-parse", branch)  # o `head.sha` que a API daria ao PR mesclado
         self.git("branch", "-q", "-D", branch)
         self.git("push", "-q", "origin", base)
         if body is None:
@@ -258,11 +344,13 @@ class Sandbox:
             "merge_commit_sha": self.git("rev-parse", "HEAD"),
             "labels": [{"name": name} for name in labels],
             "user": {"login": author},
-            "head": {"ref": branch},
-            "base": {"ref": base},
+            "head": {"ref": branch, "sha": tip, "repo": {"full_name": source}},
+            "base": {"ref": base, "repo": {"full_name": REPOSITORY}},
             "commit_list": commit_list,
             "milestone": None,
         }
+        if rebased:
+            pull["commit_shas"] = rebased
         self.update_state(lambda state: state["pulls"].__setitem__(str(number), pull))
         return pull
 
@@ -270,6 +358,7 @@ class Sandbox:
         """PR ainda aberto: a branch existe, nada foi mesclado. Devolve o nome da branch."""
         branch = f"work/{number}"
         commit_list = self._commit_all(branch, commits)
+        tip = self.git("rev-parse", branch)
         self.git("switch", "-q", "main")
         issues = "\n".join(f"Closes #{n}" for n in closes) or "Closes #"
         pull = {
@@ -281,8 +370,8 @@ class Sandbox:
             "merged_at": None,
             "labels": [{"name": name} for name in labels],
             "user": {"login": "alice"},
-            "head": {"ref": branch},
-            "base": {"ref": "main"},
+            "head": {"ref": branch, "sha": tip, "repo": {"full_name": REPOSITORY}},
+            "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
             "commit_list": commit_list,
             "milestone": None,
         }
@@ -302,6 +391,11 @@ class Sandbox:
         )
         env.pop("DEV_WORKFLOW_OFFLINE", None)
         env.pop("DEV_WORKFLOW_CONFIG", None)
+        # O `gh` falso responde no processo do script, sem abrir um Python por chamada; um teste que
+        # troca o `gh` (DEV_WORKFLOW_GH) usa o comando dele, como na vida real.
+        env["DEV_WORKFLOW_GH_MODULE"] = str(FAKE_GH)
+        if "DEV_WORKFLOW_GH" in extra:
+            env.pop("DEV_WORKFLOW_GH_MODULE")
         env.update(extra)
         return env
 

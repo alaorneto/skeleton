@@ -1,6 +1,6 @@
 ---
 name: dev-workflow
-description: Fluxo de desenvolvimento rastreável no GitHub, do plano à release, para projetos de qualquer tecnologia - issue antes de qualquer edição, branch e commits vinculados, PR verificado, versão semântica calculada e publicada sozinha. Use SEMPRE que (1) um plano for aceito (ExitPlanMode), para criar as issues; (2) for começar a implementar, corrigir, refatorar, documentar ou mexer em CI ou dependências, para vincular o trabalho a uma issue; (3) criar branch, commitar ou abrir PR; (4) decidir se um PR gera versão (label release), decidir patch, minor ou major, ou analisar o diff acumulado; (5) versionar, gerar changelog, publicar ou desfazer uma release, pré-release ou hotfix; (6) fechar uma issue com evidências; (7) instalar ou conferir este fluxo num projeto. Vale também quando o pedido só diz "sobe a versão", "qual é a próxima versão", "isso quebra compatibilidade?", "abre o PR", "fecha a issue", "o que está pendente de release", semver, changelog, tag, release notes, bump.
+description: Fluxo de desenvolvimento rastreável no GitHub, do plano à release, para projetos de qualquer tecnologia - issue antes de qualquer edição, branch e commits vinculados, PR verificado, versão semântica calculada e publicada sozinha. Use SEMPRE que (1) um plano for aceito (ExitPlanMode), para criar as issues; (2) for começar a implementar, corrigir, refatorar, documentar ou mexer em CI ou dependências, para vincular o trabalho a uma issue; (3) criar branch, commitar ou abrir PR; (4) decidir se um PR gera versão final, pré-release (alpha, beta, rc) ou nenhuma, decidir patch, minor ou major, ou analisar o diff acumulado; (5) versionar, gerar changelog, publicar ou desfazer uma release, pré-release ou hotfix; (6) fechar uma issue com evidências; (7) instalar ou conferir este fluxo num projeto. Vale também quando o pedido só diz "sobe a versão", "qual é a próxima versão", "isso quebra compatibilidade?", "abre o PR", "fecha a issue", "o que está pendente de release", semver, changelog, tag, release notes, bump.
 ---
 
 # Fluxo de desenvolvimento: da issue à release
@@ -72,22 +72,25 @@ Antes da primeira edição de arquivo versionado, identifique a issue (número c
 
 ## 4. Branch, commits e progresso
 
-- Branch a partir da branch padrão atualizada: `python3 S/github_issues.py start <N>` cria `<prefixo>/<N>-<slug>` pelo tipo e título da issue (`--dry-run` só mostra o nome). Com a árvore suja ou outra branch de trabalho em uso, pergunte antes de trocar.
+- Branch a partir da branch padrão atualizada: `python3 S/github_issues.py start <N>` cria `<prefixo>/<N>-<slug>` pelo tipo e título da issue (`--dry-run` só mostra o nome; `--help` em qualquer subcomando mostra o uso). Se a branch já existe, ele troca para ela; arquivo não rastreado não impede a troca, mudança em arquivo rastreado sim. Com a árvore suja ou outra branch de trabalho em uso, pergunte antes de trocar.
 - Commit só quando o usuário pedir. Mensagem `<tipo>(<escopo>): <assunto>`, corpo com o porquê, trailer `Refs #N`. Quebra de compatibilidade leva `!` depois do tipo ou rodapé `BREAKING CHANGE: <o que muda e como migrar>`: é o marcador que a automação de versão lê.
-- O hook `commit-msg` acrescenta `Refs: #N` a partir do nome da branch e recusa commit sem referência. Não use `--no-verify`: o hook é a barreira que mantém o vínculo.
+- O hook `commit-msg` acrescenta `Refs: #N` a partir do nome da branch (só no formato `<prefixo>/<N>-`, com o prefixo de um tipo) e recusa commit sem referência. O sufixo `(#N)` e a referência a outro repositório não contam; só um merge de verdade dispensa a referência. Não use `--no-verify`: o hook é a barreira que mantém o vínculo.
 - Marque um critério de aceite só depois de verificá-lo de fato. Registre decisões e bloqueios em comentário na issue.
 
 ## 5. Pull request
 
 1. Corpo pelo modelo (`.github/pull_request_template.md`): `Closes #N` para entrega completa, `Refs #N` para parcial; só os testes que rodaram, com comando e resultado; a seção "Versão" diz o impacto para quem usa o projeto.
 2. Título em Conventional Commits: ele vira o commit de um squash e entra no changelog.
-3. **Decida se o PR gera versão.** Com o label `release`, o merge publica uma versão com tudo que está acumulado desde a última tag. Sem ele, nada é publicado: as mudanças ficam acumuladas e entram na próxima versão. Não existe label para "não gera versão"; a ausência de `release` já diz isso. Diga ao usuário o que escolheu e por quê.
+3. **Decida o que o merge publica: versão final, pré-release ou nada.** Um label de versão só por PR.
+   - `release`: a versão final, com tudo que está acumulado desde a última versão final.
+   - `release:alpha`, `release:beta` ou `release:rc`: uma pré-release desse canal (`X.Y.Z-beta.1`), para quem vai testar antes da final. Alpha é trabalho em andamento, beta é funcionalidade completa em teste, rc é candidata à final. O changelog e os comentários nas issues ficam para a versão final, pedida depois com `release`.
+   - Sem label de versão: nada é publicado; as mudanças ficam acumuladas e entram na próxima versão. Não existe label para "não gera versão"; a ausência já diz isso.
 
-   Se o usuário não disse, pergunte uma vez; se ele não quiser decidir agora, deixe sem `release`: nada se perde, porque a próxima release olha retroativamente tudo que ficou pendente.
+   Diga ao usuário o que escolheu e por quê. Se ele pediu "uma versão de teste", "uma beta" ou "um release candidate", é um label de canal, não `release`. Se ele não disse, pergunte uma vez; se não quiser decidir agora, deixe sem label de versão: nada se perde, porque a próxima release olha retroativamente tudo que ficou pendente.
 4. Veja o que o merge publicaria: `python3 S/release.py plan --pr <N>` (ou `status` para o que já está acumulado).
-5. Se o PR está marcado `release`, faça a **análise do diff acumulado** e registre-a no PR, seguindo [references/versioning.md](references/versioning.md#análise-por-agente). A análise cobre todas as mudanças pendentes, não só este PR, e só eleva o nível; ela é o que pega a quebra de compatibilidade que ninguém marcou.
-6. Marque `breaking-change` quando houver quebra. Para sobrepor o nível calculado, o dono usa `semver:major|minor|patch` e escreve `Motivo da sobreposição: ...` na seção "Versão".
-7. `gh pr create --base <padrão> --title "..." --body-file <arquivo>`, com `--label release` só se o PR gera versão.
+5. Se o PR tem label de versão (`release` ou de canal), faça a **análise do diff acumulado** e registre-a no PR, seguindo [references/versioning.md](references/versioning.md#análise-por-agente). A análise cobre todas as mudanças pendentes, não só este PR, e só eleva o nível; ela é o que pega a quebra de compatibilidade que ninguém marcou.
+6. Marque `breaking-change` quando houver quebra. Para sobrepor o nível calculado, o dono usa `semver:major|minor|patch` num PR com label de versão e escreve `Motivo da sobreposição: ...` na seção "Versão".
+7. `gh pr create --base <padrão> --title "..." --body-file <arquivo>`, com `--label release` (ou `--label release:beta`, o canal escolhido) só se o PR gera versão.
 
 O check "Verificação do PR" confere tudo isso e comenta a prévia da versão. Antes de abrir, você pode rodar o mesmo check: `python3 S/github_issues.py check-pr --pr <N>`.
 
@@ -98,7 +101,7 @@ Quem implementa não faz merge nem fecha a própria issue por conta própria; o 
 Depois do merge, sem intervenção:
 
 - Cada issue citada recebe o comentário de evidências (commits, testes e documentação declarados no PR, critérios de aceite pendentes). As citadas com `Closes` são fechadas pelo GitHub.
-- Se o PR era `release`, o workflow "Versão e release" calcula o número, escreve a versão nos arquivos declarados, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release, e comenta a versão em cada PR e issue incluídos.
+- Se o PR era `release`, o workflow "Versão e release" calcula o número, escreve a versão nos arquivos declarados, atualiza o `CHANGELOG.md`, cria a tag anotada e a GitHub Release, e comenta a versão em cada PR e issue incluídos. Se era de canal (`release:beta`), sai a pré-release: arquivos de versão, tag e GitHub Release marcada como pré-release, sem changelog nem comentários.
 - A caixa da issue no epic é marcada; fechada a última filha, o epic fecha.
 
 Confira o resultado em vez de presumir: `gh run list --workflow release.yml --limit 1` e `python3 S/release.py status`. Se algo falhou no meio, rodar o workflow de novo conclui o que faltou.
@@ -107,4 +110,4 @@ Sem PR (aprovação explícita do usuário no chat): todos os critérios marcado
 
 ## 7. Operações de versão fora do caminho comum
 
-Publicar o que está acumulado sem esperar um PR `release`, pré-release, hotfix numa versão antiga e desfazer uma release errada estão em [references/versioning.md](references/versioning.md). Em todas elas, comece por `python3 S/release.py run --dry-run`, que mostra o plano sem escrever nada, e nunca edite à mão os arquivos de versão nem o changelog: o check de coerência reprova a divergência e a próxima release falha.
+Publicar o que está acumulado sem esperar um PR `release`, pré-release sem PR novo (promover uma beta a rc, encerrar o ciclo), hotfix numa versão antiga e desfazer uma release errada estão em [references/versioning.md](references/versioning.md). Em todas elas, comece por `python3 S/release.py run --dry-run`, que mostra o plano sem escrever nada, e nunca edite à mão os arquivos de versão nem o changelog: o check de coerência reprova a divergência e a próxima release falha.

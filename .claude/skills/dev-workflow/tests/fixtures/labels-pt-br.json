@@ -1,0 +1,58 @@
+{
+  "bug": [
+    "d73a4a",
+    "Comportamento incorreto ou regressão"
+  ],
+  "feature": [
+    "1d76db",
+    "Nova funcionalidade"
+  ],
+  "enhancement": [
+    "a2eeef",
+    "Melhoria de funcionalidade existente"
+  ],
+  "documentation": [
+    "0075ca",
+    "Somente documentação"
+  ],
+  "refactor": [
+    "fbca04",
+    "Reestruturação sem mudança de comportamento"
+  ],
+  "test": [
+    "bfd4f2",
+    "Somente testes, fixtures ou evidência de verificação"
+  ],
+  "ci": [
+    "5319e7",
+    "Pipeline e checks automáticos"
+  ],
+  "chore": [
+    "c5def5",
+    "Dependências, ferramentas e configuração de desenvolvimento"
+  ],
+  "epic": [
+    "3e4b9e",
+    "Acompanhamento de um plano com várias issues"
+  ],
+  "release": [
+    "0e8a16",
+    "O merge publica uma versão com tudo que está acumulado; sem este label, o PR fica acumulado"
+  ],
+  "breaking-change": [
+    "b60205",
+    "Quebra de compatibilidade para quem usa o projeto"
+  ],
+  "semver:major": [
+    "d4c5f9",
+    "Sobrepõe o nível calculado: major (incompatível)"
+  ],
+  "semver:minor": [
+    "d4c5f9",
+    "Sobrepõe o nível calculado: minor (funcionalidade)"
+  ],
+  "semver:patch": [
+    "d4c5f9",
+    "Sobrepõe o nível calculado: patch (correção)"
+  ]
+}

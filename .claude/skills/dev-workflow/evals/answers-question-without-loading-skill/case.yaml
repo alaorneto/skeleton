@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: answers-question-without-loading-skill
+expected_outcome: |
+  Caso de limite: é uma pergunta sobre o código, sem mudança de arquivo, então o skill dev-workflow não é
+  carregado, nenhuma issue é proposta e nenhum arquivo é escrito. A resposta explica que, sem o ano,
+  parse_date usa o ano de hoje e, se a data cairia no futuro, o ano anterior (31/12 lido em 15/03/2026 vira
+  31/12/2025); e que ano com dois dígitos ganha 2000.
+context:
+  scaffold_script: place-files.sh

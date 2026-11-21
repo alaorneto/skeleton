@@ -7,47 +7,125 @@ testes: a variável ``DEV_WORKFLOW_GH`` aceita uma lista JSON com o comando que 
 
 from __future__ import annotations
 
+import importlib.util
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
+from . import i18n
+
 GH_ENV = "DEV_WORKFLOW_GH"
+# Só os testes: arquivo Python cujo ``main(argv)`` faz o papel do ``gh`` no mesmo processo.
+GH_MODULE_ENV = "DEV_WORKFLOW_GH_MODULE"
+_GH_MODULES: dict[str, ModuleType] = {}
 OFFLINE_ENV = "DEV_WORKFLOW_OFFLINE"
+TIMEOUT_ENV = "DEV_WORKFLOW_TIMEOUT"
+RETRIES_ENV = "DEV_WORKFLOW_RETRIES"
+DEFAULT_TIMEOUT = 120.0  # segundos por chamada a git ou gh
+DEFAULT_RETRIES = 4  # tentativas de uma chamada à API em falha passageira, contando a primeira
+RETRY_DELAY = 2.0  # espera antes da segunda tentativa; dobra a cada uma
+RETRY_DELAY_CAP = 30.0
 WRITE_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+# Métodos que podem ser repetidos sem efeito duplicado. POST cria (comentário, release, PR): a
+# reexecução da ferramenta já confere antes de criar, então uma falha nele sobe na hora.
+IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "PUT", "PATCH", "DELETE"})
+_HTTP_STATUS = re.compile(r"\bHTTP (?P<status>\d{3})\b")
+_RATE_LIMITED = re.compile(r"rate limit|abuse detection", re.IGNORECASE)
+
+# Injetável para os testes não dormirem.
+sleep = time.sleep
 
 
 class CommandError(RuntimeError):
     """Um comando externo terminou com erro."""
 
-    def __init__(self, command: Sequence[str], completed: subprocess.CompletedProcess[str]):
+    def __init__(self, command: Sequence[str], completed: subprocess.CompletedProcess[str], message: str = ""):
         self.command = list(command)
         self.returncode = completed.returncode
         self.stderr = (completed.stderr or "").strip()
         self.stdout = (completed.stdout or "").strip()
-        super().__init__(f"{' '.join(self.command[:4])}…: {self.stderr or self.stdout or completed.returncode}")
+        detail = message or self.stderr or self.stdout or i18n.t("gh.exit", code=completed.returncode)
+        super().__init__(f"`{' '.join(self.command[:4])}`: {detail}")
+
+
+def _timeout() -> float:
+    raw = os.environ.get(TIMEOUT_ENV, "").strip()
+    try:
+        value = float(raw) if raw else DEFAULT_TIMEOUT
+    except ValueError:
+        value = DEFAULT_TIMEOUT
+    return value if value > 0 else DEFAULT_TIMEOUT
+
+
+def _missing_tool(command: Sequence[str]) -> str:
+    name = Path(command[0]).name if command else "?"
+    if name.lower().startswith("gh"):
+        return i18n.t("gh.missing.gh", command=command[0], env=OFFLINE_ENV)
+    return i18n.t("gh.missing.tool", command=command[0])
 
 
 def run(
     command: Sequence[str], *, cwd: Path | str | None = None, check: bool = True, stdin: str | None = None
 ) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(
-        list(command),
-        cwd=str(cwd) if cwd else None,
-        input=stdin,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    """Roda um comando com tempo limite (``DEV_WORKFLOW_TIMEOUT``, em segundos).
+
+    Comando ausente e tempo esgotado viram ``CommandError`` com mensagem para quem opera, mesmo com
+    ``check=False``: não há saída que o chamador possa interpretar.
+    """
+    timeout = _timeout()
+    try:
+        completed = subprocess.run(
+            list(command),
+            cwd=str(cwd) if cwd else None,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        failed = subprocess.CompletedProcess(list(command), 127, "", "")
+        raise CommandError(command, failed, _missing_tool(command)) from None
+    except subprocess.TimeoutExpired:
+        failed = subprocess.CompletedProcess(list(command), 124, "", "")
+        message = i18n.t("gh.timeout", seconds=f"{timeout:g}", env=TIMEOUT_ENV)
+        raise CommandError(command, failed, message) from None
     if check and completed.returncode != 0:
         raise CommandError(command, completed)
     return completed
+
+
+def http_status(stderr: str) -> int | None:
+    """O status HTTP que o ``gh api`` escreve no erro (``gh: Not Found (HTTP 404)``)."""
+    match = _HTTP_STATUS.search(stderr or "")
+    return int(match.group("status")) if match else None
+
+
+def is_transient(status: int | None, stderr: str) -> bool:
+    """Falha que passa sozinha: 5xx, 429 e o limite secundário (403 com "rate limit")."""
+    if status is not None and (status >= 500 or status == 429):
+        return True
+    return status == 403 and bool(_RATE_LIMITED.search(stderr or ""))
+
+
+def _retries() -> int:
+    raw = os.environ.get(RETRIES_ENV, "").strip()
+    return max(1, int(raw)) if raw.isdigit() else DEFAULT_RETRIES
+
+
+def retry_delays(attempts: int) -> list[float]:
+    """Esperas entre as tentativas: crescem em dobro até o teto."""
+    return [min(RETRY_DELAY * 2**index, RETRY_DELAY_CAP) for index in range(max(0, attempts - 1))]
 
 
 def utf8_streams() -> None:
@@ -75,13 +153,41 @@ def gh_command() -> list[str]:
     override = os.environ.get(GH_ENV)
     if not override:
         return ["gh"]
-    command = json.loads(override)
+    try:
+        command = json.loads(override)
+    except ValueError:
+        command = None
     if not isinstance(command, list) or not all(isinstance(part, str) for part in command):
-        raise ValueError(f"{GH_ENV} deve ser uma lista JSON de strings.")
+        raise ValueError(i18n.t("gh.env.invalid", env=GH_ENV))
     return command
 
 
+def _in_process(path: str, args: Sequence[str], stdin: str | None) -> subprocess.CompletedProcess[str]:
+    """Chama ``main(argv)`` de um ``gh`` simulado no próprio processo, como se fosse o executável."""
+    module = _GH_MODULES.get(path)
+    if module is None:
+        spec = importlib.util.spec_from_file_location(f"_dev_workflow_gh_{len(_GH_MODULES)}", path)
+        if spec is None or spec.loader is None:
+            raise ValueError(i18n.t("gh.module.load", env=GH_MODULE_ENV, path=path))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _GH_MODULES[path] = module
+    out, err = io.StringIO(), io.StringIO()
+    saved = sys.stdin, sys.stdout, sys.stderr
+    sys.stdin, sys.stdout, sys.stderr = io.StringIO(stdin or ""), out, err
+    try:
+        code = module.main(list(args))
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+    finally:
+        sys.stdin, sys.stdout, sys.stderr = saved
+    return subprocess.CompletedProcess([path, *args], int(code or 0), out.getvalue(), err.getvalue())
+
+
 def run_gh(args: Sequence[str], *, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    simulated = os.environ.get(GH_MODULE_ENV)
+    if simulated:  # só os testes: o `gh` simulado responde sem abrir um processo por chamada
+        return _in_process(simulated, args, stdin)
     return run([*gh_command(), *args], check=False, stdin=stdin)
 
 
@@ -89,7 +195,22 @@ def offline() -> bool:
     return os.environ.get(OFFLINE_ENV, "") not in ("", "0", "false")
 
 
-_REMOTE = re.compile(r"github\.com[:/](?P<slug>[\w.-]+/[\w.-]+?)(?:\.git)?/?$")
+def github_hosts() -> list[str]:
+    """``github.com`` e o servidor do GitHub Enterprise, quando ``GH_HOST`` ou o Actions o indicam."""
+    hosts = ["github.com"]
+    for raw in (os.environ.get("GH_HOST", ""), os.environ.get("GITHUB_SERVER_URL", "")):
+        host = re.sub(r"^[a-z]+://", "", raw.strip()).split("/", 1)[0].lower()
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def remote_slug(url: str) -> str | None:
+    """``owner/repo`` de um remoto HTTPS ou SSH de um dos servidores de ``github_hosts``."""
+    hosts = "|".join(re.escape(host) for host in github_hosts())
+    pattern = rf"(?:^|[@/])(?:{hosts})(?::\d+)?[:/](?P<slug>[\w.-]+/[\w.-]+?)(?:\.git)?/?$"
+    match = re.search(pattern, url.strip(), re.IGNORECASE)
+    return match.group("slug") if match else None
 
 
 def current_repository(git: Git | None = None) -> str | None:
@@ -98,9 +219,9 @@ def current_repository(git: Git | None = None) -> str | None:
     if slug:
         return slug
     if git is not None:
-        match = _REMOTE.search(git("remote", "get-url", "origin", check=False))
-        if match:
-            return match.group("slug")
+        found = remote_slug(git("remote", "get-url", "origin", check=False))
+        if found:
+            return found
     if offline():
         return None
     completed = run_gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
@@ -129,14 +250,33 @@ class GitHub:
         if body is not None:
             args += ["--input", "-"]
             stdin = json.dumps(body)
-        completed = run_gh(args, stdin=stdin)
-        if completed.returncode != 0:
-            if "HTTP 404" in completed.stderr:
+        route = f"{method} {args[3]}"
+        attempts = _retries() if method.upper() in IDEMPOTENT_METHODS else 1
+        delays = retry_delays(attempts)
+        for attempt in range(attempts):
+            completed = run_gh(args, stdin=stdin)
+            if completed.returncode == 0:
+                break
+            status = http_status(completed.stderr)
+            if status == 404:
                 return None
-            raise CommandError(["gh", *args], completed)
+            if attempt < attempts - 1 and is_transient(status, completed.stderr):
+                sleep(delays[attempt])
+                continue
+            shown = f"HTTP {status}" if status else i18n.t("gh.exit", code=completed.returncode)
+            detail = completed.stderr.strip() or completed.stdout.strip()
+            if attempt:
+                message = i18n.t("gh.api.failed_after", shown=shown, route=route, count=attempt + 1, detail=detail)
+            else:
+                message = i18n.t("gh.api.failed", shown=shown, route=route, detail=detail)
+            raise CommandError(["gh", *args], completed, message)
         if not completed.stdout.strip():
             return {}
-        data = json.loads(completed.stdout)
+        try:
+            data = json.loads(completed.stdout)
+        except ValueError:
+            message = i18n.t("gh.api.not_json", route=route, body=completed.stdout.strip()[:200])
+            raise CommandError(["gh", *args], completed, message) from None
         if paginate and isinstance(data, list):  # --slurp devolve uma lista de páginas
             return [item for page in data for item in (page if isinstance(page, list) else [page])]
         return data

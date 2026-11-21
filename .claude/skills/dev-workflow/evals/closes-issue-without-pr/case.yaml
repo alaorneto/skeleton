@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: closes-issue-without-pr
+expected_outcome: |
+  closing-comment.md segue o modelo de fechamento sem PR: concluído e aprovado pelo usuário, o commit
+  a1b2c3d com o assunto, a verificação que o usuário fez de fato (sem testes inventados), docs/reports.md em
+  Documentação, os dois primeiros critérios verificados e o da captura de tela dispensado pelo usuário com o
+  motivo, e nenhum follow-up. close-commands.txt publica o comentário (`gh issue comment 61 --body-file
+  closing-comment.md`) antes de `gh issue close 61 --reason completed`.
+context:
+  scaffold_script: place-files.sh

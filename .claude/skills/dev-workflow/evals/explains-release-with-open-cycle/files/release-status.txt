@@ -1,0 +1,14 @@
+### Próxima versão: **v2.0.0** (major) — seria publicada (nenhum PR pediu versão ainda)
+Ciclo de pré-releases em andamento: v1.3.0-beta.1, v2.0.0-beta.1, v2.0.0-rc.1. Versão corrente: v2.0.0-rc.1.
+
+**v1.2.0 → v2.0.0** — nível **major**.
+
+| Mudança | Nível | Sinais |
+|---|---|---|
+| PR [#41](https://github.com/acme/demo/pull/41) feat: add the export command | minor | #40 tem o label `feature` → minor; `feat` em 2f16d7b → minor; `feat` em título do PR → minor |
+| PR [#44](https://github.com/acme/demo/pull/44) feat!: drop the legacy client | major | `feat` em 015a74e → minor; `!` em 015a74e: drop the legacy client → major; `feat` em título do PR → minor; `!` em título do PR: drop the legacy client → major |
+| PR [#47](https://github.com/acme/demo/pull/47) fix: keep the order of the rows | patch | `fix` em 30f51e8 → patch; `fix` em título do PR → patch |
+| PR [#52](https://github.com/acme/demo/pull/52) fix: handle the empty list | patch | `fix` em fdfd8ea → patch; `fix` em título do PR → patch |
+
+Análise por agente: ausente; o nível vem só dos sinais determinísticos.
+

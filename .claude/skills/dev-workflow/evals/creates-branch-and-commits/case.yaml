@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: creates-branch-and-commits
+expected_outcome: |
+  O agente cria, a partir da main, a branch que `github_issues.py start 34` criaria,
+  fix/34-usar-ponto-e-virgula-no-csv-em-pt-br (prefixo do tipo bug, número, título sem acento), leva para
+  ela a mudança da árvore e faz um commit só, com assunto em Conventional Commits começando por fix, corpo
+  com o porquê e o trailer `Refs #34`. Não usa --no-verify, não faz push nem abre PR.
+context:
+  scaffold_script: place-files.sh

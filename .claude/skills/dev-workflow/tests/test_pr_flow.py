@@ -16,7 +16,14 @@ ISSUE_BODY = "\n\n".join(f"## {name}\nconteúdo" for name in CFG.issue_sections(
 )
 
 
-def _pr(title="feat: add the export command", labels=("release",), body=None, author="alice", head="feat/1-export"):
+def _pr(
+    title="feat: add the export command",
+    labels=("release",),
+    body=None,
+    author="alice",
+    head="feat/1-export",
+    repo="acme/demo",
+):
     return {
         "number": 9,
         "title": title,
@@ -25,7 +32,8 @@ def _pr(title="feat: add the export command", labels=("release",), body=None, au
         else body,
         "labels": [{"name": name} for name in labels],
         "user": {"login": author},
-        "head": {"ref": head},
+        "head": {"ref": head, "repo": {"full_name": repo} if repo else None},
+        "base": {"ref": "main", "repo": {"full_name": "acme/demo"}},
     }
 
 
@@ -69,10 +77,53 @@ class CheckPullRequestTest(unittest.TestCase):
         )
         self.assertIn("não é major", _check(_pr(labels=("release", "semver:huge"), body=with_reason)).errors[0])
 
+    def test_a_channel_label_asks_for_a_prerelease_and_only_one_version_label_fits(self):
+        self.assertEqual(_check(_pr(labels=("release:beta",))).errors, [])
+        both = _check(_pr(labels=("release", "release:beta")))
+        self.assertIn("Mais de um label de versão (`release`, `release:beta`)", both.errors[0])
+        two = _check(_pr(labels=("release:alpha", "release:rc")))
+        self.assertIn("Mais de um label de versão (`release:alpha`, `release:rc`)", two.errors[0])
+
+        # a sobreposição vale com label de canal, com o mesmo motivo obrigatório
+        with_reason = PR_BODY.format(
+            issues="Closes #1", summary="x", version="Motivo da sobreposição: só muda o padrão"
+        )
+        self.assertEqual(_check(_pr(labels=("release:rc", "semver:patch"), body=with_reason)).errors, [])
+        self.assertIn("sem motivo", _check(_pr(labels=("release:rc", "semver:patch"))).errors[0])
+        alone = _check(_pr(labels=("semver:patch",), body=with_reason)).errors[0]
+        self.assertIn("ou com um label de canal (`release:alpha`, `release:beta`, `release:rc`)", alone)
+
+        # um sufixo que não é canal do projeto não pede versão: aviso, não erro
+        unknown = _check(_pr(labels=("release:nightly",)))
+        self.assertEqual(unknown.errors, [])
+        self.assertIn("O label `release:nightly` não é um canal de pré-release deste projeto", unknown.warnings[0])
+        self.assertIn("só vale em PR marcado", _check(_pr(labels=("release:nightly", "semver:patch"))).errors[0])
+
+        custom = Config({"labels": {"prerelease_prefix": "pre/"}, "versioning": {"prerelease": {"channels": ["rc"]}}})
+        self.assertEqual(_check(_pr(labels=("pre/rc",)), cfg=custom).errors, [])
+        self.assertIn("Mais de um label de versão", _check(_pr(labels=("pre/rc", "release")), cfg=custom).errors[0])
+        # Com outro prefixo, `release:beta` é um label qualquer.
+        self.assertEqual(_check(_pr(labels=("release:beta",)), cfg=custom).warnings, [])
+
     def test_the_issue_link_is_still_required(self):
         body = PR_BODY.format(issues="Sem issue", summary="x", version="ok")
         self.assertIn("não referencia issue", _check(_pr(body=body)).errors[0])
         self.assertIn("exatamente um label de tipo", _check(_pr(), _fetch(n1={"labels": []})).errors[0])
+
+    def test_a_commented_or_quoted_reference_does_not_link_the_pr(self):
+        body = PR_BODY.format(issues="<!-- Closes #1 -->\n```\nCloses #1\n```", summary="x", version="Nenhum")
+        self.assertIn("não referencia issue", _check(_pr(body=body)).errors[0])
+
+    def test_a_closing_list_warns_that_github_closes_only_the_first(self):
+        body = PR_BODY.format(issues="Closes #1, #2", summary="x", version="Funcionalidade nova")
+        findings = _check(_pr(body=body), _fetch(_2={"labels": [{"name": "feature"}], "body": ISSUE_BODY}))
+        self.assertEqual(findings.errors, [])
+        self.assertEqual(len(findings.warnings), 1)
+        self.assertIn("#2", findings.warnings[0])
+
+    def test_a_subsection_inside_the_summary_keeps_the_summary_whole(self):
+        body = PR_BODY.format(issues="Closes #1", summary="x\n\n### Detalhes\n- y", version="Funcionalidade nova")
+        self.assertEqual(_check(_pr(body=body)).errors, [])
 
     def test_the_title_must_be_a_conventional_commit(self):
         self.assertIn("Conventional Commits", _check(_pr(title="Add export")).errors[0])
@@ -93,6 +144,23 @@ class CheckPullRequestTest(unittest.TestCase):
         for pr in (_pr(author="dependabot[bot]", body="", labels=()), _pr(head="release/next", body="", labels=())):
             findings = _check(pr)
             self.assertEqual((findings.errors, len(findings.notes)), ([], 1))
+
+    def test_a_fork_branch_named_like_the_release_pr_is_checked_like_any_other(self):
+        for repo in ("mallory/demo", None):  # None: o fork foi apagado e a API devolve `head.repo: null`
+            findings = _check(_pr(head="release/next", body="", labels=(), repo=repo))
+            self.assertEqual(findings.notes, [])
+            self.assertIn("não referencia issue", findings.errors[0])
+        self.assertEqual(_check(_pr(head="release/next", body="", labels=(), repo="Acme/Demo")).errors, [])
+
+    def test_an_ordinary_pr_cannot_carry_a_release_commit(self):
+        by_title = _check(_pr(title="chore(release): v9.9.9"))
+        self.assertIn("O título `chore(release): v9.9.9` tem o formato do commit de release", by_title.errors[0])
+        commits = ["fix: handle the empty list", "chore(release): v9.9.9"]
+        by_commit = check_pull_request(_pr(), "acme/demo", _fetch(), CFG, commits)
+        self.assertIn("O commit `chore(release): v9.9.9` tem o formato do commit de release", by_commit.errors[0])
+        self.assertEqual(check_pull_request(_pr(), "acme/demo", _fetch(), CFG, commits[:1]).errors, [])
+        off = Config({"versioning": {"enabled": False}})
+        self.assertEqual(check_pull_request(_pr(labels=()), "acme/demo", _fetch(), off, commits).errors, [])
 
     def test_without_versioning_the_override_labels_are_not_checked(self):
         cfg = Config({"versioning": {"enabled": False}})
@@ -151,6 +219,13 @@ class MergedPullRequestTest(SandboxCase):
         self.assertIn("fica acumulada", state["comments"]["1"][0]["body"])
         self.assertIn("Nada a versionar: 1 mudança(s)", self.assertRan(box.release()))
 
+    def test_a_merge_with_a_channel_label_says_a_prerelease_is_coming(self):
+        box = self._merge(labels=("release:beta",))
+        self.assertRan(box.run("github_issues.py", "pr-merged", "--pr", "10"))
+        body = box.state()["comments"]["1"][0]["body"]
+        self.assertIn("**Versão:** o PR pede uma pré-release do canal `beta`", body)
+        self.assertNotIn("fica acumulada", body)
+
     def test_check_pr_reads_the_pr_from_github(self):
         box = self._merge(labels=("semver:patch",))
         completed = box.run("github_issues.py", "check-pr", "--pr", "10")
@@ -158,6 +233,15 @@ class MergedPullRequestTest(SandboxCase):
         self.assertIn("só vale em PR marcado com `release`", completed.stdout)
         box.update_state(lambda state: state["pulls"]["10"].update(labels=[]))
         self.assertEqual(box.run("github_issues.py", "check-pr", "--pr", "10").returncode, 0)
+
+    def test_check_pr_reads_the_commits_and_refuses_a_release_commit(self):
+        box = self.box
+        box.issue(1, "Exportar em CSV", "feature")
+        commits = [("feat: add the export command", None), ("chore(release): v9.9.9", None)]
+        box.open_pr(11, "feat: add the export command", commits, closes=[1])
+        completed = box.run("github_issues.py", "check-pr", "--pr", "11")
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("O commit `chore(release): v9.9.9` tem o formato do commit de release", completed.stdout)
 
 
 class CommitMsgHookTest(SandboxCase):
@@ -182,8 +266,68 @@ class CommitMsgHookTest(SandboxCase):
         self.assertIn("Refs: #42", message)
 
     def test_generated_commits_and_the_release_commit_pass(self):
-        for message in ("Merge branch 'main' into x\n", 'Revert "feat: x"\n', "chore(release): v1.2.1\n\nnotas\n"):
+        for message in ('Revert "feat: x"\n', "chore(release): v1.2.1\n\nnotas\n"):
             self.assertEqual(self._run(message)[0].returncode, 0, message)
+
+    def test_only_a_real_merge_is_exempt(self):
+        self.assertEqual(self._run("Merge the two parsers\n")[0].returncode, 1)
+        box = self.box
+        box.git("switch", "-q", "-c", "side")
+        box.write({"side.txt": "x"})
+        box.git("add", "-A")
+        box.git("commit", "-q", "-m", "feat: side\n\nRefs #1")
+        box.git("switch", "-q", "main")
+        box.git("merge", "-q", "--no-ff", "--no-commit", "side")
+        self.assertEqual(self._run("Merge branch 'side'\n")[0].returncode, 0)
+
+    def test_the_squash_suffix_and_other_repositories_are_not_links(self):
+        self.assertEqual(self._run("feat: x (#12)\n")[0].returncode, 1)
+        self.assertEqual(self._run("feat: x\n\nRefs other/repo#5\n")[0].returncode, 1)
+        self.assertEqual(self._run("feat: x\n\nRefs acme/demo#5\n")[0].returncode, 0)
+
+    def test_a_branch_that_only_looks_numbered_gives_no_issue(self):
+        completed, message = self._run("feat: x\n", branch="feature/2024-q1-plan")
+        self.assertEqual(completed.returncode, 1)
+        self.assertNotIn("Refs: #2024", message)
+
+
+class IssuesCliTest(SandboxCase):
+    def test_help_and_unknown_options(self):
+        for args in (("--help",), ("start", "--help"), ("check-pr", "--help")):
+            completed = self.box.run("github_issues.py", *args)
+            self.assertEqual(completed.returncode, 0, args)
+            self.assertIn("usage:", completed.stdout)
+        self.assertEqual(self.box.run("github_issues.py", "check-pr", "--bogus").returncode, 2)
+        self.assertEqual(self.box.run("github_issues.py", "start", "x").returncode, 2)
+        self.assertEqual(self.box.run("github_issues.py").returncode, 2)
+
+    def _issue(self, number, title):
+        self.box.issue(number, title, "feature")
+
+    def test_start_ignores_untracked_files_and_switches_to_an_existing_branch(self):
+        box = self.box
+        self._issue(7, "Exportar o relatório mensal em CSV com filtros por período")
+        box.write({"rascunho.txt": "não rastreado"})
+        box.git("reset", "-q")  # o arquivo novo fica fora do índice: não rastreado
+        box.git("rm", "-q", "--cached", "rascunho.txt", check=False)
+        first = box.run("github_issues.py", "start", "7")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        branch = box.git("symbolic-ref", "--short", "HEAD")
+        self.assertTrue(branch.startswith("feat/7-exportar-o-relatorio-mensal-em-csv"), branch)
+        box.git("switch", "-q", "main")
+        again = box.run("github_issues.py", "start", "7")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("já existe", again.stdout)
+        self.assertEqual(box.git("symbolic-ref", "--short", "HEAD"), branch)
+
+    def test_the_slug_ends_at_a_word_boundary(self):
+        self._issue(8, "Exportar o relatório mensal em CSV com filtros por período")
+        name = self.box.run("github_issues.py", "start", "8", "--dry-run").stdout.strip()
+        slug = name.split("/", 1)[1].split("-", 1)[1]
+        words = ["exportar", "o", "relatorio", "mensal", "em", "csv", "com", "filtros", "por", "periodo"]
+        self.assertLessEqual(len(slug), 40)
+        self.assertTrue(set(slug.split("-")) <= set(words), slug)
+        self.assertTrue("exportar-o-relatorio-mensal-em-csv-com-filtros-por-periodo".startswith(slug + "-"), slug)
 
 
 class BootstrapTest(unittest.TestCase):
@@ -284,6 +428,36 @@ class BootstrapTest(unittest.TestCase):
         forced = box.run("bootstrap.py", "update", "--force")
         self.assertIn(".github/workflows/release.yml atualizado pelo modelo novo", forced.stdout)
 
+    def test_the_generated_workflows_know_the_channel_labels(self):
+        box, _ = self._installed()
+        check = box.read(".github/workflows/pr-check.yml")
+        self.assertIn("- name: Pedido de versão do PR pode ser publicado", check)
+        self.assertIn('--head-ref refs/dev-workflow/pr-head --check', check)
+        # A base pode ainda não ter a opção: o passo não reprova o PR que a traz.
+        self.assertIn('preview --help | grep -q -- "--check"', check)
+        # O plano é feito sobre a ponta atual da branch de destino; o SHA do evento fica de reserva.
+        self.assertEqual(check.count('base="refs/remotes/origin/$BASE_REF"'), 2)
+        self.assertEqual(check.count('|| base="$BASE_SHA"'), 2)
+        self.assertEqual(check.count('--base-ref "$base"'), 2)
+        self.assertNotIn('--base-ref "$BASE_SHA"', check)
+        release = box.read(".github/workflows/release.yml")
+        self.assertIn("prerelease: ${{ steps.run.outputs.prerelease }}", release)
+        self.assertIn("channel: ${{ steps.run.outputs.channel }}", release)
+        analysis = box.read(".github/workflows/semver-analysis.yml")
+        self.assertIn("labels.*.name, 'release') ||", analysis)
+        self.assertIn("join(github.event.pull_request.labels.*.name, ',')), ',release:')", analysis)
+        self.assertIn('base="refs/remotes/origin/$BASE_REF"', analysis)
+        self.assertIn('--pr "$PR_NUMBER" --base-ref "$base" --head-ref "$HEAD_SHA" > semver-plan.json', analysis)
+
+        # Quem troca os labels na configuração regenera a condição com `update --force`.
+        labels = '\n[labels]\nrelease = "publicar"\nprerelease_prefix = "canal/"\n'
+        box.write({".github/dev-workflow.toml": box.read(".github/dev-workflow.toml") + labels})
+        forced = box.run("bootstrap.py", "update", "--force")
+        self.assertEqual(forced.returncode, 0, forced.stdout + forced.stderr)
+        analysis = box.read(".github/workflows/semver-analysis.yml")
+        self.assertIn("labels.*.name, 'publicar') ||", analysis)
+        self.assertIn("',canal/')", analysis)
+
     def test_update_refuses_what_is_not_an_upgrade_of_this_skill(self):
         box, vendored = self._installed()
         (vendored / "VERSION").write_text("99.0.0\n", encoding="utf-8")
@@ -314,6 +488,11 @@ class BootstrapTest(unittest.TestCase):
             ".git/HEAD": "x",
             "scripts/__pycache__/a.cpython.pyc": "x",
             "x-workspace/out.txt": "x",
+            "ruff.toml": "x",
+            "mypy.ini": "x",
+            ".ruff_cache/x": "x",
+            "SECURITY.md": "x",
+            "CONTRIBUTING.md": "x",
         }
         for name, content in box_files.items():
             (source / name).parent.mkdir(parents=True, exist_ok=True)
@@ -346,7 +525,7 @@ class BootstrapTest(unittest.TestCase):
         self.assertIn("path = \"VERSION\"\nsearch = '{current}'", config)
         self.assertIn("python3 ./scripts/release.py run", (root / ".github/workflows/release.yml").read_text("utf-8"))
         selftest = (root / ".github/workflows/dev-workflow-selftest.yml").read_text("utf-8")
-        self.assertIn("-s ./tests", selftest)
+        self.assertIn("python ./tests/run.py", selftest)
         self.assertIn('paths: ["**", ".github/dev-workflow.toml"]', selftest)
         doctor = box.run(script, "doctor", cwd=root)
         self.assertIn("0 erro(s)", doctor.stdout, doctor.stdout + doctor.stderr)

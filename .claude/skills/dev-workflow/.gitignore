@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *-workspace/
 .pr-head/
+tests/.durations.json

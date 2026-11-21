@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: creates-issues-from-accepted-plan
+expected_outcome: |
+  Sem pedir nova confirmação, o agente carrega o skill e transforma o plano aceito em três issues filhas
+  (duas `feature` e um `bug`, cada uma com um só label de tipo e todas as seções do modelo, a documentação
+  dentro da issue da feature) e um epic "Plano: ..." com label `epic`, cuja seção Itens lista as três com
+  "depende de #70" no envio por e-mail e "independente" nas outras. github-commands.sh cria cada issue com --body-file, --label e
+  --assignee @me e roda `sync-epic` e `sync-epic --dry-run` no epic. Nenhum código é escrito,
+  e a resposta termina com a tabela # | título | labels | link.
+context:
+  scaffold_script: place-files.sh

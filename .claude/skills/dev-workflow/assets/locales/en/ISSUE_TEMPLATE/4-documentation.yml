@@ -1,0 +1,68 @@
+name: Documentation
+description: "Documentation only, with no change in behavior."
+labels: [documentation]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gap or mismatch between documentation and code.
+        Fill in every section; write "Not applicable — reason" when that is the case. Flow: dev-workflow skill.
+  - type: textarea
+    id: contexto
+    attributes:
+      label: "Context"
+      description: "Current problem, who is affected and why now. Link to a plan or discussion."
+    validations:
+      required: true
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: "Goal"
+      description: "Expected result in 1–3 sentences."
+    validations:
+      required: true
+  - type: textarea
+    id: documentos
+    attributes:
+      label: "Affected documents"
+      description: "Files and sections."
+      placeholder: |
+        - [ ] docs/....md — 
+    validations:
+      required: true
+  - type: textarea
+    id: publico
+    attributes:
+      label: "Audience"
+      description: "Developer of the derived project, operator, agent, security reviewer."
+    validations:
+      required: false
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Acceptance criteria"
+      description: "Content matches the code, valid links, tested commands."
+      placeholder: |
+        - [ ] Matches the code in: 
+        - [ ] Valid links and anchors
+    validations:
+      required: true
+  - type: textarea
+    id: verificacao
+    attributes:
+      label: "Verification"
+      description: "How to check: files read, commands run, rendering."
+    validations:
+      required: true
+  - type: checkboxes
+    id: pronto
+    attributes:
+      label: "Definition of done"
+      description: "Checked before closing (dev-workflow skill)."
+      options:
+        - label: "Acceptance criteria verified"
+        - label: "Test plan run and recorded (only what actually ran)"
+        - label: "Documentation updated"
+        - label: "CI green"
+        - label: "Commits with Refs #N and PR with Closes #N"
+        - label: "Approved by the owner"

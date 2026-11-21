@@ -1,0 +1,140 @@
+# Configuration of the development workflow (dev-workflow skill).
+# Reference of every key: __SKILL_DIR__/references/configuration.md
+# Check it with: python3 __SKILL_DIR__/scripts/bootstrap.py doctor
+schema = 1
+# Language of the defaults and of the messages: "en" or "pt-BR" (the default without this key).
+# Read the reference before switching: the required check of branch protection changes its name.
+language = "en"
+
+[repository]
+default_branch = "__DEFAULT_BRANCH__"
+# Branches where a push can publish a version. `release/*` are maintenance lines.
+release_branches = ["__DEFAULT_BRANCH__", "release/*"]
+
+# --- Issue types -------------------------------------------------------------------------------
+# Each issue has exactly one of these labels. `prefixes` are the commit and branch prefixes;
+# `level` is the version increment the type asks for; `section` is the changelog section.
+
+[types.bug]
+color = "d73a4a"
+description = "Incorrect behavior or regression"
+prefixes = ["fix"]
+level = "patch"
+section = "fixes"
+
+[types.feature]
+color = "1d76db"
+description = "New capability"
+prefixes = ["feat"]
+level = "minor"
+section = "features"
+
+[types.enhancement]
+color = "a2eeef"
+description = "Improvement to something that already exists"
+prefixes = ["feat", "perf"]
+level = "minor"
+section = "improvements"
+
+[types.documentation]
+color = "0075ca"
+description = "Documentation only"
+prefixes = ["docs"]
+level = "none"
+section = "docs"
+
+[types.refactor]
+color = "fbca04"
+description = "Restructuring with no change in behavior"
+prefixes = ["refactor"]
+level = "none"
+section = "maintenance"
+
+[types.test]
+color = "bfd4f2"
+description = "Tests, fixtures or verification evidence only"
+prefixes = ["test"]
+level = "none"
+section = "maintenance"
+
+[types.ci]
+color = "5319e7"
+description = "Pipeline and automated checks"
+prefixes = ["ci"]
+level = "none"
+section = "maintenance"
+
+[types.chore]
+color = "c5def5"
+description = "Dependencies, tooling and development configuration"
+prefixes = ["chore", "build"]
+level = "none"
+section = "maintenance"
+
+# The pre-release channel labels are this prefix plus each channel of
+# `versioning.prerelease.channels`: release:alpha, release:beta, release:rc.
+# [labels]
+# prerelease_prefix = "release:"
+
+# Extra labels that `sync-labels` also creates, for example:
+# [labels.extra.security]
+# color = "b60205"
+# description = "Impact on authentication, authorization or secrets"
+
+[pr]
+required_sections = ["Issues", "Summary", "Tests run", "Documentation", "Version"]
+# Who opens PRs without going through the issue flow.
+exempt_authors = ["dependabot[bot]"]
+
+[pr.severity]
+# error blocks the check, warning only warns, off turns it off.
+unchecked_criteria = "warning" # unchecked acceptance criteria in the issue the PR closes
+issue_sections = "warning"     # template section missing in the issue
+type_mismatch = "warning"      # type of the title differs from the type of the issue
+
+# --- Version -----------------------------------------------------------------------------------
+
+[versioning]
+enabled = true
+tag_prefix = "v"
+# Only applies while there is no version tag; after that the source is the latest tag.
+initial_version = "__INITIAL_VERSION__"
+# In 0.x a breaking change bumps the minor; "strict" takes it straight to 1.0.0.
+zero_major = "breaking-is-minor"
+# true: a change to a public surface is only published with a recorded analysis or an override.
+require_analysis = false
+
+# Accepted pre-release channels, from the least to the most mature. The order must be the SemVer
+# precedence (alphabetical); with a PEP 440 file, each channel needs a PEP 440 form.
+# [versioning.prerelease]
+# channels = ["alpha", "beta", "rc"]
+
+# Where the version is written. `search` is literal text with {current}; the default replacement
+# puts {new} in its place. Use `regex` + `replace` when the text does not hold the whole current version.
+# Markers: {current} {new} and, for each, _pep440 _core _major _minor _patch _next_minor _next_major.
+# __VERSION_FILES__
+# Files whose diff matters to those who use the project. Removing one asks for major; adding or
+# changing asks for analysis (on_add / on_modify / on_remove: none, patch, minor, major or review).
+# [[versioning.public_surfaces]]
+# name = "Public API"
+# globs = ["src/api/**"]
+
+# Versions the code declares as a floor ("available since"). A release never comes out below them.
+# [[versioning.floors]]
+# globs = ["src/**/*.py"]
+# regex = 'since="(\d+\.\d+\.\d+)"'
+
+[changelog]
+path = "CHANGELOG.md"
+# Sections left out of the file (the release notes always show all of them).
+hide = []
+
+[release]
+# "direct": the workflow commits to the branch and publishes. "pull-request": it opens a release PR,
+# and publishing happens when that PR is merged (for a protected branch).
+mode = "direct"
+commit_message = "chore(release): {tag}"
+# How to mark the PRs and issues included in a version.
+mark = ["comment", "milestone"]
+# Workflow to dispatch after the release (for example "publish.yml"), with the inputs version and tag.
+dispatch_workflow = ""

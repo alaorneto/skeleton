@@ -1,0 +1,14 @@
+{
+  "about": "Gerado pelo bootstrap.py do skill dev-workflow; não edite à mão.",
+  "schema": 1,
+  "version": "1.2.0",
+  "skill_dir": ".claude/skills/dev-workflow",
+  "files": {
+    ".github/workflows/dev-workflow-selftest.yml": "baf615859b95d15285676265311b1a545a24b1ce60e2831e9f005240b67fd883",
+    ".github/workflows/epic-checklist.yml": "64ec25c68d30ec9db45d58c9c10571e46b9a7a31eadbe1e13fac2e8024157f24",
+    ".github/workflows/pr-check.yml": "a9fca63c6e510489b5d9f0956eb4f56320c802f0a222ad7c98aa772a4f342a5e",
+    ".github/workflows/pr-merged.yml": "a7300239bf361c502b16fc842fc06091dce078171c144ab6863e0e3643565d21",
+    ".github/workflows/release.yml": "9e3fc5c25303501943b8bfed08b5845073097ae31c9edf09e9923ea7256091a2",
+    ".github/workflows/semver-analysis.yml": "0dd8260006d9bbb50d9ba7add21629d8d1d89e94b51b13cbb1306b1c71f2dd95"
+  }
+}
