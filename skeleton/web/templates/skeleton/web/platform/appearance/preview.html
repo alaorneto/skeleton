@@ -7,6 +7,16 @@
   <div class="min-w-0"><p class="page-eyebrow">{% translate "Pré-visualização" %}</p><h1>{{ theme_name }}</h1><p class="page-description">{% translate "Só esta página usa o tema candidato, com o CSS personalizado. Nada é ativado aqui." %}</p></div>
   <nav class="toolbar" aria-label="{% translate "Voltar" %}"><a class="btn btn-secondary" href="{% url 'platform:appearance' %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar para Aparência" %}</a></nav>
 </div>
+{% if package %}<section class="card mb-6" aria-labelledby="preview-package"><h2 id="preview-package" class="section-heading">{% translate "Sobre este pacote" %}</h2><dl class="meta-list">
+<div><dt>{% translate "Pacote" %}</dt><dd><code>{{ package.id }}</code> · v{{ package.version }}</dd></div>
+{% if package.publisher %}<div><dt>{% translate "Publicador" %}</dt><dd><code>{{ package.publisher }}</code></dd></div>{% endif %}
+{% if package.description %}<div><dt>{% translate "Descrição" %}</dt><dd>{{ package.description }}</dd></div>{% endif %}
+<div><dt>{% translate "Compatível com o núcleo" %}</dt><dd><code>{{ package.compatibility }}</code></dd></div>
+<div><dt>{% translate "Traz" %}</dt><dd>{% blocktranslate trimmed with images=package.images fonts=package.fonts css=package.css_bytes %}Imagens: {{ images }} · fontes: {{ fonts }} · CSS: {{ css }} bytes{% endblocktranslate %}</dd></div>
+{% if package.product_name %}<div><dt>{% translate "Nome do produto" %}</dt><dd>{{ package.product_name }}</dd></div>{% endif %}
+{% if package.footer_text %}<div><dt>{% translate "Rodapé" %}</dt><dd>{{ package.footer_text }}</dd></div>{% endif %}
+<div><dt>{% translate "Digest" %}</dt><dd><code>{{ package.digest }}</code></dd></div>
+</dl></section>{% endif %}
 {% if preview_logo_url %}<section class="card mb-6" aria-labelledby="preview-logo"><h2 id="preview-logo" class="section-heading">{% translate "Logo do tema" %}</h2><picture>{% if preview_logo_dark_url %}<source srcset="{{ preview_logo_dark_url }}" media="(prefers-color-scheme: dark)">{% endif %}<img class="h-8 w-auto max-w-32 rounded-base object-contain" src="{{ preview_logo_url }}" alt="{% translate "Logo do tema" %}"></picture></section>{% endif %}
 <nav class="link-tabs mb-6" aria-label="{% translate "Abas de exemplo" %}"><a href="#preview-components" aria-current="page">{% translate "Componentes" %}</a><a href="#preview-table">{% translate "Tabela" %}</a><a href="#preview-form">{% translate "Formulário" %}</a></nav>
 <section id="preview-components" class="card mb-6" aria-labelledby="preview-buttons">

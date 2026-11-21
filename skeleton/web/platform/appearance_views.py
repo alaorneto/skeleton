@@ -36,6 +36,7 @@ __all__ = [
     "appearance_builtin_preview",
     "appearance_builtin_preview_css",
     "appearance_image",
+    "appearance_package_install",
     "appearance_theme",
     "appearance_theme_create",
     "appearance_theme_delete",
@@ -116,7 +117,29 @@ def _log(event: str, request, reason: str) -> None:
     security_event(event, reason_code=reason, source=f"platform:{request.user.pk}")
 
 
-def _page(request, *, brand_form=None, image_errors=None, activate_error="", status=200):
+def package_summary(theme):
+    """What a package theme brings, for the remove confirmation and the preview (#637)."""
+    if theme is None or theme.source != "package":
+        return None
+    manifest = theme.package_manifest or {}
+    files = theme.package_files or {}
+    kinds = {"logo": gettext("logo"), "logo_dark": gettext("logo escuro"), "icon": gettext("ícone")}
+    return {
+        "id": theme.package_id,
+        "version": theme.package_version,
+        "publisher": manifest.get("publisher", ""),
+        "description": manifest.get("description", ""),
+        "compatibility": (manifest.get("compatibility") or {}).get("skeleton", ""),
+        "images": ", ".join(str(label) for kind, label in kinds.items() if kind in files) or gettext("nenhuma"),
+        "fonts": len(files.get("fonts", []) or []),
+        "css_bytes": len((theme.custom_css or "").encode()),
+        "product_name": theme.product_name,
+        "footer_text": theme.footer_text,
+        "digest": theme.package_digest[:12],
+    }
+
+
+def _page(request, *, brand_form=None, image_errors=None, activate_error="", package_error="", status=200):
     from skeleton.appearance.services import current_brand, list_themes, revision_of
     from skeleton.appearance.themes import BUILTIN_THEMES
 
@@ -165,6 +188,7 @@ def _page(request, *, brand_form=None, image_errors=None, activate_error="", sta
             "themes": themes,
             "core_active": not active_builtin and not active_theme,
             "activate_error": activate_error,
+            "package_error": package_error,
             "home_page": {"published": home.published, "blocks": len(home.blocks)},
         },
         status=status,
@@ -256,6 +280,53 @@ def appearance_activate(request):
     return redirect("platform:appearance")
 
 
+PACKAGE_MESSAGES = {
+    "installed": gettext_lazy("Pacote %(name)s %(version)s instalado. Pré-visualize e ative quando quiser."),
+    "updated": gettext_lazy("Pacote %(name)s atualizado de %(previous)s para %(version)s."),
+    "unchanged": gettext_lazy("Este pacote já está instalado; nada mudou."),
+}
+
+
+@platform_page
+@require_POST
+@recent_authentication_required
+def appearance_package_install(request):
+    """Install, update or recognize a theme package sent as a .zip (#637); never activates it."""
+    from skeleton.appearance.package_format import MAX_ARCHIVE_BYTES
+    from skeleton.appearance.packages import install_theme_package
+    from skeleton.appearance.services import current_brand
+
+    if _unknown_fields(request, set(), {"package"}):
+        return HttpResponseBadRequest(gettext("Campo não permitido."))
+    upload = request.FILES.get("package")
+    if upload is None:
+        return _page(request, package_error=gettext("Escolha um arquivo .zip de pacote de tema."), status=400)
+    if upload.size > MAX_ARCHIVE_BYTES:
+        _log("appearance.package_rejected", request, "too_large")
+        return _page(request, package_error=gettext("O pacote pode ter até 4 MiB."), status=400)
+    try:
+        result = install_theme_package(actor=request.user, data=upload.read())
+    except ValidationError as error:
+        items = error.error_dict.get("package", []) if hasattr(error, "error_dict") else error.error_list
+        code = next((item.code for item in items if item.code), "invalid")
+        _log("appearance.package_rejected", request, str(code))
+        detail = " ".join(message for item in items for message in item.messages)
+        return _page(request, package_error=detail, status=400)
+    theme = result.theme
+    if result.outcome != "unchanged":
+        _log(f"appearance.package_{result.outcome}", request, "package")
+    message = str(PACKAGE_MESSAGES[result.outcome]) % {
+        "name": theme.name,
+        "version": theme.package_version,
+        "previous": result.previous_version,
+    }
+    brand = current_brand()
+    if result.outcome == "updated" and brand is not None and brand.active_theme_id == theme.pk:
+        message += " " + gettext("É o tema ativo: a mudança já vale para todas as páginas.")
+    messages.success(request, message)
+    return redirect("platform:appearance")
+
+
 def _theme_form_page(request, form, *, theme=None, status=200):
     title = gettext("Editar tema") if theme is not None else gettext("Novo tema")
     return render(
@@ -318,6 +389,8 @@ def appearance_theme(request, sysid):
     from skeleton.appearance.services import update_theme
 
     theme = _theme_or_404(sysid)
+    if theme.source == "package":
+        raise Http404  # A package theme is changed by sending a newer version (#637).
     if request.method != "POST":
         initial = {name: getattr(theme, name) for name in ("name", "brand_color", "radius", "font", "custom_css")}
         return _theme_form_page(request, ThemeForm(initial={**initial, "revision": theme.revision}), theme=theme)
@@ -348,13 +421,21 @@ def appearance_theme_delete(request, sysid):
     from skeleton.appearance.services import delete_theme
 
     theme = _theme_or_404(sysid)
+    package = package_summary(theme)
+    if package:
+        message = gettext(
+            "O tema sai do catálogo (%(id)s %(version)s). A remoção é lógica e fica na auditoria; os arquivos "
+            "do pacote são apagados depois da carência. Para voltar, envie o pacote de novo."
+        ) % {"id": package["id"], "version": package["version"]}
+    else:
+        message = gettext("O tema sai do catálogo. A exclusão é lógica e fica na auditoria.")
     context = {
         "platform_section": "appearance",
         "eyebrow": gettext("Aparência"),
-        "title": gettext("Excluir tema"),
+        "title": gettext("Remover pacote de tema") if package else gettext("Excluir tema"),
         "subject_label": theme.name,
-        "message": gettext("O tema sai do catálogo. A exclusão é lógica e fica na auditoria."),
-        "submit_label": gettext("Excluir tema"),
+        "message": message,
+        "submit_label": gettext("Remover pacote") if package else gettext("Excluir tema"),
         "cancel_url": reverse("platform:appearance"),
         "form": _RevisionForm(initial={"revision": theme.revision}),
     }
@@ -371,6 +452,10 @@ def appearance_theme_delete(request, sysid):
     except ValidationError as error:
         context["error"] = " ".join(message for items in error.message_dict.values() for message in items)
         return render(request, "skeleton/web/platform/confirm.html", context, status=400)
+    if package:
+        _log("appearance.package_removed", request, "package")
+        messages.success(request, gettext("Pacote de tema removido."))
+        return redirect("platform:appearance")
     _log("appearance.theme_changed", request, "delete")
     messages.success(request, gettext("Tema excluído."))
     return redirect("platform:appearance")
@@ -382,6 +467,7 @@ class _RevisionForm(forms.Form):
 
 def _preview_page(request, *, name, css_url, theme=None):
     context = {"platform_section": "appearance", "theme_name": name, "preview_css_url": css_url}
+    context["package"] = package_summary(theme)
     if theme is not None:
         from skeleton.appearance.assets import package_assets
 

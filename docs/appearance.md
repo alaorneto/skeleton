@@ -175,10 +175,18 @@ Sem autenticação, só GET/HEAD, sem parâmetro que escolha arquivo (o nome de 
 
 1. **Marca:** nome do produto (até 60) e texto do rodapé (até 160, uma linha).
 2. **Imagens:** enviar ou remover o logo, o logo para o modo escuro e o ícone.
-3. **Temas:** o do núcleo, os prontos e os personalizados, com o ativo marcado; para cada um, "Pré-visualizar", "Ativar", "Editar" e "Excluir" (este com confirmação; o ativo não pode ser excluído). "Novo tema" pede nome, cor (`#RRGGBB`), cantos, fonte e CSS personalizado.
-4. **Pré-visualização:** `…/themes/<id>/preview/` e `…/builtin/<slug>/preview/` mostram uma galeria de componentes (botões, selos, mensagens, tabela, formulário, abas e item de menu ativo) com o CSS completo do tema candidato, servido por `…/preview.css` só para o administrador e com `Cache-Control: private, no-store`. Nada é ativado.
+3. **Temas:** o do núcleo, os prontos, os personalizados e os pacotes instalados, com o ativo marcado e a origem na coluna "Origem" ("Núcleo", "Pronto", "Personalizado", "Pacote · `<id>` · v`<versão>`"). Ações por origem:
 
-Toda escrita exige CSRF e autenticação recente, recusa campo POST desconhecido (400), responde 409 a uma revisão antiga e registra um `security_event` sem valores (`appearance.brand_changed`, `appearance.image_changed`, `appearance.theme_changed`, `appearance.theme_activated`). A tela funciona sem JavaScript.
+   | Origem | Pré-visualizar | Ativar | Editar | Excluir / Remover |
+   |---|---|---|---|---|
+   | Núcleo e prontos | sim | sim | — | — |
+   | Personalizado | sim | sim | sim | "Excluir" |
+   | Pacote | sim | sim | — (a edição dá 404; envie uma versão nova) | "Remover" |
+
+   O ativo não mostra "Excluir" nem "Remover". "Novo tema" pede nome, cor (`#RRGGBB`), cantos, fonte e CSS personalizado. **"Instalar pacote de tema"** recebe um `.zip` de até 4 MiB (#637) e diz o resultado: "Pacote Aurora 1.0.0 instalado. Pré-visualize e ative quando quiser." (instalar não ativa), "Pacote Aurora atualizado de 1.0.0 para 1.1.0." (com "É o tema ativo: a mudança já vale para todas as páginas." quando for o caso) ou "Este pacote já está instalado; nada mudou.". Um pacote recusado volta com 400 e a mensagem do código (com arquivo e linha), nunca com o nome do arquivo enviado. "Remover" pede confirmação mostrando o `id` e a versão; os arquivos saem depois da carência.
+4. **Pré-visualização:** `…/themes/<id>/preview/` e `…/builtin/<slug>/preview/` mostram uma galeria de componentes (botões, selos, mensagens, tabela, formulário, abas e item de menu ativo) com o CSS completo do tema candidato, servido por `…/preview.css` só para o administrador e com `Cache-Control: private, no-store`. Nada é ativado. De um tema de pacote, mostra também "Sobre este pacote" (id, versão, publicador, descrição, compatibilidade, o que traz e o digest) e o logo dele; as fontes e o logo do candidato vêm de `…/themes/<id>/preview/fonts/<arquivo>` e `…/preview/images/<logo|logo_dark>/`, também só para o administrador e sem cache público.
+
+Toda escrita exige CSRF e autenticação recente, recusa campo POST desconhecido (400), responde 409 a uma revisão antiga e registra um `security_event` sem valores (`appearance.brand_changed`, `appearance.image_changed`, `appearance.theme_changed`, `appearance.theme_activated`, `appearance.package_installed`, `appearance.package_updated`, `appearance.package_removed` e, com só o código do erro, `appearance.package_rejected`; um envio sem mudança não registra nada). A tela funciona sem JavaScript.
 
 ### Saída de emergência
 
@@ -187,6 +195,14 @@ As páginas de `/platform/appearance/` (fora a pré-visualização) carregam o t
 ```sh
 python manage.py appearance show         # nome, rodapé, tema ativo e quais imagens existem (nunca as chaves)
 python manage.py appearance reset-theme  # volta ao tema do núcleo, auditado com o motivo appearance.reset_theme
+```
+
+Os pacotes também têm console, idempotente, para implantação automatizada (#637), cada comando num `system_context` com o seu motivo (`appearance.install_package`, `appearance.remove_package`):
+
+```sh
+python manage.py appearance install-package aurora-1.0.0.zip   # instala, atualiza ou diz "nada mudou"; nunca ativa
+python manage.py appearance list-themes                        # origem, nome, id e versão de cada tema, e o ativo
+python manage.py appearance remove-package org.example.theme.aurora  # recusa o tema ativo
 ```
 
 ## Página inicial pública

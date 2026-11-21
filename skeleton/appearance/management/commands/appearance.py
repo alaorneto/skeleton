@@ -7,6 +7,8 @@
 - ``check-package`` and ``build-package`` (#634) are for theme authors: they read a directory or
   a zip, check it like the installation does (format, AA contrast, core compatibility) and build
   a deterministic zip. They never open the database.
+- ``install-package``, ``remove-package`` and ``list-themes`` (#637) are the operator's side:
+  idempotent, for automated deployment, each in a ``system_context`` with its reason.
 """
 
 import os
@@ -17,6 +19,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 REASON = "appearance.reset_theme"
+INSTALL_REASON = "appearance.install_package"
+REMOVE_REASON = "appearance.remove_package"
 
 
 class Command(BaseCommand):
@@ -32,6 +36,11 @@ class Command(BaseCommand):
         build.add_argument("source")
         build.add_argument("--output", required=True)
         build.add_argument("--force", action="store_true")
+        install = actions.add_parser("install-package", help="Instala ou atualiza um pacote de tema (.zip).")
+        install.add_argument("archive")
+        remove = actions.add_parser("remove-package", help="Remove um pacote de tema instalado.")
+        remove.add_argument("package_id")
+        actions.add_parser("list-themes", help="Lista os temas do catálogo.")
 
     def handle(self, *args, **options):
         action = options["action"]
@@ -41,6 +50,12 @@ class Command(BaseCommand):
             return self._check_package(options["source"])
         if action == "build-package":
             return self._build_package(options["source"], options["output"], force=options["force"])
+        if action == "install-package":
+            return self._install_package(options["archive"])
+        if action == "remove-package":
+            return self._remove_package(options["package_id"])
+        if action == "list-themes":
+            return self._list_themes()
         return self._show()
 
     # ----------------------------------------------------------------------- brand
@@ -174,3 +189,73 @@ class Command(BaseCommand):
             raise
         self.stdout.write(f"{target} · {len(data)} bytes · {package.content_digest}")
         self.stdout.write(self.style.SUCCESS("Pacote montado."))
+
+    # ----------------------------------------------------------------------- packages (operators)
+
+    def _install_package(self, archive):
+        from django.core.exceptions import ValidationError
+
+        from skeleton.appearance.package_format import MAX_ARCHIVE_BYTES
+        from skeleton.appearance.packages import install_theme_package
+        from skeleton.appearance.snapshot import reset_appearance_cache
+        from skeleton.tenancy.context import system_context
+
+        path = Path(archive)
+        if not path.is_file():
+            raise CommandError(f"{archive} não existe.")
+        if path.stat().st_size > MAX_ARCHIVE_BYTES:
+            raise CommandError("O pacote pode ter até 4 MiB.")
+        try:
+            with system_context(reason=INSTALL_REASON), transaction.atomic():
+                result = install_theme_package(actor=None, data=path.read_bytes())
+        except ValidationError as error:
+            raise CommandError(" ".join(error.messages)) from error
+        reset_appearance_cache()
+        theme = result.theme
+        texts = {
+            "installed": f"Pacote {theme.name} {theme.package_version} instalado (não ativado).",
+            "updated": f"Pacote {theme.name} atualizado de {result.previous_version} para {theme.package_version}.",
+            "unchanged": "Este pacote já está instalado; nada mudou.",
+        }
+        self.stdout.write(self.style.SUCCESS(texts[result.outcome]))
+
+    def _remove_package(self, package_id):
+        from django.core.exceptions import ValidationError
+
+        from skeleton.appearance.models import InstanceTheme
+        from skeleton.appearance.services import delete_theme
+        from skeleton.appearance.snapshot import reset_appearance_cache
+        from skeleton.tenancy.context import system_context
+
+        with system_context(reason=REMOVE_REASON), transaction.atomic():
+            theme = InstanceTheme.objects.filter(source="package", package_id=package_id).first()
+            if theme is None:
+                raise CommandError(f"Nenhum pacote instalado com o id {package_id}.")
+            try:
+                delete_theme(actor=None, theme_id=theme.pk, expected_revision=theme.revision)
+            except ValidationError as error:
+                raise CommandError("Este é o tema ativo. Ative outro tema antes de removê-lo.") from error
+        reset_appearance_cache()
+        self.stdout.write(self.style.SUCCESS(f"Pacote {package_id} removido."))
+
+    def _list_themes(self):
+        from skeleton.appearance.services import current_brand, list_themes
+        from skeleton.appearance.themes import BUILTIN_THEMES
+
+        brand = current_brand()
+        active_builtin = brand.builtin_theme if brand else ""
+        active_theme = brand.active_theme_id if brand else None
+        mark = " (ativo)"
+        lines = [f"núcleo · Cobalto e Ardósia{mark if not active_builtin and not active_theme else ''}"]
+        lines += [
+            f"pronto · {values.name} ({slug}){mark if slug == active_builtin else ''}"
+            for slug, values in BUILTIN_THEMES.items()
+            if values.brand_color
+        ]
+        for theme in list_themes():
+            active = mark if theme.pk == active_theme else ""
+            if theme.source == "package":
+                lines.append(f"pacote · {theme.name} · {theme.package_id} {theme.package_version}{active}")
+            else:
+                lines.append(f"personalizado · {theme.name}{active}")
+        self.stdout.write("\n".join(lines))
