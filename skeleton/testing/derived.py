@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 from uuid import UUID
 
+from .people import make_group
 from .service_api import ServiceScenario, acting_as
 
 __all__ = ["assert_derived_access_contract", "create_group", "grant_anchor"]
@@ -65,20 +66,12 @@ def grant_anchor(
 def create_group(
     scenario: ServiceScenario, name: str, members: Iterable[Any], *, organization: Any | None = None
 ) -> UUID:
-    """Create a group in organization A (or ``organization``) with ``members``; return its sysid."""
-    from django.utils.text import slugify
+    """Create a group in organization A (or ``organization``) with ``members``; return its sysid.
 
-    from skeleton.access.services import add_group_member
-    from skeleton.access.services import create_group as create_access_group
-    from skeleton.tenancy.models import Membership
-
+    The group is created by the organization's administrator, through ``skeleton.testing.people.make_group``.
+    """
     organization, admin = _side(scenario, (organization or scenario.a).pk)
-    with acting_as(admin, organization) as actor:
-        group = create_access_group(user=actor, data={"code": slugify(name)[:50] or "group", "name": name})
-        for member in members:
-            membership = Membership.objects.get(user_id=getattr(member, "pk", member), is_active=True)
-            add_group_member(user=actor, data={"group": group, "membership": membership})
-    return group.pk
+    return make_group(organization=organization, admin=admin, name=name, members=members).pk
 
 
 def _tombstone(record: Any) -> None:
