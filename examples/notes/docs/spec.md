@@ -17,6 +17,8 @@ A API de serviços da app é `NoteService`, declarada em `runtime.service_api` e
 
 Notes 0.3.0 usa manifesto v2 com compatibilidade `>=0.4.0,<1.0.0`: o core 0.4.0 é o primeiro que lê `runtime.service_api`. Desde 0.2.0 a app declara dimensões em `runtime.model_ui` do arquivo canônico. A app recebe automaticamente grupo de parâmetros no admin, com seção de configuração `general`. Esse painel não lista/edita notas: o viewer está em `/o/<org>/tables/example_notes.note/`, descoberto pelo catálogo mesmo sem o menu próprio. Sua lista declara código/título/atualização e filtro por código; leitura/criação/edição usam abas Identificação/Conteúdo e labels Código/Título/Texto. Na grade de 12 unidades, `code` ocupa 4, `title` 8 e `body` 12 com textarea de 8 linhas e ajuda “Conteúdo da anotação.”; mobile usa largura inteira e conserva a ordem. O pack SSR `skeleton_crud` de django-crispy-forms 2.7 renderiza os Django Forms existentes, sem ampliar allowlists, acesso ou campos auditáveis nem mudar CAS/persistência.
 
+`NoteCategory` (`example_notes.notecategory`, desde 0.5.0) é um catálogo global de categorias, compartilhado por todas as organizações: `SystemRecord` com `TableSpec(scope="global")`, sem gateway, código único entre categorias vivas. Só o comando do operador `manage.py load_note_categories CODIGO=Título ...` o escreve, dentro de `command_context`; a escrita de uma view, de um serviço ou de qualquer contexto de organização é recusada pelo modelo e pelo guard do banco ([tabelas globais de apps](../../../docs/table-catalog.md#tabelas-globais-de-apps)). A auditoria registra cada mudança sem organização, com `source=system:command:example_notes:load_note_categories`.
+
 ## Acceptance
 Os critérios abaixo descrevem comportamentos observáveis, não resultados de testes já executados:
 
@@ -26,6 +28,7 @@ Os critérios abaixo descrevem comportamentos observáveis, não resultados de t
 - Depois de alterar `body`, o evento comprova a alteração sem apresentar seu conteúdo. Uma mudança de configuração também não expõe o JSON no histórico.
 - Duas alterações com a mesma revisão não vencem ambas. Uma restauração que colide com um código vivo retorna conflito sem substituir o outro registro.
 - `NoteService` passa em `assert_service_contract` e, em PostgreSQL com a role runtime, nega por padrão, isola A/B, responde `Unavailable` com a app desativada, recusa ator divergente e tem um único vencedor no CAS.
+- Gravar `NoteCategory` no contexto de uma organização (ou de um consumidor de evento) é recusado; `load_note_categories` grava e a auditoria mostra o motivo do comando.
 - O check estático exige `spec.md`, `adr.md` e `service-api.md` com as seções obrigatórias (E012) e a API declarada bem formada (E018). Ele verifica o contrato documental, não substitui os testes de isolamento, autorização e concorrência.
 
 ## Fluxo de publicação

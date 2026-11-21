@@ -56,7 +56,8 @@ _selected: ContextVar[UUID | None] = ContextVar("skeleton_selected_tenant", defa
 # Per-request memo (#24): created by request_context, gone when the request ends. Never an
 # authorization cache across requests: a revocation still applies on the next request.
 _request_cache: ContextVar[dict[Any, Any] | None] = ContextVar("skeleton_request_cache", default=None)
-_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor", "external")
+# ``system`` (#576): ``on`` only inside a system context; the guard of a global app table reads it.
+_GUCS = ("user_id", "tenant_id", "request_id", "source", "platform_admin", "platform_auditor", "external", "system")
 # One statement per context entry (#237); the names are constants, the values parameters.
 _SET_GUCS = "SELECT " + ", ".join(f"set_config('skeleton.{name}', %s, true)" for name in _GUCS)
 
@@ -87,6 +88,7 @@ def _apply(context: Context) -> None:
             "on" if context.platform_admin else "off",
             "on" if context.platform_auditor else "off",
             "on" if context.external else "off",
+            "on" if context.system else "off",
         )
         assert len(values) == len(_GUCS)  # noqa: S101 - invariant between the GUC list and its values
         with connection.cursor() as cursor:
@@ -317,6 +319,29 @@ def system_context(*, reason: str, organization_id: IdentityRef = None, using: s
             yield active
     finally:
         _selected.reset(selected_token)
+
+
+# Prefix of the reason of every command_context; the audit shows ``system:command:<reason>``.
+COMMAND_REASON_PREFIX = "command:"
+
+
+@contextmanager
+def command_context(*, reason: str, using: str = "default") -> Iterator[Context]:
+    """The system context of an app's management command (#576), the only public way to open one.
+
+    It is how an operator command writes the app's global tables (``SystemRecord``, scope
+    ``global``), which refuse any write outside a system context without organization. It opens
+    only at the top of a unit of work: inside a request, tenant, system, job or event consumer
+    context it is refused, so a view, a service or a consumer cannot use it to widen its access.
+    The import boundary (E019) also accepts it only in ``management/commands/`` of the app. The
+    writes are audited by the table triggers with ``source=system:command:<reason>``.
+    """
+    if not isinstance(reason, str) or not reason.strip():
+        raise InvalidContext("A command context requires a reason.")
+    if _context.get() is not None:
+        raise InvalidContext("A command context opens only at the top of a management command.")
+    with system_context(reason=COMMAND_REASON_PREFIX + reason.strip(), using=using) as active:
+        yield active
 
 
 def refresh_authenticated_actor(user: Any) -> None:

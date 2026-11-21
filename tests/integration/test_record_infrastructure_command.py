@@ -48,17 +48,22 @@ def test_write_creates_new_valid_migration_for_model_without_infrastructure(
     package = tmp_path / "sk_record_infra_probe"
     package.mkdir()
     (package / "__init__.py").write_text("")
-    # Same schema as the Notes migration, but without its infrastructure operation.
+    # Same schema as the Notes migration, but without its infrastructure operation; the global
+    # category catalog (#576) keeps its own frozen infrastructure, so only the note is missing.
     initial = package / "0001_initial.py"
     initial.write_text(
         "from importlib import import_module\n"
         "from django.db import migrations\n"
         "from skeleton.common.migration_operations import InstallRecordInfrastructure\n"
         "_original = import_module('examples.notes.migrations.0001_initial').Migration\n"
+        "_catalog = import_module('examples.notes.migrations.0003_note_category').Migration\n"
         "class Migration(migrations.Migration):\n"
         "    initial = True\n"
         "    dependencies = _original.dependencies\n"
-        "    operations = [op for op in _original.operations if not isinstance(op, InstallRecordInfrastructure)]\n"
+        "    operations = [\n"
+        "        *(op for op in _original.operations if not isinstance(op, InstallRecordInfrastructure)),\n"
+        "        *_catalog.operations,\n"
+        "    ]\n"
     )
     original_initial = initial.read_bytes()
     monkeypatch.syspath_prepend(str(tmp_path))
