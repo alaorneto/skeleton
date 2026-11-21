@@ -1122,11 +1122,12 @@ class LedgerService(ServiceAPI):
             rows = rows.filter(due_date__lte=due_until)
         return paginate(rows.order_by("due_date", "sysid"), convert=title_info, page_size=page_size, cursor=cursor)
 
-    @service_method(read_only=True, since="0.1.0")
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def titles_for_source(self, *, actor: Any, table_key: str, record_id: UUID) -> tuple[TitleInfo, ...]:
         """Titles of one source record (at most 200): whoever reads the source knows its counterparty.
 
-        Autorização: leitura do registro de origem.
+        Autorização: leitura do registro de origem; ``actor=None`` só em ``system_context``, com o
+        registro vivo na organização do contexto (desde 0.2.0, #577).
         Erros: NotFound; InvalidInput.
         Efeitos: nenhum.
         """
@@ -1136,21 +1137,23 @@ class LedgerService(ServiceAPI):
         )[:200]
         return tuple(title_info(row) for row in rows)
 
-    @service_method(read_only=True, since="0.1.0")
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def title(self, *, actor: Any, title_id: UUID) -> TitleInfo:
-        """One title, for its page.
+        """One title, for its page, or for the revision that ``cancel_title`` and ``settle_title`` need.
 
-        Autorização: leitura do livro, ou do registro de origem quando há origem.
+        Autorização: leitura do livro, ou do registro de origem quando há origem; ``actor=None`` só
+        em ``system_context``, como nas escritas do título (desde 0.2.0, #577).
         Erros: NotFound para inexistente, ilegível ou de outra organização.
         Efeitos: nenhum.
         """
         return title_info(_title_to_read(actor, title_id))
 
-    @service_method(read_only=True, since="0.1.0")
+    @service_method(read_only=True, since="0.1.0", allow_system=True)
     def settlements(self, *, actor: Any, title_id: UUID) -> tuple[SettlementInfo, ...]:
         """Settlements of a title, oldest first.
 
-        Autorização: leitura do livro do título, ou do registro de origem dele.
+        Autorização: leitura do livro do título, ou do registro de origem dele; ``actor=None`` só em
+        ``system_context``, como nas escritas do título (desde 0.2.0, #577).
         Erros: NotFound.
         Efeitos: nenhum.
         """
@@ -1994,11 +1997,18 @@ def _title_to_change(actor: Any, title_id: Any) -> Title:
 
 
 def _title_to_read(actor: Any, title_id: Any) -> Title:
+    """A title the actor reads; in ``system_context`` (``actor=None``) the same rule as ``_title_to_change``."""
     from skeleton.service_api import NotFound
 
     title = Title.objects.select_related("book").filter(pk=_uuid(title_id, "title_id")).first()
     if title is None:
         raise NotFound()
+    if actor is None:
+        # System reads mirror the system writes (#577): the tenant's own title, and with a source
+        # only while the source record is alive in the organization.
+        if title.source_table and title.source_id is not None:
+            _authorize_source(None, title.source_table, title.source_id, "read")
+        return title
     if title.source_table and title.source_id is not None:
         try:
             _authorize_source(actor, title.source_table, title.source_id, "read")

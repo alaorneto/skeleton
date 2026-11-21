@@ -26,12 +26,14 @@ class SequenceNumber:
 class SequenceService(ServiceAPI):
     """Sequences stay declared by each app; only the owning app draws numbers from its own."""
 
-    @service_method(read_only=False, since="0.1.0")
-    def next_number(self, *, actor: AbstractBaseUser, key: str, at: datetime | None = None) -> SequenceNumber:
+    @service_method(read_only=False, since="0.1.0", allow_system=True)
+    def next_number(self, *, actor: AbstractBaseUser | None, key: str, at: datetime | None = None) -> SequenceNumber:
         """The next number of ``key`` in the actor's organization and the period of ``at`` (now).
 
         Autorização: a app chamadora precisa ser a dona da sequência (``owner_app``); o número é da
-        organização do contexto, sem leitura de registros.
+        organização do contexto, sem leitura de registros. ``actor=None`` só em ``system_context``
+        com organização (o de um consumidor de evento ou de um job por organização, desde 0.2.0,
+        #577); a regra da app dona vale igual.
         Erros: Forbidden para sequência de outra app; InvalidInput para sequência não declarada ou
         data sem fuso.
         Efeitos: incrementa o contador na transação do chamador; o rollback dela devolve o número,
