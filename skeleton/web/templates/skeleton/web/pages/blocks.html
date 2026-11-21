@@ -1,0 +1,4 @@
+{% comment %}
+Blocos de uma página configurável (#619). Cada bloco já foi validado por
+skeleton.common.page_blocks.validate_page; todo texto sai com autoescape, sem HTML nem Markdown.
+{% endcomment %}<div class="page-blocks space-y-6">{% for block in blocks %}{% with template_name="skeleton/web/pages/block-"|add:block.type|add:".html" %}{% include template_name %}{% endwith %}{% endfor %}</div>

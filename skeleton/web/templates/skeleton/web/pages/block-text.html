@@ -1,0 +1,4 @@
+<section class="card">
+  {% if block.heading %}<h2 class="section-heading">{{ block.heading }}</h2>{% endif %}
+  <div class="space-y-3 text-sm/6 text-body break-words [overflow-wrap:anywhere]">{{ block.body|linebreaks }}</div>
+</section>

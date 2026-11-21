@@ -219,6 +219,35 @@ Todo texto visível passa pelo gettext ([#172](https://github.com/alaorneto/skel
 - Envio duplo: `site.js` ignora um segundo envio do mesmo formulário POST até a página mudar e marca os botões com `aria-disabled` (nunca `disabled`, que perderia o `name`/`value` do botão clicado); voltar pelo navegador (`pageshow`) reabilita. Um formulário que responde com arquivo na mesma página usa `data-allow-resubmit` (#474).
 - Até 600 px o renderer usa uma coluna e não há rolagem horizontal da página; acima disso vale a grade de 12 colunas (`field-span-1..12`), gerada fora do scanner porque vem do manifesto.
 
+## Páginas em blocos
+
+As páginas que o administrador configura (a página inicial pública da plataforma, a página pública e o início interno da organização; epic [#618](https://github.com/alaorneto/skeleton/issues/618)) são um documento JSON versionado de **blocos estruturados de texto simples** ([#619](https://github.com/alaorneto/skeleton/issues/619)). Não há HTML, Markdown, imagem enviada nem estilo por bloco: todo valor sai com autoescape.
+
+```json
+{"version": 1, "blocks": [
+  {"type": "hero", "title": "Empresa Exemplo", "subtitle": "Atendimento de segunda a sexta", "login_button": true},
+  {"type": "text", "heading": "Quem somos", "body": "Parágrafo um.\n\nParágrafo dois."},
+  {"type": "links", "heading": "Links", "items": [{"label": "Blog", "url": "https://exemplo.test/blog"}]}
+]}
+```
+
+`skeleton.common.page_blocks.validate_page(document, *, kind, known_widgets=frozenset())` é a única porta: devolve o documento normalizado (texto com `strip`, campos ausentes preenchidos com o padrão) ou levanta `ValidationError` com uma mensagem por bloco e campo (chaves `blocks.<i>.<campo>` e `blocks.<i>.items.<j>.<campo>`, a partir de 0). O módulo é puro (regra R1) e exporta `PAGE_KINDS`, `BLOCK_TYPES` (por tipo de página), `FIELDS` (os campos de cada tipo, que o editor lê), `EMPTY_PAGE` e `PageState(document, published, revision)`. Com `allow_empty=True`, a validação aceita um documento sem blocos, o de uma página ainda não publicada.
+
+| Tipo | Campos (com `strip`; limites em caracteres) | Vale em |
+|---|---|---|
+| `hero` | `title` 1–120 obrigatório; `subtitle` 0–300; `login_button` (padrão `true`, leva ao login) | `platform_home`, `organization_public` |
+| `text` | `heading` 0–120; `body` 1–4000 (parágrafos separados por linha em branco) | todos |
+| `contact` | `email` 0–254 (e-mail válido); `phone` 0–40 (só números, espaço e `+ ( ) - .`); `address` 0–300; `hours` 0–300; ao menos um preenchido | todos |
+| `links` | `heading` 0–120; `items` de 1 a 10 `{label 1–60, url}`; `url` é `https://…` (até 500) ou caminho local que começa com `/`, sem `//`, `\`, espaço nem caractere de controle | todos |
+| `apps`, `tasks`, `notifications` | `heading` 0–120 | `organization_home` |
+| `widget` | `name`, um [quadro registrado por uma app](extending.md#quadros-do-painel-da-organização) | `organization_home` |
+
+Também: `version` igual a 1; de 1 a 20 blocos; até 32 768 bytes UTF-8 serializado; chave ou tipo desconhecido recusado; tipo fora da página recusado; caractere de controle recusado (exceto a quebra de linha em `body`, `address` e `hours`).
+
+**Renderização.** `skeleton/web/templates/skeleton/web/pages/blocks.html` inclui `block-<tipo>.html` para cada bloco. Todo texto passa pelo autoescape (`body|linebreaks`); link externo leva `rel="noopener noreferrer"`; nenhum template de página tem `style`, `script`, `|safe` ou atributo de evento (`tests/unit/test_page_templates.py`). O botão do `hero` leva a `account_login`. `pages/public.html` é o leiaute de quem não entrou: a mesma base visual da entrada, com largura de conteúdo maior.
+
+**Editor.** `skeleton/web/page_editor.py` é o editor SSR compartilhado, sem JavaScript. Uma página concreta monta um `PageEditor` com o seu *store* (`load() -> PageState` e `save(document=, published=, expected_revision=)`, que valida), a autorização (os decoradores da view), o template base e a pré-visualização, e registra as rotas com `editor_urls(prefixo, nome, view)`: a lista dos blocos, `preview/`, `publish/`, `blocks/new/?type=…`, `blocks/<i>/`, `blocks/<i>/move/` e `blocks/<i>/delete/` (confirmação em GET, exclusão em POST). Toda mudança é um POST com CSRF e a revisão lida: revisão antiga responde 409 com "Esta página foi alterada por outra pessoa. Recarregue para ver a versão atual." sem gravar; erro de validação responde 400 com o `error-summary` e os erros no campo; campo de POST desconhecido responde 400. Os links ficam num `textarea`, uma linha `Rótulo | endereço` por item. A pré-visualização usa o mesmo template da página real.
+
 ## Django admin
 
 Não há tela do Django admin: toda a administração da plataforma usa views próprias em `/platform/`, no mesmo shell, componentes e tokens do site. O Django admin não é usado: `django.contrib.admin` fica instalado só como dependência técnica (modelo `LogEntry` e migrations históricas que concedem privilégios em `django_admin_log`), via `SimpleAdminConfig`, sem autodiscover, site ou rota; `/admin/…` responde 404.

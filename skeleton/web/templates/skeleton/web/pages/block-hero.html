@@ -1,0 +1,5 @@
+{% load i18n %}<section class="card px-6 py-10 text-center sm:px-10 sm:py-14">
+  {% if forloop.first %}<h1 class="text-3xl font-semibold tracking-tight text-heading sm:text-4xl">{{ block.title }}</h1>{% else %}<h2 class="text-2xl font-semibold tracking-tight text-heading">{{ block.title }}</h2>{% endif %}
+  {% if block.subtitle %}<p class="mx-auto mt-3 max-w-2xl text-base/7 text-body-subtle">{{ block.subtitle }}</p>{% endif %}
+  {% if block.login_button %}<p class="mt-6"><a class="btn btn-primary" href="{% url 'account_login' %}">{% include "skeleton/web/components/icon.html" with name="login" %}{% translate "Entrar" %}</a></p>{% endif %}
+</section>

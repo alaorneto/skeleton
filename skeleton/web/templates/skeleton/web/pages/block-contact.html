@@ -1,0 +1,9 @@
+{% load i18n %}<section class="card">
+  <h2 class="section-heading">{% translate "Contato" %}</h2>
+  <dl class="meta-list">
+    {% if block.email %}<div><dt>{% translate "E-mail" %}</dt><dd><a href="mailto:{{ block.email }}">{{ block.email }}</a></dd></div>{% endif %}
+    {% if block.phone %}<div><dt>{% translate "Telefone" %}</dt><dd>{{ block.phone }}</dd></div>{% endif %}
+    {% if block.address %}<div><dt>{% translate "Endereço" %}</dt><dd>{{ block.address }}</dd></div>{% endif %}
+    {% if block.hours %}<div><dt>{% translate "Horário de atendimento" %}</dt><dd>{{ block.hours }}</dd></div>{% endif %}
+  </dl>
+</section>

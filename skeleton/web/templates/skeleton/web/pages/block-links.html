@@ -1,0 +1,6 @@
+{% load i18n %}<section class="card">
+  <h2 class="section-heading">{% firstof block.heading _("Links") %}</h2>
+  <ul class="space-y-2 text-sm/6">
+    {% for item in block.items %}<li>{% if item.url|first == "/" %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}<a class="inline-flex items-center gap-1" href="{{ item.url }}" rel="noopener noreferrer">{{ item.label }}{% include "skeleton/web/components/icon.html" with name="external" class="size-3.5" %}<span class="sr-only">{% translate "(outro site)" %}</span></a>{% endif %}</li>{% endfor %}
+  </ul>
+</section>

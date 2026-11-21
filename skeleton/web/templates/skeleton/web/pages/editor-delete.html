@@ -1,0 +1,12 @@
+{% extends base_template %}
+{% load i18n %}{% block title %}{% translate "Excluir bloco" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{{ editor.title }}</p><h1>{% blocktranslate trimmed %}Excluir o bloco {{ number }}{% endblocktranslate %}</h1>{% if block_summary %}<p class="page-description break-words">{{ block_label }}: {{ block_summary }}</p>{% else %}<p class="page-description">{{ block_label }}</p>{% endif %}</div></div>
+<form method="post" action="{{ delete_action }}" class="card">
+  {% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}">
+  <p class="confirmation">{% if state.published %}{% translate "O bloco sai da página publicada assim que for excluído." %}{% else %}{% translate "O bloco sai da página." %}{% endif %}</p>
+  <div class="form-actions"><button type="submit" class="btn btn-danger">{% translate "Excluir bloco" %}</button><a class="btn btn-secondary" href="{{ index_url }}">{% translate "Cancelar" %}</a></div>
+</form>
+</div>
+{% endblock %}
