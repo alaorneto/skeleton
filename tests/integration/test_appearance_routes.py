@@ -138,3 +138,48 @@ def test_the_global_csp_is_unchanged():
     policy = response[header]
     assert "default-src 'self'" in policy and "img-src 'self' data:" in policy and "font-src 'self'" in policy
     assert "'unsafe-inline'" not in policy
+
+
+# --------------------------------------------------------------------------- manifest and favicon (#639)
+
+
+def test_the_manifest_of_the_main_domain(storage, subtests):
+    import json
+
+    from skeleton.appearance.images import replace_image
+    from skeleton.appearance.services import activate_theme, current_brand, revision_of, update_brand
+    from skeleton.appearance.snapshot import reset_appearance_cache
+
+    client = Client()
+    with subtests.test(case="without a brand"):
+        response = client.get("/brand/manifest.webmanifest")
+        assert response.status_code == 200 and response["Content-Type"] == "application/manifest+json"
+        data = json.loads(response.content)
+        assert data["name"] == "Skeleton" and data["icons"][0]["type"] == "image/svg+xml"
+        assert "favicon.svg" in client.get("/favicon.ico")["Location"]
+    admin = platform_admin()
+    with acting(admin):
+        update_brand(actor=admin, data={"product_name": "Acme Nuvem"}, expected_revision=0)
+        replace_image(actor=admin, kind="icon", upload=upload(png()), expected_revision=1)
+        activate_theme(actor=admin, builtin="vinho", expected_revision=revision_of(current_brand()))
+    reset_appearance_cache()
+    with subtests.test(case="with name, colour and icon"):
+        data = json.loads(client.get("/brand/manifest.webmanifest").content)
+        assert data["name"] == "Acme Nuvem" and data["short_name"] == "Acme Nuvem"
+        assert data["theme_color"] == "#9f1239" and data["icons"][0]["src"].startswith("/brand/icon/?v=")
+        assert client.get("/favicon.ico")["Location"].startswith("/brand/icon/?v=")
+        assert (
+            '<link rel="manifest" href="/brand/manifest.webmanifest">'
+            in client.get("/accounts/login/").content.decode()
+        )
+
+
+@pytest.mark.needs_example_app
+def test_an_organization_host_keeps_its_own_manifest(sites):  # noqa: F811
+    from examples.notes.models import Note
+    from skeleton.testing.service_api import build_service_scenario
+
+    scenario = build_service_scenario(Note, slug="manifesthost")
+    enable_site(scenario, scenario.a, display_name="Acme")
+    client = Client(HTTP_HOST=host_of(scenario.a))
+    assert client.get("/brand/manifest.webmanifest").status_code == 404

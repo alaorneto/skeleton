@@ -215,6 +215,11 @@ def update_theme(*, actor: Any, theme_id: Any, data: dict[str, Any], expected_re
     values = clean_theme_values(data)
     with transaction.atomic():
         record = _locked_theme(theme_id, expected_revision)
+        if record.source == "package":
+            raise ValidationError(
+                gettext("Temas de pacote não são editados aqui; envie uma versão nova do pacote."),
+                code="package_read_only",
+            )
         changed = {name for name, value in values.items() if getattr(record, name) != value}
         if "name" in changed and InstanceTheme.objects.filter(name=values["name"]).exclude(pk=record.pk).exists():
             raise _name_taken()
@@ -276,7 +281,7 @@ def activate_theme(*, actor: Any, builtin: str = "", theme_id: Any = None, expec
 
 def active_theme_values() -> Any:
     """``ThemeValues`` of the active theme, or ``None`` for the core theme."""
-    from .themes import BUILTIN_THEMES, ThemeValues
+    from .themes import BUILTIN_THEMES
 
     brand = current_brand()
     if brand is None:
@@ -284,6 +289,9 @@ def active_theme_values() -> Any:
     if brand.active_theme_id:
         theme = get_theme(brand.active_theme_id)
         if theme is not None:
-            return ThemeValues(theme.name, theme.brand_color, theme.radius, theme.font, theme.custom_css)
+            from .assets import package_theme_values
+            from .snapshot import _public_font_url
+
+            return package_theme_values(theme, font_url=_public_font_url)
         return None
     return BUILTIN_THEMES.get(brand.builtin_theme) if brand.builtin_theme else None

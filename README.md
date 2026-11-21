@@ -12,6 +12,7 @@ Base reutilizável de Django 6.1 para construir sistemas com login, várias orga
 | Entender o vocabulário e as decisões | [Guia dos conceitos](docs/concepts.md), depois [arquitetura](docs/architecture.md) |
 | Criar uma app de negócio | [Extensão](docs/extending.md), [modelo de dados](docs/data-model.md), [controle de acesso](docs/access-control.md) e [API de serviços](docs/service-api.md) |
 | Fazer apps conversarem entre si ou usar notificações, identidade e outros serviços do núcleo | [API de serviços](docs/service-api.md) e o skill `service-api` |
+| Aplicar a marca e o tema da instância | [Criar e publicar um tema](docs/themes.md), [aparência](docs/appearance.md) e o skill `instance-theme` |
 | Integrar uma interface ou cliente HTTP | [API](docs/api.md) e [autenticação](docs/authentication-sso.md) |
 | Instalar, atualizar ou operar produção | [Deployment](docs/deployment.md), [manutenção](docs/maintenance.md), [guia de atualização](docs/updates.md) e [testes/evidências](docs/testing.md) |
 | Relatar uma falha de segurança | [Política de segurança](SECURITY.md): pelo relato privado do GitHub, nunca em issue pública |

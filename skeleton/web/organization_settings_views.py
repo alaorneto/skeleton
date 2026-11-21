@@ -327,12 +327,18 @@ def site_manifest(request):
 
 @require_safe
 def favicon(request):
-    """``/favicon.ico``: the organization's icon on its host, the core SVG everywhere else."""
+    """``/favicon.ico``: the organization's icon on its host, the instance icon on the main domain, else the core SVG."""
     from django.shortcuts import redirect as go
 
     site = getattr(request, "organization_site", None)
     if site is not None and site.icon_key:
         return go(site_icon_url(site))
+    if site is None:
+        from skeleton.appearance.snapshot import current_appearance
+
+        version = current_appearance().icon_version
+        if version:  # The icon of the instance (uploaded or from the active theme package, #639).
+            return go(f"/brand/icon/?v={version}")
     return go(_default_favicon())
 
 

@@ -1,8 +1,8 @@
-"""The global job ``appearance.orphans`` (#596): objects under ``platform/branding/`` nobody references.
+"""The global job ``appearance.orphans`` (#596, #635): objects under ``platform/branding/`` nobody references.
 
 An upload writes the bytes before its row commits; a rollback (or a crash between the two) leaves
 an object no row points to. Every six hours this job deletes the objects of the prefix that are
-none of the three current keys of the brand row and are older than the grace period of
+none of the three current keys of the brand row nor a file of a live theme package, and are older than the grace period of
 ``files.orphans`` (``skeleton.files.orphans.grace()``). It never lists or deletes ``org/…``.
 """
 
@@ -21,7 +21,8 @@ def orphan_keys(*, now: Any = None) -> list[str]:
     from skeleton.files.storage import list_prefix, private_storage
 
     from .images import is_image_key
-    from .models import InstanceBrand
+    from .models import InstanceBrand, InstanceTheme
+    from .packages import stored_files
 
     now = now or timezone.now()
     keys = [key for key in list_prefix("platform/branding/") if is_image_key(key)]
@@ -30,6 +31,8 @@ def orphan_keys(*, now: Any = None) -> list[str]:
     referenced = {
         key for row in InstanceBrand.objects.values_list("logo_key", "logo_dark_key", "icon_key") for key in row if key
     }
+    # The files of every live package theme (#635); a removed (soft deleted) theme protects nothing.
+    referenced |= {key for theme in InstanceTheme.objects.filter(source="package") for key in stored_files(theme)}
     storage = private_storage()
     orphans = []
     for key in keys:

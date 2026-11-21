@@ -100,3 +100,56 @@ def test_random_text_never_passes_with_a_forbidden_item():
             continue
         form = normalized(accepted)
         assert not any(item in form for item in FORBIDDEN), text
+
+
+# --------------------------------------------------------------------------- pure check and line (#631)
+
+PROBLEMS = [
+    ("a{}\n/* <style> */", ("markup", 2, "")),
+    (".a{\n  background: u\\72l(x)\n}", ("forbidden", 2, "url(")),
+    ("@im/**/port 'x';", ("forbidden", 1, "@import")),
+    ("a{\n}\n.b{c:d}\n@im/*\n*/port 'x';", ("forbidden", 4, "@import")),
+    ("a{", ("unbalanced", 1, "")),
+    ("a{}\n}", ("unbalanced", 2, "")),
+    ("a{b:c}\n\n/* sem fim", ("open_comment", 3, "")),
+    ('a{b:c}\n.x{content:"sem fim}', ("open_string", 2, "")),
+    ("a{b:c}\x00", ("markup", 1, "")),
+    (None, ("not_text", 0, "")),
+    ("a" * (MAX_BYTES + 1), ("too_large", 0, "")),
+    ("/* x */\n\n.a{background:url(x)}", ("forbidden", 3, "url(")),
+]
+
+
+def test_css_problem_names_the_rule_and_the_line(subtests):
+    from skeleton.appearance.css_validation import CssProblem, css_problem
+
+    for text, (code, line, item) in PROBLEMS:
+        with subtests.test(text=repr(text)[:40]):
+            assert css_problem(text) == CssProblem(code, line, item)
+
+
+def test_css_problem_accepts_what_validate_accepts(subtests):
+    from skeleton.appearance.css_validation import css_problem
+
+    for text in ACCEPTED + ["", "  \n"]:
+        with subtests.test(text=text):
+            assert css_problem(text) is None
+
+
+def test_the_message_names_the_line():
+    with pytest.raises(ValidationError) as error:
+        validate_custom_css("a{}\n/* <style> */")
+    message = error.value.message_dict["custom_css"][0]
+    assert message.startswith("Linha 2:")
+    assert "comentários" in message
+
+
+def test_the_pure_check_does_not_import_django():
+    import os
+    import subprocess
+    import sys
+
+    environment = {key: value for key, value in os.environ.items() if key != "DJANGO_SETTINGS_MODULE"}
+    code = "import sys, skeleton.appearance.css_validation as c; c.css_problem('a{}'); print('django' in sys.modules)"
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=environment, check=True)
+    assert result.stdout.strip() == "False"

@@ -93,3 +93,41 @@ def test_every_builtin_theme_passes_the_colour_rule():
 def test_the_compiled_css_still_reads_the_brand_from_the_scale():
     css = SITE_CSS.read_text(encoding="utf-8")
     assert "--color-brand:var(--color-cobalt-600)" in css.replace(" ", "")
+
+
+# --------------------------------------------------------------------------- fonts of a package (#636)
+
+
+def test_fonts_become_font_faces_and_the_family_leads_the_stack():
+    from skeleton.appearance.themes import ThemeFont, ThemeValues, theme_css_tokens
+
+    font = ThemeFont("Aurora Sans", "100 900", "normal", "/brand/fonts/aurora.woff2?v=0123456789ab")
+    css = theme_css_tokens(ThemeValues("T", font_family="Aurora Sans", font="serif", fonts=(font,)))
+    assert css.startswith('@font-face{font-family:"Aurora Sans";src:url("/brand/fonts/aurora.woff2?v=0123456789ab")')
+    assert "font-weight:100 900;font-style:normal;font-display:swap}" in css
+    assert ':root{--font-sans:"Aurora Sans","Inter Variable",' in css and "ui-serif" not in css  # The family wins.
+
+
+def test_invalid_fonts_are_never_written(subtests):
+    from skeleton.appearance.themes import ThemeFont, ThemeValues, theme_css_tokens
+
+    good = "/brand/fonts/a.woff2?v=0123456789ab"
+    cases = [
+        ThemeFont('A"};body{x:y', "400", "normal", good),
+        ThemeFont("Aurora", "400", "normal", "https://evil.example/a.woff2"),
+        ThemeFont("Aurora", "400", "normal", '/a.woff2")}body{'),
+        ThemeFont("Aurora", "450", "normal", good),
+        ThemeFont("Aurora", "400", "oblique", good),
+    ]
+    for font in cases:
+        with subtests.test(font=font):
+            css = theme_css_tokens(ThemeValues("T", font_family=font.family, fonts=(font,)))
+            assert "@font-face" not in css and "--font-sans" not in css
+
+
+def test_without_fonts_the_css_is_the_same_as_before():
+    from skeleton.appearance.themes import BUILTIN_THEMES, ThemeValues, theme_css
+
+    for values in (*BUILTIN_THEMES.values(), ThemeValues("Mar", "#0f766e", "round", "system", ".a{}")):
+        assert "@font-face" not in theme_css(values)
+    assert theme_css(ThemeValues("X", font_family="Ninguém")) == ""  # A family without its font is ignored.

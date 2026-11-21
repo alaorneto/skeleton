@@ -10,11 +10,17 @@ emitted explicitly, lightened until they reach AA on the dark canvas.
 
 The generated part holds only ``#rrggbb`` values and the fixed radius and font literals; the
 free CSS of the theme (validated by ``css_validation``) is always appended last.
+
+A theme package (#636) may bring fonts: each one becomes an ``@font-face`` with a URL the caller
+builds (``/brand/fonts/<file>?v=<sha>``), and ``font_family`` puts that family in front of the
+core stack of ``--font-sans``. Families and URLs are checked again here, because this is the
+function that writes CSS; anything outside the pattern is left out, never written.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 
 LIGHT_STEPS = {50: 0.95, 100: 0.88, 200: 0.76, 300: 0.58, 400: 0.32, 500: 0.14}
@@ -27,6 +33,24 @@ FONT_TOKENS = {
     "system": '--font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif',
     "serif": '--font-sans:ui-serif,Georgia,Cambria,"Times New Roman",Times,serif',
 }
+# The core stack of frontend/src/tokens.css; a package family goes in front of it.
+CORE_FONT_STACK = (
+    '"Inter Variable",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,'
+    '"Noto Sans",sans-serif,"Apple Color Emoji","Segoe UI Emoji"'
+)
+_FAMILY = re.compile(r"[A-Za-z][A-Za-z0-9 -]{0,62}[A-Za-z0-9]")
+_FONT_URL = re.compile(r"/[A-Za-z0-9/_.-]+(\?v=[0-9a-f]{12})?")
+_WEIGHT = re.compile(r"[1-9]00( [1-9]00)?")
+
+
+@dataclass(frozen=True, slots=True)
+class ThemeFont:
+    """One font of a theme package; ``url`` is built by the caller (public route or preview)."""
+
+    family: str
+    weight: str
+    style: str
+    url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +62,8 @@ class ThemeValues:
     radius: str = "default"
     font: str = "inter"
     custom_css: str = ""
+    font_family: str = ""
+    fonts: tuple[ThemeFont, ...] = ()
 
 
 BUILTIN_THEMES: dict[str, ThemeValues] = {
@@ -82,8 +108,27 @@ def dark_tokens(color: str) -> dict[str, str]:
     }
 
 
+def _font_faces(fonts: tuple[ThemeFont, ...]) -> tuple[str, set[str]]:
+    """The ``@font-face`` rules of the valid fonts and the families they declare."""
+    rules, families = [], set()
+    for font in fonts:
+        if (
+            not _FAMILY.fullmatch(font.family)
+            or not _FONT_URL.fullmatch(font.url)
+            or not _WEIGHT.fullmatch(font.weight)
+            or font.style not in ("normal", "italic")
+        ):
+            continue
+        rules.append(
+            f'@font-face{{font-family:"{font.family}";src:url("{font.url}") format("woff2");'
+            f"font-weight:{font.weight};font-style:{font.style};font-display:swap}}"
+        )
+        families.add(font.family)
+    return "".join(rules), families
+
+
 def theme_css_tokens(values: ThemeValues) -> str:
-    """The generated part only (tokens), without the free CSS; ``""`` for the core theme."""
+    """The generated part only (tokens and fonts), without the free CSS; ``""`` for the core theme."""
     from skeleton.tenancy.branding import HEX
 
     light: list[str] = []
@@ -94,9 +139,12 @@ def theme_css_tokens(values: ThemeValues) -> str:
         dark = ";".join(f"{name}:{value}" for name, value in dark_tokens(color).items())
     if values.radius in RADIUS_TOKENS:
         light.append(RADIUS_TOKENS[values.radius])
-    if values.font in FONT_TOKENS:
+    faces, families = _font_faces(values.fonts)
+    if values.font_family and values.font_family in families:
+        light.append(f'--font-sans:"{values.font_family}",{CORE_FONT_STACK}')
+    elif values.font in FONT_TOKENS:
         light.append(FONT_TOKENS[values.font])
-    css = f":root{{{';'.join(light)}}}" if light else ""
+    css = faces + (f":root{{{';'.join(light)}}}" if light else "")
     if dark:
         css += f"@media (prefers-color-scheme: dark){{:root{{{dark}}}}}"
     return css

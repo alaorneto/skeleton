@@ -28,6 +28,11 @@ urlpatterns = [
     path("appearance/images/<slug:kind>/", appearance_views.appearance_image, name="appearance-image"),
     path("appearance/activate/", appearance_views.appearance_activate, name="appearance-activate"),
     path("appearance/themes/new/", appearance_views.appearance_theme_create, name="appearance-theme-create"),
+    path(
+        "appearance/packages/install/",
+        appearance_views.appearance_package_install,
+        name="appearance-package-install",
+    ),
     path("appearance/themes/<uuid:sysid>/", appearance_views.appearance_theme, name="appearance-theme"),
     path(
         "appearance/themes/<uuid:sysid>/delete/",
@@ -43,6 +48,26 @@ urlpatterns = [
         "appearance/themes/<uuid:sysid>/preview.css",
         appearance_views.appearance_theme_preview_css,
         name="appearance-theme-preview-css",
+    ),
+    path(
+        "appearance/themes/<uuid:sysid>/preview/fonts/<str:name>",
+        appearance_views.appearance_theme_preview_font,
+        name="appearance-theme-preview-font",
+    ),
+    path(
+        "appearance/themes/<uuid:sysid>/preview/images/<slug:kind>/",
+        appearance_views.appearance_theme_preview_image,
+        name="appearance-theme-preview-image",
+    ),
+    path(
+        "appearance/themes/<uuid:sysid>/export/",
+        appearance_views.appearance_theme_export,
+        name="appearance-theme-export",
+    ),
+    path(
+        "appearance/builtin/<slug:slug>/export/",
+        appearance_views.appearance_builtin_export,
+        name="appearance-builtin-export",
     ),
     path(
         "appearance/builtin/<slug:slug>/preview/",

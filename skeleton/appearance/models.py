@@ -16,11 +16,17 @@ from skeleton.tenancy.models import BRAND_COLOR_PATTERN
 
 RADII = ("sharp", "default", "round")
 FONTS = ("inter", "system", "serif")
+SOURCES = ("form", "package")
 BRAND_SLOT = "instance"
 
 
 class InstanceTheme(SystemRecord):
-    """A named theme of the catalog; at most one theme (or one built-in) is active at a time."""
+    """A named theme of the catalog; at most one theme (or one built-in) is active at a time.
+
+    ``source="form"`` is a theme made in /platform/appearance/; ``source="package"`` was installed
+    from a theme package (#635): read-only for the form, updated by sending a newer version, and
+    its files (logos, icon, fonts) live in private storage under the keys of ``package_files``.
+    """
 
     name = models.CharField(max_length=80)
     # "" keeps the core colour; otherwise #rrggbb with AA contrast against white (validated by the service).
@@ -29,9 +35,40 @@ class InstanceTheme(SystemRecord):
     font = models.CharField(max_length=8, default="inter")
     # Up to 32 KiB, validated by skeleton.appearance.css_validation; never embedded in HTML.
     custom_css = models.TextField(blank=True, default="")
+    source = models.CharField(max_length=8, default="form")
+    package_id = models.CharField(max_length=128, blank=True, default="")
+    package_version = models.CharField(max_length=64, blank=True, default="")
+    package_digest = models.CharField(max_length=64, blank=True, default="")  # content_digest of the reader.
+    package_manifest = models.JSONField(default=dict, blank=True)  # The validated theme.json, never bytes.
+    # Private storage keys platform/branding/<uuid4> of the package files: sensitive, redacted in the audit.
+    package_files = models.JSONField(default=dict, blank=True)
+    font_family = models.CharField(max_length=64, blank=True, default="")
+    product_name = models.CharField(max_length=60, blank=True, default="")
+    footer_text = models.CharField(max_length=160, blank=True, default="")
 
     class Meta(SystemRecord.Meta):
         constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("package_id",),
+                condition=Q(deleted_at__isnull=True, source="package"),
+                name="sk_appearance_theme_package_live",
+                violation_error_code="unique",
+            ),
+            models.CheckConstraint(condition=Q(source__in=SOURCES), name="sk_appearance_theme_source"),
+            models.CheckConstraint(
+                condition=Q(source="package")
+                | Q(
+                    package_id="",
+                    package_version="",
+                    package_digest="",
+                    font_family="",
+                    product_name="",
+                    footer_text="",
+                    package_files={},
+                    package_manifest={},
+                ),
+                name="sk_appearance_theme_form_has_no_package",
+            ),
             models.UniqueConstraint(
                 fields=("name",),
                 condition=Q(deleted_at__isnull=True),

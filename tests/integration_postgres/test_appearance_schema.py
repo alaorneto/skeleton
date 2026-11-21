@@ -41,3 +41,26 @@ def test_the_guard_refuses_a_new_identity_and_a_skipped_revision(pristine):
 def test_missing_trigger_fails_schema_check(pristine, table, kind):
     _owner_execute("DROP TRIGGER {} ON skeleton.{}", f"{table}_sk_{kind}", table)
     assert any(table in error for error in check_deployed_schema())
+
+
+def test_package_columns_and_constraints(pristine, subtests):
+    """#635: a form theme has no package fields, and one live row per package id (model or database)."""
+    from django.core.exceptions import ValidationError
+
+    REFUSED = (DatabaseError, ValidationError)
+    from skeleton.appearance.models import InstanceTheme
+    from tests.integration.appearance_support import acting, platform_admin
+
+    admin = platform_admin()
+    with acting(admin):
+        with subtests.test(case="form theme with a package id"):
+            with pytest.raises(REFUSED), transaction.atomic():
+                InstanceTheme.objects.create(name="Forma", package_id="org.x")
+        with subtests.test(case="unknown source"):
+            with pytest.raises(REFUSED), transaction.atomic():
+                InstanceTheme.objects.create(name="Fonte", source="zip")
+        with subtests.test(case="two live rows of one package"):
+            InstanceTheme.objects.create(name="Um", source="package", package_id="org.x")
+            with pytest.raises(REFUSED), transaction.atomic():
+                InstanceTheme.objects.create(name="Dois", source="package", package_id="org.x")
+    assert check_deployed_schema() == []
