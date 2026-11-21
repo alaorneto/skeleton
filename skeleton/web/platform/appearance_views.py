@@ -33,6 +33,7 @@ __all__ = [
     "appearance_activate",
     "appearance_brand",
     "appearance_home",
+    "appearance_builtin_export",
     "appearance_builtin_preview",
     "appearance_builtin_preview_css",
     "appearance_image",
@@ -40,6 +41,7 @@ __all__ = [
     "appearance_theme",
     "appearance_theme_create",
     "appearance_theme_delete",
+    "appearance_theme_export",
     "appearance_theme_preview",
     "appearance_theme_preview_css",
     "appearance_theme_preview_font",
@@ -629,3 +631,51 @@ def appearance_home(request, operation, index=None):
 
     # Each write logs appearance.home_page_changed (without the content) in save_home_page.
     return dispatch(request, home_page_editor(request), operation, index=index)
+
+
+# --------------------------------------------------------------------------- export (#638)
+
+
+def _export(request, *, name, builtin="", theme_id=None):
+    """GET shows the choice; POST answers the zip (POST so a third-party link never downloads the brand)."""
+    from django.http import HttpResponse
+
+    from skeleton.appearance.export import export_theme_package
+
+    context = {"platform_section": "appearance", "theme_name": name, "cancel_url": reverse("platform:appearance")}
+    if request.method != "POST":
+        return render(request, "skeleton/web/platform/appearance/export.html", context)
+    if _unknown_fields(request, {"include_brand"}):
+        return HttpResponseBadRequest(gettext("Campo não permitido."))
+    try:
+        filename, data = export_theme_package(
+            actor=request.user,
+            builtin=builtin,
+            theme_id=theme_id,
+            include_brand=request.POST.get("include_brand") == "on",
+        )
+    except ValidationError as error:
+        context["error"] = " ".join(error.messages)
+        return render(request, "skeleton/web/platform/appearance/export.html", context, status=400)
+    _log("appearance.theme_exported", request, "builtin" if builtin else "theme")
+    response = HttpResponse(data, content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@platform_page
+@require_http_methods(["GET", "HEAD", "POST"])
+@recent_authentication_required(allow_get=True)
+def appearance_theme_export(request, sysid):
+    theme = _theme_or_404(sysid)
+    return _export(request, name=theme.name, theme_id=theme.pk)
+
+
+@platform_page
+@require_http_methods(["GET", "HEAD", "POST"])
+@recent_authentication_required(allow_get=True)
+def appearance_builtin_export(request, slug):
+    values = _builtin_or_404(slug)
+    return _export(request, name=values.name, builtin=slug)

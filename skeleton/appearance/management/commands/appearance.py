@@ -9,6 +9,7 @@
   a deterministic zip. They never open the database.
 - ``install-package``, ``remove-package`` and ``list-themes`` (#637) are the operator's side:
   idempotent, for automated deployment, each in a ``system_context`` with its reason.
+- ``export-theme`` (#638) writes any theme of the catalog as a package zip.
 """
 
 import os
@@ -41,6 +42,14 @@ class Command(BaseCommand):
         remove = actions.add_parser("remove-package", help="Remove um pacote de tema instalado.")
         remove.add_argument("package_id")
         actions.add_parser("list-themes", help="Lista os temas do catálogo.")
+        export = actions.add_parser("export-theme", help="Exporta um tema do catálogo como pacote (.zip).")
+        which = export.add_mutually_exclusive_group(required=True)
+        which.add_argument("--builtin")
+        which.add_argument("--theme")
+        which.add_argument("--package-id")
+        export.add_argument("--output", required=True)
+        export.add_argument("--include-brand", action="store_true")
+        export.add_argument("--force", action="store_true")
 
     def handle(self, *args, **options):
         action = options["action"]
@@ -56,6 +65,8 @@ class Command(BaseCommand):
             return self._remove_package(options["package_id"])
         if action == "list-themes":
             return self._list_themes()
+        if action == "export-theme":
+            return self._export_theme(options)
         return self._show()
 
     # ----------------------------------------------------------------------- brand
@@ -179,14 +190,7 @@ class Command(BaseCommand):
         if read_theme_archive(data).content_digest != package.content_digest:  # Defence against a build bug.
             raise CommandError("O zip montado não confere com o diretório.")
         target.parent.mkdir(parents=True, exist_ok=True)
-        handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".theme-", suffix=".zip")
-        try:
-            with os.fdopen(handle, "wb") as stream:
-                stream.write(data)
-            os.replace(temporary, target)
-        except BaseException:
-            Path(temporary).unlink(missing_ok=True)
-            raise
+        _write_atomically(target, data)
         self.stdout.write(f"{target} · {len(data)} bytes · {package.content_digest}")
         self.stdout.write(self.style.SUCCESS("Pacote montado."))
 
@@ -259,3 +263,49 @@ class Command(BaseCommand):
             else:
                 lines.append(f"personalizado · {theme.name}{active}")
         self.stdout.write("\n".join(lines))
+
+    def _export_theme(self, options):
+        from django.core.exceptions import ValidationError
+
+        from skeleton.appearance.export import export_theme_package
+        from skeleton.appearance.models import InstanceTheme
+        from skeleton.appearance.package_format import read_theme_archive
+        from skeleton.tenancy.context import system_context
+
+        target = Path(options["output"])
+        if target.exists() and not options["force"]:
+            raise CommandError(f"{options['output']} já existe; use --force para substituir.")
+        with system_context(reason="appearance.export_theme"):
+            theme_id = options["theme"]
+            if options["package_id"]:
+                found = InstanceTheme.objects.filter(source="package", package_id=options["package_id"]).first()
+                if found is None:
+                    raise CommandError(f"Nenhum pacote instalado com o id {options['package_id']}.")
+                theme_id = found.pk
+            try:
+                _name, data = export_theme_package(
+                    actor=None,
+                    builtin=options["builtin"] or "",
+                    theme_id=theme_id,
+                    include_brand=options["include_brand"],
+                )
+            except ValidationError as error:
+                raise CommandError(" ".join(error.messages)) from error
+        package = read_theme_archive(data)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _write_atomically(target, data)
+        if package.id.startswith("local.theme."):
+            self.stdout.write(f"Id local {package.id}: troque-o no theme.json antes de publicar.")
+        self.stdout.write(f"{target} · {len(data)} bytes · {package.content_digest}")
+        self.stdout.write(self.style.SUCCESS("Tema exportado."))
+
+
+def _write_atomically(target, data):
+    handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".theme-", suffix=".zip")
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise

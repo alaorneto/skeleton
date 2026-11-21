@@ -60,6 +60,16 @@ urlpatterns = [
         name="appearance-theme-preview-image",
     ),
     path(
+        "appearance/themes/<uuid:sysid>/export/",
+        appearance_views.appearance_theme_export,
+        name="appearance-theme-export",
+    ),
+    path(
+        "appearance/builtin/<slug:slug>/export/",
+        appearance_views.appearance_builtin_export,
+        name="appearance-builtin-export",
+    ),
+    path(
         "appearance/builtin/<slug:slug>/preview/",
         appearance_views.appearance_builtin_preview,
         name="appearance-builtin-preview",

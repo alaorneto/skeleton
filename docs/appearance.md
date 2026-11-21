@@ -158,6 +158,17 @@ Pacote válido.
 
 Com erro, sai com 1 e diz o código, o arquivo e a linha: `ERRO css: theme.css: Linha 3: o CSS não pode conter < nem caracteres nulos, nem em comentários.`. `build-package` confere o diretório do mesmo jeito e grava um zip determinístico (só os arquivos usados, `README.md` e `LICENSES/`, em ordem, com data e modo fixos): o mesmo diretório gera sempre os mesmos bytes, e o zip é relido para conferir o digest antes de ser gravado (de forma atômica; `--force` substitui um arquivo existente). As mensagens em português de cada código ficam em `skeleton/appearance/package_messages.py`, usadas também pela tela. Exporte o logo do editor como "SVG simples" ou "SVG otimizado". O SVG só aparece em `<img>` e é servido com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` e `nosniff`.
 
+### Exportar um tema
+
+Qualquer tema do catálogo (núcleo, pronto, personalizado ou pacote) pode ser baixado como pacote, no mesmo formato que a instalação aceita (#638): para levar a outra instância ou guardar no repositório do projeto. Na tela, "Exportar" abre uma página com a caixa "Incluir a marca da instância" e o botão "Baixar pacote" (POST com CSRF e autenticação recente, resposta `application/zip` com `Cache-Control: private, no-store`); no console:
+
+```sh
+python manage.py appearance export-theme --builtin esmeralda --output esmeralda.zip
+python manage.py appearance export-theme --package-id org.example.theme.aurora --output aurora.zip --include-brand
+```
+
+Um tema de pacote volta com o `theme.json` e os arquivos instalados (sem a marca, com o mesmo `content_digest`). Um tema de formulário ou pronto recebe o id local `local.theme.<slug>`, a versão `1.0.0` e a linha atual do núcleo como compatibilidade: troque o `id` antes de publicar. Com a marca, o nome, o rodapé e as imagens enviadas pelo administrador entram no pacote e vencem as do tema (o logo escuro acompanha a origem do logo). O zip é relido antes de ser entregue: um tema que a instalação recusaria hoje não é exportado.
+
 ## Rotas públicas
 
 | Rota | Resposta |
