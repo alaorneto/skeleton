@@ -207,6 +207,13 @@
       @apply text-body-subtle;
     }
   }
+  /* Busca global no cabeçalho (#584): só dentro de uma organização com tabela marcada. */
+  .header-search {
+    @apply flex items-center gap-2 max-md:px-3 max-md:py-2;
+    & input {
+      @apply min-w-0 flex-1 py-1.5 text-sm/5 md:w-48;
+    }
+  }
   .header-link[aria-current] {
     @apply bg-brand-softer text-fg-brand md:border-brand-subtle md:bg-brand-softer;
     & svg {

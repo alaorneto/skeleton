@@ -25,6 +25,7 @@ JavaScript) as mesmas listas aparecem empilhadas dentro do menu principal.
 </div>
 {% endif %}
 <div class="header-end">
+  {% if global_search_url %}<form class="header-search" method="get" action="{{ global_search_url }}" role="search"><label class="sr-only" for="header-search-q">{% translate "Buscar na organização" %}</label><input id="header-search-q" type="search" name="q" minlength="2" maxlength="200" required placeholder="{% translate "Buscar" %}"><button type="submit" class="btn btn-secondary btn-sm">{% include "skeleton/web/components/icon.html" with name="search" class="size-4" %}<span class="sr-only">{% translate "Buscar" %}</span></button></form>{% endif %}
   {% if site_mode %}{% url 'notifications:organization' organization_site.organization_id as notifications_url %}{% else %}{% url 'notifications:global' as notifications_url %}{% endif %}
   <a class="header-link" href="{{ notifications_url }}"{% if request.path == notifications_url %} aria-current="page"{% endif %}>{% include "skeleton/web/components/icon.html" with name="envelope" class="size-4" %}<span>{% translate "Notificações" %}</span>{% if notifications_unread %} <span class="badge badge-brand" aria-label="{{ notifications_unread }} {% translate "não lidas" %}">{{ notifications_label }}</span>{% endif %}</a>
   {% if site_mode %}{% url 'flows:tasks' organization_site.organization_id as flow_tasks_url %}{% else %}{% url 'flows:global-tasks' as flow_tasks_url %}{% endif %}

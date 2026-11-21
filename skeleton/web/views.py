@@ -556,6 +556,50 @@ def catalog(request, organization_id):
 
 
 @tenant_page()
+@require_http_methods(["GET"])
+def global_search(request, organization_id):
+    """Search page: the groups of ``skeleton.records.search.global_search`` as links (#584)."""
+    from urllib.parse import urlencode
+
+    from skeleton.records.search import global_search as run_search
+    from skeleton.records.search import parse_request
+
+    context = {
+        "title": gettext("Busca"),
+        "organization_id": organization_id,
+        "term": request.GET.get("q", ""),
+        "searched": False,
+        "error": "",
+        "groups": [],
+    }
+    if not request.GET:
+        return render(request, "skeleton/web/search.html", context)
+    try:
+        term, limit = parse_request(request.GET)
+        found = run_search(user=request.user, term=term, limit=limit)
+    except ValidationError:
+        context["error"] = gettext("Use de 2 a 200 caracteres.")
+        return render(request, "skeleton/web/search.html", context, status=400)
+    groups = []
+    for group in found:
+        route = {"organization_id": organization_id, "table_key": group.table_key}
+        groups.append(
+            {
+                "label": group.label,
+                "hits": [
+                    {"label": hit.label, "url": reverse("web:record", kwargs={**route, "sysid": hit.sysid})}
+                    for hit in group.hits
+                ],
+                "more_url": reverse("web:records", kwargs=route) + "?" + urlencode({"q": term})
+                if group.has_more
+                else "",
+            }
+        )
+    context.update(term=term, searched=True, groups=groups)
+    return render(request, "skeleton/web/search.html", context)
+
+
+@tenant_page()
 def audit(request, organization_id):
     from skeleton.access.policies import is_organization_admin
     from skeleton.audit.filters import operation_choices, parse_audit_filters

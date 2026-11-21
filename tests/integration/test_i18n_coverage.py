@@ -169,6 +169,8 @@ def test_organization_pages_are_translated(scenario, pseudo):
     pages = [
         reverse("web:dashboard", kwargs={"organization_id": organization}),
         reverse("web:catalog", kwargs={"organization_id": organization}),
+        reverse("web:search", kwargs={"organization_id": organization}),
+        reverse("web:search", kwargs={"organization_id": organization}) + "?q=contr",
         reverse("web:audit", kwargs={"organization_id": organization}),
         reverse("web:organization-settings", kwargs={"organization_id": organization}),
         reverse("application-list", kwargs={"organization_id": organization}),

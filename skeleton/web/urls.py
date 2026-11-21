@@ -99,6 +99,7 @@ urlpatterns = [
         name="site-domain-action",
     ),
     path(f"{ORG}catalog/", views.catalog, name="catalog"),
+    path(f"{ORG}search/", views.global_search, name="search"),
     path(f"{ORG}audit/", views.audit, name="audit"),
     path(f"{ORG}invitations/<uuid:sysid>/resend/", resend, name="invitation-resend"),
     path(f"{ORG}access/<str:resource>/", views.access_list, name="access-list"),
