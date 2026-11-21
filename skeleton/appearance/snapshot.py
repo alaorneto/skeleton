@@ -128,7 +128,8 @@ def _load() -> Appearance:
     by_name = {ref.name: ref for ref in assets}
     css = theme_css(values) if values is not None else ""
     tokens = theme_css_tokens(values) if values is not None else ""
-    logo = dict(source="", version="", dark="", mime="")
+    # Without any logo the dark version keeps the uploaded one, as before #636 (its URL only exists with a logo).
+    logo = dict(source="", version="", dark=_version(brand.logo_dark_key), mime="")
     if brand.logo_key:
         logo.update(source="brand", version=_version(brand.logo_key), dark=_version(brand.logo_dark_key))
     elif "logo" in by_name:
