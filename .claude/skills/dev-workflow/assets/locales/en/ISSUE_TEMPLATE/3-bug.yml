@@ -1,0 +1,125 @@
+name: Bug
+description: "Incorrect behavior, regression or an existing security flaw."
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, personal data or exploitation steps beyond what is needed.
+        Fill in every section; write "Not applicable — reason" when that is the case. Flow: dev-workflow skill.
+  - type: textarea
+    id: observado
+    attributes:
+      label: "Observed behavior"
+      description: "What happens: message, URL, HTTP status, redacted log."
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: "Expected behavior"
+      description: "What should happen and where that is documented."
+    validations:
+      required: true
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: "Steps to reproduce"
+      description: "Minimal steps."
+      placeholder: |
+        1. 
+    validations:
+      required: true
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: "Environment"
+      description: "Branch/commit, project version, system, browser, configuration."
+    validations:
+      required: true
+  - type: textarea
+    id: causa
+    attributes:
+      label: "Probable cause"
+      description: "Diagnosis, if known."
+      placeholder: |
+        To be investigated
+    validations:
+      required: false
+  - type: textarea
+    id: escopo
+    attributes:
+      label: "Scope"
+      description: "What is in and what is out (and where it will be handled)."
+      placeholder: |
+        **Includes**
+        - 
+        
+        **Out of scope**
+        - 
+    validations:
+      required: true
+  - type: textarea
+    id: abordagem
+    attributes:
+      label: "Technical approach"
+      description: "Affected modules/files, decisions, architecture boundaries involved."
+      placeholder: |
+        - Modules and files: 
+        - Decisions: 
+        - Architecture boundaries: 
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Acceptance criteria"
+      description: "Observable, verifiable behaviors, including negative ones."
+      placeholder: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: testes
+    attributes:
+      label: "Test plan"
+      description: "Include the regression test that fails before the fix."
+      placeholder: |
+        - [ ] Regression: 
+        - [ ] Unit/integration: 
+        
+        Commands:
+    validations:
+      required: true
+  - type: textarea
+    id: documentacao
+    attributes:
+      label: "Documentation to update"
+      description: "Documentation files that change with this delivery."
+      placeholder: |
+        - [ ] docs/....md — 
+    validations:
+      required: true
+  - type: textarea
+    id: riscos
+    attributes:
+      label: "Risks and dependencies"
+      description: "Epic and dependencies count through the native link: parent (sub-issue) and blocked by, in the side panel or with gh issue edit --parent/--add-blocked-by. Repeat them here as text, with migrations, compatibility and rollback."
+      placeholder: |
+        - Part of / depends on: 
+        - Migrations and rollback: 
+    validations:
+      required: false
+  - type: checkboxes
+    id: pronto
+    attributes:
+      label: "Definition of done"
+      description: "Checked before closing (dev-workflow skill)."
+      options:
+        - label: "Acceptance criteria verified"
+        - label: "Test plan run and recorded (only what actually ran)"
+        - label: "Documentation updated"
+        - label: "CI green"
+        - label: "Commits with Refs #N and PR with Closes #N"
+        - label: "Approved by the owner"

@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: drafts-pr-with-beta-label
+expected_outcome: |
+  pr-body.md segue o modelo do skill (Issues com Closes #21, Resumo, Testes executados com o comando e o
+  resultado reais, Documentação citando docs/reports.md, Versão dizendo que é uma pré-release beta de uma
+  funcionalidade), e pr-command.txt traz um `gh pr create` com título em Conventional Commits, --body-file e
+  o label `release:beta`, sem o label `release`. A resposta diz que o merge publica 2.4.0-beta.1 e que a
+  versão final 2.4.0 sai depois, com `release`.

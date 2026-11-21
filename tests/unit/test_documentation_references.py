@@ -31,7 +31,9 @@ PATH_EXCEPTIONS = {
     "tests/test_service_api.py": "test module of an app created by skeleton_startapp",
     "skeleton/python/django": "a label of the Compose image, not a path",
     "tests/integration/test_x.py": "placeholder for the file being worked on (docs/testing.md table)",
+    "docs/a/b.md": "example of a glob match in the dev-workflow configuration reference",
 }
+SKILLS = ROOT / ".claude" / "skills"
 # Documents that cite the paths and commands of their time on purpose: historical evidence.
 HISTORICAL_DOCUMENTS = {"docs/testing-evidence.md", "docs/versioning-packages-govbr-plan.md"}
 # Top-level docs that the reading map leaves out on purpose.
@@ -126,11 +128,27 @@ def _template(path):
     )
 
 
+def _skill_root(document):
+    """The vendored skill a document belongs to (``.claude/skills/<name>``), or ``None``."""
+    if not document.is_relative_to(SKILLS):
+        return None
+    return SKILLS / document.relative_to(SKILLS).parts[0]
+
+
+def _eval_fixture(document):
+    """A file of an eval scenario (``evals/<case>/files/``): it describes a fictional project, not this one."""
+    root = _skill_root(document)
+    parts = document.relative_to(root).parts if root is not None else ()
+    return len(parts) > 3 and parts[0] == "evals" and parts[2] == "files"
+
+
 def test_cited_repository_paths_exist():
     problems = []
     for document in documents():
-        if relative(document) in HISTORICAL_DOCUMENTS:
+        if relative(document) in HISTORICAL_DOCUMENTS or _eval_fixture(document):
             continue
+        # A vendored skill also cites its own files (tests/, scripts/), relative to its directory.
+        skill = _skill_root(document)
         for number, line in prose_lines(document):
             for span in re.findall(r"`([^`]+)`", line):
                 if not span.startswith(PATH_PREFIXES) or re.search(r"[<>*…\s{}$]", span):
@@ -138,6 +156,8 @@ def test_cited_repository_paths_exist():
                 path = re.sub(r":\d+(-\d+)?$", "", span).rstrip("/.,;")
                 path = path.split("#", 1)[0].split("::", 1)[0]
                 if path in PATH_EXCEPTIONS or (ROOT / path).exists() or _template(path):
+                    continue
+                if skill is not None and (skill / path).exists():
                     continue
                 problems.append(f"{relative(document)}:{number} -> {span}")
     assert problems == []

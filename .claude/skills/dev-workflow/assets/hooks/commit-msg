@@ -13,4 +13,5 @@ for candidate in python3 python "py -3"; do
     fi
 done
 echo "commit-msg: preciso de Python 3.11 ou mais novo no PATH (python3, python ou py -3)." >&2
+echo "commit-msg: Python 3.11 or newer is needed on PATH (python3, python or py -3)." >&2
 exit 1

@@ -2,6 +2,8 @@
 # Referência de todas as chaves: __SKILL_DIR__/references/configuration.md
 # Confira com: python3 __SKILL_DIR__/scripts/bootstrap.py doctor
 schema = 1
+# Idioma dos padrões e das mensagens: "pt-BR" (padrão) ou "en". Leia a referência antes de trocar.
+# language = "pt-BR"
 
 [repository]
 default_branch = "__DEFAULT_BRANCH__"
@@ -68,6 +70,11 @@ prefixes = ["chore", "build"]
 level = "none"
 section = "maintenance"
 
+# Os labels de canal de pré-release são este prefixo mais cada canal de
+# `versioning.prerelease.channels`: release:alpha, release:beta, release:rc.
+# [labels]
+# prerelease_prefix = "release:"
+
 # Labels adicionais que `sync-labels` também cria, por exemplo:
 # [labels.extra.security]
 # color = "b60205"
@@ -95,6 +102,11 @@ initial_version = "__INITIAL_VERSION__"
 zero_major = "breaking-is-minor"
 # true: mudança em superfície pública só é publicada com análise registrada ou sobreposição.
 require_analysis = false
+
+# Canais de pré-release aceitos, do menos ao mais maduro. A ordem tem de ser a de precedência do
+# SemVer (alfabética); com arquivo em PEP 440, cada canal precisa ter forma PEP 440.
+# [versioning.prerelease]
+# channels = ["alpha", "beta", "rc"]
 
 # Onde a versão é escrita. `search` é texto literal com {current}; a troca padrão põe {new} no
 # lugar. Use `regex` + `replace` quando o texto não contém a versão corrente inteira.

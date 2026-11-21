@@ -6,25 +6,25 @@ Conteúdo: [ciclo](#ciclo) · [PR sem versão](#o-que-acontece-num-pr-sem-versã
 
 ```
 plano aceito ─► issues (+ epic) ─► branch <tipo>/<N>-<slug> ─► commits "Refs #N"
-      ─► PR "Closes #N" (+ label release, se publica) ─► check + prévia de versão
+      ─► PR "Closes #N" (+ label de versão, se publica) ─► check + prévia de versão
       ─► merge ─► evidências nas issues ─► [release] versão, changelog, tag, GitHub Release
 ```
 
 1. **Planejar.** O plano termina com "Itens do GitHub". Revisar o plano é revisar a decomposição.
 2. **Issues.** Uma por entrega revisável, um label de tipo cada, todas as seções do modelo. Com duas ou mais, um epic com sub-issues e "blocked by" nativos.
 3. **Desenvolver.** Branch a partir da issue, commits em Conventional Commits com `Refs #N`. Mudança de escopo atualiza a issue ou abre outra.
-4. **Revisar.** PR pelo modelo, com o label `release` se o merge deve publicar versão. O check confere e comenta a prévia.
+4. **Revisar.** PR pelo modelo, com um label de versão se o merge deve publicar: `release` (final) ou `release:<canal>` (pré-release). O check confere e comenta a prévia.
 5. **Aprovar.** O merge é a aprovação. Evidências, versão e fechamento acontecem sozinhos.
 
 ## O que acontece num PR sem versão
 
 1. O PR é aberto com `Closes #N` e sem o label `release`.
-2. **"Verificação do PR"** roda a cada push, edição e troca de label: issue existe e tem um tipo; seções do modelo preenchidas; sobreposição de versão (`semver:*`) só com `release` e com motivo; título em Conventional Commits; arquivos de versão coerentes. Avisa (sem reprovar) sobre critérios de aceite não marcados, seções faltando na issue e tipo do título diferente do tipo da issue.
+2. **"Verificação do PR"** roda a cada push, edição e troca de label: issue existe e tem um tipo; seções do modelo preenchidas; no máximo um label de versão; sobreposição de versão (`semver:*`) só com label de versão e com motivo; título em Conventional Commits; nenhum título ou commit com o formato do commit de release; arquivos de versão coerentes; pedido de versão que pode ser publicado. Avisa (sem reprovar) sobre critérios de aceite não marcados, seções faltando na issue e tipo do título diferente do tipo da issue.
    O check roda o skill e a configuração **da branch base**, nunca os do PR: um PR que alterasse o validador poderia se aprovar. Do PR só se leem dados (corpo, labels, commits e, numa pasta à parte, os arquivos de versão). Um PR que melhora o validador é conferido pela versão anterior; a nova vale a partir do merge. Enquanto a base não tem o skill, o check passa avisando.
 3. O mesmo workflow comenta a **prévia**: "este PR não publica versão; fica acumulado com K mudanças; se a versão saísse depois deste merge, seria vX (nível)". É um comentário único, atualizado no lugar. Como escreve no PR, esse job só roda em PR do próprio repositório (fork recebe token de leitura) e também usa só o código da base.
 4. Merge.
 5. **"Evidências do PR mesclado"** comenta em cada issue citada: commits, testes e documentação declarados no PR, critérios de aceite pendentes, e que a entrega aguarda a próxima versão. O GitHub fecha as issues com `Closes`; a caixa no epic é marcada.
-6. **"Versão e release"** roda no push, vê que nenhum PR `release` entrou desde a última tag e termina com "Nada a versionar: K mudanças acumuladas". Nenhum arquivo muda.
+6. **"Versão e release"** roda no push, vê que nenhum PR com label de versão entrou desde a última versão e termina com "Nada a versionar: K mudanças acumuladas". Nenhum arquivo muda.
 
 O PR não recebe marca de "pendente": pendente é tudo que está entre a última tag e a ponta da branch.
 
@@ -44,7 +44,7 @@ Depois do merge, "Versão e release":
 8. **Marca**: comentário "publicado na versão vX.Y.Z" em cada PR incluído (inclusive os antigos, sem `release`) e em cada issue entregue; milestone `vX.Y.Z` com todos eles, fechada.
 9. Dispara o workflow de publicação de artefatos, se configurado.
 
-No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atualiza o PR `release/next` com o commit de release; a publicação acontece quando esse PR é mesclado.
+No modo `pull-request` (branch protegida), os passos 6 a 8 viram: abre ou atualiza o PR `release/next` com o commit de release; a publicação acontece quando esse PR é mesclado, nunca a partir da própria `release/next`. A tag fica no commit de release (num merge por merge commit, o segundo pai do merge), e o merge do PR de release não conta como mudança de nenhuma versão.
 
 ## Epics: sub-issues, dependências e fechamento
 
@@ -71,8 +71,8 @@ Um fechamento feito com o token do workflow não dispara outro evento `issues: c
 | Procedimento | `SKILL.md` | Passo a passo do agente |
 | Configuração | `.github/dev-workflow.toml` | Tudo que é do projeto: tipos, seções, arquivos de versão, superfícies, modo de release |
 | Hook do git | `commit-msg` (pre-commit ou `bootstrap.py install-hook`) | Commit sem referência a issue é recusado; `Refs: #N` sai do nome da branch |
-| Hook do Claude Code | `assets/claude/dev-workflow-hook.mjs` | Lembra de criar as issues ao aceitar um plano; recusa `--no-verify` e PR sem referência. Lembrete forte, não barreira |
-| Check do PR | `pr-check.yml` → `github_issues.py check-pr`, `release.py check --tree`, `release.py preview`, todos da branch base | Vínculo, seções, sobreposição de versão, título, coerência dos arquivos de versão, prévia |
+| Hook do Claude Code | `assets/claude/dev-workflow-hook.mjs` | Lembra de criar as issues ao aceitar um plano; recusa `--no-verify`, `-c core.hooksPath=` e PR sem referência, lendo o comando como argumentos (aspas, encadeamentos, `--body-file`). Lembrete forte, não barreira |
+| Check do PR | `pr-check.yml` → `github_issues.py check-pr`, `release.py check --tree`, `release.py preview --check`, `release.py preview`, todos da branch base | Vínculo, seções, labels e sobreposição de versão, título, coerência dos arquivos de versão, pedido de versão publicável, prévia |
 | Evidências | `pr-merged.yml` → `github_issues.py pr-merged` | Comentário de evidências nas issues |
 | Release | `release.yml` → `release.py run` | Versão, arquivos, changelog, tag, GitHub Release, marcações |
 | Análise | `semver-analysis.yml` (opcional) ou o agente local | Nível proposto a partir do diff acumulado |
@@ -93,11 +93,29 @@ Um fechamento feito com o token do workflow não dispara outro evento `issues: c
 
 **Idempotência por estado, não por memória.** Cada execução deriva tudo de tags, do commit de release e do GitHub: tag sem release → cria a release; commit de release sem tag → cria a tag naquele commit; nada pendente → não faz nada. Cada marcação confere antes se já existe. Não há arquivo de estado nem "último PR processado".
 
+**O commit de release vale pela origem, não pelo assunto.** Qualquer PR pode conter um commit chamado `chore(release): vX`, com o número que o autor quiser. Por isso a release só publica o commit que chegou por um de dois caminhos: push direto na branch (o commit está no primeiro pai e nenhum PR o trouxe; é o modo `direct` e a retomada depois de uma falha) ou o PR de release, que sai da branch `release.pr_branch` **deste repositório**. Um commit com esse assunto vindo de outro PR, inclusive de um fork que tenha uma branch com o mesmo nome, é ignorado com aviso e não gera tag; o check do PR reprova o título ou o commit antes do merge, e só o PR de release do próprio repositório é isento das verificações. Sem acesso à API (`DEV_WORKFLOW_OFFLINE=1`), a origem é lida do assunto do merge commit (`Merge pull request #N from <dono>/<branch>`).
+
 **O maior nível vence; a análise só eleva.** Um modelo de linguagem reduzindo um nível que um humano declarou (o label de tipo) é o erro caro. Reduzir é sobreposição do dono, com motivo registrado.
 
 **O check confia na base, não no PR.** Alternativa: rodar o validador do próprio PR, como qualquer CI de testes. Descartada porque o check é a barreira do processo, não um teste do código: se o PR pode trocar o validador, ele se aprova. O custo é que uma melhoria do validador só vale depois do merge dela. O mesmo vale para a prévia e para a análise por agente, que leem o diff do PR sem executar nada dele.
 
+**A prévia e o check do pedido usam a ponta atual da branch de destino.** O SHA de base que o evento do PR traz pode ficar atrás da branch, que anda sem o PR mudar. Feito sobre um SHA anterior à última versão, o plano calcularia de novo o número que ela já usou, e o check reprovaria um PR que não tem nada de errado. O workflow lê `origin/<branch de destino>`, que o checkout com todo o histórico já trouxe, e só cai para o SHA do evento se essa referência faltar.
+
+**Análise de versão que falta avisa no PR e para a release.** Alternativa: reprovar o check do PR que pede versão sem a análise exigida. Descartada porque a análise chega num comentário, e comentário não roda o check de novo: o PR ficaria vermelho depois de resolvido, até alguém empurrar um commit. A exigência continua valendo onde ela decide, na release.
+
+**Os arquivos de versão do PR são conferidos contra a versão de que ele partiu.** O check compara os arquivos da ponta do PR com a maior tag alcançável dessa ponta, não com a versão corrente da base. Depois de uma release, um PR aberto antes dela ainda traz a versão anterior nos arquivos sem ter tocado neles; comparado com a base, todo PR mais antigo seria reprovado a cada versão publicada. Quem edita a versão à mão continua reprovado, inclusive se escrever a versão corrente da base, e o PR de release continua conferido pela versão que ele publica. Para ler as tags, o workflow baixa o histórico do PR (`fetch-depth: 0`); com um checkout raso, ou uma pasta sem git, vale a versão da base.
+
 **Leitura incompleta não autoriza ação.** O GitHub devolve até 100 sub-issues ou bloqueios por página. Se a lista vier truncada, `sync-epic`, `sync-checklist` e `close-epic` param com erro em vez de fechar um epic ou criar vínculos com base em dados parciais.
+
+**Só conta a referência que o GitHub mostra.** Um `Closes #N` dentro de comentário HTML ou de bloco de código é dica do modelo ou exemplo, não vínculo; contar com ele deixaria uma dica aprovar o PR. A mesma leitura vale no check, nas evidências e no plano de versão. Uma seção vai até o próximo título do mesmo nível ou acima, para um `###` de detalhe não cortar o `##` que o contém.
+
+**A análise vale pelo que viu.** O veredito de uma análise por agente só conta se o `head` analisado é o último commit do PR ou o contém. Casar só pelo número do PR deixaria uma análise antiga liberar, com `require_analysis`, código que ninguém analisou.
+
+**Mudança revertida antes da release não existe para quem usa.** O par mudança + revert pendente sai do nível e do changelog; revert de algo já publicado é mudança como qualquer outra.
+
+**Falha passageira se repete; criação não.** Leituras e escritas idempotentes repetem em 5xx, 429 e limite secundário, com espera crescente e teto. Criar comentário, release ou PR não se repete: a reexecução da ferramenta confere antes de criar, e repetir às cegas duplicaria. Push recusado por proteção não é "a branch andou": a release para na hora, com a causa.
+
+**A configuração é conferida na carga.** Chave desconhecida e tipo errado são erro com a chave e a sugestão mais próxima; uma chave digitada errado que passasse em silêncio deixaria a regra que o projeto quis sem efeito.
 
 **Sinais determinísticos primeiro, agente como reforço.** A release nunca depende de um serviço externo estar disponível. Quando a análise falta, as notas dizem; quando o projeto exige (`require_analysis`), a release espera.
 
@@ -109,8 +127,11 @@ Um fechamento feito com o token do workflow não dispara outro evento `issues: c
 
 ## Limites conhecidos
 
-- Mensagens dos scripts e textos dos comentários estão em português; títulos de seção e labels são configuráveis.
+- O idioma é `pt-BR` ou `en` (chave `language`): ele decide os padrões, o que o `bootstrap.py` gera e as mensagens que já estão no catálogo. As mensagens dos scripts que ainda não estão no catálogo, os comentários dos workflows gerados, este documento e o `SKILL.md` continuam em português. Trocar o idioma muda o nome do check obrigatório, que tem de ser ajustado à mão na proteção de branch ([instalação](installation.md#trocar-o-idioma-de-um-projeto)).
 - Só GitHub (`gh`). O cálculo funciona sem ele (`DEV_WORKFLOW_OFFLINE=1`), com os sinais dos commits.
 - Um repositório, uma versão. Monorepo com versões independentes por pacote não é coberto.
 - O token padrão do Actions não redispara workflows: o PR de release (modo `pull-request`) não roda checks sozinho, e a tag criada não dispara workflows `on: push: tags`. Use `release.dispatch_workflow` ou o segredo `RELEASE_TOKEN`.
+- No modo `pull-request`, um PR que entra na branch depois de o PR de release ser preparado e antes de ele ser mesclado só é reconhecido como pendente quando o PR de release entra por merge commit. Com squash ou rebase ele fica atrás da tag sem linha no changelog: exija branch atualizada (veja a instalação). Todas as linhas de manutenção dividem a mesma branch de PR de release.
+- Revert parcial feito à mão, sem a linha `This reverts commit <sha>`, não é reconhecido: a mudança e o revert contam os dois.
+- O hook `commit-msg` só lê o número de branches `<prefixo>/<N>-<slug>` com o prefixo de um tipo; outra convenção de nome exige `Refs #N` na mensagem.
 - A análise de import dinâmico, reflexão e contratos implícitos continua sendo julgamento: o agente pode errar, e por isso a sobreposição existe.

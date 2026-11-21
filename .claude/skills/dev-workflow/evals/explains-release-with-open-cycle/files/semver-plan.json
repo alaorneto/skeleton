@@ -1,0 +1,222 @@
+{
+  "branch": "main",
+  "head": "daeecc7ac52696dce37ea53700b301a6a9ee3439",
+  "base_tag": "v1.2.0",
+  "base_version": "1.2.0",
+  "previous_tag": "v2.0.0-rc.1",
+  "cycle": [
+    "v1.3.0-beta.1",
+    "v2.0.0-beta.1",
+    "v2.0.0-rc.1"
+  ],
+  "type": "final",
+  "channel": null,
+  "requested": true,
+  "requested_by": [
+    "#53"
+  ],
+  "natural_level": "major",
+  "level": "major",
+  "override": null,
+  "next_version": "2.0.0",
+  "next_tag": "v2.0.0",
+  "notes": [],
+  "problems": [],
+  "changes": [
+    {
+      "key": "#41",
+      "kind": "pr",
+      "pr": 41,
+      "sha": "6ce5e70739e1087434ea48b76bcc0aa54a1585d4",
+      "title": "feat: add the export command",
+      "labels": [
+        "release:beta"
+      ],
+      "level": "minor",
+      "breaking": false,
+      "analyzed": false,
+      "pending": false,
+      "fresh": false,
+      "issues": [
+        {
+          "number": 40,
+          "title": "Exportar o relatório em CSV",
+          "type": "feature",
+          "closing": true
+        }
+      ],
+      "signals": [
+        {
+          "level": "minor",
+          "source": "issue",
+          "detail": "#40 tem o label `feature`",
+          "breaking": false
+        },
+        {
+          "level": "minor",
+          "source": "commit",
+          "detail": "`feat` em 2f16d7b",
+          "breaking": false
+        },
+        {
+          "level": "minor",
+          "source": "commit",
+          "detail": "`feat` em título do PR",
+          "breaking": false
+        }
+      ],
+      "commits": [
+        {
+          "sha": "2f16d7bd2e52d0fb147904debf13a4d2eb211674",
+          "subject": "feat: add the export command"
+        }
+      ],
+      "public_surfaces": []
+    },
+    {
+      "key": "#44",
+      "kind": "pr",
+      "pr": 44,
+      "sha": "0d20afdeb498da68a0fd47d9c04c2e6360174304",
+      "title": "feat!: drop the legacy client",
+      "labels": [
+        "release:beta"
+      ],
+      "level": "major",
+      "breaking": true,
+      "analyzed": false,
+      "pending": false,
+      "fresh": false,
+      "issues": [],
+      "signals": [
+        {
+          "level": "minor",
+          "source": "commit",
+          "detail": "`feat` em 015a74e",
+          "breaking": false
+        },
+        {
+          "level": "major",
+          "source": "commit",
+          "detail": "`!` em 015a74e: drop the legacy client",
+          "breaking": true
+        },
+        {
+          "level": "minor",
+          "source": "commit",
+          "detail": "`feat` em título do PR",
+          "breaking": false
+        },
+        {
+          "level": "major",
+          "source": "commit",
+          "detail": "`!` em título do PR: drop the legacy client",
+          "breaking": true
+        }
+      ],
+      "commits": [
+        {
+          "sha": "015a74ebdab746282bd4b376b8b3f821dbfab598",
+          "subject": "feat!: drop the legacy client"
+        }
+      ],
+      "public_surfaces": []
+    },
+    {
+      "key": "#47",
+      "kind": "pr",
+      "pr": 47,
+      "sha": "73dcbf3c27beea614a8f0aa05e9073cf3a651bfd",
+      "title": "fix: keep the order of the rows",
+      "labels": [
+        "release:rc"
+      ],
+      "level": "patch",
+      "breaking": false,
+      "analyzed": false,
+      "pending": false,
+      "fresh": false,
+      "issues": [],
+      "signals": [
+        {
+          "level": "patch",
+          "source": "commit",
+          "detail": "`fix` em 30f51e8",
+          "breaking": false
+        },
+        {
+          "level": "patch",
+          "source": "commit",
+          "detail": "`fix` em título do PR",
+          "breaking": false
+        }
+      ],
+      "commits": [
+        {
+          "sha": "30f51e85be99ec3c0520faaebb79ead942b13d7c",
+          "subject": "fix: keep the order of the rows"
+        }
+      ],
+      "public_surfaces": []
+    },
+    {
+      "key": "#52",
+      "kind": "pr",
+      "pr": 52,
+      "sha": "21f6fa4d9af8423dff5648d4f6f82a687fc6aeb0",
+      "title": "fix: handle the empty list",
+      "labels": [],
+      "level": "patch",
+      "breaking": false,
+      "analyzed": false,
+      "pending": false,
+      "fresh": true,
+      "issues": [],
+      "signals": [
+        {
+          "level": "patch",
+          "source": "commit",
+          "detail": "`fix` em fdfd8ea",
+          "breaking": false
+        },
+        {
+          "level": "patch",
+          "source": "commit",
+          "detail": "`fix` em título do PR",
+          "breaking": false
+        }
+      ],
+      "commits": [
+        {
+          "sha": "fdfd8ea94737d72c1f08b8a97cce721bbdd9f197",
+          "subject": "fix: handle the empty list"
+        }
+      ],
+      "public_surfaces": []
+    },
+    {
+      "key": "#53",
+      "kind": "pr",
+      "pr": 53,
+      "sha": "daeecc7ac52696dce37ea53700b301a6a9ee3439",
+      "title": "docs: explain the export",
+      "labels": [
+        "release"
+      ],
+      "level": "none",
+      "breaking": false,
+      "analyzed": false,
+      "pending": true,
+      "fresh": true,
+      "issues": [],
+      "signals": [],
+      "commits": [
+        {
+          "sha": "daeecc7ac52696dce37ea53700b301a6a9ee3439",
+          "subject": "docs: explain the export"
+        }
+      ],
+      "public_surfaces": []
+    }
+  ]
+}

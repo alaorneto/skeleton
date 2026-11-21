@@ -14,8 +14,10 @@ import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
+from . import i18n
+from .config import Config
 from .gh import run_gh
-from .text import ANY_ISSUE, ITEM_ISSUE
+from .text import ANY_ISSUE, ITEM_ISSUE, equivalent_titles, normalize_title, same_title
 
 SECTION_HEADING = re.compile(r"^#{2,3}\s+(?P<title>.+?)\s*$")
 CHECKBOX_ITEM = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(?P<rest>.*)$")
@@ -23,23 +25,34 @@ CHECKBOX_ITEM = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(?P<rest>.*)$")
 
 @dataclass(frozen=True)
 class EpicSettings:
-    """O que muda de projeto para projeto na leitura de um epic."""
+    """O que muda de projeto para projeto na leitura de um epic.
 
-    items_section: str = "itens"
-    depends_marker: str = "depende de"
-    epic_label: str = "epic"
+    Sem padrões próprios: os valores vêm sempre da configuração (``configure``).
+    """
+
+    items_section: str  # já normalizado por ``normalize_title``
+    depends_marker: str
+    epic_label: str
 
     @property
     def depends_on(self) -> re.Pattern[str]:
-        return re.compile(rf"\b{re.escape(self.depends_marker)}\b", re.IGNORECASE)
+        # O marcador do idioma do projeto e o equivalente nos outros: `depende de` e `depends on`.
+        markers = [self.depends_marker, *equivalent_titles(self.depends_marker)]
+        return re.compile(rf"\b(?:{'|'.join(re.escape(marker) for marker in markers)})\b", re.IGNORECASE)
 
 
-SETTINGS = EpicSettings()
+def _settings(items_section: str, depends_marker: str, epic_label: str) -> EpicSettings:
+    return EpicSettings(normalize_title(items_section), depends_marker, epic_label)
 
 
 def configure(*, items_section: str, depends_marker: str, epic_label: str) -> None:
-    global SETTINGS
-    SETTINGS = EpicSettings(items_section.strip().lower(), depends_marker, epic_label)
+    global SETTINGS  # noqa: PLW0603
+    SETTINGS = _settings(items_section, depends_marker, epic_label)
+
+
+_DEFAULTS = Config()
+# Até ``configure`` receber os valores do projeto, valem os padrões da configuração.
+SETTINGS = _settings(_DEFAULTS.issues["items_section"], _DEFAULTS.issues["depends_marker"], _DEFAULTS.label("epic"))
 
 
 @dataclass(frozen=True)
@@ -78,8 +91,8 @@ class Operation:
 
     def describe(self) -> str:
         if self.kind == "sub-issue":
-            return f"#{self.ref} vira sub-issue de #{self.target}"
-        return f"#{self.target} fica bloqueada por #{self.ref}"
+            return i18n.t("epics.operation.sub_issue", ref=self.ref, target=self.target)
+        return i18n.t("epics.operation.blocked_by", target=self.target, ref=self.ref)
 
 
 def _same_repo(repo: str | None, repository: str) -> bool:
@@ -94,7 +107,7 @@ def parse_epic_items(body: str, repository: str) -> EpicPlan:
     for line in body.splitlines():
         heading = SECTION_HEADING.match(line)
         if heading:
-            in_section = heading.group("title").strip().lower() == SETTINGS.items_section
+            in_section = same_title(heading.group("title"), SETTINGS.items_section)
             continue
         if not in_section:
             continue
@@ -107,11 +120,11 @@ def parse_epic_items(body: str, repository: str) -> EpicPlan:
             plan.candidates += 1
             continue
         if not _same_repo(issue.group("repo"), repository):
-            plan.problems.append(f"item de outro repositório ignorado: {rest[:80]}")
+            plan.problems.append(i18n.t("epics.item.foreign", item=rest[:80]))
             continue
         number = int(issue.group("number"))
         if number in seen:
-            plan.problems.append(f"#{number} aparece mais de uma vez na lista")
+            plan.problems.append(i18n.t("epics.item.repeated", number=number))
             continue
         seen.add(number)
         blocked_by: list[int] = []
@@ -119,11 +132,11 @@ def parse_epic_items(body: str, repository: str) -> EpicPlan:
         if depends:
             for ref in ANY_ISSUE.finditer(rest[depends.end() :]):
                 if not _same_repo(ref.group("repo"), repository):
-                    plan.problems.append(f"#{number}: dependência de outro repositório ignorada ({ref.group(0)})")
+                    plan.problems.append(i18n.t("epics.item.foreign_dependency", number=number, ref=ref.group(0)))
                     continue
                 dep = int(ref.group("number"))
                 if dep == number:
-                    plan.problems.append(f"#{number} depende de si mesma")
+                    plan.problems.append(i18n.t("epics.item.self_dependency", number=number))
                 elif dep not in blocked_by:
                     blocked_by.append(dep)
         plan.items.append(EpicItem(number, tuple(blocked_by)))
@@ -154,32 +167,32 @@ def plan_epic(
     problems = list(plan.problems)
     epic_links = links.get(epic)
     if epic_links is None:
-        return [], [*problems, f"#{epic} não existe ou não é uma issue"]
+        return [], [*problems, i18n.t("epics.not_issue", number=epic)]
     skipped = set(skip)
     listed = {item.number for item in plan.items}
     for item in plan.items:
         number = item.number
         if number == epic:
-            problems.append(f"#{epic} lista a si mesmo como item")
+            problems.append(i18n.t("epics.lists_itself", epic=epic))
             continue
         if number in skipped:
             continue
         child = links.get(number)
         if child is None:
-            problems.append(f"#{number} não existe ou não é uma issue")
+            problems.append(i18n.t("epics.not_issue", number=number))
             continue
         if child.parent is None:
             operations.append(Operation("sub-issue", epic, number))
         elif child.parent != epic:
-            problems.append(f"#{number} já é sub-issue de {_ref(child.parent)}; parent não alterado")
+            problems.append(i18n.t("epics.other_parent", number=number, parent=_ref(child.parent)))
         for dep in item.blocked_by:
             if links.get(dep) is None:
-                problems.append(f"#{number} depende de #{dep}, que não existe ou não é uma issue")
+                problems.append(i18n.t("epics.missing_dependency", number=number, dep=dep))
             elif dep not in child.blocked_by:
                 operations.append(Operation("blocked-by", number, dep))
     for native in epic_links.sub_issues:
         if native not in listed:
-            problems.append(f"{_ref(native)} é sub-issue de #{epic} mas não está na seção Itens")
+            problems.append(i18n.t("epics.unlisted", ref=_ref(native), epic=epic))
     return operations, problems
 
 
@@ -200,7 +213,7 @@ def reconcile_checklist(body: str, closed: Mapping[int, bool], repository: str) 
         ending = line[len(text) :]
         heading = SECTION_HEADING.match(text)
         if heading:
-            in_section = heading.group("title").strip().lower() == SETTINGS.items_section
+            in_section = same_title(heading.group("title"), SETTINGS.items_section)
         parts = CHECKBOX_PARTS.match(text) if in_section else None
         issue = ITEM_ISSUE.match(parts.group("rest").strip()) if parts else None
         if parts and issue and _same_repo(issue.group("repo"), repository):
@@ -260,10 +273,7 @@ def parse_links(data: Mapping[str, object] | None, repository: str) -> IssueLink
     if not data or data.get("__typename") != "Issue":
         return None
     if _truncated(data.get("subIssues")) or _truncated(data.get("blockedBy")):
-        raise RuntimeError(
-            f"#{data['number']} tem mais de 100 sub-issues ou bloqueios; a leitura está incompleta "
-            "e nenhuma ação automática é segura."
-        )
+        raise RuntimeError(i18n.t("epics.truncated", number=data["number"]))
     return IssueLinks(
         number=int(str(data["number"])),
         parent=_node_ref(data.get("parent"), repository),
@@ -287,11 +297,13 @@ def fetch_links(numbers: Iterable[int], repository: str, gh: GhRunner = _run_gh)
         try:  # números inexistentes geram "errors" e saída != 0, mas os demais vêm em "data"
             payload = json.loads(completed.stdout)
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"gh api graphql falhou: {completed.stderr.strip()}") from exc
+            raise RuntimeError(i18n.t("epics.graphql_failed", error=completed.stderr.strip())) from exc
         data = payload.get("data") or {}
         repo_data = data.get("repository")
         if not isinstance(repo_data, dict):
-            raise RuntimeError(f"repositório {repository} inacessível: {completed.stderr.strip()}")
+            raise RuntimeError(
+                i18n.t("epics.repository_unreachable", repository=repository, error=completed.stderr.strip())
+            )
         for n in chunk:
             result[n] = parse_links(repo_data.get(f"i{n}"), repository)
     return result
@@ -364,19 +376,22 @@ def sync_epic_checklist(
         new_body, changes = reconcile_checklist(body, closed, repository)
         if not changes:
             return False
+        prefix = "[dry-run] " if dry_run else ""
         for number, checked in changes:
-            verb = "marcar" if checked else "desmarcar"
-            print(f"  {'[dry-run] ' if dry_run else ''}{verb} #{number} na seção Itens")
+            if checked:
+                print("  " + i18n.t("epics.checklist.check", prefix=prefix, number=number))
+            else:
+                print("  " + i18n.t("epics.checklist.uncheck", prefix=prefix, number=number))
         if dry_run:
             return False
         error = _write_body(epic, new_body, repository, gh)
         if error:
-            print(f"  ERRO ao atualizar a seção Itens de #{epic}: {error}")
+            print("  " + i18n.t("epics.checklist.write_failed", epic=epic, error=error))
             return True
         if attempt + 1 < CHECKLIST_ATTEMPTS:
             body = _fetch_epics([epic], repository, gh)[epic][0]
             links = fetch_links([item.number for item in parse_epic_items(body, repository).items], repository, gh)
-    print(f"  ERRO: a seção Itens de #{epic} não estabilizou após {CHECKLIST_ATTEMPTS} tentativas")
+    print("  " + i18n.t("epics.checklist.unstable", epic=epic, attempts=CHECKLIST_ATTEMPTS))
     return True
 
 
@@ -397,7 +412,7 @@ def sync_parent_checklist(issue: int, repository: str, *, dry_run: bool, gh: GhR
     links = fetch_links([issue], repository, gh).get(issue)
     parent = links.parent if links else None
     if not isinstance(parent, int):
-        print(f"#{issue} não é sub-issue de um epic deste repositório; nada a fazer.")
+        print(i18n.t("epics.checklist.no_parent", issue=issue))
         return 0
     return sync_checklist([parent], repository, dry_run=dry_run, gh=gh)
 
@@ -417,14 +432,22 @@ def _issue_state(number: int, repository: str, gh: GhRunner) -> tuple[bool, list
 def epic_summary(children: Sequence[IssueLinks]) -> tuple[str, str]:
     """``(motivo, comentário)`` do fechamento automático de um epic com todas as filhas fechadas."""
     reason = "completed" if any(child.state_reason != "NOT_PLANNED" for child in children) else "not planned"
+    completed, not_planned = i18n.t("epics.summary.completed"), i18n.t("epics.summary.not_planned")
     lines = [
-        f"- #{child.number} {child.title} — {'dispensada' if child.state_reason == 'NOT_PLANNED' else 'concluída'}"
+        i18n.t(
+            "epics.summary.item",
+            number=child.number,
+            title=child.title,
+            state=not_planned if child.state_reason == "NOT_PLANNED" else completed,
+        )
         for child in children
     ]
     comment = (
-        f"Fechado automaticamente pelo fluxo de epics: as {len(children)} sub-issues estão fechadas.\n\n"
+        i18n.t("epics.summary.head", count=len(children))
+        + "\n\n"
         + "\n".join(lines)
-        + "\n\nSe algum critério de conclusão do epic ainda faltar, reabra o epic e registre o que falta."
+        + "\n\n"
+        + i18n.t("epics.summary.foot")
     )
     return reason, comment
 
@@ -440,46 +463,47 @@ def close_completed_parents(issue: int, repository: str, *, dry_run: bool, gh: G
         links = fetch_links([current], repository, gh).get(current)
         parent = links.parent if links else None
         if not isinstance(parent, int):
-            print(f"#{current} não é sub-issue de um epic deste repositório; nada a fechar.")
+            print(i18n.t("epics.close.no_parent", issue=current))
             return 0
         open_, labels = _issue_state(parent, repository, gh)
         if SETTINGS.epic_label not in labels:
-            print(f"#{parent} não tem o label epic; não é fechado automaticamente.")
+            print(i18n.t("epics.close.not_epic", parent=parent))
             return 0
         if not open_:
-            print(f"#{parent} já está fechado.")
+            print(i18n.t("epics.close.already_closed", parent=parent))
             return 0
         epic = fetch_links([parent], repository, gh).get(parent)
         children = epic.sub_issues if epic else ()
         if not children:
-            print(f"#{parent} não tem sub-issues nativas; nada a fechar.")
+            print(i18n.t("epics.close.no_children", parent=parent))
             return 0
         foreign = [str(child) for child in children if not isinstance(child, int)]
         if foreign:
-            print(f"#{parent} tem sub-issues de outro repositório ({', '.join(foreign)}); feche-o à mão.")
+            print(i18n.t("epics.close.foreign", parent=parent, foreign=", ".join(foreign)))
             return 0
         states = fetch_links([child for child in children if isinstance(child, int)], repository, gh)
         pending = [f"#{number}" for number, state in sorted(states.items()) if state is None or not state.closed]
         if pending:
-            print(f"#{parent} continua aberto: {', '.join(pending)} ainda aberta(s).")
+            print(i18n.t("epics.close.pending", parent=parent, pending=", ".join(pending)))
             return 0
         reason, comment = epic_summary([state for _, state in sorted(states.items()) if state is not None])
         if dry_run:
-            print(f"[dry-run] fecharia #{parent} como {reason}:\n{comment}")
+            print(i18n.t("epics.close.dry_run", parent=parent, reason=reason, comment=comment))
             return 0
         if not _issue_state(parent, repository, gh)[0]:  # outra filha fechou ao mesmo tempo
-            print(f"#{parent} já foi fechado por outra execução.")
+            print(i18n.t("epics.close.raced", parent=parent))
             return 0
         completed = gh(["issue", "close", str(parent), "--repo", repository, "--reason", reason, "--comment", comment])
         if completed.returncode != 0:
-            print(f"ERRO ao fechar #{parent}: {completed.stderr.strip() or completed.stdout.strip()}")
+            error = completed.stderr.strip() or completed.stdout.strip()
+            print(i18n.t("epics.close.failed", parent=parent, error=error))
             return 1
-        print(f"#{parent} fechado como {reason}.")
+        print(i18n.t("epics.close.done", parent=parent, reason=reason))
         grandparent = epic.parent if epic else None
         if isinstance(grandparent, int) and sync_checklist([grandparent], repository, dry_run=False, gh=gh):
             return 1
         current = parent
-    print(f"ERRO: a cadeia de epics acima de #{issue} passa de {CLOSE_EPIC_DEPTH} níveis.")
+    print(i18n.t("epics.close.too_deep", issue=issue, depth=CLOSE_EPIC_DEPTH))
     return 1
 
 
@@ -499,14 +523,14 @@ def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool
         plan = plans[epic]
         operations, problems = plan_epic(epic, plan, links, skip=shared)
         if SETTINGS.epic_label not in epics[epic][1]:
-            problems.insert(0, f"#{epic} não tem o label epic")
+            problems.insert(0, i18n.t("epics.sync.not_epic", epic=epic))
         problems.extend(
-            f"#{number} está em mais de um epic ({', '.join(f'#{e}' for e in owners)}); vincule à mão"
+            i18n.t("epics.sync.shared", number=number, epics=", ".join(f"#{e}" for e in owners))
             for number, owners in shared.items()
             if epic in owners
         )
-        print(f"#{epic}: {len(plan.items)} itens, {len(operations)} vínculos a criar", end="")
-        print(f", {plan.candidates} candidatos sem issue" if plan.candidates else "")
+        print(i18n.t("epics.sync.summary", epic=epic, items=len(plan.items), links=len(operations)), end="")
+        print(i18n.t("epics.sync.candidates", count=plan.candidates) if plan.candidates else "")
         for operation in operations:
             if dry_run:
                 print(f"  [dry-run] {operation.describe()}")
@@ -514,12 +538,12 @@ def sync_epic(selection: Sequence[int] | None, repository: str, *, dry_run: bool
             error = _apply(operation, repository, gh)
             if error:
                 failed = True
-                print(f"  ERRO {operation.describe()}: {error}")
+                print("  " + i18n.t("epics.sync.failed", operation=operation.describe(), error=error))
             else:
                 print(f"  ok {operation.describe()}")
         body = epics[epic][0]
         failed |= sync_epic_checklist(epic, body, repository, dry_run=dry_run, gh=gh, links=links)
         for problem in problems:
-            print(f"  divergência: {problem}")
+            print("  " + i18n.t("epics.sync.problem", problem=problem))
         failed = failed or bool(problems)
     return 1 if failed else 0

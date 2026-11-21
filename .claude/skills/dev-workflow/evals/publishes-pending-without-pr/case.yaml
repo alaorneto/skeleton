@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: publishes-pending-without-pr
+expected_outcome: |
+  O agente segue "Publicar o acumulado sem PR": começa por `release.py run --force --dry-run` (pode rodar
+  `status` antes), não publica nada (sem `run` de verdade, tag, push nem `gh workflow run`) e não edita
+  VERSION nem CHANGELOG.md à mão. release-plan.md diz que sai a 1.5.0 (minor, por causa do feat de
+  Client.count, com o fix de fetch junto), lista as duas mudanças desde a v1.4.0 e indica como publicar:
+  `gh workflow run release.yml -f force=true`, preferível por usar a identidade do CI, ou
+  `release.py run --force` localmente.
+context:
+  scaffold_script: place-files.sh

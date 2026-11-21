@@ -1,0 +1,217 @@
+{
+  "schema": 1,
+  "repository": {
+    "default_branch": "main",
+    "release_branches": [
+      "main",
+      "release/*"
+    ]
+  },
+  "types": {
+    "bug": {
+      "color": "d73a4a",
+      "description": "Comportamento incorreto ou regressão",
+      "prefixes": [
+        "fix"
+      ],
+      "level": "patch",
+      "section": "fixes"
+    },
+    "feature": {
+      "color": "1d76db",
+      "description": "Nova funcionalidade",
+      "prefixes": [
+        "feat"
+      ],
+      "level": "minor",
+      "section": "features"
+    },
+    "enhancement": {
+      "color": "a2eeef",
+      "description": "Melhoria de funcionalidade existente",
+      "prefixes": [
+        "feat",
+        "perf"
+      ],
+      "level": "minor",
+      "section": "improvements"
+    },
+    "documentation": {
+      "color": "0075ca",
+      "description": "Somente documentação",
+      "prefixes": [
+        "docs"
+      ],
+      "level": "none",
+      "section": "docs"
+    },
+    "refactor": {
+      "color": "fbca04",
+      "description": "Reestruturação sem mudança de comportamento",
+      "prefixes": [
+        "refactor"
+      ],
+      "level": "none",
+      "section": "maintenance"
+    },
+    "test": {
+      "color": "bfd4f2",
+      "description": "Somente testes, fixtures ou evidência de verificação",
+      "prefixes": [
+        "test"
+      ],
+      "level": "none",
+      "section": "maintenance"
+    },
+    "ci": {
+      "color": "5319e7",
+      "description": "Pipeline e checks automáticos",
+      "prefixes": [
+        "ci"
+      ],
+      "level": "none",
+      "section": "maintenance"
+    },
+    "chore": {
+      "color": "c5def5",
+      "description": "Dependências, ferramentas e configuração de desenvolvimento",
+      "prefixes": [
+        "chore",
+        "build"
+      ],
+      "level": "none",
+      "section": "maintenance"
+    }
+  },
+  "labels": {
+    "epic": "epic",
+    "release": "release",
+    "breaking": "breaking-change",
+    "override_prefix": "semver:",
+    "extra": {}
+  },
+  "commits": {
+    "levels": {
+      "feat": "minor",
+      "fix": "patch",
+      "perf": "patch"
+    }
+  },
+  "issues": {
+    "items_section": "Itens",
+    "depends_marker": "depende de",
+    "acceptance_section": "Critérios de aceite",
+    "sections": {
+      "default": [
+        "Contexto",
+        "Objetivo",
+        "Escopo",
+        "Abordagem técnica",
+        "Critérios de aceite",
+        "Plano de testes",
+        "Documentação a atualizar",
+        "Riscos e dependências",
+        "Definição de pronto"
+      ],
+      "bug": [
+        "Comportamento observado",
+        "Comportamento esperado",
+        "Passos para reproduzir",
+        "Escopo",
+        "Abordagem técnica",
+        "Critérios de aceite",
+        "Plano de testes",
+        "Documentação a atualizar",
+        "Riscos e dependências",
+        "Definição de pronto"
+      ],
+      "documentation": [
+        "Contexto",
+        "Objetivo",
+        "Critérios de aceite",
+        "Definição de pronto"
+      ]
+    }
+  },
+  "pr": {
+    "required_sections": [
+      "Issues",
+      "Resumo",
+      "Testes executados",
+      "Documentação",
+      "Versão"
+    ],
+    "version_section": "Versão",
+    "tests_section": "Testes executados",
+    "docs_section": "Documentação",
+    "override_reason_marker": "Motivo da sobreposição",
+    "title_pattern": "^(feat|fix|perf|docs|refactor|test|ci|chore|build|revert)(\\([\\w./ -]+\\))?!?: \\S.*",
+    "exempt_authors": [
+      "dependabot[bot]"
+    ],
+    "severity": {
+      "sections": "error",
+      "title": "error",
+      "unchecked_criteria": "warning",
+      "issue_sections": "warning",
+      "type_mismatch": "warning"
+    }
+  },
+  "versioning": {
+    "enabled": true,
+    "tag_prefix": "v",
+    "initial_version": "0.1.0",
+    "zero_major": "breaking-is-minor",
+    "require_analysis": false,
+    "trusted_bots": [
+      "github-actions[bot]",
+      "claude[bot]"
+    ],
+    "files": [],
+    "public_surfaces": [],
+    "floors": []
+  },
+  "changelog": {
+    "path": "CHANGELOG.md",
+    "title": "# Changelog",
+    "intro": "Todas as mudanças publicadas deste projeto. Este arquivo é escrito pela automação de release; não edite as seções de versão à mão.",
+    "prereleases": false,
+    "hide": [],
+    "sections": [
+      {
+        "id": "breaking",
+        "title": "⚠ Mudanças incompatíveis"
+      },
+      {
+        "id": "features",
+        "title": "Funcionalidades"
+      },
+      {
+        "id": "improvements",
+        "title": "Melhorias"
+      },
+      {
+        "id": "fixes",
+        "title": "Correções"
+      },
+      {
+        "id": "docs",
+        "title": "Documentação"
+      },
+      {
+        "id": "maintenance",
+        "title": "Manutenção"
+      }
+    ]
+  },
+  "release": {
+    "mode": "direct",
+    "commit_message": "chore(release): {tag}",
+    "pr_branch": "release/next",
+    "mark": [
+      "comment",
+      "milestone"
+    ],
+    "dispatch_workflow": ""
+  }
+}

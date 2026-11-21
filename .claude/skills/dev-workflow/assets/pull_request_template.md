@@ -1,7 +1,8 @@
 <!-- Skill dev-workflow. Todo PR cita uma issue: `Closes #N` (entrega completa) ou `Refs #N` (parcial).
      Título em Conventional Commits: `<tipo>(<escopo>): <assunto>`.
-     Marque o PR com `release` se o merge deve publicar uma versão com tudo que está acumulado desde a última tag.
-     Sem o label, nada é publicado: as mudanças ficam acumuladas para a próxima versão. -->
+     Marque o PR com `release` se o merge deve publicar a versão final com tudo que está acumulado, ou com um
+     label de canal (`release:alpha`, `release:beta`, `release:rc`) para uma pré-release. Um label só.
+     Sem label de versão, nada é publicado: as mudanças ficam acumuladas para a próxima versão. -->
 ## Issues
 Closes #
 

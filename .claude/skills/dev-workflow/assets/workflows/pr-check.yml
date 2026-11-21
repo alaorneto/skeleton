@@ -1,45 +1,58 @@
 name: Verificação do PR
 
 # Skill dev-workflow: issue vinculada e classificada, seções do modelo, sobreposição de versão,
-# título, arquivos de versão coerentes, e a prévia da versão que o merge publicaria (com o label
-# release) ou acumularia (sem ele).
+# título, arquivos de versão coerentes, pedido de versão que pode ser publicado, e a prévia da
+# versão que o merge publicaria (com o label release ou um label de canal) ou acumularia (sem eles).
 #
 # Código confiável: os dois jobs rodam o skill e a configuração da branch base, nunca os do PR, que
 # poderia alterá-los para se aprovar. Um PR que melhora o validador é conferido pela versão antiga;
 # a nova vale a partir do merge. Do PR só se leem dados: corpo, labels, commits e arquivos.
+#
+# Fila de merge: no evento merge_group o check "Verificação do PR" só reporta sucesso, sem refazer
+# a verificação. O PR já passou por ela para entrar na fila, e assim ela pode ser check obrigatório.
 
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
+  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
-  group: pr-check-${{ github.event.pull_request.number }}
+  # Na fila não há número de PR: cada grupo da fila tem a sua ref (gh-readonly-queue/...).
+  group: pr-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   pr-check:
     name: Verificação do PR
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       issues: read
       pull-requests: read
     steps:
+      - name: PR já verificado antes de entrar na fila de merge
+        if: github.event_name == 'merge_group'
+        run: echo "Fila de merge; o PR passou por esta verificação para entrar nela. Nada a refazer."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0 # tags: a versão corrente vem da última tag alcançável
           persist-credentials: false
       # Os arquivos do PR, só como dados: nada desta pasta é executado.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: .pr-head
+          fetch-depth: 0 # tags: o PR é conferido contra a versão de que partiu, a maior tag alcançável da ponta dele
           persist-credentials: false
       - name: Issue, seções, sobreposição de versão e título
+        if: github.event_name == 'pull_request'
         # Dados do evento entram por variável de ambiente, nunca interpolados no script.
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,17 +62,37 @@ jobs:
           if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; a verificação vale a partir do merge que o adota."; exit 0; fi
           python3 "$script" check-pr
       - name: Arquivos de versão do PR coerentes com a versão corrente
-        if: always()
+        if: always() && github.event_name == 'pull_request'
         run: |
           script="__SKILL_DIR__/scripts/release.py"
           if [ ! -f "$script" ]; then exit 0; fi
           python3 "$script" check --tree .pr-head
+      - name: Pedido de versão do PR pode ser publicado
+        # Só reprova quando o PR tem label de versão e o problema vem do pedido dele.
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          script="__SKILL_DIR__/scripts/release.py"
+          if [ ! -f "$script" ]; then exit 0; fi
+          if ! python3 "$script" preview --help | grep -q -- "--check"; then echo "A branch base ainda não confere o pedido de versão; a verificação vale a partir do merge que a traz."; exit 0; fi
+          # Os commits do PR vêm do checkout em .pr-head, que também existe para forks; nada dele é executado.
+          git fetch --quiet --no-tags ./.pr-head "+HEAD:refs/dev-workflow/pr-head"
+          # O SHA de base do evento pode ficar atrás da branch de destino, que anda sem o PR mudar:
+          # o plano é feito sobre a ponta atual dela, que o checkout com fetch-depth 0 já trouxe.
+          base="refs/remotes/origin/$BASE_REF"
+          git rev-parse --verify --quiet "$base^{commit}" >/dev/null || base="$BASE_SHA"
+          python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$base" --head-ref refs/dev-workflow/pr-head --check
 
   version-preview:
     name: Prévia da versão
     # Escreve um comentário: só código da base roda aqui, e PRs de forks ficam fora (token de leitura).
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     continue-on-error: true
     permissions:
       contents: read
@@ -75,9 +108,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           script="__SKILL_DIR__/scripts/release.py"
           if [ ! -f "$script" ]; then echo "A branch base ainda não tem o skill; sem prévia."; exit 0; fi
-          python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" --comment
+          # O SHA de base do evento pode ficar atrás da branch de destino, que anda sem o PR mudar:
+          # o plano é feito sobre a ponta atual dela, que o checkout com fetch-depth 0 já trouxe.
+          base="refs/remotes/origin/$BASE_REF"
+          git rev-parse --verify --quiet "$base^{commit}" >/dev/null || base="$BASE_SHA"
+          python3 "$script" preview --pr "$PR_NUMBER" --base-ref "$base" --head-ref "$HEAD_SHA" --comment
