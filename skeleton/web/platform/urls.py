@@ -45,6 +45,16 @@ urlpatterns = [
         name="appearance-theme-preview-css",
     ),
     path(
+        "appearance/themes/<uuid:sysid>/preview/fonts/<str:name>",
+        appearance_views.appearance_theme_preview_font,
+        name="appearance-theme-preview-font",
+    ),
+    path(
+        "appearance/themes/<uuid:sysid>/preview/images/<slug:kind>/",
+        appearance_views.appearance_theme_preview_image,
+        name="appearance-theme-preview-image",
+    ),
+    path(
         "appearance/builtin/<slug:slug>/preview/",
         appearance_views.appearance_builtin_preview,
         name="appearance-builtin-preview",

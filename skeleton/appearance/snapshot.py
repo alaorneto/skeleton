@@ -36,6 +36,16 @@ class Appearance:
     theme_version: str = ""
     theme_safe_version: str = ""
     brand_color: str = ""
+    # Where the logo (and its dark variant) and the icon come from (#636): "brand" (uploaded by the
+    # administrator), "theme" (the active theme package) or "" (none). The dark logo always comes
+    # from the same origin as the logo, never mixing two different logos.
+    logo_source: str = ""
+    icon_source: str = ""
+    logo_mime: str = ""
+    theme_assets: tuple[Any, ...] = ()  # AssetRef of the active theme (images and fonts).
+
+    def theme_asset(self, name: str) -> Any:
+        return next((ref for ref in self.theme_assets if ref.name == name), None)
 
 
 DEFAULT = Appearance()
@@ -90,9 +100,14 @@ def _version(key: str) -> str:
     return key[-12:] if key else ""
 
 
+def _public_font_url(ref: Any) -> str:
+    return f"/brand/fonts/{ref.name}?v={ref.version}"
+
+
 def _load() -> Appearance:
     from django.db import transaction
 
+    from .assets import package_assets, package_theme_values
     from .models import InstanceBrand
     from .themes import BUILTIN_THEMES, ThemeValues, theme_css, theme_css_tokens, theme_digest
 
@@ -103,21 +118,46 @@ def _load() -> Appearance:
         return DEFAULT
     values: ThemeValues | None = None
     theme = brand.active_theme
-    if theme is not None and theme.deleted_at is None:
-        values = ThemeValues(theme.name, theme.brand_color, theme.radius, theme.font, theme.custom_css)
+    if theme is not None and theme.deleted_at is not None:
+        theme = None
+    if theme is not None:
+        values = package_theme_values(theme, font_url=_public_font_url)
     elif brand.builtin_theme:
         values = BUILTIN_THEMES.get(brand.builtin_theme)  # An unknown slug is the core theme, never an error.
+    assets = package_assets(theme)
+    by_name = {ref.name: ref for ref in assets}
     css = theme_css(values) if values is not None else ""
     tokens = theme_css_tokens(values) if values is not None else ""
+    logo = dict(source="", version="", dark="", mime="")
+    if brand.logo_key:
+        logo.update(source="brand", version=_version(brand.logo_key), dark=_version(brand.logo_dark_key))
+    elif "logo" in by_name:
+        dark = by_name.get("logo_dark")
+        logo.update(
+            source="theme",
+            version=by_name["logo"].version,
+            dark=dark.version if dark is not None else "",
+            mime=by_name["logo"].mime,
+        )
+    icon_source, icon_version = "", ""
+    if brand.icon_key:
+        icon_source, icon_version = "brand", _version(brand.icon_key)
+    elif "icon" in by_name:
+        icon_source, icon_version = "theme", by_name["icon"].version
+    from_theme = theme is not None and theme.source == "package"
     return Appearance(
-        product_name=brand.product_name,
-        footer_text=brand.footer_text,
-        logo_version=_version(brand.logo_key),
-        logo_dark_version=_version(brand.logo_dark_key),
-        icon_version=_version(brand.icon_key),
+        product_name=brand.product_name or (theme.product_name if from_theme else ""),
+        footer_text=brand.footer_text or (theme.footer_text if from_theme else ""),
+        logo_version=logo["version"],
+        logo_dark_version=logo["dark"],
+        icon_version=icon_version,
         theme_css=css,
         theme_css_tokens=tokens,
         theme_version=theme_digest(css),
         theme_safe_version=theme_digest(tokens),
         brand_color=values.brand_color.lower() if values is not None else "",
+        logo_source=logo["source"],
+        icon_source=icon_source,
+        logo_mime=logo["mime"],
+        theme_assets=assets,
     )

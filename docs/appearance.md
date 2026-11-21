@@ -4,15 +4,16 @@ O administrador da plataforma define a marca da instância inteira (nome do prod
 
 ## Precedência
 
-| O quê | Organização (telas e e-mails dela) | Instância | Núcleo |
-|---|---|---|---|
-| Nome no título, no cabeçalho e no rodapé | nome de exibição da organização; no endereço próprio, o nome publicado | `product_name` | "Skeleton" |
-| Cor | `brand_color` da organização (`<style nonce>`, depois do tema) | cor do tema ativo | escala "Cobalto e Ardósia" |
-| Logo do cabeçalho | logo da organização | logo da instância (com a variante escura) | ícone do núcleo |
-| Favicon | ícone da organização | ícone da instância | `favicon.svg` |
-| Cantos, fonte e CSS personalizado | — (organizações não escolhem tema) | tema ativo | tokens do núcleo |
+| O quê | Organização (telas e e-mails dela) | Marca da instância | Tema ativo (pacote) | Núcleo |
+|---|---|---|---|---|
+| Nome no título, no cabeçalho e no rodapé | nome de exibição da organização; no endereço próprio, o nome publicado | `product_name` | `brand.product_name` do pacote | "Skeleton" |
+| Rodapé | — | `footer_text` | `brand.footer_text` do pacote | a frase do núcleo |
+| Cor | `brand_color` da organização (`<style nonce>`, depois do tema) | — | cor do tema ativo | escala "Cobalto e Ardósia" |
+| Logo do cabeçalho | logo da organização | logo enviado (com a variante escura enviada) | logo do pacote (com a variante escura do pacote) | ícone do núcleo |
+| Favicon | ícone da organização | ícone enviado | ícone do pacote | `favicon.svg` |
+| Cantos, fonte, fontes e CSS personalizado | — (organizações não escolhem tema) | — | tema ativo | tokens do núcleo |
 
-A folha de estilo do tema entra depois do `site.css` e antes do `<style>` da organização, então a organização vence pela ordem. Uma organização sem marca própria herda nome, logo e tema da instância. Fora do escopo: página de manutenção e setup (renderizadas antes do banco, continuam com o tema do núcleo), forçar modo claro ou escuro, fontes enviadas, logo em SVG, tema por organização e manifesto PWA do domínio principal.
+Por campo, vale o primeiro valor não vazio da esquerda para a direita, a partir da coluna da instância (a da organização só vale nas telas e nos e-mails dela). O logo escuro vem sempre da mesma origem do logo: com um logo enviado e sem variante escura enviada, não há variante escura, nunca a do pacote (dois logos diferentes não se misturam). A folha de estilo do tema entra depois do `site.css` e antes do `<style>` da organização, então a organização vence pela ordem. Uma organização sem marca própria herda nome, logo e tema da instância. Fora do escopo: página de manutenção e setup (renderizadas antes do banco, continuam com o tema do núcleo), forçar modo claro ou escuro e tema por organização.
 
 ## Modelo
 
@@ -163,9 +164,10 @@ Com erro, sai com 1 e diz o código, o arquivo e a linha: `ERRO css: theme.css: 
 |---|---|
 | `GET /brand/theme.css` | CSS do tema ativo, `text/css; charset=utf-8`, `nosniff`, `ETag` com a versão servida; `Cache-Control: public, max-age=300`, ou `public, max-age=31536000, immutable` quando `?v=` é a versão atual; `If-None-Match` igual dá 304; sem tema, 200 com corpo vazio |
 | `GET /brand/theme.css?safe=1` | Só os tokens, sem o CSS personalizado (as páginas de aparência usam esta) |
-| `GET /brand/logo/`, `/brand/logo-dark/`, `/brand/icon/` | Bytes da chave da linha única, tipo conferido de novo pelo conteúdo, `nosniff`, CSP `sandbox`, `public, max-age=300`; 404 quando não existe |
+| `GET /brand/logo/`, `/brand/logo-dark/`, `/brand/icon/` | Bytes da imagem enviada (chave da linha única, tipo conferido de novo pelo conteúdo) ou, sem ela, do tema ativo de pacote; `nosniff`, CSP `sandbox`, `public, max-age=300`; 404 quando não existe. Um logo SVG sai com `image/svg+xml` e `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` |
+| `GET /brand/fonts/<arquivo>.woff2` | Só uma fonte declarada no tema ativo (o nome é o do arquivo em `fonts/`); `font/woff2`, `nosniff`, `ETag`; `immutable` quando `?v=` é a versão atual (12 primeiros dígitos do SHA-256 do conteúdo); qualquer outro nome dá 404 |
 
-Sem autenticação, só GET/HEAD, sem parâmetro que escolha arquivo. `/brand/` é liberado nos endereços próprios das organizações (eles também carregam o tema da instância) e é raiz reservada: uma app não pode declarar rota em `brand/`, como em `platform/` e `admin/`. Com o cache quente, a folha de estilo não consulta o banco.
+Sem autenticação, só GET/HEAD, sem parâmetro que escolha arquivo (o nome de uma fonte é conferido contra a lista do tema ativo; a chave de armazenamento nunca aparece na URL). O CSS gerado declara cada fonte do pacote num `@font-face` que aponta para esta rota (também no modo seguro, porque as fontes não são CSS livre), e `tokens.font_family` põe a família na frente da pilha de `--font-sans`; `font-src 'self'` já permite, e a CSP das páginas não muda. `/brand/` é liberado nos endereços próprios das organizações (eles também carregam o tema da instância) e é raiz reservada: uma app não pode declarar rota em `brand/`, como em `platform/` e `admin/`. Com o cache quente, a folha de estilo não consulta o banco.
 
 ## Tela de administração
 
@@ -199,4 +201,4 @@ A página é pública por definição: não lê nada de organização nem de pes
 
 ## E-mails
 
-Sem organização no contexto, os e-mails HTML (`skeleton/email/base.html`) levam o nome do produto, a cor do tema ativo e o logo da instância como parte inline (`cid:organization-logo`, nunca URL). Com organização, valem a marca dela; se ela não tem cor, vale a do tema da instância, e o logo da instância nunca entra num e-mail de organização. Os e-mails de conta do allauth (texto) saudam com o nome do produto no domínio principal ([notificações](notifications.md#marca-nos-e-mails)).
+Sem organização no contexto, os e-mails HTML (`skeleton/email/base.html`) levam o nome do produto, a cor do tema ativo e o logo da instância como parte inline (`cid:organization-logo`, nunca URL). O logo de um tema de pacote entra só se for PNG, JPEG ou WebP: um logo SVG não vira parte inline (muitos clientes de e-mail não o mostram), e o e-mail mostra só o nome. Com organização, valem a marca dela; se ela não tem cor, vale a do tema da instância, e o logo da instância nunca entra num e-mail de organização. Os e-mails de conta do allauth (texto) saudam com o nome do produto no domínio principal ([notificações](notifications.md#marca-nos-e-mails)).

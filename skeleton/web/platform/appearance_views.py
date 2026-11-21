@@ -41,6 +41,8 @@ __all__ = [
     "appearance_theme_delete",
     "appearance_theme_preview",
     "appearance_theme_preview_css",
+    "appearance_theme_preview_font",
+    "appearance_theme_preview_image",
 ]
 
 CSRF = "csrfmiddlewaretoken"
@@ -378,12 +380,17 @@ class _RevisionForm(forms.Form):
     revision = forms.IntegerField(widget=forms.HiddenInput)
 
 
-def _preview_page(request, *, name, css_url):
-    return render(
-        request,
-        "skeleton/web/platform/appearance/preview.html",
-        {"platform_section": "appearance", "theme_name": name, "preview_css_url": css_url},
-    )
+def _preview_page(request, *, name, css_url, theme=None):
+    context = {"platform_section": "appearance", "theme_name": name, "preview_css_url": css_url}
+    if theme is not None:
+        from skeleton.appearance.assets import package_assets
+
+        kinds = {ref.name for ref in package_assets(theme)}
+        for kind in ("logo", "logo_dark"):
+            if kind in kinds and "logo" in kinds:
+                url = reverse("platform:appearance-theme-preview-image", kwargs={"sysid": theme.pk, "kind": kind})
+                context[f"preview_{kind}_url"] = f"{url}?r={theme.revision}"
+    return render(request, "skeleton/web/platform/appearance/preview.html", context)
 
 
 def _builtin_or_404(slug):
@@ -395,9 +402,14 @@ def _builtin_or_404(slug):
 
 
 def _theme_values(theme):
-    from skeleton.appearance.themes import ThemeValues
+    """The candidate theme with its fonts served by the preview route (never cached publicly)."""
+    from skeleton.appearance.assets import package_theme_values
 
-    return ThemeValues(theme.name, theme.brand_color, theme.radius, theme.font, theme.custom_css)
+    def font_url(ref):
+        url = reverse("platform:appearance-theme-preview-font", kwargs={"sysid": theme.pk, "name": ref.name})
+        return f"{url}?v={ref.version}"
+
+    return package_theme_values(theme, font_url=font_url)
 
 
 @platform_page
@@ -405,7 +417,7 @@ def _theme_values(theme):
 def appearance_theme_preview(request, sysid):
     theme = _theme_or_404(sysid)
     url = reverse("platform:appearance-theme-preview-css", kwargs={"sysid": theme.pk}) + f"?r={theme.revision}"
-    return _preview_page(request, name=theme.name, css_url=url)
+    return _preview_page(request, name=theme.name, css_url=url, theme=theme)
 
 
 @platform_page
@@ -435,6 +447,37 @@ def appearance_theme_preview_css(request, sysid):
 @require_safe
 def appearance_builtin_preview_css(request, slug):
     return _preview_css(request, _builtin_or_404(slug))
+
+
+def _preview_asset(request, sysid, name):
+    from skeleton.appearance.assets import open_asset, package_assets
+    from skeleton.web.brand_views import asset_response
+
+    theme = _theme_or_404(sysid)
+    ref = next((item for item in package_assets(theme) if item.name == name), None)
+    if ref is None:
+        raise Http404
+    return asset_response(request, open_asset(ref), ref.mime, ref.version, cache_control="private, no-store")
+
+
+@platform_page
+@require_safe
+def appearance_theme_preview_font(request, sysid, name):
+    """A font of a candidate package theme, only for the administrator (#636)."""
+    from skeleton.web.brand_views import FONT_NAME
+
+    if not FONT_NAME.fullmatch(name):
+        raise Http404
+    return _preview_asset(request, sysid, name)
+
+
+@platform_page
+@require_safe
+def appearance_theme_preview_image(request, sysid, kind):
+    """The logo or the dark logo of a candidate package theme, only for the administrator (#636)."""
+    if kind not in ("logo", "logo_dark"):
+        raise Http404
+    return _preview_asset(request, sysid, kind)
 
 
 # --------------------------------------------------------------------------- public home page (#622)

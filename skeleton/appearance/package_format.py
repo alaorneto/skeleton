@@ -488,7 +488,7 @@ def _fonts(files: dict[str, bytes], manifest: dict[str, Any]) -> tuple[PackageFo
         ):
             _fail("font_family_name", path=MANIFEST)
         path, content = _declared(files, entry.get("file"), "fonts", "font_file")
-        if PurePosixPath(path).suffix != ".woff2" or path in seen:
+        if PurePosixPath(path).suffix != ".woff2" or path.count("/") != 1 or path in seen:  # Flat: the name is the URL.
             _fail("font_file", path=path)
         if len(content) > FONT_MAX_BYTES or not content.startswith(b"wOF2"):
             _fail("font_file", path=path)

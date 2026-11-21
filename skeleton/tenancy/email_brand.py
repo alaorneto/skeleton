@@ -17,6 +17,7 @@ from typing import Any
 from .branding import HEX, LOGO_MAX_BYTES, palette
 
 LOGO_CID = "organization-logo"
+RASTER = frozenset({"image/png", "image/jpeg", "image/webp"})
 DEFAULT_COLOR = "#1d4ed8"
 
 
@@ -54,10 +55,18 @@ def _instance_brand() -> dict[str, Any]:
 
     appearance = current_appearance()
     logo = None
-    if appearance.logo_version:
+    if appearance.logo_source == "brand":
         found = open_image("logo")
         if found is not None:
             logo = (found[0], found[1].split("/", 1)[1])
+    elif appearance.logo_source == "theme" and appearance.logo_mime in RASTER:
+        # The logo of the active theme package (#636). An SVG logo never goes into an email: many
+        # clients do not show it, so the message shows only the name.
+        from skeleton.appearance.assets import open_asset
+
+        content = open_asset(appearance.theme_asset("logo"))
+        if content is not None:
+            logo = (content, appearance.logo_mime.split("/", 1)[1])
     return {"name": appearance.product_name, "color": _instance_color(), "logo": logo}
 
 

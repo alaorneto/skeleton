@@ -47,22 +47,34 @@ class Command(BaseCommand):
 
     def _show(self):
         from skeleton.appearance.services import current_brand
+        from skeleton.appearance.snapshot import _load
 
         brand = current_brand()
+        appearance = _load()  # Straight from the database, never the cache of this process.
         theme = "núcleo"
         if brand is not None and brand.active_theme_id:
             active = brand.active_theme
-            theme = f"personalizado: {active.name}" if active is not None else "núcleo"
+            if active is not None and active.source == "package":
+                theme = f"pacote: {active.name} ({active.package_id} {active.package_version})"
+            else:
+                theme = f"personalizado: {active.name}" if active is not None else "núcleo"
         elif brand is not None and brand.builtin_theme:
             theme = f"pronto: {brand.builtin_theme}"
-        yes = {True: "sim", False: "não"}
+        origin = {"brand": "sim (enviado)", "theme": "sim (do tema)", "": "não"}
+
+        def text(own, value, empty):
+            if not value:
+                return empty
+            return value if own else f"{value} (do tema)"
+
+        dark = origin[appearance.logo_source] if appearance.logo_dark_version else "não"
         lines = [
-            f"Nome do produto: {(brand.product_name if brand else '') or 'Skeleton (padrão)'}",
-            f"Rodapé: {(brand.footer_text if brand else '') or '(vazio)'}",
+            f"Nome do produto: {text(brand and brand.product_name, appearance.product_name, 'Skeleton (padrão)')}",
+            f"Rodapé: {text(brand and brand.footer_text, appearance.footer_text, '(vazio)')}",
             f"Tema ativo: {theme}",
-            f"Logo: {yes[bool(brand and brand.logo_key)]}",
-            f"Logo para o modo escuro: {yes[bool(brand and brand.logo_dark_key)]}",
-            f"Ícone: {yes[bool(brand and brand.icon_key)]}",
+            f"Logo: {origin[appearance.logo_source]}",
+            f"Logo para o modo escuro: {dark}",
+            f"Ícone: {origin[appearance.icon_source]}",
         ]
         self.stdout.write("\n".join(lines))
 
