@@ -8,6 +8,7 @@ from skeleton.api.admission import (
     OrganizationJoinLinksAPI,
     OrganizationJoinRequestsAPI,
 )
+from skeleton.api.discovery import ServerView
 from skeleton.api.identity import OrganizationIdentityProviderAdmissionAPI, OrganizationIdentityProvidersAPI
 from skeleton.api.invitation_views import ResendInvitationView
 from skeleton.comments.api_views import CommentDetailView, CommentRestoreView, CommentsView, MentionableView
@@ -18,6 +19,8 @@ app_name = "api"
 urlpatterns = [
     # Reads each of the actor's organizations in its own context (#74, #178).
     path("openapi.json", aggregate_route(views.OpenAPIView.as_view()), name="openapi"),
+    # Anonymous: public facts of the server for native clients (#605).
+    path("server/", ServerView.as_view(), name="server"),
     path("me/", views.MeView.as_view(), name="me"),
     path("organizations/", views.OrganizationsView.as_view(), name="organizations"),
     path("me/join-requests/", MyJoinRequestsAPI.as_view(), name="me-join-requests"),

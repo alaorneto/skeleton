@@ -334,6 +334,32 @@ def navigation_for_user(user):
     return result
 
 
+def active_applications_for(user):
+    """Apps a member sees as usable in the current tenant (#605): effective and visible to the role.
+
+    An app is listed when it is effective (installed, available, enabled, with its dependencies)
+    and either declares no navigation or has at least one entry the role may act on, with the
+    same gates as the menu (``navigation_for_user``). Nothing about licensing or billing.
+    """
+    states = application_states()
+    visible = {entry["app_label"] for entry in navigation_for_user(user)}
+    result = []
+    for manifest in sorted(all_apps(), key=lambda item: item.app_label):
+        if not states.get(manifest.app_label, {}).get("effective"):
+            continue
+        if manifest.navigation and manifest.app_label not in visible:
+            continue
+        result.append(
+            {
+                "app_id": manifest.app_id or manifest.app_label,
+                "label": manifest.app_label,
+                "version": manifest.version,
+                "title": str(manifest.label),
+            }
+        )
+    return result
+
+
 def application_navigation(request):
     context = current_context()
     if context.organization_id is None or not getattr(request.user, "is_authenticated", False):

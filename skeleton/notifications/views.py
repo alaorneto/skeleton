@@ -114,6 +114,8 @@ def _inbox_row():
 
 
 class InboxAPI(SessionAPI):
+    # Native clients read the person's own inbox with a token (#605).
+    token_methods = ("GET",)
     openapi = {
         "GET": Operation(
             "Caixa de notificações do ator, de todas as organizações",
@@ -138,6 +140,8 @@ class InboxAPI(SessionAPI):
 
 
 class InboxActionAPI(TenantAPI):
+    # Marking as read is this POST; a token may do it on the person's own rows (#605).
+    token_methods = ("POST",)
     ACTIONS = {"read", "unread", "archive", "read_all"}
     openapi = {
         "POST": Operation(

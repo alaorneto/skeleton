@@ -317,6 +317,9 @@ MAINTENANCE_OPEN_URL_NAMES = frozenset(
     }
 )
 MAINTENANCE_PLATFORM_NAMESPACE = "platform"
+# Namespaced routes the administrative maintenance leaves open: the anonymous server facts (#605),
+# so a native client can show the maintenance message instead of "not a server".
+MAINTENANCE_OPEN_NAMESPACED = frozenset({("api", "server")})
 
 
 def maintenance_open_route(request) -> bool:
@@ -328,6 +331,8 @@ def maintenance_open_route(request) -> bool:
     except Resolver404:
         return False
     if match.namespaces:
+        if (match.namespace, match.url_name) in MAINTENANCE_OPEN_NAMESPACED and request.method in {"GET", "HEAD"}:
+            return True
         return match.namespaces[0] == MAINTENANCE_PLATFORM_NAMESPACE and request.path_info.startswith("/platform/")
     return match.url_name in MAINTENANCE_OPEN_URL_NAMES
 

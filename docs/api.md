@@ -11,6 +11,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | URL relativa ao prefixo | Métodos | Contrato |
 |---|---|---|
 | `openapi.json` | GET | [Schema OpenAPI 3.1](#schema-openapi) do que o ator alcança; sessão ou token |
+| `server/` | GET | Anônimo: produto, versão do core, versões da API e issuer OIDC ([descoberta](#descoberta-para-clientes-nativos)) |
 | `me/` | GET, PATCH | Própria identidade/perfil; ETag composto |
 | `organizations/` | GET | Apenas organizações dos próprios vínculos ativos |
 | `me/join-requests/`, `me/join-requests/<id>/withdraw/` | GET, POST; POST com If-Match | Os próprios pedidos de ingresso em todas as organizações; POST `{organization_id, message?}` cria (201) ou devolve o pedido aberto; organização que não aceita pedidos responde 404 neutro, limite excedido 429 `rate_limited` com `Retry-After`, email não verificado 403 `email_unverified`, vínculo ativo 409 `already_member`. Retirar exige If-Match; pedido já fechado 409 `not_open` |
@@ -33,6 +34,7 @@ Métodos que podem mudar estado, como POST, PATCH, PUT e DELETE, precisam do coo
 | `o/<org>/tables/<table_key>/references/<field>/` | GET | Picker limitado/paginado, com autorização da origem e alvo; não abre tabela livre |
 | `o/<org>/invitations/<id>/resend/` | POST | `invitations.manage`, corpo `{}` e If-Match; revoga convite antigo e retorna novo UUID/ETag/token só por email |
 | `o/<org>/billing/`, `billing/<ação>/` | GET; POST | [Cobrança](billing.md#superfícies): GET com `billing.view` (situação, assinatura, faturas, ofertas, armazenamento); POST com `billing.manage` nas ações `contract`, `remove`, `cancel`, `resume`, `voucher`, `account` e `checkout` (responde a URL da página do provedor). Os erros seguem o mapeamento da API de serviços; continua acessível com o acesso limitado. Tokens não administram, então só sessões usam estas rotas |
+| `o/<org>/apps/active/` | GET | Qualquer membro ativo, sessão ou token: as apps ativas e visíveis ao papel ([descoberta](#descoberta-para-clientes-nativos)) |
 | `o/<org>/apps/`, `apps/<app_label>/configuration/` | GET; GET/PUT configuração | Capacidade `apps.manage` (gestor de apps ou administrador; os demais recebem 404); lista só as apps disponíveis para a organização e as ativas que a plataforma retirou (`available: false`); app_id/version declarados, enabled/configuration; If-Match `"0"` para estado virtual inicial; PUT numa app indisponível responde 400 `app_unavailable`, salvo a desativação de uma app ativa; com a configuração gravada incompatível com a versão instalada, o PUT responde 400 (`configuration_incompatible`) e nada é gravado (#251) |
 
 ### Recursos dos subsistemas
@@ -253,6 +255,9 @@ Views que aceitam token, com os métodos:
 | `.../records/<id>/attachments/` | GET, POST | `files:read` ou `files:write`, além do `read`/`update` do registro que o serviço já exige |
 | `.../attachments/<id>/`, `.../restore/` | DELETE, POST | `files:write` |
 | `.../records/<id>/comments/`, `.../comments/<id>/`, `.../comments/<id>/restore/` | GET, POST, PATCH, DELETE | Só o `read` do registro que o serviço já exige; edição, exclusão e restauração com `If-Match` ([comentários](comments.md)) |
+| `server/` | GET | nenhum (anônimo; um token válido também passa) |
+| `o/<org>/apps/active/` | GET | nenhum |
+| `notifications/`, `o/<org>/notifications/actions/` | GET; POST | nenhum: só as linhas da própria pessoa; marcar como lida é o POST de `actions/` |
 
 Todo o resto (vínculos, papéis, grupos, concessões, convites, ativação de apps, webhooks, auditoria, saída da organização e a gestão de tokens) só aceita sessão. Uma view de app que estende `SessionAPI` também só aceita token se declarar `token_methods`.
 
@@ -282,6 +287,22 @@ No [schema OpenAPI](#schema-openapi), com o provedor ligado, `components.securit
 # TOKEN é o access_token do fluxo OIDC; fica só no ambiente local.
 curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/organizations/"
 ```
+
+## Descoberta para clientes nativos
+
+Dois endpoints deixam um cliente nativo descobrir o servidor e o que usar nele (#605).
+
+`GET /api/v1/server/` é anônimo por desenho e responde só fatos públicos do produto, com `Cache-Control: public, max-age=60`:
+
+```json
+{"product": "Skeleton", "core_version": "0.1.0", "api_versions": ["v1"], "oidc_issuer": "https://app.example.com"}
+```
+
+`product` vem de `SKELETON_PRODUCT_NAME` (padrão `Skeleton`) e `oidc_issuer` é o issuer do [provedor OIDC](authentication-sso.md#provedor-oidc-para-clientes-nativos-603), ou `null` com ele desligado; num endereço de organização ele continua o do domínio base. Nenhuma organização, host interno, configuração ou segredo aparece. O GET continua aberto no modo de manutenção administrativo, para o cliente mostrar a mensagem certa (as demais rotas respondem 503); no marcador de deployment, tudo responde 503.
+
+`GET /api/v1/o/<org>/apps/active/` aceita sessão ou token (`token_methods = ("GET",)`) de qualquer membro ativo e responde `{"results": [{"app_id", "label", "version", "title"}]}`: as apps efetivas na organização (instaladas, disponíveis, ativas e com as dependências) que declaram navegação alcançável pelo papel do ator, ou nenhuma navegação. Nada de licença ou faturamento. Não membro e token de conta de serviço de outra organização recebem o 404 neutro; uma app inativa não aparece.
+
+As notificações da pessoa também aceitam token: `GET notifications/` (lista) e `POST o/<org>/notifications/actions/` (marcar como lida, não lida ou arquivada). Uma linha de outra pessoa responde 404, como uma inexistente, e nada muda.
 
 ## Gestão de tokens
 
