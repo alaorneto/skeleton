@@ -23,6 +23,9 @@ BLOCK = re.compile(r"^```python\n(.*?)^```", re.DOTALL | re.MULTILINE)
 
 
 def _public(module):
+    parts = module.split(".")
+    if parts[:2] == ["skeleton", "contrib"] and parts[3:] == ["service_api"]:
+        return True  # A first-party app's declared API, as for any app with the dependency declared (E019).
     return module in PUBLIC_CORE_MODULES or any(
         module == package or module.startswith(package + ".") for package in PUBLIC_CORE_PACKAGES
     )
@@ -65,3 +68,11 @@ def test_snippet_scanner_reports_private_import():
     )
     assert private_imports(markdown) == ["skeleton.jobs.services"]
     assert private_imports("```python\nfrom skeleton.jobs.services import ...  # trecho\nx = (\n```\n") == []
+
+
+def test_a_first_party_service_api_is_a_public_import_but_its_internals_are_not():
+    markdown = (
+        "```python\nfrom skeleton.contrib.ledger.service_api import LedgerService\n"
+        "from skeleton.contrib.ledger.models import Title\n```\n"
+    )
+    assert private_imports(markdown) == ["skeleton.contrib.ledger.models"]
