@@ -33,6 +33,8 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
         {"TableSpec", "register", "AttachmentPolicy", "CommentPolicy", "GlobalSearchPolicy", "SealPolicy"}
     ),
     "skeleton.system.record_operations": frozenset({"RecordOperations", "register_record_operations"}),
+    # Widgets of the organization dashboard (#620): registration in AppConfig.ready().
+    "skeleton.system.dashboard_widgets": frozenset({"DashboardWidget", "register_dashboard_widget"}),
     "skeleton.access.policies": frozenset(
         {"authorized_queryset", "require_record_action", "require_parent_action", "has_table_permission"}
     ),

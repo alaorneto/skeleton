@@ -13,6 +13,7 @@ from . import (
     schema,  # noqa: F401 - registers its checks
     service_api,  # noqa: F401 - registers its checks
     sqltext,  # noqa: F401 - registers its checks
+    widgets,  # noqa: F401 - registers its checks
 )
 from .contract import infrastructure_identifier_checks, record_contract_checks
 from .encryption import KEYRINGS, encrypted_secret_checks, stored_secret_key_checks, stored_secrets_without_keys

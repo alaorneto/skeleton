@@ -112,3 +112,15 @@ def security_event(
             **allowed,
         },
     )
+
+
+def log_internal_error(event, error, *, source=None, **fields):
+    """An unexpected failure the page survives (#620): the class and the sanitized stack, never the message."""
+    security_event(
+        event,
+        level=logging.ERROR,
+        source=source,
+        exc_info=(type(error), error, error.__traceback__),
+        error_class=type(error).__name__,
+        **fields,
+    )
