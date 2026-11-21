@@ -18,9 +18,10 @@ A norma é o `AGENTS.md` ("não sobrescreva templates do shell do núcleo"); o f
 7. **Prepare as imagens**: logo e logo escuro em SVG simples/otimizado (ou PNG/WebP), ícone PNG 512 × 512. **Fontes** em `.woff2`, direto em `fonts/`, com a licença em `LICENSES/`.
 8. **Confira**: `python manage.py appearance check-package <diretório>` até sair "Pacote válido.". Corrija pela mensagem (ela diz o arquivo e a linha); não afrouxe a regra.
 9. **Monte**: `python manage.py appearance build-package <diretório> --output <arquivo.zip>`.
-10. **Publique** pelo caminho que o usuário pedir: envio em `/platform/appearance/` ("Instalar pacote de tema") ou `python manage.py appearance install-package <zip>` (idempotente). Instalar não ativa: pré-visualize e ative pela tela.
-11. **Verifique no navegador** com a pré-visualização do tema e, depois de ativar, o login, uma página de organização e o modo escuro.
-12. Se o projeto já tinha cópias de templates do shell (W046 em `manage.py check`), remova-as depois de o tema estar ativo, e também context processors que só trocavam o nome do produto.
+10. **Se o tema é de uma app**, ponha o diretório em `themes/<slug>/` da app (ou gere com `skeleton_startapp ... --with-theme <slug>`), use `id` `<app_id>.theme.<slug>`, declare `runtime.instance_themes` com o piso `INSTANCE_THEMES_CORE_MINIMUM` e prove na suíte da app com `skeleton.testing.appearance.assert_app_themes_valid("<app_label>")`. O tema sai com a app; não o publique também como zip.
+11. **Publique** pelo caminho que o usuário pedir: envio em `/platform/appearance/` ("Instalar pacote de tema") ou `python manage.py appearance install-package <zip>` (idempotente). Instalar não ativa: pré-visualize e ative pela tela.
+12. **Verifique no navegador** com a pré-visualização do tema e, depois de ativar, o login, uma página de organização e o modo escuro.
+13. Se o projeto já tinha cópias de templates do shell (W046 em `manage.py check`), remova-as depois de o tema estar ativo, e também context processors que só trocavam o nome do produto.
 
 ## Pare e pergunte
 
