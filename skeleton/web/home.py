@@ -53,11 +53,14 @@ def home_blocks(request: Any, organization_id: Any, blocks: list[dict[str, Any]]
     return result
 
 
-def render_home(request: Any, organization_id: Any, document: dict[str, Any], **extra: Any):
+def render_home(
+    request: Any, organization_id: Any, document: dict[str, Any], *, organization: Any = None, **extra: Any
+):
     """The internal home with ``document`` (the published page, the default or a preview)."""
-    from skeleton.service_api.organizations import OrganizationService
+    if organization is None:
+        from skeleton.service_api.organizations import OrganizationService
 
-    organization = OrganizationService().current(actor=request.user)
+        organization = OrganizationService().current(actor=request.user)
     return render(
         request,
         "skeleton/web/dashboard.html",

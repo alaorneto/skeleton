@@ -285,10 +285,6 @@ def home(request):
         if not page.published or not page.blocks:
             return redirect_to_login(request.get_full_path())
         return render(request, "skeleton/web/pages/public.html", {"blocks": page.blocks})
-    return _my_organizations(request)
-
-
-def _my_organizations(request):
     from skeleton.service_api.organizations import OrganizationService
     from skeleton.tenancy.admission import directory
     from skeleton.tenancy.domains import suggestions
@@ -454,12 +450,14 @@ def dashboard(request, organization_id):
     Tables and the administration live in the settings area (#621); "your membership" stays below.
     """
     from skeleton.common.page_blocks import DEFAULT_ORGANIZATION_HOME
+    from skeleton.service_api.organizations import OrganizationService
     from skeleton.tenancy.pages import organization_page
     from skeleton.web.home import render_home
 
+    organization = OrganizationService().current(actor=request.user)
     page = organization_page("home")
     document = page.document if page.published and page.blocks else DEFAULT_ORGANIZATION_HOME
-    return render_home(request, organization_id, document)
+    return render_home(request, organization_id, document, organization=organization)
 
 
 @tenant_page(capability=access_capability)
