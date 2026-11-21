@@ -199,7 +199,7 @@ Uma app pode importar do núcleo apenas os nomes abaixo. A coluna "Uso" é a lis
 | `skeleton.records.sealing` | `seal_record`, `seal_payload` e `verify_seal`: selar e verificar os modelos da própria app em processo ([modelo de dados](data-model.md#registros-selados-526)) |
 | `skeleton.common.migration_operations` | `InstallRecordInfrastructure` e `InstallSearchIndex`, só em migrations |
 | `skeleton.system.app_registry` | `AppManifest`, `register_app` em `ready()` |
-| `skeleton.system.registry` | `TableSpec`, `register` em `ready()`, e as políticas `AttachmentPolicy`, `CommentPolicy` e `SealPolicy` |
+| `skeleton.system.registry` | `TableSpec`, `register` em `ready()`, e as políticas `AttachmentPolicy`, `CommentPolicy`, `GlobalSearchPolicy` e `SealPolicy` |
 | `skeleton.system.record_operations` | `RecordOperations`, `register_record_operations` |
 | `skeleton.access.policies` | `authorized_queryset`, `require_record_action`, `require_parent_action` (criar filho de tabela derivada) e o predicado de leitura `has_table_permission`, sobre modelos da própria app |
 | `skeleton.access.derivation` | `is_authorizable` e `is_derived`: se uma tabela é autorizada direto ou pelo `access_parent` ([tabelas derivadas](access-control.md#tabelas-derivadas)) |

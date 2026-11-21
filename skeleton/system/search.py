@@ -163,3 +163,15 @@ def search_problems(using: str = "default") -> tuple[list[str], list[str]]:
     if not trigram_available(using):
         warnings.append("pg_trgm is not installed: the reference picker matches prefixes only.")
     return errors, warnings
+
+
+def title_field(spec: Any) -> str | None:
+    """The scalar, readable field that names a record of ``spec``; ``None`` when there is none."""
+    from skeleton.system.presentation import get_model_ui
+
+    model = spec.model
+    requested = get_model_ui(model._meta.label_lower).list.title_field
+    for name in (requested,) if requested else ("title", "name", "code"):
+        if name and name in spec.read_fields and not model._meta.get_field(name).is_relation:
+            return name
+    return None

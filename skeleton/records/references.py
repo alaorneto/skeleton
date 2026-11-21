@@ -97,16 +97,9 @@ def reference_queryset(spec, field_name, *, user, record=None, access=False):
 def label_field(model):
     """Return a scalar allowlisted title, or None; do not call business __str__."""
     if issubclass(model, SecuredRecord):
-        spec = get_spec(model._meta.label_lower)
-        from skeleton.system.presentation import get_model_ui
+        from skeleton.system.search import title_field
 
-        requested = get_model_ui(model._meta.label_lower).list.title_field
-        candidates = (requested,) if requested else ("title", "name", "code")
-        for name in candidates:
-            if name and name in spec.read_fields:
-                field = model._meta.get_field(name)
-                if not field.is_relation:
-                    return name
+        return title_field(get_spec(model._meta.label_lower))
     elif model._meta.label_lower in {"sk_access.role", "sk_access.accessgroup"}:
         return "name"
     elif model._meta.label_lower == "sk_system.tabledefinition":
