@@ -1,6 +1,6 @@
 # Marca e temas da instância
 
-O administrador da plataforma define a marca da instância inteira (nome do produto, rodapé, logo, logo para o modo escuro e ícone) e escolhe ou cria o tema ativo (cor, cantos, fonte e CSS personalizado), em `/platform/appearance/`. A mudança vale para todas as páginas sem reinício nem build do CSS. A marca de uma organização ([#168](https://github.com/alaorneto/skeleton/issues/168), [endereços de organização](organization-sites.md)) continua valendo por cima nas telas e nos e-mails dela. O desenho é o do epic [#591](https://github.com/alaorneto/skeleton/issues/591).
+O administrador da plataforma define a marca da instância inteira (nome do produto, rodapé, logo, logo para o modo escuro e ícone) e escolhe ou cria o tema ativo (cor, cantos, fonte e CSS personalizado), em `/platform/appearance/`. A mudança vale para todas as páginas sem reinício nem build do CSS. A marca de uma organização ([#168](https://github.com/alaorneto/skeleton/issues/168), [endereços de organização](organization-sites.md)) continua valendo por cima nas telas e nos e-mails dela. O desenho é o do epic [#591](https://github.com/alaorneto/skeleton/issues/591). Para **criar e publicar um tema** a partir de um sistema de design, siga o guia [criar e publicar um tema](themes.md); esta página é a referência.
 
 ## Precedência
 
@@ -76,7 +76,7 @@ O problema (`SvgProblem(code, item)`) cita o elemento ou o atributo, nunca o val
 
 ## Pacote de tema
 
-Um tema pode ser entregue como **pacote**: um `.zip` (ou um diretório, dentro de uma app) num formato padronizado, que a instância valida e instala (epic [#629](https://github.com/alaorneto/skeleton/issues/629)). O leitor é `skeleton/appearance/package_format.py` (#633): `read_theme_archive(bytes)` e `read_theme_directory(caminho)` devolvem um `ThemePackage` imutável ou levantam `ThemePackageError(code, path, line, item)`. Ele não importa Django (roda também no build de apps) e nada grava: os bytes ficam em memória e nenhum nome de arquivo vira caminho de disco.
+O passo a passo de autor está em [criar e publicar um tema](themes.md). Um tema pode ser entregue como **pacote**: um `.zip` (ou um diretório, dentro de uma app) num formato padronizado, que a instância valida e instala (epic [#629](https://github.com/alaorneto/skeleton/issues/629)). O leitor é `skeleton/appearance/package_format.py` (#633): `read_theme_archive(bytes)` e `read_theme_directory(caminho)` devolvem um `ThemePackage` imutável ou levantam `ThemePackageError(code, path, line, item)`. Ele não importa Django (roda também no build de apps) e nada grava: os bytes ficam em memória e nenhum nome de arquivo vira caminho de disco.
 
 Arquivos **na raiz** do zip, sem pasta de topo:
 
