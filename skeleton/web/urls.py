@@ -54,6 +54,7 @@ urlpatterns = [
     path("brand/logo-dark/", brand_views.brand_logo_dark, name="brand-logo-dark"),
     path("brand/icon/", brand_views.brand_icon, name="brand-icon"),
     path("brand/fonts/<str:name>", brand_views.brand_font, name="brand-font"),
+    path("brand/manifest.webmanifest", brand_views.brand_manifest, name="brand-manifest"),
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
     path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),

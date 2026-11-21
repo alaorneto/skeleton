@@ -12,11 +12,17 @@ from __future__ import annotations
 from typing import Any
 
 SAFE_PREFIX = "/platform/appearance/"
-PATHS = {"theme": "/brand/theme.css", "logo": "/brand/logo/", "logo_dark": "/brand/logo-dark/", "icon": "/brand/icon/"}
+PATHS = {
+    "theme": "/brand/theme.css",
+    "logo": "/brand/logo/",
+    "logo_dark": "/brand/logo-dark/",
+    "icon": "/brand/icon/",
+    "manifest": "/brand/manifest.webmanifest",
+}
 
 
 def instance_brand(appearance: Any, *, safe: bool = False) -> dict[str, str]:
-    """``{name, footer_text, color, theme_url, logo_url, logo_dark_url, icon_url}`` of ``appearance``."""
+    """``{name, footer_text, color, theme_url, logo_url, logo_dark_url, icon_url, manifest_url}`` of ``appearance``."""
     version = appearance.theme_safe_version if safe else appearance.theme_version
     theme_url = ""
     if version:
@@ -33,6 +39,11 @@ def instance_brand(appearance: Any, *, safe: bool = False) -> dict[str, str]:
         "logo_url": logo_url,
         "logo_dark_url": dark_url,
         "icon_url": f"{PATHS['icon']}?v={appearance.icon_version}" if appearance.icon_version else "",
+        # #639: the PWA manifest of the main domain, only when the instance has something to describe
+        # (without a brand the HTML stays the same as before).
+        "manifest_url": PATHS["manifest"]
+        if appearance.product_name or appearance.icon_version or appearance.brand_color
+        else "",
     }
 
 

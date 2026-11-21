@@ -20,7 +20,15 @@ from django.views.decorators.http import require_safe
 
 from skeleton.web.organization_settings_views import public_site_image
 
-__all__ = ["brand_font", "brand_icon", "brand_logo", "brand_logo_dark", "brand_theme", "stylesheet_response"]
+__all__ = [
+    "brand_font",
+    "brand_icon",
+    "brand_logo",
+    "brand_logo_dark",
+    "brand_manifest",
+    "brand_theme",
+    "stylesheet_response",
+]
 
 IMMUTABLE = "public, max-age=31536000, immutable"
 SHORT = "public, max-age=300"
@@ -111,3 +119,29 @@ def brand_font(request, name):
     if ref is None or ref.mime != "font/woff2":
         raise Http404
     return asset_response(request, open_asset(ref), ref.mime, ref.version)
+
+
+@require_safe
+def brand_manifest(request):
+    """``/brand/manifest.webmanifest`` (#639): name, colour and icon of the instance, only on the main domain."""
+    from django.http import JsonResponse
+    from django.templatetags.static import static
+
+    from skeleton.appearance.snapshot import current_appearance
+
+    if getattr(request, "organization_site", None) is not None:
+        raise Http404  # On an organization host the manifest is /site/manifest.webmanifest.
+    appearance = current_appearance()
+    name = appearance.product_name or "Skeleton"
+    manifest: dict[str, object] = {"name": name, "short_name": name[:12], "start_url": "/", "display": "standalone"}
+    if appearance.brand_color:
+        manifest["theme_color"] = manifest["background_color"] = appearance.brand_color
+    if appearance.icon_version:
+        icon = {"src": f"/brand/icon/?v={appearance.icon_version}", "sizes": "512x512", "type": "image/png"}
+        manifest["icons"] = [{**icon, "purpose": "any"}]
+    else:
+        manifest["icons"] = [{"src": static("skeleton/web/favicon.svg"), "sizes": "any", "type": "image/svg+xml"}]
+    response = JsonResponse(manifest, content_type="application/manifest+json")
+    response["Cache-Control"] = SHORT
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
