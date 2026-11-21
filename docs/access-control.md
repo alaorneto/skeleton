@@ -226,6 +226,7 @@ Rotas globais alcançáveis no host de organização (lista de permissão em `sk
 | `/profile/…`, `/me/…` | permitida | páginas da própria pessoa |
 | `/api/v1/…` (exceto `/api/v1/o/<outra>/…`) | permitida | mesma API; só a organização do host |
 | `/site/…`, `/favicon.ico`, `/sw.js`, `/health/…`, `STATIC_URL` | permitida | marca pública, push e sondas |
+| `/brand/…` (tema e imagens da instância, #597) | permitida | a organização carrega o tema da instância por baixo da marca dela |
 | `/invite/<uuid do site>/…`, `/join/<uuid do site>/…` | permitida | convite e entrada na própria organização |
 | `/`, `/notifications/`, `/flows/tasks/` | viram a rota da organização | a rota da organização vence |
 | `/platform/…`, `/admin/…`, `/join/` (diretório), `/join/domain/…`, `/join/requests/…`, `/billing/webhooks/…`, `/invite/<outra>/…` | recusada | plataforma ou várias organizações |
