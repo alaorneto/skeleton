@@ -1,4 +1,4 @@
-"""Record contract checks of the TableSpecs and models (E001–E013, E017, E020, E042) and identifier length (E033)."""
+"""Record contract checks of the TableSpecs and models (E001–E013, E017, E020, E031, E042, E044) and identifier length (E033)."""
 
 from django.apps import apps
 from django.conf import settings
@@ -170,6 +170,30 @@ def record_contract_checks(app_configs=None, **kwargs):
                     Error(
                         f"{model._meta.label}.{name}: search_fields must be readable, non-sensitive text fields.",
                         id="skeleton.E031",
+                    )
+                )
+        policy = getattr(spec, "global_search", None)
+        if policy is not None:
+            from ..registry import GlobalSearchPolicy
+            from ..search import title_field
+
+            if (
+                not isinstance(policy, GlobalSearchPolicy)
+                or type(policy.order) is not int
+                or not 0 <= policy.order <= 9999
+                or not spec.expose_api
+                or not issubclass(model, SecuredRecord)
+                or not spec.search_fields
+                or title_field(spec) is None
+            ):
+                errors.append(
+                    Error(
+                        f"{model._meta.label}: global_search requires an exposed SecuredRecord with search_fields, "
+                        "a readable title field and a GlobalSearchPolicy with order from 0 to 9999.",
+                        hint="Set expose_api=True and search_fields, keep a readable title field (model_ui "
+                        "list.title_field, or title, name or code in read_fields) and use "
+                        "GlobalSearchPolicy(order=...). See docs/checks.md.",
+                        id="skeleton.E044",
                     )
                 )
     middleware = list(settings.MIDDLEWARE)

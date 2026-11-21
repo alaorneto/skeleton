@@ -491,6 +491,20 @@ register(
 
 A allowlist é a lista explícita dos campos permitidos. Ela contém somente campos concretos, sem `eval` ou caminhos arbitrários para objetos relacionados. A leitura de owner/grupo retorna UUID, não um perfil ou grupo privado inteiro. `owner`, `visibility` e `owning_group` não entram em `write_fields`, pois mudar acesso exige o endpoint/serviço de `manage_access`. Campos sistêmicos são automaticamente somente leitura. `expose_api=True` disponibiliza a rota, mas não concede permissão: `TablePermission` continua obrigatória. Um código comercial gerado pelo núcleo entra em `sequence_fields=(("code", "<chave da sequência>"),)` e fica fora de `write_fields`: a criação genérica (formulário e API) o preenche com o próximo número ([sequências](sequences.md#campos-preenchidos-pelo-gateway-156)). Para busca textual, declare `search_fields=("code", "title")`, só com campos de texto de `read_fields` e nunca sensíveis (E031). Na migration, instale `InstallSearchIndex("<app>", "<model>", fields=[...], label="<campo do rótulo do picker>")`. A lista passa a aceitar `?q=`, em que a última palavra casa por prefixo ([#580](https://github.com/alaorneto/skeleton/issues/580)), e o picker `q` ([#180](https://github.com/alaorneto/skeleton/issues/180), [#181](https://github.com/alaorneto/skeleton/issues/181)). O índice ausente ou divergente reprova o `check_skeleton_schema`.
 
+### Busca global
+
+Uma tabela com `search_fields` pode entrar também na busca global ([#585](https://github.com/alaorneto/skeleton/issues/585)): um termo só percorre todas as tabelas marcadas que a pessoa lê na organização. Marque no `TableSpec`:
+
+```python
+from skeleton.system.registry import GlobalSearchPolicy, TableSpec
+
+TableSpec(..., expose_api=True, search_fields=("code", "title"), global_search=GlobalSearchPolicy(order=100))
+```
+
+Requisitos (E044): `SecuredRecord` com `expose_api=True`, `search_fields` declarados e um campo de título legível (o `list.title_field` do `model_ui` ou, sem ele, `title`, `name` ou `code` em `read_fields`). `order` (inteiro de 0 a 9999, padrão 100) ordena os grupos de resultado; empates saem pelo rótulo da tabela. A marca **não** concede leitura: a busca roda a mesma busca textual da lista da tabela (`apply_search`) sobre `authorized_queryset`, só nas tabelas que a pessoa lê (`TablePermission`, escopos do token e app ativa), e devolve só o `sysid` e o título de cada registro, agrupados por tabela, porque o ranking de tabelas diferentes não é comparável. Cada tabela marcada custa uma consulta por busca: marque as tabelas em que as pessoas procuram por nome ou código. O gateway é `skeleton.records.search.global_search` ([#581](https://github.com/alaorneto/skeleton/issues/581)).
+
+Marcada a tabela, ela passa a aparecer em `GET /api/v1/o/<org>/search/` ([busca global na API](api.md#busca-global)). Uma app que queira oferecer a busca na própria tela usa o `SearchService` da [API de serviços](service-api.md#searchservice). Na interface web, quem lê a tabela passa a ver a caixa de busca no cabeçalho das páginas da organização e encontra os registros em `/o/<org>/search/`, agrupados por tabela, com links para cada registro ([navegação](ui-design.md#navegação)).
+
 ### Migration de segurança
 
 `examples/notes/migrations/0001_initial.py` cria o modelo e depois instala infraestrutura no mesmo arquivo; depende de `("sk_audit", "0002_record_infrastructure")`. O gerador Django cria campos herdados/constraints/managers históricos; não omita os constraints da base. Operação relevante:

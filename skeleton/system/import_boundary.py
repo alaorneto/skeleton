@@ -29,7 +29,9 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.records.sealing": frozenset({"seal_record", "seal_payload", "verify_seal"}),
     "skeleton.common.migration_operations": frozenset({"InstallRecordInfrastructure", "InstallSearchIndex"}),
     "skeleton.system.app_registry": frozenset({"AppManifest", "register_app"}),
-    "skeleton.system.registry": frozenset({"TableSpec", "register", "AttachmentPolicy", "CommentPolicy", "SealPolicy"}),
+    "skeleton.system.registry": frozenset(
+        {"TableSpec", "register", "AttachmentPolicy", "CommentPolicy", "GlobalSearchPolicy", "SealPolicy"}
+    ),
     "skeleton.system.record_operations": frozenset({"RecordOperations", "register_record_operations"}),
     "skeleton.access.policies": frozenset(
         {"authorized_queryset", "require_record_action", "require_parent_action", "has_table_permission"}

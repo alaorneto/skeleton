@@ -1,0 +1,29 @@
+{% extends 'skeleton/web/base.html' %}
+{% load i18n %}{% block title %}{% translate "Busca" %} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div class="min-w-0">
+    <h1>{% translate "Busca" %}</h1>
+    <p class="page-description">{% translate "Procura nas tabelas pesquisáveis que você pode consultar nesta organização, agrupando os resultados por tabela." %}</p>
+  </div>
+</div>
+<form method="get" role="search" class="filter-bar" aria-label="{% translate "Busca na organização" %}">
+  <div class="field"><label for="search-q">{% translate "Termo" %}</label><input id="search-q" type="search" name="q" value="{{ term }}" minlength="2" maxlength="200" required{% if error %} aria-invalid="true" aria-describedby="search-q-error"{% endif %}>{% if error %}<p class="errorlist" id="search-q-error">{{ error }}</p>{% endif %}</div>
+  <div class="filter-actions"><button type="submit" class="btn btn-primary">{% include "skeleton/web/components/icon.html" with name="search" %}{% translate "Buscar" %}</button></div>
+</form>
+{% if searched %}
+<div class="space-y-4">
+  {% for group in groups %}
+  <section class="card" aria-labelledby="search-group-{{ forloop.counter }}">
+    <h2 id="search-group-{{ forloop.counter }}" class="mb-3">{{ group.label }}</h2>
+    <ul class="space-y-1.5">
+      {% for hit in group.hits %}<li><a href="{{ hit.url }}">{{ hit.label }}</a></li>{% endfor %}
+    </ul>
+    {% if group.more_url %}<p class="mt-4"><a class="btn btn-secondary btn-sm" href="{{ group.more_url }}">{% translate "Ver todos os resultados" %}</a></p>{% endif %}
+  </section>
+  {% empty %}
+  <p class="empty-state card">{% translate "Nenhum resultado." %}</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

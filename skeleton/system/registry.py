@@ -30,6 +30,17 @@ class CommentPolicy:
 
 
 @dataclass(frozen=True)
+class GlobalSearchPolicy:
+    """Opt-in to the global search (#581): the table's search_fields are searched by every surface.
+
+    ``order`` sorts the groups of results (lower first; ties by table label). Whoever reads a
+    record finds it; the policy never widens what ``authorized_queryset`` returns.
+    """
+
+    order: int = 100
+
+
+@dataclass(frozen=True)
 class SealPolicy:
     """What the seal of a SealableMixin table also freezes (#527, #529).
 
@@ -71,6 +82,8 @@ class TableSpec:
     # Personal data (#189): still readable through read_fields, but redacted by the audit
     # triggers, so the audit names the person only by sysid. Frozen with the infrastructure.
     personal_fields: tuple = ()
+    # Opt-in to the global search (#581): needs expose_api, search_fields and a title field (E044).
+    global_search: GlobalSearchPolicy | None = None
 
     def __post_init__(self):
         """Field lists are tuples of names: a bare string or a non-string item is refused at once (#310)."""

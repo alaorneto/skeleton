@@ -12,7 +12,7 @@ class NotesConfig(AppConfig):
         from pathlib import Path
 
         from skeleton.system.app_registry import AppManifest, register_app
-        from skeleton.system.registry import TableSpec, register
+        from skeleton.system.registry import GlobalSearchPolicy, TableSpec, register
 
         register_app(AppManifest.from_json(Path(self.path) / "manifest.json", app_config=self))
         from .models import Note
@@ -28,6 +28,7 @@ class NotesConfig(AppConfig):
                 sensitive_fields=("body",),
                 expose_api=True,
                 search_fields=("code", "title"),
+                global_search=GlobalSearchPolicy(),
             )
         )
         from .models import NoteCategory

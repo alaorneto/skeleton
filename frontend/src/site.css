@@ -207,6 +207,18 @@
       @apply text-body-subtle;
     }
   }
+  /* Busca global no cabeçalho (#584): só dentro de uma organização com tabela marcada. A caixa
+     aparece no menu do celular e a partir de xl; entre md e xl, onde o cabeçalho não tem espaço
+     para ela, um link só com o ícone leva à página de busca. */
+  .header-search {
+    @apply flex items-center gap-2 max-md:px-3 max-md:py-2 md:max-xl:hidden;
+    & input {
+      @apply min-w-0 flex-1 py-1.5 text-sm/5 md:w-48;
+    }
+  }
+  .header-search-link {
+    @apply max-md:hidden xl:hidden;
+  }
   .header-link[aria-current] {
     @apply bg-brand-softer text-fg-brand md:border-brand-subtle md:bg-brand-softer;
     & svg {

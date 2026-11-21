@@ -139,6 +139,10 @@ def _signed_in_shell(request: HttpRequest, user: Any, site: Any) -> dict[str, An
     values.update(_access_navigation(organization_id, resource, capabilities))
     values["admission_links"] = _admission_links(organization_id, capabilities, request.path)
     values["organization_brand"] = _brand(organization_id, site)
+    from skeleton.records.search import global_search_declared
+
+    if global_search_declared():  # No query: only says whether any registered table opted in.
+        values["global_search_url"] = reverse("web:search", kwargs={"organization_id": organization_id})
     if site is None:
         icon = values["organization_brand"].get("icon_key", "")
         if icon:
