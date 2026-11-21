@@ -97,15 +97,20 @@ class InstanceBrand(SystemRecord):
     logo_key = models.CharField(max_length=300, blank=True, default="")
     logo_dark_key = models.CharField(max_length=300, blank=True, default="")
     icon_key = models.CharField(max_length=300, blank=True, default="")
-    # One of BUILTIN_THEMES, or a theme of the catalog, or neither (the core theme); never both.
+    # One of BUILTIN_THEMES, or a theme of the catalog, or a theme of an installed app
+    # ("<app_label>:<slug>", #643), or none of them (the core theme); never two at once. A key of an
+    # app that is no longer installed is the core theme, never an error.
     builtin_theme = models.CharField(max_length=32, blank=True, default="")
     active_theme = models.ForeignKey(InstanceTheme, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    app_theme = models.CharField(max_length=80, blank=True, default="")
 
     class Meta(SystemRecord.Meta):
         constraints = SystemRecord.Meta.constraints + [
             models.CheckConstraint(condition=Q(slot=BRAND_SLOT), name="sk_appearance_brand_single_slot"),
             models.CheckConstraint(
-                condition=Q(builtin_theme="") | Q(active_theme__isnull=True),
+                condition=(Q(builtin_theme="") | Q(active_theme__isnull=True))
+                & (Q(builtin_theme="") | Q(app_theme=""))
+                & (Q(active_theme__isnull=True) | Q(app_theme="")),
                 name="sk_appearance_brand_one_theme",
             ),
         ]
