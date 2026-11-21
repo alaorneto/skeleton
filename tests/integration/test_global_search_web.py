@@ -88,6 +88,7 @@ def test_header_search_box(scenario, subtests):
     with subtests.test("organization pages carry the box"):
         content = member.get(dashboard).content.decode()
         assert 'class="header-search"' in content and f'action="{page(scenario.a)}"' in content
+        assert f'class="header-link header-search-link" href="{page(scenario.a)}"' in content
     with subtests.test("home page does not"):
         assert 'class="header-search"' not in member.get(reverse("web:home")).content.decode()
     with subtests.test("no marked table, no box"):
