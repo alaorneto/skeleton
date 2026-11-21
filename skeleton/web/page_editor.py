@@ -27,7 +27,7 @@ from django.views.decorators.csrf import csrf_protect
 from skeleton.common.exceptions import ConcurrentUpdate
 from skeleton.common.page_blocks import BLOCK_LABELS, BLOCK_TYPES, FIELDS, PageState
 
-__all__ = ["OPERATIONS", "PageEditor", "PageStore", "dispatch", "editor_urls"]
+__all__ = ["OPERATIONS", "PageEditor", "PageStore", "dispatch", "editor_route_names", "editor_urls"]
 
 OPERATIONS = ("index", "preview", "publish", "add", "edit", "move", "delete")
 STALE = gettext_lazy("Esta página foi alterada por outra pessoa. Recarregue para ver a versão atual.")
@@ -62,6 +62,12 @@ class PageEditor:
     def url(self, operation: str, **kwargs: Any) -> str:
         name = self.url_name if operation == "index" else f"{self.url_name}-{operation}"
         return reverse(name, kwargs={**self.url_kwargs, **kwargs})
+
+
+def editor_route_names(name: str, namespace: str = "") -> tuple[str, ...]:
+    """The view names ``editor_urls(..., name, ...)`` creates, with ``namespace:`` when given."""
+    prefix = f"{namespace}:" if namespace else ""
+    return tuple(prefix + (name if operation == "index" else f"{name}-{operation}") for operation in OPERATIONS)
 
 
 def editor_urls(prefix: str, name: str, view: Callable[..., HttpResponse]) -> list[Any]:

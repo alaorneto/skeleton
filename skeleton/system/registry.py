@@ -236,6 +236,20 @@ def register_core_specs():
             "global",
             ("logo_key", "icon_key"),
         ),
+        "sk_tenancy.organizationpage": (
+            gettext_lazy("Páginas da organização"),
+            gettext_lazy(
+                "Página pública e início interno da organização, em blocos de texto, editados pelo administrador."
+            ),
+            "organization",
+            (),
+        ),
+        "sk_tenancy.organizationsitepage": (
+            gettext_lazy("Páginas públicas de organizações"),
+            gettext_lazy("Índice global da página pública publicada de cada organização com endereço próprio ligado."),
+            "global",
+            (),
+        ),
         "sk_tenancy.sitedomain": (
             "Domínios próprios",
             "Domínios que a organização prova controlar por DNS para servir o seu endereço próprio.",

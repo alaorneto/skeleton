@@ -14,6 +14,8 @@ from django.utils.translation import gettext, gettext_lazy
 
 from skeleton.tenancy.context import current_context, memberships_for_user
 
+from .page_editor import editor_route_names
+
 __all__ = [
     "ACCESS_SECTIONS",
     "SETTINGS_GROUPS",
@@ -95,6 +97,14 @@ SETTINGS_GROUPS: tuple[tuple[str, Any, tuple[SettingsItem, ...]], ...] = (
                 "globe",
                 "custom_domains",
                 ("web:site-domains", "web:site-domain-action"),
+            ),
+            # The public page on the organization's own address (#623).
+            SettingsItem(
+                "web:organization-page-public",
+                gettext_lazy("Página pública"),
+                "document",
+                "organization_admin",
+                editor_route_names("organization-page-public", "web"),
             ),
         ),
     ),

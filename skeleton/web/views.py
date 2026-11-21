@@ -424,6 +424,29 @@ def access_capability(request, kwargs):
     return resource_capability(kwargs.get("resource", ""), method=request.method)
 
 
+@never_cache
+def organization_home(request, organization_id):
+    """``/o/<org>/`` (``web:dashboard``): the internal home, or the public page for anonymous visitors (#623).
+
+    Anonymous, on the organization's own host (the site of this very organization) with its public
+    page published: the page, with the brand the administrator published. Any other anonymous
+    visitor goes to the login, as before (``/o/<uuid>/`` on the main domain is never public). The
+    host restricts, it never grants: the page comes from the global mirror, never from the tenant.
+    """
+    if not request.user.is_authenticated:
+        from django.contrib.auth.views import redirect_to_login
+
+        from skeleton.tenancy.pages import published_site_page
+
+        site = getattr(request, "organization_site", None)
+        own_host = site is not None and site.organization_id == organization_id
+        document = published_site_page(organization_id) if own_host else None
+        if document is None:
+            return redirect_to_login(request.get_full_path())
+        return render(request, "skeleton/web/pages/public.html", {"blocks": document["blocks"]})
+    return dashboard(request, organization_id)
+
+
 @tenant_page()
 def dashboard(request, organization_id):
     from skeleton.service_api.organizations import OrganizationService

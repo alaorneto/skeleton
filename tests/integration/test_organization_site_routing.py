@@ -232,7 +232,7 @@ def test_scope_does_not_leak_to_the_next_request(scenario, member):
     assert site_organization_id() is None
     platform = site_client(scenario.member, "testserver", FIXTURE_PASSWORD)
     page = platform.get(f"/o/{scenario.a.pk}/").content.decode()
-    assert f"/o/{scenario.a.pk}/tables/" in page or f"/o/{scenario.a.pk}/catalog/" in page
+    assert f"/o/{scenario.a.pk}/leave/" in page  # Canonical URLs on the main domain (the home links "leave").
     assert site_organization_id() is None
 
 

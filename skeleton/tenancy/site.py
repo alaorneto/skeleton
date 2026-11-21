@@ -148,8 +148,10 @@ def sync_site(organization: Any, settings_record: Any) -> None:
     """
     from .models import OrganizationSite
 
+    enabled = settings_record is not None and settings_record.site_enabled
+    sync_site_page(organization, site_enabled=enabled)  # The public page follows the address (#623).
     row = OrganizationSite.objects.select_for_update().filter(site_organization=organization).first()
-    if settings_record is not None and settings_record.site_enabled:
+    if enabled:
         values = {"enabled": True, **{name: getattr(settings_record, name) for name in BRAND_FIELDS}}
     else:
         values = {"enabled": False, **dict.fromkeys(BRAND_FIELDS, "")}
@@ -163,6 +165,57 @@ def sync_site(organization: Any, settings_record: Any) -> None:
         setattr(row, name, values[name])
     if changed:
         row.save(update_fields=changed)
+
+
+def sync_site_page(organization: Any, *, site_enabled: bool | None = None) -> None:
+    """Mirror the published public page into ``OrganizationSitePage`` (#623); same transaction and lock.
+
+    Call it inside the tenant context of ``organization``, under ``organization_lock``, from the
+    write that changes the page (``skeleton.tenancy.pages``) or the address (``sync_site``).
+    ``enabled`` is "address on and page published"; off, the document is emptied. Without
+    ``site_enabled`` the stored settings decide. Nothing is written when nothing changed.
+    """
+    from .models import OrganizationPage, OrganizationSettings, OrganizationSitePage
+
+    if site_enabled is None:
+        settings_row = OrganizationSettings.objects.filter(organization=organization).first()
+        site_enabled = bool(settings_row is not None and settings_row.site_enabled)
+    page = OrganizationPage.objects.filter(organization=organization, slot="public").first()
+    enabled = bool(site_enabled and page is not None and page.published and page.document)
+    values = {"enabled": enabled, "document": page.document if enabled and page is not None else {}}
+    row = OrganizationSitePage.objects.select_for_update().filter(site_organization=organization).first()
+    if row is None:
+        if enabled:
+            OrganizationSitePage(site_organization=organization, **values).save()
+        return
+    changed = {name for name, value in values.items() if getattr(row, name) != value}
+    for name in changed:
+        setattr(row, name, values[name])
+    if changed:
+        row.save(update_fields=changed)
+
+
+def published_site_page(organization_id: Any) -> dict[str, Any] | None:
+    """The published public page of an organization with its address on, from the mirror only (#623).
+
+    No tenant context and no ``system_context``: like ``site_of``, it reads the global index.
+    ``None`` when the address is off, the page is not published or the organization is inactive.
+    """
+    from .models import OrganizationSitePage
+
+    if organization_id is None:
+        return None
+    document = (
+        OrganizationSitePage.objects.filter(
+            site_organization_id=organization_id,
+            enabled=True,
+            site_organization__is_active=True,
+            site_organization__deleted_at__isnull=True,
+        )
+        .values_list("document", flat=True)
+        .first()
+    )
+    return document if isinstance(document, dict) and document.get("blocks") else None
 
 
 def _live_sites():

@@ -491,6 +491,59 @@ class OrganizationSite(SystemRecord):
         return str(self.site_organization_id)
 
 
+PAGE_SLOTS = ("public", "home")
+
+
+class OrganizationPage(OrganizationRecord):
+    """A configurable page of the organization (#623, #624): ``public`` (its own address) or ``home``.
+
+    ``document`` is a page of structured blocks validated by ``skeleton.common.page_blocks``:
+    plain text, never HTML. Written only by ``skeleton.tenancy.pages.save_organization_page``,
+    for the organization administrator, with CAS. One row per slot.
+    """
+
+    slot = models.CharField(max_length=16)
+    document = models.JSONField(default=dict, blank=True)
+    published = models.BooleanField(default=False)
+    immutable_fields = ("slot",)
+
+    class Meta(OrganizationRecord.Meta):
+        constraints = OrganizationRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("organization", "slot"), name="sk_tenancy_page_one_per_slot", violation_error_code="unique"
+            ),
+            models.CheckConstraint(condition=Q(slot__in=PAGE_SLOTS), name="sk_tenancy_page_slot"),
+        ]
+
+    def __str__(self):
+        return self.slot
+
+
+class OrganizationSitePage(SystemRecord):
+    """Global mirror of the published public page (#623), read on the organization's host before login.
+
+    Written only by ``skeleton.tenancy.site.sync_site_page``, in the transaction (and under the
+    lock) that changes the page or the address: ``enabled`` is "address on and page published";
+    off, the document is emptied. One row per organization, never deleted. Not named
+    ``organization`` (E017).
+    """
+
+    site_organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    enabled = models.BooleanField(default=False)
+    document = models.JSONField(default=dict, blank=True)
+    immutable_fields = ("site_organization_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.UniqueConstraint(
+                fields=("site_organization",), name="sk_tenancy_site_page_one_per_org", violation_error_code="unique"
+            ),
+        ]
+
+    def __str__(self):
+        return str(self.site_organization_id)
+
+
 class SiteDomain(OrganizationRecord):
     """A custom domain the organization proves it controls, to serve its own address (#488).
 

@@ -9,8 +9,10 @@ SITE = "sk_tenancy_organizationsite"
 SETTINGS = "sk_tenancy_organizationsettings"
 DOMAIN = "sk_tenancy_sitedomain"
 CLAIM = "sk_tenancy_sitedomainclaim"
-GLOBAL_TABLES = (SITE, CLAIM)
-TENANT_TABLES = (SETTINGS, DOMAIN)
+PAGE = "sk_tenancy_organizationpage"  # The pages of an organization (#623).
+SITE_PAGE = "sk_tenancy_organizationsitepage"  # Their global mirror, read before login (#623).
+GLOBAL_TABLES = (SITE, CLAIM, SITE_PAGE)
+TENANT_TABLES = (SETTINGS, DOMAIN, PAGE)
 
 
 @pytest.fixture
