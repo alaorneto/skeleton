@@ -633,6 +633,7 @@ def sign(document, *, user, expected_revision):
 - `seal_record` exige `update` no documento, trava a linha, confere a revisão e grava o selo. O resumo (`seal_digest`) cobre os campos congelados, os anexos congelados e o `extra`: é o que uma app de assinatura digital assina. Outra app usa o `RecordSealService`, passando o `extra_digest` que calculou com `digest(...)`.
 - Uma condição que dependa de outras linhas (por exemplo, "o documento tem pelo menos uma seção") vai em `seal_condition_sql`, uma expressão sobre `NEW` congelada na migration, conferida pelo banco na transição. Ela só lê tabelas da própria app; `;`, comentários e `$` são recusados.
 - **Correção é sempre por adendo**, nunca por edição: um documento novo com `corrects` apontando para o original, também selado. O original continua íntegro e os dois aparecem juntos na tela da app. Não existe desselar.
+- `corrects` está em `seal_fields` e em `immutable_fields`: a referência não muda desde a criação e entra no resumo do selo. A combinação é válida ([modelo de dados](data-model.md#registros-selados-526)), e o kit do selo aceita a recusa por imutabilidade como prova para essas colunas.
 - Teste o contrato com `skeleton.testing.sealing.assert_sealed_contract` ([testes](testing.md#kit-do-selo)).
 
 ## Contêiner e tabelas derivadas
