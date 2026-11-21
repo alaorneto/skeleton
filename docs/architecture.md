@@ -34,6 +34,7 @@ Uma organização não duplica identidades globais. As tabelas técnicas também
 | `skeleton/flows` | Motor de fluxos de processo de negócio: definições versionadas declaradas pelas apps, instâncias, tarefas, formulários e aprovações | Só o motor; a regra de cada fluxo é da app. Condições são dados ou callables registrados, nunca `eval`; [fluxos](flows.md) |
 | `skeleton/comments` | Comentários em registros, com moderação e itens na linha do tempo | Autorização derivada do registro alvo, opt-in por `CommentPolicy`; texto simples escapado; [comentários](comments.md) |
 | `skeleton/billing` | Cobrança da plataforma vendida como SaaS (label `sk_billing`, epic #406): catálogo global de produtos e preços, conta de cobrança, assinatura, faturas e pagamentos por organização | Núcleo como fonte de verdade, provedor só recebe o pagamento; dinheiro em inteiros, termos de preço e linhas de fatura imutáveis; desligado por padrão; [cobrança](billing.md) |
+| `skeleton/appearance` | Marca e temas da instância (label `sk_appearance`, epic #591): `InstanceBrand` (linha única com nome, rodapé, imagens e tema ativo) e `InstanceTheme` (catálogo), o gerador puro do CSS (`themes.py`), a validação do CSS personalizado (`css_validation.py`), as imagens em `platform/branding/` (`images.py`), o snapshot com cache por processo (`snapshot.py`) e o job global `appearance.orphans` | Só dados, regras e serviços, escritos só pelo administrador da plataforma com CAS; páginas e rotas `/brand/` ficam em `skeleton/web`; a marca da organização vence; CSS livre só como `text/css`, nunca no HTML; [aparência](appearance.md) |
 | `skeleton/setup` | Setup do primeiro acesso, antes de existir banco configurado | A credencial owner vive só na requisição que migra |
 | `skeleton/observability` | Métricas Prometheus, tracing OpenTelemetry e Sentry, todos opt-in | Sem dado pessoal, identificador de registro ou segredo em rótulos e spans; eventos do Sentry só com os campos estruturados dos logs; [deployment](deployment.md#observabilidade-87) |
 | `skeleton/instance` | Configuração da instância num SQLite próprio, com segredos cifrados | Lido antes do Django, sem `DATABASES` nem migrations; nunca guarda dados |
@@ -58,7 +59,7 @@ Os pacotes do núcleo formam camadas: `skeleton/common` é a base, o núcleo de 
 - **R2** — `accounts`, `tenancy`, `access`, `system` e `audit` não importam `web`, `api`, `service_api` nem `contrib`.
 - **R3** — `web` não importa `api`, e `api` não importa `web`.
 - **R4** — `service_api` não importa `web` nem `api`.
-- **R5** — nos demais pacotes (`jobs`, `events`, `notifications`, `files`, `integrations`, `sequences`, `observability`, `instance`, `flows`, `comments`, `transfer`...), só arquivos cujo nome contém `views` ou `urls` importam `web` ou `api`. `setup`, `conf`, `contrib` e `testing` ficam livres dessa regra.
+- **R5** — nos demais pacotes (`jobs`, `events`, `notifications`, `files`, `integrations`, `sequences`, `observability`, `instance`, `flows`, `comments`, `transfer`, `appearance`...), só arquivos cujo nome contém `views` ou `urls` importam `web` ou `api`. `setup`, `conf`, `contrib` e `testing` ficam livres dessa regra.
 
 Os cinco pacotes do domínio ainda dependem uns dos outros, e o teste não tenta separá-los. As exceções ainda existentes estão em `tests/unit/test_core_layering.py` (`KNOWN_EXCEPTIONS`), cada uma com o motivo; a lista só diminui. Um import novo que inverta uma camada reprova o teste, e quem remover uma inversão apaga a linha correspondente no mesmo PR (uma exceção que não existe mais também reprova).
 
@@ -68,7 +69,7 @@ Os cinco pacotes do domínio ainda dependem uns dos outros, e o teste não tenta
 
 `sysid` identifica uma linha; código comercial identifica algo segundo o negócio; `table_key` identifica um modelo registrado na interface. Nenhum desses valores é autorização ou um nome SQL livre recebido do cliente.
 
-Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences`, `sk_flows`, `sk_comments`, `sk_transfer`, `sk_observability` (sem modelos) e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
+Os labels estáveis do núcleo são `sk_accounts`, `sk_tenancy`, `sk_access`, `sk_system`, `sk_audit`, `sk_jobs`, `sk_events`, `sk_notifications`, `sk_files`, `sk_integrations`, `sk_sequences`, `sk_flows`, `sk_comments`, `sk_billing`, `sk_appearance`, `sk_transfer`, `sk_observability` (sem modelos) e `sk_instance` (só o comando `instance`, sem modelos); o exemplo usa `example_notes`. `AUTH_USER_MODEL='sk_accounts.User'` é definido antes de qualquer migration. Renomear esses identificadores depois de existir histórico exige uma migração de dados/estrutura, não uma troca cosmética de configuração.
 
 ## Caminho de uma requisição
 

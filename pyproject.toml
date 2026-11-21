@@ -134,6 +134,7 @@ files = [
     "skeleton/common/db.py",
     "skeleton/common/outbound_http.py",
     "skeleton/billing",
+    "skeleton/appearance",
     "skeleton/instance/schema.py",
     "skeleton/instance/store.py",
     "skeleton/instance/crypto.py",

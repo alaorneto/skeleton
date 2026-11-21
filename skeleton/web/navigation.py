@@ -74,12 +74,19 @@ def _access_navigation(organization_id: Any, resource: str | None, capabilities:
 
 
 def organization_shell(request: HttpRequest) -> dict[str, Any]:
+    from skeleton.appearance.snapshot import current_appearance
+
+    from .instance_brand import instance_brand, is_safe_path
+
     site = getattr(request, "organization_site", None)  # Set by OrganizationSiteMiddleware (#482).
+    # The brand of the instance (#598), under the organization's own brand on its screens.
+    brand = instance_brand(current_appearance(), safe=is_safe_path(request.path))
     shell: dict[str, Any] = {
         "site_mode": site is not None,
         "organization_site": site,  # Not "site": allauth views pass their own "site" (RequestSite).
+        "instance_brand": brand,
         # The suffix of every page title (#484): the organization on its own address, else the product.
-        "site_name": site.name if site is not None else "Skeleton",
+        "site_name": site.name if site is not None else (brand["name"] or "Skeleton"),
         # The favicon (#485): the site's public icon on its host; inside /o/<org>/ the members' icon.
         "organization_icon_url": reverse("web:site-icon") + f"?v={site.icon_key[-12:]}"
         if site is not None and site.icon_key

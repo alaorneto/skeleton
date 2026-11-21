@@ -96,3 +96,20 @@ def test_setup_pages_carry_the_policy(tmp_path, monkeypatch):
         response = Client().get("/setup/")
     assert response.status_code == 200
     assert directives(response[header_name()])["script-src"] == ["'self'"]
+
+
+def test_the_instance_theme_did_not_widen_the_policy():
+    """The theme stylesheet is served from /brand/ on the same host (#597): the CSP stays the same."""
+    from django.utils.csp import CSP
+
+    assert settings.SKELETON_CSP == {
+        "default-src": [CSP.SELF],
+        "script-src": [CSP.SELF],
+        "style-src": [CSP.SELF, CSP.NONCE],
+        "img-src": [CSP.SELF, "data:"],
+        "font-src": [CSP.SELF],
+        "connect-src": [CSP.SELF],
+        "object-src": [CSP.NONE],
+        "base-uri": [CSP.SELF],
+        "frame-ancestors": [CSP.NONE],
+    }

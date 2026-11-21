@@ -76,6 +76,7 @@ Todo apagamento físico é um job declarado em código, por organização quando
 | Notificações lidas, não lidas e entregas | `notifications.retention` | `SKELETON_NOTIFICATION_*_RETENTION_DAYS` |
 | Arquivos de exportação e importação CSV | `transfer.retention` | `SKELETON_TRANSFER_RETENTION_DAYS` (7) |
 | Objetos sem linha, deixados por rollback | `files.orphans` | `SKELETON_FILES_ORPHAN_GRACE_SECONDS` (1 hora) |
+| Imagens da marca da instância sem referência | `appearance.orphans` | `SKELETON_FILES_ORPHAN_GRACE_SECONDS` (1 hora) |
 | Bytes de anexos excluídos | `files.purge` | `SKELETON_FILES_DELETED_RETENTION_DAYS` (90) |
 | Valores de formulário de instâncias de fluxo encerradas | `flows.purge_form_data` | `FlowSpec.retention_days` ou `SKELETON_FLOWS_FORM_RETENTION_DAYS` (0: mantém) |
 | Auditoria | nenhum: append-only; só os dados pessoais antigos são redigidos uma vez (`redact_audit_personal_data`) | — |

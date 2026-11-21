@@ -126,6 +126,8 @@ register_periodic("jobs.retention", "jobs.retention", every=timedelta(hours=6), 
 - Mudar o agendamento vale a partir da próxima janela calculada com a nova cadência.
 - Jobs periódicos rodam como sistema; o tipo precisa ter `scope` coerente com `per_organization` (check `skeleton.E021`).
 
+O núcleo declara também `appearance.orphans` ([#596](https://github.com/alaorneto/skeleton/issues/596), [aparência](appearance.md#imagens)): global (`scope="global"`, `per_organization=False`, `owner_app="sk_appearance"`), a cada 6 horas, três tentativas. Ele lista só `platform/branding/` no armazenamento privado e apaga os objetos que não são nenhuma das três chaves atuais da marca da instância (logo, logo escuro, ícone) e são mais velhos que a carência de `files.orphans` (`SKELETON_FILES_ORPHAN_GRACE_SECONDS`). Nunca lista nem apaga `org/…`, e `files.orphans` nunca toca `platform/branding/`.
+
 O núcleo declara também `system.update_check` (#502): global (`scope="global"`, `per_organization=False`), uma tentativa por janela, a cada `SKELETON_UPDATE_CHECK_HOURS` horas, agendado só quando `SKELETON_UPDATE_REPOSITORY` está definido e não há agente de deployment ([aviso sem agente](deployment.md#sandbox-no-coolify-369)). O payload é vazio e o job não lê nem escreve tabelas: o resultado vai para o cache.
 
 ## Operar a fila: `/platform/jobs/`

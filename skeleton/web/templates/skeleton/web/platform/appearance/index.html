@@ -1,0 +1,53 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% translate "Aparência" %}{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{% translate "Operação" %}</p><h1>{% translate "Aparência" %}</h1>
+<p class="page-description">{% translate "Nome, imagens e tema da instância inteira. A marca de cada organização continua valendo por cima nas telas e nos e-mails dela. Esta página carrega o tema sem o CSS personalizado, para que um CSS ruim nunca esconda estes controles." %}</p></div></div>
+
+<section class="card mb-6" aria-labelledby="appearance-brand">
+  <h2 id="appearance-brand" class="section-heading">{% translate "Marca" %}</h2>
+  <form method="post" action="{% url 'platform:appearance-brand' %}">
+    {% csrf_token %}
+    {% with form=brand_form %}{% include "skeleton/web/components/form-errors.html" %}{% include "skeleton/web/components/form-fields.html" with hide_marks=True %}{% endwith %}
+    <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar marca" %}</button></div>
+  </form>
+</section>
+
+<section class="mb-6" aria-labelledby="appearance-images">
+  <h2 id="appearance-images" class="section-heading">{% translate "Imagens" %}</h2>
+  <div class="form-stack">
+  {% for image in images %}
+  <div class="card">
+    <h3 class="mb-2 text-base font-semibold text-heading">{{ image.label }}</h3>
+    {% if image.errors %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Verifique a imagem" %}</h2><ul>{% for error in image.errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if image.present %}<p class="mb-4"><img class="h-12 w-auto rounded-base border border-default bg-neutral-primary p-1" src="{{ image.url }}?v={{ image.version }}" alt="{% blocktranslate trimmed with label=image.label %}{{ label }} atual{% endblocktranslate %}"></p>{% else %}<p class="mb-4 text-body-subtle">{% translate "Nenhuma imagem enviada." %}</p>{% endif %}
+    <form method="post" enctype="multipart/form-data" action="{% url 'platform:appearance-image' image.kind %}">{% csrf_token %}
+      <input type="hidden" name="revision" value="{{ revision }}">
+      <label class="mb-2 block text-sm font-medium text-heading" for="image-{{ image.kind }}">{% translate "Enviar arquivo" %}</label>
+      <div class="toolbar"><input id="image-{{ image.kind }}" type="file" name="image" accept="{{ image.accept }}" aria-describedby="image-{{ image.kind }}-help" required><button class="btn btn-primary btn-sm" type="submit" name="action" value="upload">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Enviar" %}</button></div>
+      <p id="image-{{ image.kind }}-help" class="helptext mt-2">{{ image.help }}</p>
+    </form>
+    {% if image.present %}<form class="mt-3" method="post" action="{% url 'platform:appearance-image' image.kind %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button class="btn btn-secondary btn-sm" type="submit" name="action" value="remove">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Remover" %}</button></form>{% endif %}
+  </div>
+  {% endfor %}
+  </div>
+</section>
+
+<section aria-labelledby="appearance-themes">
+  <div class="page-header"><div class="min-w-0"><h2 id="appearance-themes" class="section-heading">{% translate "Temas" %}</h2><p class="page-description">{% translate "Um tema ativo vale para a instância inteira, em até 5 segundos. Pré-visualize antes de ativar." %}</p></div>
+  <nav class="toolbar" aria-label="{% translate "Ações dos temas" %}"><a class="btn btn-primary" href="{% url 'platform:appearance-theme-create' %}">{% include "skeleton/web/components/icon.html" with name="plus" %}{% translate "Novo tema" %}</a></nav></div>
+  {% if activate_error %}<div class="error-summary mb-4" role="alert" tabindex="-1" data-error-summary><h2>{% include "skeleton/web/components/icon.html" with name="error" class="size-5 shrink-0" %}{% translate "Não foi possível ativar" %}</h2><p class="mt-1">{{ activate_error }}</p></div>{% endif %}
+  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Tema" %}</th><th scope="col">{% translate "Origem" %}</th><th scope="col">{% translate "Situação" %}</th><th scope="col" class="col-actions">{% translate "Ações" %}</th></tr></thead><tbody>
+  <tr><td><span class="cell-primary">{% translate "Cobalto e Ardósia (núcleo)" %}</span></td><td>{% translate "Núcleo" %}</td><td>{% if core_active %}<span class="badge badge-success">{% translate "ativo" %}</span>{% else %}—{% endif %}</td>
+  <td class="col-actions"><div class="row-actions">{% if not core_active %}<form method="post" action="{% url 'platform:appearance-activate' %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Ativar" %}</button></form>{% endif %}</div></td></tr>
+  {% for item in builtins %}{% if item.color %}<tr><td><span class="cell-primary">{{ item.name }}</span><span class="cell-secondary"><code>{{ item.color }}</code></span></td><td>{% translate "Pronto" %}</td><td>{% if item.active %}<span class="badge badge-success">{% translate "ativo" %}</span>{% else %}—{% endif %}</td>
+  <td class="col-actions"><div class="row-actions"><a class="btn btn-secondary btn-sm" href="{% url 'platform:appearance-builtin-preview' item.slug %}">{% translate "Pré-visualizar" %}</a>{% if not item.active %}<form method="post" action="{% url 'platform:appearance-activate' %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="builtin" value="{{ item.slug }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Ativar" %}</button></form>{% endif %}</div></td></tr>{% endif %}{% endfor %}
+  {% for item in themes %}<tr><td><span class="cell-primary">{{ item.record.name }}</span>{% if item.record.brand_color %}<span class="cell-secondary"><code>{{ item.record.brand_color }}</code></span>{% endif %}</td><td>{% translate "Personalizado" %}</td><td>{% if item.active %}<span class="badge badge-success">{% translate "ativo" %}</span>{% else %}—{% endif %}</td>
+  <td class="col-actions"><div class="row-actions"><a class="btn btn-secondary btn-sm" href="{% url 'platform:appearance-theme-preview' item.record.pk %}">{% translate "Pré-visualizar" %}</a>{% if not item.active %}<form method="post" action="{% url 'platform:appearance-activate' %}">{% csrf_token %}<input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="theme" value="{{ item.record.pk }}"><button type="submit" class="btn btn-secondary btn-sm">{% translate "Ativar" %}</button></form>{% endif %}<a class="btn btn-secondary btn-sm" href="{% url 'platform:appearance-theme' item.record.pk %}">{% include "skeleton/web/components/icon.html" with name="pencil" %}{% translate "Editar" %}</a>{% if not item.active %}<a class="btn btn-secondary btn-sm" href="{% url 'platform:appearance-theme-delete' item.record.pk %}">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Excluir" %}</a>{% endif %}</div></td></tr>
+  {% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=4 message=_("Nenhum tema personalizado.") icon="grid" %}{% endfor %}
+  </tbody></table></div>
+</section>
+<p class="mt-4 text-sm/6 text-body-subtle">{% translate "Toda alteração exige autenticação recente e fica na auditoria. Se um tema esconder a interface, volte por esta página ou, no servidor, com manage.py appearance reset-theme." %}</p>
+</div>
+{% endblock %}

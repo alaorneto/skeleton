@@ -202,6 +202,13 @@ class AccountAdapter(DefaultAccountAdapter):
         if site is not None:
             # Account emails sent from an organization address greet with its public name (#486).
             context["current_site"] = SimpleNamespace(name=site.name, domain=request.get_host())
+        elif request is not None and "current_site" in base:
+            from skeleton.appearance.snapshot import current_appearance
+
+            product = current_appearance().product_name
+            if product:
+                # On the main domain they greet with the product name of the instance (#600).
+                context["current_site"] = SimpleNamespace(name=product, domain=request.get_host())
         # Render now; the commit callback holds only materialized email, never lazy tenant ORM.
         message = self.render_mail(template_prefix, email, context)
         schedule_mail(message, request=request)

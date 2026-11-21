@@ -198,6 +198,7 @@ CORE_APP_LABELS = frozenset(
         "sk_flows",
         "sk_comments",
         "sk_billing",
+        "sk_appearance",
     }
 )
 

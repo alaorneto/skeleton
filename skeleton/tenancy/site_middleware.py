@@ -32,7 +32,7 @@ class SiteSessionMiddleware(SessionMiddleware):
 
 # Global routes reachable on an organization host (#482): identity and the person's own pages.
 # Platform routes and routes over many organizations are refused; when in doubt, refuse.
-ALLOWED_GLOBAL_PREFIXES = ("/accounts/", "/profile/", "/me/", "/api/v1/", "/site/", "/health/")
+ALLOWED_GLOBAL_PREFIXES = ("/accounts/", "/profile/", "/me/", "/api/v1/", "/site/", "/brand/", "/health/")
 ALLOWED_GLOBAL_PATHS = frozenset({"/sw.js", "/favicon.ico"})
 
 

@@ -138,6 +138,16 @@ Os emails HTML do núcleo estendem `skeleton/email/base.html` ([#173](https://gi
 
 Os dados vêm das configurações da organização do contexto em que o email é montado: o job da organização ou a requisição do convite. O logo de uma organização nunca vai no email de outra.
 
+### Marca nos e-mails
+
+A precedência é organização → instância → núcleo ([#600](https://github.com/alaorneto/skeleton/issues/600), [aparência](appearance.md#e-mails)):
+
+- **Com organização no contexto:** nome, cor e logo dela. Sem cor própria, vale a cor do tema ativo da instância; o logo da instância nunca entra num email de organização.
+- **Sem organização:** o nome do produto, a cor do tema ativo e o logo da instância (inline, `cid:organization-logo`, o mesmo `Content-ID`: os templates não mudam).
+- **Sem marca da instância:** como antes, sem nome e com a cor `#1d4ed8`.
+
+Os emails de conta do allauth (confirmação de endereço, redefinição de senha) são só texto e não usam `skeleton/email/base.html`: no domínio principal eles saudam com o nome do produto da instância, quando definido; no endereço de uma organização, com o nome publicado dela.
+
 O texto simples continua sem marca. O convite usa os templates `skeleton/tenancy/invitation/{subject,body}.txt` e `body.html`. Ele sai no idioma e no fuso padrão da organização, depois da instância, porque a pessoa convidada pode ainda não ter conta.
 
 ## Resumo diário ou semanal
