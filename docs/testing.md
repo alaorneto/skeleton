@@ -208,6 +208,20 @@ Assertions esperadas: runtime sem super/BYPASS/ownership/SET ROLE privilegiado; 
 
 `skeleton.testing.external` (#531, #536) monta e prova o portal de pessoas externas: `external_scenario(slug)` cria as organizações A e B com o portal ligado, a administração de A, um membro comum, uma pessoa externa de A, uma administradora de A que também é externa e uma pessoa de fora; `acting_external(user, organization)` abre o contexto externo; `grant_external_access` e `enable_portal` ajustam o cenário. `assert_external_contract(service_class, method, scenario=..., call=lambda actor: ..., unlinked=..., disabled=...)` prova, para um método `allow_external` de uma app, que ele tem a marca, funciona no portal certo, recusa outro ator, nega em contexto de membro sem acesso externo, não devolve nada de A a uma pessoa externa de outra organização e fica indisponível com a app desligada.
 
+## Pessoas, organizações e grupos em fixtures
+
+`skeleton.testing.people` (#572) monta pessoas, organizações, vínculos e grupos pelos mesmos serviços de provisionamento que `build_service_scenario` usa, cada um em contexto de sistema de fixture, para que os testes de uma app em repositório próprio fiquem só em `skeleton.testing.*` (sem W019). As funções são keyword-only e devolvem o registro criado:
+
+| Helper | Cria |
+|---|---|
+| `make_person(email=..., password=None, first_name="", last_name="")` | Identidade ativa com o email verificado e primário; a senha padrão é `FIXTURE_PASSWORD`, sorteada por processo |
+| `make_organization(owner=..., slug=..., name=...)` | Organização cujo `owner` é o administrador |
+| `make_role(organization=..., code=..., name=...)` | Papel próprio da organização; códigos dos papéis embutidos são recusados |
+| `add_member(organization=..., user=..., role_code="member")` | Vínculo com um papel embutido ou criado por `make_role`; chamar de novo com outro papel acrescenta o papel. Papel inexistente é `LookupError` |
+| `make_group(organization=..., name=..., members=(), code=None, admin=None)` | Grupo com os membros (pessoas já vinculadas; outra pessoa é `LookupError` antes de criar o grupo). Com `admin`, o grupo é criado como esse administrador o criaria (`access.manage` e a auditoria dele); sem, em contexto de sistema de fixture |
+
+As permissões de tabela de um papel vêm de `grant_table_actions` (abaixo). `tests/integration/people_kit_scenario.py` monta duas organizações com quatro pessoas e três grupos cada só com esses helpers, e `tests/integration/test_people_kit.py` confere o resultado e que a análise da fronteira de importação não acusa nada nesse módulo.
+
 ## Permissões de tabela em fixtures
 
 `skeleton.testing.applications.grant_table_actions(organization_id, role_code=..., table_key=..., actions=...)` dá a um papel as ações numa tabela, em contexto de sistema de fixture e depois de sincronizar o catálogo (#545). Serve a kits de apps, como `skeleton.contrib.ledger.testing.enable_ledger`, que precisam de um administrador com acesso ao livro sem dar acesso a quem testa a origem.

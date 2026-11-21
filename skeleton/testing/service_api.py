@@ -10,15 +10,14 @@ and in PostgreSQL with the runtime role, because they only call public services.
 - ``assert_tenant_isolated``, ``assert_denied_as_not_found``, ``assert_unavailable_when_disabled``,
   ``assert_cas_conflict`` and ``assert_rejects_other_actor`` prove the security properties.
 
-Identities, organizations and memberships come from the public identity and provisioning
-services. Roles, table permissions, app activation and the example records are written as
+Identities, organizations, roles and memberships come from the public identity and provisioning
+services, through the helpers of ``skeleton.testing.people`` (#572). Table permissions, app activation and the example records are written as
 fixtures in ``system_context``: they set the precondition an operator would create, and no
 service under test runs with that context (#321). Use the scenario inside the project's
 isolated test database fixture, never against a shared database.
 """
 
 import dataclasses
-import secrets
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -27,6 +26,8 @@ from uuid import UUID, uuid4
 
 from skeleton.service_api.contract import contract_problems
 from skeleton.service_api.errors import Conflict, Forbidden, NotFound, ServiceError, Unavailable
+
+from .people import FIXTURE_PASSWORD, add_member, make_organization, make_person, make_role
 
 __all__ = [
     "ServiceScenario",
@@ -39,8 +40,6 @@ __all__ = [
     "build_service_scenario",
 ]
 
-# Drawn once per process (#321): no literal password in the kit; ``ServiceScenario.password`` holds it.
-FIXTURE_PASSWORD = secrets.token_urlsafe(24)
 _MAX_DEPTH = 16
 
 
@@ -296,40 +295,31 @@ def build_service_scenario(model: Any, *, slug: str = "service-contract") -> Ser
 
     A derived table (#566) receives its permissions on its anchor table, never on itself.
     """
-    from allauth.account.models import EmailAddress
-
     from skeleton.access.derivation import access_route
-    from skeleton.access.models import Action, Role, TablePermission
-    from skeleton.access.services import provision_membership
-    from skeleton.accounts.services import create_identity
+    from skeleton.access.models import Action, TablePermission
     from skeleton.system.models import TableDefinition
     from skeleton.system.synchronization import sync_table_catalog
     from skeleton.tenancy.context import system_context
-    from skeleton.tenancy.services import create_organization
 
-    users = {}
-    with system_context(reason="fixture:service-api-identities"):
-        for name in ("admin-a", "admin-b", "member", "denied", "outsider"):
-            user = create_identity(email=f"{name}@{slug}.example.test", password=FIXTURE_PASSWORD)
-            EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
-            users[name] = user
-    a = create_organization(owner=users["admin-a"], slug=f"{slug}-a", name="Service contract A")
-    b = create_organization(owner=users["admin-b"], slug=f"{slug}-b", name="Service contract B")
+    users = {
+        name: make_person(email=f"{name}@{slug}.example.test", password=FIXTURE_PASSWORD)
+        for name in ("admin-a", "admin-b", "member", "denied", "outsider")
+    }
+    a = make_organization(owner=users["admin-a"], slug=f"{slug}-a", name="Service contract A")
+    b = make_organization(owner=users["admin-b"], slug=f"{slug}-b", name="Service contract B")
     route = access_route(model)
     anchor: Any = route.anchor if route is not None else model
     sync_table_catalog()
     table = TableDefinition.objects.get(model_label=anchor._meta.label_lower)
     for organization in (a, b):
+        contract = make_role(organization=organization, code="service-contract", name="Service contract")
         with system_context(reason="fixture:service-api-grants", organization_id=organization.pk):
-            builtin = Role.objects.get(code="member")
-            contract = Role(organization=organization, code="service-contract", name="Service contract")
-            contract.save()
             for action in Action.values:
                 TablePermission(organization=organization, role=contract, table=table, action=action).save()
-            provision_membership(organization=organization, user=users["member"], role=builtin)
-            provision_membership(organization=organization, user=users["member"], role=contract)
-            if organization.pk == a.pk:
-                provision_membership(organization=organization, user=users["denied"], role=builtin)
+        add_member(organization=organization, user=users["member"])
+        add_member(organization=organization, user=users["member"], role_code="service-contract")
+        if organization.pk == a.pk:
+            add_member(organization=organization, user=users["denied"])
     for organization, admin in ((a, users["admin-a"]), (b, users["admin-b"])):
         with acting_as(admin, organization):
             _set_enabled(model._meta.app_label, admin, enabled=True)
