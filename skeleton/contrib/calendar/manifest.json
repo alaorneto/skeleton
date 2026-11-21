@@ -7,9 +7,9 @@
   "app_config": "skeleton.contrib.calendar.apps.CalendarConfig",
   "name": "Agenda",
   "description": "Calendários pessoais e compartilhados da organização, com eventos, recorrência, convites e lembretes",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "skeleton-core",
-  "compatibility": {"skeleton": ">=0.1.0,<0.2.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
+  "compatibility": {"skeleton": ">=0.2.0,<0.3.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
   "dependencies": {},
   "conflicts": {},
   "runtime": {
