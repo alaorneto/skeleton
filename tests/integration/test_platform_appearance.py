@@ -170,6 +170,8 @@ def test_negatives(admin_client, subtests):
         ({"name": "Cor", "brand_color": "#ffff00", "radius": "default", "font": "inter"}, "Contraste"),
         ({"name": "Css", "radius": "default", "font": "inter", "custom_css": "@import 'x';"}, "@import"),
         ({"name": "Url", "radius": "default", "font": "inter", "custom_css": ".a{background:url(//x)}"}, "url("),
+        # #631: the message names the line, also for a < inside a comment.
+        ({"name": "Lt", "radius": "default", "font": "inter", "custom_css": "a{}\n/* <style> */"}, "Linha 2:"),
     ]
     for data, message in cases:
         with subtests.test(case=message):
