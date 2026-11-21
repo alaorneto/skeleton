@@ -123,6 +123,7 @@ def open_image(kind: str) -> tuple[bytes, str] | None:
     key = getattr(record, field, "") if record is not None and field else ""
     if not is_image_key(key):
         return None
+    names: tuple[str, ...]
     if kind == "icon":
         limit, types, names = ICON_MAX_BYTES, frozenset({"image/png"}), ("icon.png",)
     else:
