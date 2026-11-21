@@ -24,6 +24,8 @@ from skeleton.system.packages import (
 )
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent / "app_template"
+# Public repository of the core; the generated docs link to its docs at the installed tag.
+CORE_REPOSITORY_URL = "https://github.com/alaorneto/skeleton"
 MODEL_NAME = re.compile(r"[A-Z][A-Za-z0-9]{0,62}\Z")
 # Escrito em literais Python e Markdown: sem aspas, barras invertidas ou controles.
 DISPLAY_NAME = re.compile(r"[^\"'\\\x00-\x1f\x7f]{1,200}\Z")
@@ -112,11 +114,23 @@ STANDALONE_LAYOUT = {
 }
 
 
+def core_docs_url(version):
+    """Absolute base of the core docs at the tag of ``version``, valid wherever the app lives (#574).
+
+    The generated docs never link outside the app by relative path: an app in its own repository or
+    in a published package has no ``../../../docs``. An unknown version falls back to the default
+    branch, still an address that resolves.
+    """
+    ref = f"v{version}" if version else "main"
+    return f"{CORE_REPOSITORY_URL}/blob/{ref}/docs"
+
+
 def render_files(scaffold, *, standalone=False):
     """Map each relative path of the new app to its rendered text."""
     from skeleton.versioning import core_version
 
     values = {
+        "core_docs": core_docs_url(core_version()["version"]),
         "app_label": scaffold.app_label,
         "app_id": scaffold.app_id,
         "config_class": scaffold.config_class,
