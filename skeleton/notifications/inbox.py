@@ -159,3 +159,10 @@ def row_data(row) -> dict:
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+
+
+def unread_rows(user, *, limit: int = 5) -> list[dict]:
+    """The person's newest unread, unarchived rows of the current tenant (the internal home, #624)."""
+    if current_context().organization_id is None:
+        raise MissingTenantContext("The unread rows of the home need the tenant context.")
+    return [row_data(row) for row in inbox_queryset(user).filter(read_at__isnull=True)[:limit]]

@@ -107,6 +107,20 @@ class NoteService(ServiceAPI):
             rows = rows.filter(code=_text({"code": code})["code"])
         return paginate(rows, convert=_summary, cursor=cursor, page_size=page_size)
 
+    @service_method(read_only=True, since="0.6.0")
+    def recent_notes(self, *, actor: "User", limit: int = 5) -> tuple[NoteSummary, ...]:
+        """Returns the most recently changed notes the actor can read, newest first.
+
+        Autorização: TablePermission read em example_notes.note; só registros legíveis.
+        Erros: InvalidInput para limit fora de 1 a 20; Forbidden sem a permissão de tabela;
+        Unavailable com a app desativada.
+        Efeitos: nenhum.
+        """
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise InvalidInput({"limit": [gettext("Use um número de 1 a 20.")]})
+        rows = authorized_queryset(Note, user=actor, action="read").order_by("-updated_at", "-sysid")[:limit]
+        return tuple(_summary(note) for note in rows)
+
     @service_method(read_only=True, since="0.3.0")
     def get_note(self, *, actor: "User", note_id: UUID) -> NoteSummary:
         """Returns one note readable by the actor.

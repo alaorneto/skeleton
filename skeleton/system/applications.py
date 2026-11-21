@@ -290,12 +290,13 @@ def configure_application(app_label, *, user, enabled, configuration, revision):
         return record
 
 
-def navigation_for_user(user):
+def navigation_for_user(user, *, permissions=None):
     """Menu entries of usable apps whose table the user may act on, in a fixed number of queries.
 
     The same gates as ``authorized_queryset`` (activation of the app and of the model's app,
     exposed ``SecuredRecord``, table permission and token scope), evaluated in batch. A link
-    grants nothing: every page revalidates on the server.
+    grants nothing: every page revalidates on the server. ``permissions`` is the result of
+    ``table_permissions(user)`` when the caller already read it in this request.
     """
     from skeleton.access.policies import table_permissions
     from skeleton.common.models import SecuredRecord
@@ -310,7 +311,7 @@ def navigation_for_user(user):
     ]
     if not entries:
         return []
-    allowed = table_permissions(user)
+    allowed = permissions if permissions is not None else table_permissions(user)
     result = []
     for manifest, entry in entries:
         try:
@@ -367,13 +368,24 @@ def application_navigation(request):
     from django.conf import settings
 
     from skeleton.access.capabilities import APPS_MANAGE, BILLING_VIEW, capabilities_for
-    from skeleton.access.policies import is_organization_admin
+    from skeleton.access.policies import is_organization_admin, table_permissions
 
     capabilities = capabilities_for(request.user)
+    is_admin = is_organization_admin(request.user)
+    permissions = table_permissions(request.user)
+    # Read once per render: the shell processor that runs next (skeleton.web.navigation) reuses
+    # these values for the settings area (#621) instead of querying them again.
+    request.skeleton_navigation_facts = {
+        "user_id": request.user.pk,
+        "organization_id": context.organization_id,
+        "capabilities": capabilities,
+        "is_admin": is_admin,
+        "table_permissions": permissions,
+    }
     return {
-        "application_navigation": navigation_for_user(request.user),
+        "application_navigation": navigation_for_user(request.user, permissions=permissions),
         "can_manage_applications": APPS_MANAGE in capabilities,
-        "can_manage_organization": is_organization_admin(request.user),
+        "can_manage_organization": is_admin,
         # The billing area (#404), only when the platform is sold with billing on.
         "can_view_billing": bool(getattr(settings, "SKELETON_BILLING_ENABLED", False)) and BILLING_VIEW in capabilities,
     }

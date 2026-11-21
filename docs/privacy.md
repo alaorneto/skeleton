@@ -8,9 +8,15 @@ A consulta opcional de versão nova ao GitHub (`SKELETON_UPDATE_REPOSITORY`, #50
 
 Ligar o endereço próprio (`/o/<org>/settings/`, seção "Endereço próprio", [#480](https://github.com/alaorneto/skeleton/issues/480)) torna públicos, para qualquer pessoa que abra `<slug>.<domínio base>`, mesmo sem login: o nome de exibição, a cor da marca, o logo, o ícone e o idioma padrão da organização. A tela avisa disso antes da ativação. Esses valores são copiados para o índice global `OrganizationSite`, que guarda só eles e só enquanto o endereço está ligado; desligar esvazia a cópia. Nenhum dado pessoal nem dado de negócio vai para o índice. O logo publicado é servido sem login em `/site/logo/` do host da organização ([arquivos](files.md#armazenamento-privado)). A exportação dos próprios dados é sempre completa, com todas as organizações da pessoa, mesmo pedida no endereço de uma organização (#483).
 
+Com o endereço ligado, a **página pública** que o administrador publicar ([#623](organization-sites.md#página-pública)) também fica visível sem login no endereço: são só os blocos de texto que ele escreveu (títulos, parágrafos, contato e links), copiados para o índice global `OrganizationSitePage` enquanto a página estiver publicada e o endereço ligado; despublicar ou desligar esvazia a cópia. Nenhum dado de membro, de pessoa ou de registro entra na página; um e-mail ou telefone de contato num bloco fica público por decisão de quem o escreveu.
+
 ## Marca da instância
 
 O nome do produto, o rodapé, o logo, o logo para o modo escuro, o ícone e o tema ativo da instância ([aparência](appearance.md), #591) são públicos por decisão do administrador da plataforma: aparecem no login e são servidos sem autenticação em `/brand/` ([arquivos](files.md#armazenamento-privado)), também nos endereços das organizações. É uma segunda saída de bytes do armazenamento privado sem login, limitada às três chaves da linha única `InstanceBrand`. Nenhum dado pessoal nem dado de organização entra nessa marca; os logs e os eventos de segurança das alterações não levam valores.
+
+## Página inicial pública da plataforma
+
+A página inicial pública (`/platform/appearance/home/`, [#622](appearance.md#página-inicial-pública)) é conteúdo escrito pelo administrador da plataforma para ser público: quem abre a raiz da plataforma sem login a vê enquanto ela estiver publicada. São só os blocos de texto que ele escreveu (títulos, parágrafos, contato e links); a página não lê nada de organização nem de pessoa, e o evento de segurança da alteração não leva o conteúdo. Um e-mail ou telefone de contato posto num bloco fica público por decisão de quem o escreveu.
 
 ## Exportação dos próprios dados
 

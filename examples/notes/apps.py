@@ -47,3 +47,6 @@ class NotesConfig(AppConfig):
         from .flows import register as register_flows
 
         register_flows()
+        from .widgets import register as register_widgets
+
+        register_widgets()  # The dashboard widget example_notes.recent (#620).

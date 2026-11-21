@@ -7,7 +7,7 @@
   "app_config": "applications.notes.apps.NotesConfig",
   "name": "Anotações",
   "description": "Anotações de demonstração do contrato de extensão",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "skeleton-examples",
   "compatibility": {"skeleton": ">=0.0.0,<1.0.0", "python": ">=3.12,<3.15", "django": ">=6.1,<6.2"},
   "dependencies": {},
@@ -41,5 +41,5 @@
   "files": [],
   "python_dependencies": [],
   "lifecycle": {"data_retention": "retain", "maintenance": true, "backup": true},
-  "release_notes": "Catálogo global de categorias (NoteCategory), gravado só pelo comando do operador load_note_categories em command_context (#576). Migration 0003_note_category."
+  "release_notes": "Quadro do painel da organização example_notes.recent (#620), com as cinco anotações alteradas mais recentemente pelo novo NoteService.recent_notes."
 }

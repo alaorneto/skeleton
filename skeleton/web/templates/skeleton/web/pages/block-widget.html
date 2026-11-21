@@ -1,0 +1,4 @@
+{% comment %}Quadro de uma app (#620): o HTML vem do template da própria app, renderizado com autoescape por skeleton.web.widgets.render_widget (ou o quadro neutro).{% endcomment %}<section class="card" aria-labelledby="home-block-{{ forloop.counter }}">
+  <h2 id="home-block-{{ forloop.counter }}" class="section-heading">{{ block.label }}</h2>
+  {{ block.html }}
+</section>

@@ -31,6 +31,10 @@ def test_switcher_lists_only_own_memberships_and_marks_current_organization():
     dashboard = client.get(f"/o/{organization.pk}/")
     assert dashboard.context["current_organization"]["organization_id"] == organization.pk
     assert 'aria-label="Organização"' in dashboard.content.decode()
+    # The sidebar is Início and the apps (#621): data and administration live in the settings area.
+    menu = dashboard.content.decode().split('id="org-sidebar"', 1)[1].split("</nav>", 1)[0]
+    assert "Início" in menu and "Tabelas" not in menu and "Auditoria" not in menu
+    assert 'aria-label="Configuração da organização"' in menu  # The bootstrap identity administers it.
     assert "current_organization" not in client.get("/").context
     # The switcher never grants access: a foreign organization stays closed.
     assert client.get(f"/o/{foreign.pk}/").status_code == 404

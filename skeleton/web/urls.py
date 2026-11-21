@@ -9,6 +9,7 @@ from skeleton.web import (
     identity_views,
     portal_views,
     privacy_views,
+    settings_views,
     site_domain_views,
     views,
 )
@@ -24,6 +25,7 @@ from skeleton.web.organization_settings_views import (
     site_logo,
     site_manifest,
 )
+from skeleton.web.page_editor import editor_urls
 
 app_name = "web"
 urlpatterns = [
@@ -54,7 +56,12 @@ urlpatterns = [
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
     path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
-    path(ORG, views.dashboard, name="dashboard"),
+    # The public page on the organization's own address for anonymous visitors (#623), else the home.
+    path(ORG, views.organization_home, name="dashboard"),
+    # The settings area of the organization (#621): the hub; the entries keep their own routes.
+    path(f"{ORG}admin/", settings_views.organization_admin, name="organization-admin"),
+    *editor_urls(f"{ORG}admin/pages/public/", "organization-page-public", settings_views.organization_public_page),
+    *editor_urls(f"{ORG}admin/pages/home/", "organization-page-home", settings_views.organization_home_page),
     path(f"{ORG}admission/", admission_views.admission_policy, name="admission"),
     # External people of the portal (#532).
     path(f"{ORG}admin/external/", external_views.external_admin, name="external"),

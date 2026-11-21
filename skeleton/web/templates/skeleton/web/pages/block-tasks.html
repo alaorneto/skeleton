@@ -1,0 +1,6 @@
+{% load i18n skeleton_format %}<section class="card" aria-labelledby="home-block-{{ forloop.counter }}">
+  <h2 id="home-block-{{ forloop.counter }}" class="section-heading">{% firstof block.heading _("Minhas tarefas") %}</h2>
+  {% if block.rows %}<ul class="space-y-2 text-sm/6">{% for row in block.rows %}<li class="flex flex-wrap items-baseline justify-between gap-x-4"><a href="{% url 'flows:task' row.organization_id row.sysid %}">{{ row.step_key }}</a>{% if row.due_at %}<span class="text-xs text-body-subtle">{% translate "Prazo:" %} {{ row.due_at|moment }}</span>{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="text-sm/6 text-body-subtle">{% translate "Nenhuma tarefa aberta para você." %}</p>{% endif %}
+  <p class="mt-4"><a class="btn btn-secondary btn-sm" href="{{ block.url }}">{% translate "Ver todas as tarefas" %}{% include "skeleton/web/components/icon.html" with name="arrow-right" %}</a></p>
+</section>

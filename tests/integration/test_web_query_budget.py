@@ -121,6 +121,18 @@ def test_dashboard_and_catalog_queries_do_not_grow_with_tables(scenario, monkeyp
             assert one == four
 
 
+def test_shell_of_the_common_member_stays_within_the_budget(scenario):
+    """The settings area (#621) reuses what the apps processor read: the shell asks nothing new.
+
+    Measured on main before #621: the catalog page cost 31 queries for the member (the shell read
+    the capabilities twice). With the settings menu and the gear it costs 29.
+    """
+    client = login(scenario.member, password=FIXTURE_PASSWORD, csrf=False)
+    url = reverse("web:catalog", kwargs={"organization_id": scenario.a.pk})
+    client.get(url)  # Warm the per-process caches (translations, templates).
+    assert _count(lambda: client.get(url)) <= 29
+
+
 def test_access_list_queries_do_not_grow_with_rows(scenario):
     from skeleton.access.models import AccessGroup, GroupMember
     from skeleton.access.services import provision_membership

@@ -19,6 +19,8 @@ Notes 0.3.0 usa manifesto v2 com compatibilidade `>=0.4.0,<1.0.0`: o core 0.4.0 
 
 `NoteCategory` (`example_notes.notecategory`, desde 0.5.0) é um catálogo global de categorias, compartilhado por todas as organizações: `SystemRecord` com `TableSpec(scope="global")`, sem gateway, código único entre categorias vivas. Só o comando do operador `manage.py load_note_categories CODIGO=Título ...` o escreve, dentro de `command_context`; a escrita de uma view, de um serviço ou de qualquer contexto de organização é recusada pelo modelo e pelo guard do banco ([tabelas globais de apps](../../../docs/table-catalog.md#tabelas-globais-de-apps)). A auditoria registra cada mudança sem organização, com `source=system:command:example_notes:load_note_categories`.
 
+Desde 0.6.0 a app registra o quadro do painel da organização `example_notes.recent` (`widgets.py`, #620): as cinco anotações alteradas mais recentemente que a pessoa lê, por `NoteService.recent_notes`, com link para a lista completa. A porta do quadro é a permissão de leitura de `example_notes.note`: sem ela, ou com a app desativada, o quadro não aparece; mesmo com a porta, o serviço só devolve registros legíveis. O administrador põe o quadro no início interno da organização ([quadros do painel](../../../docs/extending.md#quadros-do-painel-da-organização)).
+
 ## Acceptance
 Os critérios abaixo descrevem comportamentos observáveis, não resultados de testes já executados:
 

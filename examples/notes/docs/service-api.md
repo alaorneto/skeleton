@@ -25,6 +25,13 @@ Lista notas legíveis por ordem de criação, com filtro opcional por código ex
 - **Efeitos:** nenhum.
 - **Exemplo:** `NoteService().list_notes(actor=actor, page_size=50, cursor=page.next_cursor)`
 
+#### `recent_notes(*, actor, limit=5) -> tuple[NoteSummary, ...]`
+Devolve as notas legíveis alteradas mais recentemente, da mais nova para a mais antiga (desde 0.6.0; é o que o quadro `example_notes.recent` do painel mostra).
+- **Autorização:** read em `example_notes.note`; só registros legíveis.
+- **Erros:** `InvalidInput` para `limit` fora de 1..20; `Forbidden`; `Unavailable`.
+- **Efeitos:** nenhum.
+- **Exemplo:** `NoteService().recent_notes(actor=request.user, limit=5)`
+
 #### `get_note(*, actor, note_id) -> NoteSummary`
 Devolve uma nota legível.
 - **Autorização:** read na tabela e acesso de leitura ao registro.

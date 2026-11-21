@@ -163,6 +163,33 @@ def pinned_appearance():
         reset_appearance_cache()
 
 
+@pytest.fixture(autouse=True)
+def pinned_home_page():
+    """No public home page for every test (#622): ``/`` reads nothing, so query budgets stay the same.
+
+    The tests of the page ask for ``live_home_page``, which removes the pin.
+    """
+    from skeleton.appearance.pages import NO_PAGE, pin_home_page, reset_home_page_cache
+
+    pin_home_page(NO_PAGE)
+    try:
+        yield
+    finally:
+        pin_home_page(None)
+        reset_home_page_cache()
+
+
+@pytest.fixture
+def live_home_page(pinned_home_page):
+    """Read the real page row (cache reset before and after the test)."""
+    from skeleton.appearance.pages import pin_home_page, reset_home_page_cache
+
+    pin_home_page(None)
+    reset_home_page_cache()
+    yield
+    reset_home_page_cache()
+
+
 @pytest.fixture
 def live_appearance(pinned_appearance):
     """Read the real brand row (cache reset before and after the test)."""

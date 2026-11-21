@@ -6,7 +6,7 @@ from django.db import DatabaseError, connection, transaction
 from skeleton.system.checks import check_deployed_schema
 from tests.integration_postgres.test_admission_schema import _owner_execute, _rls, _triggers
 
-TABLES = ("sk_appearance_instancetheme", "sk_appearance_instancebrand")
+TABLES = ("sk_appearance_instancetheme", "sk_appearance_instancebrand", "sk_appearance_instancepage")
 
 
 @pytest.fixture

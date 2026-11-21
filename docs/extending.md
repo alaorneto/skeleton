@@ -765,6 +765,49 @@ def test_items_follow_the_workspace(isolated_db):
 - Eventos de domínio, notificações, anexos, comentários, selo, `AccessService.can/require`, o histórico de auditoria e a origem de lançamento do livro contábil aceitam o filho, sempre pela área.
 - Continuam fechados para o filho: o gateway genérico de registros, a API REST genérica e o OpenAPI, o seletor de referências, as operações de registro, a concessão de `TablePermission`/`RecordGrant`, o CSV, a interface declarativa e o sujeito de fluxo. A app mostra os filhos nas próprias páginas.
 
+## Quadros do painel da organização
+
+Uma app oferece quadros para o início interno da organização ([páginas em blocos](ui-design.md#páginas-em-blocos)) registrando um `DashboardWidget` no `AppConfig.ready()` ([#620](https://github.com/alaorneto/skeleton/issues/620)). `skeleton.system.dashboard_widgets` é [superfície pública](service-api.md#superfícies-públicas-do-núcleo-para-apps) com `DashboardWidget` e `register_dashboard_widget`. O exemplo completo é o quadro `example_notes.recent` de `examples/notes`:
+
+```python
+# examples/notes/widgets.py
+from django.utils.translation import gettext_lazy
+
+from skeleton.system.dashboard_widgets import DashboardWidget, register_dashboard_widget
+
+from .service_api import NoteService
+
+
+def recent_context(*, request, actor):
+    # Autoriza pela API de serviços da própria app: só o que o ator lê, default deny.
+    return {"notes": NoteService().recent_notes(actor=actor, limit=5)}
+
+
+RECENT = DashboardWidget(
+    name="example_notes.recent",  # "<owner_app>.<slug>", slug [a-z0-9_]{1,40}
+    owner_app="example_notes",  # app_label de quem registra (prefixo de name)
+    label=gettext_lazy("Anotações recentes"),  # editor e título padrão do quadro
+    template="example_notes/widgets/recent.html",
+    context=recent_context,
+    table_key="example_notes.note",  # porta opcional, como uma entrada de menu
+    action="read",
+)
+
+
+def register():
+    register_dashboard_widget(RECENT)  # chamado no NotesConfig.ready()
+```
+
+```django
+{# examples/notes/templates/example_notes/widgets/recent.html #}
+{% load i18n %}{% if notes %}<ul class="space-y-2 text-sm/6">{% for note in notes %}<li><a href="{% url 'web:record' organization_id 'example_notes.note' note.sysid %}">{{ note.title }}</a></li>{% endfor %}</ul>{% else %}<p class="text-sm/6 text-body-subtle">{% translate "Nenhuma anotação ainda." %}</p>{% endif %}
+```
+
+- **Nome e registro.** Nome repetido com outra declaração, slug inválido ou prefixo diferente de `owner_app` levanta `ImproperlyConfigured` no `ready()`. O check `skeleton.E045` recusa `owner_app` que não é app instalada, `table_key` sem `TableSpec`, `action` fora das ações de tabela, template inexistente e `context` que não é chamável.
+- **Quem vê.** `visible_widgets(user)` devolve só os quadros de apps efetivas na organização do contexto (instalada, disponível, ativada, com dependências; só apps com manifesto) e cuja porta o ator passa: `(table_key, action)` nas permissões de tabela dele ou `capability` nas capacidades dele. As permissões são lidas numa consulta, qualquer que seja o número de quadros. A porta só esconde, nunca concede: o `context` autoriza pela API de serviços da app.
+- **Renderização.** `skeleton.web.widgets.render_widget(request, widget)` roda o `context` no contexto de tenant da requisição (nunca em `system_context`), num savepoint, e renderiza o template da app com o mapeamento devolvido mais `organization_id` e `widget`, sem processadores de contexto. Qualquer exceção vira o quadro neutro "Este quadro não está disponível agora."; um erro inesperado é registrado com `log_internal_error` (classe e pilha sanitizada, nunca a mensagem), e uma recusa da API de serviços (`NotFound`, `Forbidden`, `Unavailable`) não é erro interno. A página nunca responde 500 por causa de um quadro.
+- **No painel.** O administrador põe o quadro no [início interno](ui-design.md#início-da-organização) em `/o/<org>/admin/pages/home/` (bloco `widget`, #624); a escolha lista os quadros que ele vê. No início, o quadro aparece como um cartão com o `label` como título e o HTML do template da app dentro, na ordem que o administrador escolheu, só para quem passa na porta. Desligar a app não invalida a página: o quadro some enquanto ela estiver desligada, e volta ao religar.
+
 ## Permissões e fluxo HTML
 
 Bootstrap/sync reconcilia TablePermission de organization_admin para a tabela exposta. Member não recebe grants automaticamente. Em `/o/<org>/access/roles/` crie role e atribua read/create/update/delete/restore e, se desejado, manage_access/audit via table-permissions. Atribua MemberRole ou GroupRole + GroupMember. Tudo exige org admin e, em produção, MFA.

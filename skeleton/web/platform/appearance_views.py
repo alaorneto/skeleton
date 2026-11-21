@@ -32,6 +32,7 @@ __all__ = [
     "appearance",
     "appearance_activate",
     "appearance_brand",
+    "appearance_home",
     "appearance_builtin_preview",
     "appearance_builtin_preview_css",
     "appearance_image",
@@ -147,6 +148,9 @@ def _page(request, *, brand_form=None, image_errors=None, activate_error="", sta
         for slug, values in BUILTIN_THEMES.items()
     ]
     themes = [{"record": theme, "active": theme.pk == active_theme} for theme in list_themes()]
+    from skeleton.appearance.pages import current_home_page
+
+    home = current_home_page()
     return render(
         request,
         "skeleton/web/platform/appearance/index.html",
@@ -159,6 +163,7 @@ def _page(request, *, brand_form=None, image_errors=None, activate_error="", sta
             "themes": themes,
             "core_active": not active_builtin and not active_theme,
             "activate_error": activate_error,
+            "home_page": {"published": home.published, "blocks": len(home.blocks)},
         },
         status=status,
     )
@@ -430,3 +435,68 @@ def appearance_theme_preview_css(request, sysid):
 @require_safe
 def appearance_builtin_preview_css(request, slug):
     return _preview_css(request, _builtin_or_404(slug))
+
+
+# --------------------------------------------------------------------------- public home page (#622)
+
+
+class _HomePageStore:
+    """The editor's store over ``skeleton.appearance.pages``: always the current row, never the cache."""
+
+    def __init__(self, actor):
+        self.actor = actor
+
+    def load(self):
+        from skeleton.appearance.pages import current_home_page
+
+        return current_home_page()
+
+    def save(self, *, document, published, expected_revision):
+        from skeleton.appearance.pages import save_home_page
+
+        return save_home_page(
+            actor=self.actor, document=document, published=published, expected_revision=expected_revision
+        )
+
+
+def _home_preview(request, state):
+    return render(
+        request,
+        "skeleton/web/pages/public.html",
+        {
+            "blocks": state.blocks,
+            "preview": True,
+            "published": state.published,
+            "back_url": reverse("platform:appearance-home"),
+        },
+    )
+
+
+def home_page_editor(request):
+    from skeleton.common.page_blocks import PLATFORM_HOME
+    from skeleton.web.page_editor import PageEditor
+
+    return PageEditor(
+        kind=PLATFORM_HOME,
+        store=_HomePageStore(request.user),
+        url_name="platform:appearance-home",
+        base_template="skeleton/web/platform/base.html",
+        title=gettext("Página inicial pública"),
+        eyebrow=gettext("Aparência"),
+        description=gettext(
+            "O que quem não entrou vê na raiz da plataforma. Sem página publicada, a raiz leva ao login, "
+            "como antes. Os blocos são texto simples; a marca e o tema da instância valem na página."
+        ),
+        preview=_home_preview,
+        extra_context={"platform_section": "appearance"},
+    )
+
+
+@platform_page
+@recent_authentication_required(allow_get=True)
+def appearance_home(request, operation, index=None):
+    """``/platform/appearance/home/``: the shared block editor (#619) over the instance home page."""
+    from skeleton.web.page_editor import dispatch
+
+    # Each write logs appearance.home_page_changed (without the content) in save_home_page.
+    return dispatch(request, home_page_editor(request), operation, index=index)

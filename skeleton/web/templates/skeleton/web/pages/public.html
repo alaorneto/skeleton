@@ -1,0 +1,16 @@
+{% extends "skeleton/web/base.html" %}
+{% load i18n %}{% comment %}
+Layout de quem não entrou (#619): a página pública da plataforma (#622) ou da organização (#623).
+Mesma base visual da entrada (account/base_entrance.html), com largura de conteúdo maior.
+{% endcomment %}{% block title %}{{ site_name }}{% endblock %}
+{% block main %}
+<main id="conteudo" tabindex="-1" class="entrance relative isolate w-full min-w-0 px-4 py-10 focus:outline-none sm:py-16">
+  <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(60%_100%_at_50%_0%,color-mix(in_oklab,var(--color-brand)_14%,transparent),transparent)]"></div>
+  <div class="mx-auto w-full max-w-3xl">
+    {% if preview %}<div class="message warning mb-6" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% if published %}{% translate "Pré-visualização da página publicada." %}{% else %}{% translate "Pré-visualização: esta página ainda não está publicada." %}{% endif %} <a href="{{ back_url }}">{% translate "Voltar ao editor" %}</a></div></div>{% endif %}
+    {% include "skeleton/web/components/messages.html" %}
+    {% if blocks.0.type != "hero" %}<h1 class="sr-only">{{ site_name }}</h1>{% endif %}
+    {% include "skeleton/web/pages/blocks.html" %}
+  </div>
+</main>
+{% endblock %}

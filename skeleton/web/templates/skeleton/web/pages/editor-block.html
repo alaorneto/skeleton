@@ -1,0 +1,13 @@
+{% extends base_template %}
+{% load i18n %}{% block title %}{{ form_title }} · {{ site_name }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header"><div class="min-w-0"><p class="page-eyebrow">{{ editor.title }}</p><h1>{{ form_title }}</h1></div></div>
+<form method="post" action="{{ form_action }}" class="card">
+  {% csrf_token %}
+  {% include "skeleton/web/components/form-errors.html" %}
+  {% include "skeleton/web/components/form-fields.html" %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar bloco" %}</button><a class="btn btn-secondary" href="{{ index_url }}">{% translate "Cancelar" %}</a></div>
+</form>
+</div>
+{% endblock %}

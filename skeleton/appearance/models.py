@@ -1,9 +1,11 @@
-"""The two global tables of the instance appearance (#592).
+"""The global tables of the instance appearance (#592, #622).
 
 ``InstanceTheme`` is one named theme of the catalog (colour, radius, font and custom CSS);
 ``InstanceBrand`` is the single row with the product name, the footer, the three image keys and
 the active theme. Both are written only by ``skeleton.appearance.services`` and
 ``skeleton.appearance.images``, for the platform administrator; nothing here is tenant data.
+``InstancePage`` is the public home page of the platform (#622), written only by
+``skeleton.appearance.pages``.
 """
 
 from django.db import models
@@ -73,3 +75,28 @@ class InstanceBrand(SystemRecord):
 
     def __str__(self):
         return self.product_name or "Skeleton"
+
+
+HOME_SLOT = "home"
+
+
+class InstancePage(SystemRecord):
+    """The public home page of the instance (#622): one row per slot, only ``slot = "home"`` today.
+
+    ``document`` is a page of structured blocks validated by ``skeleton.common.page_blocks``
+    (``kind="platform_home"``): plain text, never HTML. Shown at ``/`` of the platform host to
+    whoever has not signed in, only while ``published``. Written only by
+    ``skeleton.appearance.pages.save_home_page``, for the platform administrator, with CAS.
+    """
+
+    slot = models.CharField(max_length=16, default=HOME_SLOT, unique=True)
+    document = models.JSONField(default=dict, blank=True)
+    published = models.BooleanField(default=False)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.CheckConstraint(condition=Q(slot=HOME_SLOT), name="sk_appearance_page_home_slot"),
+        ]
+
+    def __str__(self):
+        return self.slot

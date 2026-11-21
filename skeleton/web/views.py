@@ -14,7 +14,6 @@ from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
 from skeleton.access.capabilities import (
-    capabilities_for,
     has_any_capability,
     require_admin_surface,
     require_resource_capability,
@@ -271,8 +270,21 @@ def check_html_revision(form, record):
 
 
 @never_cache
-@login_required
 def home(request):
+    """``/`` of the platform host: "my organizations", or the public home page for anonymous visitors (#622).
+
+    Without a published page an anonymous visitor goes to the login, as before. On an organization
+    host ``/`` is rewritten to the organization's route and never reaches this view.
+    """
+    if not request.user.is_authenticated:
+        from django.contrib.auth.views import redirect_to_login
+
+        from skeleton.appearance.pages import home_page
+
+        page = home_page()
+        if not page.published or not page.blocks:
+            return redirect_to_login(request.get_full_path())
+        return render(request, "skeleton/web/pages/public.html", {"blocks": page.blocks})
     from skeleton.service_api.organizations import OrganizationService
     from skeleton.tenancy.admission import directory
     from skeleton.tenancy.domains import suggestions
@@ -408,23 +420,44 @@ def access_capability(request, kwargs):
     return resource_capability(kwargs.get("resource", ""), method=request.method)
 
 
+@never_cache
+def organization_home(request, organization_id):
+    """``/o/<org>/`` (``web:dashboard``): the internal home, or the public page for anonymous visitors (#623).
+
+    Anonymous, on the organization's own host (the site of this very organization) with its public
+    page published: the page, with the brand the administrator published. Any other anonymous
+    visitor goes to the login, as before (``/o/<uuid>/`` on the main domain is never public). The
+    host restricts, it never grants: the page comes from the global mirror, never from the tenant.
+    """
+    if not request.user.is_authenticated:
+        from django.contrib.auth.views import redirect_to_login
+
+        from skeleton.tenancy.pages import published_site_page
+
+        site = getattr(request, "organization_site", None)
+        own_host = site is not None and site.organization_id == organization_id
+        document = published_site_page(organization_id) if own_host else None
+        if document is None:
+            return redirect_to_login(request.get_full_path())
+        return render(request, "skeleton/web/pages/public.html", {"blocks": document["blocks"]})
+    return dashboard(request, organization_id)
+
+
 @tenant_page()
 def dashboard(request, organization_id):
+    """The internal home (#624): the published home page, or the default apps, tasks and notifications.
+
+    Tables and the administration live in the settings area (#621); "your membership" stays below.
+    """
+    from skeleton.common.page_blocks import DEFAULT_ORGANIZATION_HOME
     from skeleton.service_api.organizations import OrganizationService
+    from skeleton.tenancy.pages import organization_page
+    from skeleton.web.home import render_home
 
     organization = OrganizationService().current(actor=request.user)
-    specs = presented_specs(request.user)
-    return render(
-        request,
-        "skeleton/web/dashboard.html",
-        {
-            "organization": organization,
-            "specs": specs,
-            "app_groups": grouped_specs(specs),
-            "organization_id": organization_id,
-            "capabilities": capabilities_for(request.user),
-        },
-    )
+    page = organization_page("home")
+    document = page.document if page.published and page.blocks else DEFAULT_ORGANIZATION_HOME
+    return render_home(request, organization_id, document, organization=organization)
 
 
 @tenant_page(capability=access_capability)

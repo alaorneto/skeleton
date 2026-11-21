@@ -75,6 +75,13 @@ Uma organização nova recebe um slug que é rótulo DNS (1 a 63 caracteres `a-z
 
 Em **Configurações** (`/o/<org>/settings/`), a seção "Endereço próprio" mostra o endereço (`https://acme.skeleton.com`) e a caixa "Ativar endereço próprio". Ao ativar, **o nome de exibição, a cor, o logo e o ícone ficam visíveis para qualquer pessoa que abra o endereço, mesmo sem login** ([privacidade](privacy.md#endereço-próprio-da-organização)). Desligado, o endereço responde como endereço inexistente (404).
 
+### Página pública
+
+Com o endereço ligado, o administrador pode publicar uma **página pública** da organização ([#623](https://github.com/alaorneto/skeleton/issues/623)) em **Configuração › Organização › Página pública** (`/o/<org>/admin/pages/public/`, ou `/admin/pages/public/` no próprio endereço): blocos de [texto simples](ui-design.md#páginas-em-blocos) (`hero`, `text`, `contact`, `links`), sempre escapados, montados no editor sem JavaScript e com pré-visualização. Quem abre `/` do endereço sem login vê a página, com o nome, a cor e o logo publicados da organização e, no `hero`, o botão "Entrar" (que leva ao login com a marca dela). Sem página publicada, `/` continua levando ao login; com o endereço desligado, continua o 404 neutro; `/o/<uuid>/` no domínio principal nunca é público. Quem entrou continua vendo o início interno. O editor avisa quando o endereço está desligado: "A página só aparece no endereço próprio da organização, que está desligado."
+
+- A página fica em `OrganizationPage` (slot `public`), com isolamento tenant. O que o visitante anônimo lê é o espelho global `OrganizationSitePage`, escrito só por `sync_site_page` na mesma transação e no `organization_lock` da escrita: `enabled` é "endereço ligado e página publicada"; desligado, o documento é esvaziado. Publicar, despublicar, ligar e desligar o endereço (`sync_site` chama `sync_site_page`) atualizam o espelho.
+- `published_site_page(organization_id)` (`skeleton.tenancy.pages`) lê só o espelho, sem contexto de tenant e sem `system_context`, como `site_of`; `views.organization_home` (rota `web:dashboard`) só o consulta quando o host é o da própria organização da URL.
+
 ### Logo e ícone
 
 - Logo: PNG, JPEG ou WebP até 512 KB.
@@ -114,7 +121,7 @@ Com o endereço ligado, os emails **novos** (notificações, convites, links de 
 | 2. Host desconhecido, desligado, reservado ou inválido: mesmo 404 neutro. | `refused()` em `skeleton/tenancy/site_middleware.py`; `classify_host` em `skeleton/tenancy/site.py`. | `test_every_refused_host_answers_the_same` |
 | 3. No host de A, caminho de outra organização é 404, mesmo para membro das duas. | `route_for_site`; conversor `org` (`to_python`); segunda barreira no `TenantContextMiddleware`. | `test_another_organization_is_never_reachable_from_the_host`, `tests/unit/test_organization_routing.py` |
 | 4. Rotas globais no host de organização: lista de permissão explícita (inclui `/brand/`, o tema e as imagens da instância, #597). | `allowed_global` e `ALLOWED_GLOBAL_PREFIXES`. | `test_platform_and_global_routes_are_refused`, `test_organization_hosts_load_the_instance_theme` |
-| 5. Público só o que o administrador aceitou publicar. | `OrganizationSite` escrito só por `sync_site`; `/site/logo/` e `/site/icon/` só pela chave do índice e sob o prefixo da organização (`skeleton/tenancy/branding.py`). | `tests/integration/test_organization_site.py`, `test_a_tampered_key_in_the_index_is_refused` |
+| 5. Público só o que o administrador aceitou publicar. | `OrganizationSite` escrito só por `sync_site` e `OrganizationSitePage` só por `sync_site_page` (a página pública, #623, só com o endereço ligado e a página publicada); `/site/logo/` e `/site/icon/` só pela chave do índice e sob o prefixo da organização (`skeleton/tenancy/branding.py`). | `tests/integration/test_organization_site.py`, `test_a_tampered_key_in_the_index_is_refused`, `tests/integration/test_organization_public_page.py` |
 | 6. Slug, host e `sysid` nunca em rótulo de métrica nem atributo de tracing. | `SITE_REFUSED_ROUTE` em `skeleton/observability/metrics.py`; o rótulo `route` é o padrão da rota. | `test_refused_requests_have_a_fixed_metric_label` |
 | 7. `system_context` nunca é aberto por causa do host. | `find_site`, `site_of` e o middleware só consultam o índice global. | Revisão de código; `tests/integration/test_organization_site.py` lê o índice com a role runtime sem contexto |
 
@@ -157,12 +164,13 @@ python manage.py runserver 0.0.0.0:8000
 1. Abra `http://skeleton.test:8000/` e entre. **Esperado:** "Minhas organizações", como antes.
 2. Em `/o/<uuid da acme>/settings/`, ative o endereço próprio. **Esperado:** aviso do que fica público; depois de salvar, a caixa marcada.
 3. Abra `http://acme.skeleton.test:8000/` em outra aba. **Esperado:** já autenticado (sessão compartilhada); o painel da organização, sem seletor de organização nem "Plataforma"; os links sem `/o/`.
-4. Navegue por uma tabela, um registro, Notificações, Tarefas e Configurações. **Esperado:** URLs limpas; contadores só da organização.
+4. Navegue por um app, um registro, Notificações e Tarefas; pela engrenagem ao lado do nome da organização, abra a área de configuração (`/admin/`), Tabelas e Configurações gerais. **Esperado:** URLs limpas (`/admin/`, `/catalog/`, `/settings/`); contadores só da organização; o menu lateral da área com "Voltar para a organização".
 5. Abra `http://acme.skeleton.test:8000/o/<uuid de outra organização>/`. **Esperado:** 404 "Not found.".
 6. Abra `http://naoexiste.skeleton.test:8000/` e `http://www.skeleton.test:8000/`. **Esperado:** o mesmo 404 "Not found.".
 7. Saia e abra `http://acme.skeleton.test:8000/accounts/login/`. **Esperado:** nome, cores e logo da organização; título "Entrar · <nome>".
 8. Envie um ícone PNG 512 × 512 em Configurações. **Esperado:** o favicon da aba muda nos dois hosts.
-9. Desligue o endereço. **Esperado:** `http://acme.skeleton.test:8000/` passa a responder 404.
-10. Com `organization_custom_domains` ligado, cadastre `portal.cliente.test`, publique o TXT num DNS de teste (ou crie a posse por fixture) e abra `http://portal.cliente.test:8000/`. **Esperado:** a organização, com login local (sem botões de SSO).
+9. Saia e abra `http://acme.skeleton.test:8000/`. **Esperado:** o login. Entre como administrador, publique a página pública em Configuração › Página pública e saia de novo. **Esperado:** `/` mostra a página com nome, cor e logo da organização e o botão "Entrar"; `http://skeleton.test:8000/o/<uuid da acme>/` continua indo para o login.
+10. Desligue o endereço. **Esperado:** `http://acme.skeleton.test:8000/` passa a responder 404.
+11. Com `organization_custom_domains` ligado, cadastre `portal.cliente.test`, publique o TXT num DNS de teste (ou crie a posse por fixture) e abra `http://portal.cliente.test:8000/`. **Esperado:** a organização, com login local (sem botões de SSO).
 
 O DNS real e os certificados não são verificáveis num ambiente local: o roteiro cobre a resolução por arquivo de hosts e a verificação com um resolvedor de teste.

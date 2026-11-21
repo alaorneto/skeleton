@@ -238,3 +238,25 @@ def test_kit_rejects_a_service_that_leaks_another_organization(scenario, foreign
     # ...and the kit still rejects a result that carries another organization's data.
     with pytest.raises(AssertionError, match="leaks"):
         assert_tenant_isolated(lambda: ("Foreign title",), foreign=["Foreign title"])
+
+
+def test_recent_notes_lists_the_newest_readable_notes_only(scenario, foreign):
+    """recent_notes (#620): newest first, only readable, A/B, default deny, disabled app, other actor."""
+    hidden = scenario.create(scenario.a, owner=scenario.denied, visibility="private", code="hidden", title="Hidden")
+    with scenario.as_member() as actor:
+        for index in range(6):
+            NoteService().create_note(actor=actor, code=f"r-{index}", title=f"Recente {index}")
+        recent = NoteService().recent_notes(actor=actor)
+        assert [item.code for item in recent] == ["r-5", "r-4", "r-3", "r-2", "r-1"]
+        assert all(isinstance(item, NoteSummary) for item in recent)
+        assert len(NoteService().recent_notes(actor=actor, limit=20)) == 6  # Not the hidden one.
+        for limit in (0, 21, "5"):
+            with pytest.raises(InvalidInput):
+                NoteService().recent_notes(actor=actor, limit=limit)
+    call = scenario.caller(lambda actor: NoteService().recent_notes(actor=actor, limit=20))
+    assert hidden.pk not in {item.sysid for item in call()}
+    assert_tenant_isolated(call, foreign=[foreign, "foreign-code", "Foreign title"])
+    with pytest.raises(Forbidden):
+        scenario.caller(lambda actor: NoteService().recent_notes(actor=actor), user=scenario.denied)()
+    assert_unavailable_when_disabled(call, disabled=scenario.application_disabled)
+    assert_rejects_other_actor(scenario.caller(lambda actor: NoteService().recent_notes(actor=scenario.denied)))
