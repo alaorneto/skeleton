@@ -39,6 +39,8 @@ ticket.code = number.formatted  # "AT-2026-0042"; number.number == 42, number.pe
 
 A função interna do núcleo é `skeleton.sequences.services.next_number(key, *, at=None)`. As duas exigem contexto tenant; `at` (com fuso, padrão agora) escolhe o período.
 
+Um consumidor de evento ou um job por organização numera com `actor=None` dentro do `system_context` da organização (desde 0.2.0, #577). A regra da app dona não muda: o código que chama tem de ser da app que declarou a sequência, e o número sai da organização do contexto, na transação do consumidor, sem lacunas. Um `system_context` sem organização responde `ContextRequired`. O padrão está em [eventos](events.md#reagir-numerando-e-abrindo-um-título).
+
 ## Garantias
 
 A primeira numeração de um período serializa na linha da organização com `FOR NO KEY UPDATE`, que não conflita com as inserções já feitas pela transação (#239).

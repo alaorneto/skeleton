@@ -413,7 +413,7 @@ for group in results.groups:  # Um SearchGroup por tabela com resultado.
 
 | Método | Autorização | Erros |
 |---|---|---|
-| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto | `Forbidden` (sequência de outra app); `InvalidInput` (sequência não declarada, data sem fuso) |
+| `next_number(*, actor, key, at=None) -> SequenceNumber` | a app chamadora é a dona da sequência (`owner_app`); numera na organização do contexto; `actor=None` só em `system_context` com organização (consumidor de evento, job por organização; desde 0.2.0, #577) | `Forbidden` (sequência de outra app, ou `actor=None` fora de `system_context`); `ContextRequired` (sem organização); `InvalidInput` (sequência não declarada, data sem fuso) |
 
 `SequenceNumber` tem `key`, `period`, `number` e `formatted`. O incremento acontece na transação do chamador: um rollback devolve o número e a numeração não tem lacunas. Veja [sequências](sequences.md).
 

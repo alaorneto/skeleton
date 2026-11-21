@@ -75,6 +75,41 @@ Um consumidor `"*"` pode declarar `accepts(event_type)`: os tipos recusados não
 - Um evento já apagado pela retenção, ou um consumidor retirado do código, torna a entrega inócua.
 - O check `skeleton.E022` reprova consumidor de evento desconhecido e handler que não é chamável.
 
+### Reagir numerando e abrindo um título
+
+Um consumidor roda sem ator, então só chama métodos marcados `allow_system=True` e passa `actor=None`. Para reagir a um evento de outra app (abrir uma cobrança quando um pedido é concluído, por exemplo), a app numera com a própria sequência e abre o título no livro contábil, tudo na transação da entrega (#577):
+
+```python
+from skeleton.contrib.ledger.service_api import LedgerService
+from skeleton.service_api.sequences import SequenceService
+
+
+def open_charge(envelope):
+    """Consumidor de ``orders.order_completed``: um título a receber por pedido, numerado pela app."""
+    ledger = LedgerService()
+    if ledger.titles_for_source(actor=None, table_key=envelope.table_key, record_id=envelope.record_sysid):
+        return  # entrega repetida: o pedido já tem cobrança
+    number = SequenceService().next_number(actor=None, key="billing_app.charge")
+    ledger.create_title(
+        actor=None,
+        direction="receivable",
+        amount=envelope.data["total"],
+        due_date=envelope.occurred_at.date(),
+        description=f"Cobrança {number.formatted}",
+        category_key="billing_app.revenue",
+        idempotency_key=f"charge:{envelope.event_id}",
+        source_table=envelope.table_key,
+        source_id=envelope.record_sysid,
+    )
+```
+
+- **Idempotência.** A entrega é pelo menos uma vez, e o job inteiro é uma transação: número, registro e título comitam juntos ou nenhum deles. Confira primeiro se a reação já aconteceu (`titles_for_source`, ou um registro próprio da app com o identificador do evento) e só então numere; o `idempotency_key` derivado de `event_id` é a segunda barreira do livro.
+- **Numeração.** `next_number` em `system_context` continua só da app dona da sequência e da organização do evento; o rollback de uma entrega que falha devolve o número, e a numeração não tem lacunas ([sequências](sequences.md#numerar)).
+- **Leitura do livro.** `title`, `titles_for_source` e `settlements` aceitam o contexto de sistema com a regra das escritas: com origem, o registro de origem precisa estar vivo na organização. É de `title(...).revision` que sai o `expected_revision` de `cancel_title` e `settle_title` ([livro contábil](../skeleton/contrib/ledger/docs/service-api.md)).
+- **Sem acesso novo.** O contexto de sistema do consumidor é o da organização do evento; ele não lê nem escreve outra organização, e os métodos sem `allow_system` (os que autorizam um ator) continuam recusando `actor=None`. O envelope não concede acesso: o que o consumidor lê, ele lê pelos métodos acima.
+
+**Decisão (#577).** A alternativa era deixar o consumidor enfileirar um job `run_as="actor"` com o `actor_id` do envelope. Ela foi descartada: transformaria o contexto de sistema num emissor de jobs em nome de qualquer pessoa da organização (o identificador vem de um dado gravado, não de uma autenticação), e a reação ainda dependeria de a pessoa que disparou o evento ter as permissões do livro, o que uma reação da organização não deve exigir. As superfícies abertas aqui já eram da app dona (a sequência) ou já aceitavam o sistema na escrita (o livro).
+
 ## Eventos do núcleo
 
 Os serviços de lifecycle do núcleo publicam quatro tipos (`skeleton/events/core_events.py`, #43), sempre na transação da mudança e **um por mudança efetiva**: repetir o estado atual, ou mudar só a configuração de uma app, não publica nada, e um rollback não deixa evento.

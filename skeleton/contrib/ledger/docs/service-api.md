@@ -57,8 +57,12 @@ O livro padrão da organização, criado na primeira chamada.
 | `reverse_settlement(*, actor, settlement_id, date, expected_revision, reason="") -> TitleInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("already_reversed")`; `Conflict("period_locked")` |
 | `cancel_title(*, actor, title_id, expected_revision, reason="", date=None) -> TitleInfo` | a do título | `NotFound`; `Forbidden`; `Conflict("stale_revision")`; `Conflict("title_has_settlements")` |
 | `titles(*, actor, book_id=None, direction=None, status=None, due_until=None, cursor=None, page_size=25) -> Page[TitleInfo]` | leitura do livro | `NotFound`; `InvalidInput` |
-| `titles_for_source(*, actor, table_key, record_id) -> tuple[TitleInfo, ...]` | leitura do registro de origem | `NotFound` |
-| `settlements(*, actor, title_id) -> tuple[SettlementInfo, ...]` | leitura do livro ou da origem | `NotFound` |
+| `titles_for_source(*, actor, table_key, record_id) -> tuple[TitleInfo, ...]` | leitura do registro de origem; `system_context` aceito (o registro vivo na organização do contexto, #577) | `NotFound` |
+| `settlements(*, actor, title_id) -> tuple[SettlementInfo, ...]` | leitura do livro ou da origem; `system_context` aceito (#577) | `NotFound` |
+
+`title(*, actor, title_id) -> TitleInfo` devolve um título com a mesma autorização de `settlements` e também aceita `system_context`.
+
+**Em `system_context` (consumidor de evento ou job por organização, #577).** As escritas de título (`create_title`, `create_installments`, `settle_title`, `reverse_settlement`, `cancel_title`) e as leituras `title`, `titles_for_source` e `settlements` aceitam `actor=None` dentro do `system_context` da organização. A leitura segue a mesma regra da escrita: um título com origem só enquanto o registro de origem está vivo na organização do contexto; um título sem origem, qualquer um da organização (a RLS limita ao tenant). É o que deixa um consumidor ler a `revision` que `cancel_title` e `settle_title` exigem e conferir, antes de criar, se a origem já tem título. `titles`, os relatórios e a gestão do livro continuam exigindo ator. O padrão completo está em [eventos](../../../../docs/events.md#reagir-numerando-e-abrindo-um-título).
 
 #### Títulos recorrentes (#547)
 | Método | Autorização | Erros |
@@ -110,4 +114,5 @@ A origem de uma regra ou de um título pode ser uma tabela exposta ou uma [tabel
 `skeleton.contrib.ledger.testing` traz `enable_ledger(organization)`, `prepare_book(actor, basis=..., bindings=...)` e `account_id(actor, code)`. O teste mínimo de uma app que lança no livro: a regra registrada passa no check E041; o ator com a ação da regra na origem lança, e o lançamento aparece em `entries_for_source`; o ator sem essa ação recebe `Forbidden` (legível) ou `NotFound`; a mesma `idempotency_key` devolve o mesmo lançamento; a organização B não vê o lançamento de A; com o ledger desativado, `Unavailable`. O cenário completo está em `tests/contrib/ledger/test_scenario.py`.
 
 ## Histórico de versões
+- 0.2.0: `title`, `titles_for_source` e `settlements` aceitam `system_context` (`actor=None`), como as escritas de título já aceitavam (#577).
 - 0.1.0 (primeira versão do núcleo, #569): primeira versão (#542): `books`, `create_default_book`; plano de contas, chaves e centros de custo (#543); lançamentos selados, estorno e trava (#544); regras de lançamento autorizadas pela origem, `post`, `entries_for_source` e o estorno pela origem (#545); títulos, parcelas e baixas (#546); títulos recorrentes e o job `ledger.recurrences` (#547); saldos e relatórios (#548); `title` e `EntryInfo.revision` para as telas (#549).
