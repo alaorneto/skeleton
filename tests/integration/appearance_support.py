@@ -20,11 +20,15 @@ def platform_admin(email="appearance-admin@example.test"):
 
 
 def member(email="appearance-member@example.test"):
+    from allauth.account.models import EmailAddress
+
     from skeleton.accounts.services import create_identity
     from skeleton.tenancy.context import system_context
 
     with system_context(reason="test:appearance-member"):
-        return create_identity(email=email, password=PASSWORD)
+        user = create_identity(email=email, password=PASSWORD)
+        EmailAddress.objects.create(user=user, email=user.email, verified=True, primary=True)
+    return user
 
 
 @contextmanager

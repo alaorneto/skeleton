@@ -1,0 +1,44 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{% blocktranslate trimmed with name=theme_name %}Pré-visualização: {{ name }}{% endblocktranslate %}{% endblock %}
+{% block theme_link %}<link rel="stylesheet" href="{{ preview_css_url }}">{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+<div class="page-header">
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Pré-visualização" %}</p><h1>{{ theme_name }}</h1><p class="page-description">{% translate "Só esta página usa o tema candidato, com o CSS personalizado. Nada é ativado aqui." %}</p></div>
+  <nav class="toolbar" aria-label="{% translate "Voltar" %}"><a class="btn btn-secondary" href="{% url 'platform:appearance' %}">{% include "skeleton/web/components/icon.html" with name="arrow-left" %}{% translate "Voltar para Aparência" %}</a></nav>
+</div>
+<nav class="link-tabs mb-6" aria-label="{% translate "Abas de exemplo" %}"><a href="#preview-components" aria-current="page">{% translate "Componentes" %}</a><a href="#preview-table">{% translate "Tabela" %}</a><a href="#preview-form">{% translate "Formulário" %}</a></nav>
+<section id="preview-components" class="card mb-6" aria-labelledby="preview-buttons">
+  <h2 id="preview-buttons" class="section-heading">{% translate "Botões e selos" %}</h2>
+  <div class="toolbar mb-4"><button type="button" class="btn btn-primary">{% translate "Principal" %}</button><button type="button" class="btn btn-secondary">{% translate "Secundário" %}</button><button type="button" class="btn btn-danger">{% translate "Perigo" %}</button><a href="#preview-components">{% translate "Um link" %}</a></div>
+  <p class="toolbar"><span class="badge badge-brand">{% translate "marca" %}</span><span class="badge badge-success">{% translate "ativo" %}</span><span class="badge badge-warning">{% translate "pendente" %}</span><span class="badge badge-danger">{% translate "erro" %}</span><span class="badge">{% translate "neutro" %}</span></p>
+</section>
+<section class="mb-6" aria-labelledby="preview-alerts">
+  <h2 id="preview-alerts" class="section-heading">{% translate "Mensagens" %}</h2>
+  <div class="form-stack">
+    <div class="message success" role="status">{% include "skeleton/web/components/icon.html" with name="check-circle" %}<div class="min-w-0">{% translate "Alteração salva." %}</div></div>
+    <div class="message warning" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% translate "Atenção a este aviso." %}</div></div>
+    <div class="message error" role="status">{% include "skeleton/web/components/icon.html" with name="error" %}<div class="min-w-0">{% translate "Algo deu errado." %}</div></div>
+  </div>
+</section>
+<section id="preview-table" class="mb-6" aria-labelledby="preview-table-heading">
+  <h2 id="preview-table-heading" class="section-heading">{% translate "Tabela" %}</h2>
+  <div class="table-scroll"><table><thead><tr><th scope="col">{% translate "Nome" %}</th><th scope="col">{% translate "Situação" %}</th></tr></thead><tbody>
+  <tr><td><a class="cell-primary" href="#preview-table">{% translate "Registro de exemplo" %}</a></td><td><span class="badge badge-success">{% translate "ativo" %}</span></td></tr>
+  <tr><td><a class="cell-primary" href="#preview-table">{% translate "Outro registro" %}</a></td><td><span class="badge">{% translate "rascunho" %}</span></td></tr>
+  </tbody></table></div>
+</section>
+<section id="preview-form" class="card mb-6" aria-labelledby="preview-form-heading">
+  <h2 id="preview-form-heading" class="section-heading">{% translate "Formulário" %}</h2>
+  <div class="form-stack">
+    <p><label for="preview-text">{% translate "Campo de texto" %}</label><input id="preview-text" type="text" value="{% translate "Exemplo" %}"></p>
+    <p><label for="preview-select">{% translate "Lista" %}</label><select id="preview-select"><option>{% translate "Primeira opção" %}</option></select></p>
+  </div>
+  <div class="form-actions"><button type="button" class="btn btn-primary">{% translate "Salvar" %}</button></div>
+</section>
+<section class="card" aria-labelledby="preview-menu">
+  <h2 id="preview-menu" class="section-heading">{% translate "Menu lateral" %}</h2>
+  <ul class="sidebar-list"><li><a class="sidebar-link" href="#preview-menu" aria-current="page">{% include "skeleton/web/components/icon.html" with name="home" %}{% translate "Item ativo" %}</a></li><li><a class="sidebar-link" href="#preview-menu">{% include "skeleton/web/components/icon.html" with name="users" %}{% translate "Outro item" %}</a></li></ul>
+</section>
+</div>
+{% endblock %}
