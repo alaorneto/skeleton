@@ -1,5 +1,7 @@
 from django.urls import path
 
+from skeleton.web.page_editor import editor_urls
+
 from . import (
     appearance_views,
     billing_views,
@@ -21,6 +23,8 @@ urlpatterns = [
     path("instance/restart/", instance_views.instance_restart, name="instance-restart"),
     path("appearance/", appearance_views.appearance, name="appearance"),
     path("appearance/brand/", appearance_views.appearance_brand, name="appearance-brand"),
+    # The public home page of the instance (#622): the shared block editor (#619).
+    *editor_urls("appearance/home/", "appearance-home", appearance_views.appearance_home),
     path("appearance/images/<slug:kind>/", appearance_views.appearance_image, name="appearance-image"),
     path("appearance/activate/", appearance_views.appearance_activate, name="appearance-activate"),
     path("appearance/themes/new/", appearance_views.appearance_theme_create, name="appearance-theme-create"),

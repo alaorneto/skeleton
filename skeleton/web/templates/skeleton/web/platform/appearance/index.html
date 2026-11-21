@@ -14,6 +14,13 @@
   </form>
 </section>
 
+<section class="card mb-6" aria-labelledby="appearance-home-page">
+  <h2 id="appearance-home-page" class="section-heading">{% translate "Página inicial pública" %}</h2>
+  <p class="text-sm/6 text-body-subtle">{% translate "O que quem não entrou vê na raiz da plataforma, em blocos de texto simples. Sem página publicada, a raiz leva ao login." %}</p>
+  <p class="mt-3 text-sm/6">{% translate "Situação:" %} {% if home_page.published %}<span class="badge badge-success">{% translate "publicada" %}</span>{% else %}<span class="badge badge-neutral">{% translate "não publicada" %}</span>{% endif %} · {% blocktranslate trimmed count counter=home_page.blocks %}{{ counter }} bloco{% plural %}{{ counter }} blocos{% endblocktranslate %}</p>
+  <div class="form-actions"><a class="btn btn-secondary" href="{% url 'platform:appearance-home' %}">{% include "skeleton/web/components/icon.html" with name="pencil" %}{% translate "Editar a página inicial" %}</a></div>
+</section>
+
 <section class="mb-6" aria-labelledby="appearance-images">
   <h2 id="appearance-images" class="section-heading">{% translate "Imagens" %}</h2>
   <div class="form-stack">

@@ -644,6 +644,12 @@ def register_core_specs():
             "global",
             ("logo_key", "logo_dark_key", "icon_key"),
         ),
+        "sk_appearance.instancepage": (
+            gettext_lazy("Página inicial da instância"),
+            gettext_lazy("Página pública em blocos de texto que quem não entrou vê na raiz da plataforma."),
+            "global",
+            (),
+        ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),
             gettext_lazy("Histórico transacional imutável de alterações, com dados sensíveis redigidos."),

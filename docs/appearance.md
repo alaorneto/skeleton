@@ -77,6 +77,16 @@ python manage.py appearance show         # nome, rodapé, tema ativo e quais ima
 python manage.py appearance reset-theme  # volta ao tema do núcleo, auditado com o motivo appearance.reset_theme
 ```
 
+## Página inicial pública
+
+O administrador da plataforma publica em `/platform/appearance/home/` ([#622](https://github.com/alaorneto/skeleton/issues/622)) uma página inicial em [blocos estruturados](ui-design.md#páginas-em-blocos) (`hero`, `text`, `contact`, `links`): texto simples, sempre escapado, sem HTML nem Markdown. Quem abre `/` do host da plataforma sem login a vê, com a marca e o tema da instância e, no `hero`, o botão "Entrar"; sem página publicada (ou despublicada), `/` continua levando ao login (`redirect_to_login`, `next=/`), como antes. Quem entrou continua vendo "Minhas organizações". `/` responde com `never_cache`. No endereço de uma organização, `/` é a rota da organização e nunca mostra esta página.
+
+- **Modelo.** `sk_appearance.instancepage` (`InstancePage`, `SystemRecord` global): `slot` único com check `slot = 'home'`, `document` (`JSONField`) e `published`. Infraestrutura congelada em `sk_appearance.0002_instance_page`; sem gateway nem `write_fields`.
+- **Serviço.** `skeleton/appearance/pages.py`: `home_page()` é o que `/` lê, com o mesmo cache por processo do snapshot (5 s; o último valor bom por 5 min quando o banco falha; modo setup e falha sem valor bom respondem "sem página"); `save_home_page(*, actor, document, published, expected_revision)` é a única escrita: só o administrador completo da plataforma, CAS na revisão da linha (0 antes de existir), `validate_page(kind="platform_home")` (uma página publicada precisa de ao menos um bloco), dados iguais não gravam nada, o cache é zerado depois do commit e o `security_event` `appearance.home_page_changed` leva só a situação e o número de blocos, nunca o conteúdo. `current_home_page()` lê a linha sem cache (o editor precisa da revisão atual). Nos testes, um fixture `autouse` fixa "sem página" (`pin_home_page`); os testes do recurso pedem `live_home_page`.
+- **Editor.** O [editor SSR compartilhado](ui-design.md#páginas-em-blocos), com as mesmas regras das demais telas de aparência: só o administrador completo (`platform_page`), autenticação recente nas escritas, CSRF e revisão (409 com revisão antiga), 400 com o `error-summary` para erro de validação. A pré-visualização (`…/home/preview/`) usa o mesmo template da página real. A seção "Página inicial pública" de `/platform/appearance/` mostra a situação e leva ao editor.
+
+A página é pública por definição: não lê nada de organização nem de pessoa. Para desfazer, despublique: `/` volta ao login.
+
 ## E-mails
 
 Sem organização no contexto, os e-mails HTML (`skeleton/email/base.html`) levam o nome do produto, a cor do tema ativo e o logo da instância como parte inline (`cid:organization-logo`, nunca URL). Com organização, valem a marca dela; se ela não tem cor, vale a do tema da instância, e o logo da instância nunca entra num e-mail de organização. Os e-mails de conta do allauth (texto) saudam com o nome do produto no domínio principal ([notificações](notifications.md#marca-nos-e-mails)).

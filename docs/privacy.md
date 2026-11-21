@@ -12,6 +12,10 @@ Ligar o endereço próprio (`/o/<org>/settings/`, seção "Endereço próprio", 
 
 O nome do produto, o rodapé, o logo, o logo para o modo escuro, o ícone e o tema ativo da instância ([aparência](appearance.md), #591) são públicos por decisão do administrador da plataforma: aparecem no login e são servidos sem autenticação em `/brand/` ([arquivos](files.md#armazenamento-privado)), também nos endereços das organizações. É uma segunda saída de bytes do armazenamento privado sem login, limitada às três chaves da linha única `InstanceBrand`. Nenhum dado pessoal nem dado de organização entra nessa marca; os logs e os eventos de segurança das alterações não levam valores.
 
+## Página inicial pública da plataforma
+
+A página inicial pública (`/platform/appearance/home/`, [#622](appearance.md#página-inicial-pública)) é conteúdo escrito pelo administrador da plataforma para ser público: quem abre a raiz da plataforma sem login a vê enquanto ela estiver publicada. São só os blocos de texto que ele escreveu (títulos, parágrafos, contato e links); a página não lê nada de organização nem de pessoa, e o evento de segurança da alteração não leva o conteúdo. Um e-mail ou telefone de contato posto num bloco fica público por decisão de quem o escreveu.
+
 ## Exportação dos próprios dados
 
 Em `/profile/privacy/`, a pessoa baixa um ZIP com `dados.json` ([#190](https://github.com/alaorneto/skeleton/issues/190)). O arquivo traz:

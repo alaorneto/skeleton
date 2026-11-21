@@ -270,8 +270,25 @@ def check_html_revision(form, record):
 
 
 @never_cache
-@login_required
 def home(request):
+    """``/`` of the platform host: "my organizations", or the public home page for anonymous visitors (#622).
+
+    Without a published page an anonymous visitor goes to the login, as before. On an organization
+    host ``/`` is rewritten to the organization's route and never reaches this view.
+    """
+    if not request.user.is_authenticated:
+        from django.contrib.auth.views import redirect_to_login
+
+        from skeleton.appearance.pages import home_page
+
+        page = home_page()
+        if not page.published or not page.blocks:
+            return redirect_to_login(request.get_full_path())
+        return render(request, "skeleton/web/pages/public.html", {"blocks": page.blocks})
+    return _my_organizations(request)
+
+
+def _my_organizations(request):
     from skeleton.service_api.organizations import OrganizationService
     from skeleton.tenancy.admission import directory
     from skeleton.tenancy.domains import suggestions
