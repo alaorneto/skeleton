@@ -23,6 +23,7 @@ __all__ = [
     "app_theme_assets",
     "app_theme_values",
     "app_themes",
+    "themes_of_app",
     "check_declared_theme",
     "declared_theme_problems",
     "expected_theme_id",
@@ -184,3 +185,35 @@ def app_theme_values(theme: AppTheme, *, font_url: Any) -> Any:
         font_family=package.font_family,
         fonts=fonts,
     )
+
+
+def themes_of_app(manifest: Any) -> list[dict[str, Any]]:
+    """What the platform pages say about the themes an app ships (#644): name, key, active, valid."""
+    from .services import current_brand
+
+    brand = current_brand()
+    active = brand.app_theme if brand is not None else ""
+    found = []
+    for declaration in manifest.instance_themes:
+        key = f"{manifest.app_label}:{declaration.slug}"
+        theme = app_themes().get(key)
+        found.append(
+            {
+                "key": key,
+                "slug": declaration.slug,
+                "name": theme.package.name if theme is not None else declaration.slug,
+                "valid": theme is not None,
+                "active": theme is not None and key == active,
+            }
+        )
+    return found
+
+
+def orphan_app_theme() -> str:
+    """The app label of a stored ``app_theme`` whose app is no longer installed, or ``""``."""
+    from .services import current_brand
+
+    brand = current_brand()
+    if brand is None or not brand.app_theme or brand.app_theme in app_themes():
+        return ""
+    return brand.app_theme.split(":", 1)[0]

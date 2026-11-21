@@ -31,6 +31,10 @@ from .guards import platform_page
 __all__ = [
     "appearance",
     "appearance_activate",
+    "appearance_app_preview",
+    "appearance_app_preview_css",
+    "appearance_app_preview_font",
+    "appearance_app_preview_image",
     "appearance_brand",
     "appearance_home",
     "appearance_builtin_export",
@@ -175,6 +179,13 @@ def _page(request, *, brand_form=None, image_errors=None, activate_error="", pac
         for slug, values in BUILTIN_THEMES.items()
     ]
     themes = [{"record": theme, "active": theme.pk == active_theme} for theme in list_themes()]
+    from skeleton.appearance.app_themes import app_themes, orphan_app_theme
+
+    active_app = brand.app_theme if brand else ""
+    app_list = [
+        {"key": key, "theme": theme, "active": key == active_app}
+        for key, theme in sorted(app_themes().items(), key=lambda item: (item[1].app_name, item[1].package.name))
+    ]
     from skeleton.appearance.pages import current_home_page
 
     home = current_home_page()
@@ -188,7 +199,9 @@ def _page(request, *, brand_form=None, image_errors=None, activate_error="", pac
             "images": images,
             "builtins": builtins,
             "themes": themes,
-            "core_active": not active_builtin and not active_theme,
+            "core_active": not active_builtin and not active_theme and not any(item["active"] for item in app_list),
+            "app_themes": app_list,
+            "orphan_app": orphan_app_theme(),
             "activate_error": activate_error,
             "package_error": package_error,
             "home_page": {"published": home.published, "blocks": len(home.blocks)},
@@ -264,7 +277,7 @@ def appearance_image(request, kind):
 def appearance_activate(request):
     from skeleton.appearance.services import activate_theme
 
-    if _unknown_fields(request, {"builtin", "theme", "revision"}):
+    if _unknown_fields(request, {"builtin", "theme", "app_theme", "revision"}):
         return HttpResponseBadRequest(gettext("Campo não permitido."))
     try:
         revision = int(request.POST.get("revision", ""))
@@ -272,12 +285,16 @@ def appearance_activate(request):
         revision = -1
     builtin = request.POST.get("builtin", "")
     theme = request.POST.get("theme") or None
+    app_theme = request.POST.get("app_theme", "")
     try:
-        activate_theme(actor=request.user, builtin=builtin, theme_id=theme, expected_revision=revision)
+        activate_theme(
+            actor=request.user, builtin=builtin, theme_id=theme, app_theme=app_theme, expected_revision=revision
+        )
     except ValidationError as error:
         detail = " ".join(message for items in error.message_dict.values() for message in items)
         return _page(request, activate_error=detail, status=400)
-    _log("appearance.theme_activated", request, "builtin" if builtin else ("theme" if theme else "core"))
+    kind = "builtin" if builtin else ("theme" if theme else ("app" if app_theme else "core"))
+    _log("appearance.theme_activated", request, kind)
     messages.success(request, gettext("Tema ativado. As páginas passam a usá-lo em até 5 segundos."))
     return redirect("platform:appearance")
 
@@ -679,3 +696,103 @@ def appearance_theme_export(request, sysid):
 def appearance_builtin_export(request, slug):
     values = _builtin_or_404(slug)
     return _export(request, name=values.name, builtin=slug)
+
+
+# --------------------------------------------------------------------------- app themes (#644)
+
+
+def _app_theme_or_404(app_label, slug):
+    from skeleton.appearance.app_themes import get_app_theme
+
+    theme = get_app_theme(f"{app_label}:{slug}")
+    if theme is None:
+        raise Http404
+    return theme
+
+
+def _app_url(route, theme, **extra):
+    return reverse(
+        f"platform:appearance-app-{route}", kwargs={"app_label": theme.app_label, "slug": theme.slug, **extra}
+    )
+
+
+def _app_values(theme):
+    from skeleton.appearance.app_themes import app_theme_values
+
+    return app_theme_values(
+        theme, font_url=lambda ref: f"{_app_url('preview-font', theme, name=ref.name)}?v={ref.version}"
+    )
+
+
+def _app_package(theme):
+    package = theme.package
+    kinds = {"logo": gettext("logo"), "logo_dark": gettext("logo escuro"), "icon": gettext("ícone")}
+    present = {image.kind for image in package.images}
+    return {
+        "id": package.id,
+        "version": package.version,
+        "publisher": package.publisher,
+        "description": package.description,
+        "compatibility": package.compatibility,
+        "images": ", ".join(str(label) for kind, label in kinds.items() if kind in present) or gettext("nenhuma"),
+        "fonts": len(package.fonts),
+        "css_bytes": len(package.custom_css.encode()),
+        "product_name": package.product_name,
+        "footer_text": package.footer_text,
+        "digest": package.content_digest[:12],
+        "app_name": theme.app_name,
+        "app_version": theme.app_version,
+    }
+
+
+@platform_page
+@require_safe
+def appearance_app_preview(request, app_label, slug):
+    theme = _app_theme_or_404(app_label, slug)
+    context = {
+        "platform_section": "appearance",
+        "theme_name": theme.package.name,
+        "preview_css_url": _app_url("preview-css", theme),
+        "package": _app_package(theme),
+    }
+    kinds = {image.kind for image in theme.package.images}
+    for kind in ("logo", "logo_dark"):
+        if kind in kinds and "logo" in kinds:
+            context[f"preview_{kind}_url"] = _app_url("preview-image", theme, kind=kind)
+    return render(request, "skeleton/web/platform/appearance/preview.html", context)
+
+
+@platform_page
+@require_safe
+def appearance_app_preview_css(request, app_label, slug):
+    return _preview_css(request, _app_values(_app_theme_or_404(app_label, slug)))
+
+
+def _app_asset(request, app_label, slug, name):
+    from skeleton.appearance.app_themes import app_theme_assets
+    from skeleton.appearance.assets import open_asset
+    from skeleton.web.brand_views import asset_response
+
+    theme = _app_theme_or_404(app_label, slug)
+    ref = next((item for item in app_theme_assets(theme) if item.name == name), None)
+    if ref is None:
+        raise Http404
+    return asset_response(request, open_asset(ref), ref.mime, ref.version, cache_control="private, no-store")
+
+
+@platform_page
+@require_safe
+def appearance_app_preview_font(request, app_label, slug, name):
+    from skeleton.web.brand_views import FONT_NAME
+
+    if not FONT_NAME.fullmatch(name):
+        raise Http404
+    return _app_asset(request, app_label, slug, name)
+
+
+@platform_page
+@require_safe
+def appearance_app_preview_image(request, app_label, slug, kind):
+    if kind not in ("logo", "logo_dark"):
+        raise Http404
+    return _app_asset(request, app_label, slug, kind)

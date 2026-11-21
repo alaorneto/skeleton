@@ -669,6 +669,7 @@ def app_list(request):
 @platform_page
 @require_safe
 def app_detail(request, app_label):
+    from skeleton.appearance.app_themes import themes_of_app
     from skeleton.system.administration import application_identity, screen_sections
     from skeleton.system.availability import availability_summary
 
@@ -678,6 +679,7 @@ def app_detail(request, app_label):
         "skeleton/web/platform/app.html",
         {
             "platform_section": "apps",
+            "instance_themes": themes_of_app(manifest),
             "application": application_identity(manifest),
             "availability": availability_summary(manifest.app_label, user=request.user),
             "has_documentation": bool(manifest.documentation_root),

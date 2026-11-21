@@ -70,6 +70,26 @@ urlpatterns = [
         name="appearance-builtin-export",
     ),
     path(
+        "appearance/apps/<slug:app_label>/<slug:slug>/preview/",
+        appearance_views.appearance_app_preview,
+        name="appearance-app-preview",
+    ),
+    path(
+        "appearance/apps/<slug:app_label>/<slug:slug>/preview.css",
+        appearance_views.appearance_app_preview_css,
+        name="appearance-app-preview-css",
+    ),
+    path(
+        "appearance/apps/<slug:app_label>/<slug:slug>/preview/fonts/<str:name>",
+        appearance_views.appearance_app_preview_font,
+        name="appearance-app-preview-font",
+    ),
+    path(
+        "appearance/apps/<slug:app_label>/<slug:slug>/preview/images/<slug:kind>/",
+        appearance_views.appearance_app_preview_image,
+        name="appearance-app-preview-image",
+    ),
+    path(
         "appearance/builtin/<slug:slug>/preview/",
         appearance_views.appearance_builtin_preview,
         name="appearance-builtin-preview",

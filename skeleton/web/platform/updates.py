@@ -624,8 +624,37 @@ def preview(request, plan_id):
     return render(
         request,
         "skeleton/web/platform/updates/preview.html",
-        _context("plan", plan_id=str(plan_id), plan_state=status["state"], plan=status.get("plan") or {}),
+        _context(
+            "plan",
+            plan_id=str(plan_id),
+            plan_state=status["state"],
+            plan=status.get("plan") or {},
+            theme_warnings=uninstall_theme_warnings(status.get("request") or {}),
+        ),
     )
+
+
+def uninstall_theme_warnings(request_data):
+    """The instance themes that leave with an uninstall plan (#644), from the code still loaded here.
+
+    Only informative: nothing is added to what the operator approves, and the plan digest is the
+    agent's. ``[{"app", "names", "active"}]``; ``active`` is the name of the active theme, if any.
+    """
+    if request_data.get("action") != "uninstall":
+        return []
+    from skeleton.appearance.app_themes import themes_of_app
+    from skeleton.system.app_registry import all_apps
+
+    leaving = set(request_data.get("app_ids") or ())
+    warnings = []
+    for manifest in all_apps():
+        if (manifest.app_id or manifest.app_label) not in leaving or not manifest.instance_themes:
+            continue
+        themes = [theme for theme in themes_of_app(manifest) if theme["valid"]]
+        if themes:
+            active = next((theme["name"] for theme in themes if theme["active"]), "")
+            warnings.append({"app": manifest.label, "names": ", ".join(t["name"] for t in themes), "active": active})
+    return warnings
 
 
 class _PreparationFailed(AgentError):
