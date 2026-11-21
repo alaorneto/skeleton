@@ -4,7 +4,10 @@ import ast
 import json
 import os
 import re
+import shutil
 import string
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,6 +53,8 @@ from devflow.text import (
 V = Version.parse
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SKILL_ROOT = Path(__file__).resolve().parent.parent
+# A configuração deste repositório: a cópia instalada num projeto não a traz (`COPY_IGNORE` exclui .github/).
+REPOSITORY_CONFIG = SKILL_ROOT / ".github" / "dev-workflow.toml"
 
 
 class SemverTest(unittest.TestCase):
@@ -234,10 +239,33 @@ class ConfigShapeTest(unittest.TestCase):
         self.assertNotRegex("wip: algo", cfg.pr["title_pattern"])
         self.assertEqual(Config().pr["title_pattern"], Config({"language": "pt-BR"}).pr["title_pattern"])
 
+    @unittest.skipUnless(REPOSITORY_CONFIG.is_file(), "fora do repositório do skill")
     def test_the_configurations_shipped_with_the_skill_are_valid(self):
         import tomllib
 
-        Config(tomllib.loads((SKILL_ROOT / ".github" / "dev-workflow.toml").read_text(encoding="utf-8")))
+        Config(tomllib.loads(REPOSITORY_CONFIG.read_text(encoding="utf-8")))
+
+
+@unittest.skipUnless(REPOSITORY_CONFIG.is_file(), "já é a cópia instalada")
+class InstalledCopyTest(unittest.TestCase):
+    """#60: a suíte também roda na cópia que o bootstrap instala num projeto, sem o que `COPY_IGNORE` exclui."""
+
+    def test_the_config_shape_tests_pass_in_the_installed_copy(self):
+        from devflow.bootstrap import COPY_IGNORE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "dev-workflow"
+            shutil.copytree(SKILL_ROOT, copy, ignore=shutil.ignore_patterns(*COPY_IGNORE))
+            self.assertFalse((copy / ".github").exists())
+            result = subprocess.run(
+                [sys.executable, "tests/run.py", "-p", "test_units.py", "-k", "ConfigShapeTest", "-j", "1"],
+                cwd=copy,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skipped=1", result.stdout + result.stderr)
 
 
 class ConfigTest(unittest.TestCase):

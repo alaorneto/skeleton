@@ -2,6 +2,12 @@
 
 As versões depois da tag de base são escritas pelo workflow de release (`scripts/release.py run`): não edite as seções de versão à mão.
 
+## [1.2.1](https://github.com/alaorneto/dev-workflow/compare/v1.2.0...v1.2.1) — 2026-11-21
+
+### Correções
+
+- Rodar a suíte do skill também na cópia instalada num projeto ([#60](https://github.com/alaorneto/dev-workflow/issues/60)) — PR [#61](https://github.com/alaorneto/dev-workflow/pull/61)
+
 ## [1.2.0](https://github.com/alaorneto/dev-workflow/compare/v1.1.0...v1.2.0) — 2026-11-21
 
 ### Funcionalidades
