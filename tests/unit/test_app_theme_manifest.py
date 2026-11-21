@@ -78,7 +78,8 @@ def source(tmp_path, manifest, theme_files=None, theme=None):
     (root / "docs").mkdir(parents=True)
     (root / "__init__.py").write_text("")
     (root / "apps.py").write_text(
-        "from django.apps import AppConfig\nclass DemoConfig(AppConfig):\n    name = __package__\n"
+        "from django.apps import AppConfig\nclass DemoConfig(AppConfig):\n"
+        '    name = __package__\n    label = "project_demo"\n'
     )
     (root / "service_api.py").write_text("class DemoService:\n    pass\n")
     (root / "docs/spec.md").write_text("## Contract\nX.\n## Acceptance\nX.\n")
