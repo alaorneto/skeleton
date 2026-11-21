@@ -66,7 +66,7 @@ PACKAGE_ERROR_MESSAGES = {
     "name_taken": gettext_lazy("Já existe um tema com este nome."),
     "too_many_themes": gettext_lazy("O catálogo já tem o máximo de 50 temas."),
     "id_belongs_to_app": gettext_lazy(
-        "Este id pertence a um tema de uma app; um tema de app é atualizado com a própria app."
+        "Este id pertence a um tema da app %(item)s; um tema de app é atualizado com a própria app."
     ),
 }
 

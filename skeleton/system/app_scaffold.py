@@ -39,6 +39,7 @@ class ApplicationScaffold:
     publisher: str
     model: str
     verbose_name: str
+    theme_slug: str = ""  # --with-theme (#645): one instance theme under themes/<slug>/.
 
     @property
     def config_class(self) -> str:
@@ -61,8 +62,14 @@ class ApplicationScaffold:
         return f"applications.{self.package_name}.apps.{self.config_class}"
 
 
-def build_scaffold(*, app_label, app_id, publisher, model="Item", package_name=None, verbose_name=None):
+def build_scaffold(
+    *, app_label, app_id, publisher, model="Item", package_name=None, verbose_name=None, theme_slug=None
+):
     """Validate the inputs with the package validators and return the scaffold."""
+    from .packaging.limits import INSTANCE_THEME_SLUG
+
+    if theme_slug is not None and (not isinstance(theme_slug, str) or not INSTANCE_THEME_SLUG.fullmatch(theme_slug)):
+        raise PackageError("Theme slug must be lowercase letters, digits and hyphens, starting with a letter.")
     package_name = package_name or app_label
     _identifier(app_label)
     _identifier(package_name)
@@ -73,7 +80,7 @@ def build_scaffold(*, app_label, app_id, publisher, model="Item", package_name=N
     verbose_name = verbose_name or app_label
     if not DISPLAY_NAME.fullmatch(verbose_name) or verbose_name != verbose_name.strip():
         raise PackageError("Display name must be 1-200 characters without quotes, backslashes or control characters.")
-    return ApplicationScaffold(app_label, package_name, app_id, publisher, model, verbose_name)
+    return ApplicationScaffold(app_label, package_name, app_id, publisher, model, verbose_name, theme_slug or "")
 
 
 def scaffold_manifest(scaffold):
@@ -101,7 +108,45 @@ def scaffold_manifest(scaffold):
             "action": "read",
         }
     ]
+    if scaffold.theme_slug:
+        from .packaging.limits import INSTANCE_THEMES_CORE_MINIMUM
+        from .packaging.primitives import _core_floor_at_least
+
+        manifest["runtime"]["instance_themes"] = [
+            {"slug": scaffold.theme_slug, "path": f"themes/{scaffold.theme_slug}"}
+        ]
+        if not _core_floor_at_least(manifest["compatibility"]["skeleton"], INSTANCE_THEMES_CORE_MINIMUM):
+            manifest["compatibility"]["skeleton"] = f">={INSTANCE_THEMES_CORE_MINIMUM},<1.0.0"
     return validate_manifest(manifest)
+
+
+THEME_CSS = """/*
+ * Tema da instância trazido por esta app (docs/themes.md do núcleo).
+ * Use só os tokens do contrato (--color-*, --radius-*, --font-*, --shadow-*), tokens com o prefixo
+ * da app e regras sobre as classes de componente estáveis. Nada de url(), @import nem o sinal de
+ * menor, nem aqui nos comentários. Confira com: python manage.py appearance check-package themes/SLUG
+ */
+:root {
+}
+"""
+
+
+def scaffold_theme_files(scaffold, manifest):
+    """``themes/<slug>/theme.json`` and ``theme.css`` of ``--with-theme`` (#645)."""
+    slug = scaffold.theme_slug
+    theme = {
+        "format": 1,
+        "id": f"{scaffold.app_id}.theme.{slug}",
+        "version": manifest["version"],
+        "name": scaffold.verbose_name[:80],
+        "compatibility": {"skeleton": manifest["compatibility"]["skeleton"]},
+        "tokens": {"brand_color": "", "radius": "default", "font": "inter"},
+        "css": "theme.css",
+    }
+    return {
+        f"themes/{slug}/theme.json": json.dumps(theme, ensure_ascii=False, indent=2) + "\n",
+        f"themes/{slug}/theme.css": THEME_CSS.replace("SLUG", slug),
+    }
 
 
 # Repository files of --standalone (#520): the app checkout is the root of its own git repository.
@@ -165,7 +210,10 @@ def render_files(scaffold, *, standalone=False):
         target: Template((TEMPLATE_ROOT / source).read_text(encoding="utf-8")).substitute(values)
         for target, source in layout.items()
     }
-    files["manifest.json"] = json.dumps(scaffold_manifest(scaffold), ensure_ascii=False, indent=2) + "\n"
+    manifest = scaffold_manifest(scaffold)
+    files["manifest.json"] = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
+    if scaffold.theme_slug:
+        files.update(scaffold_theme_files(scaffold, manifest))
     return files
 
 

@@ -13,6 +13,7 @@
 {% if plan_state == 'preparing' %}
 <div class="message info" role="status" aria-live="polite">{% include "skeleton/web/components/icon.html" with name="refresh" %}<div class="min-w-0">{% translate "Preparando a prévia…" %} {% translate "O agente copia o projeto, instala os pacotes e roda os checks; esta página se atualiza sozinha." %}</div></div>
 {% else %}
+{% for warning in theme_warnings %}{% if warning.active %}<div class="message warning mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="warning" %}<div class="min-w-0">{% blocktranslate trimmed with name=warning.active %}O tema ativo da instância ({{ name }}) vem desta app. Depois da desinstalação, a instância volta ao tema do núcleo, a menos que você ative outro tema antes em{% endblocktranslate %} <a href="{% url 'platform:appearance' %}">{% translate "Aparência" %}</a>.</div></div>{% endif %}<div class="message info mb-4" role="status">{% include "skeleton/web/components/icon.html" with name="info" %}<div class="min-w-0">{% blocktranslate trimmed with app=warning.app names=warning.names %}A app {{ app }} traz temas da instância ({{ names }}). Eles saem do catálogo com a desinstalação.{% endblocktranslate %}</div></div>{% endfor %}
 <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
 <div class="min-w-0 space-y-6">
   {% include "skeleton/web/platform/updates/plan-details.html" with plan=plan %}

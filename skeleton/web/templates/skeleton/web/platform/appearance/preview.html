@@ -9,6 +9,7 @@
 </div>
 {% if package %}<section class="card mb-6" aria-labelledby="preview-package"><h2 id="preview-package" class="section-heading">{% translate "Sobre este pacote" %}</h2><dl class="meta-list">
 <div><dt>{% translate "Pacote" %}</dt><dd><code>{{ package.id }}</code> · v{{ package.version }}</dd></div>
+{% if package.app_name %}<div><dt>{% translate "Da app" %}</dt><dd>{{ package.app_name }} · v{{ package.app_version }}</dd></div>{% endif %}
 {% if package.publisher %}<div><dt>{% translate "Publicador" %}</dt><dd><code>{{ package.publisher }}</code></dd></div>{% endif %}
 {% if package.description %}<div><dt>{% translate "Descrição" %}</dt><dd>{{ package.description }}</dd></div>{% endif %}
 <div><dt>{% translate "Compatível com o núcleo" %}</dt><dd><code>{{ package.compatibility }}</code></dd></div>

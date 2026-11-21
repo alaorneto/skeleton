@@ -120,11 +120,18 @@ def _load() -> Appearance:
     theme = brand.active_theme
     if theme is not None and theme.deleted_at is not None:
         theme = None
-    if theme is not None:
+    app = None
+    if brand.app_theme:
+        from .app_themes import app_theme_assets, app_theme_values, get_app_theme
+
+        app = get_app_theme(brand.app_theme)  # The app was uninstalled: the core theme, never an error.
+    if app is not None:
+        values = app_theme_values(app, font_url=_public_font_url)
+    elif theme is not None:
         values = package_theme_values(theme, font_url=_public_font_url)
     elif brand.builtin_theme:
         values = BUILTIN_THEMES.get(brand.builtin_theme)  # An unknown slug is the core theme, never an error.
-    assets = package_assets(theme)
+    assets = app_theme_assets(app) if app is not None else package_assets(theme)
     by_name = {ref.name: ref for ref in assets}
     css = theme_css(values) if values is not None else ""
     tokens = theme_css_tokens(values) if values is not None else ""
@@ -145,10 +152,14 @@ def _load() -> Appearance:
         icon_source, icon_version = "brand", _version(brand.icon_key)
     elif "icon" in by_name:
         icon_source, icon_version = "theme", by_name["icon"].version
-    from_theme = theme is not None and theme.source == "package"
+    names = ("", "")
+    if app is not None:
+        names = (app.package.product_name, app.package.footer_text)
+    elif theme is not None and theme.source == "package":
+        names = (theme.product_name, theme.footer_text)
     return Appearance(
-        product_name=brand.product_name or (theme.product_name if from_theme else ""),
-        footer_text=brand.footer_text or (theme.footer_text if from_theme else ""),
+        product_name=brand.product_name or names[0],
+        footer_text=brand.footer_text or names[1],
         logo_version=logo["version"],
         logo_dark_version=logo["dark"],
         icon_version=icon_version,

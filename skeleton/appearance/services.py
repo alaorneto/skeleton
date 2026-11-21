@@ -246,15 +246,20 @@ def delete_theme(*, actor: Any, theme_id: Any, expected_revision: int) -> Any:
     return record
 
 
-def activate_theme(*, actor: Any, builtin: str = "", theme_id: Any = None, expected_revision: int) -> Any:
-    """Make a built-in or a catalog theme active (neither: the core theme); CAS on the brand row."""
+def activate_theme(
+    *, actor: Any, builtin: str = "", theme_id: Any = None, app_theme: str = "", expected_revision: int
+) -> Any:
+    """Make a built-in, a catalog or an app theme active (none: the core theme); CAS on the brand row."""
+    from .app_themes import get_app_theme
     from .themes import BUILTIN_THEMES
 
     _require_platform(actor)
-    if builtin and theme_id is not None:
+    if sum((bool(builtin), theme_id is not None, bool(app_theme))) > 1:
         raise ValidationError({"theme": gettext("Escolha um tema só.")})
     if builtin and (not isinstance(builtin, str) or builtin not in BUILTIN_THEMES):
         raise ValidationError({"theme": gettext("Tema pronto inexistente.")})
+    if app_theme and get_app_theme(app_theme) is None:
+        raise ValidationError({"app_theme": gettext("Tema de app desconhecido.")})
     with transaction.atomic():
         record = _locked_brand(expected_revision)
         theme = None
@@ -262,19 +267,22 @@ def activate_theme(*, actor: Any, builtin: str = "", theme_id: Any = None, expec
             theme = get_theme(theme_id)
             if theme is None:
                 raise ValidationError({"theme": gettext("Tema inexistente.")})
-        values = {"builtin_theme": builtin or "", "active_theme": theme}
+        values = {"builtin_theme": builtin or "", "active_theme": theme, "app_theme": app_theme or ""}
         if record is None:
-            if not builtin and theme is None:
+            if not builtin and theme is None and not app_theme:
                 return None
             record = _create_brand(**values)
         else:
-            if record.builtin_theme == values["builtin_theme"] and record.active_theme_id == (
-                theme.pk if theme is not None else None
+            if (
+                record.builtin_theme == values["builtin_theme"]
+                and record.active_theme_id == (theme.pk if theme is not None else None)
+                and record.app_theme == values["app_theme"]
             ):
                 return record
             record.builtin_theme = values["builtin_theme"]
             record.active_theme = theme
-            record.save(update_fields={"builtin_theme", "active_theme"})
+            record.app_theme = values["app_theme"]
+            record.save(update_fields={"builtin_theme", "active_theme", "app_theme"})
         transaction.on_commit(reset_appearance_cache)
     return record
 
@@ -286,6 +294,12 @@ def active_theme_values() -> Any:
     brand = current_brand()
     if brand is None:
         return None
+    if brand.app_theme:
+        from .app_themes import app_theme_values, get_app_theme
+        from .snapshot import _public_font_url
+
+        found = get_app_theme(brand.app_theme)
+        return app_theme_values(found, font_url=_public_font_url) if found is not None else None
     if brand.active_theme_id:
         theme = get_theme(brand.active_theme_id)
         if theme is not None:

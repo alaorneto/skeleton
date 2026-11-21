@@ -22,6 +22,11 @@ class Command(BaseCommand):
         parser.add_argument("--name", dest="display_name", help="Display name (default: app_label).")
         parser.add_argument("--directory", default="applications", help="Parent directory (default: applications).")
         parser.add_argument(
+            "--with-theme",
+            dest="theme_slug",
+            help="Also create an instance theme of the app under themes/<slug>/ (runtime.instance_themes).",
+        )
+        parser.add_argument(
             "--standalone",
             action="store_true",
             help="Generate the root of the app's own git repository (.gitattributes, .gitignore, CI, README).",
@@ -36,6 +41,7 @@ class Command(BaseCommand):
                 model=options["model"],
                 package_name=options["package_name"],
                 verbose_name=options["display_name"],
+                theme_slug=options.get("theme_slug"),
             )
             target, files = create_application(scaffold, options["directory"], standalone=options["standalone"])
         except (PackageError, OSError) as exc:
@@ -46,3 +52,8 @@ class Command(BaseCommand):
         self.stdout.write("\nPróximos passos:")
         for number, step in enumerate(next_steps(scaffold, standalone=options["standalone"]), start=1):
             self.stdout.write(f"  {number}. {step}")
+        if scaffold.theme_slug:
+            self.stdout.write(
+                f"\nTema criado em themes/{scaffold.theme_slug}. Confira com: "
+                f"python manage.py appearance check-package {target}/themes/{scaffold.theme_slug}"
+            )

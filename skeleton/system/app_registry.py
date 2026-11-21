@@ -44,6 +44,14 @@ class ServiceAPIDeclaration:
 
 
 @dataclass(frozen=True)
+class AppThemeDeclaration:
+    """One instance theme the app ships (runtime.instance_themes, #642): its slug and directory."""
+
+    slug: str
+    path: str  # Absolute and resolved, inside the app root; never shown, logged or put in a URL.
+
+
+@dataclass(frozen=True)
 class AppManifest:
     app_label: str
     label: str
@@ -71,6 +79,8 @@ class AppManifest:
     # The portal of external people (#533): /portal/<org>/apps/<label>/ and its API twin.
     portal_urls: str | None = None
     portal_api_urls: str | None = None
+    # Instance themes shipped with the app (#642); read by skeleton.appearance.app_themes, never here.
+    instance_themes: tuple[AppThemeDeclaration, ...] = ()
 
     @classmethod
     def from_json(cls, path, *, app_config):
@@ -97,6 +107,12 @@ class AppManifest:
         documentation = (root / runtime["documentation_root"]).resolve()
         if not documentation.is_relative_to(root):
             raise PackageError("Application documentation escapes its root.")
+        themes = []
+        for entry in runtime.get("instance_themes", ()):
+            directory = (root / entry["path"]).resolve()  # A symbolic link out of the root is refused.
+            if not directory.is_relative_to(root):
+                raise PackageError("Application instance theme escapes its root.")
+            themes.append(AppThemeDeclaration(entry["slug"], str(directory)))
 
         def module(name):
             return app_config.name + name[len(managed) :] if name else None
@@ -152,6 +168,7 @@ class AppManifest:
             user_urls=module(runtime.get("user_urls")),
             portal_urls=module(runtime.get("portal_urls")),
             portal_api_urls=module(runtime.get("portal_api_urls")),
+            instance_themes=tuple(themes),
         )
 
 

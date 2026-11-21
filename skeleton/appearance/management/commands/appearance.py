@@ -86,6 +86,16 @@ class Command(BaseCommand):
                 theme = f"personalizado: {active.name}" if active is not None else "núcleo"
         elif brand is not None and brand.builtin_theme:
             theme = f"pronto: {brand.builtin_theme}"
+        elif brand is not None and brand.app_theme:
+            from skeleton.appearance.app_themes import get_app_theme
+
+            found = get_app_theme(brand.app_theme)
+            label = brand.app_theme.split(":", 1)[0]
+            theme = (
+                f"da app {found.app_label}: {found.package.name}"
+                if found is not None
+                else f"da app {label} (não instalada; vale o tema do núcleo)"
+            )
         origin = {"brand": "sim (enviado)", "theme": "sim (do tema)", "": "não"}
 
         def text(own, value, empty):
@@ -250,7 +260,8 @@ class Command(BaseCommand):
         active_builtin = brand.builtin_theme if brand else ""
         active_theme = brand.active_theme_id if brand else None
         mark = " (ativo)"
-        lines = [f"núcleo · Cobalto e Ardósia{mark if not active_builtin and not active_theme else ''}"]
+        core_active = not active_builtin and not active_theme and not (brand and brand.app_theme)
+        lines = [f"núcleo · Cobalto e Ardósia{mark if core_active else ''}"]
         lines += [
             f"pronto · {values.name} ({slug}){mark if slug == active_builtin else ''}"
             for slug, values in BUILTIN_THEMES.items()
@@ -262,6 +273,12 @@ class Command(BaseCommand):
                 lines.append(f"pacote · {theme.name} · {theme.package_id} {theme.package_version}{active}")
             else:
                 lines.append(f"personalizado · {theme.name}{active}")
+        from skeleton.appearance.app_themes import app_themes
+
+        active_app = brand.app_theme if brand else ""
+        for key, item in sorted(app_themes().items()):
+            active = mark if key == active_app else ""
+            lines.append(f"app · {item.package.name} · {item.app_label} {item.app_version}{active}")
         self.stdout.write("\n".join(lines))
 
     def _export_theme(self, options):

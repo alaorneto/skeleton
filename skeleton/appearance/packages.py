@@ -85,7 +85,23 @@ def _read(data: Any) -> ThemePackage:
             validate_brand_color(package.brand_color)
         except ValidationError:
             raise refused("brand_color") from None
+    _refuse_app_ids(package)
     return package
+
+
+def _refuse_app_ids(package: ThemePackage) -> None:
+    """A zip never takes the id of a theme an installed app ships (#643): that theme follows its app."""
+    from skeleton.system.app_registry import all_apps
+
+    from .app_themes import app_themes
+
+    owners = {theme.package.id: theme for theme in app_themes().values()}
+    for manifest in all_apps():
+        prefix = f"{manifest.app_id or manifest.app_label}.theme."
+        if manifest.instance_themes and package.id.startswith(prefix):
+            raise refused("id_belongs_to_app", item=manifest.label)
+    if package.id in owners:
+        raise refused("id_belongs_to_app", item=owners[package.id].app_name)
 
 
 def _store(package: ThemePackage) -> tuple[dict[str, Any], list[str]]:

@@ -1,8 +1,8 @@
 """The files of the active theme (#636): images and fonts a theme package brought.
 
 An ``AssetRef`` names a file of a theme without saying where it lives: ``locator`` is
-``storage:<key>`` for an installed package (``package_files``), and epic #630 adds the files of
-an app theme. The locator never goes into a URL, a log or a page: the public routes take only the
+``storage:<key>`` for an installed package (``package_files``) and ``app:<label>:<slug>:<file>``
+for a theme an installed app ships (#643), read only from the declared files of that directory. The locator never goes into a URL, a log or a page: the public routes take only the
 kind (``logo``, ``logo_dark``, ``icon``) or the file name of a declared font, and ``?v=`` is the
 first 12 digits of the SHA-256 of the content, never a key.
 
@@ -107,4 +107,31 @@ def _read(locator: str, limit: int) -> bytes | None:
                 return data
         except (StorageError, FileNotFoundError, OSError, ValueError):
             return None
+    if kind == "app":
+        return _read_app_file(rest, limit)
     return None
+
+
+def _read_app_file(rest: str, limit: int) -> bytes | None:
+    """A declared file of an app theme, read from the app directory (#643), never outside it."""
+    from pathlib import Path
+
+    from .app_themes import get_app_theme
+
+    label, _, remainder = rest.partition(":")
+    slug, _, file = remainder.partition(":")
+    theme = get_app_theme(f"{label}:{slug}")
+    if theme is None:
+        return None
+    declared = {image.file for image in theme.package.images} | {font.file for font in theme.package.fonts}
+    if file not in declared:
+        return None
+    root = Path(theme.directory).resolve()
+    path = (root / file).resolve()
+    if not path.is_relative_to(root) or path.is_symlink():
+        return None
+    try:
+        with open(path, "rb") as stream:
+            return stream.read(limit + 1)
+    except OSError:
+        return None

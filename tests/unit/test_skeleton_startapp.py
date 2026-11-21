@@ -271,3 +271,43 @@ def test_core_docs_url_points_at_the_version_tag():
 
     assert core_docs_url("1.2.3") == "https://github.com/alaorneto/skeleton/blob/v1.2.3/docs"
     assert core_docs_url(None) == "https://github.com/alaorneto/skeleton/blob/main/docs"
+
+
+# --------------------------------------------------------------------------- --with-theme (#645)
+
+
+def test_with_theme_creates_a_valid_theme_and_declares_it(tmp_path, monkeypatch):
+    from skeleton.system.packages import INSTANCE_THEMES_CORE_MINIMUM, doctor
+
+    output = startapp(tmp_path, display_name="Tarefas", theme_slug="aurora")
+    root = tmp_path / "project_tasks"
+    assert "Tema criado em themes/aurora" in output
+    manifest = load_manifest(root / "manifest.json")
+    assert manifest["runtime"]["instance_themes"] == [{"slug": "aurora", "path": "themes/aurora"}]
+    assert f">={INSTANCE_THEMES_CORE_MINIMUM}" in manifest["compatibility"]["skeleton"].split(",")
+    css = (root / "themes/aurora/theme.css").read_text(encoding="utf-8")
+    assert "<" not in css and "url(" not in css.replace("url()", "")
+    result = doctor(root)
+    assert not [problem for problem in result["problems"] if problem["code"] == "instance_theme_invalid"]
+    # The generated range starts at the release that publishes app themes; the check of this checkout
+    # (an older development version) is pointed at it on purpose.
+    import skeleton.versioning
+
+    monkeypatch.setattr(
+        skeleton.versioning, "core_version", lambda: {"version": INSTANCE_THEMES_CORE_MINIMUM, "origin": "source"}
+    )
+    out = io.StringIO()
+    call_command("appearance", "check-package", str(root / "themes/aurora"), stdout=out)
+    assert "com.example.tasks.theme.aurora" in out.getvalue() and "Pacote válido." in out.getvalue()
+
+
+def test_with_theme_refuses_a_bad_slug_without_writing(tmp_path):
+    with pytest.raises(CommandError):
+        startapp(tmp_path, theme_slug="Aurora Bonita")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_without_theme_nothing_about_themes(tmp_path):
+    startapp(tmp_path)
+    assert not (tmp_path / "project_tasks" / "themes").exists()
+    assert "instance_themes" not in load_manifest(tmp_path / "project_tasks" / "manifest.json")["runtime"]

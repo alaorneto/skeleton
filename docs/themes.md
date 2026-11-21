@@ -134,9 +134,27 @@ Três caminhos, o mesmo formato:
 
 1. **Envio manual**: em `/platform/appearance/`, "Instalar pacote de tema", escolha o `.zip` e envie. Instalar não ativa: pré-visualize ("Pré-visualizar", com as fontes e o logo do pacote) e, se estiver certo, "Ativar".
 2. **Console**, para implantação automatizada: `python manage.py appearance install-package dist/aurora-1.0.0.zip`. É idempotente: o mesmo pacote não grava nada, uma versão maior atualiza o tema (e, se ele está ativo, as páginas mudam em até 5 segundos). Ative uma vez pela tela.
-3. **Junto de uma app**: a app traz o tema no próprio pacote e ele aparece no catálogo quando a app é instalada (epic [#630](https://github.com/alaorneto/skeleton/issues/630)); o procedimento entra aqui quando ele for publicado.
+3. **Junto de uma app**: a app traz o tema no próprio pacote e ele aparece no catálogo quando a app é instalada; veja [publicar junto de uma app](#publicar-junto-de-uma-app).
 
 Para atualizar, aumente `version` no `theme.json` e publique de novo. Para remover um pacote enviado à mão, ative outro tema e use "Remover" (ou `manage.py appearance remove-package <id>`). Se um CSS esconder a interface, as páginas de aparência continuam usáveis (carregam o tema sem o CSS livre) e, no servidor, `python manage.py appearance reset-theme` volta ao tema do núcleo.
+
+## Publicar junto de uma app
+
+Quando o tema é a identidade de um produto que é uma app (ou um conjunto de apps), entregue-o **com a app**: ele chega à instância junto com ela, aparece no catálogo de `/platform/appearance/` como "Da app …" e sai quando a app é desinstalada. Quando o tema é de uma instância específica, prefira o zip.
+
+1. Ponha o diretório do tema dentro da app, por exemplo `themes/aurora/`, com a mesma estrutura do pacote.
+2. No `theme.json`, use `id` igual a `<app_id>.theme.<slug>` (`org.example.app.theme.aurora`) e uma faixa `compatibility.skeleton` que contenha o menor núcleo que a app aceita.
+3. Declare-o no manifesto da app (formato 2), com o piso `INSTANCE_THEMES_CORE_MINIMUM` em `compatibility.skeleton`:
+
+   ```json
+   "runtime": {"instance_themes": [{"slug": "aurora", "path": "themes/aurora"}]}
+   ```
+
+4. Uma app nova já sai com isso: `python manage.py skeleton_startapp acme_vendas --app-id org.example.vendas --publisher org.example --with-theme aurora` cria `themes/aurora/theme.json` e `theme.css` e a entrada no manifesto.
+5. Na suíte da app, prove que o tema passa: `skeleton.testing.appearance.assert_app_themes_valid("acme_vendas")` roda as mesmas checagens do `skeleton.E047` (formato, contraste, faixa do núcleo e a regra do `id`) e lista todos os problemas.
+6. `package doctor` e `package build` validam o tema; um tema inválido não entra num release.
+
+Depois da instalação, o administrador pré-visualiza e ativa o tema (instalar a app **nunca** ativa o tema). Atualizar a app atualiza o tema. Desinstalar a app tira o tema do catálogo; se ele era o ativo, a instância volta ao tema do núcleo, e a prévia de desinstalação avisa antes. Um zip com o `id` de um tema de app é recusado: o tema de app é atualizado com a própria app. O exemplo `examples/themes/caderno/` serve para os dois caminhos: como zip, ou copiado para `themes/caderno/` de uma app com o `id` trocado.
 
 ## Versionar o tema no repositório do projeto
 

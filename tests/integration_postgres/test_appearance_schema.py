@@ -64,3 +64,24 @@ def test_package_columns_and_constraints(pristine, subtests):
             with pytest.raises(REFUSED), transaction.atomic():
                 InstanceTheme.objects.create(name="Dois", source="package", package_id="org.x")
     assert check_deployed_schema() == []
+
+
+def test_one_kind_of_active_theme_at_a_time(pristine, subtests):
+    """#643: builtin_theme, active_theme and app_theme never two at once (model or database)."""
+    from django.core.exceptions import ValidationError
+
+    from skeleton.appearance.models import InstanceBrand, InstanceTheme
+    from tests.integration.appearance_support import acting, platform_admin
+
+    admin = platform_admin()
+    with acting(admin):
+        theme = InstanceTheme.objects.create(name="Um")
+        for case, values in (
+            ("builtin and app", {"builtin_theme": "vinho", "app_theme": "x:y"}),
+            ("catalog and app", {"active_theme": theme, "app_theme": "x:y"}),
+        ):
+            with subtests.test(case=case):
+                with pytest.raises((DatabaseError, ValidationError)), transaction.atomic():
+                    InstanceBrand.objects.create(**values)
+        InstanceBrand.objects.create(app_theme="x:y")
+    assert check_deployed_schema() == []

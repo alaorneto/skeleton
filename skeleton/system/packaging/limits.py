@@ -79,6 +79,12 @@ MAX_SERVICE_CLASSES = 32
 SERVICE_API_CORE_MINIMUM = "0.0.0"
 # runtime.portal_urls and runtime.portal_api_urls (docs/portal.md, #533): the portal of external people.
 PORTAL_CORE_MINIMUM = "0.0.0"
+# runtime.instance_themes (docs/appearance.md, #642): themes of the instance shipped with the app.
+INSTANCE_THEMES_CORE_MINIMUM = "0.3.0"
+MAX_INSTANCE_THEMES = 4
+INSTANCE_THEME_SLUG = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
+# Directories with a role in the build: a theme never lives inside one of them.
+INSTANCE_THEME_RESERVED_DIRECTORIES = ("migrations", "templates", "static", "docs", "wheels")
 
 
 SERVICE_API_DOCUMENT = "service-api.md"
