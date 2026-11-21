@@ -1,0 +1,14 @@
+{% extends "account/base_manage.html" %}{% load i18n skeleton_format %}{% block head_title %}{% translate "Dispositivos conectados" %}{% endblock %}
+{% block content %}
+<h1>{% translate "Dispositivos conectados" %}</h1>
+<p class="mt-1 text-sm/6 text-body-subtle">{% translate "Aplicativos nativos em que você entrou com esta conta. Desconectar encerra a sessão do aplicativo naquele dispositivo; trocar a senha ou a autenticação em dois fatores desconecta todos." %}</p>
+<div class="mt-4 table-scroll"><table><thead><tr><th scope="col">{% translate "Aplicativo" %}</th><th scope="col" class="col-date">{% translate "Conectado em" %}</th><th scope="col" class="col-date">{% translate "Último uso" %}</th><th scope="col">{% translate "Estado" %}</th><th scope="col" class="col-actions"><span class="sr-only">{% translate "Ações" %}</span></th></tr></thead><tbody>
+{% for device in devices %}<tr>
+  <td><span class="cell-primary">{{ device.client_name }}</span></td>
+  <td class="col-date">{{ device.connected_at|moment }}</td>
+  <td class="col-date">{{ device.last_used_at|moment }}</td>
+  <td>{% if device.usable %}{{ "active"|status_badge }}{% else %}{{ "inactive"|status_badge:_("Inválido") }}{% endif %}</td>
+  <td class="col-actions"><form method="post" action="{{ device.revoke_url }}" class="row-actions">{% csrf_token %}<button type="submit" class="btn btn-danger-outline btn-sm">{% include "skeleton/web/components/icon.html" with name="trash" %}{% translate "Revogar" %}</button></form></td>
+</tr>{% empty %}{% include "skeleton/web/components/empty-row.html" with colspan=5 message=_("Nenhum dispositivo conectado.") icon="link" %}{% endfor %}
+</tbody></table></div>
+{% endblock %}

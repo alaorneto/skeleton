@@ -13,5 +13,7 @@
   "socialaccount_socialapp": "Configuração técnica allauth; segredos administrados fora do catálogo empresarial.",
   "socialaccount_socialapp_sites": "Through técnico de aplicação social/site allauth; não vínculo empresarial.",
   "socialaccount_socialtoken": "Tokens técnicos allauth; armazenamento desabilitado e nunca auditado genericamente.",
-  "mfa_authenticator": "Autenticadores allauth MFA cifrados; lifecycle próprio, nunca snapshots de segredos."
+  "mfa_authenticator": "Autenticadores allauth MFA cifrados; lifecycle próprio, nunca snapshots de segredos.",
+  "allauth_idp_oidc_client": "Clientes OIDC allauth dos clientes nativos; espelho de protocolo do registro auditado sk_accounts.NativeClient.",
+  "allauth_idp_oidc_token": "Tokens OIDC allauth, guardados só como hash SHA-256; lifecycle do protocolo, nunca snapshots de valores."
 }

@@ -133,6 +133,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_accounts.nativeclient": (
+            "Clientes nativos",
+            "Aplicativos nativos registrados pelo operador no provedor OIDC: redirects loopback e consentimento.",
+            "global",
+            (),
+        ),
         "sk_accounts.erasurerequest": (
             "Pedidos de eliminação",
             "Pedido de uma pessoa para anonimizar a identidade, aprovado pela plataforma (#191).",

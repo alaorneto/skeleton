@@ -84,6 +84,22 @@ Com `SKELETON_ORGANIZATION_CUSTOM_DOMAINS` ligado (e o domínio base configurado
 - **Proxy e TLS:** o proxy repassa o cabeçalho `Host` original e emite um certificado por domínio próprio; a aplicação não emite certificado. Para emissão sob demanda, o proxy pergunta `GET http://<DJANGO_HEALTH_HOST>/health/site-host/?domain=<host>`: 200 (corpo vazio) para um endereço de organização ativo, por slug ou por domínio próprio comprovado; 404 para todo o resto. A rota só responde no host de saúde, fica fora do redirecionamento HTTPS (`SECURE_REDIRECT_EXEMPT`) e só diz sim ou não. Sem emissão automática, o domínio comprova, mas o navegador mostra erro de certificado até o operador emitir.
 - **Links:** emails de uma organização com domínio próprio comprovado usam esse domínio (o mais antigo, se houver mais de um).
 
+### Provedor OIDC para clientes nativos (#603)
+
+O provedor ([autenticação](authentication-sso.md#provedor-oidc-para-clientes-nativos-603)) só liga com uma chave RSA de assinatura, que nunca vai para o repositório nem para o SQLite da instância:
+
+- `IDP_OIDC_PRIVATE_KEY`: o PEM da chave, no ambiente; ou `IDP_OIDC_PRIVATE_KEY_FILE`: o caminho de um arquivo PEM provisionado pelo operador com modo 0600 (os dois juntos são recusados na partida);
+- `IDP_OIDC_PRIVATE_KEYS_FILE` (opcional): um JSON `[{"pem": "...", "not_before": "<ISO 8601>", "expires_at": "<ISO 8601>"}]` para a rotação.
+
+```sh
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /etc/skeleton/oidc-key.pem
+chmod 600 /etc/skeleton/oidc-key.pem   # IDP_OIDC_PRIVATE_KEY_FILE=/etc/skeleton/oidc-key.pem
+```
+
+**Rotação:** publique a chave nova antes de ela assinar, com `not_before` no futuro (o JWKS já a anuncia, e os clientes a guardam); a partir de `not_before` ela assina os tokens novos; mantenha a antiga até o fim da validade do último id_token que ela assinou e então dê a ela um `expires_at` ou retire-a. A chave assina só id_tokens (os access tokens são opacos), então a troca não derruba sessões de dispositivos.
+
+**Host canônico:** defina `SKELETON_PUBLIC_URL` com a origem pública (`https://app.example.com`): ela é o issuer e a origem de todos os endpoints do discovery, também atrás do proxy e para quem chega por um endereço de organização. Sem ela, o issuer vem da requisição, e o proxy precisa repassar o `Host` original e `X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER` dos settings de produção). Aplique as migrations (`allauth_idp_oidc` e `sk_accounts.0010`) em todos os ambientes antes de registrar o primeiro cliente com `manage.py native_client register`.
+
 ### Primeira instalação pelo setup (#146)
 
 Uma instância nova não precisa de `.env` nem de comandos: enquanto faltar alguma chave exigida (`secret_key`, `allowed_hosts`, `database_url`) no ambiente e no SQLite da instância, o WSGI (`config.wsgi`, perfil de produção) e o `manage.py runserver` sobem em **modo setup** (`config.settings.setup`). Eles também continuam em modo setup enquanto um setup começado não for concluído: os passos "Instância" e "Banco runtime" já gravam as três chaves, e um reinício antes da conclusão volta ao setup no passo em que parou, em vez de subir com settings de produção ainda sem cache, email e o resto (#453). Conta como começado o setup que registrou algum passo; um token emitido sozinho não conta. Quem começar o setup pela tela e decidir configurar a instância de outro jeito sai com `SKELETON_SETUP=off`. Nesse modo não há alias de banco, a sessão é um cookie assinado com uma chave derivada da chave mestra, e só `/setup/` e as sondas de saúde respondem; qualquer outra rota leva a `/setup/`. `SKELETON_SETUP=off` desliga a troca (ferramentas e instâncias configuradas por outro meio). O entrypoint ASGI (`config/asgi.py`) não entra em modo setup: usa `config.settings.production` direto. O runtime suportado é WSGI/Gunicorn ([arquitetura](architecture.md)).
