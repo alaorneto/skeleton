@@ -124,7 +124,7 @@ def block_form_class(block_type: str, widget_choices: tuple[tuple[str, Any], ...
                 widget=forms.Textarea(attrs={"rows": 6 if spec.kind == "text" else 4, "spellcheck": "true"}),
             )
         else:
-            attrs = {"maxlength": spec.max_length} if spec.max_length else {}
+            attrs: dict[str, Any] = {"maxlength": spec.max_length} if spec.max_length else {}
             if spec.kind == "email":
                 attrs["autocomplete"] = "email"
             fields[spec.name] = forms.CharField(
@@ -207,7 +207,7 @@ def _context(request: Any, editor: PageEditor, state: PageState, **extra: Any) -
                 "index": index,
                 "number": index + 1,
                 "type": block.get("type"),
-                "label": BLOCK_LABELS.get(block.get("type"), block.get("type")),
+                "label": BLOCK_LABELS.get(str(block.get("type", "")), block.get("type")),
                 "summary": summary(block, labels),
                 "edit_url": editor.url("edit", index=index),
                 "move_url": editor.url("move", index=index),

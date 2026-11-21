@@ -137,6 +137,11 @@ files = [
     "skeleton/common/outbound_http.py",
     "skeleton/billing",
     "skeleton/appearance",
+    # #618: the block pages, their editor, the organization pages and the dashboard widgets.
+    "skeleton/common/page_blocks.py",
+    "skeleton/web/page_editor.py",
+    "skeleton/tenancy/pages.py",
+    "skeleton/system/dashboard_widgets.py",
     "skeleton/instance/schema.py",
     "skeleton/instance/store.py",
     "skeleton/instance/crypto.py",
