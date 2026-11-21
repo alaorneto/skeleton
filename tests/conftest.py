@@ -148,6 +148,33 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def pinned_appearance():
+    """The core appearance for every test (#592): no brand query, so query budgets stay the same.
+
+    The tests of the instance brand ask for ``live_appearance``, which removes the pin.
+    """
+    from skeleton.appearance.snapshot import DEFAULT, pin_appearance, reset_appearance_cache
+
+    pin_appearance(DEFAULT)
+    try:
+        yield
+    finally:
+        pin_appearance(None)
+        reset_appearance_cache()
+
+
+@pytest.fixture
+def live_appearance(pinned_appearance):
+    """Read the real brand row (cache reset before and after the test)."""
+    from skeleton.appearance.snapshot import pin_appearance, reset_appearance_cache
+
+    pin_appearance(None)
+    reset_appearance_cache()
+    yield
+    reset_appearance_cache()
+
+
+@pytest.fixture(autouse=True)
 def api_contract(request):
     """Every /api/v1/ response a test receives must match the published OpenAPI schema (#179).
 

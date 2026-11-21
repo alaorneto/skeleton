@@ -595,6 +595,18 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_appearance.instancetheme": (
+            gettext_lazy("Temas da instância"),
+            gettext_lazy("Catálogo de temas (cor, raio, fonte e CSS personalizado) da instância inteira."),
+            "global",
+            (),
+        ),
+        "sk_appearance.instancebrand": (
+            gettext_lazy("Marca da instância"),
+            gettext_lazy("Linha única com o nome do produto, o rodapé, as imagens e o tema ativo da instância."),
+            "global",
+            ("logo_key", "logo_dark_key", "icon_key"),
+        ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),
             gettext_lazy("Histórico transacional imutável de alterações, com dados sensíveis redigidos."),

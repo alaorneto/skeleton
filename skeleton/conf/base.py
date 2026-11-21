@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "skeleton.flows.apps.FlowsConfig",
     "skeleton.comments.apps.CommentsConfig",
     "skeleton.billing.apps.BillingConfig",
+    "skeleton.appearance.apps.AppearanceConfig",
     "skeleton.instance.apps.InstanceConfig",
     "skeleton.observability.apps.ObservabilityConfig",
     "skeleton.web",
