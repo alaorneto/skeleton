@@ -83,6 +83,10 @@ def current_appearance() -> Appearance:
     return value
 
 
+def _version(key: str) -> str:
+    return key[-12:] if key else ""
+
+
 def _load() -> Appearance:
     from .models import InstanceBrand
     from .themes import BUILTIN_THEMES, ThemeValues, theme_css, theme_css_tokens, theme_digest
@@ -101,6 +105,9 @@ def _load() -> Appearance:
     return Appearance(
         product_name=brand.product_name,
         footer_text=brand.footer_text,
+        logo_version=_version(brand.logo_key),
+        logo_dark_version=_version(brand.logo_dark_key),
+        icon_version=_version(brand.icon_key),
         theme_css=css,
         theme_css_tokens=tokens,
         theme_version=theme_digest(css),

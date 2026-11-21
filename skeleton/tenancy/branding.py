@@ -133,6 +133,9 @@ def _checked_logo(upload: Any) -> str:
     return kind
 
 
+checked_logo = _checked_logo  # Public name for the instance images (#596); same behaviour.
+
+
 def _locked_settings(organization: Any, expected_revision: int) -> Any:
     from .models import OrganizationSettings
     from .organization_settings import revision_of
@@ -309,6 +312,9 @@ def _checked_icon(upload: Any) -> None:
         raise ValidationError({"icon": gettext("Use uma imagem PNG.")})
     if len(head) < 24 or head[12:16] != b"IHDR" or struct.unpack(">II", head[16:24]) != (ICON_SIDE, ICON_SIDE):
         raise ValidationError({"icon": gettext("O ícone precisa ser um PNG quadrado de 512 × 512 pixels.")})
+
+
+checked_icon = _checked_icon  # Public name for the instance icon (#596); same behaviour.
 
 
 def replace_icon(*, actor: Any, upload: IO[bytes], expected_revision: int) -> Any:
