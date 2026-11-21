@@ -272,7 +272,9 @@ def test_delegated_manager_needs_mfa(org):
 def test_sidebar_shows_only_sections_of_the_capability(org):
     owner, organization = org
     people, _ = member_with_role(owner, organization, "pm-menu@example.test", "people_manager")
-    page = login(people).get(reverse("web:dashboard", kwargs={"organization_id": organization.pk})).content.decode()
+    # The administration lives in the settings area (#621): its hub and menu show only the capability's sections.
+    hub = reverse("web:organization-admin", kwargs={"organization_id": organization.pk})
+    page = login(people).get(hub).content.decode()
     assert reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "memberships"}) in page
     assert reverse("web:access-list", kwargs={"organization_id": organization.pk, "resource": "roles"}) not in page
     assert reverse("application-list", kwargs={"organization_id": organization.pk}) not in page

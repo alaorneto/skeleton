@@ -157,7 +157,7 @@ python manage.py runserver 0.0.0.0:8000
 1. Abra `http://skeleton.test:8000/` e entre. **Esperado:** "Minhas organizações", como antes.
 2. Em `/o/<uuid da acme>/settings/`, ative o endereço próprio. **Esperado:** aviso do que fica público; depois de salvar, a caixa marcada.
 3. Abra `http://acme.skeleton.test:8000/` em outra aba. **Esperado:** já autenticado (sessão compartilhada); o painel da organização, sem seletor de organização nem "Plataforma"; os links sem `/o/`.
-4. Navegue por uma tabela, um registro, Notificações, Tarefas e Configurações. **Esperado:** URLs limpas; contadores só da organização.
+4. Navegue por um app, um registro, Notificações e Tarefas; pela engrenagem ao lado do nome da organização, abra a área de configuração (`/admin/`), Tabelas e Configurações gerais. **Esperado:** URLs limpas (`/admin/`, `/catalog/`, `/settings/`); contadores só da organização; o menu lateral da área com "Voltar para a organização".
 5. Abra `http://acme.skeleton.test:8000/o/<uuid de outra organização>/`. **Esperado:** 404 "Not found.".
 6. Abra `http://naoexiste.skeleton.test:8000/` e `http://www.skeleton.test:8000/`. **Esperado:** o mesmo 404 "Not found.".
 7. Saia e abra `http://acme.skeleton.test:8000/accounts/login/`. **Esperado:** nome, cores e logo da organização; título "Entrar · <nome>".

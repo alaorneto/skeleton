@@ -14,7 +14,6 @@ from django.views.decorators.http import require_http_methods
 
 from skeleton.access import services as access_services
 from skeleton.access.capabilities import (
-    capabilities_for,
     has_any_capability,
     require_admin_surface,
     require_resource_capability,
@@ -413,17 +412,11 @@ def dashboard(request, organization_id):
     from skeleton.service_api.organizations import OrganizationService
 
     organization = OrganizationService().current(actor=request.user)
-    specs = presented_specs(request.user)
+    # Tables and the administration moved to the settings area (#621); the home keeps the apps.
     return render(
         request,
         "skeleton/web/dashboard.html",
-        {
-            "organization": organization,
-            "specs": specs,
-            "app_groups": grouped_specs(specs),
-            "organization_id": organization_id,
-            "capabilities": capabilities_for(request.user),
-        },
+        {"organization": organization, "organization_id": organization_id},
     )
 
 

@@ -9,6 +9,7 @@ from skeleton.web import (
     identity_views,
     portal_views,
     privacy_views,
+    settings_views,
     site_domain_views,
     views,
 )
@@ -55,6 +56,8 @@ urlpatterns = [
     path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),
     path(ORG, views.dashboard, name="dashboard"),
+    # The settings area of the organization (#621): the hub; the entries keep their own routes.
+    path(f"{ORG}admin/", settings_views.organization_admin, name="organization-admin"),
     path(f"{ORG}admission/", admission_views.admission_policy, name="admission"),
     # External people of the portal (#532).
     path(f"{ORG}admin/external/", external_views.external_admin, name="external"),
