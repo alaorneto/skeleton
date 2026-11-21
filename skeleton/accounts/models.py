@@ -287,3 +287,32 @@ class ErasureRequest(SystemRecord):
 
     def __str__(self):
         return f"{self.user_id}: {self.status}"
+
+
+class NativeClient(SystemRecord):
+    """A native client (desktop app) the operator registered on the OIDC provider (#603).
+
+    The ``allauth`` ``Client`` row is the protocol side, created in the same transaction; this
+    row is the audited registry: who may ask for codes, with which loopback redirects and extra
+    scopes, whether consent is skipped and when every token was revoked. ``enabled=False``
+    refuses new codes, renewals and API calls at once.
+    """
+
+    client_id = models.CharField(max_length=64, unique=True)
+    name = models.CharField(max_length=100)
+    redirect_uris = models.JSONField(default=list)
+    scopes = models.JSONField(default=list, blank=True)
+    skip_consent = models.BooleanField(default=False)
+    enabled = models.BooleanField(default=True)
+    tokens_revoked_at = models.DateTimeField(null=True, blank=True)
+    immutable_fields = ("client_id",)
+
+    class Meta(SystemRecord.Meta):
+        constraints = SystemRecord.Meta.constraints + [
+            models.CheckConstraint(
+                condition=Q(client_id__regex=r"^[a-z0-9][a-z0-9._-]{1,63}$"), name="sk_accounts_native_client_id"
+            ),
+        ]
+
+    def __str__(self):
+        return self.client_id

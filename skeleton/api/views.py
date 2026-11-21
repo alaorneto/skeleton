@@ -638,8 +638,11 @@ class OpenAPIView(SessionAPI):
     openapi = {"GET": Operation("Schema OpenAPI 3.1 do que o ator alcança", OBJECT)}
 
     def get(self, request):
+        from skeleton.accounts.idp.clients import issuer
         from skeleton.api.openapi import audience_for, build_schema
 
-        response = Response(build_schema(audience_for(request)))
+        origin = issuer(request)
+        discovery = f"{origin}/.well-known/openid-configuration" if origin else None
+        response = Response(build_schema(audience_for(request), oidc_discovery=discovery))
         response["Cache-Control"] = "private, no-store"
         return response

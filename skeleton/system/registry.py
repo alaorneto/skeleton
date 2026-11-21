@@ -146,6 +146,12 @@ def register_core_specs():
             "global",
             (),
         ),
+        "sk_accounts.nativeclient": (
+            "Clientes nativos",
+            "Aplicativos nativos registrados pelo operador no provedor OIDC: redirects loopback e consentimento.",
+            "global",
+            (),
+        ),
         "sk_accounts.erasurerequest": (
             "Pedidos de eliminação",
             "Pedido de uma pessoa para anonimizar a identidade, aprovado pela plataforma (#191).",
@@ -337,6 +343,24 @@ def register_core_specs():
             gettext_lazy("Plano aprovado e resultado auditado de instalação, atualização e desinstalação."),
             "global",
             ("plan", "result"),
+        ),
+        "sk_system.nativeclientrelease": (
+            "Releases de clientes nativos",
+            "Feeds verificados (Ed25519 e SHA-256) de cada cliente nativo, por canal e sistema; bytes no storage.",
+            "global",
+            (),
+        ),
+        "sk_system.nativeclientchannel": (
+            "Canais de clientes nativos",
+            "Versão mínima exigida de cada canal de um cliente nativo, definida pelo operador de releases.",
+            "global",
+            (),
+        ),
+        "sk_system.nativeclientsync": (
+            "Sincronizações de clientes nativos",
+            "Resultado de cada feed sincronizado: publicado, recusado (código) ou falha da fonte.",
+            "global",
+            (),
         ),
         "sk_jobs.job": (
             gettext_lazy("Jobs"),

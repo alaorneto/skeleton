@@ -180,6 +180,10 @@ def _anonymize(person: User, *, using: str, now: Any) -> None:
     # A token row, were there one, fails the foreign key: closed, never silently kept.
     SocialAccount.objects.filter(user_id=person.pk)._raw_delete(using)
     Authenticator.objects.filter(user_id=person.pk).delete()
+    # Tokens of native clients (#603): their stamp may hold the chosen email of the scope.
+    from skeleton.accounts.idp.clients import revoke_user_tokens
+
+    revoke_user_tokens(person)
     for token in ApiToken.objects.filter(user_id=person.pk).order_by("sysid"):
         if token.revoked_at is None:
             token.revoked_at = now

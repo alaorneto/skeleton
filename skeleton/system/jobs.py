@@ -15,6 +15,7 @@ from pathlib import Path
 from django.conf import settings
 
 UPDATE_CHECK_JOB = "system.update_check"
+NATIVE_CLIENTS_SYNC_JOB = "native_clients.sync"
 GITHUB_NOTICE_KEY = "skeleton:update-notice:github"
 TAG = re.compile(r"v?(\d+(?:\.\d+){1,2}(?:[a-z0-9.+-]*)?)\Z")
 logger = logging.getLogger("skeleton.system.updates")
@@ -112,6 +113,27 @@ def register_system_jobs():
             UPDATE_CHECK_JOB, update_check, {}, run_as="system", max_attempts=1, scope="global", owner_app="sk_system"
         )
     )
+    # Releases of native clients (#606): only with the operator's configuration file.
+    from .native_clients.sync import sync_all
+
+    register_job_type(
+        JobType(
+            NATIVE_CLIENTS_SYNC_JOB,
+            sync_all,
+            {},
+            run_as="system",
+            max_attempts=1,
+            scope="global",
+            owner_app="sk_system",
+        )
+    )
+    if getattr(settings, "SKELETON_NATIVE_CLIENTS_CONFIG", ""):
+        register_periodic(
+            NATIVE_CLIENTS_SYNC_JOB,
+            NATIVE_CLIENTS_SYNC_JOB,
+            every=timedelta(hours=max(1, int(getattr(settings, "SKELETON_NATIVE_CLIENTS_SYNC_HOURS", 1) or 1))),
+            per_organization=False,
+        )
     repository = getattr(settings, "SKELETON_UPDATE_REPOSITORY", "") or ""
     if repository and not getattr(settings, "SKELETON_AGENT_SOCKET", None):
         register_periodic(

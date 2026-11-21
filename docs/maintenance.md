@@ -25,7 +25,7 @@ O token de API não tem exceção: `Authorization: Bearer` também recebe 503. A
 
 ## O que fica aberto na manutenção administrativa
 
-A lista é fechada, por nome de URL, em `skeleton.deployment.MAINTENANCE_OPEN_URL_NAMES`: login e logout, reautenticação, as telas de MFA (autenticar, reautenticar, ativar TOTP, códigos de recuperação, WebAuthn) e os logins e callbacks de SSO (OIDC, SAML, LDAP). Mais as rotas do namespace `platform`, sob `/platform/`. Cadastro, troca e recuperação de senha e gestão de e-mail recebem 503, porque enviam e-mail dentro da requisição. Uma rota nova só fica aberta se o nome dela entrar na lista.
+A lista é fechada, por nome de URL, em `skeleton.deployment.MAINTENANCE_OPEN_URL_NAMES`: login e logout, reautenticação, as telas de MFA (autenticar, reautenticar, ativar TOTP, códigos de recuperação, WebAuthn) e os logins e callbacks de SSO (OIDC, SAML, LDAP). Mais as rotas do namespace `platform`, sob `/platform/`, e o `GET /api/v1/server/` anônimo (`MAINTENANCE_OPEN_NAMESPACED`), para um cliente nativo distinguir "em manutenção" de "não é um servidor" ([descoberta](api.md#descoberta-para-clientes-nativos)). Cadastro, troca e recuperação de senha e gestão de e-mail recebem 503, porque enviam e-mail dentro da requisição. Uma rota nova só fica aberta se o nome dela entrar na lista.
 
 Em `/platform/`, só passa quem é administrador completo da plataforma (staff e superuser, com MFA quando `SKELETON_REQUIRE_ADMIN_MFA` está ligado). Os papéis delegados (auditor, operador) e qualquer outra pessoa recebem a mesma resposta de manutenção, não 403, para não revelar a superfície administrativa. O guard é `skeleton.web.maintenance.MaintenancePlatformGuardMiddleware`, depois da autenticação.
 

@@ -291,6 +291,63 @@ DJANGO_SETTINGS_MODULE=config.settings.migrate .venv/bin/python manage.py rotate
 
 O comando trava as linhas, decifra todas antes da primeira escrita (sem a chave antiga, nada muda) e imprime só contagens e IDs. Depois dele, a chave antiga pode sair do runtime; backups anteriores continuam exigindo-a em custódia.
 
+## Provedor OIDC para clientes nativos (#603)
+
+O núcleo também é **provedor** OIDC para clientes nativos registrados pelo operador, como um aplicativo de desktop que usa só a API HTTP (epic #602). O protocolo é o do `allauth.idp.oidc` (Authorization Code, verificação PKCE, emissão e rotação de tokens, revogação, discovery e JWKS); o pacote `skeleton/accounts/idp/` só põe a política do núcleo na frente das views dele e não reimplementa nada do fluxo. O login passa pelas páginas de sempre, no navegador do sistema: senha, MFA, SSO e LDAP continuam valendo.
+
+| Endpoint | Caminho |
+|---|---|
+| Discovery | `/.well-known/openid-configuration` |
+| JWKS | `/.well-known/jwks.json` |
+| Autorização | `/identity/o/authorize` |
+| Token | `/identity/o/api/token` |
+| Revogação | `/identity/o/api/revoke` |
+| UserInfo | `/identity/o/api/userinfo` |
+| Logout iniciado pelo cliente | `/identity/o/logout` |
+
+Sem chave de assinatura, todas essas rotas respondem 404 e `GET /api/v1/server/` informa `oidc_issuer: null` ([descoberta](api.md#descoberta-para-clientes-nativos)). O fluxo de dispositivo (`/identity/o/device`, `/identity/o/api/device/code`), o registro dinâmico (`IDP_OIDC_DCR_ENABLED`), o CIMD e a introspecção ficam fora: respondem 404.
+
+**Política do cliente nativo.** Todo cliente é público (sem segredo, `token_endpoint_auth_method` `none`) e:
+
+- **PKCE `S256` imposto**: `code_challenge_method=plain`, método ausente ou desafio fora do formato de 43 caracteres base64url são recusados antes do allauth (o oauthlib aceitaria `plain`);
+- **redirect só loopback por IP** (RFC 8252 §7.3): registra-se `http://127.0.0.1/<caminho>` ou `http://[::1]/<caminho>`, sem porta nem query; na autorização vale qualquer porta, com o caminho exato. `http://localhost`, outro caminho e host não loopback são recusados. Um pedido recusado com redirect registrado volta a ele com `error=invalid_request`; sem redirect válido, a resposta é 400;
+- só os grants `authorization_code` e `refresh_token` (outros: 400 `unsupported_grant_type`) e só `response_type=code`;
+- escopos `openid profile email` e os escopos do núcleo que o operador registrou para o cliente ([escopos na API](api.md#access-tokens-oidc-de-clientes-nativos));
+- cliente desativado não recebe código, não renova (401 `invalid_client`) e não autentica na API.
+
+**Registro.** O operador registra, lista e revoga pelo comando, que roda num `system_context` com motivo próprio; o registro auditado é `sk_accounts.NativeClient` (a linha `Client` do allauth é o espelho de protocolo, criado na mesma transação):
+
+```sh
+python manage.py native_client register --client-id acme-desktop --name "Acme Desktop" --redirect-uri http://127.0.0.1/callback --skip-consent
+python manage.py native_client list
+python manage.py native_client revoke-all --client-id acme-desktop [--disable]
+```
+
+`--skip-consent` dispensa a página de consentimento só para esse cliente, registrado pelo operador; sem ele, a pessoa autoriza o cliente na primeira entrada. `--scope <escopo>` (repetível) acrescenta um escopo do núcleo, como `example_notes.note:read` ou `files:read`, validado como os escopos de tokens. `revoke-all` apaga todos os tokens do cliente e grava `tokens_revoked_at`; com `--disable`, fecha o cliente. Registro e revogação entram na auditoria pelos triggers de `NativeClient`.
+
+**Validade.** O access token é opaco e vale `IDP_OIDC_ACCESS_TOKEN_EXPIRES_IN` segundos (padrão 3600). O refresh token é rotacionado a cada renovação, o anterior deixa de valer na hora, e o novo vale `IDP_OIDC_REFRESH_TOKEN_EXPIRES_IN` segundos (padrão 90 dias, deslizantes com a rotação). O allauth não detecta reuso de refresh token: o cliente deve renovar **um de cada vez** e descartar o refresh anterior assim que receber o novo. O banco guarda só o SHA-256 de cada token (`allauth_idp_oidc_token`).
+
+**Invalidação.** Cada token emitido recebe, na mesma transação da emissão, um carimbo com o `auth_version` da pessoa e o grant a que pertence (uma entrada num dispositivo, mantida na rotação). Troca de senha, troca de MFA, desativação, exclusão e qualquer outra mudança de `auth_version` invalidam todos os tokens OIDC da pessoa na próxima chamada, como acontece com a sessão web e os tokens `skt_`: a API e o UserInfo respondem 401 e a renovação responde `invalid_grant`, apagando o grant. Token sem carimbo nunca autentica. Revogar um token pelo endpoint de revogação apaga o grant inteiro. A eliminação da identidade apaga todos os tokens OIDC dela.
+
+**MFA.** O código só sai para uma sessão autenticada: quem tem TOTP precisa completar a etapa de MFA do login antes. Com `SKELETON_REQUIRE_ADMIN_MFA`, quem tem papel de plataforma e ainda não cadastrou TOTP é levado a `mfa_index` antes de qualquer código, como nas páginas de plataforma. Capacidades administrativas de organização não passam por token: um token OIDC nunca administra ([API](api.md#access-tokens-oidc-de-clientes-nativos)).
+
+**Dispositivos conectados.** Em `/profile/devices/` a pessoa vê cada entrada ativa (aplicativo, conectado em, último uso, estado) e a revoga; revogar apaga os tokens daquele grant. Outra pessoa nunca alcança o grant: o `POST` de revogação filtra pelo próprio usuário.
+
+**Issuer e host canônico.** O issuer é a origem de `SKELETON_PUBLIC_URL`, quando definida, e todos os endpoints do discovery usam essa origem; sem ela, é a origem da própria requisição, que atrás do proxy depende de `SECURE_PROXY_SSL_HEADER` e do `Host` repassado. Num endereço de organização (`<slug>.<domínio base>`) as rotas do provedor não existem (o host recusa `/.well-known/` e `/identity/`); o cliente descobre o issuer do domínio base por `GET /api/v1/server/`. A chave e a rotação estão em [deployment](deployment.md#provedor-oidc-para-clientes-nativos-603).
+
+Roteiro de smoke manual, contra o servidor de desenvolvimento com uma chave configurada e o cliente registrado:
+
+```sh
+VERIFIER=$(python -c 'import secrets; print(secrets.token_urlsafe(48))')
+CHALLENGE=$(python -c "import base64,hashlib,sys; print(base64.urlsafe_b64encode(hashlib.sha256(sys.argv[1].encode()).digest()).rstrip(b'=').decode())" "$VERIFIER")
+# Abra no navegador, entre e copie o code do redirect para 127.0.0.1:
+echo "$BASE/identity/o/authorize?client_id=acme-desktop&response_type=code&scope=openid%20profile%20email&redirect_uri=http://127.0.0.1:53682/callback&code_challenge=$CHALLENGE&code_challenge_method=S256&state=x"
+curl -sS -X POST "$BASE/identity/o/api/token" -d grant_type=authorization_code -d client_id=acme-desktop \
+  -d redirect_uri=http://127.0.0.1:53682/callback -d "code_verifier=$VERIFIER" -d "code=$CODE"
+```
+
+Rollback: revogue os tokens (`native_client revoke-all`) antes de tirar `allauth.idp.oidc` de `INSTALLED_APPS`; as tabelas ficam.
+
 ## Admin, mensagens e logs
 
 Identidades, organizações e demais registros globais são administrados em `/platform/`, por views explícitas que exigem administrador da plataforma (`is_platform_admin`: staff+superuser ativo e não excluído), sessão allauth (sem senha paralela Django), MFA quando configurado, CSRF e CAS. Não existe login paralelo do Django admin: `/admin/` e `/admin/login/` respondem 404. Não se registram recursos tenant ou edição genérica de SocialToken/Authenticator/SocialApp/auth.Group. Operações de identidade usam lifecycle para não esquecer `auth_version`. Org admin configura apps no painel de parâmetros tenant e usa as páginas empresariais para registros.

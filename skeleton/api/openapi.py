@@ -232,7 +232,7 @@ def audience_for(request: Any) -> Audience:
     token = getattr(request, "api_token", None)
     scopes = frozenset(token.scopes) if token is not None else None
     bound = token.bound_organization_id if token is not None else None
-    source = f"http:token:{token.prefix}" if token is not None else "http"
+    source = token.audit_source if token is not None else "http"
 
     def read(organization_id: Any) -> dict[str, Any] | None:
         if bound is not None and organization_id != bound:
@@ -956,7 +956,7 @@ def _tag(route: Route) -> str:
     return module[1] if len(module) > 1 and module[0] == "skeleton" else module[0]
 
 
-def build_schema(audience: Audience, *, urlconf: str | None = None) -> Schema:
+def build_schema(audience: Audience, *, urlconf: str | None = None, oidc_discovery: str | None = None) -> Schema:
     """The OpenAPI 3.1 document of what ``audience`` reaches."""
     from skeleton.versioning import core_version
 
@@ -974,6 +974,19 @@ def build_schema(audience: Audience, *, urlconf: str | None = None) -> Schema:
             if method.lower() in item:
                 continue  # The first route that resolves wins, as in Django.
             item[method.lower()] = _openapi_operation(route, path, method, operation, undocumented)
+    components = _components(audience, _visible_specs(audience))
+    if oidc_discovery:
+        # Native clients (#604): the same Bearer header, with an access token of the OIDC provider.
+        components["securitySchemes"]["openIdConnect"] = {
+            "type": "openIdConnect",
+            "openIdConnectUrl": oidc_discovery,
+            "description": "Access token OIDC de cliente nativo; vale onde o token de API vale.",
+        }
+        for item in paths.values():
+            for operation_schema in item.values():
+                security = operation_schema["security"]
+                if {"bearerAuth": []} in security:
+                    security.insert(1, {"openIdConnect": []})
     return {
         "openapi": OPENAPI_VERSION,
         "info": {
@@ -986,5 +999,5 @@ def build_schema(audience: Audience, *, urlconf: str | None = None) -> Schema:
         },
         "servers": [{"url": "/"}],
         "paths": {path: paths[path] for path in sorted(paths)},
-        "components": _components(audience, _visible_specs(audience)),
+        "components": components,
     }

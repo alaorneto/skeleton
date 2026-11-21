@@ -27,6 +27,8 @@ INSTALLED_APPS = [
     "allauth.account",
     "allauth.socialaccount",
     "allauth.mfa",
+    # OIDC provider for native clients (#603): off until a signing key exists (IDP_OIDC_PRIVATE_KEY*).
+    "allauth.idp.oidc",
     "allauth.socialaccount.providers.openid_connect",
     "allauth.socialaccount.providers.github",
     "allauth.socialaccount.providers.saml",
@@ -255,6 +257,26 @@ ACCOUNT_FORMS = {
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = False
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = False
 SOCIALACCOUNT_STORE_TOKENS = False
+# OIDC provider for native clients (#603). Public clients only, registered by the operator
+# (manage.py native_client); PKCE S256, loopback redirects and the two grants are imposed by
+# skeleton.accounts.idp. allauth stores only token hashes; DCR, CIMD and introspection stay off.
+from skeleton.conf.oidc_provider import oidc_private_keys  # noqa: E402
+
+IDP_OIDC_PRIVATE_KEY, IDP_OIDC_PRIVATE_KEYS = oidc_private_keys(env)
+IDP_OIDC_ADAPTER = "skeleton.accounts.idp.adapter.SkeletonOIDCAdapter"
+IDP_OIDC_AUTH_METHODS = ["none"]
+IDP_OIDC_ACCESS_TOKEN_FORMAT = "opaque"  # noqa: S105 - a format name, not a secret
+IDP_OIDC_ACCESS_TOKEN_EXPIRES_IN = env.int("IDP_OIDC_ACCESS_TOKEN_EXPIRES_IN", default=3600)
+# Sliding: each rotation issues a new refresh token valid for this long (default 90 days).
+IDP_OIDC_REFRESH_TOKEN_EXPIRES_IN = env.int("IDP_OIDC_REFRESH_TOKEN_EXPIRES_IN", default=90 * 24 * 3600)
+IDP_OIDC_ROTATE_REFRESH_TOKEN = True
+IDP_OIDC_DCR_ENABLED = False
+IDP_OIDC_CIMD_ENABLED = False
+IDP_OIDC_INTROSPECTION_ENABLED = False
+# OIDC access tokens of native clients on /api/v1/ (#604); False is the rollback switch.
+SKELETON_OIDC_API_TOKENS = env.bool("SKELETON_OIDC_API_TOKENS", default=True)
+# Product name answered by the anonymous GET /api/v1/server/ (#605).
+SKELETON_PRODUCT_NAME = env("SKELETON_PRODUCT_NAME", default="Skeleton")
 from skeleton.api.proxy import proxy_settings
 
 globals().update(proxy_settings(env))
@@ -398,6 +420,11 @@ SKELETON_AGENT_TOKEN_FILE = env("SKELETON_AGENT_TOKEN_FILE", default=None)
 SKELETON_UPDATE_REPOSITORY = env("SKELETON_UPDATE_REPOSITORY", default="")
 SKELETON_UPDATE_GITHUB_TOKEN_FILE = env("SKELETON_UPDATE_GITHUB_TOKEN_FILE", default=None)
 SKELETON_UPDATE_CHECK_HOURS = max(1, env.int("SKELETON_UPDATE_CHECK_HOURS", default=24))
+# Releases of native clients served by this server (#606): the operator's private JSON file
+# (sources, channels, publisher, trust store); empty keeps the distribution off.
+SKELETON_NATIVE_CLIENTS_CONFIG = env("SKELETON_NATIVE_CLIENTS_CONFIG", default="")
+SKELETON_NATIVE_CLIENTS_SYNC_HOURS = max(1, env.int("SKELETON_NATIVE_CLIENTS_SYNC_HOURS", default=1))
+SKELETON_NATIVE_CLIENT_MAX_FILE_BYTES = env.int("SKELETON_NATIVE_CLIENT_MAX_FILE_BYTES", default=1024 * 1024 * 1024)
 SKELETON_PACKAGE_MAX_BYTES = env.int("SKELETON_PACKAGE_MAX_BYTES", default=128 * 1024 * 1024)
 if SKELETON_PACKAGE_MAX_BYTES < 1:
     from django.core.exceptions import ImproperlyConfigured

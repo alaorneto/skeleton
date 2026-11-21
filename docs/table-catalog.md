@@ -59,6 +59,8 @@ Fonte versionada: `skeleton/system/technical_tables.json`. A lista descreve tabe
 | socialaccount_socialapp_sites | Associação técnica aplicação/site, não associação empresarial |
 | socialaccount_socialtoken | Token allauth; armazenamento desabilitado e sem auditoria genérica de segredo |
 | mfa_authenticator | Autenticador cifrado allauth; ciclo de vida próprio, sem cópia de segredo MFA para auditoria |
+| allauth_idp_oidc_client | Cliente OIDC allauth dos [clientes nativos](authentication-sso.md#provedor-oidc-para-clientes-nativos-603); espelho de protocolo do registro auditado `sk_accounts.NativeClient` |
+| allauth_idp_oidc_token | Tokens OIDC allauth guardados só como hash SHA-256; ciclo de vida do protocolo (emissão, rotação, revogação), sem cópia para auditoria |
 
 Não existe isenção geral para `django_*`, `account_*` ou apps de terceiros. Uma dependência nova exige revisão de cada tabela concreta e de associação (`through`), com motivo específico, inclusive tabelas de ciclo de vida. Associações de apps próprias devem ser modelos explícitos com UUID, não tabelas implícitas com chave inteira.
 
