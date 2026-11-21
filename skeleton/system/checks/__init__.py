@@ -12,6 +12,7 @@ from . import (
     frozen,  # noqa: F401 - registers its checks
     schema,  # noqa: F401 - registers its checks
     service_api,  # noqa: F401 - registers its checks
+    shell,  # noqa: F401 - registers its checks
     sqltext,  # noqa: F401 - registers its checks
     widgets,  # noqa: F401 - registers its checks
 )
