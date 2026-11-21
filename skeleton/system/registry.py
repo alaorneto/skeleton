@@ -82,7 +82,7 @@ class TableSpec:
     # Personal data (#189): still readable through read_fields, but redacted by the audit
     # triggers, so the audit names the person only by sysid. Frozen with the infrastructure.
     personal_fields: tuple = ()
-    # Opt-in to the global search (#581): needs expose_api, search_fields and a title field (E043).
+    # Opt-in to the global search (#581): needs expose_api, search_fields and a title field (E044).
     global_search: GlobalSearchPolicy | None = None
 
     def __post_init__(self):
@@ -607,6 +607,18 @@ def register_core_specs():
             gettext_lazy("Webhook de pagamento verificado, uma vez por evento; operacional, só identificadores."),
             "global",
             (),
+        ),
+        "sk_appearance.instancetheme": (
+            gettext_lazy("Temas da instância"),
+            gettext_lazy("Catálogo de temas (cor, raio, fonte e CSS personalizado) da instância inteira."),
+            "global",
+            (),
+        ),
+        "sk_appearance.instancebrand": (
+            gettext_lazy("Marca da instância"),
+            gettext_lazy("Linha única com o nome do produto, o rodapé, as imagens e o tema ativo da instância."),
+            "global",
+            ("logo_key", "logo_dark_key", "icon_key"),
         ),
         "sk_audit.auditevent": (
             gettext_lazy("Auditoria"),

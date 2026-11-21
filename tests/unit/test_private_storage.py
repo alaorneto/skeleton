@@ -22,6 +22,38 @@ def test_keys_are_two_uuids_and_never_a_user_file_name():
         object_key(org, "report.pdf")
 
 
+def test_storage_key_forms_accepted_and_refused(subtests):
+    """Only org/<uuid>/[branding/|transfers/]<uuid> and platform/branding/<uuid> (#596)."""
+    org, item = uuid4(), uuid4()
+    accepted = [
+        f"org/{org}/{item}",
+        f"org/{org}/branding/{item}",
+        f"org/{org}/transfers/{item}",
+        f"platform/branding/{item}",
+    ]
+    refused = [
+        f"platform/branding/../{item}",
+        f"platform/outra/{item}",
+        f"platform/{item}",
+        f"platform/branding/{item}/x",
+        "platform/branding/logo.png",
+        f"platform/branding/{str(item).upper()}",
+        f"org/{org}/platform/branding/{item}",
+    ]
+    for key in accepted:
+        with subtests.test(key=key):
+            assert storage.KEY.fullmatch(key)
+    for key in refused:
+        with subtests.test(key=key), pytest.raises(StorageError):
+            storage.open_object(key)
+    for prefix in ("platform/branding", "platform/branding/"):
+        with subtests.test(prefix=prefix):
+            assert isinstance(storage.list_prefix(prefix), list)
+    for prefix in ("platform/", "platform/outra/", "platform/branding/../", "org/"):
+        with subtests.test(prefix=prefix), pytest.raises(StorageError):
+            storage.list_prefix(prefix)
+
+
 def test_put_open_list_delete_and_size_limit(tmp_path):
     config = {
         **settings.STORAGES,

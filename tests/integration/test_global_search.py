@@ -119,7 +119,7 @@ def test_e043_refuses_incoherent_marks(subtests):
     from skeleton.system.checks import record_contract_checks
 
     def e043():
-        return [error for error in record_contract_checks(None) if error.id == "skeleton.E043"]
+        return [error for error in record_contract_checks(None) if error.id == "skeleton.E044"]
 
     assert e043() == []
     for name, changes in (

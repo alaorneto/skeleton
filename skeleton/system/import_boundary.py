@@ -38,7 +38,8 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     ),
     # Derived tables (#561): whether a table is authorized directly or through its access_parent.
     "skeleton.access.derivation": frozenset({"is_authorizable", "is_derived"}),
-    "skeleton.tenancy.context": frozenset({"current_context"}),
+    # command_context (#576): only in the app's management commands (COMMAND_ONLY_NAMES).
+    "skeleton.tenancy.context": frozenset({"current_context", "command_context"}),
     "skeleton.web.views": frozenset({"tenant_page"}),
     "skeleton.api.views": frozenset({"TenantAPI", "request_fields"}),
     # Operation and schema builders for the ``openapi`` attribute of an app's API views (#178).
@@ -57,6 +58,10 @@ PUBLIC_CORE_NAMES: dict[str, frozenset[str] | None] = {
     "skeleton.system.applications": frozenset({"application_state", "require_application_enabled"}),
 }
 PUBLIC_CORE_MODULES = frozenset(PUBLIC_CORE_NAMES)
+# Public names an app may import only from ``management/commands/`` (#576): a service, view, job
+# or consumer never opens a system context. The runtime refuses it inside any context as well.
+COMMAND_ONLY_NAMES = frozenset({"skeleton.tenancy.context.command_context"})
+COMMAND_DIRECTORY = ("management", "commands")
 # Every importable directory is analysed (#300): only caches and dot-directories are not.
 SKIPPED_DIRECTORIES = frozenset({"__pycache__"})
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
@@ -73,7 +78,8 @@ class Provider:
 
 @dataclass(frozen=True, slots=True)
 class Violation:
-    """``code`` is ``internal_import``, ``undeclared_dependency``, ``core_import`` or ``unreadable_source``."""
+    """``code`` is ``internal_import``, ``undeclared_dependency``, ``core_import``, ``command_only_import``
+    or ``unreadable_source``."""
 
     code: str
     path: str
@@ -231,6 +237,12 @@ def classify_import(
     return None
 
 
+def in_management_command(relative: Path) -> bool:
+    """Whether ``relative`` (to the app root) is a module under ``management/commands/``."""
+    parts = relative.parts[:-1]
+    return any(parts[index : index + 2] == COMMAND_DIRECTORY for index in range(len(parts) - 1))
+
+
 def iter_sources(root: Path) -> Iterator[Path]:
     """Python sources of an app root in a stable order, without following links."""
     for current, directories, filenames in os.walk(root, followlinks=False):
@@ -282,6 +294,16 @@ def scan_application(
                 code, message, provider = result
                 violations.append(
                     Violation(code, display, line, imported, message, provider.identity if provider else None)
+                )
+            elif candidate in COMMAND_ONLY_NAMES and not in_management_command(relative):
+                violations.append(
+                    Violation(
+                        "command_only_import",
+                        display,
+                        line,
+                        imported,
+                        f"{candidate} opens a system context: import it only in management/commands/ of the app.",
+                    )
                 )
         if "migrations" not in relative.parts:  # Historical models are mandatory in migrations.
             for line, label in core_model_lookups(tree):

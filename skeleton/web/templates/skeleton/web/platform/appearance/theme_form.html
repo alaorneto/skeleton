@@ -1,0 +1,16 @@
+{% extends "skeleton/web/platform/base.html" %}
+{% load i18n %}{% block page_title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+<div class="page-header">
+  <div class="min-w-0"><p class="page-eyebrow">{% translate "Aparência" %}</p><h1>{{ title }}</h1><p class="page-description">{% translate "Cor, cantos e fonte geram os tokens do tema; o CSS personalizado vem depois deles." %}</p></div>
+  {% if theme %}<nav class="toolbar" aria-label="{% translate "Ações do tema" %}"><a class="btn btn-secondary" href="{% url 'platform:appearance-theme-preview' theme.pk %}">{% translate "Pré-visualizar" %}</a></nav>{% endif %}
+</div>
+<form method="post" class="card">
+  {% csrf_token %}
+  {% include "skeleton/web/components/form-errors.html" %}
+  {% include "skeleton/web/components/form-fields.html" %}
+  <div class="form-actions"><button type="submit" class="btn btn-primary">{% translate "Salvar tema" %}</button><a class="btn btn-secondary" href="{{ cancel_url }}">{% translate "Cancelar" %}</a></div>
+</form>
+</div>
+{% endblock %}

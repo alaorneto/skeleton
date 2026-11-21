@@ -4,6 +4,7 @@ from skeleton.api.health import probe_response
 from skeleton.tenancy.routing import ORG
 from skeleton.web import (
     admission_views,
+    brand_views,
     external_views,
     identity_views,
     portal_views,
@@ -45,6 +46,11 @@ urlpatterns = [
     path("site/icon/", site_icon, name="site-icon"),
     path("site/manifest.webmanifest", site_manifest, name="site-manifest"),
     path("favicon.ico", favicon, name="favicon"),
+    # The theme and the images of the instance (#597): public, also on organization hosts.
+    path("brand/theme.css", brand_views.brand_theme, name="brand-theme"),
+    path("brand/logo/", brand_views.brand_logo, name="brand-logo"),
+    path("brand/logo-dark/", brand_views.brand_logo_dark, name="brand-logo-dark"),
+    path("brand/icon/", brand_views.brand_icon, name="brand-icon"),
     path("join/<uuid:organization_id>/", admission_views.join_organization, name="join-organization"),
     path("join/domain/<uuid:organization_id>/", admission_views.join_by_domain, name="join-by-domain"),
     path("join/<uuid:organization_id>/<str:token>/", admission_views.join_link, name="join-link"),

@@ -27,7 +27,7 @@ Este guia define os tokens visuais, os componentes disponíveis e o build. Ele n
 - Contraste medido (WCAG 2.2 AA para texto pequeno): branco sobre `brand` 5,5:1; `fg-brand` sobre branco 7,1:1; `fg-brand` escuro sobre superfície 10:1; `body-subtle` sobre o fundo 4,6:1 (claro) e 7:1 (escuro).
 - Links no meio do texto são sublinhados; a cor não é o único indicador.
 
-Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `ink-*`) e o mapeamento semântico do Flowbite 4. Para trocar a marca de um projeto derivado, altere só a escala `--color-cobalt-*` e recompile.
+Os valores ficam em `frontend/src/tokens.css`: escalas primitivas (`cobalt-*`, `ink-*`) e o mapeamento semântico do Flowbite 4. A escala `--color-cobalt-*` é o ponto de troca da marca: no build (altere a escala e recompile) e também em tempo de execução, pelo tema ativo da instância ([marca e tema da instância](#marca-e-tema-da-instância)), que redefine a escala inteira numa folha de estilo própria sem recompilar. Por isso o `site.css` compilado mantém `--color-brand: var(--color-cobalt-600)` e os demais tokens da marca como referências à escala (`tests/unit/test_appearance_themes.py` confere).
 
 ### Marca por organização
 
@@ -41,7 +41,24 @@ O administrador escolhe, em `/o/<org>/settings/`, um nome de exibição, uma cor
 - **Logo:**
   - PNG, JPEG ou WebP de até 512 KB, conferido pelo conteúdo; SVG é recusado.
   - É servido inline só para membros, em `/o/<org>/settings/logo/`, com `Cache-Control: private`, `nosniff` e ETag.
-  - Fora das telas da organização (`/me`, login, `/platform/`), o tema do núcleo continua.
+  - Fora das telas da organização (`/me`, login, `/platform/`), vale a marca da instância, e sem ela o tema do núcleo.
+
+### Marca e tema da instância
+
+O administrador da plataforma define em `/platform/appearance/` o nome do produto, o rodapé, o logo (com variante opcional para o modo escuro), o ícone e o tema ativo da instância inteira ([aparência](appearance.md), epic [#591](https://github.com/alaorneto/skeleton/issues/591)). A precedência é **organização → instância → núcleo**:
+
+- **Folha do tema:** `base.html` (e o portal e as páginas de erro) põe `<link rel="stylesheet" href="{{ instance_brand.theme_url }}">` no bloco `theme_link`, **depois** do `site.css` e **antes** do `<style nonce>` da organização, que vence pela ordem. Sem tema ativo não há `<link>`: o HTML fica igual ao de antes. O CSS livre nunca é embutido no HTML.
+- **Nome:** `site_name` é o nome da organização no host dela, senão `instance_brand.name`, senão "Skeleton". Os títulos terminam com `· {{ site_name }}` e a plataforma com `Plataforma · {{ site_name }}`.
+- **Logo do cabeçalho:** logo da organização → logo da instância (`components/instance-logo.html`, um `<picture>` com `<source media="(prefers-color-scheme: dark)">` só quando há a variante escura) → ícone do núcleo. O leiaute de entrada mostra o logo ou o nome da instância no cartão.
+- **Favicon:** ícone da organização → ícone da instância (`/brand/icon/?v=…`) → `favicon.svg`. `theme-color`: cor da organização, senão a do tema da instância.
+- **Rodapé:** com nome ou rodapé da instância, `footer_text` e `site_name`; sem nada, a frase e o "Skeleton" de sempre.
+- **Páginas de erro:** `error_base.html` usa `{% load appearance %}{% appearance_cached as brand %}`, que lê só a memória do processo (nunca o banco), e continua sem `{% url %}` nem variável de contexto.
+- **Modo seguro:** em `/platform/appearance/…` o `<link>` leva `safe=1` (só os tokens, sem o CSS livre); a pré-visualização sobrescreve `theme_link` com o CSS completo do tema candidato.
+- Setup e página de manutenção continuam com o tema do núcleo: são renderizados antes do banco.
+
+O processador `organization_shell` põe `instance_brand` em todo contexto: `name`, `footer_text`, `color`, `theme_url`, `logo_url`, `logo_dark_url` e `icon_url` (URLs com `?v=<versão>`, vazias quando não há valor).
+
+**Contrato estável para o CSS personalizado de um tema:** os tokens `--color-*` (escalas `cobalt-*` e `ink-*` e os semânticos `brand*`, `fg-*`, `neutral-*`, `default*`, `success*`, `warning*`, `danger*`, `focus`), `--radius-base`, `--radius-card`, `--font-sans` e `--font-body`, e as classes de componente desta página (`.card`, `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.badge*`, `.message`, `.alert*`, `.page-header`, `.page-eyebrow`, `.page-description`, `.sidebar*`, `.link-tabs`, `.table-scroll`, `.form-stack`, `.form-actions`, `.error-summary`, `.app-header`, `.app-footer`). Classes utilitárias do Tailwind e a estrutura interna dos templates podem mudar entre versões.
 
 ### Modo escuro
 
@@ -89,7 +106,7 @@ A interface tem três áreas, sempre identificáveis pelo cabeçalho e pelo menu
 | Área | Entrada | Conteúdo |
 |---|---|---|
 | Organização (`/o/<org>/…`) | seletor de organização no cabeçalho | menu lateral: Início · Aplicativos (apps ativas) · Dados (Tabelas, Auditoria) · Administração, com as seções da capacidade do ator (Pessoas para `members.view`; Grupos e Papéis e permissões para `access.manage`; Aplicativos para `organization_admin`) |
-| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global). Views próprias em `skeleton/web/platform`; Versões e atualizações (`/platform/updates/`) segue em etapas: instaladas, fontes (repositórios do GitHub consultados, #499), novas versões (a última consulta e um cartão por componente com o caminho de atualização, em que só o primeiro passo tem botão, #500), enviar pacote, preparar plano, operações; um passo do core que exige agente mais novo abre "Atualize o agente primeiro", e a página de uma operação concluída oferece o próximo passo. Nas outras páginas de `/platform/`, quem tem `updates.operate` vê uma faixa de aviso (`message`, `role="status"`, bloco `notices` do `base.html`) quando há atualização, e a visão geral mostra o resumo ou "Tudo atualizado" (#501). |
+| Administração da plataforma (`/platform/…`) | link "Plataforma" no cabeçalho, só para staff+superuser | menu lateral: Visão geral · Identidade (Usuários, Organizações) · Aplicativos (Aplicativos instalados, Versões e atualizações) · Dados (Catálogo de tabelas, Auditoria global) · Operação (Cobrança, Aparência, Manutenção, Jobs, Pedidos de eliminação; Aparência, em `/platform/appearance/`, é a marca e o tema da instância, só para o administrador completo). Views próprias em `skeleton/web/platform`; Versões e atualizações (`/platform/updates/`) segue em etapas: instaladas, fontes (repositórios do GitHub consultados, #499), novas versões (a última consulta e um cartão por componente com o caminho de atualização, em que só o primeiro passo tem botão, #500), enviar pacote, preparar plano, operações; um passo do core que exige agente mais novo abre "Atualize o agente primeiro", e a página de uma operação concluída oferece o próximo passo. Nas outras páginas de `/platform/`, quem tem `updates.operate` vê uma faixa de aviso (`message`, `role="status"`, bloco `notices` do `base.html`) quando há atualização, e a visão geral mostra o resumo ou "Tudo atualizado" (#501). |
 | Minha conta | menu da conta | Perfil, Email, Senha, Autenticação em dois fatores |
 
 - O seletor lista os vínculos ativos do usuário (`memberships_for_user`); ele só cria links, e cada tela revalida a autorização.
@@ -184,7 +201,7 @@ Novas fontes entram com `skeleton.web.timeline.register_timeline_source`, e cada
 
 ### Título e marca no endereço da organização
 
-O título de toda página termina com `· {{ site_name }}` (`<tela> · {{ site_name }}`), nunca com o literal "Skeleton" ([#484](https://github.com/alaorneto/skeleton/issues/484)). `site_name` vem do processador `organization_shell`: o nome público da organização no host `<slug>.<domínio base>` e "Skeleton" em qualquer outro host. No host da organização a marca aparece também nas páginas anônimas (login, cadastro, senha, MFA, "sem vínculo"): sem contexto de tenant, `organization_brand` vem do índice `OrganizationSite` (nome, paleta e `/site/logo/`), sem ler `OrganizationSettings`; dentro do tenant vem das configurações, como antes, mas o logo usa a URL pública `/site/logo/?v=…`. O leiaute de entrada (`account/base_entrance.html`) mostra o logo ou o nome no cartão, o rodapé mostra só o nome e `<meta name="theme-color">` leva a cor da marca. Não há template de 404/500 próprio: as respostas de erro do Django continuam em texto puro, sem marca.
+O título de toda página termina com `· {{ site_name }}` (`<tela> · {{ site_name }}`), nunca com o literal "Skeleton" ([#484](https://github.com/alaorneto/skeleton/issues/484)). `site_name` vem do processador `organization_shell`: o nome público da organização no host `<slug>.<domínio base>` e, em qualquer outro host, o nome do produto da instância ou "Skeleton" ([#598](https://github.com/alaorneto/skeleton/issues/598)). No host da organização a marca aparece também nas páginas anônimas (login, cadastro, senha, MFA, "sem vínculo"): sem contexto de tenant, `organization_brand` vem do índice `OrganizationSite` (nome, paleta e `/site/logo/`), sem ler `OrganizationSettings`; dentro do tenant vem das configurações, como antes, mas o logo usa a URL pública `/site/logo/?v=…`. O leiaute de entrada (`account/base_entrance.html`) mostra o logo ou o nome no cartão, o rodapé mostra só o nome e `<meta name="theme-color">` leva a cor da marca. Não há template de 404/500 próprio: as respostas de erro do Django continuam em texto puro, sem marca.
 
 ### Favicon, ícone da organização e manifesto
 

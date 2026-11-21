@@ -48,3 +48,18 @@ def is_tenant_model(model: Any) -> bool:
     Works on historical migration models too.
     """
     return any(field.name == "organization" for field in model._meta.fields)
+
+
+# The core's app labels all start with ``sk_``; the manifest validator refuses the prefix to apps.
+CORE_LABEL_PREFIX = "sk_"
+
+
+def is_app_global_table(model: Any) -> bool:
+    """Whether ``model`` is a global table declared by an app (#576): no organization, label outside the core.
+
+    Its writes require a system context without organization (``SystemRecord._validate_context``)
+    and, once its infrastructure is frozen with ``writes: "system"``, the database guard too. The
+    core's own global tables are written only by its services and stay outside this rule. Works
+    on historical migration models too.
+    """
+    return not is_tenant_model(model) and not model._meta.app_label.startswith(CORE_LABEL_PREFIX)

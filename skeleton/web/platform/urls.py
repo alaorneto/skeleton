@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import (
+    appearance_views,
     billing_views,
     identity_views,
     instance_views,
@@ -17,6 +18,37 @@ urlpatterns = [
     path("instance/", instance_views.instance, name="instance"),
     path("instance/setting/", instance_views.instance_setting, name="instance-setting"),
     path("instance/restart/", instance_views.instance_restart, name="instance-restart"),
+    path("appearance/", appearance_views.appearance, name="appearance"),
+    path("appearance/brand/", appearance_views.appearance_brand, name="appearance-brand"),
+    path("appearance/images/<slug:kind>/", appearance_views.appearance_image, name="appearance-image"),
+    path("appearance/activate/", appearance_views.appearance_activate, name="appearance-activate"),
+    path("appearance/themes/new/", appearance_views.appearance_theme_create, name="appearance-theme-create"),
+    path("appearance/themes/<uuid:sysid>/", appearance_views.appearance_theme, name="appearance-theme"),
+    path(
+        "appearance/themes/<uuid:sysid>/delete/",
+        appearance_views.appearance_theme_delete,
+        name="appearance-theme-delete",
+    ),
+    path(
+        "appearance/themes/<uuid:sysid>/preview/",
+        appearance_views.appearance_theme_preview,
+        name="appearance-theme-preview",
+    ),
+    path(
+        "appearance/themes/<uuid:sysid>/preview.css",
+        appearance_views.appearance_theme_preview_css,
+        name="appearance-theme-preview-css",
+    ),
+    path(
+        "appearance/builtin/<slug:slug>/preview/",
+        appearance_views.appearance_builtin_preview,
+        name="appearance-builtin-preview",
+    ),
+    path(
+        "appearance/builtin/<slug:slug>/preview.css",
+        appearance_views.appearance_builtin_preview_css,
+        name="appearance-builtin-preview-css",
+    ),
     path("maintenance/", maintenance_views.maintenance, name="maintenance"),
     path("maintenance/enter/", maintenance_views.maintenance_enter, name="maintenance-enter"),
     path("maintenance/exit/", maintenance_views.maintenance_exit, name="maintenance-exit"),

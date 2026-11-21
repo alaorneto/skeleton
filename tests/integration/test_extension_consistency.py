@@ -62,7 +62,7 @@ def test_manifest_leaves_must_match_the_migration_graph(monkeypatch):
     monkeypatch.setitem(app_registry._manifests, "example_notes", replace(manifest, canonical=canonical))
     errors = [error for error in extension_consistency_checks() if error.id == "skeleton.W017"]
     assert len(errors) == 1
-    assert "0099_missing" in errors[0].msg and "0002_search_index" in errors[0].msg
+    assert "0099_missing" in errors[0].msg and "0003_note_category" in errors[0].msg
 
 
 @pytest.mark.parametrize("sensitive", [(), ("body", "title")])
@@ -73,3 +73,23 @@ def test_table_spec_sensitive_fields_must_match_the_frozen_specification(monkeyp
         errors = [error for error in extension_consistency_checks() if error.id == "skeleton.E016"]
         assert len(errors) == 1
         assert "example_notes.Note" in errors[0].msg
+
+
+@pytest.mark.needs_example_app
+def test_a_global_app_table_frozen_without_system_writes_is_a_warning(monkeypatch):
+    """#576: W043 until the app ships the migration with ``writes: "system"``; the frozen guard is absent."""
+    from skeleton.common.migration_operations import InstallRecordInfrastructure
+    from skeleton.system.checks import extensions
+
+    frozen, *rest = extensions._frozen_operations(from_migrations=True)
+    current = frozen["example_notes.notecategory"]
+    assert current.specification["writes"] == "system"
+    stale = {key: value for key, value in current.specification.items() if key != "writes"}
+    patched = {
+        **frozen,
+        "example_notes.notecategory": InstallRecordInfrastructure("example_notes", "notecategory", stale),
+    }
+    monkeypatch.setattr(extensions, "_frozen_operations", lambda **kwargs: (patched, *rest))
+    warnings = [error for error in extension_consistency_checks() if error.id == "skeleton.W043"]
+    assert len(warnings) == 1 and "example_notes.NoteCategory" in warnings[0].msg
+    assert not [error for error in extension_consistency_checks() if error.id.startswith("skeleton.E")]

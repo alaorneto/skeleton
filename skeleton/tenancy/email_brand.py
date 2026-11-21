@@ -3,6 +3,10 @@
 The logo travels inside the message (``Content-ID: <organization-logo>``, referenced as
 ``cid:organization-logo``), never as a public URL. Only the organization of the current context
 is read, under its RLS, so one organization's logo never goes into another's email.
+
+Without an organization in the context the brand of the instance applies (#600): its product
+name, the colour of its active theme and its logo. An organization without a colour of its own
+takes the colour of the instance theme, but never the instance logo.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ def email_brand() -> dict[str, Any]:
 
     organization_id = current_context().organization_id
     if organization_id is None:
-        return {"name": "", "color": DEFAULT_COLOR, "logo": None}
+        return _instance_brand()
     from .models import Organization
     from .organization_settings import current_settings
 
@@ -32,8 +36,29 @@ def email_brand() -> dict[str, Any]:
         organization.name if organization is not None else ""
     )
     tokens = palette(record.brand_color) if record is not None else None
-    color = tokens.brand if tokens is not None and HEX.fullmatch(tokens.brand) else DEFAULT_COLOR
+    color = tokens.brand if tokens is not None and HEX.fullmatch(tokens.brand) else _instance_color()
     return {"name": name, "color": color, "logo": _logo(record)}
+
+
+def _instance_color() -> str:
+    from skeleton.appearance.snapshot import current_appearance
+
+    color = current_appearance().brand_color
+    return color if color and HEX.fullmatch(color) else DEFAULT_COLOR
+
+
+def _instance_brand() -> dict[str, Any]:
+    """Name, theme colour and logo of the instance (#600); the defaults of the core without a brand."""
+    from skeleton.appearance.images import open_image
+    from skeleton.appearance.snapshot import current_appearance
+
+    appearance = current_appearance()
+    logo = None
+    if appearance.logo_version:
+        found = open_image("logo")
+        if found is not None:
+            logo = (found[0], found[1].split("/", 1)[1])
+    return {"name": appearance.product_name, "color": _instance_color(), "logo": logo}
 
 
 def _logo(record: Any) -> tuple[bytes, str] | None:

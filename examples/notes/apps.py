@@ -31,6 +31,19 @@ class NotesConfig(AppConfig):
                 global_search=GlobalSearchPolicy(),
             )
         )
+        from .models import NoteCategory
+
+        register(
+            TableSpec(
+                model=NoteCategory,
+                description=gettext_lazy("Catálogo global de categorias, carregado por comando do operador"),
+                label=gettext_lazy("Categorias de anotação"),
+                scope="global",
+                read_fields=("code", "title"),
+                write_fields=("code", "title"),
+                sensitive_fields=(),
+            )
+        )
         from .flows import register as register_flows
 
         register_flows()

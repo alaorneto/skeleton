@@ -1,4 +1,4 @@
-"""Record contract checks of the TableSpecs and models (E001–E013, E017, E020, E031, E042, E043) and identifier length (E033)."""
+"""Record contract checks of the TableSpecs and models (E001–E013, E017, E020, E031, E042, E044) and identifier length (E033)."""
 
 from django.apps import apps
 from django.conf import settings
@@ -193,7 +193,7 @@ def record_contract_checks(app_configs=None, **kwargs):
                         hint="Set expose_api=True and search_fields, keep a readable title field (model_ui "
                         "list.title_field, or title, name or code in read_fields) and use "
                         "GlobalSearchPolicy(order=...). See docs/checks.md.",
-                        id="skeleton.E043",
+                        id="skeleton.E044",
                     )
                 )
     middleware = list(settings.MIDDLEWARE)

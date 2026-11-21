@@ -123,3 +123,83 @@ def test_invitation_email_is_templated_branded_and_follows_the_organization_lang
     assert '<html lang="en">' in html  # Organization default language, not the inviter's profile.
     assert "background:#065f46" in html and "/invite/" in html
     assert inline_parts(message) == [("<organization-logo>", "image/png")]
+
+
+# --------------------------------------------------------------------------- instance brand (#600)
+
+
+@pytest.fixture
+def instance_brand(live_appearance, settings, tmp_path):
+    """Name, theme and logo of the instance, set by the platform administrator."""
+    from skeleton.appearance.images import replace_image
+    from skeleton.appearance.services import activate_theme, update_brand
+    from tests.integration.appearance_support import acting, platform_admin, png, upload
+
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "skeleton_files": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+            "OPTIONS": {"location": str(tmp_path / "files"), "base_url": None},
+        },
+    }
+    admin = platform_admin("email-instance@example.test")
+    logo = png(64, 32)
+    with acting(admin):
+        update_brand(actor=admin, data={"product_name": "Acme Nuvem"}, expected_revision=0)
+    with acting(admin):
+        activate_theme(actor=admin, builtin="esmeralda", expected_revision=1)
+    with acting(admin):
+        replace_image(actor=admin, kind="logo", upload=upload(logo, "logo.png"), expected_revision=2)
+    return logo
+
+
+def test_without_an_organization_the_email_carries_the_instance_brand(scenario, instance_brand):
+    from django.core.mail import EmailMultiAlternatives
+    from django.template.loader import render_to_string
+
+    from skeleton.tenancy.email_brand import attach_logo, email_brand, template_context
+
+    with system_context(reason="test:email-instance"):
+        brand_values = email_brand()
+    assert brand_values["name"] == "Acme Nuvem" and brand_values["color"] == "#047857"
+    assert brand_values["logo"] == (instance_brand, "png")
+    html = render_to_string("skeleton/email/base.html", template_context(brand_values))
+    assert "background:#047857" in html and 'src="cid:organization-logo"' in html and 'alt="Acme Nuvem"' in html
+    assert "/brand/" not in html  # Inline, never a URL.
+    message = EmailMultiAlternatives(subject="x", body="x", to=["a@example.test"])
+    message.attach_alternative(html, "text/html")
+    attach_logo(message, brand_values)
+    assert inline_parts(message) == [("<organization-logo>", "image/png")]
+
+
+def test_without_any_brand_the_email_is_as_before(scenario, live_appearance):
+    from skeleton.tenancy.email_brand import email_brand
+
+    with system_context(reason="test:email-core"):
+        assert email_brand() == {"name": "", "color": "#1d4ed8", "logo": None}
+
+
+def test_an_organization_without_colour_takes_the_theme_colour_never_the_instance_logo(scenario, instance_brand):
+    message = mention_email(scenario, scenario.b, scenario.admin_b, scenario.member)
+    html = html_of(message)
+    assert "background:#047857" in html and "Service contract B" in html
+    assert "Acme Nuvem" not in html and "cid:" not in html and inline_parts(message) == []
+
+
+def test_an_organization_brand_is_unchanged_by_the_instance_brand(scenario, instance_brand):
+    brand(scenario, scenario.a, scenario.admin_a, color="#7c2d12", name="Marca A", logo=True)
+    message = mention_email(scenario, scenario.a, scenario.admin_a, scenario.member)
+    html = html_of(message)
+    assert "background:#7c2d12" in html and "#047857" not in html and "Acme Nuvem" not in html
+    assert inline_parts(message) == [("<organization-logo>", "image/png")]
+    assert message.attachments[0].get_content() == PNG  # The organization's logo, not the instance's.
+
+
+def test_the_password_reset_email_greets_with_the_product_name(scenario, instance_brand):
+    from django.test import Client
+
+    client = Client()
+    response = client.post("/accounts/password/reset/", {"email": scenario.member.email})
+    assert response.status_code == 302
+    message = next(message for message in mail.outbox if scenario.member.email in message.to)
+    assert "Acme Nuvem" in message.subject + message.body

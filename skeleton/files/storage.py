@@ -1,7 +1,9 @@
 """Private object storage for attachments: local filesystem or S3, never public.
 
-Keys are ``org/<organization>/<attachment>``: two UUIDs and nothing chosen by
-the user, so a file name can never traverse paths, collide or leak in a URL.
+Keys are ``org/<organization>/<attachment>`` (and its ``branding/`` and ``transfers/``):
+two UUIDs and nothing chosen by the user, so a file name can never traverse paths, collide
+or leak in a URL. The only other form is ``platform/branding/<uuid>``, the images of the
+instance brand (#596), written only by ``skeleton.appearance.images``.
 """
 
 from __future__ import annotations
@@ -14,9 +16,8 @@ from django.core.files.base import File
 from django.core.files.storage import storages
 
 ALIAS = "skeleton_files"
-KEY = re.compile(
-    r"^org/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(?:branding/|transfers/)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+KEY = re.compile(rf"^(?:org/{_UUID}/(?:branding/|transfers/)?|platform/branding/){_UUID}$")
 CHUNK = 64 * 1024
 
 
@@ -121,8 +122,8 @@ def presigned_url(key: str, *, filename: str, expires: int = 60) -> str | None:
 
 
 def list_prefix(prefix: str) -> list[str]:
-    """Keys under ``org/<organization>/``, its ``branding/`` or ``transfers/`` (orphan cleanup)."""
-    if not re.fullmatch(r"org/[0-9a-f-]{36}(?:/branding|/transfers)?/?", prefix):
+    """Keys under ``org/<organization>/``, its ``branding/`` or ``transfers/``, or ``platform/branding/`` (orphans)."""
+    if not re.fullmatch(r"(?:org/[0-9a-f-]{36}(?:/branding|/transfers)?|platform/branding)/?", prefix):
         raise StorageError("Invalid prefix.")
     storage = private_storage()
     prefix = prefix.rstrip("/")

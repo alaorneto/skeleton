@@ -1,6 +1,6 @@
 # API de serviços: ${verbose_name}
 
-Referência gerada por `skeleton_startapp`. Mantenha-a junto com `service_api.py`: o check E012 exige este arquivo com as seções abaixo e o E018 confere a classe declarada no manifesto. O contrato geral está em [docs/service-api.md](../../../docs/service-api.md).
+Referência gerada por `skeleton_startapp`. Mantenha-a junto com `service_api.py`: o check E012 exige este arquivo com as seções abaixo e o E018 confere a classe declarada no manifesto. O contrato geral está em [docs/service-api.md do núcleo](${core_docs}/service-api.md).
 
 ## Visão geral
 `${service_class}` oferece a outras apps consultas de `${model}` da organização atual, com a autorização do ator do contexto. A página própria e o sumário REST desta app usam o mesmo serviço.

@@ -40,6 +40,8 @@ def extension_consistency_checks(app_configs=None, **kwargs):
     """Database-free consistency between what an app declares and what its code does."""
     from django.db.migrations.loader import MigrationLoader
 
+    from skeleton.common.migration_operations import build_infrastructure_specification
+
     from ..app_registry import get_app, required_labels
 
     manifests = {manifest.app_label: manifest for manifest in all_apps()}
@@ -97,6 +99,16 @@ def extension_consistency_checks(app_configs=None, **kwargs):
                     f"{model._meta.label}: TableSpec sensitive_fields {sorted(spec.sensitive_fields)} differ from the "
                     f"frozen migration specification {sorted(declared)}; add a migration with the new specification.",
                     id="skeleton.E016",
+                )
+            )
+        if operation.specification.get("writes") != build_infrastructure_specification(model, spec).get("writes"):
+            # A warning, not an error (#576): the model already refuses the write outside a system
+            # context; the frozen guard adds the database barrier once the app ships the migration.
+            errors.append(
+                Warning(
+                    f"{model._meta.label}: the frozen infrastructure of this global app table has no system-write "
+                    'guard (writes: "system"); add a migration with record_infrastructure --write.',
+                    id="skeleton.W043",
                 )
             )
         personal = set(operation.specification.get("personal_fields", ()))
