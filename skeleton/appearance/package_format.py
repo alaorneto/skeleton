@@ -43,7 +43,10 @@ __all__ = [
     "PackageImage",
     "ThemePackage",
     "ThemePackageError",
+    "archive_files",
     "check_core_compatibility",
+    "directory_files",
+    "from_files",
     "read_theme_archive",
     "read_theme_directory",
 ]
@@ -211,6 +214,11 @@ def _allowed_path(path: str) -> bool:
 
 def read_theme_archive(data: bytes) -> ThemePackage:
     """The package in the bytes of a zip, validated; ``ThemePackageError`` otherwise."""
+    return from_files(archive_files(data))
+
+
+def archive_files(data: bytes) -> dict[str, bytes]:
+    """Every file of a zip (path → bytes) within the archive limits; nothing about the theme yet."""
     if not isinstance(data, (bytes, bytearray)):
         _fail("archive")
     if len(data) > MAX_ARCHIVE_BYTES:
@@ -234,11 +242,16 @@ def read_theme_archive(data: bytes) -> ThemePackage:
             files = {name: _read_member(archive, info, maximum=MAX_UNPACKED_BYTES) for name, info in members.items()}
         except PackageError as error:
             raise ThemePackageError("archive", detail=str(error)) from error
-    return _from_files(files)
+    return files
 
 
 def read_theme_directory(path: str | os.PathLike[str]) -> ThemePackage:
     """The package in a directory (an app theme, epic #630, or a source tree), with the same rules."""
+    return from_files(directory_files(path))
+
+
+def directory_files(path: str | os.PathLike[str]) -> dict[str, bytes]:
+    """Every file of a directory (path → bytes) with the archive rules: no links, no special files."""
     root = Path(path)
     if root.is_symlink() or not root.is_dir():
         _fail("missing_manifest")
@@ -263,7 +276,7 @@ def read_theme_directory(path: str | os.PathLike[str]) -> ThemePackage:
                 _fail("too_large")
             with open(source, "rb") as stream:
                 files[relative] = stream.read(MAX_UNPACKED_BYTES + 1)
-    return _from_files(files)
+    return files
 
 
 # --------------------------------------------------------------------------- the manifest
@@ -515,7 +528,8 @@ def _digest(manifest: dict[str, Any], used: dict[str, bytes]) -> str:
     return hasher.hexdigest()
 
 
-def _from_files(files: dict[str, bytes]) -> ThemePackage:
+def from_files(files: dict[str, bytes]) -> ThemePackage:
+    """The package made of ``files`` (path → bytes), validated (the exporter builds them in memory)."""
     manifest = _manifest(files)  # First: a zip of the folder (aurora/theme.json) says "no manifest".
     for path in files:
         if path != MANIFEST and not _allowed_path(path):

@@ -120,7 +120,30 @@ Os nomes dentro de `images/` e `fonts/` são livres (os de cima são a convenç�
 
 Limites do zip: até 4 MiB, 6 MiB descomprimido, 40 membros, razão de expansão até 100 por membro, `theme.json` até 16 KiB; links, arquivos especiais, criptografia, nomes duplicados (inclusive por caixa) e caminhos inseguros são `archive`. Outros códigos: `too_large`, `too_many_files`, `missing_manifest` (inclusive um zip da pasta, com `aurora/theme.json`), `manifest_json` (JSON inválido, chave repetida) e `manifest_field` (campo obrigatório ausente ou de tipo errado). A lista completa é `ERROR_CODES`.
 
-O `content_digest` do pacote é o SHA-256 do manifesto canônico seguido de `caminho\0sha256\n` de cada arquivo usado, em ordem: o mesmo conteúdo zipado por outra ferramenta dá o mesmo digest, e `README.md` e `LICENSES/` não entram. Exporte o logo do editor como "SVG simples" ou "SVG otimizado". O SVG só aparece em `<img>` e é servido com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` e `nosniff`.
+O `content_digest` do pacote é o SHA-256 do manifesto canônico seguido de `caminho\0sha256\n` de cada arquivo usado, em ordem: o mesmo conteúdo zipado por outra ferramenta dá o mesmo digest, e `README.md` e `LICENSES/` não entram.
+
+### Conferir e montar um pacote
+
+Dois comandos de autor (#634), que nunca abrem o banco:
+
+```sh
+python manage.py appearance check-package caminho/do/tema        # diretório ou .zip
+python manage.py appearance build-package caminho/do/tema --output aurora-1.0.0.zip
+```
+
+`check-package` aplica as mesmas regras da instalação: o formato acima, o contraste AA da cor e a faixa `compatibility.skeleton` contra o núcleo instalado. Com o pacote certo, mostra um resumo e sai com 0:
+
+```text
+Pacote: org.example.theme.aurora 1.0.0
+Nome: Aurora
+Cor: #1d4ed8 · cantos: default · fonte: Aurora Sans
+Imagens: logo, logo escuro, ícone · fontes: 1 · CSS: 812 bytes
+Nome do produto: Aurora
+Digest: 3f6c…
+Pacote válido.
+```
+
+Com erro, sai com 1 e diz o código, o arquivo e a linha: `ERRO css: theme.css: Linha 3: o CSS não pode conter < nem caracteres nulos, nem em comentários.`. `build-package` confere o diretório do mesmo jeito e grava um zip determinístico (só os arquivos usados, `README.md` e `LICENSES/`, em ordem, com data e modo fixos): o mesmo diretório gera sempre os mesmos bytes, e o zip é relido para conferir o digest antes de ser gravado (de forma atômica; `--force` substitui um arquivo existente). As mensagens em português de cada código ficam em `skeleton/appearance/package_messages.py`, usadas também pela tela. Exporte o logo do editor como "SVG simples" ou "SVG otimizado". O SVG só aparece em `<img>` e é servido com `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` e `nosniff`.
 
 ## Rotas públicas
 
